@@ -22,6 +22,8 @@ import {
   type SqlDialect,
 } from "@/lib/semanticLayer";
 import { runSemanticQuery } from "@/utils/semantic/query.server";
+import { fingerprintOf } from "@/lib/definitionFingerprint";
+import { semanticModelDefinition } from "@/lib/semanticLayer";
 import {
   checkAssertions,
   measureCalendarHealth,
@@ -380,7 +382,13 @@ export const semanticListModels = createServerFn({ method: "GET" })
     const { sb, userId } = await requireUser(data.accessToken);
     const { data: rows, error } = await sb.from("semantic_models").select("*").order("name");
     if (error) throw new Error(error.message);
-    const models = rows ?? [];
+    // Each with its definition's fingerprint, which a save sends back (R286).
+    const models = await Promise.all(
+      (rows ?? []).map(async (r) => ({
+        ...r,
+        fingerprint: await fingerprintOf(semanticModelDefinition(r)),
+      })),
+    );
 
     // For SHARED models, attach the viewer's enforced share policy so the UI
     // can say so out loud — a grantee looking at scoped numbers should never
@@ -405,57 +413,96 @@ export const semanticListModels = createServerFn({ method: "GET" })
   });
 
 export const semanticUpsertModel = createServerFn({ method: "POST" })
-  .inputValidator((d: { accessToken: string; model: z.input<typeof modelSchema> }) => d)
-  .handler(async ({ data }) => {
-    const { sb, userId } = await requireUser(data.accessToken);
-    const m = modelSchema.parse(data.model);
-    if (!isValidFieldName(m.name)) {
-      throw new Error(`Model name "${m.name}" must be letters/digits/underscore, no spaces.`);
-    }
-    validateNames(m.dimensions, m.metrics);
-    validateHierarchies(m.hierarchies, m.dimensions);
-    validateRollups(m.rollups, m.dimensions, m.metrics, m.calendar);
-    if (m.source_kind === "warehouse" && !m.connection_id) {
-      throw new Error("Warehouse models need a connection.");
-    }
-    const row = {
-      user_id: userId,
-      name: m.name,
-      label: m.label ?? null,
-      description: m.description ?? null,
-      source_kind: m.source_kind,
-      table_id: m.table_id ?? null,
-      connection_id: m.connection_id ?? null,
-      source_table: m.source_table,
-      primary_key: m.primary_key?.trim() ? m.primary_key.trim() : null,
-      fiscal_year_start_month: m.fiscal_year_start_month ?? null,
-      calendar: (m.calendar ?? null) as never,
-      rollups: (m.rollups ?? []) as never,
-      parameters: (m.parameters ?? []) as never,
-      hierarchies: (m.hierarchies ?? []) as never,
-      joins: (m.joins ?? []) as never,
-      dimensions: m.dimensions as never,
-      metrics: m.metrics as never,
-      assertions: (m.assertions ?? []) as never,
-    };
-    if (m.id) {
-      const { data: up, error } = await sb
+  .inputValidator(
+    (d: {
+      accessToken: string;
+      model: z.input<typeof modelSchema>;
+      // The fingerprint of the definition the page opened or last saved. Left
+      // out, the save overwrites: "Overwrite with mine" (R286).
+      expectedFingerprint?: string;
+    }) => d,
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<{ id: string; fingerprint: string } | { stale: true; error: string }> => {
+      const { sb, userId } = await requireUser(data.accessToken);
+      const m = modelSchema.parse(data.model);
+      if (!isValidFieldName(m.name)) {
+        throw new Error(`Model name "${m.name}" must be letters/digits/underscore, no spaces.`);
+      }
+      validateNames(m.dimensions, m.metrics);
+      validateHierarchies(m.hierarchies, m.dimensions);
+      validateRollups(m.rollups, m.dimensions, m.metrics, m.calendar);
+      if (m.source_kind === "warehouse" && !m.connection_id) {
+        throw new Error("Warehouse models need a connection.");
+      }
+      const row = {
+        user_id: userId,
+        name: m.name,
+        label: m.label ?? null,
+        description: m.description ?? null,
+        source_kind: m.source_kind,
+        table_id: m.table_id ?? null,
+        connection_id: m.connection_id ?? null,
+        source_table: m.source_table,
+        primary_key: m.primary_key?.trim() ? m.primary_key.trim() : null,
+        fiscal_year_start_month: m.fiscal_year_start_month ?? null,
+        calendar: (m.calendar ?? null) as never,
+        rollups: (m.rollups ?? []) as never,
+        parameters: (m.parameters ?? []) as never,
+        hierarchies: (m.hierarchies ?? []) as never,
+        joins: (m.joins ?? []) as never,
+        dimensions: m.dimensions as never,
+        metrics: m.metrics as never,
+        assertions: (m.assertions ?? []) as never,
+      };
+      const fingerprint = await fingerprintOf(semanticModelDefinition(row));
+      if (m.id) {
+        // FOUND IN R286: the save wrote over whatever was stored, so a save from
+        // another tab undid this one's. Certification writes this row too, so
+        // its updated_at cannot say who changed it; the definition's
+        // fingerprint can, and the update then lands only on the row it read.
+        const { data: stored, error: readErr } = await sb
+          .from("semantic_models")
+          .select("*")
+          .eq("id", m.id)
+          .maybeSingle();
+        if (readErr) throw new Error(readErr.message);
+        if (stored && data.expectedFingerprint) {
+          const storedPrint = await fingerprintOf(semanticModelDefinition(stored));
+          if (storedPrint !== data.expectedFingerprint) {
+            return {
+              stale: true,
+              error: "This model was changed in another tab or session after this page read it",
+            };
+          }
+        }
+        let q = sb
+          .from("semantic_models")
+          .update(row as never)
+          .eq("id", m.id);
+        if (stored) q = q.eq("updated_at", stored.updated_at);
+        const { data: up, error } = await q.select("id").maybeSingle();
+        if (error) throw new Error(error.message);
+        if (!up) {
+          throw new Error(
+            stored
+              ? "The model was written to while this save was in progress. Nothing was saved; save again."
+              : "Model not found",
+          );
+        }
+        return { id: up.id, fingerprint };
+      }
+      const { data: ins, error } = await sb
         .from("semantic_models")
-        .update(row as never)
-        .eq("id", m.id)
+        .insert(row as never)
         .select("id")
         .single();
       if (error) throw new Error(error.message);
-      return { id: up.id };
-    }
-    const { data: ins, error } = await sb
-      .from("semantic_models")
-      .insert(row as never)
-      .select("id")
-      .single();
-    if (error) throw new Error(error.message);
-    return { id: ins.id };
-  });
+      return { id: ins.id, fingerprint };
+    },
+  );
 
 export const semanticDeleteModel = createServerFn({ method: "POST" })
   .inputValidator((d: { accessToken: string; id: string }) => d)

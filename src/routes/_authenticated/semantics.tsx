@@ -349,10 +349,14 @@ function SemanticsPage() {
   // they are kept only by the next Save.
   const [savedDraft, setSavedDraft] = useState<string | null>(null);
   const unsaved = draft !== null && savedDraft !== JSON.stringify(draft);
+  // Set when Save was refused because the model was saved elsewhere since this
+  // page read it (R286, sweep 9). The fingerprint it sends is draftRow's.
+  const [stale, setStale] = useState(false);
   /** Open a draft in the editor as the saved state. */
   const openDraft = useCallback((d: Draft | null) => {
     setDraft(d);
     setSavedDraft(d ? JSON.stringify(d) : null);
+    setStale(false);
   }, []);
   // The raw DB row being edited — the "last saved" state History diffs against.
   const [draftRow, setDraftRow] = useState<Record<string, unknown> | null>(null);
@@ -785,7 +789,7 @@ function SemanticsPage() {
     disabled: !unsaved,
   });
 
-  const save = async () => {
+  const save = async (overwrite = false) => {
     if (!draft) return;
     if (isShared)
       return toast.error("This model is shared read-only — only its owner can edit it.");
@@ -798,6 +802,9 @@ function SemanticsPage() {
       const res = (await upsertFn({
         data: {
           accessToken: token,
+          expectedFingerprint: overwrite
+            ? undefined
+            : ((draftRow?.fingerprint as string | undefined) ?? undefined),
           model: {
             id: draft.id,
             name: draft.name.trim(),
@@ -819,7 +826,14 @@ function SemanticsPage() {
             rollups: rollupsToPayload(draft.rollups),
           },
         },
-      })) as { id: string };
+      })) as { id: string; fingerprint: string } | { stale: true; error: string };
+      if ("stale" in res) {
+        setStale(true);
+        toast.error(res.error);
+        return;
+      }
+      setStale(false);
+      setDraftRow((r) => (r ? { ...r, fingerprint: res.fingerprint } : r));
       toast.success("Saved");
       setDraft((d) => (d ? { ...d, id: res.id } : d));
       setSavedDraft(JSON.stringify({ ...draft, id: res.id }));
@@ -1452,11 +1466,45 @@ function SemanticsPage() {
                 {validating ? "Validating…" : "Validate"}
               </Button>
               {!isShared && (
-                <Button size="sm" onClick={save} disabled={saving}>
+                <Button size="sm" onClick={() => void save()} disabled={saving}>
                   <Save className="mr-1 h-4 w-4" /> {saving ? "Saving…" : "Save model"}
                 </Button>
               )}
             </div>
+            {stale && (
+              <div
+                className="flex flex-wrap items-center gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm"
+                data-testid="semantic-stale"
+              >
+                <span className="min-w-0 flex-1">
+                  This model was changed in another tab or session, so Save did not write over it.
+                  Reload to see that version, dropping your edits here, or overwrite it with yours.
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={saving}
+                  onClick={() =>
+                    void listFn({ data: { accessToken: token } }).then((rows) => {
+                      const all = rows as Array<Record<string, unknown>>;
+                      setModels(all);
+                      const fresh = all.find((r) => r.id === draft.id);
+                      if (fresh) editModel(fresh);
+                    })
+                  }
+                >
+                  Reload
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={saving}
+                  onClick={() => void save(true)}
+                >
+                  Overwrite with mine
+                </Button>
+              </div>
+            )}
 
             {Array.isArray(issues) && issues.length > 0 && (
               <div

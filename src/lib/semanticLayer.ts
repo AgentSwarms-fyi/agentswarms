@@ -3108,3 +3108,31 @@ export function semanticTrim<T>(rows: T[], cap: number): { rows: T[]; truncated:
     ? { rows: rows.slice(0, cap), truncated: true }
     : { rows, truncated: false };
 }
+
+/**
+ * The fields a semantic model's save writes, as they are stored, for its
+ * fingerprint (R286). Status, certification, ownership and timestamps are left
+ * out: certifying a model, or the trigger that drops an edited one back to
+ * draft, does not change what it defines.
+ */
+export function semanticModelDefinition(m: Record<string, unknown>) {
+  return {
+    name: m.name ?? null,
+    label: m.label ?? null,
+    description: m.description ?? null,
+    source_kind: m.source_kind ?? null,
+    table_id: m.table_id ?? null,
+    connection_id: m.connection_id ?? null,
+    source_table: m.source_table ?? null,
+    primary_key: m.primary_key ?? null,
+    fiscal_year_start_month: m.fiscal_year_start_month ?? null,
+    calendar: m.calendar ?? null,
+    rollups: m.rollups ?? [],
+    parameters: m.parameters ?? [],
+    hierarchies: m.hierarchies ?? [],
+    joins: m.joins ?? [],
+    dimensions: m.dimensions ?? [],
+    metrics: m.metrics ?? [],
+    assertions: m.assertions ?? [],
+  };
+}

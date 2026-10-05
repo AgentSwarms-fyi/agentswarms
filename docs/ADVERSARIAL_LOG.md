@@ -109,6 +109,31 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R286: two tabs on one semantic model, a Save undoing the other's
+
+**Severity: high (silent loss of saved work), sweep 9.** `semanticUpsertModel` updated the whole
+definition over whatever was stored. Driven on R285's build with `stg_revenue` in two tabs: A set the
+description to "r286 A" and saved ("Saved"); B, opened before, set the label to "stg_revenue B286" and
+saved ("Saved"). Reopened, the model had B's label and no description — A's saved description gone.
+
+Certification writes `status`, `certified_by` and `certified_at` on this row, and a trigger drops an edited
+model back to draft, so `updated_at` is not the version. R285's guard carries over: `semanticModelDefinition`
+projects the fields the upsert writes — status and ownership left out — and the list hands each model out
+with its fingerprint. The upsert now reads the stored row, refuses with `{ stale: true }` when its
+fingerprint no longer matches the one the page sent, updates only on the `updated_at` it read, and returns
+the fingerprint of what it wrote. The page sends the fingerprint of the row it opened (`draftRow`), keeps
+the new one after a save, and shows the banner with **Reload** (the fresh list, the model reopened) and
+**Overwrite with mine**. The Save button was `onClick={save}`, which would have handed its click event to
+the new `overwrite` parameter as a truthy value — it now calls `save()`. Nine mutants caught against a
+verified-green baseline, control survived.
+
+Driven on R286 hot-deployed, both tabs reloaded: A saved "r286 A", then "r286 A2", the second on the
+fingerprint the first returned — accepted. B's label was refused: "This model was changed in another tab
+or session after this page read it" and the banner; the store, read in A, held "r286 A2" and the label
+B had not written. B's **Overwrite with mine** saved (label "stg_revenue", no description — the model as
+it began); A, now the stale one, was refused in turn, and its **Reload** showed B's version. Rows in
+[UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — R285: a SQL model's Save undoing another tab's, and the editor's own Pause
 
 **Severity: high (silent loss of saved work, and a paused schedule silently resumed), sweep 9.**

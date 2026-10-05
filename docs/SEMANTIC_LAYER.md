@@ -87,6 +87,13 @@ or closing the tab with something unsaved asks first — "Discard the changes to
 "revenue"?" — and Cancel keeps it (R277). Values a **Validate** samples into the
 model count as unsaved: only the next Save keeps them.
 
+Save writes only over the definition the editor opened. If the model was saved
+from another tab or session since, Save is refused — "This model was changed in
+another tab or session after this page read it" — and the editor offers
+**Reload** or **Overwrite with mine**. Certifying writes the same row, so the
+check compares a fingerprint of the definition, not the row's `updated_at`, and
+certifying elsewhere does not refuse a save here (R286).
+
 ## Importing from dbt
 
 If your models already live in dbt, you do not have to retype them. **Import

@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — R286: two tabs on one semantic model
+
+Semantic Layer, `stg_revenue` (label "stg_revenue", no description), Source & joins, open in two tabs of
+the browser pane, A and B, both loaded before either save.
+
+| Step | R285's build | R286 hot-deployed |
+| --- | --- | --- |
+| A: description "r286 A", **Save model** | "Saved" | "Saved" |
+| A: description "r286 A2", **Save model** | — | "Saved", no banner — the fingerprint the first save returned matched |
+| B: label changed, **Save model** | "Saved" | "This model was changed in another tab or session after this page read it"; the banner |
+| A: reopened | **B's label, no description — A's saved description gone** | "r286 A2" and the old label — B's save refused, not made |
+| B: **Overwrite with mine** | — | "Saved"; the label "stg_revenue", no description |
+| A: description "r286 A3", **Save model** | — | refused in turn |
+| A: **Reload** | — | B's version: "stg_revenue", no description; no banner |
+
 ## 2026-10-05 — R285: two tabs on one SQL model, and Pause before Save
 
 SQL Models, `r178_after` (`SELECT 1782 AS id`, no description, active), open in two tabs of the browser
