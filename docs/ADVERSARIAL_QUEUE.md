@@ -64,47 +64,47 @@ The three shapes it takes:
 - **A sentence that outlived its rows** — prose or a caveat stored beside data
   that a later refresh replaced.
 
-| Module / surface       | Status   | Date       | Result                                                                                                       |
-| ---------------------- | -------- | ---------- | ------------------------------------------------------------------------------------------------------------ |
-| BI widgets & refresh   | ✅ fixed | 2026-09-19 | R24, R27 — notes outlived their rows on three write paths                                                    |
-| BI insight card        | ✅ fixed | 2026-09-20 | R29 — a prefix's total stated as the total, and the checker grounded it                                      |
-| BI reports & PDF       | ✅ fixed | 2026-09-20 | R30 — the Partial badge did not survive the export                                                           |
-| BI alerts              | ✅ fixed | 2026-09-20 | R28 — thresholds compared against the first 500 rows; `count` = the cap                                      |
-| Data quality           | ✅ fixed | 2026-09-20 | R31 — freshness called data stale on rows it never read                                                      |
-| Analytics `/analytics` | ✅ fixed | 2026-09-20 | R32 — a spend trend from two floors, on the card that already said "+?"                                      |
-| AI analyst             | ✅ clear | 2026-09-20 | Already states the truncation first and drops shares — nothing to do                                         |
-| Scan / insight sweep   | ✅ clear | 2026-09-20 | Refuses truncated widgets by name, with the remedy                                                           |
-| Public embeds          | ✅ clear | 2026-09-20 | Reuses `BiWidgetCard`, so it inherits Partial and freshness                                                  |
-| Evaluations            | ✅ fixed | 2026-09-20 | R33 — baselines were filtered out of the 50 most recent runs across ALL datasets                             |
-| Traces & Logs          | ✅ clear | 2026-09-20 | Every figure exact, scoped to "loaded traces", or covered by its own banner; costs carry `+?`                |
-| Audit log              | ✅ clear | 2026-09-20 | `auditWindowHeadline` already states shown-of-total and the retention boundary                               |
-| Budgets                | ✅ fixed | 2026-09-21 | R34 the gate counted unpriced calls as free; R39 the admin display re-implemented the sum from a capped page |
-| Swarm traces           | ✅ fixed | 2026-09-20 | R35 — `.limit(200)` then "N swarm runs"; the sibling page's fix had not been applied here                    |
-| Monitoring             | ✅ fixed | 2026-09-20 | R36 — a failed poll kept the probes and the verdict; the board froze green                                   |
-| Model registry         | ✅ fixed | 2026-09-20 | R37 — `.limit(2000)` against a 1,000-row server cap, on an alphabetical read                                 |
-| Knowledge base         | ✅ fixed | 2026-09-20 | R38 — membership asked of a 1,000-row prefix; indexed documents re-embedded                                  |
-| Agent swarms / runs    | ✅ fixed | 2026-09-21 | R40 — a run's steps, data flow and canvas DAG were an unbounded read of a bounded API                        |
-| `lib/pagedSelect`      | ✅ fixed | 2026-09-21 | R41 — out of order: the shared pager read a short page as the end of the filter                              |
-| Pagers that persist    | ✅ fixed | 2026-09-21 | R43 — lakehouse import, Parquet mirror and widget refresh; a failed page became a shorter table              |
-| Offsets that skipped   | ✅ fixed | 2026-09-21 | R44 — `start += PAGE` left holes, not a tail; the SQL tool an agent calls, prep, and version copies          |
-| Audit export           | ✅ fixed | 2026-09-21 | R45 — the one close that ended the evidence stream without an error line                                     |
-| Local SQL engine       | ✅ fixed | 2026-09-21 | R46 — five parallel windows, any one of which could end the read; a failed shared read registered empty      |
-| Pager sweep tail       | ✅ fixed | 2026-09-21 | R47 — `capped` and `truncated` described a prefix over rows that were a scatter                              |
-| Workbench refresh      | ✅ fixed | 2026-09-21 | R48 — the first caller to meet R46's throw had no try; spun forever and said nothing                         |
-| Dataset list read      | ✅ fixed | 2026-09-21 | R49 — a failed table list answered as an empty account: sidebar wiped, samples seeded, seeder's own reads unchecked|
-| Catalog local half     | ✅ fixed | 2026-09-21 | R50 — a failed local hydration counted as zero: 21 · 0 · "21 of 21" over a warn nobody sees                        |
-| Catalog attribution    | ✅ fixed | 2026-09-21 | R51 — a failed read of where a table came from filed every synced dataset as an upload                             |
-| Catalog first paint    | ✅ fixed | 2026-09-21 | R52 — loading rendered as `Local tables 0`; a pass before the session painted 33 for two seconds                   |
-| IAM policy reads       | ✅ fixed | 2026-09-21 | R53 — a failed settings or memberships read evaluated the model policy as unrestricted; grants and roles the same shape|
-| Deck generation fill   | ✅ fixed | 2026-09-21 | R54 — a failed dataset read answered as "no data connected"; the deck shipped chartless and silent                     |
-| BI generate dialogs    | ✅ fixed | 2026-09-21 | R55 — "upload data on the Data & SQL page first" over a failed read of thirty-three datasets                           |
-| Credential and audit reads| ✅ fixed | 2026-09-21 | R56 — a failed own-credential read became "not configured"; a failed Auth page showed people as ids                    |
-| Scheduler pass            | ✅ fixed | 2026-09-21 | R57 — twenty folded sweeps and three folded reads answered ok: true with zeros; the result carries errors now          |
-| KB retrieval              | ✅ fixed | 2026-09-21 | R58 — a failed ACL read showed restricted documents; every failed search told the model "no match"                     |
-| Scheduler surface         | ✅ fixed | 2026-09-21 | R59 — the pass's failures and a stopped scheduler now show on Monitoring, beside every other service                   |
-| SQL model stamps          | ✅ fixed | 2026-09-21 | R60 — a definition edit is marked by the database and the page stops calling the previous build this one's             |
-| Semantic layer            | ✅ fixed | 2026-09-21 | R61 — the runner fetches one past its cap and says when it cut; the preview, a widget's parameter re-run, the analyst's step and the refresh all say partial|
-| ML predictions            | ✅ fixed | 2026-09-21 | R62 — Jobs (20) on a model with twenty-one versions; both list handlers now throw on a failed read and say when the list is the newest N|
+| Module / surface           | Status   | Date       | Result                                                                                                                                                       |
+| -------------------------- | -------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| BI widgets & refresh       | ✅ fixed | 2026-09-19 | R24, R27 — notes outlived their rows on three write paths                                                                                                    |
+| BI insight card            | ✅ fixed | 2026-09-20 | R29 — a prefix's total stated as the total, and the checker grounded it                                                                                      |
+| BI reports & PDF           | ✅ fixed | 2026-09-20 | R30 — the Partial badge did not survive the export                                                                                                           |
+| BI alerts                  | ✅ fixed | 2026-09-20 | R28 — thresholds compared against the first 500 rows; `count` = the cap                                                                                      |
+| Data quality               | ✅ fixed | 2026-09-20 | R31 — freshness called data stale on rows it never read                                                                                                      |
+| Analytics `/analytics`     | ✅ fixed | 2026-09-20 | R32 — a spend trend from two floors, on the card that already said "+?"                                                                                      |
+| AI analyst                 | ✅ clear | 2026-09-20 | Already states the truncation first and drops shares — nothing to do                                                                                         |
+| Scan / insight sweep       | ✅ clear | 2026-09-20 | Refuses truncated widgets by name, with the remedy                                                                                                           |
+| Public embeds              | ✅ clear | 2026-09-20 | Reuses `BiWidgetCard`, so it inherits Partial and freshness                                                                                                  |
+| Evaluations                | ✅ fixed | 2026-09-20 | R33 — baselines were filtered out of the 50 most recent runs across ALL datasets                                                                             |
+| Traces & Logs              | ✅ clear | 2026-09-20 | Every figure exact, scoped to "loaded traces", or covered by its own banner; costs carry `+?`                                                                |
+| Audit log                  | ✅ clear | 2026-09-20 | `auditWindowHeadline` already states shown-of-total and the retention boundary                                                                               |
+| Budgets                    | ✅ fixed | 2026-09-21 | R34 the gate counted unpriced calls as free; R39 the admin display re-implemented the sum from a capped page                                                 |
+| Swarm traces               | ✅ fixed | 2026-09-20 | R35 — `.limit(200)` then "N swarm runs"; the sibling page's fix had not been applied here                                                                    |
+| Monitoring                 | ✅ fixed | 2026-09-20 | R36 — a failed poll kept the probes and the verdict; the board froze green                                                                                   |
+| Model registry             | ✅ fixed | 2026-09-20 | R37 — `.limit(2000)` against a 1,000-row server cap, on an alphabetical read                                                                                 |
+| Knowledge base             | ✅ fixed | 2026-09-20 | R38 — membership asked of a 1,000-row prefix; indexed documents re-embedded                                                                                  |
+| Agent swarms / runs        | ✅ fixed | 2026-09-21 | R40 — a run's steps, data flow and canvas DAG were an unbounded read of a bounded API                                                                        |
+| `lib/pagedSelect`          | ✅ fixed | 2026-09-21 | R41 — out of order: the shared pager read a short page as the end of the filter                                                                              |
+| Pagers that persist        | ✅ fixed | 2026-09-21 | R43 — lakehouse import, Parquet mirror and widget refresh; a failed page became a shorter table                                                              |
+| Offsets that skipped       | ✅ fixed | 2026-09-21 | R44 — `start += PAGE` left holes, not a tail; the SQL tool an agent calls, prep, and version copies                                                          |
+| Audit export               | ✅ fixed | 2026-09-21 | R45 — the one close that ended the evidence stream without an error line                                                                                     |
+| Local SQL engine           | ✅ fixed | 2026-09-21 | R46 — five parallel windows, any one of which could end the read; a failed shared read registered empty                                                      |
+| Pager sweep tail           | ✅ fixed | 2026-09-21 | R47 — `capped` and `truncated` described a prefix over rows that were a scatter                                                                              |
+| Workbench refresh          | ✅ fixed | 2026-09-21 | R48 — the first caller to meet R46's throw had no try; spun forever and said nothing                                                                         |
+| Dataset list read          | ✅ fixed | 2026-09-21 | R49 — a failed table list answered as an empty account: sidebar wiped, samples seeded, seeder's own reads unchecked                                          |
+| Catalog local half         | ✅ fixed | 2026-09-21 | R50 — a failed local hydration counted as zero: 21 · 0 · "21 of 21" over a warn nobody sees                                                                  |
+| Catalog attribution        | ✅ fixed | 2026-09-21 | R51 — a failed read of where a table came from filed every synced dataset as an upload                                                                       |
+| Catalog first paint        | ✅ fixed | 2026-09-21 | R52 — loading rendered as `Local tables 0`; a pass before the session painted 33 for two seconds                                                             |
+| IAM policy reads           | ✅ fixed | 2026-09-21 | R53 — a failed settings or memberships read evaluated the model policy as unrestricted; grants and roles the same shape                                      |
+| Deck generation fill       | ✅ fixed | 2026-09-21 | R54 — a failed dataset read answered as "no data connected"; the deck shipped chartless and silent                                                           |
+| BI generate dialogs        | ✅ fixed | 2026-09-21 | R55 — "upload data on the Data & SQL page first" over a failed read of thirty-three datasets                                                                 |
+| Credential and audit reads | ✅ fixed | 2026-09-21 | R56 — a failed own-credential read became "not configured"; a failed Auth page showed people as ids                                                          |
+| Scheduler pass             | ✅ fixed | 2026-09-21 | R57 — twenty folded sweeps and three folded reads answered ok: true with zeros; the result carries errors now                                                |
+| KB retrieval               | ✅ fixed | 2026-09-21 | R58 — a failed ACL read showed restricted documents; every failed search told the model "no match"                                                           |
+| Scheduler surface          | ✅ fixed | 2026-09-21 | R59 — the pass's failures and a stopped scheduler now show on Monitoring, beside every other service                                                         |
+| SQL model stamps           | ✅ fixed | 2026-09-21 | R60 — a definition edit is marked by the database and the page stops calling the previous build this one's                                                   |
+| Semantic layer             | ✅ fixed | 2026-09-21 | R61 — the runner fetches one past its cap and says when it cut; the preview, a widget's parameter re-run, the analyst's step and the refresh all say partial |
+| ML predictions             | ✅ fixed | 2026-09-21 | R62 — Jobs (20) on a model with twenty-one versions; both list handlers now throw on a failed read and say when the list is the newest N                     |
 
 ## Sweeps after this one
 
@@ -215,7 +215,7 @@ least twice, not a hypothetical.
    Qdrant is not configured on this deployment" were checked against their
    conditions: three are the config flag (`listLakehouseTablesForUser`'s
    `enabled`, the store brief's `externalAvailable`). The fourth, BI Data
-   Prep's *Save as* select, said it while the lakehouse list was loading or
+   Prep's _Save as_ select, said it while the lakehouse list was loading or
    after its read failed. R204: its title now says which, the palette keeps
    the reason, and Try again reads the list again.
 4. **Two surfaces, two answers.** The same figure computed twice by different
@@ -245,7 +245,7 @@ least twice, not a hypothetical.
      - ~~The two engines are different DuckDB versions: 1.4.3 in the browser and 1.5.5 on the
        server.~~ R209: the browser runs DuckDB 1.5.4 (`@duckdb/duckdb-wasm` 1.33.1-dev57.0), and
        `duckdbEnginesParity.test.ts` holds the two to one minor line and the same result types.
-     - ~~The chart builder's *Add to dashboard* is disabled until the chart has a title, and
+     - ~~The chart builder's _Add to dashboard_ is disabled until the chart has a title, and
        nothing says why.~~ R203: the line under the button says what is missing.
    - **R198: grid vs table sheet.** A probe ran 75 formulas through both engines over the same rows.
      The table read a blank number as "0" in text and counted a blank reference in
@@ -484,7 +484,7 @@ least twice, not a hypothetical.
      - ~~**Open, from R253:** a secret deleted mid-run through a pipeline-level binding is dropped,
        not fatal, so its own value is unknown to the scrubber for the rest of that run.~~ **R292.**
        The sandbox now holds the values it was handed and scrubs before posting. The round also found
-       that a value *replaced* mid-run leaked the same way, and that a node preview's output was never
+       that a value _replaced_ mid-run leaked the same way, and that a node preview's output was never
        scrubbed at all.
      - ~~**Open, from R292:** what a run writes to stderr (the `logging` module's default) is not
        captured by the batch runner.~~ **R299.** stderr joins stdout in the runner's buffer, so
@@ -500,6 +500,14 @@ least twice, not a hypothetical.
        also found that Agent Chat ran such a turn without the IAM model rules or budget cap.
      - ~~**Open, from R297: the browser's own `supabase.auth.getUser()`.**~~ **R298.** The five read
        the stored session through `lib/sessionUser`, and the sweep has no exemptions left.
+     - ~~**Seen in R292's log: two teardowns of one sandbox.**~~ **R302.** Docker answers the second
+       DELETE 409, "removal ... already in progress". The app logged a container left on the host
+       "until somebody removes it by hand", and it was gone a moment later. The second teardown now
+       waits for the first.
+     - **Open, from R302: Stop on a kernel takes about 20 s.** The proxy shows Docker holding
+       `POST /containers/nb-…/stop?t=5` for 14 s and 19.5 s on two runs, so the Running kernels
+       panel spins that long. The grace period is 5 s. Find where the rest goes: the kernel ignoring
+       SIGTERM, its network teardown, or the daemon.
 
 8. **Unsaved work lost without a word** (sweep 8, from 2026-10-05). An editor with an explicit
    Save holds edits in the page, and something replaces or leaves them with no question: picking
@@ -541,7 +549,7 @@ least twice, not a hypothetical.
      opened the form blank, for Save to write over the stored profile). **This closes the sweep-8
      survey.**
    - ~~**Open, from that grep — Budgets:** one write per keystroke can land out of order, and a
-     failed write restores the value from before *its own* keystroke over newer ones.~~ **R293.**
+     failed write restores the value from before _its own_ keystroke over newer ones.~~ **R293.**
      Driven: typing 2500 stored a $25 cap. On an agent with no limit row, typing 25 sent two inserts
      and stored $2. Both are fixed by one writer per row (`src/lib/latestWrite.ts`).
    - ~~**Open, from R293: the Agent-Specific Limits enforce nothing.**~~ **R294** proved it and
@@ -843,6 +851,7 @@ left out the blank rows). Open from that round:
   - AGGREGATE (19 functions, with options to skip errors and hidden rows).
 
   A file that uses either shows Excel's saved value.
+
 - **A whole column spilled into the grid shows only the used rows.** Excel spills all 1,048,576,
   or `#SPILL!` below row 1. The part shown is the useful part; the difference is on purpose.
 - ~~Legacy files' implicit intersection.~~ Closed by R162: a file's plain formula takes Excel
@@ -1227,7 +1236,7 @@ over the lakehouse). Open from that round, the rest of Row Zero's connected tabl
     R101.
   - **SQL models, R103, DONE at save** (`sqlModels/run.server.ts`).
     A build runs `DROP <other shape> IF EXISTS <target>` and then `CREATE
-    OR REPLACE`. A model with view materialization, named like an existing
+OR REPLACE`. A model with view materialization, named like an existing
     ordinary table in its schema, would DROP that table outright. A
     table-materialized one would replace it. The guard has to be "refuse
     a table this model did not build". A model rebuilding its own target
@@ -1275,7 +1284,7 @@ over the lakehouse). Open from that round, the rest of Row Zero's connected tabl
     catalog expires its snapshots.
   - **Publish itself, R181, DONE**: on an image built 2026-09-30 every
     publish failed, `Failed to create directory "data": Permission
-    denied`. The iceberg extension build baked into a fresh image writes a
+denied`. The iceberg extension build baked into a fresh image writes a
     `CREATE TABLE AS`'s files to a relative `data/` whenever the ducklake
     extension is loaded, and this engine always loads it. DuckDB and
     node-api had not moved since July: `INSTALL` fetches the extension
@@ -1287,7 +1296,7 @@ over the lakehouse). Open from that round, the rest of Row Zero's connected tabl
   - The development Iceberg catalog (`aswarm-iceberg-rest`,
     `tabulario/iceberg-rest` on SQLite) can hold its store locked between
     requests, answering every DELETE with `[SQLITE_BUSY] The database file
-    is locked` until it is restarted. That is the fixture, not this app,
+is locked` until it is restarted. That is the fixture, not this app,
     but an Iceberg round that sees HTTP 500 on a drop should check the
     catalog's log before blaming the code. A steady reader of a table (a
     loop loading it 4 to 30 times a second) is enough to starve its
@@ -1400,7 +1409,7 @@ over the lakehouse). Open from that round, the rest of Row Zero's connected tabl
 - A failed read that becomes an empty ACCOUNT becomes a write (R110): the
   swarm canvas read `rows = []` and created "My First Swarm" in place of
   the swarm asked for. Any "first run" branch (`if (rows.length === 0)
-  create…`) must be fed from a read whose error was kept. The R109 sweep
+create…`) must be fed from a read whose error was kept. The R109 sweep
   continues from here. In `swarms.tsx`, the switch only ever switched on
   data, and now says why it did not. ~~`refreshPublished` still drops its
   error and sets the snapshot to null, which HIDES the "draft ahead of
@@ -1546,7 +1555,7 @@ over the lakehouse). Open from that round, the rest of Row Zero's connected tabl
   deletes and updates, left for a round of their own.
 - A write that failed, shown as done (R65): Agent Chat's message inserts.
   The read-side rule has a write-side twin — `const { data } = await
-  …insert()` is a save that passes on failure — and a page that shows the
+…insert()` is a save that passes on failure — and a page that shows the
   optimistic row must also show when the row did not land. Survey next:
   every error-less `.insert(`/`.update(`/`.upsert(` on the client.
 - The two builder lists (R64): `No agents yet` with a "New Agent" button over
@@ -1566,8 +1575,8 @@ over the lakehouse). Open from that round, the rest of Row Zero's connected tabl
   after a Publish while the canvas went on changing (now "Live not
   checked"), and the components (palette and library) and the version
   history read as empty. R190 took the versions dialog's writes:
-  *Save version* toasted "Version saved" whether or not the insert landed,
-  and *Restore*, promised as undoable by its own confirm, replaced the
+  _Save version_ toasted "Version saved" whether or not the insert landed,
+  and _Restore_, promised as undoable by its own confirm, replaced the
   canvas when its safety snapshot had failed. A helper that swallows an
   error "because it is best-effort" is best-effort only for the caller
   that said so. The dialog's last two, driven in R207: the trash deleted
@@ -1597,9 +1606,9 @@ over the lakehouse). Open from that round, the rest of Row Zero's connected tabl
   not the list. Next: the badge family under item 2, starting with the
   materialized view the Lakehouse page can edit.
 - A cap the fetch stops AT cannot be seen; fetch one past it. `rows.length
-  >= cap` is a guess that flags a complete result of exactly cap rows and
-  is the only thing a consumer can do when the runner said nothing. Say it
-  once, at the runner, and every consumer inherits the verdict (R61).
+  > = cap` is a guess that flags a complete result of exactly cap rows and
+  > is the only thing a consumer can do when the runner said nothing. Say it
+  > once, at the runner, and every consumer inherits the verdict (R61).
 - A stamp is about the row it was written on, not the row it sits on. A
   save that rewrites the definition and leaves `last_*` alone has moved the
   stamp onto a different thing. Either the save withdraws it, or something

@@ -2609,6 +2609,15 @@ Monitoring; the fix is a restart:
 docker compose restart notebook-docker-proxy
 ```
 
+**If the log says a sandbox "was not removed".** The line names the container and Docker's answer.
+Since R302 it is not written when two teardowns of one sandbox overlap: the second waits for the
+first (`NOTEBOOK_TEARDOWN_WAIT_MS`, 10 s). So the container is really there. List it, then remove it
+with `docker rm -f` and the name shown:
+
+```bash
+docker ps -a --filter name=nb-
+```
+
 ### Upgrades
 
 Docker: `git pull && docker compose up -d --build`. Apply any new migrations

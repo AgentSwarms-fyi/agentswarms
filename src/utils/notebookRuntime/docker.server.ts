@@ -35,6 +35,11 @@ export function dockerPingTimeoutMs(): number {
   return Number(process.env.DOCKER_PROXY_PING_TIMEOUT_MS ?? "") || 10_000;
 }
 
+/** How long a teardown waits for a removal another teardown already started (R302). */
+export function teardownWaitMs(): number {
+  return Number(process.env.NOTEBOOK_TEARDOWN_WAIT_MS ?? "") || 10_000;
+}
+
 function candidates(): string[] {
   return [
     process.env.DOCKER_PROXY_URL,
@@ -307,6 +312,16 @@ export class DockerOrchestrator implements NotebookOrchestrator {
       });
       if (res.ok || res.status === 404) return { removed: true };
       const body = await res.text().catch(() => "");
+      // FOUND IN R292, FIXED IN R302. Two teardowns of one sandbox - the
+      // result callback's and a refresh that read the session a moment
+      // earlier - and Docker answers the second "removal of container ... is
+      // already in progress", 409. That was reported as a container left on
+      // the host "until somebody removes it by hand", and it was gone a moment
+      // later. Wait for the removal in progress; say the container is still
+      // there only if it is.
+      if (res.status === 409 && /already in progress/i.test(body)) {
+        return await this.awaitRemoval(ref);
+      }
       return {
         removed: false,
         error: `docker DELETE answered ${res.status}${body ? `: ${body.slice(0, 200)}` : ""}`,
@@ -314,6 +329,23 @@ export class DockerOrchestrator implements NotebookOrchestrator {
     } catch (e) {
       return { removed: false, error: (e as Error).message };
     }
+  }
+
+  /** Wait for a removal someone else started, by inspecting until it is gone. */
+  private async awaitRemoval(ref: string): Promise<TeardownResult> {
+    const waitMs = teardownWaitMs();
+    const until = Date.now() + waitMs;
+    while (Date.now() < until) {
+      await new Promise((r) => setTimeout(r, 250));
+      const res = await dockerFetch(`/containers/${encodeURIComponent(ref)}/json`).catch(
+        () => null,
+      );
+      if (res?.status === 404) return { removed: true };
+    }
+    return {
+      removed: false,
+      error: `another removal was already in progress and had not finished after ${waitMs / 1000} s`,
+    };
   }
 
   async logs(ref: string): Promise<string> {

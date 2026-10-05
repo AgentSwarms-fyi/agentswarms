@@ -292,7 +292,10 @@ What shipped is **one** route, `POST /api/notebook/runtime`, dispatching on an `
 
 - `{ action: "start" | "run" }` — checks `server_runtime_enabled`, the user's `notebook_runtime` IAM capability and the per-user session cap; asks the orchestrator to create a pod; inserts a `notebook_runtime_sessions` row; returns the session, its gateway URL and a session token.
 - `{ action: "list" }`, `{ action: "status" }` — poll while `starting`.
-- `{ action: "stop" }` — teardown.
+- `{ action: "stop" }` — teardown. Two teardowns of one sandbox can overlap: Stop pressed twice,
+  or a batch's result arriving while a refresh tears it down. Docker answers the second "removal ...
+  already in progress" (409). That teardown waits for the first to finish, up to
+  `NOTEBOOK_TEARDOWN_WAIT_MS` (10 s), and reports the container still there only if it is (R302).
 - `{ action: "token" }` — refresh the short-TTL session token.
 
 Its siblings are `/api/notebook/runtime/{result,source,reap}`.
