@@ -15,6 +15,19 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — Smoke of the real images after R292 to R295
+
+The app image `fb08ddc179a9` was built from `52e466e1` (`docker compose build agentswarms`, then
+`docker compose up -d`). The runtime image `44bd23870644` is R292's rebuild; its `batch_runner.py` hashes
+the same as the committed file.
+
+| What was driven | What came back |
+| --- | --- |
+| Health after `up -d` | healthy; 8 workers listening, 8 schedulers started; nothing matching "error" or "warn" |
+| Shipped code | R292 to R295's markers each in their own chunk of `/app/dist`; the invented control absent; R294's text absent from server chunks |
+| **Iceberg publish** `analytics.fct_region_revenue` → `local_rest`, `r181`, `smoke_fb08ddc179a9` | The first try came back with "Failed to commit Iceberg transaction … HTTP 500"; the dev catalog's log had `SQLITE_BUSY` on its SQLite store after 29 hours up. After restarting `aswarm-iceberg-rest`: "Published 4 row(s) to r181.smoke_fb08ddc179a9"; the catalog's metadata shows `region, orders, revenue`, one `append` snapshot, **4 records in 1 file** |
+| R292 on the real images: Preview data on `r292_preview` | `printed token=***`, `RuntimeError: raised token=***` |
+
 ## 2026-10-05 — R295: a stale refresh over a stored result
 
 | What was driven | What came back |

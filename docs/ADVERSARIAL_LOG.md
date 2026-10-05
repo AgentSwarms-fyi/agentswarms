@@ -109,6 +109,43 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — Smoke of the real images after R292 to R295
+
+**The app image.** `fb08ddc179a9` was built from `52e466e1` with `docker compose build agentswarms` and
+started with `docker compose up -d`. It came up healthy: eight workers listening, eight schedulers started,
+and nothing in the log matching "error" or "warn".
+
+**The runtime image.** `agentswarms/notebook-runtime` (`44bd23870644`) was rebuilt in R292, and nothing
+under `docker/` or `services/` has changed since. Its `batch_runner.py` hashes the same as the committed one
+(`9291df20…`). That was checked, because the image was built before R292's commit.
+
+**Markers.** Each round's marker is in its own chunk of the image's `dist`:
+
+- R292: the prelude's `_agentswarms_scrub`;
+- R293: the upsert's `onConflict:"agent_id"`;
+- R294: "not enforced yet";
+- R295: the guarded `.eq("status", row.status).select("*").maybeSingle()`, matched as a pattern, since the
+  round adds no message.
+
+The invented control is absent, and the chunk filter says "absent" for R294's text in a server chunk.
+
+**The Iceberg publish** first failed. `analytics.fct_region_revenue` → `local_rest`, `r181`,
+`smoke_fb08ddc179a9` came back with "Failed to commit Iceberg transaction: Request returned HTTP 500".
+
+- The cause was in the standalone dev catalog. `aswarm-iceberg-rest` keeps its state in SQLite on a named
+  volume and had been up 29 hours. Its log had `SQLITE_BUSY: database is locked` on the commit, while reads
+  were answered.
+- The app reported the 500 correctly, in the toast, and left the dialog open.
+- After `docker restart aswarm-iceberg-rest`, which keeps the volume, the same publish toasted "Published
+  4 row(s) to r181.smoke_fb08ddc179a9".
+- The catalog's own metadata shows columns `region, orders, revenue` and one `append` snapshot: **4
+  records in 1 file**.
+
+**R292 on the real images:** a node preview of `r292_preview` showed `printed token=***` and
+`RuntimeError: raised token=***`.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — R295: a poll that read "running" wrote over the stored result
 
 **Severity: medium (a finished preview shown as failing with no reason; any batch session's result can
