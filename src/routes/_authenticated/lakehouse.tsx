@@ -1030,42 +1030,52 @@ function TableTab({
         )}
         <div className="ml-auto flex gap-2">
           {matview?.is_owner && (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={refreshingMv}
+            // FOUND IN R274: a view Sheets holds offered Rebuild, which the
+            // server always refuses. It says why before it is pressed now, on
+            // a wrapper: a disabled button takes no pointer, so its own title
+            // would never show.
+            <span
+              className="inline-flex"
               title={
-                matview.last_refreshed_at
-                  ? `Last rebuilt ${new Date(matview.last_refreshed_at).toLocaleString()}`
-                  : "Never rebuilt"
+                detail.sheet_owner
+                  ? `Held by Sheets: only Sheets changes ${schema}.${table}, so it is not rebuilt here. Delete the sheet "${detail.sheet_owner.sheet}" in Sheets, and it can be.`
+                  : matview.last_refreshed_at
+                    ? `Last rebuilt ${new Date(matview.last_refreshed_at).toLocaleString()}`
+                    : "Never rebuilt"
               }
-              onClick={async () => {
-                setRefreshingMv(true);
-                try {
-                  const res = await refreshMvFn({
-                    data: { access_token: token, id: matview.id },
-                  });
-                  if (res.error) toast.error(`Rebuild failed: ${res.error}`);
-                  else toast.success(`Rebuilt — ${res.rows ?? 0} row(s) in ${res.ms} ms`);
-                  const views = await matviewsFn({ data: { access_token: token } });
-                  setMatview(
-                    views.find((v) => v.schema_name === schema && v.table_name === table) ?? null,
-                  );
-                  setDetail(await detailFn({ data: { access_token: token, schema, table } }));
-                } catch (e) {
-                  toast.error((e as Error).message);
-                } finally {
-                  setRefreshingMv(false);
-                }
-              }}
             >
-              {refreshingMv ? (
-                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <RefreshCw className="mr-1 h-3.5 w-3.5" />
-              )}
-              Rebuild
-            </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={refreshingMv || !!detail.sheet_owner}
+                onClick={async () => {
+                  setRefreshingMv(true);
+                  try {
+                    const res = await refreshMvFn({
+                      data: { access_token: token, id: matview.id },
+                    });
+                    if (res.error) toast.error(`Rebuild failed: ${res.error}`);
+                    else toast.success(`Rebuilt — ${res.rows ?? 0} row(s) in ${res.ms} ms`);
+                    const views = await matviewsFn({ data: { access_token: token } });
+                    setMatview(
+                      views.find((v) => v.schema_name === schema && v.table_name === table) ?? null,
+                    );
+                    setDetail(await detailFn({ data: { access_token: token, schema, table } }));
+                  } catch (e) {
+                    toast.error((e as Error).message);
+                  } finally {
+                    setRefreshingMv(false);
+                  }
+                }}
+              >
+                {refreshingMv ? (
+                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-1 h-3.5 w-3.5" />
+                )}
+                Rebuild
+              </Button>
+            </span>
           )}
           <PolicyDialog
             schema={schema}

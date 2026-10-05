@@ -15,6 +15,15 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — R274: Rebuild on a view Sheets holds
+
+Lakehouse, the object explorer searched for each table.
+
+| Table | R273's build | R274 hot-deployed |
+| --- | --- | --- |
+| `r126_held.later_view` (materialized view, "Held by Sheets · R126 held table › LaterView") | Rebuild **live**, titled "Last rebuilt 9/26/2026, 3:28:56 AM"; pressed: "Rebuild failed: r126_held.later_view holds the rows of the sheet "LaterView" …" | Rebuild **disabled**; on hover: "Held by Sheets: only Sheets changes r126_held.later_view, so it is not rebuilt here. Delete the sheet "LaterView" in Sheets, and it can be." |
+| `analytics.r185_mv` (materialized view, not held) | — | Rebuild live, "Last rebuilt 9/30/2026, 8:07:05 PM"; pressed: "Rebuilt — 1 row(s) in 1928 ms" |
+
 ## 2026-10-05 — R273: what a sheet's delete confirmation says
 
 Each dialog opened from the sheet tab's menu → Delete, read, and **cancelled**; no sheet was deleted.

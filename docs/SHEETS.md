@@ -693,7 +693,9 @@ sheet's calculated columns, pivots and formulas stand on its columns. So it is c
 Sheets:
 
 - In the Lakehouse it reads like any table. Its page says **Held by Sheets · workbook › sheet**,
-  links to the sheet, and offers no **Insert row** or **Drop**.
+  links to the sheet, and offers no **Insert row** or **Drop**. If it is also a materialized view,
+  **Rebuild** is off, and says why on hover: only Sheets changes it; delete the sheet, and it can
+  be rebuilt there.
 - Anything that would change it is refused, naming the sheet:
   - a statement in the SQL editor or a workflow SQL step;
   - an ETL pipeline writing it;

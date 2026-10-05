@@ -109,6 +109,27 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R274: a Rebuild button that could only ever be refused
+
+**Severity: low (a control that cannot succeed).** From the queue. A materialized view whose table Sheets
+holds kept its **Rebuild** button, and the server refuses every rebuild of it (R128). Driven on R273's
+build with the fixture `r126_held.later_view` (held by "LaterView" in "R126 held table"): the button was
+live, titled only "Last rebuilt 9/26/2026…", and pressing it answered "Rebuild failed:
+r126_held.later_view holds the rows of the sheet "LaterView" …" — the refusal was right, the offer was
+not.
+
+Now Rebuild is off while the table is held, and says why before it is pressed: "Held by Sheets: only
+Sheets changes r126_held.later_view, so it is not rebuilt here. Delete the sheet "LaterView" in Sheets,
+and it can be." The reason sits on a wrapper: a disabled button takes no pointer, so a title on the
+button itself would never show — one of the mutants. Three mutants caught against a verified-green
+baseline (Rebuild left on, the reason not keyed on the hold, the reason on the disabled button); the
+first run let the second survive, because the test looked only for the reason's text, which a dead
+branch still held; it now pins the condition. Control survived.
+
+Driven on R274 hot-deployed: `later_view`'s Rebuild is disabled with that reason; an ordinary view,
+`analytics.r185_mv`, keeps its Rebuild ("Last rebuilt 9/30/2026…") and **Rebuild** answered "Rebuilt —
+1 row(s) in 1928 ms". Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — R273: "Its cells go with it", said of a sheet that has none
 
 **Severity: low (a confirmation that misstates what a delete does).** From the queue. Every sheet's

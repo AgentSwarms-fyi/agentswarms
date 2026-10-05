@@ -652,8 +652,8 @@ held their name). Open from that round:
 - ~~**A table sheet's delete dialog says "Its cells go with it".** Only the sheet goes: the table
   stays and, if the sheet held it, becomes editable in the Lakehouse. The dialog should say so.~~
   **Fixed in R273.**
-- **A held table that is also a materialized view still shows Rebuild**, which is now always
-  refused. The button could say why before it is pressed.
+- ~~**A held table that is also a materialized view still shows Rebuild**, which is now always
+  refused. The button could say why before it is pressed.~~ **Fixed in R274.**
 - ~~**Editing a sheet as a pivot releases what it held.** `sheetsPivot` with a `tab_id` replaces
   that sheet's source and drops its origin, whatever kind the sheet is. The pivot dialog offers
   only pivot sheets, but the server does not check.~~ Stale: `sheetsSavePivot` has refused any
