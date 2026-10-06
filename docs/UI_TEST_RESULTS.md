@@ -15,6 +15,19 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-06 — R308: Cancel on a training job that was still starting
+
+Model `threshold_probe (payment_rows)` in two tabs. One opens **Train new version** and presses
+**Train**. The other presses **Refresh** 1.5 s later, sees "Training in progress · queued · Starting the
+sandbox…", and presses **Cancel** → **Confirm**.
+
+| What was driven                  | What came back                                                                                                                                                                                                                            |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Before**, on R307's build (v6) | The sandbox started at 05:35:25 and ran until 05:37:43. Jobs: **succeeded**, 2m 18s, lightgbm F1 58.8%. Versions: **v6 candidate**, with Promote                                                                                          |
+| **After**, first build (v7)      | Train's toast: "The training job was cancelled while its workers were starting, so they were stopped and nothing trained."; the worker was stopped as it came up. Jobs: cancelled. Versions: **v7 failed**, a late writer over the cancel |
+| **After**, rebuilt (v8)          | The same toast. Jobs: cancelled. Versions: **v8 cancelled**, no Promote                                                                                                                                                                   |
+| Fixtures                         | v6, v7 and v8 kept on `threshold_probe`                                                                                                                                                                                                   |
+
 ## 2026-10-06 — R307: Cancel on an ETL run that was still starting
 
 `r299_stderr` (a code pipeline that runs for about a second) in two tabs. One presses **Run now**; the

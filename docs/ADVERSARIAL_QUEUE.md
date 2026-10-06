@@ -631,31 +631,34 @@ least twice, not a hypothetical.
 
     live)`;
     - `.select()` to learn whether it landed; - act on losing: stop what was started, and say what happened; - where the writer then acts on something it read (a session to stop), use what the row holds as
-    the write lands.
+      the write lands.
 
-        **The survey** is a census of every `.update({ status | state })` in `src` and whether its chain
-        filters on that column. The lifecycle tables with unguarded
-        writes, in order:
-        - ~~**ETL runs**~~ (**R307**: a start over a cancel, and a cancel over a finish).
-        - **Runtime sessions**: `stopSession` writes "stopped" over whatever the result callback wrote. The
-          writes in `startSession` touch a row created moments before, with no container, so check them
-          and expect them clear.
-        - **ML**:
-          - training jobs (`train.server` 401, 1195);
-          - model versions (`api.server` 110, `train.server` 1159);
-          - predictions (`predict.server` 313);
-          - experiment runs (`ml.experiments` 173, `experimentArtifacts` 179);
-          - deployments (`serve.server`, eleven writes, most of them opaque to the census).
-        - **Swarm runs** (`swarmRunManager`, `swarmExecute`, the two tracers) and their steps.
-        - **Knowledge base sources**: thirteen writes across `ingest-url`, `ingest-github`, `kb/sync` and
-          `kb/schedule`.
-        - **Catalog source crawls** (`crawler.server`, three).
-        - **MCP apps' deploy status** (`mcpApps/service.server`, and one in the runtime) and MCP server
-          probes.
-        - **Data incidents** (`dataMonitors/run.server`).
-        - **SQL model runs**: the census did not match them, so read them by hand.
-        - Workflow runs are mostly guarded (their close and cancel). The one unguarded write fails a row
-          inserted a line above.
+          **The survey** is a census of every `.update({ status | state })` in `src` and whether its chain
+          filters on that column. The lifecycle tables with unguarded
+          writes, in order:
+          - ~~**ETL runs**~~ (**R307**: a start over a cancel, and a cancel over a finish).
+          - **Runtime sessions**: `stopSession` writes "stopped" over whatever the result callback wrote. The
+            writes in `startSession` touch a row created moments before, with no container, so check them
+            and expect them clear.
+          - **ML**:
+            - ~~training jobs (`train.server` 401, 1195)~~ (**R308**: the start over a cancel; 1195 undoes
+              a success the job's own claim just won, so it is not a late writer);
+            - ~~model versions (`api.server` 110, `train.server` 1159)~~ (**R308**: 110 failed a version
+              over its cancel; 1159 runs only after the job's guarded claim);
+            - ~~predictions (`predict.server` 313)~~ (**R308**, fixed with training and tested, not
+              driven);
+            - experiment runs (`ml.experiments` 173, `experimentArtifacts` 179);
+            - deployments (`serve.server`, eleven writes, most of them opaque to the census).
+          - **Swarm runs** (`swarmRunManager`, `swarmExecute`, the two tracers) and their steps.
+          - **Knowledge base sources**: thirteen writes across `ingest-url`, `ingest-github`, `kb/sync` and
+            `kb/schedule`.
+          - **Catalog source crawls** (`crawler.server`, three).
+          - **MCP apps' deploy status** (`mcpApps/service.server`, and one in the runtime) and MCP server
+            probes.
+          - **Data incidents** (`dataMonitors/run.server`).
+          - **SQL model runs**: the census did not match them, so read them by hand.
+          - Workflow runs are mostly guarded (their close and cancel). The one unguarded write fails a row
+            inserted a line above.
 
 ### Sheets (new, 2026-09-25)
 

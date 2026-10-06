@@ -309,10 +309,33 @@ export async function startPrediction(args: {
       memLimitMb: limits.mlTrainMemLimitMb,
       maxMinutes: args.kind === "rows" ? 15 : 120,
     });
-    await supabaseAdmin
+    // FOUND IN R308 (sweep 10). A Cancel pressed while this sandbox was
+    // starting found no session to stop, and this write put "running" over
+    // it, so the prediction ran anyway. Its error went unread too, leaving a
+    // sandbox no row knew. The prediction takes the sandbox only while queued.
+    const { data: took, error: recErr } = await supabaseAdmin
       .from("ml_predictions")
       .update({ status: "running", session_id: session.id, started_at: new Date().toISOString() })
-      .eq("id", row.id);
+      .eq("id", row.id)
+      .eq("status", "queued")
+      .select("id");
+    if (recErr || !took?.length) {
+      await stopSession(session).catch(() => {});
+      if (recErr) {
+        throw new Error(
+          `The prediction's sandbox started but could not be recorded: ${recErr.message}; it was stopped again.`,
+        );
+      }
+      const { data: now } = await supabaseAdmin
+        .from("ml_predictions")
+        .select("status")
+        .eq("id", row.id)
+        .maybeSingle();
+      return {
+        ok: false,
+        error: `The prediction was ${now?.status ?? "removed"} while its sandbox was starting, so it was stopped and nothing ran.`,
+      };
+    }
   } catch (e) {
     const message = (e as Error).message;
     await markPredictionFailed(row.id, message, "");

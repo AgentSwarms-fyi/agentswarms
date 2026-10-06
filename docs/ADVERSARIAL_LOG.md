@@ -109,6 +109,64 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-06 — R308: a training job cancelled while its workers started, which trained a promotable version anyway
+
+**Severity: high (a cancel that is not one, and a version anyone can put into production), sweep 10.**
+R307's shape on the ML side.
+
+`startTrainingJob` inserts the job `queued` and starts its workers one after another, seconds each. The
+model page shows "Training in progress · queued · Starting the sandbox…" with Cancel. `cancelMlJob` was
+already right: it is held to the live statuses, and it stops the sessions the row holds. But the row held
+none yet. The start then wrote `running` and the workers' sessions with no condition. The workers
+trained, and the job's guarded claim accepted the result from `running`.
+
+`startPrediction` had the same write, and it also left the write's error unread.
+
+**The before**, on R307's build, model `threshold_probe (payment_rows)` in two tabs. One pressed Train
+(v6). The other refreshed, saw the queued banner, and pressed Cancel → Confirm at about 05:35:16. Docker
+created the container from 05:35:10 for 9.2 s and started it at 05:35:25.
+
+- **The sandbox:** ran until 05:37:43.
+- **Jobs:** **succeeded**, 2m 18s, lightgbm with F1 58.8%.
+- **Versions:** **v6, candidate**, with Promote and Archive.
+
+**The fix:**
+
+- **The training start** takes its workers only while the job is still `queued`, `.eq("status",
+"queued")` with `.select()`. Otherwise it stops every worker it started and answers "The training job
+  was cancelled while its workers were starting, so they were stopped and nothing trained."
+- **The prediction start** does the same. When its write fails, it stops the sandbox and fails the
+  prediction, rather than leave a sandbox no row knows.
+
+**The after found one more late writer.** With the start fixed, the job stayed cancelled, but its version
+read **failed**. `createAndTrainVersion` answers any start that is not ok by failing the version, and it
+wrote that over the cancel's `cancelled`. It is now held to `training`.
+
+**Tests:** `mlCancelWhileStarting.test.ts` runs the real `startTrainingJob`, `startPrediction`, the two
+cancels and `createAndTrainVersion` against an in-memory table:
+
+- a cancel during either start stays cancelled, and the sandbox is stopped;
+- an uninterrupted start takes its sandbox;
+- a prediction whose write fails stops its sandbox;
+- a version cancelled during its start stays cancelled;
+- a version whose workers could not start at all is failed.
+
+R79's pin moved to the new line.
+
+- **Mutation harness:** 9 mutants caught, and the control survived.
+
+**The after**, hot-deployed, with the same two tabs:
+
+- **v7, first build:** cancelled while Docker spent 21 s creating the container. The worker was stopped
+  at once and removed. The toast said nothing trained, and the job read **cancelled**, but v7 read
+  **failed** (above).
+- **v8, rebuilt:** the same. The job read cancelled, and **v8 cancelled**, with no Promote.
+
+**Not driven:** the prediction start. It is the same write, fixed in the same way and covered by the test.
+
+**Fixtures:** on `threshold_probe`, v6 (the before's resurrected candidate), v7 (failed, from the first
+after) and v8 (cancelled) are kept. Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-06 — R307: a run cancelled while it was starting, which ran anyway and succeeded
 
 **Severity: high (a cancel that is not one, and data written after it), sweep 10.** This is the round

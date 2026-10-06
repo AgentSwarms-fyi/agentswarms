@@ -106,10 +106,14 @@ export async function createAndTrainVersion(
   if (error || !v) return { ok: false, error: error?.message ?? "Failed to create version" };
   const started = await startTrainingJob({ model, version: v, trigger: opts.trigger });
   if (!started.ok) {
+    // FOUND IN R308 (sweep 10). A version cancelled while its workers were
+    // starting was turned to "failed" here, over the cancel: the version is
+    // failed only while it is still the one in training.
     await supabaseAdmin
       .from("ml_model_versions")
       .update({ status: "failed", warnings: [started.error] as Json })
-      .eq("id", v.id);
+      .eq("id", v.id)
+      .eq("status", "training");
     return started;
   }
   if (opts.apiKeyId) {
