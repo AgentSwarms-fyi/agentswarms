@@ -191,22 +191,37 @@ export async function createSwarmTracer(opts: {
             },
             { lat: 0, tin: 0, tout: 0, cost: 0, count: 0, errors: 0 },
           );
-          await supabase
+          // R309 (sweep 10): the close lands only on a run still running. A
+          // run cancelled meanwhile - from another tab, or Recent runs - keeps
+          // "cancelled", and still gets the numbers it spent.
+          const numbers = {
+            total_latency_ms: totals.lat,
+            total_tokens_in: totals.tin,
+            total_tokens_out: totals.tout,
+            total_cost_usd: totals.cost,
+            step_count: totals.count,
+            error_count: totals.errors,
+          };
+          const { data: closed, error: closeErr } = await supabase
             .from("swarm_runs")
             .update({
               status: args.status,
               final_output: args.finalOutput ?? null,
               error_message: args.errorMessage ?? null,
               finished_at: new Date().toISOString(),
-              total_latency_ms: totals.lat,
-              total_tokens_in: totals.tin,
-              total_tokens_out: totals.tout,
-              total_cost_usd: totals.cost,
-              step_count: totals.count,
-              error_count: totals.errors,
+              ...numbers,
             } as any)
             .eq("id", runId)
-            .eq("user_id", userId);
+            .eq("user_id", userId)
+            .eq("status", "running")
+            .select("id");
+          if (!closeErr && !closed?.length) {
+            await supabase
+              .from("swarm_runs")
+              .update(numbers as any)
+              .eq("id", runId)
+              .eq("user_id", userId);
+          }
         } catch {
           // ignore
         }

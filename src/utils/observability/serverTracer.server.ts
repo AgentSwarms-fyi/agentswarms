@@ -253,8 +253,22 @@ export async function createServerSwarmTracer(opts: {
           // FOUND FROM THE SURVEY (R86). The run's own close, in a catch a
           // supabase answer never reaches: a swarm that had finished stayed
           // "running" on the Observability page for ever, with no final
-          // output, no totals and no cost. Retried once — the run is over,
-          // so there is nothing to race — then said with what it left.
+          // output, no totals and no cost. Retried once, then said with what
+          // it left.
+          //
+          // FOUND IN R309 (sweep 10). The close wrote its status over
+          // whatever was stored, so a run cancelled from Recent runs was
+          // recorded "success" when it ran on to the end. It closes only a
+          // run still running; one cancelled meanwhile keeps its status and
+          // still gets the numbers it spent.
+          const numbers = {
+            total_latency_ms: totals.lat,
+            total_tokens_in: totals.tin,
+            total_tokens_out: totals.tout,
+            total_cost_usd: totals.cost,
+            step_count: totals.count,
+            error_count: totals.errors,
+          };
           const close = () =>
             supabaseAdmin
               .from("swarm_runs")
@@ -263,18 +277,21 @@ export async function createServerSwarmTracer(opts: {
                 final_output: bodyText(args.finalOutput ?? null),
                 error_message: args.errorMessage ?? null,
                 finished_at: new Date().toISOString(),
-                total_latency_ms: totals.lat,
-                total_tokens_in: totals.tin,
-                total_tokens_out: totals.tout,
-                total_cost_usd: totals.cost,
-                step_count: totals.count,
-                error_count: totals.errors,
+                ...numbers,
               } as never)
-              .eq("id", runId);
-          let { error: closeErr } = await close();
+              .eq("id", runId)
+              .eq("status", "running")
+              .select("id");
+          let { data: closed, error: closeErr } = await close();
           if (closeErr) {
             await new Promise((r) => setTimeout(r, 1_000));
-            ({ error: closeErr } = await close());
+            ({ data: closed, error: closeErr } = await close());
+          }
+          if (!closeErr && !closed?.length) {
+            await supabaseAdmin
+              .from("swarm_runs")
+              .update(numbers as never)
+              .eq("id", runId);
           }
           if (closeErr) {
             console.warn(

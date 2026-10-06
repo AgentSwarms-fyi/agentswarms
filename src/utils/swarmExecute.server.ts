@@ -77,6 +77,10 @@ function dataToolCtx(userId: string, decisionId?: string | null): AgentToolConte
   };
 }
 
+/** What a run cancelled from Recent runs answers its caller (R309). */
+export const CANCELLED_WHILE_RUNNING =
+  "The run was cancelled while it was running; nothing after that point ran.";
+
 export type ExecuteResult = {
   /**
    * "suspended" = parked at a human-approval node with a checkpoint. The run is
@@ -386,11 +390,42 @@ export async function executeSwarmServer(opts: {
     beginDecision({ userId: opts.userId, kind: "swarm_run", id: runId, rootRef: runId });
   }
 
+  // FOUND IN R309 (sweep 10). Recent runs offers Cancel on a running run, and
+  // for a run this server executes - a workflow step, a schedule, the API -
+  // the cancel only flagged the row: nothing here read the flag. The run went
+  // on through every node, spending what it spent, and its close then wrote
+  // "success" over "cancelled". The run's row is watched while it runs, and a
+  // cancel aborts it like an expired deadline, then closes it as cancelled.
+  let cancelled = false;
+  const cancelWatch =
+    runId && depth === 0
+      ? setInterval(
+          () => {
+            void supabaseAdmin
+              .from("swarm_runs")
+              .select("cancel_requested")
+              .eq("id", runId)
+              .maybeSingle()
+              .then(
+                ({ data }) => {
+                  if (data?.cancel_requested) {
+                    cancelled = true;
+                    ac.abort();
+                  }
+                },
+                () => {},
+              );
+          },
+          envInt("SWARM_CANCEL_POLL_MS", 2_000),
+        )
+      : null;
+
   const finish = async (
-    status: "success" | "error" | "suspended",
+    status: "success" | "error" | "suspended" | "cancelled",
     output: string,
     error: string | null,
-  ) => {
+  ): Promise<ExecuteResult> => {
+    if (cancelWatch) clearInterval(cancelWatch);
     if (tracer) {
       // A suspended run is deliberately left open: its timeline continues when
       // the approval is decided, so it must not be closed off as finished.
@@ -400,11 +435,14 @@ export async function executeSwarmServer(opts: {
         // showed a run in flight for ever, and the approval path below read
         // the word rather than the checkpoint and treated the approver's
         // decision as a second click. Retried once, then said.
+        // Parked only while it is still running: a run cancelled meanwhile
+        // stays cancelled (R309).
         const park = () =>
           supabaseAdmin
             .from("swarm_runs")
             .update({ status: "suspended", updated_at: new Date().toISOString() })
-            .eq("id", runId!);
+            .eq("id", runId!)
+            .eq("status", "running");
         let { error: parkErr } = await park();
         if (parkErr) {
           await new Promise((r) => setTimeout(r, 1_000));
@@ -423,6 +461,9 @@ export async function executeSwarmServer(opts: {
     // finished run be "resumed", re-running everything after the last node. A
     // suspended run keeps its checkpoint; that is the whole point of it.
     if (runId && depth === 0 && status !== "suspended") await clearCheckpoint(runId);
+    // Callers know success, error and suspended; a cancelled run is not a
+    // success, and says why.
+    if (status === "cancelled") return { status: "error", output, error, runId };
     return { status, output, error, runId };
   };
 
@@ -480,6 +521,7 @@ export async function executeSwarmServer(opts: {
     for (const level of levels) {
       const runOneNode = async (node: Node<SwarmNodeData>, staged: StagedWrites) => {
         // Fail fast between nodes rather than starting work we can't finish.
+        if (cancelled) throw new Error(CANCELLED_WHILE_RUNNING);
         if (expired()) throw deadlineError();
         // Already done in an earlier attempt of this run — its output is in ctx
         // and re-running it would repeat whatever side effect it had.
@@ -1117,6 +1159,8 @@ export async function executeSwarmServer(opts: {
 
     return await finish("success", lastOutput, null);
   } catch (err) {
+    // A cancel aborts the same controller as the deadline: say which it was.
+    if (cancelled) return await finish("cancelled", "", CANCELLED_WHILE_RUNNING);
     // An expired deadline surfaces as a low-level AbortError from whichever
     // fetch was in flight — report the actual cause instead.
     const aborted =
@@ -1130,6 +1174,7 @@ export async function executeSwarmServer(opts: {
     return await finish("error", "", msg);
   } finally {
     clearTimeout(timer);
+    if (cancelWatch) clearInterval(cancelWatch);
   }
 }
 
@@ -1160,7 +1205,9 @@ export async function resumeSwarmRun(args: {
     .eq("user_id", args.userId)
     .maybeSingle();
   if (!run) return null;
-  if (run.status === "success" || run.status === "error") return null;
+  // A cancelled run is finished too: resuming it would run what the cancel
+  // stopped (R309).
+  if (run.status === "success" || run.status === "error" || run.status === "cancelled") return null;
 
   const checkpoint = await loadCheckpoint(args.runId, args.userId);
   if (!checkpoint) return null;

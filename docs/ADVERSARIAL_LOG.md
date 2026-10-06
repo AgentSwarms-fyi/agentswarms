@@ -109,6 +109,65 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-06 — R309: a swarm run cancelled from Recent runs ran on to the end, and was recorded a success
+
+**Severity: high (a cancel that is not one: every node still ran, and spent), sweep 10.** Recent runs
+says "Cancel a running run here", and offers Cancel on each. Two executors run a swarm:
+
+- **The browser's run manager** watches the run's `cancel_requested` flag and aborts.
+- **`executeSwarmServer`**, which runs workflow steps, schedules, the API and python-agent, never read
+  the flag.
+
+So the cancel flagged the row, wrote "cancelled", and the toast said "Cancelling run…". Meanwhile the
+server went on through every node. Its tracer's close then wrote `status: "success"` over the cancel.
+The parking write (an approval node) had the same unconditional shape. `resumeSwarmRun` refused only
+success and error, so it would have resumed a cancelled run that still had a checkpoint.
+
+**The before**, on R308's build:
+
+- **The swarm:** `r309_llm`, three agent nodes on `openai/gpt-4o-mini` writing a paragraph each.
+- **How it ran:** the step of a workflow, `r309_swarm_cancel`, so the server executed it.
+- **The cancel:** Recent runs → Cancel on "r309_llm (schedule) · Running · started 2s ago", at 06:26:52.
+  The toast said "Cancelling run…".
+- **A fresh read:** **Success**, 19 s, all **5 steps**, **$0.00064**.
+
+Two earlier tries used `r309_slow`: six Function nodes busy-waiting on `Date.now()`. They failed at the
+first node with "Function timed out after 5000ms", because the JS sandbox's clock does not advance inside
+a call. Even so, their close wrote **Error** over the cancel. So the late write showed up in all three
+tries.
+
+**The fix:**
+
+- **The executor watches its run's row** every `SWARM_CANCEL_POLL_MS` (2 s). A cancel aborts the same
+  controller as the deadline, and so the model call in flight. No node starts on a cancelled run.
+- **The run is closed** `cancelled`, and callers are answered "The run was cancelled while it was
+  running; nothing after that point ran."
+- **Both tracers' close** (server and browser) lands only on a running run. A run cancelled meanwhile
+  keeps "cancelled", and still gets the totals it spent.
+- **The park** is held to `running`, and the resume refuses a cancelled run.
+
+**Tests:** `swarmCancelServerRun.test.ts` runs the server tracer's close against an in-memory table:
+
+- a "success" close on a cancelled run leaves it cancelled, with its totals;
+- a running run closes.
+
+It pins the executor's watch, the check at a node's start, the cancelled close, the guarded park, the
+resume's refusal, and the browser tracer's guard.
+
+- **Mutation harness:** 8 mutants caught, and the control survived.
+
+**The after**, hot-deployed, with the same workflow and Cancel at 2 s:
+
+- **Recent runs:** **Cancelled**, 3 s, 2 steps, no cost.
+- **The workflow's run:** failed with "The run was cancelled while it was running; nothing after that
+  point ran."
+
+**Left open, and queued:** overlapping knowledge-base syncs, experiment-run writes from a notebook, and a
+resume whose reopen fails.
+
+**Fixtures:** the swarms `r309_slow`, `r309_slow2` and `r309_llm`, and the workflow `r309_swarm_cancel`
+with its five runs. Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-06 — R308: a training job cancelled while its workers started, which trained a promotable version anyway
 
 **Severity: high (a cancel that is not one, and a version anyone can put into production), sweep 10.**

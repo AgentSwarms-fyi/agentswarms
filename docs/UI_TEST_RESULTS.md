@@ -15,6 +15,18 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-06 — R309: Cancel on a swarm run the server executes
+
+The workflow `r309_swarm_cancel` has one Swarm step, so the server executes the swarm. Run now on the
+workflow; Swarms → **Recent runs** 3 s later, **Cancel** on the running row.
+
+| What was driven                                                                   | What came back                                                                                                                                               |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Before**, on R308's build: `r309_slow` (six Function nodes)                     | Toast "Cancelling run…"; a fresh read: **Error**, 2 steps ("Function timed out after 5000ms": the sandbox's clock does not advance), written over the cancel |
+| **Before**: `r309_llm` (three agent nodes on `openai/gpt-4o-mini`), Cancel at 2 s | Toast "Cancelling run…"; a fresh read: **Success**, 19 s, **5 steps**, **$0.00064**                                                                          |
+| **After**, hot-deployed: the same, Cancel at 2 s                                  | A fresh read: **Cancelled**, 3 s, 2 steps, no cost. The workflow's run: failed, "The run was cancelled while it was running; nothing after that point ran."  |
+| Fixtures                                                                          | Swarms `r309_slow`, `r309_slow2`, `r309_llm`; workflow `r309_swarm_cancel`                                                                                   |
+
 ## 2026-10-06 — R308: Cancel on a training job that was still starting
 
 Model `threshold_probe (payment_rows)` in two tabs. One opens **Train new version** and presses

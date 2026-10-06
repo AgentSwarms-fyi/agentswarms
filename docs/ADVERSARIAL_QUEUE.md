@@ -649,7 +649,17 @@ least twice, not a hypothetical.
               driven);
             - experiment runs (`ml.experiments` 173, `experimentArtifacts` 179);
             - deployments (`serve.server`, eleven writes, most of them opaque to the census).
-          - **Swarm runs** (`swarmRunManager`, `swarmExecute`, the two tracers) and their steps.
+          - ~~**Swarm runs** (`swarmRunManager`, `swarmExecute`, the two tracers) and their steps.~~
+            **R309**: a run the server executes never read its cancel, and its close wrote "success"
+            over it. Left open from the same reading:
+            - **Knowledge base syncs that overlap.** "Sync now" claims nothing, so it can run beside a
+              scheduled sync or a second tab's, and the second hits the documents' unique key and
+              records "error" over a sync that succeeded.
+            - **Experiment runs from a notebook.** `log` and `finish` read the run, then write without
+              holding to "running", so a late `log` can overwrite `finish`'s final metrics. The writer
+              is the user's own code, normally sequential.
+            - **A resume whose reopen fails** is recorded as a new run (`serverTracer`). R309 made the
+              resume refuse a cancelled run, which covers the case it was found from.
           - **Knowledge base sources**: thirteen writes across `ingest-url`, `ingest-github`, `kb/sync` and
             `kb/schedule`.
           - **Catalog source crawls** (`crawler.server`, three).
