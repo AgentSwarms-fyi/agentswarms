@@ -14,6 +14,166 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
+Nothing yet.
+
+## 1.6.0 — 2026-10-06
+
+**Spreadsheets under Data & BI, a Settings page, and the product doing what it
+says.** Over three hundred commits since 1.5.0. Sheets is new: a spreadsheet
+with Excel's formulas over lakehouse tables. Most of the rest was found by
+using the product the way people do: edits that are no longer lost, failures
+that say so, runs that end the way they report, and sandboxes that no longer
+hold the lakehouse's credentials. **Nine migrations** — run
+`npx supabase db push` after pulling.
+
+### Upgrading
+
+- **Run the migrations.** Eight are for Sheets; one lets a SQL model say it
+  was edited since its last build.
+- **Reload open tabs after upgrading.** An editor's save now carries the
+  version it was editing. A save from a page opened before the upgrade carries
+  none, so it is refused with a message to reload, rather than written over
+  whatever was saved since.
+- **New settings,** all optional, with defaults that need no change:
+  - Sheets: `SHEETS_MAX_CELLS`, `SHEETS_PAGE_ROWS`, `SHEETS_UPLOAD_MAX_MB`,
+    `SHEETS_IMPORT_MAX_SHEETS`, `SHEETS_EXPORT_MAX_ROWS`,
+    `SHEETS_VERSIONS_MAX`, `SHEETS_VERSION_INTERVAL_MINUTES`, and for its
+    assistant `SHEETS_ASSIST_MODEL`, `SHEETS_ASSIST_PER_MINUTE` and
+    `SHEETS_AI_FILL_MAX_ROWS`.
+  - Sandboxes and the lakehouse: `LAKEHOUSE_SANDBOX_IO_TIMEOUT_MS`, and for
+    the Spark cluster's per-run credential `LAKEHOUSE_STS_REQUIRED`,
+    `LAKEHOUSE_STS_DURATION_SECONDS`, `LAKEHOUSE_STS_ENDPOINT` and
+    `LAKEHOUSE_STS_ROLE_ARN`.
+  - `SWARM_CANCEL_POLL_MS` and `KB_SYNC_LEASE_MINUTES`.
+
+### Sheets
+
+A spreadsheet under Data & BI, with its own grid and formula engine.
+
+- **Excel's formulas,** including dynamic arrays and spill references,
+  named ranges, array formulas element by element, and the financial,
+  statistical, engineering, complex-number and database families. Results
+  match Excel's at its edges: 15-digit numbers, its rounding, and dates
+  before 1900-03-01.
+- **Sheets over the lakehouse:** a grid, a table sheet backed by a lakehouse
+  table, and a query sheet — a SELECT whose variables a cell can steer.
+- **Excel and CSV in and out,** keeping formulas, what Excel computed,
+  formats, notes and dynamic arrays.
+- **The working tools:** formatting and number formats, charts redrawn from
+  the cells, conditional formatting, data validation, filter and sort, Find
+  and Replace, freeze panes, Paste special, Text to columns, Remove
+  duplicates, the fill handle's series, inserting and deleting cells, hidden
+  sheets, cell notes, and a workbook's version history.
+- **Sharing** to view or edit, with chosen sheets and rows kept back; a
+  gallery with thumbnails; sample workbooks; and an assistant in the
+  workbook, with Fill with AI.
+
+### Settings, themes and keyboard shortcuts
+
+Contributed by @theniteshdev in #77.
+
+- **A Settings page,** reached from the profile menu or Ctrl/⌘ + comma, with
+  Account, Layout, API Keys and Theme tabs. API Keys lists and creates the
+  real swarm API keys; Account shows the month's spend against the budget
+  cap.
+- **Themes** can follow the system, and take an accent colour.
+- **Layout preferences:** workspace density and the default swarm view.
+- **Keyboard shortcuts** from one registry: a question mark lists them, and
+  G followed by a letter goes to a page.
+- **One profile editor,** shared by the Account page and Settings, which
+  keeps its earlier fixes: unsaved edits are named and kept, and a profile
+  that could not be read is not offered as a blank form.
+
+### Security and isolation
+
+- **Sandboxes hold no lakehouse credential.** A pipeline's lakehouse reads
+  and loads go through the app (R227). ML training and scoring fetch their
+  artifacts through signed URLs (R231). The shared Spark cluster is served
+  each call's own credentials, which the object store limits to one run's
+  files where it supports STS (R229, R230).
+- **Access checks fail closed** when they cannot be read. That covers
+  lakehouse row and column policies, through Iceberg publish and a reader's
+  SUMMARIZE too (R223, R224). A failed read no longer opens kernels to
+  everyone or stops every MCP server (R249). It no longer lets the budget cap
+  slip (R250), or deletes the audit trail (R252).
+- **The lakehouse's statement checks reach further.** A write statement may
+  not call a table function (R226), and a pipeline's lakehouse nodes get the
+  SQL editor's checks (R225).
+- **Identity and keys.** A SCIM deprovisioning that removed no one no longer
+  answers 200 (R248). An API key restricted to one agent is saved that way
+  (R247). A grantee keeps the restrictions along with the access (R235).
+- **Secrets.** A secret replaced mid-run is no longer stored in clear, and a
+  node preview's output is scrubbed (R292). A pipeline's log no longer carries
+  secrets (R253). Leaving a secret field blank keeps the stored key (R254).
+- **Budgets.** Per-agent spend limits are enforced (R294). A cap typed as 2500
+  is stored as $2,500 (R293). An unpriced call no longer counts as free.
+
+### Work that is no longer lost
+
+- **A session refresh no longer puts the saved copy back over unsaved
+  work.** That was true in twenty-one places (R125), and in the dialogs and
+  forms a refresh refilled or emptied (R215, R217–R221).
+- **Editors know what is unsaved,** and ask before a link or a closed tab
+  drops it. This covers pipelines, workflows, swarms, SQL and semantic models,
+  BI reports, dashboards, notebooks, MCP servers and the profile
+  (R268–R282).
+- **Two tabs on one object no longer undo each other.** A save carries the
+  version it edited, and a stale one is refused, with an explicit "Overwrite
+  with mine". This covers notebooks, BI reports, SQL and semantic models,
+  pipelines, swarms, workflows and MCP server source (R283–R290, R303).
+- **One press is one action:** a double Enter creates, runs or mints once
+  (R207, R211–R214, R216).
+
+### Runs, jobs and endpoints that end the way they say
+
+- **A cancel holds.** Each of these ran on and recorded success; each now
+  stops:
+  - an ETL run cancelled while its sandbox started (R307);
+  - a training job cancelled while its workers started (R308);
+  - a swarm run cancelled while the server was executing it (R309).
+- **Warm ML endpoints.** A Stop pressed while one starts now holds (R311).
+  Neither the idle reaper nor a redeploy undoes another's start (R314).
+  Production traffic is answered only by a version someone promoted (R251).
+- **Two writers, one record:**
+  - a data incident acknowledged as its monitor resolved it stays resolved,
+    and a failure that lands as you resolve one opens a new incident (R312);
+  - two syncs of one knowledge-base source no longer run together, and the
+    second no longer reports a sync that worked as failed (R313);
+  - a poll no longer writes over a stored result (R295).
+- **Nothing stays "running" for ever.** Runs, builds and crawls that finished
+  but stayed "running" now finish. Schedulers that reported success over their
+  own failures report the failures.
+
+### Failures that say so
+
+- **A button that fails says so.** Sixty-eight could fail in complete
+  silence; each now says what went wrong (R245, R263).
+- **A failed read is not an empty list.** "No agents yet" was shown over nine
+  agents the page could not read. "Upload data first" and "Everything is
+  running" were shown over reads that had failed. Each page now says the read
+  failed.
+- **A capped list is not a total.** Pagers, counts and charts that presented a
+  first page as the whole now read the rest, or say where they stopped.
+- **"Not signed in" only when you are not.** It was also shown when the check
+  itself failed (R297, R298), and "Report not found" when a report could not
+  be loaded (R296).
+
+### Data that stays what it was
+
+- A CSV with a NUL character imports, and editor text with one saves (R300,
+  R301).
+- The browser's and the server's SQL engines agree on time zones and dates
+  (R195–R197). A chart reads a timestamp with no offset as UTC (R196).
+- Publishing to Iceberg works without CREATE TABLE AS, and a replace never
+  leaves the name empty (R181, R182). A SQL model's build replaces only what
+  it built (R178).
+- A freshness monitor on a text column says the column is not a timestamp,
+  instead of blaming the data (R238).
+- Cost reads the same on every page, so a priced call never reads as free
+  (R202).
+
+### Earlier in this release
+
 **A pass over the lakehouse, ETL and ML halves, looking for the places where a
 control was offered and did not do what it said.** Seven of them; each was
 found by running the thing rather than reading it, and each is described in
