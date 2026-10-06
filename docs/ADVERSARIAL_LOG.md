@@ -109,6 +109,81 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-06 — R303: a tab opened before a deploy saved over everyone, and its save was taken for "Overwrite with mine"
+
+**Severity: high (silent loss of saved work), sweep 9.** This explains R290's one unexplained run.
+Five editors write over the stored row only on the version they read: the BI report (R284), the SQL
+model (R285), the ETL pipeline (R287), the workflow (R289) and the MCP server's source (R290). In all
+five, a save that left the version out was "Overwrite with mine", and was written blind. A page opened
+before those rounds were deployed sends no version. So does a page whose version was never read. Its
+every save was taken for a deliberate overwrite.
+
+R290's first after-drive was exactly that. Tab B had been opened on R289's build and was never
+reloaded after the hot deploy. Its Backspaces went through unrefused, and tab A's two autosaved lines
+were gone.
+
+**The before**, on R302's build, MCP builder, "r214 before" in two tabs:
+
+- **Tab B** had a page `fetch` wrapper that renamed the fingerprint's key, which the server's schema
+  drops. That sends what a page from before R290 sends.
+- **A** added `# r303 A`, which autosaved. B, reloaded, showed it.
+- **A** added `# r303 A2`, which autosaved. Nothing unsaved.
+- **B**, still holding the source from before A2, added `# r303 B`. The reply was "ok", with nothing
+  unsaved and no refusal.
+- **A, reloaded:** `# r303 A` and `# r303 B`. **A's `# r303 A2` was gone**, and neither tab said a word.
+
+The first try, with the wrapper's pattern not matching the seroval body, sent the fingerprint. The
+guard refused B: "Changed elsewhere, not saved". So the gap is only the missing version.
+
+**The fix** is `src/lib/saveVersion.ts`, `unversionedSave(what, { version, overwrite })`.
+
+- **The five saves** take `overwrite: z.literal(true)`. An update to an existing row that carries
+  neither its version nor that flag is refused before any table is read or written. The message: "This
+  save did not say which version of the … it was editing, so it could have undone a save made since.
+  Nothing was saved. The page was most likely opened before the app was updated: copy your changes,
+  reload the page, and save again."
+- **A new row** has no version to send, and goes through.
+- **The MCP builder's settings** (keep warm, timeout, secrets, origins, name) write without a
+  fingerprint as before. Only the source or packages need one.
+- **The five pages** send `{ overwrite: true }` for "Overwrite with mine", and their version
+  otherwise. The ETL check moved to the top of the save, so a refused save does no work first.
+
+**Tests:** `unversionedSave.test.ts` runs the five real handlers against a Supabase stub that records
+every table touched:
+
+- refused with neither, and no table touched;
+- through with the version, and through with `overwrite`;
+- a new report, pipeline or model through;
+- MCP settings saved without a fingerprint;
+- MCP packages alone refused;
+- an MCP overwrite writing the source but not the flag.
+
+The five R284–R290 pin tests now read the new page lines. So does R280's autosave pin, which matched
+the save call with `[^)]*` until the new parentheses broke it. It now matches the call's braces, and still
+fails when the catch is changed. The first gate failed on that pin and on two known phantom timeouts
+(the PDF build and a sample workbook), which passed alone; the rerun was green.
+
+- **Mutation harness:** 16 mutants caught, and the control survived.
+
+**The after**, hot-deployed:
+
+- **The same tab B**, still on the old bundle with the fingerprint renamed. A added `# r303 A3`, which
+  autosaved. B added `# r303 B2`, and the toast gave the message above; still "Unsaved changes".
+- **A reloaded:** `# r303 A3` still there.
+- **Both tabs on the new bundle.** A added `# r303 A4`. B's save sent its fingerprint (`id,
+source_code, requirements, expected_source_fingerprint`) and was refused as stale, with the chip.
+- **B's "Overwrite with mine"** sent `id, source_code, requirements, overwrite`, and was saved.
+- **Cleanup:** the test lines were removed, back to the original 22 lines. The save sent the
+  fingerprint, and the reply was "ok".
+- **An ordinary save elsewhere:** the BI report "r214 after", header band `R303`, then Save. The
+  request carried `expectedUpdatedAt`, and the toast said "Saved". The band was then put back to
+  empty.
+
+**What it costs:** a tab opened before this deploy keeps its ordinary saves, which send their version.
+Its "Overwrite with mine" is refused with the message above, until the page is reloaded.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-06 — R302: two teardowns of one sandbox, and a container "left on the host" that was gone
 
 **Severity: low (a false alarm in the operator's log, which also hid the real ones), the runtime.**
@@ -748,7 +823,9 @@ with mine** and nothing was written. Overwrite now writes whenever it is asked. 
 a verified-green baseline (that one among them), control survived; R280's three pins moved to the new
 lines.
 
-Driven on R290 hot-deployed. **One run is unexplained:** in the first after-drive, B's 9 Backspaces
+Driven on R290 hot-deployed. **One run is unexplained** (explained in R303: tab B was still running
+R289's bundle, which sends no fingerprint, and a save without one was written blind): in the first
+after-drive, B's 9 Backspaces
 removed its old line and its tab then showed nothing unsaved and no refusal, and the store ended at the
 original 29 lines — A's two autosaved lines gone, and no record of which request did it. It did not
 recur. With every save request and reply logged in both tabs, the same sequence went as designed: A's

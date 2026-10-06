@@ -25,6 +25,7 @@ import { changedSinceRun } from "@/utils/etl/runDrift";
 import { chainTargetsOf, validateChainTargets } from "@/lib/etlChain";
 import { etlPipelineDefinition } from "@/lib/etlDefinition";
 import { fingerprintOf } from "@/lib/definitionFingerprint";
+import { unversionedSave } from "@/lib/saveVersion";
 import { CONTINUOUS_SCHEDULE, canRunContinuously } from "@/utils/etl/continuous";
 import {
   cancelEtlRun,
@@ -104,10 +105,12 @@ const UpsertSchema = z.object({
   is_active: z.boolean().optional(),
   timeout_minutes: z.number().int().min(1).max(240).optional(),
   /**
-   * The fingerprint of the definition the editor opened or last saved. Left
-   * out, the save overwrites: "Overwrite with mine" (R287).
+   * The fingerprint of the definition the editor opened or last saved (R287).
+   * "Overwrite with mine" sends `overwrite` instead; an update with neither is
+   * refused (R303).
    */
   expected_fingerprint: z.string().length(64).optional(),
+  overwrite: z.literal(true).optional(),
 });
 
 export type EtlPipelineSummary = Pick<
@@ -475,6 +478,13 @@ export const saveEtlPipeline = createServerFn({ method: "POST" })
       | { stale: true; error: string }
     > => {
       const userId = await resolveCaller(data.access_token);
+      if (data.id) {
+        const refused = unversionedSave("pipeline", {
+          version: data.expected_fingerprint,
+          overwrite: data.overwrite,
+        });
+        if (refused) throw new Error(refused);
+      }
 
       // Visual pipelines compile on every save. A half-built canvas must still
       // be saveable — losing work to "join needs two inputs" would be hostile —

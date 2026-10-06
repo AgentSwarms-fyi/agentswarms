@@ -105,8 +105,8 @@ describe("getEtlPipeline and saveEtlPipeline", () => {
 describe("the pipeline editor", () => {
   it("keeps the fingerprint it opened and sends it back, unless overwriting", () => {
     expect(page).toMatch(/fingerprintRef\.current = row\.fingerprint;\s*setStale\(false\);/);
-    expect(page).toContain(
-      "expected_fingerprint: overwrite ? undefined : (fingerprintRef.current ?? undefined),",
+    expect(page).toMatch(
+      /\.\.\.\(overwrite\s*\? \{ overwrite: true as const \}\s*: \{ expected_fingerprint: fingerprintRef\.current \?\? undefined \}\),/,
     );
     expect(page).toMatch(
       /if \("stale" in res\) \{\s*setStale\(true\);\s*toast\.error\(res\.error\);\s*return false;\s*\}\s*fingerprintRef\.current = res\.fingerprint;/,

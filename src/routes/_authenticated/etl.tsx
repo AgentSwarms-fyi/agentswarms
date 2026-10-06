@@ -995,7 +995,11 @@ function PipelineEditor({ id, onBack }: { id: string; onBack: () => void }) {
           timeout_minutes: p.timeout_minutes,
           poll_seconds: p.poll_seconds,
           engine: p.engine,
-          expected_fingerprint: overwrite ? undefined : (fingerprintRef.current ?? undefined),
+          // Overwriting is said in so many words: a save with neither is
+          // refused, as a page opened before R287 would send (R303).
+          ...(overwrite
+            ? { overwrite: true as const }
+            : { expected_fingerprint: fingerprintRef.current ?? undefined }),
         },
       });
       if ("stale" in res) {

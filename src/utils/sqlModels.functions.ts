@@ -20,6 +20,7 @@ import {
   type SqlModelTest,
 } from "@/lib/sqlModels";
 import { fingerprintOf } from "@/lib/definitionFingerprint";
+import { unversionedSave } from "@/lib/saveVersion";
 import {
   buildSqlModels,
   loadModels,
@@ -134,9 +135,11 @@ export const sqlModelSave = createServerFn({ method: "POST" })
         schedule: z.enum(["manual", "hourly", "daily", "weekly", "cron"]),
         cron_expr: z.string().trim().max(200).nullable().optional(),
         timezone: z.string().trim().max(80).optional(),
-        // The fingerprint of the definition this page opened or last saved.
-        // Left out, the save overwrites: "Overwrite with mine" (R285).
+        // The fingerprint of the definition this page opened or last saved
+        // (R285). "Overwrite with mine" sends `overwrite` instead; an update
+        // with neither is refused (R303).
         expected_fingerprint: z.string().length(64).optional(),
+        overwrite: z.literal(true).optional(),
       })
       .parse(input),
   )
@@ -146,6 +149,13 @@ export const sqlModelSave = createServerFn({ method: "POST" })
     }): Promise<(Fail & { stale?: boolean }) | { ok: true; id: string; fingerprint: string }> => {
       const caller = await resolveCaller(data.access_token);
       if (!caller.ok) return caller;
+      if (data.id) {
+        const refused = unversionedSave("model", {
+          version: data.expected_fingerprint,
+          overwrite: data.overwrite,
+        });
+        if (refused) return { ok: false, error: refused };
+      }
 
       const nameError = validateModelName(data.name);
       if (nameError) return { ok: false, error: nameError };

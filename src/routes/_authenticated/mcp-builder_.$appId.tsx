@@ -222,7 +222,11 @@ function McpAppEditor() {
             id: appId,
             source_code: source,
             requirements,
-            expected_source_fingerprint: expected,
+            // Overwriting is said in so many words: a save with neither is
+            // refused, as a page opened before R290 would send (R303).
+            ...(overwrite
+              ? { overwrite: true as const }
+              : { expected_source_fingerprint: expected }),
           },
         });
       } catch (e) {

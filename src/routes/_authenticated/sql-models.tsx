@@ -366,7 +366,11 @@ function SqlModelsPage() {
           schedule: draft.schedule,
           cron_expr: draft.cron_expr || null,
           timezone: draft.timezone,
-          expected_fingerprint: overwrite ? undefined : (fingerprintRef.current ?? undefined),
+          // Overwriting is said in so many words: a save with neither is
+          // refused, as a page opened before R285 would send (R303).
+          ...(overwrite
+            ? { overwrite: true as const }
+            : { expected_fingerprint: fingerprintRef.current ?? undefined }),
         },
       });
       if (!res.ok) {

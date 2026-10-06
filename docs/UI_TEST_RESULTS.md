@@ -15,6 +15,25 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-06 — R303: a save with no version, from a tab opened before a deploy
+
+MCP Builder, "r214 before" (22 lines), in two tabs of the browser pane, A and B. Lines added at the
+end autosave. Tab B models a page from before R290: a `fetch` wrapper renames the fingerprint's key in
+its save, which the schema drops.
+
+| Step                                                                                       | What came back                                                                                                                                           |
+| ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Before**, on R302's build: A adds `# r303 A`, then `# r303 A2`                           | Both autosaved                                                                                                                                           |
+| **Before**: B, holding the source from before A2, adds `# r303 B`                          | Reply "ok"; nothing unsaved, no refusal                                                                                                                  |
+| **Before**: A reloaded                                                                     | `# r303 A`, `# r303 B`: **A2 gone**                                                                                                                      |
+| (First try, the wrapper not matching the body)                                             | The fingerprint went; B was refused, "Changed elsewhere, not saved"                                                                                      |
+| **After**, hot-deployed, B still on the old bundle: A adds `# r303 A3`; B adds `# r303 B2` | A saved. B: toast "This save did not say which version of the MCP server's source it was editing, … reload the page, and save again."; "Unsaved changes" |
+| **After**: A reloaded                                                                      | `# r303 A3` still there                                                                                                                                  |
+| **After**, both tabs on the new bundle: A adds `# r303 A4`; B adds `# r303 B3`             | B's save carried `expected_source_fingerprint`, refused stale, with the chip                                                                             |
+| **After**: B, **Overwrite with mine**                                                      | The save carried `overwrite`; reply "ok"; chip gone                                                                                                      |
+| Cleanup: the test lines removed in B                                                       | Saved with the fingerprint; A reloaded: 22 lines, no test lines                                                                                          |
+| **After**, another editor: BI report "r214 after", header left band `R303`, Save           | Request carried `expectedUpdatedAt`; toast "Saved"; band put back to empty                                                                               |
+
 ## 2026-10-06 — R302: two teardowns of one sandbox
 
 A kernel for the notebook "R301 probe" was started by running a cell. Then Developer workspace →
@@ -199,14 +218,14 @@ changed since the last image, so the notebook runtime image is still current —
 MCP Builder, "r214 before" (29 lines), open in two tabs of the browser pane, A and B. Lines are added at
 the end of the source and left to autosave (1.2 s).
 
-| Step                                                            | R289's build                                     | R290 hot-deployed                                                                                                                 |
-| --------------------------------------------------------------- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| A: `# r290 A` added                                             | autosaved                                        | autosaved, reply "ok" (twice, with a second line)                                                                                 |
-| B, loaded before: a line added                                  | **autosaved over A's** — reloaded, only B's line | reply `stale`: "This MCP server's source was changed in another tab or session after this page read it"; the chip; autosave stops |
-| First after-drive only                                          | —                                                | B's removal went through unrefused and A's lines were gone; **not reproduced**, see the log                                       |
-| B typed back to exactly what it opened, **Overwrite with mine** | —                                                | before the fix (read, not driven): nothing would be written. After: written; chip gone                                            |
-| A, then stale: a change                                         | —                                                | refused in turn                                                                                                                   |
-| A: **Reload**, test lines removed                               | —                                                | B's version, then the original 29 lines                                                                                           |
+| Step                                                            | R289's build                                     | R290 hot-deployed                                                                                                                   |
+| --------------------------------------------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| A: `# r290 A` added                                             | autosaved                                        | autosaved, reply "ok" (twice, with a second line)                                                                                   |
+| B, loaded before: a line added                                  | **autosaved over A's** — reloaded, only B's line | reply `stale`: "This MCP server's source was changed in another tab or session after this page read it"; the chip; autosave stops   |
+| First after-drive only                                          | —                                                | B's removal went through unrefused and A's lines were gone; **not reproduced**, see the log. Explained by R303: B ran R289's bundle |
+| B typed back to exactly what it opened, **Overwrite with mine** | —                                                | before the fix (read, not driven): nothing would be written. After: written; chip gone                                              |
+| A, then stale: a change                                         | —                                                | refused in turn                                                                                                                     |
+| A: **Reload**, test lines removed                               | —                                                | B's version, then the original 29 lines                                                                                             |
 
 ## 2026-10-05 — R289: two tabs on one workflow
 

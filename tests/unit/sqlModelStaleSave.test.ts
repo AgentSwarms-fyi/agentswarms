@@ -124,8 +124,8 @@ describe("sqlModelSave and the list", () => {
 describe("the SQL models page", () => {
   it("opens a model with its fingerprint and sends it back, unless overwriting", () => {
     expect(page).toContain("openDraft(draftOf(m), m.fingerprint);");
-    expect(page).toContain(
-      "expected_fingerprint: overwrite ? undefined : (fingerprintRef.current ?? undefined),",
+    expect(page).toMatch(
+      /\.\.\.\(overwrite\s*\? \{ overwrite: true as const \}\s*: \{ expected_fingerprint: fingerprintRef\.current \?\? undefined \}\),/,
     );
     expect(page).toMatch(
       /if \(!res\.ok\) \{\s*if \(res\.stale\) setStale\(true\);\s*return toast\.error\(res\.error\);\s*\}\s*fingerprintRef\.current = res\.fingerprint;/,

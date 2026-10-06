@@ -35,7 +35,7 @@ describe("mcpSourceDefinition", () => {
 describe("mcpAppSave", () => {
   it("never writes the fingerprint into the row", () => {
     expect(server).toContain(
-      "const { id, expected_source_fingerprint: expected, ...patch } = data;",
+      "const { id, expected_source_fingerprint: expected, overwrite, ...patch } = data;",
     );
   });
 

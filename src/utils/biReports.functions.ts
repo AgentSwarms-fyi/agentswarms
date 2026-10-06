@@ -22,6 +22,7 @@ import {
   type ReportPageSetup,
 } from "@/lib/biReports";
 import { callerFailure } from "@/utils/callerLookup.server";
+import { unversionedSave } from "@/lib/saveVersion";
 
 type Fail = { ok: false; error: string };
 
@@ -125,9 +126,11 @@ export const biReportSave = createServerFn({ method: "POST" })
         description: z.string().trim().max(2000).nullable().optional(),
         // The updated_at this page read or last saved. The update lands only on
         // it, so a save from another tab or session in between is not written
-        // over (R284, sweep 9). Left out, the save overwrites: "Overwrite with
-        // mine", asked for after the refusal.
+        // over (R284, sweep 9).
+        // "Overwrite with mine", asked for after the refusal, sends `overwrite`
+        // instead; an update with neither is refused (R303).
         expectedUpdatedAt: z.string().min(1).optional(),
+        overwrite: z.literal(true).optional(),
         page: z.object({
           size: z.enum(["a4", "letter", "legal", "a3"]),
           orientation: z.enum(["portrait", "landscape"]),
@@ -145,6 +148,13 @@ export const biReportSave = createServerFn({ method: "POST" })
       data,
     }): Promise<(Fail & { stale?: boolean }) | { ok: true; id: string; updatedAt: string }> => {
       const userId = await resolveCaller(data.accessToken);
+      if (data.id) {
+        const refused = unversionedSave("report", {
+          version: data.expectedUpdatedAt,
+          overwrite: data.overwrite,
+        });
+        if (refused) return { ok: false, error: refused };
+      }
       const blocks = data.blocks as unknown as ReportBlock[];
       const invalid = validateReport({ name: data.name, page: data.page, blocks });
       if (invalid) return { ok: false, error: invalid };

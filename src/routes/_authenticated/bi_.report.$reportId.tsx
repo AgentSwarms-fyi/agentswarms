@@ -292,7 +292,11 @@ function ReportDesigner() {
           header: report.header,
           footer: report.footer,
           blocks: report.blocks as unknown as Record<string, unknown>[],
-          expectedUpdatedAt: overwrite ? undefined : (versionRef.current ?? undefined),
+          // Overwriting is said in so many words: a save with neither is
+          // refused, as a page opened before R284 would send (R303).
+          ...(overwrite
+            ? { overwrite: true as const }
+            : { expectedUpdatedAt: versionRef.current ?? undefined }),
         },
       });
       if (!res.ok) {

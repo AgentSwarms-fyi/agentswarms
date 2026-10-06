@@ -43,8 +43,8 @@ describe("the BI report page", () => {
   });
 
   it("sends the version, except when asked to overwrite", () => {
-    expect(page).toContain(
-      "expectedUpdatedAt: overwrite ? undefined : (versionRef.current ?? undefined),",
+    expect(page).toMatch(
+      /\.\.\.\(overwrite\s*\? \{ overwrite: true as const \}\s*: \{ expectedUpdatedAt: versionRef\.current \?\? undefined \}\),/,
     );
     expect(page).toMatch(
       /if \(!res\.ok\) \{\s*if \(res\.stale\) setStale\(true\);\s*toast\.error\(res\.error\);/,

@@ -456,7 +456,11 @@ function WorkflowsPage() {
           nodes: graph.nodes,
           edges: graph.edges,
           params: graph.params ?? [],
-          expectedUpdatedAt: overwrite ? undefined : (versionRef.current ?? undefined),
+          // Overwriting is said in so many words: a save with neither is
+          // refused, as a page opened before R289 would send (R303).
+          ...(overwrite
+            ? { overwrite: true as const }
+            : { expectedUpdatedAt: versionRef.current ?? undefined }),
         },
       });
       if (!res.ok) {

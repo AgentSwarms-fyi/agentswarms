@@ -23,6 +23,7 @@ import { MCP_PROTOCOL_VERSION, readRpcBody, rpcFailure } from "@/utils/mcpApps/p
 import { templateById } from "@/lib/mcpTemplates";
 import { fingerprintOf } from "@/lib/definitionFingerprint";
 import { mcpSourceDefinition } from "@/lib/mcpSource";
+import { unversionedSave } from "@/lib/saveVersion";
 
 type Fail = { ok: false; error: string };
 
@@ -145,8 +146,11 @@ const SaveSchema = z.object({
   /**
    * The fingerprint of the source and packages the editor read or last saved.
    * A save carrying it lands only if the stored source still matches (R290).
+   * "Overwrite with mine" sends `overwrite` instead; a source save with
+   * neither is refused (R303).
    */
   expected_source_fingerprint: z.string().length(64).optional(),
+  overwrite: z.literal(true).optional(),
   keep_warm: z.boolean().optional(),
   idle_ttl_minutes: z.number().int().min(1).max(1440).optional(),
   allowed_origins: z.array(z.string().max(200)).max(50).optional(),
@@ -163,8 +167,14 @@ export const mcpAppSave = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => SaveSchema.parse(input))
   .handler(async ({ data, context }): Promise<(Fail & { stale?: boolean }) | { ok: true }> => {
-    const { id, expected_source_fingerprint: expected, ...patch } = data;
+    const { id, expected_source_fingerprint: expected, overwrite, ...patch } = data;
     if (!expected) {
+      // The settings write without a fingerprint; the source and packages,
+      // which another tab may have saved, only with one or with `overwrite`.
+      if (patch.source_code !== undefined || patch.requirements !== undefined) {
+        const refused = unversionedSave("MCP server's source", { version: expected, overwrite });
+        if (refused) return { ok: false, error: refused };
+      }
       const { error } = await context.supabase.from("mcp_apps").update(patch).eq("id", id);
       if (error) return { ok: false, error: error.message };
       return { ok: true };

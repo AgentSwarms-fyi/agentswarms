@@ -24,6 +24,7 @@ import {
   type WorkflowNode,
 } from "@/lib/workflows";
 import { callerFailure } from "@/utils/callerLookup.server";
+import { unversionedSave } from "@/lib/saveVersion";
 
 type Fail = { ok: false; error: string };
 
@@ -200,9 +201,11 @@ export const workflowSave = createServerFn({ method: "POST" })
         id: z.string().uuid(),
         // The updated_at this page read or last saved. Only a save sets it
         // (runs and the scheduler write other columns, and no trigger moves
-        // it), so it is the version: the update lands only on it (R289). Left
-        // out, the save overwrites: "Overwrite with mine".
+        // it), so it is the version: the update lands only on it (R289).
+        // "Overwrite with mine" sends `overwrite` instead; a save with neither
+        // is refused (R303).
         expectedUpdatedAt: z.string().min(1).optional(),
+        overwrite: z.literal(true).optional(),
         name: z.string().trim().min(1).max(WORKFLOW_NAME_MAX),
         description: z.string().trim().max(2000).nullable().optional(),
         schedule: z.enum(["manual", "hourly", "daily", "weekly", "cron"]),
@@ -237,6 +240,11 @@ export const workflowSave = createServerFn({ method: "POST" })
   .handler(
     async ({ data }): Promise<(Fail & { stale?: boolean }) | { ok: true; updatedAt: string }> => {
       const userId = await resolveCaller(data.accessToken);
+      const refused = unversionedSave("workflow", {
+        version: data.expectedUpdatedAt,
+        overwrite: data.overwrite,
+      });
+      if (refused) return { ok: false, error: refused };
       const graph: WorkflowGraph = {
         nodes: data.nodes as WorkflowNode[],
         edges: data.edges,

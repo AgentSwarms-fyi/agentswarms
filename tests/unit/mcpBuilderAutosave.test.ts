@@ -106,7 +106,7 @@ describe("saveFailureText", () => {
 describe("a save the server refuses", () => {
   it("is caught, counted out, and reported as a reason", () => {
     expect(src).toMatch(
-      /try \{\s*res = await saveFn\([^)]*\);\s*\} catch \(e\) \{\s*return saveFailureText\(e\);\s*\} finally \{\s*setSaving\(\(n\) => n - 1\);\s*\}/,
+      /try \{\s*res = await saveFn\(\{[^]*?\}\);\s*\} catch \(e\) \{\s*return saveFailureText\(e\);\s*\} finally \{\s*setSaving\(\(n\) => n - 1\);\s*\}/,
     );
   });
 });

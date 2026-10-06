@@ -75,6 +75,10 @@ Please don't open a public issue for security vulnerabilities — see
   carry a NUL character, which Postgres refuses. A test fails until it does.
   The two clients under `src/integrations/supabase/` were generated, and have been
   edited to use it; keep that if they are ever regenerated.
+- An editor whose save lands only on the version it read sends that version with
+  every update, and `overwrite: true` for "Overwrite with mine". The server refuses an
+  update that carries neither, through `unversionedSave` (`src/lib/saveVersion.ts`),
+  since a page opened before the guard was deployed sends neither.
 
 ## Code of Conduct
 

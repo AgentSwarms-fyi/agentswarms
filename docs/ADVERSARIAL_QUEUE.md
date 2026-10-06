@@ -607,8 +607,10 @@ least twice, not a hypothetical.
    - ~~**Budgets** (sweep 8's open note) is the same family inside one tab: its per-keystroke writes
      can land out of order.~~ **R293.**
 
-   **The editor list is done** (R283 to R290), and so is Budgets (R293). What stays open in the
-   sweep is R290's one unreproduced run.
+   **The editor list is done** (R283 to R290), and so is Budgets (R293). ~~What stays open in the
+   sweep is R290's one unreproduced run.~~ **R303** explained it: the tab ran the build from before
+   R290, which sends no fingerprint, and all five saves took a missing version for "Overwrite with
+   mine". Overwriting is now sent as `overwrite: true`, and an update with neither is refused.
 
 ### Sheets (new, 2026-09-25)
 
