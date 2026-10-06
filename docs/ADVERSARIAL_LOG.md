@@ -109,6 +109,41 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-06 — Smoke of the real images after R301 to R303
+
+**The app image.** `9a335932d5f7` was built from `c90bf3e4` with `docker compose build agentswarms` and
+started with `docker compose up -d`. It was healthy after about 21 s: eight workers listening, eight
+schedulers started, and nothing in the log matching "error" or "warn".
+
+**The runtime image.** `agentswarms/notebook-runtime` (`c36a97397cd9`) is R299's rebuild. Nothing under
+`docker/` has changed since.
+
+**Markers.** Each is in its own chunk of the image's `dist`:
+
+- R301: the NUL-safe fetch, in `nulSafeFetch` on the server and in the client's `index` chunk;
+- R302: "another removal was already in progress", in `docker.server`;
+- R303: "did not say which version", in `saveVersion`; the MCP builder's chunk sends the `overwrite`
+  flag.
+
+The invented control is absent.
+
+**The Iceberg publish.** `analytics.fct_region_revenue` → `local_rest`, `r181`, `smoke_9a335932d5f7` gave
+"Published 4 row(s) to r181.smoke_9a335932d5f7". The catalog's own metadata shows `region, orders,
+revenue` and one `append` snapshot: **4 records in 1 file**.
+
+**R302 on the real images.** A kernel for "R301 probe" was stopped from Running kernels with the stop
+request sent twice at once:
+
+- **The proxy:** one DELETE answered 204, the other 409, and the 409's teardown inspected until 404.
+- **The result:** the container was gone. Both replies were 200, after 13.7 s, and the toast said
+  "Kernel stopped". There was no line in the app's log.
+
+**For R302's queued item.** On this kernel, which was "ready", Docker held `POST …/stop?t=5` for 6.3 and
+6.4 s, and the removing DELETE for 6.4 s. The 14 s and 19.5 s stops in R302 were both on kernels still
+"starting".
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-06 — R303: a tab opened before a deploy saved over everyone, and its save was taken for "Overwrite with mine"
 
 **Severity: high (silent loss of saved work), sweep 9.** This explains R290's one unexplained run.

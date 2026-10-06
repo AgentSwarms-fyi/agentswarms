@@ -15,6 +15,18 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-06 — Smoke of the real images after R301 to R303
+
+The app image `9a335932d5f7` was built from `c90bf3e4` and started with `docker compose up -d`. The
+runtime image `c36a97397cd9` is R299's rebuild; nothing under `docker/` has changed since.
+
+| What was driven                                                                                 | What came back                                                                                                                                                                                                             |
+| ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Health after `up -d`                                                                            | healthy after about 21 s; 8 workers listening, 8 schedulers started; nothing matching "error" or "warn"                                                                                                                    |
+| Shipped code                                                                                    | R301's NUL-safe fetch (server and client), R302's "another removal was already in progress", R303's "did not say which version" and the MCP builder's `overwrite` flag, each in its own chunk; the invented control absent |
+| **Iceberg publish** `analytics.fct_region_revenue` → `local_rest`, `r181`, `smoke_9a335932d5f7` | "Published 4 row(s) to r181.smoke_9a335932d5f7"; the catalog's metadata shows `region, orders, revenue`, one `append` snapshot, **4 records in 1 file**                                                                    |
+| R302 on the real images: Running kernels → Stop on "R301 probe", the request sent twice at once | DELETE 204 and DELETE 409, which inspected until 404; container gone; both replies 200 after 13.7 s; "Kernel stopped"; no line in the app's log. `stop?t=5` held 6.3 and 6.4 s on this "ready" kernel                      |
+
 ## 2026-10-06 — R303: a save with no version, from a tab opened before a deploy
 
 MCP Builder, "r214 before" (22 lines), in two tabs of the browser pane, A and B. Lines added at the

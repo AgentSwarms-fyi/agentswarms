@@ -507,7 +507,9 @@ least twice, not a hypothetical.
      - **Open, from R302: Stop on a kernel takes about 20 s.** The proxy shows Docker holding
        `POST /containers/nb-…/stop?t=5` for 14 s and 19.5 s on two runs, so the Running kernels
        panel spins that long. The grace period is 5 s. Find where the rest goes: the kernel ignoring
-       SIGTERM, its network teardown, or the daemon.
+       SIGTERM, its network teardown, or the daemon. In the smoke after R303, a kernel that was
+       "ready" took 6.3 s to stop and 6.4 s to remove, 13.7 s in all; both slow ones had been
+       "starting".
 
 8. **Unsaved work lost without a word** (sweep 8, from 2026-10-05). An editor with an explicit
    Save holds edits in the page, and something replaces or leaves them with no question: picking
