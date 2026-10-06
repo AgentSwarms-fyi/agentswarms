@@ -61,7 +61,14 @@ export const Route = createFileRoute("/api/kb/sources/sync")({
         }
 
         const outcome = await syncKbSource(admin, source);
-        const status = outcome.status === "ok" ? 200 : outcome.status === "error" ? 502 : 207;
+        const status =
+          outcome.status === "ok"
+            ? 200
+            : outcome.status === "error"
+              ? 502
+              : outcome.status === "running"
+                ? 409
+                : 207;
         return Response.json(
           { ok: outcome.ok, status: outcome.status, error: outcome.error, stats: outcome.stats },
           { status },

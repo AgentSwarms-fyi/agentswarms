@@ -22,6 +22,7 @@ import { resolveEmbedArgs } from "@/utils/tools/embedTarget.server";
 import { reconcileSourceDocuments, type IncomingDoc } from "@/utils/kb/reconcileDocs.server";
 import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
 import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
+import { KB_SYNC_RUNNING, claimKbSync } from "@/utils/kb/syncClaim.server";
 
 const Body = z.object({
   knowledge_base_id: z.string().uuid(),
@@ -117,11 +118,17 @@ export const Route = createFileRoute("/api/kb/ingest-url")({
           }
           sourceId = created.id;
         } else {
-          await admin
-            .from("kb_sources")
-            .update({ status: "syncing", error: null })
-            .eq("id", sourceId)
-            .eq("user_id", user.id);
+          // R313: claimed, not just marked, so two re-syncs never run together.
+          const claim = await claimKbSync(admin, sourceId, { userId: user.id });
+          if (claim.error) {
+            return Response.json({ error: claim.error, source_id: sourceId }, { status: 500 });
+          }
+          if (claim.outcome === "running") {
+            return Response.json({ error: KB_SYNC_RUNNING, source_id: sourceId }, { status: 409 });
+          }
+          if (claim.outcome === "missing") {
+            return Response.json({ error: "Source not found" }, { status: 404 });
+          }
         }
 
         // Call Firecrawl scrape (markdown).

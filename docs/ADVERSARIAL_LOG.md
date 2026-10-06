@@ -109,6 +109,66 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-06 — R313: two syncs of one knowledge-base source ran together, and one said it failed
+
+**Severity: medium, knowledge bases** (a false failure, and a source that can be left reading
+"error" after a good sync). From sweep 10's queue: the knowledge-base syncs that overlap.
+
+**The defect.** Nothing claimed a sync. The scheduler claims a due source by pushing
+`next_sync_at` forward, but "Sync now" claimed nothing, and neither did the URL or GitHub re-sync.
+So a press could run beside a scheduled sync or beside a second tab's press. Both read the same
+documents and both inserted the same new ones. The second hit their unique key and recorded
+"error" alongside a sync that had succeeded. Whichever finished last decided what the source read,
+and both fetched the site and paid for the embedding.
+
+**The before**, on the smoke image (`5999240b211d`). A new knowledge base `r313_sync` with a
+website source on `https://example.com/` synced once ("Synced — 1 added"). Its document was then
+deleted, so the next sync would add it again, and Sync now was pressed in two tabs a moment apart:
+
+- **Tab-10:** "Synced — 1 added, 0 updated, 0 unchanged, 0 removed".
+- **Tab-13:** "inserting https://example.com/: duplicate key value violates unique constraint
+  "idx_knowledge_documents_source_external"". Its source row read **error** with that message.
+- **Reloaded,** the source read ok: this time the good sync happened to write last.
+
+**The fix** is one claim, `claimKbSync`, used by the connector engine and by the URL and GitHub
+re-syncs:
+
+- **The claim** moves the source to "syncing", and only from another status, or from a "syncing"
+  whose row has not changed for `KB_SYNC_LEASE_MINUTES` (60 by default): a sync that died. A
+  trigger keeps the row's `updated_at`, and a sync writes the row only at its start and its end.
+- **A press that finds a sync running** does not start. It is told: "A sync of this source is
+  already running, so this one did not start. Its result will show here when it finishes." The
+  route answers 409.
+- **The scheduler** treats that answer as nothing to report.
+- **A source that is not the caller's** is answered 404, not "running".
+
+**Tests:** `kbSyncClaim.test.ts` runs `syncKbSource` and both re-sync routes over an in-memory
+table store. It has a unique key, a trigger-kept `updated_at`, and PostgREST's `or` filter. Its
+cases:
+
+- a second sync started while the first is listing is told it is running, lists nothing, and
+  leaves the first to finish "ok" with one document;
+- a claim older than the lease is taken over, and one within it is not;
+- the URL and GitHub re-syncs each answer 409 without fetching anything;
+- another user's source is answered 404;
+- the route's 409.
+
+A warm-up import keeps the routes' slow first import out of the first test's time (R305). Every
+other test that reads these files passed.
+
+- **Mutation harness:** 9 mutants caught, and the control survived.
+
+**The after**, hot-deployed and staged the same way:
+
+- **Tab-13:** "Synced — 1 added".
+- **Tab-10:** "A sync of this source is already running, so this one did not start…"
+- No duplicate-key error. Reloaded, the source reads ok, with one document.
+- The hosted PostgREST took the claim's quoted-timestamp filter.
+
+`r313_sync` is kept.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-06 — Smoke of the real images after R304 to R312
 
 **The app image.** `5999240b211d` was built from `215aba16` with `docker compose build agentswarms` and

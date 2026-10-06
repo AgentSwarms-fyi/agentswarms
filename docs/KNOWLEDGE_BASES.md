@@ -91,6 +91,12 @@ in-process 60s scheduler), and claim each due source by atomically pushing
 `next_sync_at` forward — of N app instances polling the same second, exactly
 one syncs a given source.
 
+Every sync, scheduled or pressed, also claims the source itself by moving it
+to "syncing". A second sync of the same source does not start while one runs:
+**Sync now** says so, and a scheduled pass leaves it alone (R313). A sync that
+died leaves its claim; another may take it once the source has not changed
+for `KB_SYNC_LEASE_MINUTES` (60 by default).
+
 Two levels make a schedule safe to run forever:
 
 1. **Version skip.** Each document stamps the provider's change marker

@@ -667,9 +667,9 @@ least twice, not a hypothetical.
     - ~~**Swarm runs** (`swarmRunManager`, `swarmExecute`, the two tracers) and their steps.~~
       **R309**: a run the server executes never read its cancel, and its close wrote "success"
       over it. Left open from the same reading:
-      - **Knowledge base syncs that overlap.** "Sync now" claims nothing, so it can run beside a
-        scheduled sync or a second tab's, and the second hits the documents' unique key and
-        records "error" over a sync that succeeded.
+      - ~~**Knowledge base syncs that overlap.**~~ **R313**: the connector engine and the URL and
+        GitHub re-syncs now claim the source (with a lease for a sync that died), and a second
+        press is told one is running.
       - **Experiment runs from a notebook.** `log` and `finish` read the run, then write without
         holding to "running", so a late `log` can overwrite `finish`'s final metrics. The writer
         is the user's own code, normally sequential.

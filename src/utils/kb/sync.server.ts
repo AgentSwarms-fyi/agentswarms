@@ -28,6 +28,7 @@ import { embedAndStoreDocuments } from "@/utils/tools/embedding.server";
 import { resolveEmbedArgs } from "@/utils/tools/embedTarget.server";
 import { KB_CONNECTORS, isConnectorKind } from "./connectors.server";
 import { diffRemoteItems, sha256Hex } from "./dedup";
+import { KB_SYNC_RUNNING, claimKbSync } from "./syncClaim.server";
 
 export { nextSyncAt, diffRemoteItems, sha256Hex };
 
@@ -45,7 +46,8 @@ export type KbSyncStats = {
 
 export type KbSyncOutcome = {
   ok: boolean;
-  status: "ok" | "error" | "embedding_failed";
+  /** "running": another sync holds the source, so this one did not start (R313). */
+  status: "ok" | "error" | "embedding_failed" | "running";
   error: string | null;
   stats: KbSyncStats;
 };
@@ -114,7 +116,14 @@ export async function syncKbSource(
   const invalid = connector.validate(config, creds);
   if (invalid) return fail(invalid);
 
-  await sb.from("kb_sources").update({ status: "syncing", error: null }).eq("id", source.id);
+  const claim = await claimKbSync(sb, source.id);
+  if (claim.error) return fail(`The sync could not start: ${claim.error}`);
+  if (claim.outcome === "running") {
+    return { ok: false, status: "running", error: KB_SYNC_RUNNING, stats };
+  }
+  if (claim.outcome === "missing") {
+    return { ok: false, status: "error", error: "This source no longer exists.", stats };
+  }
 
   try {
     const { items, skipped } = await connector.listItems(config, creds);

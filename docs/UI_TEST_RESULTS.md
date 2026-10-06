@@ -15,6 +15,17 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-06 — R313: Sync now pressed in two tabs on one website source
+
+Knowledge base `r313_sync`, source "r313 example.com" (Website, `https://example.com/`, manual
+schedule). Before each staging, the source's one document was deleted, so the next sync would add
+it again.
+
+| What was driven                                                    | What came back                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Before**, on the smoke image: Sync now in tab-13, then in tab-10 | Tab-10: "Synced — 1 added, 0 updated, 0 unchanged, 0 removed". Tab-13: "inserting https://example.com/: duplicate key value violates unique constraint "idx_knowledge_documents_source_external"", and its source row read **error**. Reloaded, the source read ok (the good sync had finished last) |
+| **After**, hot-deployed: the same                                  | Tab-13: "Synced — 1 added". Tab-10: "A sync of this source is already running, so this one did not start. Its result will show here when it finishes." No duplicate-key error. Reloaded: ok, 1 doc, +1                                                                                               |
+
 ## 2026-10-06 — Smoke of the real images after R304 to R312
 
 App image `5999240b211d` (from `215aba16`); runtime image unchanged.
