@@ -13,7 +13,7 @@
 //
 // These tests exercise the real exported function against a stubbed supabase
 // client, so the merge, the throw and the memo behaviour are all covered.
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -61,6 +61,15 @@ afterEach(() => {
   vi.doUnmock("@/utils/providers/instanceProviders.functions");
   vi.resetModules();
 });
+
+// R305. The first import of BiModelSelect transforms a React component's
+// whole module graph: 1.9 s alone against 0.15 s for every later fresh copy,
+// and past the 20-second test timeout in a full gate (three of four gates on
+// 2026-10-06). It is paid here, with its own allowance, so each test times
+// only itself.
+beforeAll(async () => {
+  await freshModule({ integrations: () => okRows([]), provider_credentials: () => okRows([]) });
+}, 120_000);
 
 describe("fetchConnectedIntegrations", () => {
   it("merges both stores into one provider list", async () => {

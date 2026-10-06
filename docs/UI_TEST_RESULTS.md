@@ -15,6 +15,20 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-06 — R253's drive: a node-level secret deleted mid-run
+
+On the build after R304. `r253_drive`: a Custom Python source prints target A's token
+(`ETL_<node>_AUTH_TOKEN` for node `n2`) and ticks every 8 s for 72 s; two HTTP API targets on `echo-target.local`, with
+bearer token secrets `{{secret:R253_A}}` and `{{secret:R253_B}}` (test values).
+
+| What was driven                                    | What came back                                                                                                                                                                                                           |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Run now, then Runs → Logs                          | `[etl] installing 3 package(s)`, `r253 printed token=***`                                                                                                                                                                |
+| `R253_B` deleted from Secrets at 02:35:42, mid-run | The live log stayed at `r253 tick 2 token=***`, the last tick before the deletion; ticks 3–8 never appeared                                                                                                              |
+| The run's end                                      | Final output, the attempt's error and the run list's line: "[withheld: a secret this pipeline uses changed while it ran, so this output could not be checked for secrets]"; Failed, 3m 19s, one attempt; sandbox removed |
+| Either test value on the page, or in the app's log | Neither                                                                                                                                                                                                                  |
+| Fixtures                                           | `R253_A` and `r253_drive` kept; `R253_B` deleted by design                                                                                                                                                               |
+
 ## 2026-10-06 — R304: a query typed in the Workbench and never run
 
 Data SQL → Workbench. A query is typed and left unrun, then one of three one-click actions replaces the

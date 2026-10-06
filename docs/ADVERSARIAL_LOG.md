@@ -109,6 +109,70 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-06 — R305: three tests that failed the gate on time, and passed alone
+
+**Severity: low (false reds in the gate), test infrastructure.** R291's shape again. On 2026-10-06 four
+full gates out of eight went red on a timeout and never on an assertion, and each of these passed alone:
+
+| Test                                          | Gates failed | Timed out at       | Alone, before |
+| --------------------------------------------- | ------------ | ------------------ | ------------- |
+| `connectedIntegrations`, "merges both stores" | 3            | 20 s               | 1.85 s        |
+| `aiAnalyst`, the branded PDF                  | 2            | 20 s               | 0.88 s        |
+| `sheetsSamples`, Sales performance 2026       | 2            | 60 s (took 83.7 s) | about 3 s     |
+
+The gate for R253's drive failed on the first alone, with nothing else running. So it was not only
+the concurrent load that earlier gates were blamed on.
+
+**The first two paid a start-up cost inside a 20-second test.**
+
+- `connectedIntegrations` transforms BiModelSelect's whole module graph on its first fresh import, against
+  0.15 s for every later one.
+- The PDF test imports the PDF builder and pdf-lib cold.
+
+Each import now sits in a `beforeAll` with its own 120 s allowance, so each test times only itself. Alone,
+"merges both stores" now takes 0.29 s, and the PDF test 0.40 s.
+
+**The third is computation.** The test reads a real workbook and computes it, so no hook can take the
+cost, and its stated allowance moved from 60 s to 180 s.
+
+**What was not changed:** R237's four forks. The per-test timeout stays 20 s for everything else.
+
+No mutation harness. The failure depends on load and cannot be made to happen on demand, so the timings
+are the evidence. The gate after this change was green.
+
+### 2026-10-06 — R253's drive: a node-level secret deleted mid-run, in the UI
+
+R253 fixed it from the code and queued the drive: deleting one secret a pipeline uses, while it runs, used
+to write the logs with every other secret in clear. This is that drive, on the build after R304. It is a
+check, and it found nothing to fix.
+
+**The fixtures:**
+
+- **Secrets:** `R253_A` and `R253_B`, test values.
+- **The pipeline:** `r253_drive`, a visual pipeline. Its Custom Python source prints target A's token from
+  `ETL_N2_AUTH_TOKEN`, then prints it again every 8 s for 72 s, and returns one row.
+- **Its two HTTP API targets** are on `echo-target.local`, one with `R253_A` as its bearer token secret,
+  the other with `R253_B`.
+
+**Driven:**
+
+- **The live log:** Run now, then Runs → Logs. It showed `[etl] installing 3 package(s)` and
+  `r253 printed token=***`, so R292's scrub in the sandbox masked it at the source.
+- **The deletion:** `R253_B` was deleted from Secrets at 02:35:42, while the run slept.
+- **The ticks:** the live log had reached `r253 tick 2 token=***`, the last tick before the deletion, and
+  stayed there. Ticks 3 to 8 never appeared. Each partial log after the deletion could not be scrubbed
+  with the run's secrets, so it was skipped (R253).
+- **The finish:** the final output read "[withheld: a secret this pipeline uses changed while it ran, so
+  this output could not be checked for secrets]". So did the attempt's error and the run list's line. The
+  run failed after 3m 19s, one attempt, and its sandbox was removed.
+- **No leak:** neither test value was anywhere on the page, or in the app's log for the run.
+
+Two layers held: the sandbox masks what it was handed (R292), and the server withholds what it cannot
+check (R253).
+
+**Fixtures kept:** `R253_A` and the pipeline `r253_drive` with its failed run. `R253_B` is gone by design.
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-06 — R304: a query typed in the Workbench and never run, replaced by one click
 
 **Severity: medium (typed work lost without a word, and no way back), sweep 8.** The queue held it as a

@@ -477,10 +477,11 @@ least twice, not a hypothetical.
      - **Writes on a blip:** ~~saved secrets wiped on edit~~ (R254, which also found the
        insert-race retry erased the winner's secrets with no failure at all); ~~ETL cursors re-read from the start~~ (R253, which also found
        that deleting one secret mid-run wrote the run's logs with every other secret in clear).
-     - **Open, from R253: drive the leak in the UI.** A visual pipeline with two node-level
-       secrets, a Custom Python step printing one and sleeping, the other deleted mid-run. Before
-       R253 the Logs dialog showed the printed secret in clear; after, the tick is skipped and the
-       final output withheld. Not to be run beside a gate.
+     - ~~**Open, from R253: drive the leak in the UI.**~~ **Driven 2026-10-06**, on the build after
+       R304: `r253_drive`, a Custom Python source printing target A's token and ticking, with two
+       HTTP targets on `{{secret:R253_A}}` and `{{secret:R253_B}}`, and `R253_B` deleted mid-run. The live log showed
+       `token=***` and stopped at the last tick before the deletion. The final output and the error
+       were withheld with their sentence, and neither value was on the page or in the app's log.
      - ~~**Open, from R253:** a secret deleted mid-run through a pipeline-level binding is dropped,
        not fatal, so its own value is unknown to the scrubber for the rest of that run.~~ **R292.**
        The sandbox now holds the values it was handed and scrubs before posting. The round also found
