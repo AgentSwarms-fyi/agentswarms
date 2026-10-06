@@ -73,6 +73,7 @@ function from(table: string) {
     delete: () => ((op = "delete"), b),
     eq: (k: string, v: unknown) => (filters.push((r) => r[k] === v), b),
     in: (k: string, vs: unknown[]) => (filters.push((r) => vs.includes(r[k])), b),
+    is: (k: string, v: unknown) => (filters.push((r) => r[k] === v), b),
     single: async () => {
       const res = await run();
       return { data: (res.data as Row[] | null)?.[0] ?? null, error: null };
@@ -153,7 +154,8 @@ vi.stubGlobal("fetch", async (url: string) => {
 });
 
 const serve = await import("@/utils/ml/serve.server");
-const { STOPPED_WHILE_STARTING, ensureDeployment, setCandidate, undeploy } = serve;
+const { STOPPED_WHILE_STARTING, ensureDeployment, reapIdleDeployments, setCandidate, undeploy } =
+  serve;
 
 type Model = Parameters<typeof ensureDeployment>[0]["model"];
 type Version = Parameters<typeof ensureDeployment>[0]["version"];
@@ -467,5 +469,88 @@ describe("the page that pressed Deploy", () => {
     );
     expect(failed).toContain("toast.error(res.error);");
     expect(failed).toContain("await load();");
+  });
+});
+
+describe("the idle reaper (R314)", () => {
+  // FOUND IN R314, left by R311. The reaper stopped an idle endpoint's copies
+  // and then marked it stopped, held to nothing. A Deploy that started the
+  // endpoint again in between had its start marked stopped, and since R311
+  // the deploy then gave up. Not stageable in the UI: a Deploy waits on the
+  // same container removal as the reaper (see the R304–R312 smoke).
+  const idle = () => Object.assign(endpoint()!, { idle_ttl_minutes: 0 });
+
+  it("stops an idle endpoint and its copy", async () => {
+    expect((await deploy()).ok).toBe(true);
+    idle();
+    expect(await reapIdleDeployments()).toBe(1);
+    expect(endpoint()?.status).toBe("stopped");
+    expect(copies()).toEqual(["stopped"]);
+    expect(sessions()).toEqual(["stopped"]);
+  });
+
+  it("marks the endpoint stopped before it stops a copy", async () => {
+    expect((await deploy()).ok).toBe(true);
+    idle();
+    const seen: unknown[] = [];
+    db.onStop = () => seen.push(endpoint()?.status);
+    await reapIdleDeployments();
+    expect(seen).toEqual(["stopped"]);
+  });
+
+  it("leaves a start made after it judged the endpoint idle", async () => {
+    expect((await deploy()).ok).toBe(true);
+    idle();
+    let second: ReturnType<typeof deploy> | null = null;
+    beforeWrite(
+      "ml_deployments",
+      "update",
+      (row) => row.status === "stopped",
+      async () => {
+        second = deployAgain(v3);
+        await until(() =>
+          (db.tables.ml_deployment_replicas ?? []).some((r) => r.version_id === v3.id),
+        );
+      },
+    );
+    expect(await reapIdleDeployments()).toBe(0);
+    expect((await second!)?.ok).toBe(true);
+    expect(endpoint()).toMatchObject({ status: "ready", version_id: v3.id });
+    const live = db.tables.ml_deployment_replicas.filter((r) => r.status === "ready");
+    expect(live.map((r) => r.version_id)).toEqual([v3.id]);
+  });
+
+  it("does not write over a start that failed meanwhile", async () => {
+    expect((await deploy()).ok).toBe(true);
+    idle();
+    beforeWrite(
+      "ml_deployments",
+      "update",
+      (row) => row.status === "stopped",
+      async () => {
+        endpoint()!.status = "failed";
+      },
+    );
+    await reapIdleDeployments();
+    expect(endpoint()?.status).toBe("failed");
+  });
+});
+
+describe("a Deploy over a running endpoint (R314)", () => {
+  it("writes its own start before it retires the old copies", async () => {
+    // So a copy of the old start that comes up meanwhile reads the new start
+    // and stops itself (R311), rather than serving the old version under it.
+    expect((await deploy()).ok).toBe(true);
+    const seen: unknown[] = [];
+    beforeWrite(
+      "ml_deployment_replicas",
+      "update",
+      (row) => row.status === "stopped",
+      async () => {
+        seen.push([endpoint()?.status, endpoint()?.version_id]);
+      },
+    );
+    expect((await deployAgain(v3)).ok).toBe(true);
+    expect(seen).toEqual([["starting", v3.id]]);
   });
 });

@@ -653,17 +653,10 @@ least twice, not a hypothetical.
         load its model since R231 ("KeyError: 'url'"). **R311**: a Stop pressed while a deploy
         started was undone by the start's "ready", or overwritten by its "failed". Every write a
         start makes is now held to that start. Left from the same reading:
-        - **The idle reaper** retires an endpoint's copies before it marks the endpoint stopped,
-          the order R311 reversed for Stop, and the mark is held to nothing. Since R311, a Deploy
-          that started the endpoint again in between gives up when the reaper's late "stopped"
-          lands; before R311 the deploy wrote "ready" back. Read after the R304–R312 smoke, and
-          not stageable: the Deploy waits on the same container removal as the reaper, and the
-          reaper's mark lands first. Low. The fix is drafted: mark first, held to the start
-          judged idle, then retire.
-        - **Deploy retires the old copies before it writes its own start.** An old copy that
-          comes up in between passes its check and is then left serving the old version under the
-          new start. Low: it needs a second copy of the old version starting during a redeploy.
-          Fix: write the start first, then retire.
+        - ~~**The idle reaper**~~ and ~~**Deploy's order**~~: **R314**. The reaper marks first,
+          held to the start it judged idle, then retires; a Deploy writes its start, then retires
+          the old copies. Not stageable (see the R304–R312 smoke); tested, and the reaper was
+          driven doing its job.
     - ~~**Swarm runs** (`swarmRunManager`, `swarmExecute`, the two tracers) and their steps.~~
       **R309**: a run the server executes never read its cancel, and its close wrote "success"
       over it. Left open from the same reading:
@@ -678,8 +671,10 @@ least twice, not a hypothetical.
     - **Knowledge base sources**: read after R309. URL and GitHub re-syncs reconcile documents by
       key, so overlapping syncs end in a false "error" rather than duplicates. That is the open
       item under swarm runs above.
-    - **Catalog source crawls** (`crawler.server`, three): the same shape as the knowledge-base
-      syncs. Crawl now claims nothing, so two crawls can overlap. Not yet read further.
+    - **Catalog source crawls** (`crawler.server`, three), read in R314. The guard is a read of
+      the status before the crawl (`catalog.functions`), so two presses at once can both pass
+      it. Assets upsert by `(source_id, fqn)`, so the overlap costs a second crawl and audit, and
+      could double Databricks lineage edges. Low; left. The fix would be R313's claim.
     - **MCP apps' deploy status**, read after R309. The deploy claims its row (`acquireStartLease`),
       and a Stop during it stops the deploy's own session, so the deploy fails rather than writing
       "ready". "Ready" over "stopped" needs the Stop between the tool handshake and the write.

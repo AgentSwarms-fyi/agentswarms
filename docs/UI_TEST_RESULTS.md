@@ -15,6 +15,16 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-06 — R314: the idle reaper on a real endpoint
+
+Model `threshold_probe (payment_rows)`, Automation → Warm endpoint. The race R314 closes could not
+be staged here; this checks that the reordered reaper still does its job.
+
+| What was driven                                                         | What came back                                                                                                                              |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| **After**, hot-deployed: Deploy, then "Stop after" set to 1 minute idle | "Serving v1". About 1 min 50 s after the deploy the reaper stopped the endpoint: the scorer was gone at 15:12:11 and the panel read **off** |
+| Fixture put back: Deploy, "Stop after" 15, Stop                         | "Stop after 15 minutes idle" saved; stopped, no sandbox left                                                                                |
+
 ## 2026-10-06 — R313: Sync now pressed in two tabs on one website source
 
 Knowledge base `r313_sync`, source "r313 example.com" (Website, `https://example.com/`, manual

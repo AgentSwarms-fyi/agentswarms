@@ -194,7 +194,11 @@ describe("the reaper understands copies", () => {
     // endpoint's own timestamps say.
     const reap = SERVE.slice(SERVE.indexOf("export async function reapIdleDeployments"));
     expect(reap).toContain("...replicas.flatMap((r) => [r.last_used_at, r.last_started_at])");
-    expect(reap).toContain('for (const replica of replicas) await retireReplica(replica, "idle");');
+    // Every copy is retired, listed again after the endpoint is marked (R314),
+    // so a copy recorded meanwhile is not left behind.
+    expect(reap).toContain(
+      'for (const replica of await listReplicas(raw.id)) await retireReplica(replica, "idle");',
+    );
   });
 });
 

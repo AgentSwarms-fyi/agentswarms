@@ -109,6 +109,63 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-06 — R314: the idle reaper's "stopped", and a redeploy's order, after R311
+
+**Severity: low, ML serving.** R311 left these two in the queue. The first is partly R311's own
+doing.
+
+**The idle reaper.** It stopped an idle endpoint's copies first, then marked the endpoint stopped,
+and that mark was held to nothing. A Deploy that started the endpoint again between the two had
+its new start marked stopped. Before R311, that deploy's unguarded "ready" wrote over the mark and
+the endpoint served. Since R311, the deploy gives up and says the endpoint was stopped, though
+nobody pressed Stop. The mark could also write "stopped" over a start that had just failed, which
+loses the failure.
+
+**A redeploy's order.** Deploy retired the old copies, then wrote its own start. A copy of the old
+start that came up between the two found the old start still there. It stayed, serving the old
+version under the new one.
+
+**The before** was not staged in the UI. A Deploy has to stop the same copies the reaper is
+stopping, and waits on the same container removal, so the reaper's mark lands first in every
+ordering that can be set up here (see the R304–R312 smoke). Four of the new cases fail on the
+unfixed code, and the reaper control passes.
+
+**The fix:**
+
+- **The reaper** marks the endpoint stopped first, and only if it is still the start it judged
+  idle: still starting or ready, from the same `last_started_at`. If that write lands on nothing,
+  the reaper leaves the endpoint alone. Otherwise it lists the copies again and stops them.
+- **A Deploy** writes its start, then retires the old copies. A copy recorded after that list
+  reads the new start as it comes up and stops itself (R311).
+
+**Tests:** five cases added to `mlStopWhileDeploying.test.ts`, the R311 harness:
+
+- the reaper still stops an idle endpoint;
+- the reaper marks the endpoint before it stops a copy;
+- a Deploy that starts the endpoint again as the reaper marks it serves, and only its copy is
+  left running;
+- a start that failed meanwhile keeps "failed";
+- a redeploy writes its start before it retires a copy.
+
+The reaper's pin in `mlReplicas` moved with the code. All 11 test files that read the serving
+module passed, and the race file passed 10 runs in a row.
+
+- **Mutation harness:** 5 mutants caught, and the control survived.
+
+**The after**, hot-deployed:
+
+- `threshold_probe`: Deploy, then "Stop after" set to 1 minute idle.
+- The reaper stopped the endpoint on its own about 1 min 50 s after the deploy. The scorer was
+  gone at 15:12:11, and the panel read off.
+- The idle limit was put back to 15 minutes and the endpoint stopped again.
+
+**Read on the way, and left: the catalog's Crawl now.** Its guard is a read of the status before
+the crawl (`catalog.functions`), so two presses at once can both pass it. Assets upsert by
+`(source_id, fqn)`, so the overlap costs a second crawl and a second audit, and could double
+Databricks lineage edges. Low, and nothing to see on this deployment, so it was not driven.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-06 — R313: two syncs of one knowledge-base source ran together, and one said it failed
 
 **Severity: medium, knowledge bases** (a false failure, and a source that can be left reading

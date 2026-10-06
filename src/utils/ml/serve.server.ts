@@ -509,20 +509,11 @@ export async function ensureDeployment(args: {
     return { ok: false, error: "This instance is at its warm-endpoint limit; try again later" };
   }
 
-  // Stop whatever was there: a deployment serving a different version must not
-  // linger, or the endpoint answers with a model nobody asked for. EVERY copy,
-  // not the first — leaving one behind is an endpoint that answers with two
-  // different models depending on which copy the round-robin picks.
-  if (dep) {
-    for (const replica of await listReplicas(dep.id)) {
-      await retireReplica(replica, "replaced");
-    }
-  }
-
   const limits = await getPlatformResources();
   const { ensurePlatformEgress } = await import("@/utils/notebookRuntime/egressApply.server");
   await ensurePlatformEgress();
 
+  const previous = dep;
   const nowIso = new Date().toISOString();
   const { data: saved, error: upErr } = await supabaseAdmin
     .from("ml_deployments")
@@ -549,6 +540,21 @@ export async function ensureDeployment(args: {
     .single();
   if (upErr) return { ok: false, error: upErr.message };
   dep = saved as MlDeploymentRow;
+
+  // Stop whatever was there: a deployment serving a different version must not
+  // linger, or the endpoint answers with a model nobody asked for. EVERY copy,
+  // not the first — leaving one behind is an endpoint that answers with two
+  // different models depending on which copy the round-robin picks.
+  //
+  // FOUND IN R314: AFTER this start is written, not before. An old copy that
+  // came up between the two found the old start still there and stayed,
+  // serving the old version under the new one. Now a copy recorded after this
+  // list reads the new start as it comes up, and stops itself (R311).
+  if (previous) {
+    for (const replica of await listReplicas(dep.id)) {
+      await retireReplica(replica, "replaced");
+    }
+  }
 
   const first = await startReplica({
     deployment: dep,
@@ -1256,8 +1262,30 @@ export async function reapIdleDeployments(): Promise<number> {
     if (marks.length === 0) continue;
     const idleMs = Date.now() - Math.max(...marks);
     if (idleMs < raw.idle_ttl_minutes * 60_000) continue;
-    for (const replica of replicas) await retireReplica(replica, "idle");
-    await markStopped(raw.id);
+    // FOUND IN R314. The endpoint is marked stopped FIRST, and only if it is
+    // still the start judged idle above. Marked last, after its copies (7–34 s
+    // each to stop on Docker Desktop), this "stopped" landed on a Deploy
+    // pressed meanwhile, and since R311 that deploy gave up and said the
+    // endpoint had been stopped, with nobody having pressed Stop.
+    let reap = supabaseAdmin
+      .from("ml_deployments")
+      .update({ status: "stopped", last_error: null, updated_at: new Date().toISOString() })
+      .eq("id", raw.id)
+      .in("status", ["starting", "ready"]);
+    reap =
+      raw.last_started_at === null
+        ? reap.is("last_started_at", null)
+        : reap.eq("last_started_at", raw.last_started_at);
+    const { data: reaped, error: reapErr } = await reap.select("id");
+    if (reapErr) {
+      console.warn(
+        `[ml-serve] idle deployment ${raw.id} could not be marked stopped: ${reapErr.message}`,
+      );
+      continue;
+    }
+    // Started again since it was read: that start retires the old copies.
+    if ((reaped ?? []).length === 0) continue;
+    for (const replica of await listReplicas(raw.id)) await retireReplica(replica, "idle");
     auditEvent({
       userId: raw.user_id,
       action: "ml.undeploy",

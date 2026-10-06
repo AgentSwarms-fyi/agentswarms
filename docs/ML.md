@@ -1358,6 +1358,8 @@ the copy's sandbox, its "ready" or "failed", then the endpoint's "ready" or "fai
 written only while the copy and the endpoint are still the ones this start made. A Stop pressed
 while the scorer is starting stops it, and the deploy says the endpoint was stopped while its copy
 was starting. If a second Deploy is pressed meanwhile, that one serves (R311).
+The idle reaper is held the same way. It stops only the start it judged idle,
+so a Deploy pressed as it reaps serves (R314).
 
 Forecast models have no endpoint: a forecast is answered from the stored series
 with no model in the loop at all.
