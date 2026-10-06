@@ -15,6 +15,7 @@ import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.se
 import {
   loadStorageConfig,
   runCrawl,
+  CrawlAlreadyRunning,
   testIcebergCatalog,
   type CrawlStats,
   type IcebergRestConfig,
@@ -221,7 +222,9 @@ export const catalogCrawlSource = createServerFn({ method: "POST" })
       if (source.user_id !== userId) {
         return { ok: false, error: "Only the owner can re-crawl a shared source" };
       }
-      if (source.status === "crawling") return { ok: false, error: "A crawl is already running" };
+      // A fast answer from what was read; runCrawl's claim is what holds (R315).
+      if (source.status === "crawling")
+        return { ok: false, error: new CrawlAlreadyRunning().message };
 
       const stats = await runCrawl(
         userId,

@@ -15,6 +15,78 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-07 — R321: a PDF and a DOCX picked in Add Source
+
+Knowledge base `R192 add-source`, Add Source → File. Two files, a one-line PDF (612 bytes) and a
+one-paragraph DOCX (929 bytes), were handed to the dialog's file input as a pick. The evidence is
+the page's resource timing. Both times the files were left unadded.
+
+| What was driven                                     | What came back                                                                                                                                                                                        |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Before**, image `b2cf28df8cf3`: both files picked | Both parsed. Nine fetches from esm.sh: `pdfjs-dist@4.7.76/build/pdf.mjs`, `mammoth@1.8.0/mammoth.browser.js`, its ES build, and the `node/process`, `buffer`, `events`, `tty` and `async_hooks` shims |
+| **After**, hot-deployed: the same                   | Both parsed. Fetched from the app: `/vendor/pdfjs/pdf.min.mjs?v=4.10.38`, `/vendor/pdfjs/pdf.worker.min.mjs?v=4.10.38`, `/vendor/mammoth/mammoth.browser.min.js?v=1.13.0`. Nothing from a CDN         |
+| The vendored files over HTTP                        | 200 `text/javascript`, 352,645 and 405,060 bytes, the sizes in `node_modules`                                                                                                                         |
+
+## 2026-10-07 — R318: sub-millionth costs on Traces
+
+| What was driven                                                       | What came back                                                                                                     |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| **Before**, Traces, three "KB: Query Embedding" rows                  | 38, 41 and 72 tokens on `openai/text-embedding-3-small` ($0.00000076, $0.00000082, $0.00000144), all **$0.000001** |
+| **After**, migration pushed: a question to the Graph RAG sample agent | Its query embedding, 13 tokens: **$0.00000026**                                                                    |
+| **After**, an "Approved?" step of 69/1 tokens ($0.0000375)            | $0.000037. Six places would have stored $0.000038                                                                  |
+
+## 2026-10-07 — R317: one approval approved in two tabs at once
+
+Swarm "Approval durability check (schedule)", whose scheduled runs park at a human approval. The
+inbox was opened in tab-10 and tab-13 on the same first approval, and each tab's Approve was clicked
+at the same wall-clock millisecond.
+
+| What was driven                                                       | What came back                                                                                                                                                                                                                                    |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Before**, image `5999240b211d`: "Refund request #4821", 10 h parked | Both tabs: "Approved: Approve this request · Human approval is resuming", and both resumes answered `success`, run `40ef6400`. Its Timeline: "Approved?" twice (3,903 ms and 3,848 ms, $0.00005 each) and "Result" twice; STEPS 5 over seven rows |
+| **After**, image `b2cf28df8cf3`: the next approval                    | Tab-10: "Approved…", resume `success`, run `48afa504`. Tab-13: "Already decided: Approve this request · It was decided elsewhere first. Your decision was not recorded." Timeline: one "Approved?", one "Result", STEPS 5 over five rows          |
+| A first attempt at the after                                          | Both tabs' decisions stalled 32.6 s and closed (`net::ERR_CONNECTION_CLOSED`), neither landing; one Approve straight after took 149 ms. A connection to the hosted database left dead by the night's Docker restart                               |
+
+## 2026-10-07 — R316: twenty metrics from threads, and a model saved in a run
+
+A new Python notebook (`My Python notebook`, `575aaa44`) with one cell. The cell starts run
+"twenty threads" in experiment `r316_probe` and logs `m00`…`m19` from twenty threads at once. It then
+saves a fitted `LogisticRegression` inside `with agentswarms.start_run("r316_probe", name="saved
+model")`. ML Models → Experiments → `r316_probe` was read after each run.
+
+| What was driven                  | What came back                                                                                                                                                                                                                           |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Before**, image `5999240b211d` | "saved 607 bytes to s3://lakehouse/ml-artifacts/experiments/716c99ba-…/model.joblib". "twenty threads" held **five** metrics (`m01`, `m02`, `m04`, `m07`, `m13`). "saved model": "No artifact recorded, so there is nothing to register" |
+| **After**, image `b2cf28df8cf3`  | "twenty threads" holds **all twenty**. "saved model" shows `s3://lakehouse/ml-artifacts/experiments/fdda1bd7-…/model.joblib` with "Register into…" and "Register as a version"                                                           |
+| On the way                       | The first press after the Docker restart: "Kernel connect timed out" (the kernel's first start took 21 s; queued). The second ran in 82.7 s                                                                                              |
+
+## 2026-10-07 — R315: Re-crawl pressed in two tabs at once
+
+Data Catalog, source "MinIO local etl demo" (12 assets). Its Re-crawl menu item was opened in tab-10
+and tab-13, and each was clicked at the same wall-clock millisecond.
+
+| What was driven                  | What came back                                                                                                                                                            |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Before**, image `5999240b211d` | Both tabs: "Crawled "MinIO local etl demo" — 12 assets, 85 columns". Audit: two `catalog crawl`, four `catalog_source.update`                                             |
+| **After**, image `b2cf28df8cf3`  | Tab-13: "Crawled … 12 assets, 85 columns". Tab-10: "A crawl of this source is already running. Its result will show here when it finishes." Audit: one crawl, two updates |
+
+## 2026-10-07 — The dependency pass on the real images
+
+The app image `b2cf28df8cf3` was built from the dependency pass and R315 to R318. Its export took
+42 minutes; exports took about 1 minute before this pass. The new 1.7 GB `node_modules` layer had to
+be exported once, as roughly 100,000 small files read off a 5,400 rpm laptop disk. Two earlier
+attempts outlived containerd's lease ("lease does not exist"). Docker Desktop and WSL were
+restarted once in between.
+
+| What was checked                                  | What came back                                                                                                                        |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `docker compose up -d`                            | All services up; the app healthy, 8 workers, schedulers started, nothing matching "error" or "warn" in its log                        |
+| Agent Chat: a mermaid flowchart with KaTeX labels | One diagram, both formulas typeset by KaTeX 0.18 inside it (`.katex` ×2 in the SVG); every chunk 200                                  |
+| Agent Chat → Deep · slow → Word                   | "Here's your Word — A-one-page-note-titled-Deep-dependency-s.docx · Word · ready"; docgen logged `POST /render/docx 200`              |
+| docgen's `cairosvg`                               | 2.9.0, rendering an SVG to a PNG in the container                                                                                     |
+| supabase-js                                       | GoTrue 2.117.2 in the page (2.106.2 before)                                                                                           |
+| The console                                       | One "An unknown error occurred when fetching the script" per load: this embedded browser refuses service workers; `/sw.js` serves 200 |
+
 ## 2026-10-06 — R314: the idle reaper on a real endpoint
 
 Model `threshold_probe (payment_rows)`, Automation → Warm endpoint. The race R314 closes could not

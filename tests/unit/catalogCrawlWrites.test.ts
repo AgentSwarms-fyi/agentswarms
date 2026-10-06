@@ -48,7 +48,11 @@ describe("a crawl's records", () => {
     expect((runCrawl.match(/await ready\(\)/g) ?? []).length).toBe(2);
     expect(runCrawl).toContain("but the source could not be marked ready");
     expect(runCrawl).toContain("It will show as crawling until it is");
-    expect(runCrawl).toContain("const { error: startErr } = await supabaseAdmin");
+    // R315: the start is a claim now; its error still stops the crawl.
+    expect(runCrawl).toContain("const { data: claimed, error: startErr } = await supabaseAdmin");
+    expect(runCrawl).toContain(
+      "if (startErr) throw new Error(`The crawl could not start: ${startErr.message}`);",
+    );
     expect(runCrawl).toContain("const { error: markErr } = await supabaseAdmin");
   });
 });

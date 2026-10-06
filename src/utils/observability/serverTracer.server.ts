@@ -71,6 +71,8 @@ export async function createServerSwarmTracer(opts: {
    */
   resumeRunId?: string | null;
 }): Promise<ServerSwarmTracer | null> {
+  // With `resumeRunId`, null means the run could not be reopened, and the
+  // caller must not run its nodes (R317).
   try {
     const stepIdByNode = new Map<string, string>();
     // Node ids whose step rows come from the earlier attempt and are already
@@ -82,11 +84,15 @@ export async function createServerSwarmTracer(opts: {
 
     let resolved: string | null = null;
     if (opts.resumeRunId) {
+      // FOUND IN R317. Held to a run that is parked (or "running", when the
+      // park's own stamp did not land: R90). A run cancelled or finished
+      // after the resume read it is not brought back.
       const { data: reopened, error: reopenErr } = await supabaseAdmin
         .from("swarm_runs")
         .update({ status: "running", finished_at: null } as never)
         .eq("id", opts.resumeRunId)
         .eq("user_id", opts.userId)
+        .in("status", ["suspended", "running"])
         .select("id")
         .maybeSingle();
       if (reopened?.id) {
@@ -122,9 +128,13 @@ export async function createServerSwarmTracer(opts: {
           edgesSeen.add(`${e.source_node_id}->${e.target_node_id}`);
         }
       } else {
+        // FOUND IN R317. This used to go on and record the resume as a NEW
+        // run, so the work ran outside the run it belonged to, and ran even
+        // when the run had been cancelled. Nothing runs instead.
         console.warn(
-          `[swarm-trace] run ${opts.resumeRunId} could not be reopened${reopenErr ? `: ${reopenErr.message}` : ""}; this resume is recorded as a new run and the parked one stays open`,
+          `[swarm-trace] run ${opts.resumeRunId} could not be reopened${reopenErr ? `: ${reopenErr.message}` : ": it was cancelled or finished meanwhile"}; nothing of this resume runs`,
         );
+        return null;
       }
     }
 

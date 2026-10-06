@@ -178,7 +178,9 @@ least twice, not a hypothetical.
     `workflow_runs.graph`, with layout and labels left out of the
     comparison. Still open in this sweep, neither reachable from a page:
     the data-monitor config update and the app-source re-save (both
-    server-function only, above). The materialized view's failed rebuild,
+    server-function only, above). **Both R319**: a changed rule clears the
+    old result and is due at once; a re-save clears the old credentials'
+    test result. The materialized view's failed rebuild,
     shown only in the badge's hover title, is R185: the badge now reads
     "last rebuild failed" beside the reason and the rows' age. A failure
     carried only by a `title=` is the same shape anywhere: grep
@@ -230,9 +232,9 @@ least twice, not a hypothetical.
       with the shared one. A test over `src` now forbids a `break` at `[DONE]`.
     - **R202: cost on every page.** `formatUsd` keeps two significant digits under a cent, and a
       survey test fails on a cost written with 3 to 8 places anywhere else.
-      - **Still open.** `execution_traces.cost_usd` is `NUMERIC(10,6)`, so a $0.0000046 call is
-        stored as $0.000005, and a total over many such calls carries that rounding. Changing it is
-        a migration (and the run tables' `NUMERIC(12,6)`).
+      - ~~**Still open.** `execution_traces.cost_usd` is `NUMERIC(10,6)`.~~ **R318**: the five
+        cost columns are unconstrained `numeric`, and Agent Chat's turn total keeps twelve
+        significant digits.
     - **R195: the two DuckDB engines.** On one query in the Workbench the browser engine ran in the
       viewer's zone (`Etc/GMT-4`) and the server's in UTC, so `current_date` and a TIMESTAMPTZ cast
       to DATE named different days. Every engine now sets `ENGINE_TIME_ZONE`.
@@ -637,10 +639,9 @@ least twice, not a hypothetical.
     **The survey** is a census of every `.update({ status | state })` in `src` and whether its chain
     filters on that column. The lifecycle tables with unguarded writes, in order:
     - ~~**ETL runs**~~ (**R307**: a start over a cancel, and a cancel over a finish).
-    - **Runtime sessions**, read after R309. `stopSession` writes "stopped" over a result the
-      callback wrote. The callback has already settled the ETL, ML or preview outcome by then, so
-      only the session's own label changes. The writes in `startSession` touch a row with no
-      container yet. Low; left.
+    - ~~**Runtime sessions**, read after R309.~~ **R320**: `stopSession`'s "stopped" is held to a
+      live status, so a session that ended keeps its result. The writes in `startSession` touch a
+      row with no container yet.
     - **ML**:
       - ~~training jobs (`train.server` 401, 1195)~~ (**R308**: the start over a cancel; 1195 undoes
         a success the job's own claim just won, so it is not a late writer);
@@ -648,7 +649,8 @@ least twice, not a hypothetical.
         over its cancel; 1159 runs only after the job's guarded claim);
       - ~~predictions (`predict.server` 313)~~ (**R308**, fixed with training and tested, not
         driven);
-      - experiment runs (`ml.experiments` 173, `experimentArtifacts` 179);
+      - ~~experiment runs (`ml.experiments` 173, `experimentArtifacts` 179)~~ (**R316**: log and
+        finish are one locked statement; **R320**: the register's close is held to "running");
       - ~~deployments (`serve.server`)~~. Staging this row found **R310**: no warm endpoint could
         load its model since R231 ("KeyError: 'url'"). **R311**: a Stop pressed while a deploy
         started was undone by the start's "ready", or overwritten by its "failed". Every write a
@@ -663,22 +665,32 @@ least twice, not a hypothetical.
       - ~~**Knowledge base syncs that overlap.**~~ **R313**: the connector engine and the URL and
         GitHub re-syncs now claim the source (with a lease for a sync that died), and a second
         press is told one is running.
-      - **Experiment runs from a notebook.** `log` and `finish` read the run, then write without
-        holding to "running", so a late `log` can overwrite `finish`'s final metrics. The writer
-        is the user's own code, normally sequential.
-      - **A resume whose reopen fails** is recorded as a new run (`serverTracer`). R309 made the
-        resume refuse a cancelled run, which covers the case it was found from.
+      - ~~**Experiment runs from a notebook.**~~ **R316**: `log` and `finish` are one locked
+        statement each. Twenty logs from threads keep twenty metrics, and a `finish` that sends
+        no artifact keeps the model `save_model` recorded, which it used to write null over.
+      - ~~**A resume whose reopen fails** is recorded as a new run (`serverTracer`).~~ **R317**:
+        the reopen is held to a parked run and a resume that cannot reopen runs nothing. On the way:
+        one approval decided in two tabs ran the rest of the swarm twice. The inbox now decides only
+        a pending approval, and the resume claims the approval (`resumed_at`).
     - **Knowledge base sources**: read after R309. URL and GitHub re-syncs reconcile documents by
       key, so overlapping syncs end in a false "error" rather than duplicates. That is the open
       item under swarm runs above.
-    - **Catalog source crawls** (`crawler.server`, three), read in R314. The guard is a read of
-      the status before the crawl (`catalog.functions`), so two presses at once can both pass
-      it. Assets upsert by `(source_id, fqn)`, so the overlap costs a second crawl and audit, and
-      could double Databricks lineage edges. Low; left. The fix would be R313's claim.
-    - **MCP apps' deploy status**, read after R309. The deploy claims its row (`acquireStartLease`),
-      and a Stop during it stops the deploy's own session, so the deploy fails rather than writing
-      "ready". "Ready" over "stopped" needs the Stop between the tool handshake and the write.
-      Narrow; left.
+    - ~~**Catalog source crawls** (`crawler.server`, three), read in R314.~~ **R315**: a crawl
+      now claims its source (with a lease for a crawl that died). A second press is told one is
+      running, and the scheduled pass skips it.
+    - ~~**MCP apps' deploy status**, read after R309.~~ **R320**: the deploy's closing writes are held
+      to its own "deploying", and a deploy that lost to a Stop stops what it started and says so.
+    - **A notebook kernel's first start on a slow host** (found staging R316, 2026-10-07). The
+      kernel gateway took 21 s to answer the first `POST /api/kernels`, and did start the kernel.
+      The notebook gateway (`services/notebook-gateway`) gives each create 20 s, so it had given up
+      and asked again; the container allows one kernel, so every retry got "403 Resource Limit".
+      The cell said "Kernel connect timed out", and the next press ran. A retry after a create
+      that timed out should list the container's kernels and attach to the one it started.
+    - **srvx logs a client disconnect as an unhandled 500** (seen in the same session's app log).
+      An `AbortError` with `unhandled: true` and a full stack is printed when a browser drops a
+      request mid-flight. It predates the dependency pass (srvx 0.11.22 before and after). It is
+      noise in an operator's log, not a failure, so it should be logged as a disconnect or not at
+      all.
     - ~~**Data incidents** (`dataMonitors/run.server`)~~. **R312**: every status write by either
       writer is now held to "not resolved". Acknowledge no longer opens again an incident a run
       resolved; a run no longer takes over its owner's resolve; and a failure no longer goes

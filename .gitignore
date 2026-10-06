@@ -70,3 +70,6 @@ deploy/notebooks/egress/allowed_ips
 
 # local backups from `npm run backup`
 backups/
+
+# Copied from node_modules at build start by vite.config.ts (R321).
+public/vendor/

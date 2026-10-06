@@ -363,6 +363,14 @@ curl <origin>/api/ml/experiments \
 writes (409) — it is a record of what happened, and a straggler from a process
 that outlived its own `finish` would rewrite it.
 
+Each call is one locked statement in the database (`ml_experiment_run_write`),
+so calls that arrive together are merged one after another: a loop logging
+from several threads keeps every key. `finish` writes only what it is sent. A
+model recorded by `save_model` stays on the run when the `with` block's own
+`finish()` closes it, so the run can be registered later from **ML Models →
+Experiments** (R316). Sending either half of the artifact pair to `finish`
+replaces both halves.
+
 ### From a run to a version
 
 A run that recorded **both** `artifact_uri` and `artifact_sha256` can be

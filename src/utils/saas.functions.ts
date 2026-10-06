@@ -250,6 +250,11 @@ export const saveSaasConnection = createServerFn({ method: "POST" })
       // and the sync writer both touch the row, and the trigger would keep
       // reporting every credential as freshly rotated.
       credentials_rotated_at: new Date().toISOString(),
+      // FOUND IN R319. A re-save replaces the credentials, so a test result
+      // vouches for credentials this source no longer has. The warehouse and
+      // provider saves already clear theirs.
+      last_test_status: null,
+      last_test_error: null,
       // Due immediately on save for a scheduled source, so the first run does
       // not wait a whole interval — and null for manual, which is what keeps
       // it out of the scheduler's index entirely.

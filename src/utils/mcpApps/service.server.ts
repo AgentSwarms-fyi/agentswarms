@@ -107,26 +107,39 @@ async function acquireStartLease(appId: string): Promise<boolean> {
   return Array.isArray(data) && data.length > 0;
 }
 
+/** What a deploy answers when the app was stopped while it started (R320). */
+export const STOPPED_WHILE_DEPLOYING =
+  "The MCP server was stopped while it was starting, so it is not running. Deploy it again to start it.";
+
+/**
+ * Write the status MCP Builder shows. With `heldTo`, only over that status,
+ * and the answer says whether it landed.
+ */
 async function setAppStatus(
   appId: string,
   status: McpAppRow["status"],
   deployError?: string | null,
-): Promise<void> {
+  heldTo?: McpAppRow["status"],
+): Promise<boolean> {
   // FOUND FROM THE SURVEY (R89). This column is what MCP Builder shows, and
   // every path that ends a start writes it here. Dropped, the two failures
   // are opposite and both bad: a server that DIED left the app on "ready",
   // so the page said Running over nothing; a server that came up left it on
   // the previous status, so the page said Error over a server answering
   // requests.
-  const { error } = await supabaseAdmin
+  let q = supabaseAdmin
     .from("mcp_apps")
     .update({ status, deploy_error: deployError ?? null })
     .eq("id", appId);
+  if (heldTo) q = q.eq("status", heldTo);
+  const { data, error } = await q.select("id");
   if (error) {
     console.warn(
       `[mcp] app ${appId} is ${status} but its record could not be marked so: ${error.message}; MCP Builder will show what it showed before`,
     );
+    return false;
   }
+  return (data ?? []).length > 0;
 }
 
 /**
@@ -260,7 +273,10 @@ export async function ensureRunning(app: McpAppRow): Promise<EnsureResult> {
           (logs
             ? "the process exited without an error message"
             : "the process exited before writing any output");
-        await setAppStatus(app.id, "error", reason.slice(0, 300));
+        // FOUND IN R320: held to the deploy, so a Stop meanwhile stays "stopped".
+        if (!(await setAppStatus(app.id, "error", reason.slice(0, 300), "deploying"))) {
+          return fail(409, "stopped", STOPPED_WHILE_DEPLOYING);
+        }
         return fail(503, "start_failed", `The MCP server started and then stopped: ${reason}`);
       }
 
@@ -273,7 +289,9 @@ export async function ensureRunning(app: McpAppRow): Promise<EnsureResult> {
       const reason = detail
         ? `Still starting after ${waited}s. Last error in its log: ${detail}`
         : `Still starting after ${waited}s, with no error in its output.`;
-      await setAppStatus(app.id, "error", reason.slice(0, 300));
+      if (!(await setAppStatus(app.id, "error", reason.slice(0, 300), "deploying"))) {
+        return fail(409, "stopped", STOPPED_WHILE_DEPLOYING);
+      }
       return fail(
         503,
         "start_timeout",
@@ -283,11 +301,20 @@ export async function ensureRunning(app: McpAppRow): Promise<EnsureResult> {
       );
     }
 
-    await setAppStatus(app.id, "ready");
+    // FOUND IN R320. "Ready" was written over whatever the app held, so a
+    // Stop that landed after the server answered and before this write was
+    // undone: MCP Builder read Running over a server the Stop had removed.
+    // Held to the deploy; one that lost to a Stop stops what it started.
+    if (!(await setAppStatus(app.id, "ready", null, "deploying"))) {
+      await stopSession(outcome.row).catch(() => {});
+      return fail(409, "stopped", STOPPED_WHILE_DEPLOYING);
+    }
     return { ok: true, endpoint: outcome.row.endpoint!, session: outcome.row };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    await setAppStatus(app.id, "error", message);
+    if (!(await setAppStatus(app.id, "error", message, "deploying"))) {
+      return fail(409, "stopped", STOPPED_WHILE_DEPLOYING);
+    }
     return fail(503, "start_failed", message);
   }
 }

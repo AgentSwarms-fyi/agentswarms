@@ -6,6 +6,7 @@
 // default, but workerd forbids `new Function()`, which the local SQL engine
 // needs — so Data & BI features silently failed there. Supporting one runtime
 // honestly beats advertising two and delivering one and a half.
+import { copyFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, loadEnv, type PluginOption, type UserConfig } from "vite";
@@ -13,6 +14,7 @@ import tailwindcss from "@tailwindcss/vite";
 import tsConfigPaths from "vite-tsconfig-paths";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
+import { VENDORED_PARSERS } from "./src/lib/vendoredParsers";
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -35,8 +37,27 @@ function stripExternalCssFontImports(): PluginOption {
   };
 }
 
+/**
+ * Copy the document parsers from node_modules into public/vendor, where the
+ * app serves them from its own origin (R321). At build start, so both the dev
+ * server and a build find them; public/vendor is not committed.
+ */
+function vendorDocumentParsers(): PluginOption {
+  return {
+    name: "agentswarms-vendor-document-parsers",
+    buildStart() {
+      for (const file of VENDORED_PARSERS) {
+        const to = path.resolve(rootDir, "public", file.path);
+        mkdirSync(path.dirname(to), { recursive: true });
+        copyFileSync(path.resolve(rootDir, file.from), to);
+      }
+    },
+  };
+}
+
 export default defineConfig(async ({ command, mode }) => {
   const plugins: PluginOption[] = [
+    vendorDocumentParsers(),
     stripExternalCssFontImports(),
     tailwindcss(),
     tsConfigPaths({ projects: ["./tsconfig.json"] }),

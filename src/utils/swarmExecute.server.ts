@@ -81,6 +81,10 @@ function dataToolCtx(userId: string, decisionId?: string | null): AgentToolConte
 export const CANCELLED_WHILE_RUNNING =
   "The run was cancelled while it was running; nothing after that point ran.";
 
+/** What a resume answers when its run could not be reopened (R317). */
+export const RESUME_NOT_REOPENED =
+  "The run could not be reopened, so nothing of it ran: it was cancelled or finished meanwhile, or its record could not be written.";
+
 export type ExecuteResult = {
   /**
    * "suspended" = parked at a human-approval node with a checkpoint. The run is
@@ -381,6 +385,12 @@ export async function executeSwarmServer(opts: {
         })
       : null;
   const runId: string | null = tracer?.runId ?? null;
+  // FOUND IN R317. A resume whose run could not be reopened ran anyway, as a
+  // new run: after a cancel, that is the work the cancel stopped.
+  if (opts.resume && depth === 0 && !tracer) {
+    clearTimeout(timer);
+    return { status: "error", output: "", error: RESUME_NOT_REOPENED, runId: opts.resume.runId };
+  }
   // The run is the decision. Every node turn (via serverChat) and every data
   // tool call (via dataToolCtx) carries this id, so the whole run's provenance
   // -- model calls, data read, cost -- keys off one value.

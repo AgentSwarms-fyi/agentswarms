@@ -109,6 +109,388 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-07 — R321: the PDF and DOCX readers came from a public CDN
+
+**Severity: medium, knowledge bases and uploads** (a feature that fails offline, and third-party code
+in the signed-in app). Found in the gap review after 1.6.0.
+
+**The defect.** `fileParsers.ts` imported pdf.js from esm.sh, its worker from jsdelivr, and mammoth
+from esm.sh, at the moment a person uploaded a PDF or DOCX. It did this for a good reason: a
+Vite-hashed chunk is gone after a redeploy, and a tab opened before it fails to load one. But:
+
+- **Offline, uploads fail.** An install without outbound internet, which DEPLOYMENT.md's air-gapped
+  section describes, could not read a PDF or DOCX into a knowledge base, the playground or a swarm
+  run. That section also said that nothing else reaches out.
+- **Third-party code runs as the user.** Whatever esm.sh served ran in the app's origin, with the
+  signed-in session.
+- **Not the audited versions.** The CDN served pdf.js 4.7.76 and mammoth 1.8.0. The lockfile pins
+  4.10.38 and 1.13.0, which are the versions `npm audit` and Dependabot check.
+
+**The before**, on the rebuilt image (`b2cf28df8cf3`, built before this change). A PDF and a DOCX
+were picked in a knowledge base's Add Source dialog (`R192 add-source`). The page's resource timing
+then listed nine fetches from esm.sh, among them `pdfjs-dist@4.7.76/build/pdf.mjs`,
+`mammoth@1.8.0/mammoth.browser.js`, and esm.sh's own `node/process`, `node/buffer`, `node/events`,
+`node/tty` and `node/async_hooks` shims.
+
+**The fix:**
+
+- **The build copies the three files** from `node_modules` into `public/vendor`, using a plugin in
+  `vite.config.ts` that runs at build start, so the dev server has them too. `public/vendor/` is not
+  committed.
+- **The parsers load them from the app's own origin.** pdf.js and its worker load by `import()`.
+  mammoth's browser build is a script that sets `window.mammoth`, so it loads by a script tag, once.
+- **The paths are stable, not hashed**, so a tab opened before a redeploy still finds them. Each
+  URL carries the installed package's version, so a browser never pairs a cached pdf.js with a
+  newer worker.
+- **The paths and versions live in one module** (`vendoredParsers.ts`), which the build, the
+  parsers and the tests all read.
+
+DEPLOYMENT.md's air-gapped section now lists the readers among what the app serves itself. It also
+names what still reaches out from the browser: the provider logos on Integrations and Model
+Registry, which hide themselves when they cannot load.
+
+**Tests:** `selfHostedParsers.test.ts` checks the following:
+
+- each vendored file is the one the lockfile installed, at its pinned version, and pdf.js is
+  paired with its own worker;
+- the URLs are on this origin, under the paths the build writes;
+- the build copies every file at build start, and `.gitignore` keeps the copies out of git;
+- the parsers load from those URLs;
+- a sweep of `src` finds no code loaded from esm.sh, unpkg, skypack or a jsdelivr `.js`. Comment
+  lines are skipped, a URL in a string is still found, and the SVG logos are not counted.
+
+- **Mutation harness:** 8 mutants caught, and the control survived.
+
+**The after**, hot-deployed. The same two files were picked in the same dialog. The page fetched
+`/vendor/pdfjs/pdf.min.mjs?v=4.10.38`, `/vendor/pdfjs/pdf.worker.min.mjs?v=4.10.38` and
+`/vendor/mammoth/mammoth.browser.min.js?v=1.13.0` from the app, and nothing from esm.sh or
+jsdelivr. Both files parsed. The one-line PDF has too little text and went to the vision model,
+as the dialog says such a page does: "read 1 page with openrouter/google/gemini-3-flash-preview ·
+$0.00064". Both were left unadded.
+
+On the way, the first build failed. Node loads `vite.config.ts` and refused the parsers module's
+JSON import without an import attribute. Vite, Vitest and tsc had all accepted it. The import now
+carries `with { type: "json" }`. And the copies are minified third-party code, which ESLint, with
+Prettier as a rule, then linted after a local build: the gate's lint step ran for half an hour on
+pdf.js's 1.4 MB worker. `public/vendor` is now in ESLint's ignores and `.prettierignore`. CI lints
+before it builds, so it would not have seen them.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
+### 2026-10-07 — R320: three late writers left from the census
+
+**Severity: low** (labels and statuses that misreport, nothing lost). The last unguarded status
+writes in sweep 10's census of every `.update({ status })` in `src`.
+
+- **A runtime session's label.** `stopSession` wrote "stopped" over the result the callback had
+  already written. A session that had "succeeded" or "failed" read "stopped" once its sandbox was
+  cleaned up. The write is now held to a live status, so a session that ended keeps the result it
+  ended with. Its sandbox is still removed.
+- **An MCP app's deploy.** The deploy wrote "ready", or "error", over whatever the app held. A Stop
+  that landed after the server answered and before that write was undone: MCP Builder read Running
+  over a server the Stop had removed. `setAppStatus` now takes the status it is held to and says
+  whether the write landed. The deploy's four closing writes are held to the "deploying" its lease
+  wrote. A deploy that lost to a Stop answers "The MCP server was stopped while it was starting, so
+  it is not running", and stops the server it started if it got as far as "ready". A Stop itself
+  is the person's word and is not held.
+- **Registering an open run.** Registering a run that was still running closed it as "finished"
+  over whatever it held, so a run its notebook had just ended as "failed" read "finished". The close
+  is held to "running"; otherwise the register reads what the run ended as. (A failed run with an
+  artifact can be registered, as before.) This is the experiment-run write R316 did not take.
+
+**Not staged.** The MCP window is the time between the server's handshake and one write. The
+register's needs a notebook's `finish` between two statements. The session label needs a
+cleanup after a callback, and that cleanup is the reaper's, on its own schedule. Each is pinned and
+run in tests instead.
+
+**Tests:** `lateWritersR320.test.ts` runs `stopSession` over an in-memory table: a live session is
+marked stopped, and one that succeeded or failed keeps its result, with its sandbox removed in every
+case. It pins the deploy's held writes and the stop of what a losing deploy started, and the
+register's held close. Six of its eight cases fail on the unfixed code. The `mcpAppRecordWrites` pin
+moved with `setAppStatus`.
+
+- **Mutation harness:** 5 mutants caught, and the control survived.
+
+### 2026-10-07 — R319: an edit that kept the result of what it replaced
+
+**Severity: low, data monitors and app sources** (a badge vouching for something it never checked).
+Sweep 10's "badge that outlives what it vouched for" row left two of these, and neither is reachable
+from a page today.
+
+- **A data monitor's changed rule** kept the old rule's "ok", value and message on its card until the
+  next scheduled run. `dataMonitorUpdate` now compares the rule canonically, because jsonb reorders
+  keys and the same rule sent back is not a change. A changed rule clears the result (status,
+  value, message, last run and alert streak), and an active monitor is due on the scheduler's next
+  pass.
+- **An app source saved again** with new credentials kept the old credentials' test result. The
+  save now clears it, as the warehouse and provider saves already do.
+
+**Not driven.** The monitors page only pauses and resumes a monitor, and the Apps tab only creates a
+source, so neither path can be pressed. Calling the server functions from the page would mean
+taking the session's token, which these rounds do not do. Both run as server functions in tests.
+
+**Tests:** `staleStampOnEdit.test.ts` runs both server functions over fakes that record the write.
+A changed rule clears the result and is due. A paused one is cleared but not made due. The same rule
+in another key order, a rename and a pause keep the result. A re-saved source, and a new one, carry
+no test result. Four of its six cases fail on the unfixed code.
+
+- **Mutation harness:** 6 mutants caught, and the control survived.
+
+### 2026-10-07 — R318: a cost below a millionth of a dollar lost its digits
+
+**Severity: low, costs** (a total that is off in its last places). Open since R202.
+
+**The defect.** `execution_traces.cost_usd` was `NUMERIC(10,6)`. A call priced at $0.0000046 was
+stored as $0.000005, and every total over such calls carried that rounding. The run and evaluation
+tables (`swarm_runs`, `swarm_run_steps`, `eval_runs`, `eval_results`) were `NUMERIC(12,6)`: the same
+six places. Agent Chat's whole-turn total was also rounded to six places in code.
+
+**The before**, on Traces, on the rebuilt image before the migration was pushed. Three "KB: Query
+Embedding" calls on `openai/text-embedding-3-small` used 38, 41 and 72 tokens. At $0.02 per
+million tokens they cost $0.00000076, $0.00000082 and $0.00000144, and all three read
+**$0.000001**.
+
+**The fix:**
+
+- **Migration `20261006140000`** makes each of the five columns unconstrained `numeric`. That
+  changes only the type modifier, so Postgres does not rewrite the tables. No view reads them.
+- **The turn total** keeps twelve significant digits instead of six places. That still clears a
+  float sum's noise (0.1 + 0.2 reads 0.3).
+
+**Tests:** `costPrecision.test.ts` sweeps every migration for a money column declared with six
+places. It finds the five, and fails unless a later migration makes each `numeric`. It pins the
+turn total. Both checks fail on the unfixed code.
+
+- **Mutation harness:** 2 mutants caught (a table left at six places, the turn total rounded), and
+  the control survived.
+
+**The after**, with the migration pushed. A question to the Graph RAG sample agent made a query
+embedding of 13 tokens. Traces reads **$0.00000026**, which is 13 × $0.02 per million. An
+"Approved?" step of 69/1 tokens ($0.0000375) reads $0.000037; at six places it would have been
+stored as $0.000038.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
+### 2026-10-06 — R317: one approval, approved in two tabs, ran the rest of the swarm twice
+
+**Severity: high, swarms** (an approved action, such as a refund, carried out twice). From sweep
+10's queue: "a resume whose reopen fails is recorded as a new run". Reading the path from the inbox
+to the resume found the larger defect.
+
+**The defects.**
+
+- **The inbox wrote a decision over whatever the approval held.** Approve and Reject updated the
+  approval by id alone, and every decision then called the resume. Two tabs, or two approvers,
+  pressing Approve on one approval both wrote "approved", and both resumed the run.
+- **Nothing claimed the resume.** `resumeApprovedSwarmRun` read the run and its checkpoint and ran
+  it. The tracer reopened the run by id alone, so both resumes reopened it and ran every node
+  after the approval.
+- **A resume whose reopen failed ran anyway.** When the run had been cancelled after the resume
+  read it, or the reopen write failed, the tracer recorded the resume as a NEW run and ran it: the
+  work the cancel stopped, outside the run that was cancelled. This was the queued row.
+
+**The before**, on the running image (`5999240b211d`). The inbox held 64 pending approvals from the
+scheduled "Approval durability check" swarm. In tab-10 and tab-13, the inbox was opened on the same
+first approval ("Refund request #4821", paused 10 h), and each tab pressed Approve at the same
+wall-clock instant:
+
+- **Both tabs:** "Approved: Approve this request · Human approval is resuming". Both resume calls
+  answered `ok`, status `success`, run `40ef6400`.
+- **The run's Timeline** (Analytics → Observability → run 40ef6400) shows everything after the
+  approval twice. "Approved?" appears twice, each its own model call (3,903 ms and 3,848 ms,
+  $0.00005 each), and "Result" appears twice. The header reads STEPS 5 over seven step rows: each
+  resume wrote its own totals.
+
+**The fix:**
+
+- **The inbox decides only a pending approval** (`.eq("status", "pending")`). A decision that lands
+  on nothing is not recorded, resumes nothing and promotes nothing. The tab says "Already decided:
+  … It was decided elsewhere first. Your decision was not recorded."
+- **The resume claims the approval** (`approvals.resumed_at`, migration `20261006130000`) before it
+  runs. A second call for the same decision finds it claimed and runs nothing. If the resume ran
+  nothing (no checkpoint, the run not reopened, or an exception), the claim is released. A resume
+  that ran and failed keeps the claim: the failure is the run's result.
+- **The tracer reopens only a parked run:** "suspended", or "running" when the park's own stamp
+  did not land (R90). Otherwise it returns null, and the executor runs no node of that resume and
+  answers `RESUME_NOT_REOPENED`, which the inbox shows as "Decision saved, but the run could not be
+  resumed".
+
+**Tests:** `swarmResumeOnce.test.ts` runs `resumeApprovedSwarmRun` and `createServerSwarmTracer`
+over an in-memory table store. Its cases:
+
+- two resumes of one decision, the second arriving while the first runs, run it once;
+- the claim is released when the run could not be reopened, when there was nothing to resume, and
+  when the resume throws, and kept when the run ran and failed;
+- the tracer reopens a parked run, and one whose park stamp did not land, and does not bring back
+  a cancelled or finished run, and records no new run;
+- the executor refuses before it records or runs anything, and the inbox resumes only what it
+  decided.
+
+Seven of its 11 cases fail on the unfixed code. The R92 pin in `swarmResumeRunRecord.test.ts`,
+which held the old "recorded as a new run" message, now holds the refusal. The 20 test files that
+read these files pass.
+
+- **Mutation harness:** 12 mutants caught, and the control survived.
+
+**The after**, on the rebuilt image (`b2cf28df8cf3`), with the migration pushed. The next pending
+approval was approved in both tabs at the same millisecond:
+
+- **Tab-10:** "Approved: Approve this request · Human approval is resuming". The resume answered
+  `success`, run `48afa504`.
+- **Tab-13:** "Already decided: Approve this request · It was decided elsewhere first. Your decision
+  was not recorded." It made no resume call.
+- **Run 48afa504's Timeline:** Request, Summarise, Human approval, one "Approved?" and one "Result".
+  STEPS reads 5, over five rows.
+
+The first attempt at this staging stalled for 32.6 s in both tabs and ended in
+`net::ERR_CONNECTION_CLOSED`, and neither decision landed. A single Approve straight after took
+149 ms. Both tabs share one connection to the hosted database, and the Docker and WSL restart
+earlier in the night had left it dead. The second attempt, above, ran on a fresh connection.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
+### 2026-10-06 — R316: a run's metrics logged from threads, and a saved model its own finish erased
+
+**Severity: medium, ML experiments** (a saved model lost, and metrics silently dropped). From sweep
+10's queue: experiment runs from a notebook. Staging it found a second defect, worse than the
+queued one.
+
+**The defects.** `log` and `finish` (`/api/ml/experiments`) each read the run, merged what they
+were sent onto what they had read, and wrote the result over whatever the run held by then.
+
+- **Concurrent logs lost keys.** Two logs at once each merged onto the same metrics, and the later
+  write dropped the earlier one's keys.
+- **`finish` wrote every field it could be sent**, given or not: `artifact_uri: body.artifact_uri
+?? null`. The helper's `with start_run(...) as run:` ends in a `finish()` that sends no
+  artifact. So a model `run.save_model(...)` had just recorded was written over with null, unless
+  `run.register(...)` ran inside the block too. The run then read "No artifact recorded, so there
+  is nothing to register", and the saved file was left in the bucket with nothing pointing to it.
+
+**The before**, on the running image (`5999240b211d`). A new Python notebook ran one cell. The
+cell started run "twenty threads" in experiment `r316_probe`, logged `m00`…`m19` from 20 threads at
+once, and finished it. It then saved a fitted `LogisticRegression` inside
+`with agentswarms.start_run("r316_probe", name="saved model")`.
+
+- **The notebook:** "[agentswarms] saved 607 bytes to
+  s3://lakehouse/ml-artifacts/experiments/716c99ba-…/model.joblib".
+- **ML Models → Experiments → r316_probe:** "twenty threads" held five metrics, `m01`, `m02`,
+  `m04`, `m07` and `m13`.
+- **"saved model"** read "No artifact recorded, so there is nothing to register. Pass artifact_uri
+  and artifact_sha256 to finish()".
+
+**The fix** is one statement, `ml_experiment_run_write` (migration `20261006120000`), which both
+operations call:
+
+- It **locks the caller's run** (`FOR UPDATE`), refuses one that has ended, and merges params and
+  metrics onto what the run holds. The key cap counts the merged map. A second call waits for the
+  first to commit, then merges onto what the first wrote.
+- **`finish` writes only the fields it was sent.** `error` and `notes` are kept when absent. The
+  artifact is a pair: sending either half replaces both (and clears `artifact_bytes`), because a
+  digest kept beside another file's URI verifies nothing.
+- It is **SECURITY DEFINER with a user id argument**, so it is revoked from `PUBLIC`, `anon` and
+  `authenticated`, and granted to `service_role` only, as `accessible_lakehouse_schemas` is.
+- **The route** maps its answers: missing → 404, ended → 409 ("That run already finished"), over
+  the cap → 400 with the count, a database error → 400. An answer it does not know → 500, never
+  success.
+- **The panel's hint** for a run with no artifact now names `run.save_model()` first.
+
+`mergeCapped` had no caller left and is removed. Its cases (adds rather than replaces, a later value
+wins, the cap) are now the function's, checked on Postgres.
+
+**Tests:**
+
+- **On Postgres 16**, in a scratch database on the compose catalog twin (`scratchpad/c16/r316_pg`).
+  Twenty logs whose transactions overlap keep 20 metrics. A finish without an artifact keeps the
+  saved one and `notes`, and measures the duration. A log after finish is refused and changes
+  nothing. Another user's run is missing. Half an artifact replaces the pair. The cap counts what
+  the run holds, a refused log writes nothing, and a replaced key is not a new one. Only
+  `service_role` may execute.
+- **`mlExperimentRunWrite.test.ts`** runs the route over a recorded `rpc`: what log and finish
+  send, each answer's status, and the statement's pins. Eight of its cases fail on the unfixed
+  route.
+- **`mlExperiments.test.ts`**: the ownership and "already finished" pins moved to the statement.
+  The 25 test files that read migrations or the touched files pass.
+
+- **Mutation harness:** 12 mutants caught and both controls survived. The six SQL mutants were also
+  run against Postgres, and each was caught there too, by behaviour rather than by text: removing
+  the row lock lost metrics from the overlapping logs.
+
+**The after**, on the rebuilt image (`b2cf28df8cf3`), with the migration pushed. The same cell
+was run again in the same notebook:
+
+- **The new "twenty threads" run** holds all twenty metrics, `m00` to `m19`.
+- **The new "saved model" run** shows its artifact
+  (`s3://lakehouse/ml-artifacts/experiments/fdda1bd7-…/model.joblib`), with "Register into…" and
+  "Register as a version".
+- **A run with no model** now reads "Save one with run.save_model() before the run ends, or pass
+  artifact_uri and artifact_sha256 to finish()".
+
+The kernel's first start on this host took 21 s. The cell's first press timed out on it, and the
+second ran; that is queued separately below. The cell took 82.7 s, against 36.7 s before the Docker
+restart: the host's disk, not the change.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
+### 2026-10-06 — R315: two presses of Re-crawl crawled the source twice
+
+**Severity: low, data catalog.** R314 read this and left it in the queue. It is the last open row
+of sweep 10's catalog reading.
+
+**The defect.** Nothing claimed a crawl. Re-crawl read the source, refused if it read "crawling",
+and then crawled. Two presses at once (two tabs, or a press and the daily or weekly schedule)
+both read "ready", and both crawled. Assets upsert by `(source_id, fqn)`, so nothing was
+duplicated, but the warehouse or bucket was listed and sampled twice, the audit log recorded two
+crawls, and any schema drift was announced twice. A Databricks source could also record its
+lineage edges twice.
+
+**The before**, on the running image (`5999240b211d`). Source "MinIO local etl demo" (12 assets).
+Its Re-crawl menu item was opened in tab-10 and tab-13, and each tab clicked it at the same
+wall-clock instant:
+
+- **Both tabs:** "Crawled "MinIO local etl demo" — 12 assets, 85 columns".
+- **The audit log:** two `catalog crawl` entries for the source, 12 assets each, and four
+  `catalog_source.update` entries (each crawl's start and end).
+
+**The fix** is R313's claim, in `runCrawl`:
+
+- **The claim.** The source moves to "crawling" only from another status, or from a "crawling"
+  whose row has not changed for `CATALOG_CRAWL_LEASE_MINUTES` (60 by default), which is a crawl that
+  died. The write returns the row it moved, so a crawl that moved nothing knows it lost.
+- **A crawl that loses** does not start. It throws `CrawlAlreadyRunning`, and Re-crawl says: "A
+  crawl of this source is already running. Its result will show here when it finishes." The status
+  check Re-crawl makes first now says the same.
+- **The scheduled pass** treats that as nothing to report: the crawl that is running will report
+  itself. Without that, the refusal would reach the owner as a failed crawl.
+- **A claim that fails** to write stops the crawl ("The crawl could not start: …"). Before, it only
+  logged a warning and crawled without a claim.
+
+The claim is made before the `try`, so a crawl that did not start never writes "error" over the
+one that is running.
+
+**Tests:** `catalogCrawlClaim.test.ts` runs `runCrawl` over an in-memory table store with
+PostgREST's `or` filter, and a warehouse driver that can hold a crawl open while a second starts.
+Its cases:
+
+- a second crawl, started while the first is listing, is refused, lists nothing, and leaves the
+  first to finish "ready" with one audit entry;
+- the refusal leaves no error on the source;
+- a claim older than the lease is taken over, and one within it is not;
+- the schedule skips a crawl that is already running.
+
+Four of the five fail on the unfixed code. The start-write pin in `catalogCrawlWrites.test.ts`
+moved with the code, and the 13 test files that read the crawler pass.
+
+- **Mutation harness:** 5 mutants caught, and the control survived.
+
+**The after**, on the rebuilt image (`b2cf28df8cf3`), staged the same way. Both tabs pressed at
+the same millisecond:
+
+- **Tab-13:** "Crawled "MinIO local etl demo" — 12 assets, 85 columns".
+- **Tab-10:** "A crawl of this source is already running. Its result will show here when it finishes."
+- **The audit log:** one `catalog crawl` entry and two `catalog_source.update` entries.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-06 — R314: the idle reaper's "stopped", and a redeploy's order, after R311
 
 **Severity: low, ML serving.** R311 left these two in the queue. The first is partly R311's own

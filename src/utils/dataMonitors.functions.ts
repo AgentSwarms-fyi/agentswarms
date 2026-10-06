@@ -27,6 +27,7 @@ import {
 } from "@/utils/dataMonitors/run.server";
 import { listLakehouseTablesForUser } from "@/utils/lakehouse/tables.server";
 import { callerFailure } from "@/utils/callerLookup.server";
+import { canonicalJson } from "@/lib/definitionFingerprint";
 
 type Fail = { ok: false; error: string };
 
@@ -320,6 +321,19 @@ export const dataMonitorUpdate = createServerFn({ method: "POST" })
       patch.cron_expr = schedule === "cron" ? cron : null;
       patch.timezone = tz;
       patch.next_run_at = nextMonitorRunAt(schedule, cron, tz);
+    }
+    // FOUND IN R319. A changed rule kept the old rule's result: "ok" and its
+    // value stayed on the card for a threshold or column that had never been
+    // checked, until the next scheduled run. The result is cleared, and the
+    // monitor is due on the scheduler's next pass. Compared canonically: jsonb
+    // reorders keys, and the same rule sent back is not a change.
+    if (data.config !== undefined && canonicalJson(data.config) !== canonicalJson(current.config)) {
+      patch.last_status = null;
+      patch.last_value = null;
+      patch.last_message = null;
+      patch.last_run_at = null;
+      patch.consecutive_alerts = 0;
+      if (patch.is_active ?? current.is_active) patch.next_run_at = new Date().toISOString();
     }
     const { error } = await supabaseAdmin
       .from("data_monitors")

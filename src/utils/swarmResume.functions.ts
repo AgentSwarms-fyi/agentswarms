@@ -9,7 +9,7 @@ import { z } from "zod";
 
 import type { Database } from "@/integrations/supabase/types";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { resumeSwarmRun } from "@/utils/swarmExecute.server";
+import { RESUME_NOT_REOPENED, resumeSwarmRun } from "@/utils/swarmExecute.server";
 import { resolveInternalOrigin } from "@/utils/internalOrigin.server";
 import { callerFailure } from "@/utils/callerLookup.server";
 import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
@@ -99,13 +99,53 @@ export const resumeApprovedSwarmRun = createServerFn({ method: "POST" })
           return { ok: true, status: run.status, runId: run.id, output: "" };
         }
 
-        const result = await resumeSwarmRun({
-          runId: run.id,
-          userId: run.user_id,
-          origin: resolveInternalOrigin(),
-          decision: { approved: approval.status === "approved" },
-        });
-        if (!result) return { ok: false, error: "This run can no longer be resumed" };
+        // FOUND IN R317. Every decision resumed the run, so two (two tabs, or
+        // two approvers) ran everything after the approval twice. A decision
+        // resumes its run once: the first call claims the approval, and a
+        // second finds it claimed. A claim whose resume ran nothing is
+        // released.
+        const { data: claimed, error: claimErr } = await supabaseAdmin
+          .from("approvals")
+          .update({ resumed_at: new Date().toISOString() })
+          .eq("id", approval.id)
+          .is("resumed_at", null)
+          .select("id");
+        if (claimErr) return { ok: false, error: `The run was not resumed: ${claimErr.message}` };
+        if ((claimed ?? []).length === 0) {
+          return { ok: true, status: run.status, runId: run.id, output: "" };
+        }
+        const release = async () => {
+          const { error: releaseErr } = await supabaseAdmin
+            .from("approvals")
+            .update({ resumed_at: null })
+            .eq("id", approval.id);
+          if (releaseErr) {
+            console.warn(
+              `[swarm-resume] approval ${approval.id}: its resume ran nothing, but the claim could not be released: ${releaseErr.message}`,
+            );
+          }
+        };
+
+        let result: Awaited<ReturnType<typeof resumeSwarmRun>>;
+        try {
+          result = await resumeSwarmRun({
+            runId: run.id,
+            userId: run.user_id,
+            origin: resolveInternalOrigin(),
+            decision: { approved: approval.status === "approved" },
+          });
+        } catch (e) {
+          await release();
+          throw e;
+        }
+        if (!result) {
+          await release();
+          return { ok: false, error: "This run can no longer be resumed" };
+        }
+        if (result.error === RESUME_NOT_REOPENED) {
+          await release();
+          return { ok: false, error: result.error };
+        }
         return { ok: true, status: result.status, runId: result.runId, output: result.output };
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : "Resume failed" };

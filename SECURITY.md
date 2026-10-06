@@ -285,6 +285,34 @@ These are yours, not the application's:
 See [`docs/INSTALL.md`](./docs/INSTALL.md) and
 [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md).
 
+## Dependencies
+
+`npm audit` and Dependabot both watch `package-lock.json`. Dependabot also
+watches the CI actions and `docgen-service/requirements.txt`. Advisories are
+fixed by updating the dependency where a fixed version exists. Where a library
+pins a vulnerable package of its own, an `overrides` entry in `package.json`
+forces the fixed one; each entry is listed below with the reason it is safe.
+
+| Override                                  | Why it is safe                                                                                           |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `axios` `^1.20.0`                         | firecrawl pins 1.18.0; the API it uses is unchanged within 1.x.                                          |
+| `image-size` `^2.0.4`                     | pptxgenjs lists it, but its built code never loads it.                                                   |
+| `katex` `^0.18.2`                         | mermaid asks for 0.16, which has the advisories. A diagram with math is rendered and checked in the app. |
+| `argparse` `^2.0.1`, under `mammoth` only | Only mammoth's command-line tool uses it, and the app never runs that tool.                              |
+
+**Code the browser runs comes from the app.** The PDF and DOCX readers used to be
+imported from esm.sh and jsdelivr at upload time, at versions the lockfile did
+not pin. They are now copied from the installed packages at build and served
+from the app's own origin (R321), so `npm audit` covers what runs, and a test
+fails if code is loaded from a public CDN again.
+
+**Accepted, with the reason.** Two moderate findings remain, and both are one
+advisory. `sprintf-js` can be stalled by a format string with unbounded
+precision, and every version is affected, so there is nothing to update to. The
+SQL Server driver `tedious` uses it, but only with format strings written in the
+driver itself, for debug text and error messages. No value from a user or a
+database reaches a format position, so the advisory cannot be triggered here.
+
 ## What this project does not claim
 
 Stated plainly because you will ask:

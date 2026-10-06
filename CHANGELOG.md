@@ -14,7 +14,72 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
-Nothing yet.
+### Upgrading
+
+- **Run the migrations** (`npx supabase db push`). One adds
+  `ml_experiment_run_write`, which experiment logging now calls; until it
+  exists, logging to a run answers 400. One adds `approvals.resumed_at`, which
+  resuming a swarm run after its approval now claims. One widens the cost
+  columns to unconstrained `numeric`, without rewriting the tables.
+
+### Security: dependencies
+
+`npm audit` went from **44 advisories (4 critical, 24 high)** to **2 moderate**,
+and both of those are one advisory that cannot be triggered here (see
+[SECURITY.md → Dependencies](./SECURITY.md#dependencies)).
+
+- **Updates.** The 80 minor and patch updates of Dependabot's group (#78) are
+  in, along with every fix `npm audit` could make within the existing version
+  ranges, including the critical one in `seroval`, which serialises server
+  function calls. TanStack Router now types a thrown error as `unknown`, and the
+  default error page reads it that way.
+- **Vitest 3 → 4.1.11**, which clears the critical `tinypool` and `@vitest/mocker`
+  advisories. Not 5: Vitest 5 needs Node 22.12, and this project supports Node
+  20.19. Vitest 4's `maxWorkers` replaces `poolOptions.forks.maxForks`.
+- **Nodemailer 6 → 10.** The SMTP path is now tested end to end against a
+  server on loopback.
+- **Overrides** force fixed versions that four libraries pin: `axios`,
+  `image-size`, `katex` and `argparse`. Each is explained in SECURITY.md.
+- **The doc generator's `cairosvg` 2.7.1 → 2.9.0,** and CI's
+  `actions/checkout` v4 → v7.
+- **The PDF and DOCX readers are served by the app** (R321). They were imported
+  from esm.sh and jsdelivr at upload time: offline installs could not read an
+  upload, and the versions fetched (pdf.js 4.7.76, mammoth 1.8.0) were not the
+  audited ones in the lockfile (4.10.38, 1.13.0). The build now copies them into
+  `public/vendor`.
+- **Prettier 3.9's** formatting is applied, in 46 files. `react-refresh` 0.5
+  flagged every route file's page component; route files are hot-reloaded by
+  TanStack's router plugin, so the rule is now off under `src/routes/` only.
+
+### Fixed
+
+- **One approval, approved in two tabs (or by two approvers), ran the rest of
+  the swarm twice** (R317): staged, the step after the approval made two model
+  calls and the run recorded two results. The inbox now decides only a pending
+  approval, and a decision resumes its run once. A resume whose run was
+  cancelled meanwhile runs nothing, where it used to run as a new run.
+- **A model saved inside `with start_run(...)` was erased by the block's own
+  `finish()`** (R316), so the run could not be registered, and metrics logged
+  from several threads at once kept only some keys (5 of 20, staged). Log and
+  finish are now one locked statement each, and `finish` writes only what it
+  is sent.
+- **Costs below a millionth of a dollar lost their digits** (R318): a $0.0000046
+  call was stored as $0.000005. The five cost columns are now unconstrained
+  `numeric` (a migration), and Agent Chat's turn total keeps twelve significant
+  digits.
+- **An edit kept the result of what it replaced** (R319): a data monitor's
+  changed rule kept the old rule's "ok", and an app source saved with new
+  credentials kept the old ones' test result. Both reachable only through the
+  API.
+- **Three late status writes** (R320): a finished runtime session read
+  "stopped" once its sandbox was cleaned up; an MCP deploy could write "ready"
+  over a Stop pressed as the server came up; registering an open run could
+  rewrite "failed" as "finished".
+- **Re-crawl pressed twice at once crawled the catalog source twice** (R315):
+  two crawls, two audit entries, and any schema change announced twice. A crawl
+  now claims its source, and a second press is told one is already running. A
+  crawl that died leaves its claim; another may take it after
+  `CATALOG_CRAWL_LEASE_MINUTES` (60 by default).
 
 ## 1.6.0 — 2026-10-06
 

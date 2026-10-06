@@ -1639,8 +1639,11 @@ by default, and each has a local answer:
 | **Container images** | Mirror `agentswarms/*`, `supabase/*` and any model image into your internal registry.                                                                    |
 
 Nothing else phones home: there is no telemetry, no licence check and no usage
-reporting, fonts and the SQL engine (DuckDB-Wasm) are served from the app
-itself, and analytics exist only if you set `VITE_GA_ID`. See
+reporting. Fonts, the SQL engine (DuckDB-Wasm) and the PDF and DOCX readers
+(pdf.js, mammoth: copied from the installed packages at build, R321) are served
+from the app itself, and analytics exist only if you set `VITE_GA_ID`. The
+provider logos on Integrations and Model Registry still load from jsdelivr;
+offline they hide themselves and the card keeps its icon slot. See
 [/architecture](./ARCHITECTURE.md) and [/security](../src/routes/security.tsx).
 
 ## Production checklist (cross-cutting)

@@ -642,8 +642,10 @@ async function recordTrace(opts: {
   if (loopIn > 0 || loopOut > 0) {
     safePayload.turn_tokens_in = tokensIn + loopIn;
     safePayload.turn_tokens_out = tokensOut + loopOut;
+    // Twelve significant digits, not six places: a turn of sub-millionth
+    // calls would otherwise round to a figure no call cost (R318).
     safePayload.turn_cost_usd = Number(
-      (costUsd + estimateCost(trace.provider, trace.model, loopIn, loopOut)).toFixed(6),
+      (costUsd + estimateCost(trace.provider, trace.model, loopIn, loopOut)).toPrecision(12),
     );
   }
   if (Array.isArray(safePayload.messages)) {

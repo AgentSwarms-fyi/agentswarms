@@ -175,12 +175,25 @@ export function ApprovalInbox() {
 
   const decide = async (id: string, status: "approved" | "rejected") => {
     const item = approvals.find((a) => a.id === id);
-    const { error } = await supabase
+    // FOUND IN R317. The decision was written over whatever the approval
+    // held, and every decision then resumed the run: two tabs (or two
+    // approvers) pressing Approve ran everything after the approval twice.
+    // Only a pending approval is decided now, and only by the first.
+    const { data: decided, error } = await supabase
       .from("approvals")
       .update({ status, decided_at: new Date().toISOString(), decided_by: user?.id ?? null })
-      .eq("id", id);
+      .eq("id", id)
+      .eq("status", "pending")
+      .select("id");
     if (error) {
       toast.error("Failed to update approval");
+      return;
+    }
+    if ((decided ?? []).length === 0) {
+      setApprovals((list) => list.filter((a) => a.id !== id));
+      toast.info(`Already decided: ${item?.action_title ?? "this approval"}`, {
+        description: "It was decided elsewhere first. Your decision was not recorded.",
+      });
       return;
     }
     // A model promotion is not an agent resuming, and saying so would be the

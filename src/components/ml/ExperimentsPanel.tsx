@@ -608,9 +608,12 @@ with agentswarms.start_run("churn-v2", params={"lr": 0.01}) as run:
                                           ) : (
                                             <p className="text-xs text-muted-foreground">
                                               No artifact recorded, so there is nothing to register.
-                                              Pass <code className="font-mono">artifact_uri</code>{" "}
-                                              and <code className="font-mono">artifact_sha256</code>{" "}
-                                              to <code className="font-mono">finish()</code>.
+                                              Save one with{" "}
+                                              <code className="font-mono">run.save_model()</code>{" "}
+                                              before the run ends, or pass{" "}
+                                              <code className="font-mono">artifact_uri</code> and{" "}
+                                              <code className="font-mono">artifact_sha256</code> to{" "}
+                                              <code className="font-mono">finish()</code>.
                                             </p>
                                           )}
                                         </div>

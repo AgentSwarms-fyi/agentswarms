@@ -96,20 +96,6 @@ export function varyingParams(runs: { params: unknown }[]): Set<string> {
   return new Set([...values.entries()].filter(([, s]) => s.size > 1).map(([k]) => k));
 }
 
-/** Merge new entries over old, refusing rather than growing without bound. */
-export function mergeCapped(
-  existing: unknown,
-  incoming: ScalarMap,
-  what: string,
-): { value: ScalarMap } | { error: string } {
-  const merged: ScalarMap = { ...asScalarMap(existing), ...incoming };
-  const keys = Object.keys(merged).length;
-  if (keys > MAX_KEYS_PER_RUN) {
-    return { error: `A run may hold ${MAX_KEYS_PER_RUN} ${what}; this would make ${keys}` };
-  }
-  return { value: merged };
-}
-
 /**
  * The metrics that travel with a promotion into the registry: the plain
  * numeric scores. A leaderboard that also held `loss@7` would be ranking a

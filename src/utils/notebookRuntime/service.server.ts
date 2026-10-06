@@ -387,10 +387,14 @@ export async function stopSession(row: SessionRow): Promise<void> {
       console.warn(`[runtime] session ${row.id}: staging not deleted: ${(e as Error).message}`),
     );
   }
+  // FOUND IN R320. Held to a live status: a session the callback already
+  // ended ("succeeded", "failed") keeps the result it ended with, rather than
+  // reading "stopped" because its sandbox was cleaned up afterwards.
   const { error: stopErr } = await supabaseAdmin
     .from("notebook_runtime_sessions")
     .update({ status: "stopped", stopped_at: new Date().toISOString() })
-    .eq("id", row.id);
+    .eq("id", row.id)
+    .in("status", [...LIVE]);
   if (stopErr) {
     // FOUND FROM THE SURVEY (R80). The container is gone; a row still live
     // is counted against the caps, listed as running, and reaped again.

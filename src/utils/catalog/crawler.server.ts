@@ -1091,6 +1091,19 @@ export async function loadIcebergConfig(source: CatalogSourceRow): Promise<Icebe
   return { uri: cfg.uri, warehouse: cfg.warehouse, token };
 }
 
+/** Thrown when another crawl of the same source holds it (R315). */
+export class CrawlAlreadyRunning extends Error {
+  constructor() {
+    super("A crawl of this source is already running. Its result will show here when it finishes.");
+    this.name = "CrawlAlreadyRunning";
+  }
+}
+
+function crawlLeaseMinutes(): number {
+  const n = Number.parseInt(process.env.CATALOG_CRAWL_LEASE_MINUTES ?? "", 10);
+  return Number.isFinite(n) && n > 0 ? n : 60;
+}
+
 export async function runCrawl(
   userId: string,
   source: CatalogSourceRow,
@@ -1098,15 +1111,24 @@ export async function runCrawl(
   decryptStorageConfig: (source: CatalogSourceRow) => Promise<ObjectStoreConfig>,
 ): Promise<CrawlStats> {
   const started = Date.now();
-  const { error: startErr } = await supabaseAdmin
+  // FOUND IN R315: the crawl claims its source. "Crawl now" checked the status
+  // it had read and then crawled, so two presses (or a press and the
+  // schedule) both passed the check and crawled the source twice, each
+  // auditing a crawl and announcing the same changes. The move to "crawling"
+  // is now made only from another status, or from a "crawling" a dead crawl
+  // left behind: one whose row has not changed for CATALOG_CRAWL_LEASE_MINUTES
+  // (60 by default). Before the try below, so a crawl that did not start
+  // never writes "error" over the one that is running.
+  const staleBefore = new Date(Date.now() - crawlLeaseMinutes() * 60_000).toISOString();
+  const { data: claimed, error: startErr } = await supabaseAdmin
     .from("catalog_sources")
     .update({ status: "crawling", last_error: null, updated_at: new Date().toISOString() })
-    .eq("id", source.id);
-  if (startErr) {
-    console.warn(
-      `[catalog] source ${source.id}: could not be marked crawling: ${startErr.message}; a second crawl will not be refused while this one runs`,
-    );
-  }
+    .eq("id", source.id)
+    // Quoted: a timestamp's dots and colons are separators in this filter.
+    .or(`status.neq.crawling,updated_at.lt."${staleBefore}"`)
+    .select("id");
+  if (startErr) throw new Error(`The crawl could not start: ${startErr.message}`);
+  if ((claimed ?? []).length === 0) throw new CrawlAlreadyRunning();
   try {
     const existing = await loadExistingAssets(source.id);
     let assets: CrawledAsset[];

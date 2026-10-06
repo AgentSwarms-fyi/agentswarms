@@ -7,6 +7,7 @@ import {
   PAGE_MAX_SIDE_PX,
   PAGE_RENDER_SCALE,
 } from "@/lib/documentVision";
+import { MAMMOTH_URL, PDFJS_URL, PDFJS_WORKER_URL } from "@/lib/vendoredParsers";
 
 /**
  * What an upload yields: its text, or - for a scanned PDF or an image - the
@@ -60,20 +61,17 @@ export async function parseFileToText(file: File): Promise<string> {
 }
 
 // pdfjs + mammoth are large and only needed when the user actually uploads a
-// PDF/DOCX. We load them from a CDN at runtime via @vite-ignore'd dynamic
-// imports so they are NOT split into Vite-hashed chunks. Hashed chunks break
-// when the deploy is updated while a user has an old tab open
-// ("Failed to fetch dynamically imported module: /assets/pdf-XXXX.js").
-
-const PDFJS_VERSION = "4.7.76";
-const MAMMOTH_VERSION = "1.8.0";
+// PDF/DOCX, so they load at that moment, from this app's own origin at stable
+// paths rather than as Vite-hashed chunks. Hashed chunks break when the deploy
+// is updated while a user has an old tab open ("Failed to fetch dynamically
+// imported module: /assets/pdf-XXXX.js"). They used to come from a public CDN
+// for that reason; see vendoredParsers.ts for why they no longer do (R321).
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function loadPdf(file: File): Promise<any> {
-  const pdfjsUrl = `https://esm.sh/pdfjs-dist@${PDFJS_VERSION}/build/pdf.mjs`;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const pdfjs: any = await import(/* @vite-ignore */ pdfjsUrl);
-  pdfjs.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.worker.min.mjs`;
+  const pdfjs: any = await import(/* @vite-ignore */ PDFJS_URL);
+  pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_URL;
   const buf = await file.arrayBuffer();
   return await pdfjs.getDocument({ data: buf }).promise;
 }
@@ -121,11 +119,42 @@ async function parsePdf(file: File): Promise<string> {
   return (await pdfPageTexts(pdf)).join("\n\n").trim();
 }
 
+type Mammoth = {
+  extractRawText(input: { arrayBuffer: ArrayBuffer }): Promise<{ value?: string }>;
+};
+
+let mammothLoading: Promise<Mammoth> | null = null;
+
+/**
+ * mammoth's browser build is a script, not a module: it sets
+ * `window.mammoth`. Loaded once, by a script tag.
+ */
+function loadMammoth(): Promise<Mammoth> {
+  const w = window as unknown as { mammoth?: Mammoth };
+  if (w.mammoth) return Promise.resolve(w.mammoth);
+  mammothLoading ??= new Promise<Mammoth>((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = MAMMOTH_URL;
+    script.async = true;
+    script.onload = () =>
+      w.mammoth
+        ? resolve(w.mammoth)
+        : reject(new Error("The DOCX reader loaded but did not start."));
+    script.onerror = () => {
+      script.remove();
+      reject(new Error(`The DOCX reader could not be loaded from this server (${MAMMOTH_URL}).`));
+    };
+    document.head.appendChild(script);
+  }).catch((e) => {
+    mammothLoading = null;
+    throw e;
+  });
+  return mammothLoading;
+}
+
 async function parseDocx(file: File): Promise<string> {
-  const mammothUrl = `https://esm.sh/mammoth@${MAMMOTH_VERSION}/mammoth.browser.js`;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const mammoth: any = await import(/* @vite-ignore */ mammothUrl);
+  const mammoth = await loadMammoth();
   const buf = await file.arrayBuffer();
-  const result = await (mammoth.default ?? mammoth).extractRawText({ arrayBuffer: buf });
+  const result = await mammoth.extractRawText({ arrayBuffer: buf });
   return String(result?.value || "").trim();
 }

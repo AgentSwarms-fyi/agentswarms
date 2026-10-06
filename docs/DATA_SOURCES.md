@@ -406,6 +406,12 @@ consume each table. Crawls can run on a daily/weekly schedule with
 schema-drift notifications. Object-storage and Iceberg credentials are
 encrypted with the same `PROVIDER_CREDS_SECRET` key.
 
+One crawl of a source runs at a time. A crawl claims its source by moving it to
+"crawling", so a second **Re-crawl** says one is already running, and a
+scheduled pass leaves the source alone (R315). A crawl that died leaves its
+claim; another may take it once the source has not changed for
+`CATALOG_CRAWL_LEASE_MINUTES` (60 by default).
+
 ## Staying connected
 
 Three things run underneath every connection. All are tuned by the operator —

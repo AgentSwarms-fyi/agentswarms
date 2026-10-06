@@ -261,7 +261,8 @@ function SwarmsPage() {
       <Callout kind="info">
         With both approver lists empty, only the person who started the run can decide it. The
         runner is emailed only if they explicitly appear in the lists — picked individually, or via
-        a group they belong to.
+        a group they belong to. An approval is decided once: the first decision resumes the run, and
+        a second, from another tab or another approver, is told it was already decided.
       </Callout>
 
       <H3 id="n-evaluate">evaluate</H3>

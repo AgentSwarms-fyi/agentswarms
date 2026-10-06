@@ -11,13 +11,11 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import {
-  MAX_KEYS_PER_RUN,
   algorithmOf,
   asScalarMap,
   checkRegistrable,
   curveOf,
   isStepKey,
-  mergeCapped,
   metricColumns,
   promotableMetrics,
   scoreKeys,
@@ -97,28 +95,6 @@ describe("which parameters actually differed", () => {
     // Absent is a value: one run tuned something the other never set.
     const varied = varyingParams([{ params: { lr: 1, warmup: 5 } }, { params: { lr: 1 } }]);
     expect([...varied]).toEqual(["warmup"]);
-  });
-});
-
-describe("merging a log call into a run", () => {
-  it("adds rather than replaces, so a loop's earlier epochs survive", () => {
-    const first = mergeCapped({ "loss@0": 0.9 }, { "loss@1": 0.5, loss: 0.5 }, "metrics");
-    expect("value" in first && first.value).toEqual({ "loss@0": 0.9, "loss@1": 0.5, loss: 0.5 });
-  });
-
-  it("lets a later value win for the same name", () => {
-    const m = mergeCapped({ loss: 0.9 }, { loss: 0.2 }, "metrics");
-    expect("value" in m && m.value.loss).toBe(0.2);
-  });
-
-  it("refuses to grow a row past what anything can render", () => {
-    const many: Record<string, number> = {};
-    for (let i = 0; i <= MAX_KEYS_PER_RUN; i++) many[`m@${i}`] = i;
-    const over = mergeCapped({}, many, "metrics");
-    expect("error" in over && over.error).toMatch(/may hold 2000 metrics/);
-    // Mutation check: one fewer key is fine.
-    delete many[`m@${MAX_KEYS_PER_RUN}`];
-    expect("value" in mergeCapped({}, many, "metrics")).toBe(true);
   });
 });
 
@@ -205,15 +181,21 @@ describe("the wiring", () => {
   });
 
   it("treats a run id as an id and not as a capability", () => {
-    // Both write operations re-check ownership rather than trusting the uuid.
+    // Both write operations re-check ownership rather than trusting the uuid:
+    // the statement they call matches the run AND the caller (R316).
     const writes = route.slice(route.indexOf("Both remaining operations"));
-    expect(writes).toContain('.eq("user_id", caller.userId)');
+    expect(writes).toContain("p_user_id: caller.userId");
+    expect(rd("supabase/migrations/20261006120000_ml_experiment_run_write.sql")).toContain(
+      "WHERE id = p_run_id AND user_id = p_user_id",
+    );
     expect(fns).toContain('.eq("user_id", userId)');
   });
 
   it("refuses to rewrite a run that already finished", () => {
-    expect(route).toContain('if (run.status !== "running")');
-    expect(route).toContain("409");
+    expect(rd("supabase/migrations/20261006120000_ml_experiment_run_write.sql")).toContain(
+      "IF r.status <> 'running' THEN",
+    );
+    expect(route).toContain("return json({ error: `That run already ${answer.status}` }, 409);");
   });
 
   it("registers through the same path an external version takes", () => {
