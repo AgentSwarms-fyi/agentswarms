@@ -680,10 +680,10 @@ least twice, not a hypothetical.
       and a Stop during it stops the deploy's own session, so the deploy fails rather than writing
       "ready". "Ready" over "stopped" needs the Stop between the tool handshake and the write.
       Narrow; left.
-    - **Data incidents** (`dataMonitors/run.server`), read after R309. Acknowledge writes
-      "acknowledged" without holding to the status it read, so a monitor run that resolved the
-      incident a moment earlier is undone, and the incident shows open again. A one-line guard;
-      narrow window; queued.
+    - ~~**Data incidents** (`dataMonitors/run.server`)~~. **R312**: every status write by either
+      writer is now held to "not resolved". Acknowledge no longer opens again an incident a run
+      resolved; a run no longer takes over its owner's resolve; and a failure no longer goes
+      unreported because it extended an incident resolved a moment earlier.
     - ~~**SQL model runs**~~: read by hand after R309, and **clear**. The build inserts its run and
       closes it itself; nothing else writes the run's status.
     - Workflow runs are mostly guarded (their close and cancel). The one unguarded write fails a row

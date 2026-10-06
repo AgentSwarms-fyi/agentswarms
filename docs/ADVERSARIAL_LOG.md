@@ -109,6 +109,71 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-06 — R312: a data incident's two writers wrote over each other
+
+**Severity: medium, data monitors** (an incident opened again after it was resolved, and a failing
+check reported to nobody). From sweep 10's data-incidents row.
+
+**The defect.** An incident has two writers. Its owner acknowledges or resolves it. The monitor's
+run extends it while the check fails, and resolves it once the check passes. Each writer read the
+incident, then wrote without holding the write to what it had read:
+
+- **Acknowledge** pressed as a run resolved the incident opened it again, as "acknowledged".
+- **A passing run** as the owner resolved the incident took the resolve over ("by run"),
+  audited a second resolve, and told the owner "Recovered" about an incident they had closed.
+- **A failing run** as the owner resolved the incident extended the closed incident and stopped
+  there. The new failure opened no incident and told nobody until the next run, a day later on a
+  daily monitor.
+
+**The page had a gap too.** After any refused action, the monitors page toasted and kept showing
+what it had shown before.
+
+**The before.** Each race window is one database round trip. Holding a row lock to stage it would
+take the hosted database's password, so the race was not staged in the UI. The test below fails
+5 of its 8 cases on the unfixed code. The page's half was driven, with a new custom-SQL monitor
+`r312_probe` (`SELECT 5`, maximum 1) alerting:
+
+- Tab-10 resolved the incident.
+- Tab-13, still showing it open, pressed **Acknowledge**. It was told "This incident is already
+  resolved", and went on listing it as open, with Acknowledge and Resolve and a count of 3 open
+  incidents. The true count was 2.
+
+**The fix:**
+
+- **The owner's writes** are held to "not resolved". When a write lands on nothing, the answer
+  says who resolved it: "The monitor's run found the table healthy and resolved this incident a
+  moment ago, so nothing was changed."
+- **The run's resolve** is held the same way. On losing, it records and announces nothing.
+- **The run's extend** is held the same way. On losing, the failure opens its own incident and
+  notifies.
+- **The page** reloads after a refused action.
+
+**Tests:** `dataIncidentTwoWriters.test.ts` runs `runDataMonitor` and the server function
+together over an in-memory table store. Its cases:
+
+- Acknowledge and Resolve each pressed as a run resolves the incident;
+- a passing run, and a failing run, as the owner resolves it;
+- three controls: a failing run extends, a passing run resolves and says Recovered, and
+  Acknowledge then Resolve still work;
+- the page's reload after a refusal.
+
+The pins in `dataMonitorRecordWrites` moved with the code. Every other test that reads these
+files passed.
+
+- **Mutation harness:** 8 mutants caught, and the control survived. One planned mutant, the refusal not
+  naming the run, would have survived the first draft, which matched only the words both
+  refusals share. The test now checks the whole message.
+
+**The after**, hot-deployed:
+
+- **The stale tab.** Staged the same way, Acknowledge was told "This incident is already resolved"
+  and the page reloaded: 2 open incidents, `r312_probe` gone from the list.
+- **Control.** A fresh `r312_probe` incident, acknowledged, read "acknowledged" with only Resolve
+  left.
+- `r312_probe` is paused and kept, with its incident acknowledged.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-06 — R311: a warm endpoint stopped while it was starting came back serving
 
 **Severity: medium-high, ML serving** (a Stop that did not hold, with a scorer left running and

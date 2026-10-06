@@ -217,7 +217,13 @@ function DataMonitorsPage() {
     setBusy(id);
     try {
       const r = await fn();
-      if (!r.ok) return toast.error(String(r.error ?? "Failed"));
+      if (!r.ok) {
+        toast.error(String(r.error ?? "Failed"));
+        // R312: a refusal usually means the monitor changed under the page
+        // (an incident resolved meanwhile), so show where it stands now.
+        await reload();
+        return;
+      }
       done?.(r);
       await reload();
     } catch (e) {

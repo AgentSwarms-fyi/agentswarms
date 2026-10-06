@@ -15,6 +15,19 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-06 — R312: Acknowledge on an incident resolved in another tab
+
+Monitor `r312_probe` (custom SQL `SELECT 5`, maximum 1, on `analytics.authz_probe`), Data &
+BI → Data monitors. The monitor alerted, tab-10 resolved its incident, and then tab-13, still
+showing the incident open, pressed Acknowledge.
+
+| What was driven                                                                        | What came back                                                                                                                                                         |
+| -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Before**, on R311's build                                                            | Toast "This incident is already resolved". The page went on listing the incident as open, with Acknowledge and Resolve and **3** open incidents (the true count was 2) |
+| **After**, hot-deployed: the same                                                      | The same toast; the page reloaded: **2** open incidents, `r312_probe` gone from the list                                                                               |
+| **After**, control: Run now (alerts), then Acknowledge                                 | The incident read "warning · acknowledged · r312_probe", with only Resolve left                                                                                        |
+| Not staged: the race itself (a run's resolve between Acknowledge's read and its write) | Not stageable without the hosted database's password; covered by `dataIncidentTwoWriters.test.ts`                                                                      |
+
 ## 2026-10-06 — R311: Stop pressed while a Deploy is starting
 
 Model `threshold_probe (payment_rows)`, Automation → Warm endpoint. Deploy is pressed in one tab;

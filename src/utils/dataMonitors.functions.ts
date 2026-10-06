@@ -422,8 +422,30 @@ export const dataIncidentUpdate = createServerFn({ method: "POST" })
             resolved_at: new Date().toISOString(),
             resolved_by: "user" as const,
           };
-    const { error } = await supabaseAdmin.from("data_incidents").update(patch).eq("id", inc.id);
+    const { data: landed, error } = await supabaseAdmin
+      .from("data_incidents")
+      .update(patch)
+      .eq("id", inc.id)
+      // FOUND IN R312: held to "not resolved". The monitor's run resolves an
+      // incident once its check passes, and an Acknowledge read before that
+      // and written after it opened the incident again.
+      .neq("status", "resolved")
+      .select("id");
     if (error) return { ok: false, error: error.message };
+    if ((landed ?? []).length === 0) {
+      const { data: now } = await supabaseAdmin
+        .from("data_incidents")
+        .select("resolved_by")
+        .eq("id", inc.id)
+        .maybeSingle();
+      return {
+        ok: false,
+        error:
+          now?.resolved_by === "run"
+            ? "The monitor's run found the table healthy and resolved this incident a moment ago, so nothing was changed."
+            : "Someone resolved this incident a moment ago, so nothing was changed.",
+      };
+    }
     auditEvent({
       userId: caller.userId,
       action:
