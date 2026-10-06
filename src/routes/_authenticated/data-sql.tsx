@@ -78,6 +78,7 @@ import { CsvUploadDialog } from "@/components/data-sql/CsvUploadDialog";
 import { QueryHistoryPanel } from "@/components/data-sql/QueryHistoryPanel";
 import { recordQuery } from "@/lib/queryHistory";
 import { useSingleFlight } from "@/lib/singleFlight";
+import { losesUnrunQuery } from "@/lib/sqlDraft";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -300,6 +301,28 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
   const [tablesError, setTablesError] = useState<string | null>(null);
   const [activeTable, setActiveTable] = useState<string | null>(null);
   const [sql, setSql] = useState("");
+  const sqlRef = useRef(sql);
+  sqlRef.current = sql;
+  // FOUND IN R304. The text that is kept somewhere: the last query run, which
+  // is in Recent queries, or the last text this page put in the editor.
+  const keptSqlRef = useRef("");
+  /**
+   * Put a table's query, a pick from Recent queries or the Catalog's query in
+   * the editor. A query typed there and never run is replaced with a way back:
+   * the editor is a controlled textarea, so Ctrl+Z cannot restore it.
+   */
+  const replaceSql = (next: string) => {
+    const previous = sqlRef.current;
+    const lost = losesUnrunQuery(previous, keptSqlRef.current, next);
+    keptSqlRef.current = next;
+    setSql(next);
+    if (!lost) return;
+    toast("The query you had not run was replaced", {
+      description: "It never ran, so it is not in Recent queries.",
+      action: { label: "Undo", onClick: () => setSql(previous) },
+      duration: 15_000,
+    });
+  };
   const [result, setResult] = useState<QueryResult | null>(null);
   const [queryError, setQueryError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
@@ -515,7 +538,7 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
   useEffect(() => {
     if (!seed) return;
     setDataSource(seed.dataSource);
-    setSql(seed.sql);
+    replaceSql(seed.sql);
     if (seed.dataSource !== "local" && !bucketIdOf(seed.dataSource)) {
       void loadWarehouseSchema(seed.dataSource);
     }
@@ -692,6 +715,8 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
   // covers the button and the key.
   const handleRun = useSingleFlight(async () => {
     if (!sql.trim()) return;
+    // Run or refused, it goes into Recent queries below.
+    keptSqlRef.current = sql;
     setRunning(true);
     setQueryError(null);
     const started = Date.now();
@@ -1288,7 +1313,7 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
                                 className="flex w-full items-center gap-1 py-0.5 text-left"
                                 title={t.columns.map((c) => `${c.name} ${c.type}`).join(", ")}
                                 onClick={() =>
-                                  setSql(`SELECT * FROM ${t.schema}.${t.name} LIMIT 50;`)
+                                  replaceSql(`SELECT * FROM ${t.schema}.${t.name} LIMIT 50;`)
                                 }
                               >
                                 <TableIcon className="h-2.5 w-2.5 shrink-0 text-slate-400 dark:text-muted-foreground" />
@@ -1313,7 +1338,7 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
             userId={user?.id}
             nonce={historyNonce}
             onPick={(e) => {
-              setSql(e.sql);
+              replaceSql(e.sql);
               // Put the source back too — replaying a warehouse query against
               // the local engine would just fail confusingly.
               if (e.source === "warehouse" && e.connection_id) {

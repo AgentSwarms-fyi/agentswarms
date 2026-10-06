@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-06 — R304: a query typed in the Workbench and never run
+
+Data SQL → Workbench. A query is typed and left unrun, then one of three one-click actions replaces the
+editor's text.
+
+| What was driven                                                                                                       | What came back                                                                                                                        |
+| --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| **Before**, on R303's build: typed `… AS r304_typed …`, then `analytics.fct_region_revenue` in the Lakehouse explorer | Editor: `SELECT * FROM analytics.fct_region_revenue LIMIT 50;`; no toast; Ctrl+Z ×3 changed nothing; `r304_typed` nowhere on the page |
+| **Before**: typed `SELECT 304 AS r304_second_typed`, then a pick from Recent queries                                  | Replaced; no toast                                                                                                                    |
+| **Before**: typed `SELECT 304 AS r304_third_typed`, then Catalog → ▶ on `r300_nul`                                    | Replaced and run; no toast                                                                                                            |
+| **After**, hot-deployed: typed `… AS r304_typed …`, then the table                                                    | Toast "The query you had not run was replaced. It never ran, so it is not in Recent queries." with **Undo**; Undo put the query back  |
+| **After**: then a pick from Recent queries                                                                            | The same toast; Undo put it back                                                                                                      |
+| **After**: then Catalog → ▶ on `analytics.fct_region_revenue`                                                         | The same toast (its query had run); Undo put it back                                                                                  |
+| **After**: Run Query on the typed query, then the table                                                               | The query in Recent queries; replaced with **no toast**                                                                               |
+
 ## 2026-10-06 — Smoke of the real images after R301 to R303
 
 The app image `9a335932d5f7` was built from `c90bf3e4` and started with `docker compose up -d`. The

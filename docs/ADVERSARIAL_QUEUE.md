@@ -543,8 +543,9 @@ least twice, not a hypothetical.
      "Save failed"; a link inside the 700 ms was already safe, its timer surviving unmount).
    - ~~**Prompts**~~ (`prompts.tsx`): edits in a dialog, where closing is the discard. ~~**Data
      SQL**~~ (`data-sql.tsx`): no Save for the SQL at all — a scratch console whose runs are kept in
-     history. (A table clicked in its explorer replaces an unrun query; a design question, not this
-     sweep.) A wider grep — any "Save" wording, no guard — added pages that save from their own
+     history. (~~A table clicked in its explorer replaces an unrun query; a design question, not this
+     sweep.~~ **R304**: the table, a pick from Recent queries and the Catalog's ▶ each replaced it
+     with no way back; each now offers Undo.) A wider grep — any "Save" wording, no guard — added pages that save from their own
      dialogs (Skills, Secrets), a chat (Playground), Budgets, which writes on every keystroke and so
      has nothing to lose on leaving, and one more full-page form:
    - ~~**The Account page's profile**~~ (**R282**: a link and the tab; and a failed read that

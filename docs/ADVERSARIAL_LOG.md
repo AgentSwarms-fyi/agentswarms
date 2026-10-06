@@ -109,6 +109,58 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-06 — R304: a query typed in the Workbench and never run, replaced by one click
+
+**Severity: medium (typed work lost without a word, and no way back), sweep 8.** The queue held it as a
+design question: the Data SQL Workbench is a scratch console, with no Save, and a query is kept once it
+runs, in Recent queries. Three one-click actions replace the editor's text:
+
+- a table in the database explorer, with `SELECT * FROM … LIMIT 50;`;
+- a pick from Recent queries;
+- **"Run … in the Workbench"** on the Catalog, which also runs it.
+
+The page keeps the Workbench mounted "so … editor state survive[s] switching", yet the Catalog's ▶
+replaced that state. The editor is a controlled textarea, so Ctrl+Z cannot bring back text the page set.
+
+**The before**, on R303's build, one typed query per path:
+
+- **Typed** `SELECT region, SUM(revenue) AS r304_typed …`, then clicked `analytics.fct_region_revenue`
+  in the Lakehouse explorer. The editor read the table's query, with no toast. Ctrl+Z three times
+  changed nothing, and `r304_typed` was nowhere on the page.
+- **Typed** `SELECT 304 AS r304_second_typed`, then picked a query from Recent queries. Replaced, with
+  no toast.
+- **Typed** `SELECT 304 AS r304_third_typed`, then switched to the Catalog and pressed ▶ on `r300_nul`.
+  Replaced and run, with no toast.
+
+**The fix** is one door for the three. `replaceSql` puts the text in the editor. When that would lose a
+query, it shows "The query you had not run was replaced. It never ran, so it is not in Recent queries."
+with **Undo**, which puts the old text back.
+
+- **The rule** is `losesUnrunQuery` (`src/lib/sqlDraft.ts`). The editor holds text, and it is neither
+  the query last run nor the text the page last put there, nor the text coming in.
+- **A run** marks its query kept, since it goes into Recent queries, failed or not.
+
+The first idea was to insert at the cursor instead of replacing. It would make a mess of a query, and
+it would change what the one click is for.
+
+**Tests:** `sqlDraftReplace.test.ts` checks the rule. It also checks the page: the only `setSql` calls
+left are typing, Format, `replaceSql` itself and its Undo; the three paths go through it; the loss is
+judged before what is kept moves; and a run keeps its query.
+
+- **Mutation harness:** 10 mutants caught, and the control survived. The first gate hit three known
+  phantom timeouts (the PDF build, `connectedIntegrations`, a sample workbook), which passed alone; the
+  rerun was green.
+
+**The after**, hot-deployed. The same query was typed once, and each path was followed by **Undo**:
+
+- **The table:** the toast with Undo; Undo put `r304_typed` back.
+- **A pick from Recent queries:** the same.
+- **The Catalog's ▶ on `analytics.fct_region_revenue`:** the same. Its query had run.
+- **Run Query on the typed query, then the table:** the query was in Recent queries, and the table
+  replaced it with no toast.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-06 — Smoke of the real images after R301 to R303
 
 **The app image.** `9a335932d5f7` was built from `c90bf3e4` with `docker compose build agentswarms` and

@@ -200,7 +200,10 @@ month`, since the rows underneath have no `month` column to filter on.
   warehouse, with its row count, duration and (for failures) the error. Click
   one to load it back into the editor along with the connection it ran against.
   Kept per user, newest 200, and clearable at any time — separate from the
-  compliance audit trail, which is hash-chained and retention-governed.
+  compliance audit trail, which is hash-chained and retention-governed. A query
+  you typed and never ran is in no history. So when a table in the explorer, a
+  pick from Recent queries or the Catalog's ▶ replaces it, a toast offers
+  **Undo** (R304).
 - **Uploading data** — Data &amp; SQL → **Upload data** accepts **CSV, TSV,
   JSON, NDJSON and Excel (.xlsx)**. The file streams to the server and is
   parsed there, so a large upload is bounded by the server's limits rather than
