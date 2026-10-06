@@ -654,8 +654,12 @@ least twice, not a hypothetical.
         started was undone by the start's "ready", or overwritten by its "failed". Every write a
         start makes is now held to that start. Left from the same reading:
         - **The idle reaper** retires an endpoint's copies before it marks the endpoint stopped,
-          the order R311 reversed for Stop. A copy recorded in between comes up under an endpoint
-          that still reads live. Low: the reaper has to pick an endpoint that is still starting.
+          the order R311 reversed for Stop, and the mark is held to nothing. Since R311, a Deploy
+          that started the endpoint again in between gives up when the reaper's late "stopped"
+          lands; before R311 the deploy wrote "ready" back. Read after the R304–R312 smoke, and
+          not stageable: the Deploy waits on the same container removal as the reaper, and the
+          reaper's mark lands first. Low. The fix is drafted: mark first, held to the start
+          judged idle, then retire.
         - **Deploy retires the old copies before it writes its own start.** An old copy that
           comes up in between passes its check and is then left serving the old version under the
           new start. Low: it needs a second copy of the old version starting during a redeploy.

@@ -109,6 +109,62 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-06 — Smoke of the real images after R304 to R312
+
+**The app image.** `5999240b211d` was built from `215aba16` with `docker compose build agentswarms` and
+started with `docker compose up -d`. It was healthy 77 s after `up`, a run that included the
+`minio-init` and runtime-image steps. Workers were listening, eight schedulers started, and nothing
+in the log matched "error" or "warn".
+
+**The runtime image.** `agentswarms/notebook-runtime` is unchanged: nothing under `docker/` has changed
+since R299's rebuild.
+
+**Markers.** Each is in the chunk it ships in:
+
+- R304: "The query you had not run was replaced", in the SQL page's chunks;
+- R307: the ETL start's "…so the sandbox was stopped and nothing ran", in its `service.server`;
+- R308: training's "…so they were stopped and nothing trained", in `train.server`;
+- R309: "The run was cancelled while it was running", in `swarmExecute.server`;
+- R310: ``via: `ml_score:``, in the server's `router` chunk;
+- R311: "while this copy of the model was starting", in `serve.server`;
+- R312: "found the table healthy and resolved this incident", in `dataMonitors.functions`.
+
+R305 and R306 ship nothing to look for. The invented control is absent. The first pass reported
+R310 missing because it looked in a chunk named after the route; the API routes are bundled into
+`router`, where the string is.
+
+**The Iceberg publish.** `analytics.fct_region_revenue` → `local_rest`, `r181`, `smoke_5999240b211d`.
+
+- **First attempt:** "Failed to commit Iceberg transaction: Request returned HTTP 500". This was the
+  standalone dev catalog again, as in the R292–R295 smoke: after 17 hours up, its SQLite answered
+  the commit with `SQLITE_BUSY: The database file is locked`. The app reported the error in the
+  toast and kept the dialog open.
+- **After `docker restart aswarm-iceberg-rest`**, which keeps the volume, it gave "Published 4
+  row(s) to r181.smoke_5999240b211d".
+- **The catalog's own metadata** shows `region, orders, revenue` and one `append` snapshot: **4
+  records in 1 file**.
+
+**R310 and R311 on the real images**, on `threshold_probe`:
+
+- Deploy reached "Serving v1" in about 30 s.
+- Try it → Predict gave payment_rows **1** at 100.0%, lightgbm, in **0.0632 s**: the warm copy.
+- Stop gave "Endpoint stopped", and no sandbox was left.
+
+**Read for R313, and not staged: the idle reaper's late "stopped".** The reaper stops an idle
+endpoint's copies, then marks the endpoint stopped, and that write is held to nothing. A Deploy
+that started the endpoint again between the two would be undone, and since R311 such a deploy
+gives up rather than writing "ready" back. But no ordering that can be set up here lets the Deploy
+write its start first:
+
+- The Deploy has to stop the same copies.
+- It waits on the same container removal; the second stop is answered "removal already in
+  progress", R302.
+- After that, the reaper has fewer writes left, so its "stopped" lands before the new start.
+
+What is left is milliseconds. It stays in the queue as low, with the order Deploy retires in.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-06 — R312: a data incident's two writers wrote over each other
 
 **Severity: medium, data monitors** (an incident opened again after it was resolved, and a failing

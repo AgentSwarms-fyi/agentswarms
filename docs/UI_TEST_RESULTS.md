@@ -15,6 +15,17 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-06 — Smoke of the real images after R304 to R312
+
+App image `5999240b211d` (from `215aba16`); runtime image unchanged.
+
+| What was driven                                                                                 | What came back                                                                                                                                                                                                                                                                                                                  |
+| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docker compose up -d`                                                                          | Healthy 77 s after `up`; eight schedulers started; no "error" or "warn" in the log                                                                                                                                                                                                                                              |
+| Markers R304, R307–R312 and an invented control                                                 | All seven present, each in its own chunk; the control absent                                                                                                                                                                                                                                                                    |
+| **Iceberg publish** `analytics.fct_region_revenue` → `local_rest`, `r181`, `smoke_5999240b211d` | First attempt: "Failed to commit Iceberg transaction: Request returned HTTP 500". The dev catalog's SQLite was locked (`SQLITE_BUSY`). After restarting the catalog: "Published 4 row(s) to r181.smoke_5999240b211d"; the catalog's metadata shows `region, orders, revenue` and one `append` snapshot, **4 records in 1 file** |
+| `threshold_probe`: Deploy, Predict, Stop                                                        | "Serving v1" in about 30 s; payment_rows **1**, lightgbm, **0.0632 s**; "Endpoint stopped", no sandbox left                                                                                                                                                                                                                     |
+
 ## 2026-10-06 — R312: Acknowledge on an incident resolved in another tab
 
 Monitor `r312_probe` (custom SQL `SELECT 5`, maximum 1, on `analytics.authz_probe`), Data &
