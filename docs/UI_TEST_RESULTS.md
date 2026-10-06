@@ -15,6 +15,17 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-06 — R307: Cancel on an ETL run that was still starting
+
+`r299_stderr` (a code pipeline that runs for about a second) in two tabs. One presses **Run now**; the
+other opens **Runs** 1.5 s later and presses **Cancel** on the queued run. Docker's side is from the
+socket proxy's log.
+
+| What was driven                                                                                | What came back                                                                                                                                                                                        |
+| ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Before**, on R306's build: Cancel at 05:00:50.8, while the container was being created       | List: Cancelled. Container started at 05:00:55. **A fresh read: Succeeded, 1 s**                                                                                                                      |
+| **After**, hot-deployed: Cancel at 05:19:01.2 (Docker then took 21.5 s to start the container) | Run now's toast: "The run was cancelled while its sandbox was starting, so the sandbox was stopped and nothing ran."; sandbox stopped and removed; a fresh read 50 s later: **Cancelled**, no runtime |
+
 ## 2026-10-06 — R306: how long Stop on a kernel takes
 
 Notebook "R301 probe": a cell run to start a kernel, then Developer workspace → Running kernels → Stop,

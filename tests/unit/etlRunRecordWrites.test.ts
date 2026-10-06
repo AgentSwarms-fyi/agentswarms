@@ -26,7 +26,7 @@ const finalize = between(
 
 describe("a run's sandbox", () => {
   it("is stopped again when the run row could not learn its session", () => {
-    expect(startRunSandbox).toContain("const { error: recErr } = await supabaseAdmin");
+    expect(startRunSandbox).toContain("const { data: took, error: recErr } = await supabaseAdmin");
     const i = startRunSandbox.indexOf("if (recErr) {");
     expect(i).toBeGreaterThan(-1);
     const block = startRunSandbox.slice(i, startRunSandbox.indexOf("return { ok: true };"));
@@ -41,7 +41,9 @@ describe("a run's sandbox", () => {
 describe("cancelling a run", () => {
   it("writes the record first and stops nothing the record still calls running", () => {
     expect(cancelEtlRun).toContain("Promise<{ ok: true } | { ok: false; error: string }>");
-    expect(cancelEtlRun).toContain("const { error: cancelErr } = await supabaseAdmin");
+    expect(cancelEtlRun).toContain(
+      "const { data: cancelled, error: cancelErr } = await supabaseAdmin",
+    );
     expect(cancelEtlRun).toContain("The run could not be marked cancelled");
     expect(cancelEtlRun.indexOf("if (cancelErr) {")).toBeLessThan(
       cancelEtlRun.indexOf("await releaseRunCluster(runId);"),

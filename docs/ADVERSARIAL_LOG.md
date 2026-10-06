@@ -109,6 +109,65 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-06 — R307: a run cancelled while it was starting, which ran anyway and succeeded
+
+**Severity: high (a cancel that is not one, and data written after it), sweep 10.** This is the round
+that named the sweep. A census of every status write in `src`, and whether each is held to the status it
+read, put the ETL runs first. A run is inserted `queued`, and starting its sandbox takes seconds.
+Measured on this host: creating the container took 4.2 to 5.2 s and starting it 3.4 to 21.5 s.
+
+The Runs tab shows Cancel on a queued run. `cancelEtlRun` read the run, found no session, wrote
+`cancelled` and stopped nothing. Then `startRunSandbox` finished starting and wrote `status: "running"`
+and the session, filtered on the id alone, over the cancel. The run went on, and finalize, which is held
+to the live statuses, accepted its result.
+
+`cancelEtlRun`'s own write had the same hole in the other direction:
+
+- it was not held to the status it had read, so a run that finished in between became "cancelled";
+- it stopped the session it had read, so a start that landed in between was left running.
+
+**The before**, on R306's build, `r299_stderr` in two tabs. One pressed Run now. The other opened Runs
+1.5 s later and pressed Cancel on the queued run, at 05:00:50.8, while Docker was creating the container.
+
+- **The list:** "Cancelled".
+- **Docker:** the container was started at 05:00:55.
+- **A fresh read of the list:** **Succeeded**, 1 s.
+
+**The fix:**
+
+- **The start** takes the sandbox only while the run is still `queued`, with `.eq("status", "queued")`
+  and `.select("id")`. When its write lands on nothing, it stops the sandbox it just started. It answers
+  "The run was cancelled while its sandbox was starting, so the sandbox was stopped and nothing ran."
+- **The cancel** lands only on a live run, `.in("status", ["queued", "running", "retrying"])`. A cancel
+  that lands on nothing answers "That run is not running." It stops the session the row holds as the
+  cancel lands.
+
+**Tests:** `etlCancelWhileStarting.test.ts` runs the real `startEtlRun` and `cancelEtlRun` against an
+in-memory table that returns snapshots, with the start's and the cancel's moments in the test's hands:
+
+- a cancel during the start stays cancelled, and the sandbox is stopped;
+- an uninterrupted start takes its sandbox;
+- a start that lands between the cancel's read and its write is stopped by the cancel;
+- a run that finished in between stays succeeded.
+
+R78's two pins moved to the new lines.
+
+- **Mutation harness:** 6 mutants caught, and the control survived. The first try had one survivor, which
+  was two faults in the fake: its reads returned live rows, and its start still wrote after the race. Both
+  were fixed in the fake.
+
+**The after**, hot-deployed, with the same two tabs. Cancel was pressed at 05:19:01.2. Docker took 21.5 s
+to start the container.
+
+- **Run now's toast:** "The run was cancelled while its sandbox was starting, so the sandbox was stopped
+  and nothing ran."
+- **The sandbox:** stopped and removed. A second teardown met R302's "removal already in progress" and
+  waited for it.
+- **The run:** a fresh read 50 s later still said **Cancelled**, with no runtime.
+
+**The sweep's list** is in the queue, ordered from the census. Rows in
+[UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-06 — R306: why Stop on a kernel takes 7 to 34 seconds (the host; no change)
 
 **Severity: none found in the app.** R302 queued it: the Running kernels panel's Stop spun 14 to 24 s, and

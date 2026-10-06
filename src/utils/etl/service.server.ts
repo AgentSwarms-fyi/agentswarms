@@ -1303,14 +1303,36 @@ async function startRunSandbox(
       maxMinutes:
         pipeline.schedule === CONTINUOUS_SCHEDULE ? continuousRolloverMinutes() + 10 : undefined,
     });
-    const { error: recErr } = await supabaseAdmin
+    // FOUND IN R307 (sweep 10). Starting a sandbox takes seconds - five to
+    // ten on Docker Desktop - and a Cancel pressed meanwhile found no session
+    // to stop and wrote "cancelled". This write then put "running" over it,
+    // and the run went on to succeed, writing to its targets after the
+    // person had cancelled it. The run takes the sandbox only while it is
+    // still queued.
+    const { data: took, error: recErr } = await supabaseAdmin
       .from("etl_runs")
       .update({
         status: "running",
         session_id: session.id,
         started_at: new Date().toISOString(),
       })
-      .eq("id", runId);
+      .eq("id", runId)
+      .eq("status", "queued")
+      .select("id");
+    if (!recErr && !took?.length) {
+      await stopSession(session).catch((e) =>
+        console.warn("[etl] could not stop a sandbox its run gave up:", (e as Error).message),
+      );
+      const { data: now } = await supabaseAdmin
+        .from("etl_runs")
+        .select("status")
+        .eq("id", runId)
+        .maybeSingle();
+      return {
+        ok: false,
+        error: `The run was ${now?.status ?? "removed"} while its sandbox was starting, so the sandbox was stopped and nothing ran.`,
+      };
+    }
     if (recErr) {
       // FOUND FROM THE SURVEY (R78). The sandbox is running and the run row
       // does not know its session: nothing can cancel it, and the reconciler
@@ -2086,16 +2108,26 @@ export async function cancelEtlRun(
   // true, then stopped the sandbox: a row still "running" over nothing, and
   // the page saying "Stopping". The record is written first, and the
   // sandbox is stopped only once the record says so.
-  const { error: cancelErr } = await supabaseAdmin
+  //
+  // FOUND IN R307 (sweep 10). The write was not held to the status read
+  // above, so a run that finished in between was turned to "cancelled"; and
+  // the session to stop was the one read above, so a sandbox whose start
+  // landed in between was left running. The cancel lands only on a live
+  // run, and stops the session the row holds as it lands.
+  const { data: cancelled, error: cancelErr } = await supabaseAdmin
     .from("etl_runs")
     .update({ status: "cancelled", finished_at: new Date().toISOString() })
-    .eq("id", runId);
+    .eq("id", runId)
+    .in("status", ["queued", "running", "retrying"])
+    .select("session_id");
   if (cancelErr) {
     return {
       ok: false,
       error: `The run could not be marked cancelled: ${cancelErr.message}. It is still running — try again.`,
     };
   }
+  if (!cancelled?.length) return { ok: false, error: "That run is not running." };
+  const sessionId = cancelled[0].session_id ?? run.session_id;
   // FOUND IN R241. Only the succeeded and failed paths stamped the pipeline,
   // and both of them return early for a cancelled run — correctly, since a
   // cancel is not a failure. So nothing wrote the pipeline's last run at all,
@@ -2118,8 +2150,8 @@ export async function cancelEtlRun(
   }
 
   await releaseRunCluster(runId);
-  if (run.session_id) {
-    const session = await getSession(userId, run.session_id);
+  if (sessionId) {
+    const session = await getSession(userId, sessionId);
     if (session) await stopSession(session).catch(() => {});
   }
   return { ok: true };
