@@ -888,8 +888,7 @@ export function forecastAlertValue(
   alert: { column_name: string; aggregation: string; horizon?: number | null },
 ): number | null {
   const chart = widget.chart as
-    | { type?: string; xField?: string; yField?: string; forecast?: ForecastSetting }
-    | undefined;
+    { type?: string; xField?: string; yField?: string; forecast?: ForecastSetting } | undefined;
   if (!chart || (chart.type !== "line" && chart.type !== "area")) return null;
   if (!chart.xField || !chart.yField || alert.aggregation === "count") return null;
   const horizon = Math.max(1, alert.horizon ?? forecastPeriods(chart.forecast) ?? 3);

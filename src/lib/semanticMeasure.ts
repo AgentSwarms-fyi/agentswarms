@@ -24,13 +24,7 @@ import {
 export type ExecRows = (sql: string) => Promise<Record<string, unknown>[]>;
 
 export type ModelIssueKind =
-  | "dimension"
-  | "metric"
-  | "model"
-  | "join"
-  | "assertion"
-  | "calendar"
-  | "rollup";
+  "dimension" | "metric" | "model" | "join" | "assertion" | "calendar" | "rollup";
 export type ModelIssue = { kind: ModelIssueKind; name: string; error: string };
 /** Non-fatal findings: things worth declaring, not things that are wrong. */
 export type ModelWarning = {

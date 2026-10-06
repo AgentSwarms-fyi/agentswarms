@@ -16,8 +16,7 @@ import { formatUsd } from "@/lib/usd";
 import { safeFetch } from "@/utils/ssrfGuard.server";
 
 export type TestResult =
-  | { ok: true; detail: string }
-  | { ok: false; detail: string; status?: number };
+  { ok: true; detail: string } | { ok: false; detail: string; status?: number };
 
 /** Providers whose integrations-table credentials we can live-test. */
 export const TESTABLE_INTEGRATION_PROVIDERS = new Set([

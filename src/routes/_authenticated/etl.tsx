@@ -2395,8 +2395,7 @@ function NodePanel({
             <ColumnCombo
               value={
                 ((c.incremental as { cursor_column?: string } | undefined)?.cursor_column as
-                  | string
-                  | undefined) ?? ""
+                  string | undefined) ?? ""
               }
               onChange={(v) =>
                 set({ incremental: v.trim() ? { cursor_column: v.trim() } : undefined })

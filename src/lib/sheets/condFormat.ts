@@ -39,13 +39,7 @@ export type ScaleStop = {
 };
 
 export type IconSet =
-  | "3arrows"
-  | "3traffic"
-  | "3symbols"
-  | "3flags"
-  | "4arrows"
-  | "5arrows"
-  | "3stars";
+  "3arrows" | "3traffic" | "3symbols" | "3flags" | "4arrows" | "5arrows" | "3stars";
 
 export type CfRule =
   | { kind: "cell"; op: CfOp; a: string; b?: string; style: CfStyle }

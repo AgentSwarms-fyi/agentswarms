@@ -837,14 +837,12 @@ export function SheetGrid(props: Props) {
     onContextMenu: (e: React.MouseEvent) => {
       const raw = cellAt(e.clientX, e.clientY);
       if (raw && props.onContextMenu) {
-        if (
-          !(
-            raw.row >= range.r0 &&
-            raw.row <= range.r1 &&
-            raw.col >= range.c0 &&
-            raw.col <= range.c1
-          )
-        ) {
+        if (!(
+          raw.row >= range.r0 &&
+          raw.row <= range.r1 &&
+          raw.col >= range.c0 &&
+          raw.col <= range.c1
+        )) {
           const hit = topLeft(raw);
           onSelect({ anchor: hit, focus: hit });
         }

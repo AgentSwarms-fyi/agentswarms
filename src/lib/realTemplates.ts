@@ -24,12 +24,7 @@ export type TemplateCategory =
   | "Support & Operations";
 
 export type TemplateProvider =
-  | "openrouter"
-  | "anthropic"
-  | "bedrock"
-  | "vertex"
-  | "azure_openai"
-  | "qwen";
+  "openrouter" | "anthropic" | "bedrock" | "vertex" | "azure_openai" | "qwen";
 
 export type TemplateGuardrails = {
   piiScan: boolean;

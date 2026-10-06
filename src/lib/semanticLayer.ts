@@ -38,14 +38,7 @@ export type SemanticDimension = {
 };
 
 export type MetricAgg =
-  | "sum"
-  | "avg"
-  | "count"
-  | "count_distinct"
-  | "min"
-  | "max"
-  | "custom"
-  | "derived";
+  "sum" | "avg" | "count" | "count_distinct" | "min" | "max" | "custom" | "derived";
 
 export type SemanticMetric = {
   name: string;
@@ -251,16 +244,7 @@ export const RELATIVE_DATE_OPS = [
 export type RelativeDateOp = (typeof RELATIVE_DATE_OPS)[number];
 
 export type FilterOp =
-  | "="
-  | "!="
-  | ">"
-  | ">="
-  | "<"
-  | "<="
-  | "in"
-  | "not_in"
-  | "contains"
-  | RelativeDateOp;
+  "=" | "!=" | ">" | ">=" | "<" | "<=" | "in" | "not_in" | "contains" | RelativeDateOp;
 
 export function isRelativeDateOp(op: FilterOp): op is RelativeDateOp {
   return (RELATIVE_DATE_OPS as readonly string[]).includes(op);

@@ -34,9 +34,7 @@ import { substituteParams, type WorkflowNode } from "@/lib/workflows";
 
 /** What a step's underlying work has come to. */
 export type StepOutcome =
-  | { done: false }
-  | { done: true; ok: true }
-  | { done: true; ok: false; error: string };
+  { done: false } | { done: true; ok: true } | { done: true; ok: false; error: string };
 
 export type Settled = { done: true; ok: true } | { done: true; ok: false; error: string };
 

@@ -23,8 +23,7 @@ const db = vi.hoisted(() => ({
   membershipsOfUser: { data: [{ group_id: "g1" }], error: null } as Resp,
   membersOfGroup: { data: [{ user_id: "u1" }, { user_id: "u2" }], error: null } as Resp,
   spend: { ok: true, spend: 1, unpriced: 0 } as
-    | { ok: true; spend: number; unpriced: number | null }
-    | { ok: false; error: string },
+    { ok: true; spend: number; unpriced: number | null } | { ok: false; error: string },
 }));
 
 vi.mock("@/integrations/supabase/client.server", () => {

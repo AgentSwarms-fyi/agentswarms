@@ -154,8 +154,7 @@ export function metricUsageInDashboards(
     const hits: string[] = [];
     for (const w of d.widgets as Array<Record<string, unknown>>) {
       const source = w?.source as
-        | { kind?: unknown; model?: unknown; metrics?: unknown }
-        | undefined;
+        { kind?: unknown; model?: unknown; metrics?: unknown } | undefined;
       if (source?.kind !== "semantic" || source.model !== model) continue;
       const metrics = Array.isArray(source.metrics) ? source.metrics.map(String) : [];
       if (!metrics.includes(metric)) continue;

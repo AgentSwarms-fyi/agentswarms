@@ -10,8 +10,7 @@
 
 /** What one guarded save came to. */
 export type GuardedSave =
-  | { ok: true; version: string }
-  | { ok: false; stale: boolean; error: string };
+  { ok: true; version: string } | { ok: false; stale: boolean; error: string };
 
 /**
  * Reads the reply to `update(...).eq("updated_at", version).select("updated_at")`.

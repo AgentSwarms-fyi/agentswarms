@@ -13,8 +13,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Database } from "@/integrations/supabase/types";
 
 export type SuperadminGuard =
-  | { ok: true; userId: string; email: string }
-  | { ok: false; error: string };
+  { ok: true; userId: string; email: string } | { ok: false; error: string };
 
 function bootstrapAdminEmail(): string {
   return (process.env.ADMIN_EMAIL || import.meta.env.ADMIN_EMAIL || "").toLowerCase();

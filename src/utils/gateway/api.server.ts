@@ -188,8 +188,7 @@ export type AgentRowForGateway = {
 };
 
 export type ResolvedTarget =
-  | { kind: "agent"; agent: AgentRowForGateway }
-  | { kind: "model"; provider: string; model: string };
+  { kind: "agent"; agent: AgentRowForGateway } | { kind: "model"; provider: string; model: string };
 
 /**
  * What the `model` field names, and whether this key may reach it. Agents
@@ -444,8 +443,7 @@ function foldFrame(
       return null;
     default: {
       const choices = p.choices as
-        | { delta?: { content?: unknown }; message?: { content?: unknown } }[]
-        | undefined;
+        { delta?: { content?: unknown }; message?: { content?: unknown } }[] | undefined;
       const piece = choices?.[0]?.delta?.content ?? choices?.[0]?.message?.content;
       if (typeof piece === "string" && piece.length > 0) {
         acc.text += piece;

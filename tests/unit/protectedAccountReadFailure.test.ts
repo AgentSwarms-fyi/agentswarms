@@ -36,6 +36,21 @@ const admin = vi.hoisted(() => ({
   banned: [] as string[],
 }));
 
+// The server functions run without TanStack Start's server runtime, which its
+// newer versions require (they read their options from it): the handler is
+// called directly, as in every other server-function test.
+vi.mock("@tanstack/react-start", () => ({
+  createServerFn: () => {
+    let validate: (i: unknown) => unknown = (i) => i;
+    const b = {
+      inputValidator: (v: (i: unknown) => unknown) => ((validate = v), b),
+      handler: (h: (a: { data: unknown }) => unknown) => (opts: { data: unknown }) =>
+        h({ data: validate(opts.data) }),
+    };
+    return b;
+  },
+}));
+
 vi.mock("@/integrations/supabase/client.server", () => {
   const chain = () => {
     const b: Record<string, unknown> = {};
@@ -120,16 +135,19 @@ describe("isProtectedAccount", () => {
   });
 });
 
+// Each refusal is the function's answer, { ok: false, error }, read as such. Under the
+// old TanStack Start a direct call turned that answer into a rejection carrying
+// its text, which is what these were first written against.
 describe("the destructive admin actions, when the protection cannot be read", () => {
   it("does not delete the account, and says why", async () => {
     reset();
     admin.role = FAILED;
     const { iamDeleteUser } = await import("@/utils/iam.functions");
-    await expect(
-      iamDeleteUser({
-        data: { access_token: "t", user_id: "11111111-1111-1111-1111-111111111111" },
+    expect(
+      await iamDeleteUser({
+        data: { access_token: "t", user_id: "11111111-1111-4111-8111-111111111111" },
       }),
-    ).rejects.toThrow(/not deleted/i);
+    ).toEqual({ ok: false, error: expect.stringMatching(/so it was not deleted/) });
     expect(admin.deleted, "nothing was deleted").toEqual([]);
   });
 
@@ -137,11 +155,11 @@ describe("the destructive admin actions, when the protection cannot be read", ()
     reset();
     admin.role = FAILED;
     const { iamSetUserBan } = await import("@/utils/iam.functions");
-    await expect(
-      iamSetUserBan({
-        data: { access_token: "t", user_id: "11111111-1111-1111-1111-111111111111", banned: true },
+    expect(
+      await iamSetUserBan({
+        data: { access_token: "t", user_id: "11111111-1111-4111-8111-111111111111", banned: true },
       }),
-    ).rejects.toThrow(/not banned/i);
+    ).toEqual({ ok: false, error: expect.stringMatching(/so it was not banned/) });
     expect(admin.banned, "nothing was banned").toEqual([]);
   });
 
@@ -150,21 +168,23 @@ describe("the destructive admin actions, when the protection cannot be read", ()
     // one, or it is just an outage with a tidier message.
     reset();
     const { iamDeleteUser } = await import("@/utils/iam.functions");
-    await iamDeleteUser({
-      data: { access_token: "t", user_id: "22222222-2222-2222-2222-222222222222" },
-    });
-    expect(admin.deleted).toEqual(["22222222-2222-2222-2222-222222222222"]);
+    expect(
+      await iamDeleteUser({
+        data: { access_token: "t", user_id: "22222222-2222-4222-8222-222222222222" },
+      }),
+    ).toEqual({ ok: true });
+    expect(admin.deleted).toEqual(["22222222-2222-4222-8222-222222222222"]);
   });
 
   it("still refuses a real superadmin with the demote-first message", async () => {
     reset();
     admin.role = { data: { id: "r1" }, error: null };
     const { iamDeleteUser } = await import("@/utils/iam.functions");
-    await expect(
-      iamDeleteUser({
-        data: { access_token: "t", user_id: "33333333-3333-3333-3333-333333333333" },
+    expect(
+      await iamDeleteUser({
+        data: { access_token: "t", user_id: "33333333-3333-4333-8333-333333333333" },
       }),
-    ).rejects.toThrow(/Demote this superadmin before deleting them/);
+    ).toEqual({ ok: false, error: "Demote this superadmin before deleting them" });
     expect(admin.deleted).toEqual([]);
   });
 });

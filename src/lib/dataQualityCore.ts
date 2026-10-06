@@ -8,12 +8,7 @@
 // here should be legible to someone who has never seen this app.
 
 export type QualityTestKind =
-  | "not_null"
-  | "unique"
-  | "accepted_values"
-  | "range"
-  | "row_count_min"
-  | "freshness";
+  "not_null" | "unique" | "accepted_values" | "range" | "row_count_min" | "freshness";
 
 export type QualitySeverity = "error" | "warn";
 

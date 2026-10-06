@@ -20,8 +20,7 @@ export type PasteSpecialOptions = {
 
 /** A copied cell, as the editor's clipboard holds it. */
 export type CopiedCell =
-  | { i: string; f?: string; s?: CellStyle; l?: string; n?: string }
-  | undefined;
+  { i: string; f?: string; s?: CellStyle; l?: string; n?: string } | undefined;
 
 export type PasteEdit = {
   row: number;

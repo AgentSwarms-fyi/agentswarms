@@ -15,11 +15,7 @@
 export type Materialization = "table" | "view";
 
 export type SqlModelTestKind =
-  | "not_null"
-  | "unique"
-  | "accepted_values"
-  | "range"
-  | "row_count_min";
+  "not_null" | "unique" | "accepted_values" | "range" | "row_count_min";
 
 /** `error` fails the model and skips everything downstream; `warn` only records. */
 export type TestSeverity = "error" | "warn";

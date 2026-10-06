@@ -481,8 +481,7 @@ function SemanticsPage() {
       // because a connector call failed.
       try {
         const conns = (await listWarehouseConnections({ data: { access_token: token } })) as
-          | { ok: true; connections: WhConn[] }
-          | { ok: false };
+          { ok: true; connections: WhConn[] } | { ok: false };
         setWhConns(conns.ok ? conns.connections : []);
       } catch {
         setWhConns([]);
@@ -582,8 +581,7 @@ function SemanticsPage() {
       });
       if (!res.ok) return toast.error(res.error);
       const conns = (await listWarehouseConnections({ data: { access_token: token } })) as
-        | { ok: true; connections: WhConn[] }
-        | { ok: false };
+        { ok: true; connections: WhConn[] } | { ok: false };
       const lake = conns.ok ? conns.connections.find((c) => c.provider === "lakehouse") : undefined;
       if (!lake) return toast.error("The lakehouse connected but did not come back in the list");
       setWhConns(conns.ok ? conns.connections : []);

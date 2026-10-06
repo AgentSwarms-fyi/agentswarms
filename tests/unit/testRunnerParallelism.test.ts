@@ -29,9 +29,11 @@ import config from "../../vitest.config";
 const cores = os.availableParallelism?.() ?? os.cpus().length;
 
 describe("the test runner's own parallelism", () => {
+  // Vitest 4 moved the pool's options to the top level: `maxWorkers` is what
+  // `poolOptions.forks.maxForks` was.
   it("uses at most half the machine's cores", () => {
-    const maxForks = config.test?.poolOptions?.forks?.maxForks;
-    expect(typeof maxForks, "maxForks must be pinned, not left to the default").toBe("number");
+    const maxForks = config.test?.maxWorkers;
+    expect(typeof maxForks, "maxWorkers must be pinned, not left to the default").toBe("number");
     expect(maxForks).toBeGreaterThanOrEqual(1);
     expect(maxForks, `${cores} cores: more than half oversubscribes`).toBeLessThanOrEqual(
       Math.max(1, Math.floor(cores / 2)),
@@ -42,12 +44,12 @@ describe("the test runner's own parallelism", () => {
     // On a 2-core CI runner the default is 1. A formula that returned 2 there
     // would make the small machine MORE parallel, which is the opposite of
     // what was measured.
-    const maxForks = config.test?.poolOptions?.forks?.maxForks as number;
+    const maxForks = config.test?.maxWorkers as number;
     expect(maxForks).toBeLessThanOrEqual(Math.max(1, cores - 1));
   });
 
   it("pins the pool it was measured with", () => {
-    // maxForks only applies to the forks pool; switching pools silently drops
+    // The cap was measured on the forks pool; switching pools silently drops
     // the cap and the flakiness comes back without this file noticing.
     expect(config.test?.pool).toBe("forks");
   });

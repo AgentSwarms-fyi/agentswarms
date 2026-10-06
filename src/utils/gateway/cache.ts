@@ -34,8 +34,7 @@ export const CACHE_MISS_REASONS = {
 /** The scope key for a resolved target, in the form the table stores. */
 export function targetKeyFor(
   target:
-    | { kind: "agent"; agent: { id: string } }
-    | { kind: "model"; provider: string; model: string },
+    { kind: "agent"; agent: { id: string } } | { kind: "model"; provider: string; model: string },
 ): string {
   return target.kind === "agent"
     ? `agent:${target.agent.id}`

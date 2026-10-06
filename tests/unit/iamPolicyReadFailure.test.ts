@@ -24,11 +24,7 @@ import { describe, expect, it, vi } from "vitest";
 
 type Resp = { data: unknown; error: { message: string } | null };
 type Table =
-  | "iam_group_members"
-  | "iam_model_rules"
-  | "user_roles"
-  | "iam_settings"
-  | "iam_resource_grants";
+  "iam_group_members" | "iam_model_rules" | "user_roles" | "iam_settings" | "iam_resource_grants";
 
 function fakeClient(responses: Partial<Record<Table, Resp>>) {
   const chain = (table: Table) => {

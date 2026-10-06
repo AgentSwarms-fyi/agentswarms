@@ -910,7 +910,7 @@ export async function etlIngestFor(
   const rows: Record<string, unknown>[] = [];
   let maxId: number | null = null;
   let truncated = false;
-  for (let from = 0; ; ) {
+  for (let from = 0; ;) {
     const { data: chunk, error } = await supabaseAdmin
       .from("etl_ingest_events")
       .select("id, payload, received_at")

@@ -1016,8 +1016,7 @@ const FOLDABLE_DIALECTS = new Set<PrepDialect>([
 ]);
 
 export type FoldVerdict =
-  | { foldable: true }
-  | { foldable: false; reason: string; stepIndex?: number };
+  { foldable: true } | { foldable: false; reason: string; stepIndex?: number };
 
 // ── Incremental refresh eligibility ───────────────────────────────────────
 //
@@ -1035,8 +1034,7 @@ const NON_INCREMENTAL_STEPS: Record<string, string> = {
 };
 
 export type IncrementalVerdict =
-  | { ok: true; column: string }
-  | { ok: false; reason: string; stepIndex?: number };
+  { ok: true; column: string } | { ok: false; reason: string; stepIndex?: number };
 
 /**
  * Is incremental refresh sound for this flow, with this watermark column?

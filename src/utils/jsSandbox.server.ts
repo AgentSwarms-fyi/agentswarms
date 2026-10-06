@@ -12,8 +12,7 @@
 import { internalRunSecret } from "@/utils/internalOrigin.server";
 
 export type ServerSandboxResult =
-  | { ok: true; value: unknown; logs: string[] }
-  | { ok: false; error: string; logs: string[] };
+  { ok: true; value: unknown; logs: string[] } | { ok: false; error: string; logs: string[] };
 
 /**
  * Addresses tried when JS_SANDBOX_URL is not set, mirroring how the document

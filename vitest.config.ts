@@ -52,7 +52,9 @@ export default defineConfig({
     // configured.
     exclude: ["tests/integration/**", "node_modules/**", "dist/**"],
     pool: "forks",
-    poolOptions: { forks: { maxForks } },
+    // Vitest 4 moved the pool's options to the top level: `maxWorkers` is
+    // what `poolOptions.forks.maxForks` was.
+    maxWorkers: maxForks,
     testTimeout: 20_000,
     reporters: process.env.CI ? ["default", "junit"] : ["default"],
     outputFile: process.env.CI ? { junit: "./test-results/junit.xml" } : undefined,

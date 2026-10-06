@@ -749,8 +749,7 @@ function rowToModelPayload(row: Record<string, unknown>): z.input<typeof modelSc
     label: (row.label as string) ?? undefined,
     description: (row.description as string) ?? undefined,
     source_kind: (row.source_kind === "warehouse" ? "warehouse" : "data_table") as
-      | "warehouse"
-      | "data_table",
+      "warehouse" | "data_table",
     table_id: (row.table_id as string) ?? null,
     connection_id: (row.connection_id as string) ?? null,
     source_table: String(row.source_table ?? ""),

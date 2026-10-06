@@ -125,12 +125,7 @@ export type EtlSourceConfig =
     };
 
 export type QualityCheck =
-  | "not_null"
-  | "unique"
-  | "range"
-  | "regex"
-  | "allowed_values"
-  | "row_count_min";
+  "not_null" | "unique" | "range" | "regex" | "allowed_values" | "row_count_min";
 
 export type QualityRule = {
   check: QualityCheck;
@@ -2055,15 +2050,13 @@ export function normalizeGraph(raw: unknown): EtlGraph | null {
         } as unknown as EtlSourceConfig,
         position: { x: 80, y: 160 },
       },
-      ...legacySteps.map(
-        (step, i): EtlNode => ({
-          id: `n${i + 2}`,
-          kind: "transform",
-          label: (step.kind as string) ?? "step",
-          config: { ...step, type: step.kind, kind: undefined } as unknown as EtlTransformConfig,
-          position: { x: 80 + 220 * (i + 1), y: 160 },
-        }),
-      ),
+      ...legacySteps.map((step, i): EtlNode => ({
+        id: `n${i + 2}`,
+        kind: "transform",
+        label: (step.kind as string) ?? "step",
+        config: { ...step, type: step.kind, kind: undefined } as unknown as EtlTransformConfig,
+        position: { x: 80 + 220 * (i + 1), y: 160 },
+      })),
       {
         id: `n${legacySteps.length + 2}`,
         kind: "target",

@@ -1331,10 +1331,7 @@ export const sheetsTableExport = createServerFn({ method: "POST" })
           ok: true,
           columns,
           rows: (truncated ? res.rows.slice(0, sheetsExportMaxRows) : res.rows) as (
-            | string
-            | number
-            | boolean
-            | null
+            string | number | boolean | null
           )[][],
           truncated,
           maxRows: sheetsExportMaxRows,

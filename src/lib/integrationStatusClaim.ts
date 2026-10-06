@@ -57,12 +57,7 @@ export type ProviderFacts = {
  * for a provider nobody has ever configured.
  */
 export type ProviderBadge =
-  | "connected"
-  | "connected-unhealthy"
-  | "saved-failed"
-  | "shared"
-  | "unknown"
-  | "none";
+  "connected" | "connected-unhealthy" | "saved-failed" | "shared" | "unknown" | "none";
 
 export function providerBadge(read: StatusReadState, facts: ProviderFacts): ProviderBadge {
   // A failed read outranks every fact below it, because every fact below it was

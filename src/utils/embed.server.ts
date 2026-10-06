@@ -57,8 +57,7 @@ const KEY_COLUMNS =
   "id, user_id, name, key, resource_type, resource_id, allowed_domains, allow_ai, is_active, use_count, expires_at, require_signed_viewer, viewer_attributes, viewer_secret";
 
 export type EmbedValidation =
-  | { ok: true; row: EmbedKeyRow; preview: boolean }
-  | { ok: false; status: number; error: string };
+  { ok: true; row: EmbedKeyRow; preview: boolean } | { ok: false; status: number; error: string };
 
 export async function validateEmbedKey(opts: {
   key: string | undefined;

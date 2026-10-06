@@ -482,7 +482,7 @@ export function computable(formula: string, names: ReadonlySet<string> = new Set
 /** The names whose references this engine computes, directly or through other such names. */
 export function computableNames(names: DefinedName[]): Set<string> {
   const known = new Set<string>();
-  for (let grew = true; grew; ) {
+  for (let grew = true; grew;) {
     grew = false;
     for (const d of names) {
       const key = d.name.toLowerCase();

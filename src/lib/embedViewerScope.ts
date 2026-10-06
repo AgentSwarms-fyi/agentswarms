@@ -33,8 +33,7 @@
 import { applyRowFilters, type BiRowFilter, type BiWidget } from "@/lib/biDashboards";
 
 export type ViewerScopeResult =
-  | { ok: true; filters: BiRowFilter[] }
-  | { ok: false; missing: string[]; reason: string };
+  { ok: true; filters: BiRowFilter[] } | { ok: false; missing: string[]; reason: string };
 
 /**
  * The filters a viewer's attributes produce, given the attributes this embed
