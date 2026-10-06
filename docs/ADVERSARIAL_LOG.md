@@ -109,6 +109,46 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-06 — R306: why Stop on a kernel takes 7 to 34 seconds (the host; no change)
+
+**Severity: none found in the app.** R302 queued it: the Running kernels panel's Stop spun 14 to 24 s, and
+the Docker proxy showed `POST /stop?t=5` held 14 to 19.5 s with a 5 s grace. The app's teardown was a
+graceful stop, then a forced DELETE.
+
+**Where the time goes**, from Docker's own event stream (`docker events`, on the daemon's clock) and the
+socket proxy's timings, one kernel per Stop on the build after R305:
+
+| Stop                       | Request | Signal → container dead | Dead → removed |
+| -------------------------- | ------- | ----------------------- | -------------- |
+| graceful (current)         | 19.1 s  | SIGTERM, 9.5 s          | 5.0 s          |
+| graceful                   | 6.8 s   | SIGTERM, 3.2 s          | 2.5 s          |
+| graceful                   | 9.7 s   | SIGTERM, 4.8 s          | 2.8 s          |
+| forced DELETE only (trial) | 9.8 s   | SIGKILL, 4.2 s          | 3.8 s          |
+| forced DELETE only (trial) | 34.0 s  | SIGKILL, 9.0 s          | 5.8 s          |
+
+- **From the command line,** with no app involved, `docker stop -t 5` on a kernel took 20.8 s, and
+  `docker rm -f` 13.8 s.
+- **In the 34 s trial,** the proxy accepted the DELETE at 03:35:49.7 and answered after 33.3 s. Docker
+  sent the kill at 03:36:08, 18.5 s after the request arrived.
+
+**The trial change.** Nothing in the sandbox uses the 5 s grace. The batch, MCP and scoring runners are
+PID 1 with no SIGTERM handler, and a kernel's state is discarded either way. So `stop()` went straight to
+the forced DELETE. It was tested (one call, no stop first; three mutants caught, the control survived)
+and deployed. The samples above show no gain: SIGKILL took as long to land as SIGTERM, and the variance
+is Docker Desktop's.
+
+The change was taken back out, and the teardown is as R302 left it. Changing behaviour for a speed-up
+that cannot be measured is not a fix.
+
+**What would help** is not in this repository: a Docker host with more headroom than this WSL VM, or
+Kubernetes, where the same teardown is a pod delete.
+
+**A correction to R302's guess.** R302 noted that both slow stops had been on kernels still "starting".
+That status is written only by the notebook page's poll, and the page was left before the poll finished.
+So "starting" did not mean the kernel was still booting.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-06 — R305: three tests that failed the gate on time, and passed alone
 
 **Severity: low (false reds in the gate), test infrastructure.** R291's shape again. On 2026-10-06 four

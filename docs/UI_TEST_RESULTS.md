@@ -15,6 +15,18 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-06 — R306: how long Stop on a kernel takes
+
+Notebook "R301 probe": a cell run to start a kernel, then Developer workspace → Running kernels → Stop,
+timed in the page. Docker's `docker events` and the socket proxy's log give the parts.
+
+| What was driven                                                                     | What came back                                                                                                               |
+| ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Stop, current build (graceful stop, then forced DELETE), three kernels              | 19.1 s, 6.8 s, 9.7 s; SIGTERM to death 9.5, 3.2, 4.8 s; death to removal 5.0, 2.5, 2.8 s                                     |
+| Stop, trial build (forced DELETE only), two kernels                                 | 9.8 s and **34.0 s**; SIGKILL to death 4.2 and 9.0 s; in the 34 s one, Docker held the DELETE 18.5 s before sending the kill |
+| The command line, no app: `docker stop -t 5`, then `docker rm -f` on another kernel | 20.8 s and 13.8 s                                                                                                            |
+| Outcome                                                                             | No gain measured; the trial change taken back out and the committed build redeployed                                         |
+
 ## 2026-10-06 — R253's drive: a node-level secret deleted mid-run
 
 On the build after R304. `r253_drive`: a Custom Python source prints target A's token

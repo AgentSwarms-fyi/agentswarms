@@ -505,7 +505,10 @@ least twice, not a hypothetical.
        DELETE 409, "removal ... already in progress". The app logged a container left on the host
        "until somebody removes it by hand", and it was gone a moment later. The second teardown now
        waits for the first.
-     - **Open, from R302: Stop on a kernel takes about 20 s.** The proxy shows Docker holding
+     - ~~**Open, from R302: Stop on a kernel takes about 20 s.**~~ **R306: the host, not the app.**
+       Docker Desktop took 6.8 to 34 s for the same Stop, and once held a forced DELETE 18.5 s
+       before it even sent the kill. Dropping the app's 5 s grace gave no measured gain, so the
+       change was taken back out. The proxy shows Docker holding
        `POST /containers/nb-…/stop?t=5` for 14 s and 19.5 s on two runs, so the Running kernels
        panel spins that long. The grace period is 5 s. Find where the rest goes: the kernel ignoring
        SIGTERM, its network teardown, or the daemon. In the smoke after R303, a kernel that was
