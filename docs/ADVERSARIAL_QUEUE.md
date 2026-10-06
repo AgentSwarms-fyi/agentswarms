@@ -626,58 +626,61 @@ least twice, not a hypothetical.
     a result is replaced, or a finished run is called cancelled. Seen twice before it was named: R295 (a
     refresh wrote over a stored result) and R307 (an ETL start wrote "running" over a cancel).
 
-        **The shape of the fix:**
-        - filter the write on the status it was decided from, `.eq("status", read)` or `.in("status",
+    **The shape of the fix:**
+    - filter the write on the status it was decided from, `.eq("status", read)` or
+      `.in("status", live)`;
+    - `.select()` to learn whether it landed;
+    - act on losing: stop what was started, and say what happened;
+    - where the writer then acts on something it read (a session to stop), use what the row holds
+      as the write lands.
 
-    live)`;
-    - `.select()` to learn whether it landed; - act on losing: stop what was started, and say what happened; - where the writer then acts on something it read (a session to stop), use what the row holds as
-      the write lands.
-
-          **The survey** is a census of every `.update({ status | state })` in `src` and whether its chain
-          filters on that column. The lifecycle tables with unguarded
-          writes, in order:
-          - ~~**ETL runs**~~ (**R307**: a start over a cancel, and a cancel over a finish).
-          - **Runtime sessions**, read after R309. `stopSession` writes "stopped" over a result the
-            callback wrote. The callback has already settled the ETL, ML or preview outcome by then, so
-            only the session's own label changes. The writes in `startSession` touch a row with no
-            container yet. Low; left.
-          - **ML**:
-            - ~~training jobs (`train.server` 401, 1195)~~ (**R308**: the start over a cancel; 1195 undoes
-              a success the job's own claim just won, so it is not a late writer);
-            - ~~model versions (`api.server` 110, `train.server` 1159)~~ (**R308**: 110 failed a version
-              over its cancel; 1159 runs only after the job's guarded claim);
-            - ~~predictions (`predict.server` 313)~~ (**R308**, fixed with training and tested, not
-              driven);
-            - experiment runs (`ml.experiments` 173, `experimentArtifacts` 179);
-            - deployments (`serve.server`, eleven writes, most of them opaque to the census).
-          - ~~**Swarm runs** (`swarmRunManager`, `swarmExecute`, the two tracers) and their steps.~~
-            **R309**: a run the server executes never read its cancel, and its close wrote "success"
-            over it. Left open from the same reading:
-            - **Knowledge base syncs that overlap.** "Sync now" claims nothing, so it can run beside a
-              scheduled sync or a second tab's, and the second hits the documents' unique key and
-              records "error" over a sync that succeeded.
-            - **Experiment runs from a notebook.** `log` and `finish` read the run, then write without
-              holding to "running", so a late `log` can overwrite `finish`'s final metrics. The writer
-              is the user's own code, normally sequential.
-            - **A resume whose reopen fails** is recorded as a new run (`serverTracer`). R309 made the
-              resume refuse a cancelled run, which covers the case it was found from.
-          - **Knowledge base sources**: read after R309. URL and GitHub re-syncs reconcile documents by
-            key, so overlapping syncs end in a false "error" rather than duplicates. That is the open
-            item under swarm runs above.
-          - **Catalog source crawls** (`crawler.server`, three): the same shape as the knowledge-base
-            syncs. Crawl now claims nothing, so two crawls can overlap. Not yet read further.
-          - **MCP apps' deploy status**, read after R309. The deploy claims its row (`acquireStartLease`),
-            and a Stop during it stops the deploy's own session, so the deploy fails rather than writing
-            "ready". "Ready" over "stopped" needs the Stop between the tool handshake and the write.
-            Narrow; left.
-          - **Data incidents** (`dataMonitors/run.server`), read after R309. Acknowledge writes
-            "acknowledged" without holding to the status it read, so a monitor run that resolved the
-            incident a moment earlier is undone, and the incident shows open again. A one-line guard;
-            narrow window; queued.
-          - ~~**SQL model runs**~~: read by hand after R309, and **clear**. The build inserts its run and
-            closes it itself; nothing else writes the run's status.
-          - Workflow runs are mostly guarded (their close and cancel). The one unguarded write fails a row
-            inserted a line above.
+    **The survey** is a census of every `.update({ status | state })` in `src` and whether its chain
+    filters on that column. The lifecycle tables with unguarded writes, in order:
+    - ~~**ETL runs**~~ (**R307**: a start over a cancel, and a cancel over a finish).
+    - **Runtime sessions**, read after R309. `stopSession` writes "stopped" over a result the
+      callback wrote. The callback has already settled the ETL, ML or preview outcome by then, so
+      only the session's own label changes. The writes in `startSession` touch a row with no
+      container yet. Low; left.
+    - **ML**:
+      - ~~training jobs (`train.server` 401, 1195)~~ (**R308**: the start over a cancel; 1195 undoes
+        a success the job's own claim just won, so it is not a late writer);
+      - ~~model versions (`api.server` 110, `train.server` 1159)~~ (**R308**: 110 failed a version
+        over its cancel; 1159 runs only after the job's guarded claim);
+      - ~~predictions (`predict.server` 313)~~ (**R308**, fixed with training and tested, not
+        driven);
+      - experiment runs (`ml.experiments` 173, `experimentArtifacts` 179);
+      - deployments (`serve.server`, eleven writes, most of them opaque to the census). Staging this
+        row found **R310**: no warm endpoint could load its model since R231 ("KeyError: 'url'").
+        Fixed. The race itself is next, as **R311**: a Stop pressed while a deploy starts is written
+        over by the start's "ready", and a start that fails writes "failed" over the Stop.
+    - ~~**Swarm runs** (`swarmRunManager`, `swarmExecute`, the two tracers) and their steps.~~
+      **R309**: a run the server executes never read its cancel, and its close wrote "success"
+      over it. Left open from the same reading:
+      - **Knowledge base syncs that overlap.** "Sync now" claims nothing, so it can run beside a
+        scheduled sync or a second tab's, and the second hits the documents' unique key and
+        records "error" over a sync that succeeded.
+      - **Experiment runs from a notebook.** `log` and `finish` read the run, then write without
+        holding to "running", so a late `log` can overwrite `finish`'s final metrics. The writer
+        is the user's own code, normally sequential.
+      - **A resume whose reopen fails** is recorded as a new run (`serverTracer`). R309 made the
+        resume refuse a cancelled run, which covers the case it was found from.
+    - **Knowledge base sources**: read after R309. URL and GitHub re-syncs reconcile documents by
+      key, so overlapping syncs end in a false "error" rather than duplicates. That is the open
+      item under swarm runs above.
+    - **Catalog source crawls** (`crawler.server`, three): the same shape as the knowledge-base
+      syncs. Crawl now claims nothing, so two crawls can overlap. Not yet read further.
+    - **MCP apps' deploy status**, read after R309. The deploy claims its row (`acquireStartLease`),
+      and a Stop during it stops the deploy's own session, so the deploy fails rather than writing
+      "ready". "Ready" over "stopped" needs the Stop between the tool handshake and the write.
+      Narrow; left.
+    - **Data incidents** (`dataMonitors/run.server`), read after R309. Acknowledge writes
+      "acknowledged" without holding to the status it read, so a monitor run that resolved the
+      incident a moment earlier is undone, and the incident shows open again. A one-line guard;
+      narrow window; queued.
+    - ~~**SQL model runs**~~: read by hand after R309, and **clear**. The build inserts its run and
+      closes it itself; nothing else writes the run's status.
+    - Workflow runs are mostly guarded (their close and cancel). The one unguarded write fails a row
+      inserted a line above.
 
 ### Sheets (new, 2026-09-25)
 

@@ -15,6 +15,16 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-06 — R310: Deploy on a model's warm endpoint
+
+Model `threshold_probe (payment_rows)`, Automation → Warm endpoint.
+
+| What was driven                               | What came back                                                                                                |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| **Before**, on R309's build: **Deploy**       | After about 2.5 min: toast **"KeyError: 'url'"**; the endpoint **failed**. It had last served 19 days earlier |
+| **After**, hot-deployed: **Deploy**           | "Serving v1" in **31 s**; "1 of 1 copy answering"                                                             |
+| **After**: Predictions → Try it → **Predict** | Predicted payment_rows **1**, lightgbm, **0.7057 s** (warm)                                                   |
+
 ## 2026-10-06 — R309: Cancel on a swarm run the server executes
 
 The workflow `r309_swarm_cancel` has one Swarm step, so the server executes the swarm. Run now on the

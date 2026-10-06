@@ -109,6 +109,46 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-06 — R310: every warm endpoint failed to load since R231, with "KeyError: 'url'"
+
+**Severity: high (a feature that cannot work), ML serving.** Found while staging sweep 10's ML-deployments
+row.
+
+R231 took the storage credential out of every ML sandbox. A sandbox now asks the app for a signed URL to
+its model's artifact, through `/api/notebook/runtime/source` with `{"part":"lake_artifact"}`. The route's
+branch for batch ML jobs serves that part. The branch for a warm scorer never read the part: it answered
+every call with the scoring bundle, status 200. So the scorer read a `url` the answer did not have, and
+`_lake_call` raised nothing, since the status was 200. Every Deploy of a warm endpoint has failed since.
+
+The scorer restarts on failure until the ready wait runs out, so the person waited about 2.5 minutes for
+"KeyError: 'url'". The endpoint on `threshold_probe` read "3 requests served · last 19d ago".
+
+**The before**, on R309's build: Automation → Warm endpoint → **Deploy**. After about 2.5 minutes the
+toast said **"KeyError: 'url'"**, and the endpoint read **failed**.
+
+**The fix:** the scorer's branch reads the part. A lake call is served read-only from the manifest pinned
+when the scorer fetched its bundle, with `ml_score:<model>` as its audit tag. Anything else still returns
+the bundle.
+
+**Tests:** `mlScorerArtifactUrl.test.ts` runs the route's own POST handler:
+
+- a scorer's `lake_artifact` "get" returns the signed URL, and the bundle is not built;
+- a "put" is refused, 403;
+- a call with no part still returns the bundle.
+
+- **Mutation harness:** 2 mutants caught, and the control survived.
+
+**The after**, hot-deployed:
+
+- **Deploy:** "Serving v1" in **31 s**. The panel read "1 of 1 copy answering".
+- **Predictions → Try it → Predict:** predicted payment_rows **1**, lightgbm, in **0.7057 s**. That is the
+  warm path, not a 20-second sandbox.
+
+**Seen on the way, for R311:** the first Deploy was staged with a Stop pressed while it was starting. The
+endpoint the Stop had stopped then read **failed**, written over it by the failed deploy.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-06 — R309: a swarm run cancelled from Recent runs ran on to the end, and was recorded a success
 
 **Severity: high (a cancel that is not one: every node still ran, and spent), sweep 10.** Recent runs
