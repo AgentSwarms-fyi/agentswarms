@@ -42,12 +42,14 @@ describe("the endpoint's own state", () => {
   });
 
   it("does not answer ok over a stamp that failed", () => {
-    expect(ensureDeployment).toContain("const readyErr = await stampReady(dep.id);");
+    expect(ensureDeployment).toContain(
+      "const { landed: stamped, error: readyErr } = await stampReady(dep);",
+    );
     expect(ensureDeployment).toContain(
       "The endpoint is up but its record could not be marked ready",
     );
     expect(ensureDeployment).toContain("the next Deploy will replace the copy");
-    expect(ensureDeployment).toContain("const stampErr = await markStopped(dep.id, first.error);");
+    expect(ensureDeployment).toContain("const failed = await failStart(dep, first.error);");
     expect(ensureDeployment).toContain("could not be marked failed");
   });
 });

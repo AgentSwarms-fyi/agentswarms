@@ -116,7 +116,13 @@ export function DeploymentPanel({
     try {
       const res = await deployFn({ data: { accessToken: token, modelId } });
       toast.dismiss(t);
-      if (!res.ok) return toast.error(res.error);
+      if (!res.ok) {
+        toast.error(res.error);
+        // R311: a deploy that did not serve still changed the endpoint (failed,
+        // or stopped by a Stop pressed meanwhile), so show what it holds now.
+        await load();
+        return;
+      }
       toast.success(`Serving v${res.version}`);
       await load();
     } catch (e) {

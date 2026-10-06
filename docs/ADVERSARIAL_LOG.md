@@ -109,6 +109,86 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-06 — R311: a warm endpoint stopped while it was starting came back serving
+
+**Severity: medium-high, ML serving** (a Stop that did not hold, with a scorer left running and
+counted against the caps). From sweep 10's ML-deployments row.
+
+**The defect.** Deploy records each state of its start: the copy's sandbox, the copy's "ready" or
+"failed", then the endpoint's "ready" or "failed". None of those writes checked that the endpoint
+was still the one it had started.
+
+- Stop retires each copy through the sandbox on its row. A copy whose sandbox was still being
+  created (4–21 s on this host) had none there yet. So the Stop stopped nothing and marked the copy
+  "stopped".
+- The start then recorded its sandbox on the stopped copy, marked the copy ready and marked the
+  endpoint "ready".
+- A Stop pressed while the model loaded did stop the scorer. The start then wrote "failed" over
+  the Stop.
+
+**The before**, on R310's build, with two tabs on `threshold_probe`: Deploy in one, and in the
+other Stop while the badge read "starting".
+
+- The Stop said the endpoint stopped, and its panel read **off**.
+- The scorer container `nb-e7c803dd` stayed up.
+- About a minute later the deploying tab read **"serving v1 · 1 of 1 copy answering"**. So did
+  the tab that had pressed Stop, once its panel was reopened.
+
+**The fix** applies the class's shape to every write a start makes:
+
+- **The copy's own writes.** Its sandbox, "ready" and "failed" are held to the copy's "starting".
+  A write that lands on nothing stops the sandbox this start began, and the deploy says: "The
+  endpoint was stopped, or deployed again, while this copy of the model was starting, so the copy
+  was stopped and is not serving."
+- **The endpoint's writes.** Its "ready" and "failed" are held to this start: "starting", and this
+  deploy's own `last_started_at`. A deploy then writes over neither a Stop nor a second Deploy's
+  start.
+- **A copy coming up.** It checks that the endpoint is still the start it was made for. Extra
+  copies, the scaler's copies and candidates have no endpoint stamp after them to catch this.
+- **Stop's order.** Stop marks the endpoint stopped before it stops the copies, so a copy recorded
+  after the Stop listed them still sees the Stop.
+- **The page.** The page that pressed Deploy reloads after a deploy that did not serve.
+
+**Tests:** `mlStopWhileDeploying.test.ts` runs `serve.server` itself over an in-memory table
+store, with the sandbox service, the orchestrator and the health check faked. Its 15 cases cover:
+
+- a Stop at each point of a start: the sandbox being created, the model loading, before the copy
+  is recorded (with the copy then failing, or coming up), and between the copy coming up and the
+  endpoint's stamp;
+- two deploys overlapping, once on the failure and once on the stamp;
+- a candidate under a Stop, under a redeploy, replaced while it starts, and replaced while it
+  loads;
+- the Stop's order and the page's reload;
+- two controls: a deploy nobody stops serves, and one whose copy fails on its own still reads
+  failed.
+
+The pins in `mlServeStateWrites` and `mlReplicas` moved with the code. The first full gate then
+failed on a third pin, in `mlShadowWiring`. It read `undeploy` only up to the status write, which
+R311 moved ahead of the copies, so it now reads up to the audit.
+
+**Mutation harness:** 15 mutants caught, and the control survived.
+
+**A flaky test, fixed in the test.** The test's first draft failed 4 runs in 10. The fake started
+a second deploy in the same millisecond as the first, and a start is told apart by its
+`last_started_at` only to the millisecond. The test's second deploys now start 5 ms later, and 15
+of 15 runs then passed. A real deploy takes a database round trip and more before it writes its
+start, so two starts share a millisecond only if two requests arrive together; the guards then
+fall back to the status alone.
+
+**The after**, hot-deployed and staged the same way:
+
+- The Stop was pressed while the scorer's container was still being created. The container came
+  up, the deploy stopped it at once (exit 137), and it was gone 14 s later.
+- The deploying tab said **"The endpoint was stopped, or deployed again, while this copy of the
+  model was starting, so the copy…"** and reloaded to **off**.
+- The other tab read off, and no sandbox was left.
+- **Control:** a plain Deploy reached "Serving v1" in about 25 s, and a Stop then took it down.
+
+**Left in the queue:** the idle reaper's order, and the window between Deploy retiring the old
+copies and writing its own start.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-06 — R310: every warm endpoint failed to load since R231, with "KeyError: 'url'"
 
 **Severity: high (a feature that cannot work), ML serving.** Found while staging sweep 10's ML-deployments

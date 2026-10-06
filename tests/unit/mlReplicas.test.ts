@@ -111,7 +111,7 @@ describe("scoring spreads across the copies", () => {
 
   it("and taking the endpoint down stops all of them", () => {
     const un = SERVE.slice(SERVE.indexOf("export async function undeploy"));
-    expect(un.slice(0, 600)).toContain('await retireReplica(replica, "undeployed");');
+    expect(un.slice(0, 1200)).toContain('await retireReplica(replica, "undeployed");');
   });
 });
 

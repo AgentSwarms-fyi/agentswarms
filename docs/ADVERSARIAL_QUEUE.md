@@ -649,10 +649,17 @@ least twice, not a hypothetical.
       - ~~predictions (`predict.server` 313)~~ (**R308**, fixed with training and tested, not
         driven);
       - experiment runs (`ml.experiments` 173, `experimentArtifacts` 179);
-      - deployments (`serve.server`, eleven writes, most of them opaque to the census). Staging this
-        row found **R310**: no warm endpoint could load its model since R231 ("KeyError: 'url'").
-        Fixed. The race itself is next, as **R311**: a Stop pressed while a deploy starts is written
-        over by the start's "ready", and a start that fails writes "failed" over the Stop.
+      - ~~deployments (`serve.server`)~~. Staging this row found **R310**: no warm endpoint could
+        load its model since R231 ("KeyError: 'url'"). **R311**: a Stop pressed while a deploy
+        started was undone by the start's "ready", or overwritten by its "failed". Every write a
+        start makes is now held to that start. Left from the same reading:
+        - **The idle reaper** retires an endpoint's copies before it marks the endpoint stopped,
+          the order R311 reversed for Stop. A copy recorded in between comes up under an endpoint
+          that still reads live. Low: the reaper has to pick an endpoint that is still starting.
+        - **Deploy retires the old copies before it writes its own start.** An old copy that
+          comes up in between passes its check and is then left serving the old version under the
+          new start. Low: it needs a second copy of the old version starting during a redeploy.
+          Fix: write the start first, then retire.
     - ~~**Swarm runs** (`swarmRunManager`, `swarmExecute`, the two tracers) and their steps.~~
       **R309**: a run the server executes never read its cancel, and its close wrote "success"
       over it. Left open from the same reading:

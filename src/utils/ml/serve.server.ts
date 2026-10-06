@@ -318,25 +318,65 @@ async function markStopped(id: string, error?: string | null): Promise<string | 
   return null;
 }
 
-/** Mark the endpoint ready. Retried once: the copy behind it is up and answering. */
-async function stampReady(id: string): Promise<string | null> {
+/**
+ * Mark the endpoint ready. Retried once: the copy behind it is up and answering.
+ *
+ * Held to the start that brought the copy up (R311): still "starting", from
+ * this deploy's own `last_started_at`. `landed` false means a Stop or another
+ * Deploy has the endpoint now.
+ */
+async function stampReady(
+  dep: MlDeploymentRow,
+): Promise<{ landed: boolean; error: string | null }> {
   const stamp = () =>
     supabaseAdmin
       .from("ml_deployments")
       .update({ status: "ready", last_error: null, updated_at: new Date().toISOString() })
-      .eq("id", id);
-  let { error } = await stamp();
+      .eq("id", dep.id)
+      .eq("status", "starting")
+      .eq("last_started_at", dep.last_started_at ?? "")
+      .select("id");
+  let { data, error } = await stamp();
   if (error) {
     await new Promise((r) => setTimeout(r, 1_000));
-    ({ error } = await stamp());
+    ({ data, error } = await stamp());
   }
   if (error) {
     console.warn(
-      `[ml-serve] deployment ${id} is serving but could not be marked ready after two attempts: ${error.message}`,
+      `[ml-serve] deployment ${dep.id} is serving but could not be marked ready after two attempts: ${error.message}`,
     );
-    return error.message;
+    return { landed: false, error: error.message };
   }
-  return null;
+  return { landed: (data ?? []).length > 0, error: null };
+}
+
+/**
+ * Mark a start failed, held to that start the same way (R311). A Stop or
+ * another Deploy pressed meanwhile owns the endpoint's state, and "failed"
+ * written over it would be false.
+ */
+async function failStart(
+  dep: MlDeploymentRow,
+  reason: string,
+): Promise<{ landed: boolean; error: string | null }> {
+  const { data, error } = await supabaseAdmin
+    .from("ml_deployments")
+    .update({
+      status: "failed",
+      last_error: reason.slice(0, 2000),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", dep.id)
+    .eq("status", "starting")
+    .eq("last_started_at", dep.last_started_at ?? "")
+    .select("id");
+  if (error) {
+    console.warn(
+      `[ml-serve] deployment ${dep.id} failed to start but could not be marked so: ${error.message}`,
+    );
+    return { landed: false, error: error.message };
+  }
+  return { landed: (data ?? []).length > 0, error: null };
 }
 
 /** Write a copy's state; a failure is said with the copy and the state it holds. */
@@ -353,6 +393,58 @@ async function markReplica(
     return error.message;
   }
   return null;
+}
+
+/** Said when a copy loses its start to a Stop, another Deploy or a replacing candidate. */
+export const STOPPED_WHILE_STARTING =
+  "The endpoint was stopped, or deployed again, while this copy of the model was starting, so the copy was stopped and is not serving.";
+
+/**
+ * Write a starting copy's outcome, held to "starting".
+ *
+ * FOUND IN R311. A Stop pressed while a deploy was starting retired the copy,
+ * and the start then wrote "ready" or "failed" over that. `landed` false says
+ * something retired the copy meanwhile; the caller stops what it started.
+ */
+async function settleReplica(
+  id: string,
+  patch: Database["public"]["Tables"]["ml_deployment_replicas"]["Update"],
+  state: string,
+): Promise<{ landed: boolean; error: string | null }> {
+  const { data, error } = await supabaseAdmin
+    .from("ml_deployment_replicas")
+    .update(patch)
+    .eq("id", id)
+    .eq("status", "starting")
+    .select("id");
+  if (error) {
+    console.warn(
+      `[ml-serve] copy ${id} is ${state} but its record could not be written: ${error.message}`,
+    );
+    return { landed: false, error: error.message };
+  }
+  return { landed: (data ?? []).length > 0, error: null };
+}
+
+/**
+ * Is the endpoint still the start this copy was made for (R311)? A Stop marks
+ * it stopped and another Deploy starts it again with a new `last_started_at`;
+ * either can come after the copy was recorded, when nothing will retire it. A
+ * read that fails is no evidence of either, so the copy is kept.
+ */
+async function stillStarted(dep: MlDeploymentRow): Promise<boolean> {
+  const { data, error } = await supabaseAdmin
+    .from("ml_deployments")
+    .select("status, last_started_at")
+    .eq("id", dep.id)
+    .maybeSingle();
+  if (error) return true;
+  const now = data as Pick<MlDeploymentRow, "status" | "last_started_at"> | null;
+  return Boolean(
+    now &&
+    (now.status === "starting" || now.status === "ready") &&
+    now.last_started_at === dep.last_started_at,
+  );
 }
 
 /**
@@ -467,24 +559,33 @@ export async function ensureDeployment(args: {
     waitMs: args.waitMs ?? READY_TIMEOUT_MS,
   });
   if (!first.ok) {
-    const stampErr = await markStopped(dep.id, first.error);
-    return {
-      ok: false,
-      error: stampErr
-        ? `${first.error} (and the endpoint's record could not be marked failed: ${stampErr} — it will show as starting until it is)`
-        : first.error,
-    };
+    // FOUND IN R311: held to this start. A start that failed after a Stop
+    // wrote "failed" over the Stop.
+    const failed = await failStart(dep, first.error);
+    if (failed.error) {
+      return {
+        ok: false,
+        error: `${first.error} (and the endpoint's record could not be marked failed: ${failed.error} — it will show as starting until it is)`,
+      };
+    }
+    return { ok: false, error: failed.landed ? first.error : STOPPED_WHILE_STARTING };
   }
   // FOUND FROM THE SURVEY (R77). This stamp dropped its error and the call
   // answered ok: the copy was up, the row said "starting", and every later
   // call — not seeing "ready" — retired the healthy copy and started another,
   // twenty seconds each, for as long as the row stayed so.
-  const readyErr = await stampReady(dep.id);
+  const { landed: stamped, error: readyErr } = await stampReady(dep);
   if (readyErr) {
     return {
       ok: false,
       error: `The endpoint is up but its record could not be marked ready: ${readyErr}. It will show as starting, and the next Deploy will replace the copy, until it is.`,
     };
+  }
+  if (!stamped) {
+    // FOUND IN R311. A Stop or another Deploy took the endpoint after the copy
+    // came up. The copy is stopped again rather than left serving nothing.
+    await retireReplica(first.replica, "the endpoint was stopped while this copy started");
+    return { ok: false, error: STOPPED_WHILE_STARTING };
   }
 
   auditEvent({
@@ -549,7 +650,10 @@ async function startReplica(args: {
   waitMs: number;
   /** Defaults to the side that answers callers. */
   role?: "primary" | "candidate";
-}): Promise<{ ok: true; endpoint: string; replicaId: string } | { ok: false; error: string }> {
+}): Promise<
+  | { ok: true; endpoint: string; replicaId: string; replica: MlReplicaRow }
+  | { ok: false; error: string }
+> {
   const nowIso = new Date().toISOString();
   const { data: row, error: insErr } = await supabaseAdmin
     .from("ml_deployment_replicas")
@@ -580,10 +684,15 @@ async function startReplica(args: {
       memLimitMb: args.memLimitMb,
       inputs: { __ml_score: { model_id: args.model.id, version_id: args.version.id } },
     });
-    const { error: sessErr } = await supabaseAdmin
+    // FOUND IN R311: held to "starting". A Stop pressed while the sandbox was
+    // being created retired a copy with no session on it, so it stopped
+    // nothing, and this write then gave the retired copy a live scorer.
+    const { data: recorded, error: sessErr } = await supabaseAdmin
       .from("ml_deployment_replicas")
       .update({ session_id: session.id, updated_at: new Date().toISOString() })
-      .eq("id", replica.id);
+      .eq("id", replica.id)
+      .eq("status", "starting")
+      .select("id");
     if (sessErr) {
       // FOUND FROM THE SURVEY (R77). A copy whose session is not on its row is
       // a copy nothing can stop later — retireReplica stops by session id. It
@@ -599,10 +708,15 @@ async function startReplica(args: {
         error: `The copy started but its session could not be recorded: ${sessErr.message}; it was stopped again.`,
       };
     }
+    if ((recorded ?? []).length === 0) {
+      await stopQuietly(args.userId, session.id);
+      return { ok: false, error: STOPPED_WHILE_STARTING };
+    }
+    const copy: MlReplicaRow = { ...replica, session_id: session.id };
 
     const ready = await waitReady(args.userId, session.id, args.waitMs);
     if (!ready.ok) {
-      await markReplica(
+      const failed = await settleReplica(
         replica.id,
         {
           status: "failed",
@@ -612,9 +726,11 @@ async function startReplica(args: {
         "failed",
       );
       await stopQuietly(args.userId, session.id);
+      // Retired while it loaded: its sandbox stopped because it was stopped.
+      if (!failed.landed && !failed.error) return { ok: false, error: STOPPED_WHILE_STARTING };
       return { ok: false, error: ready.error };
     }
-    const readyErr = await markReplica(
+    const { landed: isReady, error: readyErr } = await settleReplica(
       replica.id,
       {
         status: "ready",
@@ -639,7 +755,16 @@ async function startReplica(args: {
         error: `The copy is up but could not be marked ready: ${readyErr}; it was stopped again.`,
       };
     }
-    return { ok: true, endpoint: ready.endpoint, replicaId: replica.id };
+    if (!isReady) {
+      // Retired while it loaded, by something that found no sandbox on it.
+      await stopQuietly(args.userId, session.id);
+      return { ok: false, error: STOPPED_WHILE_STARTING };
+    }
+    if (!(await stillStarted(args.deployment))) {
+      await retireReplica(copy, "the endpoint was stopped while this copy started");
+      return { ok: false, error: STOPPED_WHILE_STARTING };
+    }
+    return { ok: true, endpoint: ready.endpoint, replicaId: replica.id, replica: copy };
   } catch (e) {
     const message = (e as Error).message;
     await markReplica(
@@ -1051,6 +1176,11 @@ export async function undeploy(
   // the function returned nothing either way, so "Endpoint stopped" was said
   // over a row that still read "ready" — with every copy already gone.
   const failed: string[] = [];
+  // FOUND IN R311: the endpoint is marked stopped FIRST. A copy recorded after
+  // the list below is one this Stop never sees; it reads "stopped" as it comes
+  // up and stops itself. Marked last, it came up under an endpoint still live.
+  const stopErr = await markStopped(dep.id);
+  if (stopErr) failed.push(`status: ${stopErr}`);
   for (const replica of await listReplicas(dep.id)) {
     const err = await retireReplica(replica, "undeployed");
     if (err) failed.push(`copy ${replica.id.slice(0, 8)}: ${err}`);
@@ -1065,8 +1195,6 @@ export async function undeploy(
     .update({ candidate_mode: "off", candidate_version_id: null })
     .eq("id", dep.id);
   if (candErr) failed.push(`candidate: ${candErr.message}`);
-  const stopErr = await markStopped(dep.id);
-  if (stopErr) failed.push(`status: ${stopErr}`);
   auditEvent({
     userId,
     action: "ml.undeploy",

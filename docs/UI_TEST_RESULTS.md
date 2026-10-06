@@ -15,6 +15,18 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-06 — R311: Stop pressed while a Deploy is starting
+
+Model `threshold_probe (payment_rows)`, Automation → Warm endpoint. Deploy is pressed in one tab;
+Stop is pressed in a second tab while the badge reads "starting".
+
+| What was driven                                              | What came back                                                                                                                                                                                                                                                                                                                                 |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Before**, on R310's build: Deploy, then Stop at "starting" | The Stop's panel read off. Scorer `nb-e7c803dd` stayed up, and within a minute both tabs read **"serving v1 · 1 of 1 copy answering"**                                                                                                                                                                                                         |
+| **After**, hot-deployed: the same                            | The scorer's container, still being created at the Stop, came up and was stopped by the deploy (exit 137), then removed. The deploying tab's toast: **"The endpoint was stopped, or deployed again, while this copy of the model was starting, so the copy…"**, and its panel reloaded to **off**. The other tab read off; no sandbox was left |
+| **After**, control: Deploy that nobody stops                 | "Serving v1" in about 25 s; the badge read serving v1                                                                                                                                                                                                                                                                                          |
+| **After**: Stop on the serving endpoint                      | The panel read off, and the scorer was removed                                                                                                                                                                                                                                                                                                 |
+
 ## 2026-10-06 — R310: Deploy on a model's warm endpoint
 
 Model `threshold_probe (payment_rows)`, Automation → Warm endpoint.

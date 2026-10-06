@@ -1031,14 +1031,14 @@ attributed to its key; a denied call (unknown, revoked, expired, wrong
 scope, rate-limited) is audited as `ml.api_key.denied` with the caller's
 address.
 
-| Endpoint                       | Scope   | Body                                                                                              | Answer                                                              |
-| ------------------------------ | ------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `POST /api/ml/models`          | read    | —                                                                                                 | the model, its features and versions                                |
-| `POST /api/ml/train`           | train   | `time_budget_minutes`, `max_rows`, `tuning`, `prep`, `feature_columns`                            | 202 with `job_id` and `version_id`                                  |
-| `POST /api/ml/train/status`    | read    | `job_id`                                                                                          | status, the version's metrics when ready, the log tail              |
-| `POST /api/ml/predict`         | predict | `rows` (up to 200), `version_id`, `wait_seconds`                                                  | 200 with columns and rows, or 202 with a `prediction_id` to poll    |
-| `POST /api/ml/predict/batch`   | predict | `input {schema, table, where}`, `output {schema, table}`, `version_id`                            | 202 with a `prediction_id`; the output is a lakehouse table you own |
-| `POST /api/ml/predict/status`  | read    | `prediction_id`                                                                                   | status, row count, columns, a sample, the result digest             |
+| Endpoint                       | Scope   | Body                                                                                              | Answer                                                                                                                                                 |
+| ------------------------------ | ------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `POST /api/ml/models`          | read    | —                                                                                                 | the model, its features and versions                                                                                                                   |
+| `POST /api/ml/train`           | train   | `time_budget_minutes`, `max_rows`, `tuning`, `prep`, `feature_columns`                            | 202 with `job_id` and `version_id`                                                                                                                     |
+| `POST /api/ml/train/status`    | read    | `job_id`                                                                                          | status, the version's metrics when ready, the log tail                                                                                                 |
+| `POST /api/ml/predict`         | predict | `rows` (up to 200), `version_id`, `wait_seconds`                                                  | 200 with columns and rows, or 202 with a `prediction_id` to poll                                                                                       |
+| `POST /api/ml/predict/batch`   | predict | `input {schema, table, where}`, `output {schema, table}`, `version_id`                            | 202 with a `prediction_id`; the output is a lakehouse table you own                                                                                    |
+| `POST /api/ml/predict/status`  | read    | `prediction_id`                                                                                   | status, row count, columns, a sample, the result digest                                                                                                |
 | `POST /api/ml/models/register` | train   | `artifact_uri`, `artifact_sha256`, `algorithm`, `metrics`, `feature_schema`, `classes`, `promote` | 201 with the new version and `promoted`; `promotion_error` when a promotion was asked for and could not be made — the version is registered either way |
 
 ```bash
@@ -1352,6 +1352,12 @@ fitted pipeline resident whether or not anyone is scoring, so:
   **Keep warm** is on, which is for the endpoints where the first slow request
   is the one that matters;
 - the instance caps how many may be open at once.
+
+**A Stop wins over a deploy that is still starting.** A start records its states one at a time:
+the copy's sandbox, its "ready" or "failed", then the endpoint's "ready" or "failed". Each is
+written only while the copy and the endpoint are still the ones this start made. A Stop pressed
+while the scorer is starting stops it, and the deploy says the endpoint was stopped while its copy
+was starting. If a second Deploy is pressed meanwhile, that one serves (R311).
 
 Forecast models have no endpoint: a forecast is answered from the stored series
 with no model in the loop at all.
