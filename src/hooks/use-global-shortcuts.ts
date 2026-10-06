@@ -7,9 +7,9 @@
 // Every entry here is mirrored in src/lib/shortcuts.ts, which is what the
 // help dialog actually renders — that's the single source of truth for what
 // a shortcut is CALLED; this file is only responsible for making it work.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { GO_TO_SHORTCUTS, SHORTCUTS_DISMISS_KEY } from "@/lib/shortcuts";
+import { GO_TO_SHORTCUTS, firstVisitShowsShortcuts } from "@/lib/shortcuts";
 
 // How long a bare "g" stays "waiting for the next letter" before it's just a
 // stray keystroke again. Long enough to not feel rushed, short enough that
@@ -28,28 +28,21 @@ export function useGlobalShortcuts() {
   const [helpOpen, setHelpOpen] = useState(false);
   const pendingGoToRef = useRef<number | null>(null); // timestamp of the last bare "g", or null
 
-  const dismissForever = useCallback(() => {
-    setHelpOpen(false);
-    try {
-      window.localStorage.setItem(SHORTCUTS_DISMISS_KEY, "true");
-    } catch {
-      // Storage disabled — it closes for this visit, it just won't stay
-      // dismissed on the next one.
-    }
-  }, []);
-
-  // Auto-show once per login/fresh load, unless the user has said not to.
-  // A mount effect, not a render-time read: this app is server-rendered and
-  // the server has no localStorage, so reading it synchronously would make
-  // the first client render disagree with the server's — the same
-  // hydration-mismatch reasoning behind every other localStorage-gated
-  // dialog in this app (SessionRestoreBanner, SchemaHealthGuard).
+  // Shown by itself once, on the first visit (firstVisitShowsShortcuts);
+  // after that only on "?". A mount effect, not a render-time read: this app
+  // is server-rendered and the server has no localStorage, so reading it
+  // synchronously would make the first client render disagree with the
+  // server's — the same hydration-mismatch reasoning behind every other
+  // localStorage-gated dialog in this app (SessionRestoreBanner,
+  // SchemaHealthGuard).
   useEffect(() => {
+    let storage: Storage | null = null;
     try {
-      if (window.localStorage.getItem(SHORTCUTS_DISMISS_KEY) !== "true") setHelpOpen(true);
+      storage = window.localStorage;
     } catch {
-      setHelpOpen(true); // storage unreadable — default to showing it
+      storage = null;
     }
+    if (firstVisitShowsShortcuts(storage)) setHelpOpen(true);
   }, []);
 
   useEffect(() => {
@@ -100,5 +93,5 @@ export function useGlobalShortcuts() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [navigate]);
 
-  return { helpOpen, setHelpOpen, dismissForever };
+  return { helpOpen, setHelpOpen };
 }

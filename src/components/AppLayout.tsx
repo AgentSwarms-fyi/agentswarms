@@ -120,11 +120,7 @@ export function AppLayout() {
         </div>
       </div>
       <CommandPalette open={palette.open} onOpenChange={palette.setOpen} />
-      <ShortcutsHelpDialog
-        open={shortcuts.helpOpen}
-        onOpenChange={shortcuts.setHelpOpen}
-        onNeverShowAgain={shortcuts.dismissForever}
-      />
+      <ShortcutsHelpDialog open={shortcuts.helpOpen} onOpenChange={shortcuts.setHelpOpen} />
       <OnboardingDialog />
       <MobileLabNotice />
     </SidebarProvider>

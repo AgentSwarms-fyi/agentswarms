@@ -79,7 +79,8 @@ Contributed by @theniteshdev in #77.
 - **Themes** can follow the system, and take an accent colour.
 - **Layout preferences:** workspace density and the default swarm view.
 - **Keyboard shortcuts** from one registry: a question mark lists them, and
-  G followed by a letter goes to a page.
+  G followed by a letter goes to a page. The list opens by itself once, on a
+  first visit.
 - **One profile editor,** shared by the Account page and Settings, which
   keeps its earlier fixes: unsaved edits are named and kept, and a profile
   that could not be read is not offered as a blank form.
