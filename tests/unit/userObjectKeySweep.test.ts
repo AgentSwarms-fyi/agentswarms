@@ -42,6 +42,12 @@ function items(list: string): string[] {
 const REVIEWED: Record<string, number> = {
   // Re-reads pending approvals.
   "src/components/ApprovalInbox.tsx": 1,
+  // Settings (PR #77), read when it was merged: the month's spend and cap,
+  // shown only.
+  "src/components/settings/AccountSettingsPanel.tsx": 1,
+  // The API key list. A reload swaps the list for a spinner; the create form
+  // and the once-shown new key are separate state and stay as they are.
+  "src/components/settings/ApiKeysSettingsPanel.tsx": 1,
   // Re-reads the signed-in user's profile for the avatar and name.
   "src/components/UserMenu.tsx": 1,
   "src/components/observability/QualityTrends.tsx": 1,

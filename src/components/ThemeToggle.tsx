@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, Monitor, Moon, Sun } from "lucide-react";
+import { Check, Laptop, Monitor, Moon, Sun } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -10,7 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { THEMES, useTheme, type Theme } from "@/hooks/use-theme";
+import { THEMES, useTheme, type ThemePreference } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -19,7 +19,8 @@ type Props = {
   className?: string;
 };
 
-const ICONS: Record<Theme, typeof Sun> = {
+const ICONS: Record<ThemePreference, typeof Sun> = {
+  system: Laptop,
   native: Monitor,
   dark: Moon,
   light: Sun,

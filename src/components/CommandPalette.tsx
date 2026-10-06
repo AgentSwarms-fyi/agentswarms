@@ -3,7 +3,7 @@
 // the sidebar renders, so the two can never disagree.
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { Monitor, Moon, Plus, Sun } from "lucide-react";
+import { Laptop, Monitor, Moon, Plus, Sun } from "lucide-react";
 
 import {
   CommandDialog,
@@ -16,8 +16,18 @@ import {
   CommandShortcut,
 } from "@/components/ui/command";
 import { ADMIN_GROUP, NAV_GROUPS } from "@/lib/appNav";
-import { THEMES, useTheme } from "@/hooks/use-theme";
+import { THEMES, useTheme, type ThemePreference } from "@/hooks/use-theme";
 import { useIsSuperadmin } from "@/hooks/use-iam";
+
+// Matches ThemeToggle/AppearanceSettingsPanel's icon choice per theme, so
+// "System" isn't left sharing Monitor with "AgentSwarms Native" here as if
+// the two were the same option.
+const THEME_ICONS: Record<ThemePreference, typeof Sun> = {
+  system: Laptop,
+  native: Monitor,
+  dark: Moon,
+  light: Sun,
+};
 
 const CREATE_ACTIONS = [
   { title: "New agent", url: "/agents", search: { new: 1 } as Record<string, unknown> },
@@ -93,21 +103,18 @@ export function CommandPalette({
         ))}
         <CommandSeparator />
         <CommandGroup heading="Preferences">
-          {/* One entry per theme rather than a toggle: with three of them,
+          {/* One entry per theme rather than a toggle: with four of them,
               "switch to the other one" no longer names anything. */}
-          {THEMES.map((t) => (
-            <CommandItem key={t.id} onSelect={() => run(() => setTheme(t.id))}>
-              {t.id === "dark" ? (
-                <Moon className="mr-2 h-4 w-4 text-muted-foreground" />
-              ) : t.id === "light" ? (
-                <Sun className="mr-2 h-4 w-4 text-muted-foreground" />
-              ) : (
-                <Monitor className="mr-2 h-4 w-4 text-muted-foreground" />
-              )}
-              {t.label}
-              {theme === t.id && <CommandShortcut>current</CommandShortcut>}
-            </CommandItem>
-          ))}
+          {THEMES.map((t) => {
+            const Icon = THEME_ICONS[t.id];
+            return (
+              <CommandItem key={t.id} onSelect={() => run(() => setTheme(t.id))}>
+                <Icon className="mr-2 h-4 w-4 text-muted-foreground" />
+                {t.label}
+                {theme === t.id && <CommandShortcut>current</CommandShortcut>}
+              </CommandItem>
+            );
+          })}
         </CommandGroup>
       </CommandList>
     </CommandDialog>

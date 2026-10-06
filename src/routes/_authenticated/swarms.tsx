@@ -110,6 +110,7 @@ import { ComponentLibraryDialog } from "@/components/swarms/ComponentLibraryDial
 import { bindingFor, type SwarmComponent } from "@/lib/swarmComponents";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
+import { useLayoutPrefs } from "@/hooks/use-layout-prefs";
 import { type SwarmNodeData, topoLevels } from "@/lib/swarmRuntime";
 import {
   startRun as startManagedRun,
@@ -2485,12 +2486,46 @@ function SwarmsCanvas({
   );
 }
 
+// Settings → Layout → "Default Swarms view" reads/writes this key directly
+// (see LayoutSettingsPanel) and this route is the only consumer.
+const LAST_SWARM_ID_KEY = "agentswarms.lastSwarmId";
+
 function SwarmsPage() {
   const { template, swarm, view } = Route.useSearch();
   const navigate = useNavigate();
+  const { defaultSwarmView } = useLayoutPrefs();
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   const showCanvas = view === "canvas" || !!template || !!swarm;
+
+  // Remember whichever swarm was actually opened, so "last opened" has
+  // something to return to. Only a plain id — no snapshot of its state,
+  // this is purely a bookmark for the redirect below.
+  useEffect(() => {
+    if (!swarm) return;
+    try {
+      window.localStorage.setItem(LAST_SWARM_ID_KEY, swarm);
+    } catch {
+      // Storage disabled — the preference still works this session, it just
+      // won't have anything to jump back to on the next fresh load.
+    }
+  }, [swarm]);
+
+  // "Last opened" as a default only matters on a bare /swarms visit — any
+  // explicit template/swarm/view in the URL already says what to show and
+  // must win (e.g. a link shared from elsewhere in the app).
+  useEffect(() => {
+    if (showCanvas || defaultSwarmView !== "last-opened") return;
+    let lastId: string | null = null;
+    try {
+      lastId = window.localStorage.getItem(LAST_SWARM_ID_KEY);
+    } catch {
+      // Ignore — falls through to the gallery below, same as "never opened one."
+    }
+    if (lastId) {
+      void navigate({ to: "/swarms", search: { swarm: lastId, view: "canvas" }, replace: true });
+    }
+  }, [showCanvas, defaultSwarmView, navigate]);
 
   const goToGallery = () => {
     setIsFullscreen(false);
