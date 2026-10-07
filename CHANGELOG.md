@@ -24,6 +24,14 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Sheets: LAMBDA** (R328). LAMBDA was #NAME?, so a workbook that defined its
+  own functions showed the values Excel last saved and never recomputed. Now
+  a LAMBDA is called where it is written (`=LAMBDA(x, x*2)(3)`), by a LET name,
+  or by a workbook name (`=DOUBLE(B2)`), recursion included, which stops at
+  #NUM! at Excel's own depth. MAP, REDUCE, SCAN, BYROW, BYCOL, MAKEARRAY and
+  ISOMITTED take one; a parameter in brackets may be left out. Downloads write
+  LET's names and a LAMBDA's parameters as `_xlpm.x`: before, Excel read a
+  downloaded `=LET(x,1,x+1)` as a workbook name it lacked.
 - **Browser checks in CI** (R324). A second CI job builds the app, starts it,
   and loads the public pages in Chromium with Playwright: an uncaught page
   error, a console error, an error boundary, or a client-side navigation that

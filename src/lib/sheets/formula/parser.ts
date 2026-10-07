@@ -26,6 +26,8 @@ export type Node =
   | { k: "name"; name: string }
   | { k: "array"; rows: Node[][] }
   | { k: "call"; name: string; args: Node[] }
+  /** A call on what an expression evaluates to: LAMBDA(x, x*2)(3) (R328). */
+  | { k: "invoke"; fn: Node; args: Node[] }
   | { k: "unary"; op: "-" | "+"; arg: Node }
   /** @x: Excel's implicit intersection, the one value in the formula's row or column (R162). */
   | { k: "single"; arg: Node }
@@ -89,6 +91,35 @@ export function parseFormula(body: string): Node {
     return left;
   };
 
+  /** The arguments up to the closing ")", its "(" already read; an empty one is { k: "empty" }. */
+  const argList = (): Node[] => {
+    const args: Node[] = [];
+    if (peek()?.t === ")") {
+      i++;
+      return args;
+    }
+    for (;;) {
+      const p = peek();
+      if (p && (p.t === "," || p.t === ")")) args.push({ k: "empty" });
+      else args.push(expr(0));
+      const sep = next();
+      if (sep.t === ")") break;
+      if (sep.t !== ",") throw new FormulaSyntaxError("Expected , or )", sep.s);
+    }
+    return args;
+  };
+
+  /** A call followed by "(" calls what it returns, as LAMBDA(x, x*2)(3) does (R328). */
+  const invocations = (node: Node, start: number): Node => {
+    let out = node;
+    while (peek()?.t === "(") {
+      if (!SPANS.has(out)) SPANS.set(out, [start, tokens[i - 1].e]);
+      i++;
+      out = { k: "invoke", fn: out, args: argList() };
+    }
+    return out;
+  };
+
   const primary = (): Node => {
     const start = peek()?.s;
     const node = primaryNode();
@@ -146,25 +177,12 @@ export function parseFormula(body: string): Node {
         const inner = expr(0);
         const close = next();
         if (close.t !== ")") throw new FormulaSyntaxError("Expected )", close.s);
-        return inner;
+        return invocations(inner, t.s);
       }
       case "func": {
         const open = next();
         if (open.t !== "(") throw new FormulaSyntaxError("Expected (", open.s);
-        const args: Node[] = [];
-        if (peek()?.t === ")") {
-          i++;
-          return { k: "call", name: t.name, args };
-        }
-        for (;;) {
-          const p = peek();
-          if (p && (p.t === "," || p.t === ")")) args.push({ k: "empty" });
-          else args.push(expr(0));
-          const sep = next();
-          if (sep.t === ")") break;
-          if (sep.t !== ",") throw new FormulaSyntaxError("Expected , or )", sep.s);
-        }
-        return { k: "call", name: t.name, args };
+        return invocations({ k: "call", name: t.name, args: argList() }, t.s);
       }
       case "{": {
         const rows: Node[][] = [[]];

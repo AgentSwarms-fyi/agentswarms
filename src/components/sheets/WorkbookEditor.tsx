@@ -133,6 +133,7 @@ import {
 import {
   adjustNames,
   nameProblem,
+  lambdaPreview,
   nameTarget,
   refForRange,
   renameNameInFormula,
@@ -2486,7 +2487,10 @@ export function WorkbookEditor({
         activeSheet={activeTab.name}
         selectionRef={refForRange(activeTab.name, range)}
         tableNames={wb.tabs.filter((t) => t.kind === "table").map((t) => t.name)}
-        preview={(ref) => valuePreview(engine.evaluateAt(tabId, 0, 0, `=${ref}`, { array: true }))}
+        preview={(ref) =>
+          lambdaPreview(ref) ??
+          valuePreview(engine.evaluateAt(tabId, 0, 0, `=${ref}`, { array: true }))
+        }
         onChange={changeNames}
       />
       {shiftAsk && (

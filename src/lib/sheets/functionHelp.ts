@@ -144,6 +144,46 @@ export const FUNCTION_HELP: Record<string, FunctionHelp> = {
     desc: "The result for the first matching value.",
     cat: "Logical",
   },
+  LAMBDA: {
+    sig: "LAMBDA([parameter1, …], calculation)",
+    desc: "A function of your own: call it, as LAMBDA(x, x*2)(3), or name it in Data → Names.",
+    cat: "Logical",
+  },
+  MAP: {
+    sig: "MAP(array1, [array2, …], lambda)",
+    desc: "Each value of the arrays through a LAMBDA, as an array of the same size.",
+    cat: "Logical",
+  },
+  REDUCE: {
+    sig: "REDUCE([initial_value], array, lambda(accumulator, value))",
+    desc: "Folds an array into one value, a LAMBDA call per value.",
+    cat: "Logical",
+  },
+  SCAN: {
+    sig: "SCAN([initial_value], array, lambda(accumulator, value))",
+    desc: "REDUCE that keeps each step: a running total, for one.",
+    cat: "Logical",
+  },
+  BYROW: {
+    sig: "BYROW(array, lambda(row))",
+    desc: "One value per row, from a LAMBDA given the row.",
+    cat: "Logical",
+  },
+  BYCOL: {
+    sig: "BYCOL(array, lambda(column))",
+    desc: "One value per column, from a LAMBDA given the column.",
+    cat: "Logical",
+  },
+  MAKEARRAY: {
+    sig: "MAKEARRAY(rows, cols, lambda(row, col))",
+    desc: "An array whose every value a LAMBDA computes from its row and column.",
+    cat: "Logical",
+  },
+  ISOMITTED: {
+    sig: "ISOMITTED(parameter)",
+    desc: "TRUE when a call left out a LAMBDA's [optional] parameter.",
+    cat: "Logical",
+  },
   VLOOKUP: {
     sig: "VLOOKUP(lookup_value, table_array, col_index, [range_lookup])",
     desc: "Finds a row by its first column; FALSE for an exact match.",

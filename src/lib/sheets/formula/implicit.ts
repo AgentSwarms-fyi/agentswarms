@@ -122,6 +122,10 @@ function walk(n: Node, ctx: Ctx, visit: (n: Node, ctx: Ctx) => void): void {
     case "single":
       walk(n.arg, "ref", visit);
       break;
+    case "invoke":
+      walk(n.fn, "ref", visit);
+      n.args.forEach((a) => walk(a, ctx === "array" ? "array" : "ref", visit));
+      break;
     default:
       break;
   }

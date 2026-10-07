@@ -11,6 +11,7 @@
 import { a1, type RangeAddr } from "./a1";
 import { lex, type Token } from "./formula/lexer";
 import { parseFormula, type Node } from "./formula/parser";
+import { paramName } from "./formula/scope";
 import { isError, type Scalar, type Value } from "./formula/values";
 
 export type DefinedName = {
@@ -74,6 +75,7 @@ export function sheetsIn(ref: string): string[] {
     if (n.k === "struct" && n.table) out.add(n.table.toLowerCase());
     if (n.k === "array") n.rows.forEach((r) => r.forEach(walk));
     if (n.k === "call") n.args.forEach(walk);
+    if (n.k === "invoke") [n.fn, ...n.args].forEach(walk);
     if (n.k === "bin") {
       walk(n.left);
       walk(n.right);
@@ -258,6 +260,22 @@ export function nameTarget(
 }
 
 /** What a name comes to, as the Name Manager shows it: 0.2, "West", {10;20;30}. */
+/**
+ * What Name Manager shows for a name that holds a LAMBDA: its parameters,
+ * LAMBDA(x, [y]), where its value would be the #CALC! of a function nobody
+ * called (R328). Null for any other name.
+ */
+export function lambdaPreview(ref: string): string | null {
+  const r = parseRef(ref);
+  if (!r.ok || r.node.k !== "call" || r.node.name !== "LAMBDA" || !r.node.args.length) return null;
+  const params = r.node.args.slice(0, -1);
+  if (params.some((p) => !paramName(p))) return null;
+  const shown = params.map((p) =>
+    p.k === "struct" ? `[${p.column}]` : p.k === "name" ? p.name : "",
+  );
+  return `LAMBDA(${shown.join(", ")})`;
+}
+
 export function valuePreview(v: Value): string {
   const one = (x: Scalar): string =>
     x === null

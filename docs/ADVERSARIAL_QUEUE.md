@@ -938,11 +938,10 @@ Closed with array formulas: R144 (a function of one value given a range looked a
 cell), R145 (IF over a range took each branch's first value), R146 (arithmetic over a whole column
 left out the blank rows). Open from that round:
 
-- ~~Functions Excel has and Sheets does not.~~ Closed by R147, except two:
-  - LAMBDA;
-  - AGGREGATE (19 functions, with options to skip errors and hidden rows).
-
-  A file that uses either shows Excel's saved value.
+- ~~Functions Excel has and Sheets does not.~~ Closed by R147, except two, since closed too:
+  - ~~LAMBDA~~ — R328: called in place, by LET or by a workbook name, recursion included, with
+    MAP, REDUCE, SCAN, BYROW, BYCOL, MAKEARRAY and ISOMITTED;
+  - ~~AGGREGATE~~ — R327.
 
 - **A whole column spilled into the grid shows only the used rows.** Excel spills all 1,048,576,
   or `#SPILL!` below row 1. The part shown is the useful part; the difference is on purpose.
@@ -952,8 +951,8 @@ left out the blank rows). Open from that round:
 Closed with the missing functions: R147 (seven listed long-tail functions never registered; 34
 more missing). Open from that round:
 
-- **LAMBDA and AGGREGATE** are not computed. A file that uses them shows Excel's saved value.
-- **INDIRECT reads A1-style text only.** `INDIRECT("R2C3",FALSE)` says so, instead of reading it.
+- ~~**LAMBDA and AGGREGATE** are not computed.~~ Closed by R327 (AGGREGATE) and R328 (LAMBDA).
+- ~~**INDIRECT reads A1-style text only.**~~ Closed by R327: `INDIRECT("R2C3",FALSE)` reads R1C1.
 - **OFFSET and INDIRECT are not volatile, as they are in Excel.** They recompute when a cell they
   read changes, which covers ordinary use.
 - **HYPERLINK shows its text but is not a link to click.** A link set with Ctrl+K is.

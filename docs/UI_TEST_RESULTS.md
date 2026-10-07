@@ -15,6 +15,32 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-07 — R328: LAMBDA, typed into a sheet
+
+New workbook `R328 LAMBDA` (kept). A1:A3 were typed 1, 2, 3 and column B the formulas below; then
+Data → Names added `DOUBLE` = `LAMBDA(x, x*2)` and `MYFACT` = `LAMBDA(n, IF(n<2, 1, n*MYFACT(n-1)))`
+(comment "Recursive: calls itself"). The values are the grid's cells as shown.
+
+| Formula                                | Shows                     | After A2 = 7 |
+| -------------------------------------- | ------------------------- | ------------ |
+| `=LAMBDA(x, x*2)(A3)`                  | 6                         | 6            |
+| `=LET(f, LAMBDA(x, x+1), f(10))`       | 11                        | 11           |
+| `=REDUCE(0, A1:A3, LAMBDA(a, v, a+v))` | 6                         | 11           |
+| `=LAMBDA(x, x*2)`                      | #CALC!, with its tooltip  | #CALC!       |
+| `=DOUBLE(A2)`                          | #NAME?, then 4 once named | 14           |
+| `=MYFACT(5)`                           | #NAME?, then 120          | 120          |
+| `=MAP(A1:A3, LAMBDA(x, x*10))`         | 10, 20, 30 (spilled)      | 10, 70, 30   |
+| `=BYROW(A1:A3, LAMBDA(r, r^2))`        | 1, 4, 9                   | 1, 49, 9     |
+| `=MAKEARRAY(2, 2, LAMBDA(r, c, r*c))`  | 1 2 / 2 4                 | 1 2 / 2 4    |
+| `=SCAN(0, A1:A3, LAMBDA(a, v, a+v))`   | 1, 3, 6                   | 1, 8, 11     |
+
+- A reload brought the workbook and both names back, still computing.
+- Name Manager's Value column showed `LAMBDA(x)` and `LAMBDA(n)`; the first build showed
+  `#CALC!` there, which read as an error, and was changed in this round.
+- Typing `=BYRO` offered BYROW with "One value per row, from a LAMBDA given the row."
+- `=FACT(5)` gave 120 before any name existed: FACT is Excel's own function. The unit tests had
+  used FACT, ISEVEN and ISODD as name examples and were renamed (see the log).
+
 ## 2026-10-07 — R327: Excel parity, typed into a sheet
 
 New workbook `R327 Excel parity` (kept). Through the Name box and the keyboard, B1:B5 were given 1,

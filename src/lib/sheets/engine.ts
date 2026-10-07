@@ -12,12 +12,14 @@ import {
   evaluate,
   PendingValue,
   PENDING,
+  settled,
   type EvalEnv,
   type RangeRef,
   type TableCallRequest,
 } from "./formula/evaluate";
 import { FUNCTIONS } from "./formula/functions";
 import { FormulaSyntaxError, isFormula, parseFormula, type Node } from "./formula/parser";
+import { walkScoped } from "./formula/scope";
 import type { ChartDef } from "./charts";
 import type { CondFormat } from "./condFormat";
 import type { AutoFilter } from "./filter";
@@ -124,27 +126,15 @@ type Compiled = {
   unknown?: string[];
 };
 
+/**
+ * The functions a formula calls that are not this engine's. A LET name or a
+ * LAMBDA parameter called as one is the formula's own (R328); a workbook name
+ * is checked where the formula is computed, as names come and go.
+ */
 function unknownFunctions(node: Node, out: Set<string>): void {
-  switch (node.k) {
-    case "call":
-      if (!FUNCTIONS[node.name]) out.add(node.name);
-      node.args.forEach((a) => unknownFunctions(a, out));
-      break;
-    case "unary":
-    case "percent":
-    case "single":
-      unknownFunctions(node.arg, out);
-      break;
-    case "bin":
-      unknownFunctions(node.left, out);
-      unknownFunctions(node.right, out);
-      break;
-    case "array":
-      node.rows.forEach((r) => r.forEach((n) => unknownFunctions(n, out)));
-      break;
-    default:
-      break;
-  }
+  walkScoped(node, (n, scope) => {
+    if (n.k === "call" && !FUNCTIONS[n.name] && !scope.has(n.name.toLowerCase())) out.add(n.name);
+  });
 }
 
 const VOLATILE = /\b(NOW|TODAY|RAND|RANDBETWEEN|RANDARRAY)\s*\(/i;
@@ -161,6 +151,10 @@ function tablesIn(node: Node, out: Set<string>): void {
       out.add(node.name.toLowerCase());
       break;
     case "call":
+      node.args.forEach((a) => tablesIn(a, out));
+      break;
+    case "invoke":
+      tablesIn(node.fn, out);
       node.args.forEach((a) => tablesIn(a, out));
       break;
     case "unary":
@@ -504,7 +498,7 @@ export class WorkbookEngine {
     }
     // A formula calling a function this engine lacks shows Excel's saved value
     // without being evaluated: an IFERROR around it would otherwise hide the gap.
-    if (c.unknown) {
+    if (this.missingFunctions(c).length) {
       const at = splitId(id);
       const cached = this.cachedFallback(at.sheetId, at.row, at.col, err("#NAME?", ""));
       if (cached !== undefined) {
@@ -585,7 +579,7 @@ export class WorkbookEngine {
     };
     let result: Value;
     try {
-      result = evaluate(c.ast!, env);
+      result = settled(evaluate(c.ast!, env));
     } catch (e) {
       if (e instanceof PendingValue) result = err("#BUSY!", "Waiting for the table's answer");
       else result = err("#VALUE!", e instanceof Error ? e.message : "Could not compute");
@@ -717,7 +711,7 @@ export class WorkbookEngine {
       tableCall: this.resolver?.call ? (req) => this.resolver!.call!(req) : undefined,
     };
     try {
-      const v = evaluate(ast, env);
+      const v = settled(evaluate(ast, env));
       if (isMatrix(v) && !opts.array) return v[0]?.[0] ?? null;
       return v;
     } catch (e) {
@@ -733,7 +727,13 @@ export class WorkbookEngine {
 
   /** The functions a formula uses that this engine does not have. */
   unknownFunctions(sheetId: string, row: number, col: number): string[] {
-    return this.compiled.get(cid(sheetId, row, col))?.unknown ?? [];
+    const c = this.compiled.get(cid(sheetId, row, col));
+    return c ? this.missingFunctions(c) : [];
+  }
+
+  /** Calls that are neither this engine's functions nor a workbook name, such as one holding a LAMBDA (R328). */
+  private missingFunctions(c: Compiled): string[] {
+    return c.unknown?.filter((name) => !this.defined.has(name.toLowerCase())) ?? [];
   }
 
   /** How far a formula's array spills, when it does. */

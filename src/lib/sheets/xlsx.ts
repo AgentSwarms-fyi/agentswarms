@@ -15,7 +15,8 @@ import { a1, cellKey, parseRangeA1, rangeA1, type RangeAddr } from "./a1";
 import { literalValue, type CellInput, type CellStyle, type GridData } from "./engine";
 import { FUNCTIONS } from "./formula/functions";
 import { lex, type Token } from "./formula/lexer";
-import { parseFormula, type Node } from "./formula/parser";
+import { parseFormula, spanOf, type Node } from "./formula/parser";
+import { paramName, walkScoped } from "./formula/scope";
 import {
   intersectionsForFile,
   refIsRange,
@@ -180,6 +181,14 @@ const XLFN = new Set([
   "WRAPCOLS",
   "EXPAND",
   "LAMBDA",
+  // R328: the functions that take a LAMBDA.
+  "MAP",
+  "REDUCE",
+  "SCAN",
+  "BYROW",
+  "BYCOL",
+  "MAKEARRAY",
+  "ISOMITTED",
   // R258's functions newer than Excel 2007. Without these a download would
   // carry them bare and Excel would show #NAME? on open - the gap the
   // prefix test caught the moment they were registered.
@@ -236,8 +245,35 @@ const XLFN = new Set([
 ]);
 const XLWS = new Set(["FILTER", "SORT"]);
 
+/**
+ * LET's names and a LAMBDA's parameters as the file holds them, _xlpm.x, where
+ * they are given and where they are used (R328). Without the prefix Excel
+ * reads x as a workbook name it does not have, and shows #NAME?. A parameter
+ * a call may leave out goes out as [_xlpm.x].
+ */
+function parametersForFile(body: string): string {
+  if (!/\b(LET|LAMBDA)\s*\(/i.test(body)) return body;
+  let ast: Node;
+  try {
+    ast = parseFormula(body);
+  } catch {
+    return body;
+  }
+  const at = new Set<number>();
+  walkScoped(ast, (n, scope, binding) => {
+    const s = spanOf(n)?.[0];
+    if (s === undefined) return;
+    if (binding) at.add(n.k === "struct" ? s + 1 : s);
+    else if (n.k === "name" && scope.has(n.name.toLowerCase())) at.add(s);
+    else if (n.k === "call" && !FUNCTIONS[n.name] && scope.has(n.name.toLowerCase())) at.add(s);
+  });
+  let out = body;
+  for (const s of [...at].sort((a, b) => b - a)) out = `${out.slice(0, s)}_xlpm.${out.slice(s)}`;
+  return out;
+}
+
 export function toFileFormula(f: string): string {
-  const body = anchorArraysForFile(f.startsWith("=") ? f.slice(1) : f);
+  const body = anchorArraysForFile(parametersForFile(f.startsWith("=") ? f.slice(1) : f));
   let out = "";
   let i = 0;
   while (i < body.length) {
@@ -445,54 +481,68 @@ export function computable(formula: string, names: ReadonlySet<string> = new Set
   } catch {
     return false;
   }
-  // `scope`: the workbook's names this engine can compute, and LET's own.
-  const ok = (n: Node, scope: ReadonlySet<string>): boolean => {
-    switch (n.k) {
-      case "call": {
-        if (n.name === "LET") {
-          // LET(name, value, …, result): each name is known after its value.
-          if (n.args.length < 3 || n.args.length % 2 === 0) return false;
-          const inner = new Set(scope);
-          for (let i = 0; i < n.args.length - 1; i += 2) {
-            const bound = n.args[i];
-            if (bound.k !== "name" || !ok(n.args[i + 1], inner)) return false;
-            inner.add(bound.name.toLowerCase());
-          }
-          return ok(n.args[n.args.length - 1], inner);
-        }
-        return !!FUNCTIONS[n.name] && n.args.every((a) => ok(a, scope));
-      }
-      case "name":
-        return scope.has(n.name.toLowerCase());
-      case "unary":
-      case "percent":
-      case "single":
-        return ok(n.arg, scope);
-      case "bin":
-        return ok(n.left, scope) && ok(n.right, scope);
-      case "array":
-        return n.rows.every((r) => r.every((x) => ok(x, scope)));
-      default:
-        return true;
+  // The workbook's names this engine can compute, and the formula's own: LET's
+  // names and a LAMBDA's parameters, where they are given (R328).
+  const known = new Set([...names].map((x) => x.toLowerCase()));
+  const has = (name: string, scope: ReadonlySet<string>) =>
+    scope.has(name.toLowerCase()) || known.has(name.toLowerCase());
+  let ok = true;
+  walkScoped(ast, (n, scope, binding) => {
+    if (!ok || binding) return;
+    if (n.k === "call" && n.name === "LET") {
+      // LET(name, value, …, result): names and values in pairs, then the result.
+      const a = n.args;
+      if (
+        a.length < 3 ||
+        a.length % 2 === 0 ||
+        a.some((b, i) => i % 2 === 0 && i < a.length - 1 && b.k !== "name")
+      )
+        ok = false;
+    } else if (n.k === "call" && n.name === "LAMBDA") {
+      if (!n.args.length || n.args.slice(0, -1).some((p) => !paramName(p))) ok = false;
+    } else if (n.k === "call") {
+      if (!FUNCTIONS[n.name] && !has(n.name, scope)) ok = false;
+    } else if (n.k === "name") {
+      if (!has(n.name, scope)) ok = false;
     }
-  };
-  return ok(ast, new Set([...names].map((x) => x.toLowerCase())));
+  });
+  return ok;
 }
 
-/** The names whose references this engine computes, directly or through other such names. */
+/**
+ * The names whose references this engine computes, directly or through other
+ * such names. A name holding a LAMBDA may call itself, or another that calls
+ * it back (R328): those start known and drop out when anything else in them
+ * is not. Any other name that leads back to itself stays out.
+ */
 export function computableNames(names: DefinedName[]): Set<string> {
-  const known = new Set<string>();
-  for (let grew = true; grew;) {
-    grew = false;
-    for (const d of names) {
-      const key = d.name.toLowerCase();
-      if (!known.has(key) && computable(d.ref, known)) {
-        known.add(key);
-        grew = true;
+  const isLambda = (ref: string) => {
+    try {
+      const n = parseFormula(ref.startsWith("=") ? ref.slice(1) : ref);
+      return n.k === "call" && n.name === "LAMBDA";
+    } catch {
+      return false;
+    }
+  };
+  const lambdas = new Map(
+    names.filter((d) => isLambda(d.ref)).map((d) => [d.name.toLowerCase(), d.ref] as const),
+  );
+  for (;;) {
+    const known = new Set(lambdas.keys());
+    for (let grew = true; grew;) {
+      grew = false;
+      for (const d of names) {
+        const key = d.name.toLowerCase();
+        if (!known.has(key) && !lambdas.has(key) && computable(d.ref, known)) {
+          known.add(key);
+          grew = true;
+        }
       }
     }
+    const out = [...lambdas].filter(([, ref]) => !computable(ref, known));
+    if (!out.length) return known;
+    for (const [key] of out) lambdas.delete(key);
   }
-  return known;
 }
 
 /** A formula's saved result as a value this workbook can hold. */

@@ -61,6 +61,22 @@ Type `=` and a formula, as in Excel. About 240 functions are available:
     skip error values, which makes `=AGGREGATE(14,6,A1:A9/(B1:B9="x"),1)` the largest A where B
     is "x".
 - **Logic and names:** IF, IFS, IFERROR, IFNA, SWITCH, CHOOSE, AND, OR, XOR, NOT, LET.
+- **Functions of your own** (R328): LAMBDA, and MAP, REDUCE, SCAN, BYROW, BYCOL, MAKEARRAY and
+  ISOMITTED, which take one.
+  - A LAMBDA is called where it is written, `=LAMBDA(x, x*2)(3)`, or given a name and called by
+    it: by LET, `=LET(f, LAMBDA(x, x*2), f(A2))`, or in **Data → Names**, where `DOUBLE` referring
+    to `LAMBDA(x, x*2)` makes `=DOUBLE(A2)` work in every sheet of the workbook.
+  - A parameter in brackets may be left out: `LAMBDA(x, [y], IF(ISOMITTED(y), x, x+y))`.
+  - A LAMBDA sees the LET names given before it, not those after, as in Excel.
+  - A name may call itself, or another name that calls it back:
+    `MYFACT` as `LAMBDA(n, IF(n<2, 1, n*MYFACT(n-1)))` makes `=MYFACT(5)` 120. A name spelled
+    like one of Excel's functions (FACT, ISEVEN) is not called: the function is. As in Excel, a recursion
+    is #NUM! when it reaches 1,024 ÷ (parameters + 1) calls: 511 deep for one parameter.
+  - A cell holding a LAMBDA nobody calls shows #CALC!, as Excel's does, and other cells can't call
+    it through the cell.
+  - MAP's arrays must be the same size, and each call in MAP, SCAN, BYROW and BYCOL must give one
+    value (an array there is #CALC!). MAKEARRAY makes up to a million cells.
+  - A table sheet's column formula can't call one: compute it in a grid sheet.
 - **Lookups and references:** XLOOKUP, VLOOKUP, HLOOKUP, LOOKUP, INDEX, MATCH, XMATCH, OFFSET,
   INDIRECT, ADDRESS, HYPERLINK, ISREF, ISFORMULA, FORMULATEXT. `INDIRECT(text, FALSE)` reads R1C1
   text (R327): `R2C3` is C2, and `R[-1]C` is the cell above the formula.
@@ -144,8 +160,6 @@ Type `=` and a formula, as in Excel. About 240 functions are available:
   - VSTACK, HSTACK, TAKE, DROP, CHOOSECOLS and CHOOSEROWS take one value as a one-cell array, so
     `=VSTACK("Name",A2:A9)` puts a heading over a list. A RANK of a number not in the list is
     `#N/A`.
-
-Not yet: LAMBDA. A file that uses it shows the value Excel last saved.
 
 The same rules as Excel apply:
 
@@ -241,6 +255,8 @@ A name stands for cells, a range or a value, and formulas use it as Excel's do:
 - A name for cells is a reference wherever a function takes one: `ROWS(Revenue)`,
   `INDEX(Revenue,2)`, `OFFSET(Revenue,1,0)`, `SUMIFS(Revenue,Region,"West")`. A name that refers
   to itself shows `#CYCLE!`. LET's own names come before the workbook's.
+- A name can hold a LAMBDA, and formulas then call it like a function (R328): `DOUBLE` as
+  `LAMBDA(x, x*2)` makes `=DOUBLE(B2)`. Such a name may call itself; see Functions of your own.
 
 A name follows Excel's rules: it starts with a letter or `_`, holds letters, digits, `.` and `_`, and
 cannot read as a cell (`A1`, `R1C1`) or as TRUE or FALSE. Case does not matter. A workbook keeps up
@@ -900,7 +916,11 @@ as a plain formula, Excel would take only the value in the formula's own row. Ex
 show these formulas in braces, as array formulas.
 Functions Excel added after 2007 go out under the names Excel's files use for them
 (`_xlfn.XLOOKUP`, `_xlfn._xlws.FILTER`, `_xlfn.NUMBERVALUE`), every one Sheets computes; without
-the prefix Excel reads the name as unknown and, recalculating on open, shows #NAME?.
+the prefix Excel reads the name as unknown and, recalculating on open, shows #NAME?. LET's names
+and a LAMBDA's parameters go out as `_xlpm.x`, where they are given and where they are used
+(R328): `=LET(x,1,x+1)` is `_xlfn.LET(_xlpm.x,1,_xlpm.x+1)` in the file. A workbook name that
+holds a LAMBDA goes out with the names, and a file's named LAMBDAs come in computing, recursive
+ones included, rather than showing the values Excel saved.
 A table sheet contributes the rows its view shows (its filters, sort and hidden columns), read
 through the lakehouse, so your grants and row and column policies apply, up to
 `SHEETS_EXPORT_MAX_ROWS` (100,000). **Download this sheet as CSV** writes the active sheet as it

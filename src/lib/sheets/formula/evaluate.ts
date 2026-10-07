@@ -21,6 +21,7 @@ import {
   type Value,
 } from "./values";
 import { FUNCTIONS, LIFTS, OWN_LIFTS } from "./functions";
+import { paramName } from "./scope";
 import { tailOf, wholeRange, zipN } from "./arrays";
 
 export type RangeRef = {
@@ -109,8 +110,12 @@ export interface EvalEnv {
   rowHidden?(sheet: string, row: number): "filter" | "manual" | null;
   /** A cell's formula, when it holds one (ISFORMULA, FORMULATEXT, SUBTOTAL). */
   formula?(sheet: string, row: number, col: number): string | undefined;
-  /** Names LET has given values to, lower-cased. */
+  /** Names LET has given values to, and a LAMBDA's parameters, lower-cased. */
   names?: ReadonlyMap<string, Value>;
+  /** LAMBDA parameters this call left out, lower-cased (ISOMITTED, R328). */
+  omitted?: ReadonlySet<string>;
+  /** How many LAMBDA calls deep this is: a recursion stops where Excel's does (LAMBDA_STACK). */
+  depth?: number;
   /** A workbook's defined name (Revenue, TaxRate): what it refers to, parsed (R148). */
   definedName?(name: string): Node | undefined;
   /** Defined names being evaluated, so one that refers to itself says so. */
@@ -373,10 +378,25 @@ export function evaluate(node: Node, env: EvalEnv): Value {
       }
       return broadcast(a, b, (x, y) => arith(node.op, x, y));
     }
+    case "invoke": {
+      const target = evaluate(node.fn, env);
+      const fn = asLambda(target);
+      if (fn) return callLambda(fn, node.args, env);
+      if (!isMatrix(target) && isError(target)) return target;
+      return err("#VALUE!", "Only a LAMBDA can be given values in brackets, as LAMBDA(x, x*2)(3)");
+    }
     case "call": {
       if (node.name === "LET") return evaluateLet(node, env);
+      if (node.name === "LAMBDA") return makeLambda(node, env);
+      if (LAMBDA_FORMS.has(node.name)) return evaluateLambdaForm(node, env);
       const impl = FUNCTIONS[node.name];
-      if (!impl) return err("#NAME?", `Unknown function ${node.name}`);
+      if (!impl) {
+        // A LET name or a workbook name that holds a LAMBDA is called like a
+        // function: =LET(f, LAMBDA(x, x*2), f(3)), or =DOUBLE(3) (R328).
+        const fn = calleeLambda(node.name, env);
+        if (fn && "params" in fn) return callLambda(fn, node.args, env);
+        return fn ?? err("#NAME?", `Unknown function ${node.name}`);
+      }
       if (env.tableCall && TABLE_PUSHDOWN.has(node.name)) {
         const req = tableCallRequest(node, env);
         if (req && "error" in req) return req.error;
@@ -461,6 +481,233 @@ function intersect(arg: Node, env: EvalEnv): Value {
   if (oneCol) return inRows ? env.cell(ref.sheet, env.row, ref.c0) : outside;
   if (oneRow) return inCols ? env.cell(ref.sheet, ref.r0, env.col) : outside;
   return inRows && inCols ? env.cell(ref.sheet, env.row, env.col) : outside;
+}
+
+// ── LAMBDA (R328) ────────────────────────────────────────────────────────────
+//
+// FOUND IN THE GAP REVIEW: LAMBDA was #NAME?, so a workbook that defined its
+// own functions (a named LAMBDA, MAP, REDUCE, BYROW) showed only the values
+// Excel last saved and could not recompute. A LAMBDA evaluates to the #CALC!
+// Excel shows for an uncalled function, carrying the function itself; a call,
+// LET, a workbook name and the helpers below look inside it.
+
+/** A LAMBDA: its parameters, its calculation, and the names it was written among. */
+type LambdaFn = {
+  params: { name: string; optional: boolean }[];
+  body: Node;
+  env: EvalEnv;
+};
+
+/**
+ * Excel's operand stack for LAMBDA calls: a recursion is #NUM! when it
+ * reaches 1,024 / (parameters + 1) calls, so a LAMBDA of one parameter goes
+ * 511 deep (SUMTO(510) computes, SUMTO(511) does not, as in Excel).
+ */
+const LAMBDA_STACK = 1024;
+
+/** The functions that take a LAMBDA, evaluated where they stand. */
+const LAMBDA_FORMS = new Set(["MAP", "REDUCE", "SCAN", "BYROW", "BYCOL", "MAKEARRAY", "ISOMITTED"]);
+
+const matrixOf = (v: Value): Matrix => (isMatrix(v) ? v : [[v]]);
+
+function asLambda(v: Value): LambdaFn | null {
+  if (isMatrix(v) || !isError(v) || !v.fn) return null;
+  return v.fn as LambdaFn;
+}
+
+/** LAMBDA(param1, …, calculation): a function, not yet called. */
+function makeLambda(node: Extract<Node, { k: "call" }>, env: EvalEnv): Value {
+  const a = node.args;
+  if (!a.length || a[a.length - 1].k === "empty")
+    return err("#VALUE!", "LAMBDA takes its parameters, then a calculation");
+  const params: LambdaFn["params"] = [];
+  for (const p of a.slice(0, -1)) {
+    // [rate] is a parameter a call may leave out; it parses as a column reference.
+    const key = paramName(p);
+    if (!key)
+      return err(
+        "#VALUE!",
+        "LAMBDA's parameters are names, such as x, or [rate] for one that may be left out",
+      );
+    if (params.some((q) => q.name === key)) return err("#VALUE!", `LAMBDA names ${key} twice`);
+    params.push({ name: key, optional: p.k === "struct" });
+  }
+  // The names given before it, as they are now: LET's later names (and the
+  // LET name it is given to) are not the LAMBDA's, as in Excel.
+  const fn: LambdaFn = {
+    params,
+    body: a[a.length - 1],
+    env: { ...env, names: new Map(env.names ?? []) },
+  };
+  return {
+    err: "#CALC!",
+    detail:
+      "A LAMBDA is a function: give it values, as in LAMBDA(x, x*2)(3), or name it and call the name",
+    fn,
+  };
+}
+
+/** The LAMBDA a called name holds: a LET name or a workbook name. An error when it holds something else. */
+function calleeLambda(name: string, env: EvalEnv): LambdaFn | SheetError | null {
+  const key = name.toLowerCase();
+  const bound = env.names?.get(key);
+  if (bound !== undefined)
+    return (
+      asLambda(bound) ?? err("#VALUE!", `${name} is a value, not a LAMBDA, so it can't be called`)
+    );
+  const def = env.definedName?.(name);
+  if (!def) return null;
+  if (env.naming?.has(key)) return err("#CYCLE!", `The name ${name} refers to itself`);
+  const v = evaluate(def, { ...env, naming: new Set([...(env.naming ?? []), key]) });
+  return asLambda(v) ?? err("#VALUE!", `${name} is a value, not a LAMBDA, so it can't be called`);
+}
+
+function callLambda(fn: LambdaFn, argNodes: Node[], env: EvalEnv): Value {
+  const values = argNodes.map((n) => (n.k === "empty" ? undefined : evaluate(n, env)));
+  return applyLambda(fn, values, (env.depth ?? 0) + 1);
+}
+
+/** Call a LAMBDA with values; undefined is a value left out. */
+function applyLambda(fn: LambdaFn, values: (Value | undefined)[], depth: number): Value {
+  const limit = Math.floor(LAMBDA_STACK / (fn.params.length + 1));
+  if (depth >= limit)
+    return err(
+      "#NUM!",
+      `LAMBDA calls went ${limit} deep, past Excel's limit: does the recursion stop?`,
+    );
+  if (values.length > fn.params.length)
+    return err(
+      "#VALUE!",
+      `This LAMBDA takes ${fn.params.length} values; it was given ${values.length}`,
+    );
+  const names = new Map(fn.env.names ?? []);
+  const omitted = new Set(fn.env.omitted ?? []);
+  for (let i = 0; i < fn.params.length; i++) {
+    const p = fn.params[i];
+    const v = values[i];
+    if (v === undefined) {
+      if (!p.optional) return err("#VALUE!", `This LAMBDA needs a value for ${p.name}`);
+      names.set(p.name, null);
+      omitted.add(p.name);
+    } else {
+      names.set(p.name, v);
+      omitted.delete(p.name);
+    }
+  }
+  try {
+    // `naming` is cleared: a workbook name that calls itself is a recursion,
+    // which LAMBDA_STACK stops, not the cycle a name referring to itself is.
+    return evaluate(fn.body, { ...fn.env, names, omitted, depth, naming: undefined });
+  } catch (e) {
+    if (e instanceof RangeError) return err("#NUM!", "LAMBDA calls went too deep");
+    throw e;
+  }
+}
+
+/**
+ * A formula's answer as a cell holds it: a LAMBDA left uncalled is the #CALC!
+ * Excel shows, without the function, so no other cell can call it.
+ */
+export function settled(v: Value): Value {
+  if (!isMatrix(v)) return isError(v) && v.fn ? { err: v.err, detail: v.detail } : v;
+  if (!v.some((line) => line.some((x) => isError(x) && x.fn))) return v;
+  return v.map((line) =>
+    line.map((x) => (isError(x) && x.fn ? { err: x.err, detail: x.detail } : x)),
+  );
+}
+
+/** MAP, REDUCE, SCAN, BYROW, BYCOL, MAKEARRAY and ISOMITTED. */
+function evaluateLambdaForm(node: Extract<Node, { k: "call" }>, env: EvalEnv): Value {
+  const a = node.args;
+  const depth = (env.depth ?? 0) + 1;
+  const name = node.name;
+  if (name === "ISOMITTED") {
+    if (a.length !== 1) return err("#VALUE!", "ISOMITTED takes one parameter name");
+    const p = a[0];
+    return p.k === "name" ? (env.omitted?.has(p.name.toLowerCase()) ?? false) : false;
+  }
+  const last = a[a.length - 1];
+  if (a.length < 2 || !last || last.k === "empty")
+    return err("#VALUE!", `${name} takes a LAMBDA last, such as LAMBDA(x, x*2)`);
+  const target = evaluate(last, env);
+  const fn = asLambda(target);
+  if (!fn) {
+    if (!isMatrix(target) && isError(target)) return target;
+    return err("#VALUE!", `${name} takes a LAMBDA last, such as LAMBDA(x, x*2)`);
+  }
+  /** One value from a call, as MAP, SCAN, BYROW and BYCOL need. */
+  const one = (v: Value): Scalar =>
+    !isMatrix(v)
+      ? v
+      : v.length === 1 && v[0].length === 1
+        ? v[0][0]
+        : err("#CALC!", `Each call in ${name} must give one value, not an array`);
+  const valueOf = (n: Node | undefined): Value | undefined =>
+    !n || n.k === "empty" ? undefined : evaluate(n, env);
+  switch (name) {
+    case "MAP": {
+      const arrays = a.slice(0, -1).map((n) => matrixOf(evaluate(n, env)));
+      const rows = arrays[0].length;
+      const cols = arrays[0][0]?.length ?? 0;
+      if (arrays.some((m) => m.length !== rows || (m[0]?.length ?? 0) !== cols))
+        return err("#VALUE!", "MAP's arrays must be the same size");
+      return arrays[0].map((line, r) =>
+        line.map((_, c) =>
+          one(
+            applyLambda(
+              fn,
+              arrays.map((m) => m[r][c]),
+              depth,
+            ),
+          ),
+        ),
+      );
+    }
+    case "REDUCE":
+    case "SCAN": {
+      if (a.length > 3)
+        return err("#VALUE!", `${name} takes an initial value, an array and a LAMBDA`);
+      const array = matrixOf(evaluate(a[a.length - 2], env));
+      let acc: Value = a.length === 3 ? (valueOf(a[0]) ?? null) : null;
+      const steps: Scalar[][] = [];
+      for (const line of array) {
+        const out: Scalar[] = [];
+        for (const x of line) {
+          acc = applyLambda(fn, [acc, x], depth);
+          if (name === "SCAN") out.push(one(acc));
+        }
+        steps.push(out);
+      }
+      return name === "SCAN" ? steps : acc;
+    }
+    case "BYROW":
+    case "BYCOL": {
+      if (a.length !== 2) return err("#VALUE!", `${name} takes an array and a LAMBDA`);
+      const m = matrixOf(evaluate(a[0], env));
+      if (name === "BYROW") return m.map((line) => [one(applyLambda(fn, [[line]], depth))]);
+      const cols = m[0]?.length ?? 0;
+      return [
+        Array.from({ length: cols }, (_, c) =>
+          one(applyLambda(fn, [m.map((line) => [line[c]])], depth)),
+        ),
+      ];
+    }
+    case "MAKEARRAY": {
+      if (a.length !== 3) return err("#VALUE!", "MAKEARRAY takes rows, columns and a LAMBDA");
+      const rows = toNumber(scalarOf(evaluate(a[0], env)));
+      const cols = toNumber(scalarOf(evaluate(a[1], env)));
+      if (isError(rows)) return rows;
+      if (isError(cols)) return cols;
+      const R = Math.trunc(rows);
+      const C = Math.trunc(cols);
+      if (R < 1 || C < 1) return err("#VALUE!", "MAKEARRAY needs at least one row and one column");
+      if (R * C > 1_000_000) return err("#NUM!", "Too large");
+      return Array.from({ length: R }, (_, r) =>
+        Array.from({ length: C }, (_, c) => one(applyLambda(fn, [r + 1, c + 1], depth))),
+      );
+    }
+  }
+  return err("#NAME?", `Unknown function ${name}`);
 }
 
 /**

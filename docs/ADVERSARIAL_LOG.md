@@ -109,6 +109,89 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-07 — R328: LAMBDA, and the parameters a download wrote bare
+
+**Severity: medium, Sheets** (a whole class of Excel workbook did not compute). The last open item
+of the gap review's Sheets list. LAMBDA was `#NAME?`, and the parser could not read
+`LAMBDA(x, x*2)(3)`, a call on what an expression returns. A workbook that defined its own
+functions came in showing the values Excel last saved and never recomputed when an input changed.
+That covers a named LAMBDA such as `=DOUBLE(B2)`, and MAP, REDUCE, BYROW and the like. A LET name
+could not hold a function either.
+
+Two more found on the way:
+
+- **A download wrote LET's names bare.** `=LET(x,1,x+1)` went into the file as
+  `_xlfn.LET(x,1,x+1)`. Excel's files hold LET's names and a LAMBDA's parameters as `_xlpm.x`;
+  bare, Excel reads x as a workbook name it does not have. The import already stripped `_xlpm.`,
+  so only the way out was wrong.
+- **The first recursion limit was not Excel's.** It was a flat 200 calls. Excel's operand stack
+  stops a recursion at 1,024 ÷ (parameters + 1) calls: SUMTO(510) computes and SUMTO(511) is
+  `#NUM!` for a one-parameter LAMBDA. A flat 200 would have refused workbooks Excel computes. The
+  limit is now Excel's, and the JS stack was measured to hold 512 levels without overflowing.
+
+**The fixes:**
+
+- **The parser** reads a call on a call or on brackets as an `invoke` node:
+  `LAMBDA(x,x*2)(3)`, `f(1)(2)`, `(A1)(3)`.
+- **A LAMBDA evaluates to the #CALC! Excel shows** for a function nobody called, carrying the
+  function. A call in brackets, a LET name, a workbook name and MAP, REDUCE, SCAN, BYROW, BYCOL and
+  MAKEARRAY look inside it. ISOMITTED reads the `[optional]` parameters a call left out.
+- **What a LAMBDA sees:**
+  - the LET names given before it, as they were then, so a LET name after it is not its own;
+  - a workbook name that calls itself or another name recursively (`MYFACT`, `EVENP`/`ODDP`);
+  - a cell's value drops the function, so `=(A1)(3)` over a LAMBDA in A1 is `#CALC!`, as in
+    Excel.
+- **What reads formulas without computing them** knows a formula's own names
+  (`formula/scope.ts`):
+  - "unknown function" no longer flags `f(3)` when f is a LET name or a parameter;
+  - a call to a workbook name computes instead of falling back to Excel's saved value;
+  - an import counts a recursive named LAMBDA as computable, by a greatest fixed point over the
+    LAMBDA names. A plain name that loops (`X=Y`, `Y=X`) still does not count.
+- **A download** writes `_xlpm.` where a name is given and where it is used, `[_xlpm.y]` for an
+  optional one, and `_xlfn.` on MAP, REDUCE, SCAN, BYROW, BYCOL, MAKEARRAY and ISOMITTED. A
+  workbook name with the same spelling outside the LET stays bare.
+- **Name Manager** shows a LAMBDA name's value as `LAMBDA(x)` rather than `#CALC!`, and function
+  help has all eight.
+- A table sheet's column formula can't call a LAMBDA, and says so.
+
+**Found while testing in the UI:** the first test workbook names were FACT, ISEVEN and ISODD, which
+are Excel's own functions. A call reaches the function first, so those tests passed through the
+built-ins and never reached the name. They are MYFACT, EVENP and ODDP now, and SHEETS.md says a
+name spelled like a function is not called.
+
+**Tests:** `sheetsLambdaR328.test.ts`, 71 cases: calls, LET, the helpers, named and recursive
+LAMBDAs at Excel's depth, a cell holding one, the parser, `_xlpm.` both ways, what an import
+computes, and an `.xlsx` round trip in which a named LAMBDA comes back computing. 63 of the first 68
+failed on the unfixed engine; the rest are errors the old code also gave. The full suite passed,
+660 files.
+
+- **Mutation harness:** 23 mutants caught, and the control survived. The first run let one survive:
+  MAP's size check removed. The mismatched case put the larger array second and threw on its own.
+  A case with the smaller array first now catches it.
+
+**The after**, hot-deployed, in a new workbook `R328 LAMBDA`, typed in. A1:A3 held 1, 2, 3; DOUBLE
+and MYFACT were added in Data → Names:
+
+| Cell  | Formula                                | Before names | After names | A2 = 7     |
+| ----- | -------------------------------------- | ------------ | ----------- | ---------- |
+| B1    | `=LAMBDA(x, x*2)(A3)`                  | 6            | 6           | 6          |
+| B2    | `=LET(f, LAMBDA(x, x+1), f(10))`       | 11           | 11          | 11         |
+| B3    | `=REDUCE(0, A1:A3, LAMBDA(a, v, a+v))` | 6            | 6           | 11         |
+| B4    | `=LAMBDA(x, x*2)`                      | #CALC!       | #CALC!      | #CALC!     |
+| B5    | `=DOUBLE(A2)`                          | #NAME?       | 4           | 14         |
+| B6    | `=MYFACT(5)`                           | #NAME?       | 120         | 120        |
+| C1:C3 | `=MAP(A1:A3, LAMBDA(x, x*10))`         | 10, 20, 30   |             | 10, 70, 30 |
+| D1:D3 | `=BYROW(A1:A3, LAMBDA(r, r^2))`        | 1, 4, 9      |             | 1, 49, 9   |
+| E1:F2 | `=MAKEARRAY(2, 2, LAMBDA(r, c, r*c))`  | 1 2 / 2 4    |             | 1 2 / 2 4  |
+| E4:E6 | `=SCAN(0, A1:A3, LAMBDA(a, v, a+v))`   | 1, 3, 6      |             | 1, 8, 11   |
+
+After a reload the saved workbook and its names came back computing (14 and 120). Name Manager
+showed `LAMBDA(x)` and `LAMBDA(n)` as the values, B4's tooltip explained the #CALC!, and typing
+`=BYRO` offered BYROW with its help. The before is the unit run on the unfixed engine; this round
+did not record the deployed `#NAME?` in the UI before replacing it. The workbook is kept.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-07 — R327: four places Sheets answered differently from Excel
 
 **Severity: medium, Sheets** (wrong answers to ordinary formulas). From the gap review's Sheets list.

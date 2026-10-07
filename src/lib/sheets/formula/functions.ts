@@ -2127,6 +2127,9 @@ F.FREQUENCY = (args) => {
 
 /** LET is evaluated by the evaluator (its names need a scope); this entry only makes it known. */
 F.LET = () => err("#VALUE!", "LET is evaluated where it stands");
+/** LAMBDA and the functions that take one are evaluated by the evaluator too (R328). */
+for (const name of ["LAMBDA", "MAP", "REDUCE", "SCAN", "BYROW", "BYCOL", "MAKEARRAY", "ISOMITTED"])
+  F[name] = () => err("#VALUE!", `${name} is evaluated where it stands`);
 
 // ── Long tail from formula.js ──────────────────────────────────────────────
 
