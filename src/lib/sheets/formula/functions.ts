@@ -381,6 +381,13 @@ const LIBRARY_ARGS: Record<string, LibraryArgs> = {
   CHOOSEROWS: { arrays: () => [0] },
   VSTACK: { arrays: fromIndex(0) },
   HSTACK: { arrays: fromIndex(0) },
+  // The holidays, as one list of dates. FOUND IN R329: formula.js reads each
+  // row of what it is given as one date, so holidays across a row (B1:C1,
+  // {46301,46302}, DATE(2026,10,{6,7})) were #VALUE! and only a column worked.
+  NETWORKDAYS: { lists: () => [2] },
+  "NETWORKDAYS.INTL": { lists: () => [3] },
+  WORKDAY: { lists: () => [2] },
+  "WORKDAY.INTL": { lists: () => [3] },
 };
 
 /** Wrap a formula.js function: arguments evaluated eagerly, converted both ways. */
@@ -2392,6 +2399,117 @@ for (const [name, [min, code]] of Object.entries(TOO_FEW)) {
   }
 }
 
+/**
+ * The values each function's page in Excel's documentation refuses, and the
+ * error it names (R329). FOUND IN R329: formula.js answered many of them with
+ * a number or another error. NORM.INV(0,0,1) was -141.4 and LOGNORM.INV(1,0,1)
+ * 2.6E+61 where Excel says #NUM!, CHISQ.INV(1.1,2) was 202, WEIBULL.DIST of a
+ * negative x -1.72, ROMAN(4000) "MMMM", BASE(-1,2) -1, ATAN2(0,0) 0, and
+ * FACT(-1) #VALUE! where Excel says #NUM!. Each rule reads the arguments as
+ * numbers; an argument that is not one is left to the function's own error.
+ * NaN stands for an argument left out.
+ */
+const DOMAIN: Record<string, (x: number[]) => [ErrorCode, string] | null> = {
+  FACT: ([n]) => (n < 0 ? ["#NUM!", "FACT needs a number of 0 or more"] : null),
+  PERMUT: ([n, k]) =>
+    n < 0 || k < 0 || n < k ? ["#NUM!", "PERMUT needs 0 ≤ number_chosen ≤ number"] : null,
+  LOG: ([, base]) => (base === 1 ? ["#DIV/0!", "A logarithm to base 1 divides by 0"] : null),
+  ROMAN: ([n]) => (n < 0 || n > 3999 ? ["#VALUE!", "ROMAN takes 0 to 3999"] : null),
+  BASE: ([n]) => (n < 0 || n >= 2 ** 53 ? ["#NUM!", "BASE takes a number from 0 to 2^53"] : null),
+  QUOTIENT: ([, d]) => (d === 0 ? ["#DIV/0!", "QUOTIENT divides by 0"] : null),
+  ATAN2: ([x, y]) => (x === 0 && y === 0 ? ["#DIV/0!", "ATAN2(0, 0) has no angle"] : null),
+  "NORM.S.INV": ([p]) =>
+    p <= 0 || p >= 1 ? ["#NUM!", "The probability must be between 0 and 1"] : null,
+  "NORM.INV": ([p, , sd]) =>
+    p <= 0 || p >= 1
+      ? ["#NUM!", "The probability must be between 0 and 1"]
+      : sd <= 0
+        ? ["#NUM!", "The standard deviation must be above 0"]
+        : null,
+  "LOGNORM.INV": ([p, , sd]) =>
+    p <= 0 || p >= 1
+      ? ["#NUM!", "The probability must be between 0 and 1"]
+      : sd <= 0
+        ? ["#NUM!", "The standard deviation must be above 0"]
+        : null,
+  "T.INV": ([p, df]) =>
+    p <= 0 || p > 1
+      ? ["#NUM!", "The probability must be above 0 and at most 1"]
+      : df < 1
+        ? ["#NUM!", "The degrees of freedom must be at least 1"]
+        : null,
+  "T.INV.2T": ([p, df]) =>
+    p <= 0 || p > 1
+      ? ["#NUM!", "The probability must be above 0 and at most 1"]
+      : df < 1
+        ? ["#NUM!", "The degrees of freedom must be at least 1"]
+        : null,
+  "CHISQ.INV": ([p, df]) =>
+    p < 0 || p > 1
+      ? ["#NUM!", "The probability must be from 0 to 1"]
+      : df < 1 || df > 1e10
+        ? ["#NUM!", "The degrees of freedom must be from 1 to 10^10"]
+        : null,
+  "CHISQ.INV.RT": ([p, df]) =>
+    p < 0 || p > 1
+      ? ["#NUM!", "The probability must be from 0 to 1"]
+      : df < 1 || df > 1e10
+        ? ["#NUM!", "The degrees of freedom must be from 1 to 10^10"]
+        : null,
+  "BETA.INV": ([p, a, b]) =>
+    p <= 0 || p > 1
+      ? ["#NUM!", "The probability must be above 0 and at most 1"]
+      : a <= 0 || b <= 0
+        ? ["#NUM!", "Alpha and beta must be above 0"]
+        : null,
+  "EXPON.DIST": ([x, lambda]) =>
+    x < 0
+      ? ["#NUM!", "x must be 0 or more"]
+      : lambda <= 0
+        ? ["#NUM!", "Lambda must be above 0"]
+        : null,
+  "POISSON.DIST": ([x, mean]) =>
+    x < 0
+      ? ["#NUM!", "x must be 0 or more"]
+      : mean < 0
+        ? ["#NUM!", "The mean must be 0 or more"]
+        : null,
+  "WEIBULL.DIST": ([x, a, b]) =>
+    x < 0
+      ? ["#NUM!", "x must be 0 or more"]
+      : a <= 0 || b <= 0
+        ? ["#NUM!", "Alpha and beta must be above 0"]
+        : null,
+  "CONFIDENCE.NORM": ([alpha, sd, size]) =>
+    alpha <= 0 || alpha >= 1
+      ? ["#NUM!", "Alpha must be between 0 and 1"]
+      : sd <= 0
+        ? ["#NUM!", "The standard deviation must be above 0"]
+        : size < 1
+          ? ["#NUM!", "The size must be at least 1"]
+          : null,
+};
+// The pre-2010 name formula.js registers by itself, under the same rule.
+DOMAIN.EXPONDIST = DOMAIN["EXPON.DIST"];
+for (const [name, check] of Object.entries(DOMAIN)) {
+  const inner = F[name];
+  if (!inner) continue;
+  F[name] = (args, ctx) => {
+    const xs: number[] = [];
+    for (const a of args) {
+      if (a.node.k === "empty") {
+        xs.push(NaN);
+        continue;
+      }
+      const v = num(a);
+      if (isError(v)) return inner(args, ctx);
+      xs.push(v);
+    }
+    const bad = check(xs);
+    return bad ? err(bad[0], bad[1]) : inner(args, ctx);
+  };
+}
+
 const SAME_AS: Record<string, string> = {
   STDEV: "STDEV.S",
   VAR: "VAR.S",
@@ -3174,8 +3292,55 @@ const SCALAR_FUNCTIONS = [
   "DAYS",
   "DAYS360",
 ];
+/**
+ * The rest of the functions of single values (R329). FOUND IN R329: only the
+ * list above lifted, so every other function of one value given a range or
+ * an array was #VALUE! (=SIN(A1:A3), =SUM(SIN(A1:A3)), =PMT(5%/12,360,-B2:B9))
+ * or, worse, answered for its first cell alone: =GAMMA(A1:A3),
+ * =CEILING.MATH(A1:A3) and =IMABS(A1:A3) were one number each. Excel
+ * computes each element. Every argument of these takes one value; a function
+ * with a range or a list in any argument (GCD, NPV, IMSUM, the statistics)
+ * is not here.
+ */
+const SINGLE_VALUE_FUNCTIONS = [
+  // Math and trigonometry.
+  ...["SIN", "COS", "TAN", "ASIN", "ACOS", "ATAN", "ATAN2", "SINH", "COSH", "TANH"],
+  ...["DEGREES", "RADIANS", "LOG", "EVEN", "ODD", "FACT", "COMBIN", "COMBINA", "PERMUT"],
+  ...["PERMUTATIONA", "QUOTIENT", "MROUND", "GAMMA", "GAMMALN", "GAMMALN.PRECISE"],
+  ...["CEILING.MATH", "FLOOR.MATH", "RANDBETWEEN"],
+  // Number systems and bits.
+  ...["BASE", "DECIMAL", "ROMAN", "ARABIC", "BITAND", "BITOR", "BITXOR", "BITLSHIFT", "BITRSHIFT"],
+  ...["BIN2DEC", "BIN2HEX", "BIN2OCT", "DEC2BIN", "DEC2HEX", "DEC2OCT"],
+  ...["HEX2BIN", "HEX2DEC", "HEX2OCT", "OCT2BIN", "OCT2DEC", "OCT2HEX"],
+  // Complex numbers of one or two values (IMSUM and IMPRODUCT take lists).
+  ...["COMPLEX", "IMABS", "IMAGINARY", "IMARGUMENT", "IMCONJUGATE", "IMREAL", "IMDIV", "IMSUB"],
+  ...["IMPOWER", "IMSQRT", "IMEXP", "IMLN", "IMLOG10", "IMLOG2", "IMSIN", "IMCOS", "IMTAN"],
+  ...["IMSINH", "IMCOSH", "IMCOT", "IMCSC", "IMCSCH", "IMSEC", "IMSECH"],
+  // Distributions, new names and old.
+  ...["NORM.DIST", "NORM.INV", "NORM.S.DIST", "NORM.S.INV", "NORMDIST", "STANDARDIZE", "PHI"],
+  ...["GAUSS", "FISHER", "FISHERINV", "LOGNORM.DIST", "LOGNORM.INV", "LOGNORMDIST", "LOGINV"],
+  ...["BINOM.DIST", "BINOM.INV", "BINOMDIST", "CRITBINOM", "NEGBINOM.DIST", "NEGBINOMDIST"],
+  ...["HYPGEOM.DIST", "HYPGEOMDIST", "POISSON.DIST", "POISSON", "EXPON.DIST", "EXPONDIST"],
+  ...["WEIBULL.DIST", "WEIBULL", "GAMMA.DIST", "GAMMA.INV", "GAMMADIST", "GAMMAINV"],
+  ...["BETA.DIST", "BETA.INV", "BETADIST", "BETAINV", "CHISQ.DIST", "CHISQ.DIST.RT"],
+  ...["CHISQ.INV", "CHISQ.INV.RT", "CHIDIST", "CHIINV", "F.DIST", "F.DIST.RT", "F.INV"],
+  ...["F.INV.RT", "FDIST", "FINV", "T.DIST", "T.DIST.2T", "T.DIST.RT", "T.INV", "T.INV.2T"],
+  ...["TDIST", "TINV", "CONFIDENCE", "CONFIDENCE.NORM", "CONFIDENCE.T"],
+  // Money: one loan, one asset (NPV, IRR and the schedules take lists).
+  ...["PMT", "IPMT", "PPMT", "FV", "PV", "NPER", "RATE", "CUMIPMT", "CUMPRINC", "ISPMT"],
+  ...["EFFECT", "NOMINAL", "PDURATION", "RRI", "SLN", "SYD", "DB", "DDB", "VDB"],
+  // Dates, text and information.
+  ...["DATEDIF", "YEARFRAC", "WEEKNUM", "ISOWEEKNUM"],
+  ...["CLEAN", "DOLLAR", "FIXED", "UNICHAR", "UNICODE", "ADDRESS", "ERROR.TYPE"],
+];
+/** Working days: the start and the end (or the days) lift; the holidays are a list. */
+const firstTwo = () => [0, 1];
 export const LIFTS: ReadonlyMap<string, (argCount: number) => number[]> = new Map([
   ...SCALAR_FUNCTIONS.map((name) => [name, all] as const),
+  ...SINGLE_VALUE_FUNCTIONS.map((name) => [name, all] as const),
+  ...["NETWORKDAYS", "NETWORKDAYS.INTL", "WORKDAY", "WORKDAY.INTL"].map(
+    (n) => [n, firstTwo] as const,
+  ),
   ...["MATCH", "XMATCH", "XLOOKUP", "VLOOKUP", "HLOOKUP"].map((n) => [n, first] as const),
   ...["COUNTIF", "SUMIF", "AVERAGEIF"].map((n) => [n, second] as const),
   ...["TEXTBEFORE", "TEXTAFTER"].map((n) => [n, first] as const),

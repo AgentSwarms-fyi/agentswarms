@@ -71,6 +71,16 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **Sheets: functions of one value given a range** (R329). Only a first list of
+  functions worked element by element, so `=SIN(A1:A3)`, `=SUM(SIN(A1:A3))`,
+  `=PMT(r,n,-B2:B9)` and about 160 others were `#VALUE!`. `=GAMMA(A1:A3)`,
+  `=CEILING.MATH(A1:A3)` and the complex-number functions answered for the
+  first cell alone. Every function whose arguments take one value now answers
+  for each cell, as in Excel. Values Excel's documentation refuses now get the
+  error it names, where they had a number (`NORM.INV(0,0,1)` was -141.4,
+  `ROMAN(4000)` "MMMM") or another error (`FACT(-1)` was `#VALUE!`). And
+  NETWORKDAYS and WORKDAY take holidays across a row: `{46301,46302}` and
+  `B1:C1` were `#VALUE!`.
 - **Sheets: four answers that differed from Excel** (R327). The comparison
   operators now compare numbers to 15 significant digits (`=0.1+0.2=0.3` is
   TRUE); UPPER and LOWER change case one character for one (`=UPPER("straße")`

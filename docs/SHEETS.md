@@ -203,7 +203,12 @@ The same rules as Excel apply:
   - A whole column spilled into the grid (`=A:A=""` in a cell) shows only the rows the sheet uses.
 - Array formulas work element by element, as in Excel's dynamic arrays:
   - A function of one value given a range answers for each cell: `ISNUMBER(SEARCH("x",A2:A9))`,
-    `LEN(A2:A9)`, `ROUND(B2:B9,0)`.
+    `LEN(A2:A9)`, `ROUND(B2:B9,0)`, `SUM(SIN(A2:A9))`, `PMT(5%/12,360,-B2:B9)`,
+    `NORM.S.DIST(A2:A9,TRUE)`. Every function whose arguments each take one value does this
+    (R329): the math, trigonometry, number-system, complex-number, distribution, loan,
+    depreciation and date functions. One that takes a list (GCD, NPV, IMSUM, the statistics) takes
+    the whole range, and NETWORKDAYS and WORKDAY take their start and end one by one but their
+    holidays as one list, down a column or across a row.
   - So does the one value of a lookup or a criterion: `MATCH(A2:A9,list,0)`,
     `SUM(COUNTIF(A:A,{"apple","cherry"}))`.
   - `IF` over a range takes each branch's cell in the same place, so `MAX(IF(A2:A9="West",C2:C9))`
@@ -211,6 +216,11 @@ The same rules as Excel apply:
     on its own.
 - A formula whose answer is an empty cell (`=A500`, a gap in a spilled range) shows 0, as in Excel.
 - Errors are `#DIV/0!`, `#N/A`, `#VALUE!`, `#REF!` and `#NAME?`. A cell with an error explains it when you hover over it.
+- A value a function's page in Excel's documentation refuses gets the error that page names
+  (R329): `FACT(-1)` and `NORM.INV(0,0,1)` are `#NUM!`, `ROMAN(4000)` is `#VALUE!`, `ATAN2(0,0)`
+  and `LOG(10,1)` are `#DIV/0!`. The same holds for the inverse distributions at their bounds,
+  EXPON.DIST, POISSON.DIST and WEIBULL.DIST below 0, PERMUT, QUOTIENT, BASE and
+  CONFIDENCE.NORM.
 
 A formula that returns several values (UNIQUE, FILTER, SORT, SEQUENCE) **spills** into the cells below and to the
 right. If a typed value is in the way, the formula shows `#SPILL!` and says which cells it needs;

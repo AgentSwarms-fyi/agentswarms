@@ -15,6 +15,27 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-07 — R329: functions of one value over ranges
+
+New workbook `R329 functions over ranges` (kept). A1:A3 were typed 0, 0.5 and 1, and row 1 the
+formulas below, before the fix was deployed and again after. Values are the grid's cells as shown.
+
+| Formula                                                               | Before deploy  | After deploy                    |
+| --------------------------------------------------------------------- | -------------- | ------------------------------- |
+| `=SIN(A1:A3)`                                                         | #VALUE!        | 0, 0.4794255386, 0.8414709848   |
+| `=SUM(SIN(A1:A3))`                                                    | #VALUE!        | 1.320896523                     |
+| `=GAMMA(A1:A3+1)`                                                     | 1, in one cell | 1, 0.8862269255, 1              |
+| `=NORM.S.DIST(A1:A3, TRUE)`                                           | #VALUE!        | 0.5, 0.6914624613, 0.8413447461 |
+| `=DEC2HEX(A1:A3*20)`                                                  | #VALUE!        | 0, A, 14                        |
+| `=EVEN(A1:A3*3)`                                                      | #VALUE!        | 0, 2, 4                         |
+| `=FACT(-1)`                                                           | #VALUE!        | #NUM!                           |
+| `=NETWORKDAYS(DATE(2026,10,5), DATE(2026,10,9), DATE(2026,10,{6,7}))` | typed after    | 3                               |
+| `=NORM.INV(0, 0, 1)`                                                  | typed after    | #NUM!                           |
+| `=ROMAN(4000)`                                                        | typed after    | #VALUE!                         |
+
+The workbook reopened after the deploy with every formula recomputed; the last three were typed
+then, and their before is the unit run on the unfixed engine (#VALUE!, -141.4, "MMMM").
+
 ## 2026-10-07 — R328: LAMBDA, typed into a sheet
 
 New workbook `R328 LAMBDA` (kept). A1:A3 were typed 1, 2, 3 and column B the formulas below; then

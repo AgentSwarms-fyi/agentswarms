@@ -952,6 +952,28 @@ Closed with the missing functions: R147 (seven listed long-tail functions never 
 more missing). Open from that round:
 
 - ~~**LAMBDA and AGGREGATE** are not computed.~~ Closed by R327 (AGGREGATE) and R328 (LAMBDA).
+- **128 of Excel's 510 functions are missing** (R329's inventory: openpyxl's list of Excel's
+  functions and XlsxWriter's newer ones, against the registry). In the order to take them:
+  1. Math and engineering: ACOSH, ASINH, ATANH, ACOT, ACOTH, COT, COTH, CSC, CSCH, SEC, SECH,
+     FACTDOUBLE, MULTINOMIAL, SERIESSUM, SQRTPI, CEILING.PRECISE, FLOOR.PRECISE, ISO.CEILING,
+     DELTA, GESTEP, ERF (two limits), ERF.PRECISE, ERFC, ERFC.PRECISE, BESSELI/J/K/Y, MUNIT,
+     MDETERM, MINVERSE. formula.js has most; its ISO.CEILING is wrong in 4 of 6 documented cases
+     and its ERF(lower, upper) ignores the lower limit.
+  2. Arrays and text: EXPAND, WRAPROWS, WRAPCOLS, ARRAYTOTEXT, VALUETOTEXT, the byte functions
+     (LENB, LEFTB, MIDB, RIGHTB, FINDB, SEARCHB, REPLACEB, the same as the plain ones outside
+     double-byte languages), SHEET, SHEETS, AREAS, and NORMINV, NORMSINV, NORMSDIST.
+  3. CONVERT, with Excel's full unit table: formula.js lacks "F", "C" and "ft2".
+  4. Statistics: T.TEST, F.TEST, Z.TEST, CHISQ.TEST and their old names, COVAR, PEARSON, STEYX,
+     SKEW.P, STDEVPA, VARPA, MODE.MULT, PROB, SUMX2MY2, SUMX2PY2, SUMXMY2, BINOM.DIST.RANGE,
+     LINEST, LOGEST, then FORECAST.ETS and its three companions.
+  5. Securities: ACCRINT, ACCRINTM, the six COUP functions, DISC, DOLLARDE, DOLLARFR,
+     DURATION, MDURATION, INTRATE, PRICE, PRICEDISC, PRICEMAT, RECEIVED, the three TBILL
+     functions, YIELD, YIELDDISC, YIELDMAT, AMORDEGRC, AMORLINC, then the four ODD ones.
+  6. CELL and INFO, as far as a browser can answer them.
+
+  Out of reach and to stay so: the seven CUBE functions (OLAP), RTD, WEBSERVICE and FILTERXML
+  (a server-side fetch from a formula), IMAGE, GETPIVOTDATA, PHONETIC, ASC, JIS and BAHTTEXT.
+
 - ~~**INDIRECT reads A1-style text only.**~~ Closed by R327: `INDIRECT("R2C3",FALSE)` reads R1C1.
 - **OFFSET and INDIRECT are not volatile, as they are in Excel.** They recompute when a cell they
   read changes, which covers ordinary use.

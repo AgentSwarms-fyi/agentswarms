@@ -109,6 +109,75 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-07 — R329: functions of one value given a range, and the values Excel refuses
+
+**Severity: medium, Sheets** (wrong answers to ordinary formulas, some silent). Found while
+listing which of Excel's functions Sheets lacks. That inventory is 128 of 510: the openpyxl list of
+Excel's functions plus XlsxWriter's newer ones, against the engine's registry. To check what was
+already there, the probe gave each registered function a two-cell range, and found more wrong than
+missing:
+
+- **Lifting.** Excel computes a function of one value for each element of a range or an array.
+  Here only a first list of about 60 functions did, so 160 others answered `#VALUE!`:
+  `=SIN(A1:A3)`, `=SUM(SIN(A1:A3))`, `=NORM.S.DIST(A1:A3,TRUE)`, `=DEC2HEX(A1:A3*20)`,
+  `=EVEN(…)`, `=PMT(5%/12,360,-B2:B9)`. Worse, a few answered for the first cell alone, with no
+  sign anything was wrong: `=GAMMA(A1:A3+1)` was the single value 1, and `=CEILING.MATH(A1:A3)`
+  and `=IMABS(A1:A3)` were one number each.
+- **The values Excel refuses.** Checked against each function's page in Excel's documentation,
+  formula.js answered 25 of them with a number or with another error:
+  - `NORM.INV(0,0,1)` was -141.4 and `NORM.S.INV(1)` 141.4;
+  - `LOGNORM.INV(1,0,1)` was 2.6E+61 and `CHISQ.INV(1.1,2)` 202;
+  - `WEIBULL.DIST(-1,1,1,TRUE)` was -1.72;
+  - `BETA.INV(0,…)`, `EXPON.DIST(-1,…)` and `POISSON.DIST(-1,…)` were 0;
+  - `ROMAN(4000)` was "MMMM", `BASE(-1,2)` -1 and `ATAN2(0,0)` 0;
+  - `CONFIDENCE.NORM(0,1,10)` was 44.7;
+  - `FACT(-1)`, `PERMUT(-1,1)` and `PERMUT(2,3)` were `#VALUE!`, and `QUOTIENT(1,0)` and
+    `LOG(10,1)` `#NUM!`, where Excel says `#NUM!` and `#DIV/0!`.
+- **Holidays across a row.** NETWORKDAYS and WORKDAY took holidays down a column only: `B1:C1`,
+  `{46301,46302}` and `DATE(2026,10,{6,7})` were `#VALUE!`. formula.js reads each row it is given
+  as one date.
+
+**The fixes:**
+
+- **LIFTS** names every function whose arguments each take one value: math, trigonometry, number
+  systems and bits, complex numbers, distributions old and new, loans and depreciation, dates and
+  a few text functions. A function with a list in any argument (GCD, NPV, IMSUM, the statistics)
+  is left out. NETWORKDAYS and WORKDAY lift their start and end, not their holidays.
+- **A table of the documented refusals** sits in front of the library functions it names:
+  FACT, PERMUT, LOG, ROMAN, BASE, QUOTIENT, ATAN2, the inverse normal, lognormal, t,
+  chi-squared and beta distributions, EXPON.DIST, POISSON.DIST, WEIBULL.DIST and
+  CONFIDENCE.NORM. Each rule is one the function's page states, and the old names follow the new
+  ones. Two things looked wrong but are not in the documentation, so they were left as they are:
+  SIN of 2^27 or more, and SLN with a life of 0. BINOM.INV takes alpha of 0 and 1 by its page.
+- **Holidays** reach the library as one list of numbers, whatever their shape.
+
+**Tests:** `sheetsSingleValueR329.test.ts`, 91 cases. 61 fail on the unfixed engine; the other 30
+are each refused function's documented example, which must not change. All 73 Sheets test files
+pass.
+
+- **Mutation harness:** 15 mutants caught, and the control survived. These include dropping each
+  group of the list, lifting the holidays, holidays as rows, no rule applied, and one bound moved.
+  One equivalent mutant survives on purpose: a rule given text answers `#VALUE!` either way.
+
+**The UI**, hot-deployed, in a new workbook `R329 functions over ranges`, A1:A3 = 0, 0.5, 1:
+
+| Cell  | Formula                                | Before             | After                           |
+| ----- | -------------------------------------- | ------------------ | ------------------------------- |
+| B1:B3 | `=SIN(A1:A3)`                          | #VALUE!            | 0, 0.4794255386, 0.8414709848   |
+| C1    | `=SUM(SIN(A1:A3))`                     | #VALUE!            | 1.320896523                     |
+| D1:D3 | `=GAMMA(A1:A3+1)`                      | 1 (one cell)       | 1, 0.8862269255, 1              |
+| E1:E3 | `=NORM.S.DIST(A1:A3, TRUE)`            | #VALUE!            | 0.5, 0.6914624613, 0.8413447461 |
+| F1:F3 | `=DEC2HEX(A1:A3*20)`                   | #VALUE!            | 0, A, 14                        |
+| G1:G3 | `=EVEN(A1:A3*3)`                       | #VALUE!            | 0, 2, 4                         |
+| H1    | `=FACT(-1)`                            | #VALUE!            | #NUM!                           |
+| B5    | `=NETWORKDAYS(…, DATE(2026,10,{6,7}))` | (unit run) #VALUE! | 3                               |
+| B6    | `=NORM.INV(0, 0, 1)`                   | (unit run) -141.4  | #NUM!                           |
+| B7    | `=ROMAN(4000)`                         | (unit run) MMMM    | #VALUE!                         |
+
+The workbook is kept. What remains of the missing functions is in the queue, in order.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-07 — R328: LAMBDA, and the parameters a download wrote bare
 
 **Severity: medium, Sheets** (a whole class of Excel workbook did not compute). The last open item
