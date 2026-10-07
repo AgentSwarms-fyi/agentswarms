@@ -15,6 +15,17 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-07 — R322: a notebook's first run after a cold start
+
+Notebook `My Python notebook` (`575aaa44`). Each check started from no kernel container, so the run
+began with a kernel boot. The gateway's and the kernel container's logs are the evidence.
+
+| What was driven                                                           | What came back                                                                                                                                                                                                                       |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Before**, old gateway (R316's staging)                                  | Kernel container: `201 POST /api/kernels 21201.35ms`, then `403 POST /api/kernels: Resource Limit` ×4. Page: "Kernel error: kernel unavailable … HTTP 403 …", then "Kernel connect timed out". The next press ran                    |
+| The first fix (adopt the listed kernel), create forced to time out at 2 s | Gateway: attempt 1 "aborted due to timeout", attempts 2 to 5 "HTTP 403", "REJECT 4500 kernel unavailable": the Kernel Gateway lists no kernels (`list_kernels` off). Not held; replaced                                              |
+| **After**, budget 28 s: session stopped in Running kernels, cell 6 run    | "mean: 500 ms · p50 : 300.0 ms · '2 slow calls out of 8'". Gateway: "kernel created 5eb108a1 (attempt 1)", "kernel websocket open — ready". The boot took 173 ms this time (warm host caches), so the slow path is held by the tests |
+
 ## 2026-10-07 — R321: a PDF and a DOCX picked in Add Source
 
 Knowledge base `R192 add-source`, Add Source → File. Two files, a one-line PDF (612 bytes) and a

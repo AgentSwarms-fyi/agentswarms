@@ -282,6 +282,8 @@ kernel) and put the default idle TTL in front of the reaper.
 
 `cell_timeout_seconds` is the one exception, and it is easy to trip over: the app reads it from the settings row, but the **websocket gateway enforces it from its own `NOTEBOOK_CELL_TIMEOUT_SECONDS`** (`services/notebook-gateway`, default `120`). They are separate values — change one in the admin UI and the gateway keeps using its own until you set the env var too.
 
+The gateway waits up to `KERNEL_CREATE_TIMEOUT_MS` (default `28000`, inside the browser's 30 s) for a session's kernel to be created. A session's container runs one kernel and refuses a second, and its Kernel Gateway does not list its kernels, so a slow first boot is waited for and never asked for twice: a second create would only be refused by the kernel the first is starting (R322). A create that fails outright, such as a refusal while the previous connection's kernel is still being deleted after a reload, is asked again until the time is spent.
+
 ---
 
 ## 7. App integration

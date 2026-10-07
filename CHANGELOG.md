@@ -53,6 +53,12 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **A notebook's first run on a slow host failed over a running kernel** (R322).
+  The gateway gave a kernel create 20 s; a slow first boot finished after
+  that, started the kernel anyway, and every retry was refused ("Resource
+  Limit"). A slow create is now waited for, within one budget
+  (`KERNEL_CREATE_TIMEOUT_MS`, 28 s, inside the browser's 30), and never
+  asked for twice. Rebuild the `agentswarms/notebook-gateway` image.
 - **One approval, approved in two tabs (or by two approvers), ran the rest of
   the swarm twice** (R317): staged, the step after the approval made two model
   calls and the run recorded two results. The inbox now decides only a pending

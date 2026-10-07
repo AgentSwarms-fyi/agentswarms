@@ -109,6 +109,63 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-07 — R322: a notebook's first run on a slow host, refused by its own kernel
+
+**Severity: medium, notebooks** (the first run after a cold start fails on a slow host). Found staging
+R316.
+
+**The defect.** A session's container runs one kernel, and its Kernel Gateway refuses a second
+create with "403 Resource Limit". The notebook gateway (`services/notebook-gateway`) gave each create
+20 s and then asked again, up to five times. On this host (a 5,400 rpm disk, after a Docker restart)
+the first create took 21.2 s. The gateway gave up on it, and it started the kernel anyway. Every
+retry was refused, the connection failed with "kernel unavailable", and the cell said "Kernel
+connect timed out" over a kernel that was running. The next press worked.
+
+**The before**, in the R316 staging on image `b2cf28df8cf3`, from the kernel container's log:
+`201 POST /api/kernels 21201.35ms`, then `403 POST /api/kernels: Resource Limit` four times, two
+seconds apart. The notebook page read "Kernel error: kernel unavailable: http://172.18.0.8:8888 —
+HTTP 403 from http://172.18.0.8:8888/api/kernels", then "Kernel connect timed out".
+
+**The first fix did not hold.** After a create of its own timed out, it listed the container's
+kernels and used the one that was there. Forced to time out at 2 s on the rebuilt gateway, the
+create was refused four times again. The Kernel Gateway runs with `list_kernels` off, so the list
+came back empty, and the kernel the first create started cannot be found from the gateway at all.
+
+**The fix** moves the create into `kernels.mjs` (`ensureKernel`):
+
+- **A create is never asked for again while it may still be starting a kernel.** A slow first boot
+  is waited for, for the whole budget, `KERNEL_CREATE_TIMEOUT_MS`. Its default is 28 s, inside the
+  30 s the browser waits for the connection. The old retries at 40, 60 and 80 s could never have
+  reached a browser that had already given up.
+- **A create that fails outright is asked again** until the budget is spent. A refusal while the
+  previous connection's kernel is still being deleted after a reload is one such failure.
+- **The setting** is in `.env.example`, the compose file and DEVELOPER_WORKSPACE_RUNTIME.md. The
+  gateway's Dockerfile copies the new module.
+
+**Tests:** `notebookGatewayKernel.test.ts` runs `ensureKernel` against a fake Kernel Gateway that, as
+the real one does, starts the kernel whether or not the caller waits, and refuses a second. Its cases:
+
+- a slow first boot is waited for: one create, and its kernel is the connection's;
+- one that outlives the budget fails once and is not asked for again;
+- a refusal while the previous kernel is being deleted is waited out and asked again;
+- a gateway that never answers well fails with its error once the budget is spent;
+- an answered create is used at once;
+- the gateway's wiring and Dockerfile, and a budget under the browser's 30 s.
+
+The other five test files that read the gateway pass, and so does the infra check.
+
+- **Mutation harness:** 6 mutants caught, among them the old way (a fifth of the budget per
+  create, then asking again), and the control survived.
+
+**The after**, on the rebuilt gateway with the default budget (28 s). The session was stopped from
+Running kernels, so the next run was a cold start. Cell 6 of the same notebook then ran: "mean: 500
+ms · p50 : 300.0 ms · '2 slow calls out of 8'". The gateway logged one create, "kernel created
+5eb108a1 (attempt 1)", then "kernel websocket open — ready". This time the boot took 173 ms, because
+the host's caches were warm, so the slow path did not recur live. The tests run it. The first fix's
+live failure above was the check that it had not held.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-07 — R321: the PDF and DOCX readers came from a public CDN
 
 **Severity: medium, knowledge bases and uploads** (a feature that fails offline, and third-party code

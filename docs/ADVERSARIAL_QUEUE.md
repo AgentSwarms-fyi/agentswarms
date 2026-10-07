@@ -680,7 +680,9 @@ least twice, not a hypothetical.
       running, and the scheduled pass skips it.
     - ~~**MCP apps' deploy status**, read after R309.~~ **R320**: the deploy's closing writes are held
       to its own "deploying", and a deploy that lost to a Stop stops what it started and says so.
-    - **A notebook kernel's first start on a slow host** (found staging R316, 2026-10-07). The
+    - ~~**A notebook kernel's first start on a slow host**~~ **R322**: a slow create is waited for
+      within one budget under the browser's 30 s, never asked for twice. (Found staging R316,
+      2026-10-07.) The
       kernel gateway took 21 s to answer the first `POST /api/kernels`, and did start the kernel.
       The notebook gateway (`services/notebook-gateway`) gives each create 20 s, so it had given up
       and asked again; the container allows one kernel, so every retry got "403 Resource Limit".
