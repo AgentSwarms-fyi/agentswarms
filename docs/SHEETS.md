@@ -37,15 +37,14 @@ Three real .xlsx files ship in `public/samples/sheets/`. They open in Excel as w
 `npm run sheets:samples` rebuilds them from `scripts/make-sheets-samples.ts`, with the same data
 every time. The script refuses to write a file in which any formula errs.
 
-| Sample | Sheets | What it shows |
-| --- | --- | --- |
+| Sample                     | Sheets                                  | What it shows                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Sales performance 2026** | Dashboard, Orders (240), Products, Reps | Order lines filled with XLOOKUP from the product list; revenue by month and region with `SUMIFS` between dates (`EDATE`); a best-product lookup with INDEX/MATCH; a leaderboard that re-sorts itself (`SORTBY`); open orders over $3,000 (`FILTER`). Returned orders are struck through by a formula rule, with data bars and a color scale. Dropdowns cover regions, SKUs from the product list, and status. Charts: line, stacked column, doughnut, and a combo of sold against target. |
-| **Project tracker** | Summary, Tasks, Team | Tasks late against `TODAY()` in red; blocked and done by text rules; a dropdown of owners from the Team sheet; a due date that must follow the start; each person's load against their hours. Charts: pie of tasks by status, radar of remaining work, bar of open hours. |
-| **Budget and cash flow** | Assumptions, Model, Scenarios | A scenario picked in one cell (a dropdown) drives a 12-month model through INDEX/MATCH and XLOOKUP: customers, revenue, costs, net and cash, with negatives in red. Charts: combo of revenue, costs and net; area of cash; scatter of customers against revenue. |
+| **Project tracker**        | Summary, Tasks, Team                    | Tasks late against `TODAY()` in red; blocked and done by text rules; a dropdown of owners from the Team sheet; a due date that must follow the start; each person's load against their hours. Charts: pie of tasks by status, radar of remaining work, bar of open hours.                                                                                                                                                                                                                 |
+| **Budget and cash flow**   | Assumptions, Model, Scenarios           | A scenario picked in one cell (a dropdown) drives a 12-month model through INDEX/MATCH and XLOOKUP: customers, revenue, costs, net and cash, with negatives in red. Charts: combo of revenue, costs and net; area of cash; scatter of customers against revenue.                                                                                                                                                                                                                          |
 
 The figures in each were checked against a separate calculation in Python from the files' own rows.
 `tests/unit/sheetsSamples.test.ts` reads each file back and keeps those figures.
-
 
 ## Grid sheets
 
@@ -54,12 +53,17 @@ The figures in each were checked against a separate calculation in Python from t
 Type `=` and a formula, as in Excel. About 240 functions are available:
 
 - **Totals:** SUM, AVERAGE, COUNT, COUNTA, SUMIF(S), COUNTIF(S), AVERAGEIF(S), MINIFS, MAXIFS,
-  SUMPRODUCT, SUMSQ, and SUBTOTAL.
+  SUMPRODUCT, SUMSQ, SUBTOTAL and AGGREGATE.
   - SUBTOTAL leaves out rows a filter hides, and with 101–111 rows hidden by hand too.
   - It skips other SUBTOTAL cells, so a total of subtotals counts nothing twice.
+  - AGGREGATE takes Excel's 19 functions and 8 options (R327). Options 0–3 skip nested SUBTOTAL
+    and AGGREGATE cells; 1, 3, 5 and 7 skip hidden rows, by hand or by a filter; 2, 3, 6 and 7
+    skip error values, which makes `=AGGREGATE(14,6,A1:A9/(B1:B9="x"),1)` the largest A where B
+    is "x".
 - **Logic and names:** IF, IFS, IFERROR, IFNA, SWITCH, CHOOSE, AND, OR, XOR, NOT, LET.
 - **Lookups and references:** XLOOKUP, VLOOKUP, HLOOKUP, LOOKUP, INDEX, MATCH, XMATCH, OFFSET,
-  INDIRECT (A1 style), ADDRESS, HYPERLINK, ISREF, ISFORMULA, FORMULATEXT.
+  INDIRECT, ADDRESS, HYPERLINK, ISREF, ISFORMULA, FORMULATEXT. `INDIRECT(text, FALSE)` reads R1C1
+  text (R327): `R2C3` is C2, and `R[-1]C` is the cell above the formula.
 - **Dynamic arrays:**
   - UNIQUE, SORT, SORTBY, FILTER, SEQUENCE, RANDARRAY, TRANSPOSE;
   - TAKE, DROP, CHOOSECOLS, CHOOSEROWS, VSTACK, HSTACK, TOCOL, TOROW.
@@ -101,7 +105,7 @@ Type `=` and a formula, as in Excel. About 240 functions are available:
   DSTDEVP, DVAR and DVARP, over a table whose first row names its columns, with a criteria range
   read as Excel reads one: its first row names fields (in any case), each row under it is one
   alternative (OR), the cells in a row must all hold (AND), a blank cell is no condition, and bare
-  text means *begins with* (`Ap` finds Apple) while `=Apple` is exact. DGET is #VALUE! when nothing
+  text means _begins with_ (`Ap` finds Apple) while `=Apple` is exact. DGET is #VALUE! when nothing
   matches and #NUM! when more than one record does. A criteria column whose label is not a field of
   the table matches nothing: Excel reads such a column as a formula criterion, which is not
   supported here.
@@ -141,7 +145,7 @@ Type `=` and a formula, as in Excel. About 240 functions are available:
     `=VSTACK("Name",A2:A9)` puts a heading over a list. A RANK of a number not in the list is
     `#N/A`.
 
-Not yet: LAMBDA and AGGREGATE. A file that uses them shows the value Excel last saved.
+Not yet: LAMBDA. A file that uses it shows the value Excel last saved.
 
 The same rules as Excel apply:
 
@@ -164,6 +168,12 @@ The same rules as Excel apply:
   `=TEXT(0.01+0.075,"0.00")` is 0.09. TEXT of a blank cell is TEXT of 0 (`0.00`).
 - ROUND, ROUNDUP, ROUNDDOWN and TRUNC round the same 15 digits: `=ROUND(1.005,2)` is 1.01, and
   `=TRUNC(0.29,2)` is 0.29 (TRUNC is ROUNDDOWN, as in Excel).
+- `=`, `<>`, `<`, `>`, `<=` and `>=` compare numbers to the 15 significant digits Excel keeps
+  (R327): `=0.1+0.2=0.3` is TRUE, and `=(0.1+0.2)>0.3` is FALSE. MATCH, the lookups and sorting
+  compare the stored values, as Excel's do, so a lookup of a computed value can still miss; ROUND
+  it first.
+- UPPER and LOWER change case one character for one, as Excel does (R327): `=UPPER("straße")` is
+  `STRAßE`, `=LOWER("İ")` is `i`, and a final Σ lowers to σ.
 - PROPER capitalises the first letter of each word in any alphabet: `=PROPER("ÉCOLE normale")` is
   `École Normale`. As in Excel, anything that is not a letter starts a word, so `o'neil 2-way`
   becomes `O'Neil 2-Way`. A letter whose capital is two letters, such as `ß`, stays as it is.
@@ -288,6 +298,7 @@ own menu: hide and unhide,
 
 **Paste special…** (Ctrl+Alt+V, or the cell's menu) is Excel's Paste Special, for cells copied in
 the workbook.
+
 - **Paste.** All; Formulas (the target keeps its formats); Values (what the cells showed); Values and
   number formats; Formats; or Notes.
 - **Operation.** Add, subtract, multiply or divide each copied number into the cell it lands on. A
@@ -396,6 +407,7 @@ A cell with a note has a red corner at its top right. The note shows on hover, a
 active cell. A note can sit on an empty cell, as in Excel.
 
 A note stays with its cell:
+
 - a sort moves it with its row;
 - Copy and Paste bring it, and Cut moves it;
 - inserted and deleted rows move it.
@@ -455,7 +467,7 @@ TEXT(). Among them:
   argument's, so `=SUM(B1:B9)` over dollars is dollars. Two dates apart (`=A2-A1`) are a number of
   days. `*` and `/` take none (Excel would show `=A1*100` over 12% as 1200%).
 - **Spacing codes:** `_)` is a space as wide as ")", so `#,##0_);(#,##0)` lines up positives with
-  negatives, and Excel's Accounting format `_("$"* #,##0.00_)` shows ` $1,234.50 `. A fill (`* `),
+  negatives, and Excel's Accounting format `_("$"* #,##0.00_)` shows `$1,234.50`. A fill (`* `),
   which Excel stretches to the cell's width, is left out.
 
 ### Conditional formatting
@@ -510,6 +522,7 @@ data sorted here finds its rows.
 
 **Data → Sort…** is Excel's Custom Sort. It sorts the selection, the data around the active cell,
 or the filter's range when the active cell is in it.
+
 - **Levels.** Sort by one column, then by another for rows that tie, and so on (up to 8 levels),
   each A to Z or Z to A. **Add level** takes the next column not used yet. Levels move up and down
   and are deleted with the buttons beside them.
@@ -532,6 +545,7 @@ row, so checking only Email keeps one row per address. **My data has headers** k
 out of it; it is ticked when the first row is all text.
 
 As in Excel, cells are compared as they are shown, ignoring case:
+
 - `ASHA@EXAMPLE.COM` repeats `asha@example.com`;
 - the number 1 repeats the text `1`;
 - one date shown as `2026-03-08` and as `8 Mar 2026` does not repeat.
@@ -545,8 +559,9 @@ many remain. One Ctrl+Z puts them back.
 
 **Data → Text to columns…** splits each cell of one column into the cells to its right, as
 Excel's does: "Asha Rao" into Asha and Rao, "Lisbon,PT,2026" into three.
+
 - **Split at.** Tab, semicolon, comma, space, or any other one character. **Treat several in a
-  row as one** makes "Asha   Rao" two pieces, not four.
+  row as one** makes "Asha Rao" two pieces, not four.
 - **Quotes.** Text in double quotes (or single, or none) stays whole: `"Lisbon, PT",2026` is two
   pieces. A doubled quote inside is one quote.
 - **Destination.** The first cell of the column unless you type another. A preview shows the first
@@ -675,7 +690,7 @@ sheet follows, as does `=SUM(ByMonth[revenue])` in a grid sheet.
   out, and at most 1,000 values are used.
 - **Row Zero's quoted form** reads the same: `'{{Start}}'` and `{{Start}}` are one value.
 - **A variable whose name is not defined** stops the sheet with a reason (`{{Region}} has no value: name a cell
-  Region…`) rather than showing no rows. The query editor lists each variable with its value now.
+Region…`) rather than showing no rows. The query editor lists each variable with its value now.
 
 The values travel with each read, and the SQL is still the saved one: a value is bound as a literal
 on the server, whatever a browser sends.
@@ -703,7 +718,7 @@ Sheets:
   - a materialized view, SQL model or batch prediction whose name it has taken;
   - dropping the schema that holds it.
 - To change the data somewhere else, copy it: `CREATE TABLE schema.table_copy AS SELECT * FROM
-  schema.table`. Or delete the sheet in Sheets; the table stays, and is an ordinary lakehouse
+schema.table`. Or delete the sheet in Sheets; the table stays, and is an ordinary lakehouse
   table again.
 
 A table opened from the Lakehouse or the catalog is not held: it was there before the sheet and
@@ -849,6 +864,7 @@ opens on the first sheet showing too. A very hidden sheet goes back out as an or
 
 The file's **named ranges** come with it, with their comments, and the formulas that use them
 compute here. The dialog says how many there are. Some are left out, and the import says which:
+
 - Excel's own names (print areas, filter ranges);
 - hidden helper names;
 - names pointing into another workbook;
@@ -940,13 +956,13 @@ The workbook's owner shares it from **Share**, beside **File**. It can go to a p
 they sign in with, or to an IAM group. The share lets them view it or edit it. It then appears on
 their Sheets page with who shared it, and **Shared with me** lists only those.
 
-| What | Owner | Can edit | Can view |
-|---|---|---|---|
-| Open it, sort and filter a table sheet's view, download | ✓ | ✓ | ✓, what the share gives |
-| Change cells, sheets and table settings; pivots; version history; save to the lakehouse; rename | ✓ | ✓ | |
-| Add a table sheet over a lakehouse table | ✓ | ✓ | |
-| Upload a file, import from a connection, refresh an import | ✓ | | |
-| Share it, delete it | ✓ | | |
+| What                                                                                            | Owner | Can edit | Can view                |
+| ----------------------------------------------------------------------------------------------- | ----- | -------- | ----------------------- |
+| Open it, sort and filter a table sheet's view, download                                         | ✓     | ✓        | ✓, what the share gives |
+| Change cells, sheets and table settings; pivots; version history; save to the lakehouse; rename | ✓     | ✓        |                         |
+| Add a table sheet over a lakehouse table                                                        | ✓     | ✓        |                         |
+| Upload a file, import from a connection, refresh an import                                      | ✓     |          |                         |
+| Share it, delete it                                                                             | ✓     |          |                         |
 
 An import makes a new table in its owner's schema, which the sheet then holds (see
 [Tables a sheet holds](#tables-a-sheet-holds)), so importing is the owner's alone.
@@ -967,6 +983,7 @@ A share to view can keep things back:
 
 **Several shares combine to the widest.** Someone can have shares to themselves and to groups they
 are in:
+
 - an editor share wins;
 - a sheet is left out only if every share leaves it out;
 - a row is kept if any share keeps it.
@@ -993,6 +1010,7 @@ you would ask a colleague who knows Excel: "total units for West", "add a revenu
 summary sheet by region with a chart", "why is H2 #N/A?".
 
 The model starts from a short description of the workbook:
+
 - each sheet's name, header row, size and a few sample rows;
 - a table sheet's columns;
 - the active cell.
@@ -1000,12 +1018,12 @@ The model starts from a short description of the workbook:
 It does not see the values. To answer, it asks the workbook for them, and the browser works out
 each request from the workbook as you see it:
 
-| It asks to         | What it gets back                                                          |
-| ------------------ | -------------------------------------------------------------------------- |
-| Read a range       | The values as shown (at most 2,000 cells at a time)                        |
-| Evaluate a formula | Any Excel formula, computed by the workbook, including totals over tables  |
-| Describe a sheet   | Its columns, their types, its size and a sample                            |
-| Find a text        | The cells whose shown text contains it                                     |
+| It asks to         | What it gets back                                                         |
+| ------------------ | ------------------------------------------------------------------------- |
+| Read a range       | The values as shown (at most 2,000 cells at a time)                       |
+| Evaluate a formula | Any Excel formula, computed by the workbook, including totals over tables |
+| Describe a sheet   | Its columns, their types, its size and a sample                           |
+| Find a text        | The cells whose shown text contains it                                    |
 
 Each request shows as a step under the answer, such as `Computed =SUMIFS(BiDemoSales[revenue],
 BiDemoSales[region], "EMEA")`, so you can see where a number came from. The model is told never to
@@ -1025,6 +1043,7 @@ Each proposal says in plain words what it will do. **Apply** carries it out as o
 
 **Before the proposals are shown, the panel checks each one against the workbook, without changing
 anything.** A proposal is sent back when:
+
 - it can't be carried out (a sheet that isn't there, a table sheet, two blocks of cells where one is
   needed);
 - it would leave every cell as it is;
@@ -1069,6 +1088,7 @@ into it.
 **The model.** The assistant's **Model** row picks it, as the platform's other AI tools do. It
 lists the model providers connected for you (Integrations, or the instance's OpenRouter key) and
 their models, leaving out any an IAM model rule refuses you.
+
 - **Default · …** is the admin's model: `SHEETS_ASSIST_MODEL` under **Admin → Developer runtime →
   Data platform**.
 - **Remembered.** Your pick is remembered in this browser, and Fill with AI runs on it too; its
@@ -1103,18 +1123,18 @@ Sharing is audited as `sheet.share` and `sheet.unshare` ([Sharing](#sharing)).
 
 ## Limits
 
-| Setting                           | Default | What it bounds                                                |
-| --------------------------------- | ------- | ------------------------------------------------------------- |
-| `SHEETS_MAX_CELLS`                | 200,000 | Non-empty cells one grid sheet may hold                       |
-| `SHEETS_PAGE_ROWS`                | 500     | Rows a table sheet fetches per page while scrolling           |
-| `SHEETS_UPLOAD_MAX_MB`            | 50      | The largest CSV an upload brings into the lakehouse           |
-| `SHEETS_IMPORT_MAX_SHEETS`        | 100     | Sheets one Excel or CSV import may bring into a workbook      |
-| `SHEETS_EXPORT_MAX_ROWS`          | 100,000 | Rows of a table sheet written into a downloaded .xlsx or .csv |
-| `SHEETS_VERSION_INTERVAL_MINUTES` | 30      | The least time between two automatic versions of a workbook   |
-| `SHEETS_VERSIONS_MAX`             | 50      | Automatic versions kept per workbook (named ones are kept)    |
+| Setting                           | Default                       | What it bounds                                                          |
+| --------------------------------- | ----------------------------- | ----------------------------------------------------------------------- |
+| `SHEETS_MAX_CELLS`                | 200,000                       | Non-empty cells one grid sheet may hold                                 |
+| `SHEETS_PAGE_ROWS`                | 500                           | Rows a table sheet fetches per page while scrolling                     |
+| `SHEETS_UPLOAD_MAX_MB`            | 50                            | The largest CSV an upload brings into the lakehouse                     |
+| `SHEETS_IMPORT_MAX_SHEETS`        | 100                           | Sheets one Excel or CSV import may bring into a workbook                |
+| `SHEETS_EXPORT_MAX_ROWS`          | 100,000                       | Rows of a table sheet written into a downloaded .xlsx or .csv           |
+| `SHEETS_VERSION_INTERVAL_MINUTES` | 30                            | The least time between two automatic versions of a workbook             |
+| `SHEETS_VERSIONS_MAX`             | 50                            | Automatic versions kept per workbook (named ones are kept)              |
 | `SHEETS_ASSIST_MODEL`             | Gemini 3 Flash via OpenRouter | The model the assistant and Fill with AI call ([AI](#ai-in-a-workbook)) |
-| `SHEETS_ASSIST_PER_MINUTE`        | 30      | Model calls one person's assistant and Fill with AI may make a minute |
-| `SHEETS_AI_FILL_MAX_ROWS`         | 2,000   | Rows one Fill with AI works through                            |
+| `SHEETS_ASSIST_PER_MINUTE`        | 30                            | Model calls one person's assistant and Fill with AI may make a minute   |
+| `SHEETS_AI_FILL_MAX_ROWS`         | 2,000                         | Rows one Fill with AI works through                                     |
 
 All ten are editable under **Admin → Developer runtime**. A direct import from a connection is
 also bounded by `WAREHOUSE_ABS_MAX_ROWS`. A larger result is refused, never truncated; land it with

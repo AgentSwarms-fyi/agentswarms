@@ -257,10 +257,21 @@ function arith(op: string, x: Scalar, y: Scalar): Scalar {
   return Number.isFinite(r) ? r : err("#NUM!");
 }
 
+/**
+ * A number as Excel compares it: to 15 significant digits.
+ * FOUND IN R327: `=0.1+0.2=0.3` was FALSE here and is TRUE in Excel, and
+ * `=(0.1+0.2)>0.3` was TRUE. Only the comparison operators do this, as in
+ * Excel: MATCH, the lookups and sorting compare the stored values, which is
+ * why a lookup of a computed value can miss in Excel too.
+ */
+const sig15 = (n: number): number =>
+  Number.isFinite(n) && n !== 0 ? Number(n.toPrecision(15)) : n;
+
 function compare(op: string, x: Scalar, y: Scalar): Scalar {
   if (isError(x)) return x;
   if (isError(y)) return y;
-  const c = compareScalars(x, y);
+  const c =
+    typeof x === "number" && typeof y === "number" ? sig15(x) - sig15(y) : compareScalars(x, y);
   switch (op) {
     case "=":
       return c === 0;

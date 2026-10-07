@@ -15,6 +15,22 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-07 — R327: Excel parity, typed into a sheet
+
+New workbook `R327 Excel parity` (kept). Through the Name box and the keyboard, B1:B5 were given 1,
+2, `=1/0`, 4 and 5, then A1:A8 the formulas below. The values are the grid's cells as shown.
+
+| Formula                                | Shows    | Before (engine probe) |
+| -------------------------------------- | -------- | --------------------- |
+| `=UPPER("straße")`                     | STRAßE   | STRASSE               |
+| `=LOWER("İSTANBUL")`                   | istanbul | i̇stanbul (dotted)     |
+| `=0.1+0.2=0.3`                         | TRUE     | FALSE                 |
+| `=(0.1+0.2)>0.3`                       | FALSE    | TRUE                  |
+| `=INDIRECT("R2C2",FALSE)`              | 2        | #REF!                 |
+| `=INDIRECT("R[-1]C[1]",FALSE)` (in A6) | 5        | #REF!                 |
+| `=AGGREGATE(9,6,B1:B5)`                | 12       | #NAME?                |
+| `=AGGREGATE(14,6,B1:B5/(B1:B5<5),1)`   | 4        | #NAME?                |
+
 ## 2026-10-07 — R326: provider logos served by the app
 
 | What was driven, hot-deployed                  | What came back                                                                                                                    |

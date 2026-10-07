@@ -20,6 +20,11 @@ export const FUNCTION_HELP: Record<string, FunctionHelp> = {
     desc: "Sums where every criteria pair is met.",
     cat: "Math",
   },
+  AGGREGATE: {
+    sig: "AGGREGATE(function_num, options, ref1, …) or (function_num, options, array, k)",
+    desc: "A total that can leave out hidden rows, errors and nested subtotals.",
+    cat: "Math",
+  },
   SUMPRODUCT: {
     sig: "SUMPRODUCT(array1, [array2], …)",
     desc: "Multiplies arrays element by element and sums.",

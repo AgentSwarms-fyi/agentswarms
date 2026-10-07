@@ -63,6 +63,11 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **Sheets: four answers that differed from Excel** (R327). The comparison
+  operators now compare numbers to 15 significant digits (`=0.1+0.2=0.3` is
+  TRUE); UPPER and LOWER change case one character for one (`=UPPER("straße")`
+  is `STRAßE`); `INDIRECT(text, FALSE)` reads R1C1; and AGGREGATE, which was
+  `#NAME?`, takes Excel's 19 functions and 8 options.
 - **Provider logos came from three third parties, and four never loaded**
   (R326): Integrations and Model Registry fetched them from jsdelivr,
   huggingface.co and groq.com, and the Cohere, DeepSeek, ElevenLabs and

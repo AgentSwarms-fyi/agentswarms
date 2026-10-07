@@ -109,6 +109,61 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-07 — R327: four places Sheets answered differently from Excel
+
+**Severity: medium, Sheets** (wrong answers to ordinary formulas). From the gap review's Sheets list.
+A probe of the engine sorted that list into what was still true. `SUMPRODUCT` over whole columns
+already answers in milliseconds, and LAMBDA is still not done. Four differences remained:
+
+- **Comparisons.** `=0.1+0.2=0.3` was FALSE and `=(0.1+0.2)>0.3` was TRUE. Excel's comparison
+  operators compare numbers to the 15 significant digits it keeps, so it says TRUE and FALSE. So an
+  `IF(total=budget, …)` over computed money went the other way from the same workbook in Excel.
+- **Case.** `=UPPER("ß")` was "SS" and `=UPPER("straße")` was "STRASSE": JavaScript's full case
+  mapping. Excel changes case one character for one and keeps the ß. `=LOWER("İ")` was "i" plus a
+  combining dot, and a final Σ lowered to ς; Excel gives "i" and σ.
+- **INDIRECT** refused R1C1 text outright: `=INDIRECT("R2C2",FALSE)` was `#REF!`.
+- **AGGREGATE** was `#NAME?`.
+
+**The fixes:**
+
+- **The comparison operators** (`=`, `<>`, `<`, `>`, `<=`, `>=`) compare two numbers after
+  rounding each to 15 significant digits. MATCH, the lookups and sorting still compare the stored
+  values, as Excel's do; that is why a lookup of a computed value can miss in Excel too.
+- **UPPER and LOWER** map one character to one. A character whose capital is several letters stays
+  as it is, and a lowercase of several takes its first.
+- **INDIRECT(text, FALSE)** reads R1C1: `R2C3`, `R[-1]C` from the formula's own cell, `RC[1]`,
+  ranges of two, and a sheet prefix. Text that is not R1C1, or falls off the sheet, is `#REF!` with
+  an example.
+- **AGGREGATE** takes Excel's 19 functions and 8 options. It skips nested SUBTOTAL and AGGREGATE
+  cells, hidden rows (by hand or by a filter) and error values as the option says, in a computed
+  array too. `=AGGREGATE(14,6,A1:A9/(B1:B9="x"),1)` is therefore a filtered LARGE. It has an entry
+  in function help.
+
+**Tests:** `sheetsExcelParityR327.test.ts`, 50 cases, run on a workbook with a filtered row, a
+hand-hidden row, a nested SUBTOTAL and an error cell. 39 fail on the unfixed engine; the 11 that pass
+are behaviour that should not change: plain comparisons, MATCH on stored values, A1 INDIRECT and
+plain case. All 74 Sheets test files pass.
+
+- **Mutation harness:** 10 mutants caught, and the control survived.
+
+**The after**, hot-deployed, in a new workbook `R327 Excel parity`, typed in. B1:B5 held 1, 2,
+`=1/0`, 4 and 5:
+
+| Cell | Formula                              | Value    |
+| ---- | ------------------------------------ | -------- |
+| A1   | `=UPPER("straße")`                   | STRAßE   |
+| A2   | `=LOWER("İSTANBUL")`                 | istanbul |
+| A3   | `=0.1+0.2=0.3`                       | TRUE     |
+| A4   | `=(0.1+0.2)>0.3`                     | FALSE    |
+| A5   | `=INDIRECT("R2C2",FALSE)`            | 2        |
+| A6   | `=INDIRECT("R[-1]C[1]",FALSE)`       | 5        |
+| A7   | `=AGGREGATE(9,6,B1:B5)`              | 12       |
+| A8   | `=AGGREGATE(14,6,B1:B5/(B1:B5<5),1)` | 4        |
+
+The workbook is kept.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-07 — R326: provider logos from three third parties, four that never existed
 
 **Severity: low, Integrations and Model Registry** (images, not code). This finishes R321's "nothing

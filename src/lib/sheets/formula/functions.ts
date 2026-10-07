@@ -1065,8 +1065,22 @@ const textFn =
     return isMatrix(v) ? v.map((row) => row.map(one)) : one(v);
   };
 F.LEN = textFn((s) => s.length);
-F.UPPER = textFn((s) => s.toUpperCase());
-F.LOWER = textFn((s) => s.toLowerCase());
+/**
+ * Excel changes case one character for one (Unicode's simple mapping).
+ * FOUND IN R327: JavaScript's full mapping made `=UPPER("ß")` "SS" and
+ * `=UPPER("straße")` "STRASSE", where Excel keeps the ß; `=LOWER("İ")` was
+ * "i" plus a combining dot, where Excel gives "i"; and a final Σ lowered to ς,
+ * where Excel gives σ. A character whose capital is several letters stays as
+ * it is; a lowercase of several takes its first.
+ */
+const simpleCase = (s: string, upper: boolean): string =>
+  Array.from(s, (ch) => {
+    const mapped = Array.from(upper ? ch.toUpperCase() : ch.toLowerCase());
+    if (mapped.length === 1) return mapped[0];
+    return upper ? ch : mapped[0];
+  }).join("");
+F.UPPER = textFn((s) => simpleCase(s, true));
+F.LOWER = textFn((s) => simpleCase(s, false));
 // FOUND IN R199: a letter was [a-z], so "É" counted as a word break and
 // PROPER("ÉCOLE normale") gave "éCole Normale"; Excel gives "École Normale".
 // Any letter, in any script, is a letter. A letter whose capital is two
@@ -1662,6 +1676,61 @@ F.SUBTOTAL = (args, ctx) => {
   return F[name](kept, ctx);
 };
 
+const AGGREGATE_OF: Record<number, string> = {
+  ...SUBTOTAL_OF,
+  12: "MEDIAN",
+  13: "MODE.SNGL",
+  14: "LARGE",
+  15: "SMALL",
+  16: "PERCENTILE.INC",
+  17: "QUARTILE.INC",
+  18: "PERCENTILE.EXC",
+  19: "QUARTILE.EXC",
+};
+/**
+ * AGGREGATE(function_num, options, ref1, …) for 1–13, and
+ * AGGREGATE(function_num, options, array, k) for 14–19 (R327). The options
+ * say what to leave out: 0–3 nested SUBTOTAL and AGGREGATE cells; 1, 3, 5
+ * and 7 hidden rows, by hand or by a filter; 2, 3, 6 and 7 error values,
+ * which is what makes `AGGREGATE(14,6,A:A/(B:B="x"),1)` a filtered LARGE.
+ */
+F.AGGREGATE = (args, ctx) => {
+  if (args.length < 3) return err("#VALUE!", "AGGREGATE takes a function number, options and data");
+  const code = num(args[0]);
+  if (isError(code)) return code;
+  const option = num(args[1], 0);
+  if (isError(option)) return option;
+  const k = Math.trunc(code);
+  const o = Math.trunc(option);
+  const name = AGGREGATE_OF[k];
+  if (!name || !F[name]) return err("#VALUE!", "AGGREGATE takes 1 to 19");
+  if (o < 0 || o > 7) return err("#VALUE!", "AGGREGATE's options are 0 to 7");
+  const withK = k >= 14;
+  if (withK && args.length !== 4) return err("#VALUE!", "AGGREGATE 14 to 19 take one array and k");
+  const skipNested = o <= 3;
+  const skipHidden = o % 2 === 1;
+  const skipErrors = o === 2 || o === 3 || o === 6 || o === 7;
+  const env = ctx.env;
+  const kept: Arg[] = (withK ? args.slice(2, 3) : args.slice(2)).map((a) => {
+    const ref = a.ref;
+    const out = asMatrix(a.value()).map((line, r) =>
+      line.map((x, c) => {
+        if (skipErrors && isError(x)) return null;
+        if (!ref) return x;
+        const row = ref.r0 + r;
+        if (skipHidden && env.rowHidden?.(ref.sheet, row)) return null;
+        if (skipNested) {
+          const f = env.formula?.(ref.sheet, row, ref.c0 + c);
+          if (f && /\b(SUBTOTAL|AGGREGATE)\s*\(/i.test(f)) return null;
+        }
+        return x;
+      }),
+    );
+    return { ...a, value: () => out };
+  });
+  return F[name](withK ? [...kept, args[3]] : kept, ctx);
+};
+
 /** OFFSET(reference, rows, cols, [height], [width]): the cells that far from a reference. */
 F.OFFSET = (args, ctx) => {
   const e = arity(args, 3, 5);
@@ -1691,16 +1760,47 @@ F.INDIRECT = (args, ctx) => {
   if (isError(t)) return t;
   const a1 = bool(args[1], true);
   if (isError(a1)) return a1;
-  if (!a1) return err("#REF!", "Only A1-style references are read, such as B2 or Sales!A1:C9");
+  let source = t.trim();
+  if (!a1) {
+    // FOUND IN R327: R1C1 text was refused outright. It is read relative to
+    // this formula's cell, as Excel reads it.
+    const asA1 = r1c1ToA1(source, ctx.env.row, ctx.env.col);
+    if (!asA1) return err("#REF!", `"${t}" is not an R1C1 reference, such as R2C3 or R[-1]C`);
+    source = asA1;
+  }
   let node;
   try {
-    node = parseFormula(t.trim());
+    node = parseFormula(source);
   } catch {
     return err("#REF!", `"${t}" is not a reference`);
   }
   if (node.k !== "cell" && node.k !== "range") return err("#REF!", `"${t}" is not a reference`);
   return ctx.evaluate ? ctx.evaluate(node) : err("#REF!");
 };
+
+/**
+ * R1C1 text as A1 text, read from the cell at (row, col), 0-based: R2C3 is
+ * C2, R[-1]C is the cell above, RC[1] the cell to the right, and two joined by
+ * a colon a range. A sheet prefix is kept. Null if it is not R1C1, or falls
+ * outside the sheet.
+ */
+function r1c1ToA1(text: string, row: number, col: number): string | null {
+  const PART = "R(?:\\[-?\\d+\\]|\\d+)?C(?:\\[-?\\d+\\]|\\d+)?";
+  const m = new RegExp(`^(?:(.+)!)?(${PART})(?::(${PART}))?$`, "i").exec(text);
+  if (!m) return null;
+  const one = (ref: string): string | null => {
+    const p = /^R(?:\[(-?\d+)\]|(\d+))?C(?:\[(-?\d+)\]|(\d+))?$/i.exec(ref);
+    if (!p) return null;
+    const r = p[2] !== undefined ? Number(p[2]) - 1 : row + Number(p[1] ?? 0);
+    const c = p[4] !== undefined ? Number(p[4]) - 1 : col + Number(p[3] ?? 0);
+    if (r < 0 || c < 0 || r >= MAX_ROWS || c >= MAX_COLS) return null;
+    return `${colLetters(c)}${r + 1}`;
+  };
+  const first = one(m[2]);
+  const second = m[3] ? one(m[3]) : "";
+  if (!first || second === null) return null;
+  return `${m[1] ? `${m[1]}!` : ""}${first}${second ? `:${second}` : ""}`;
+}
 
 /** ADDRESS(row, column, [abs_num], [a1], [sheet]): a reference as text. */
 F.ADDRESS = (args) => {
