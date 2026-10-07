@@ -409,6 +409,11 @@ export const FUNCTION_HELP: Record<string, FunctionHelp> = {
     desc: "Rounds down, toward −∞, to a multiple of the significance, whatever the signs.",
     cat: "Math",
   },
+  "ECMA.CEILING": {
+    sig: "ECMA.CEILING(number, significance)",
+    desc: "Excel 2010's earlier name for ISO.CEILING, kept for older files.",
+    cat: "Math",
+  },
   "ISO.CEILING": {
     sig: "ISO.CEILING(number, [significance])",
     desc: "The same as CEILING.PRECISE.",

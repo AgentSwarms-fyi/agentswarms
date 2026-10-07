@@ -182,7 +182,12 @@ export function parseFormula(body: string): Node {
       case "func": {
         const open = next();
         if (open.t !== "(") throw new FormulaSyntaxError("Expected (", open.s);
-        return invocations({ k: "call", name: t.name, args: argList() }, t.s);
+        const args = argList();
+        // ANCHORARRAY(A2), typed: the file's form of A2#, read as it (R340).
+        const [only] = args;
+        if (t.name === "ANCHORARRAY" && args.length === 1 && only.k === "cell" && !only.spill)
+          return invocations({ k: "cell", sheet: only.sheet, ref: only.ref, spill: true }, t.s);
+        return invocations({ k: "call", name: t.name, args }, t.s);
       }
       case "{": {
         const rows: Node[][] = [[]];

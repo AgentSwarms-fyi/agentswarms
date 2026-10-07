@@ -831,6 +831,12 @@ const precise =
 F["CEILING.PRECISE"] = precise(true);
 F["ISO.CEILING"] = precise(true);
 F["FLOOR.PRECISE"] = precise(false);
+/**
+ * ECMA.CEILING(number, significance) (R340): the name ISO.CEILING had in
+ * Excel 2010's beta, kept for files that use it and hidden from Excel's
+ * function list. It computes as ISO.CEILING, with significance required.
+ */
+F["ECMA.CEILING"] = (args, ctx) => arity(args, 2, 2) ?? precise(true)(args, ctx);
 
 /** A function of one number, given its own errors. */
 const ofNumber =
@@ -3663,6 +3669,14 @@ F.INFO = (args, ctx) => {
 
 /** LET is evaluated by the evaluator (its names need a scope); this entry only makes it known. */
 F.LET = () => err("#VALUE!", "LET is evaluated where it stands");
+/**
+ * SINGLE(x) and ANCHORARRAY(A2), typed as calls (R340): the forms Excel's
+ * files hold for @x and A2#. The evaluator computes SINGLE as @, and the
+ * parser reads ANCHORARRAY of one cell as that cell's spill. What reaches
+ * this entry is ANCHORARRAY of something that is not one cell.
+ */
+F.SINGLE = () => err("#VALUE!", "SINGLE is evaluated where it stands");
+F.ANCHORARRAY = () => err("#VALUE!", "ANCHORARRAY takes one cell, such as A2");
 /** LAMBDA and the functions that take one are evaluated by the evaluator too (R328). */
 for (const name of ["LAMBDA", "MAP", "REDUCE", "SCAN", "BYROW", "BYCOL", "MAKEARRAY", "ISOMITTED"])
   F[name] = () => err("#VALUE!", `${name} is evaluated where it stands`);
@@ -4930,6 +4944,7 @@ const SINGLE_VALUE_FUNCTIONS = [
   // R330's math and engineering.
   ...["ACOSH", "ASINH", "ATANH", "ACOT", "ACOTH", "COT", "COTH", "CSC", "CSCH", "SEC", "SECH"],
   ...["FACTDOUBLE", "SQRTPI", "CEILING.PRECISE", "FLOOR.PRECISE", "ISO.CEILING", "DELTA"],
+  "ECMA.CEILING",
   ...["GESTEP", "ERF", "ERF.PRECISE", "ERFC", "ERFC.PRECISE", "BESSELI", "BESSELJ", "BESSELK"],
   "BESSELY",
   // R336's.

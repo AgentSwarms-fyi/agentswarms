@@ -402,6 +402,11 @@ export function evaluate(node: Node, env: EvalEnv): Value {
     }
     case "call": {
       if (node.name === "LET") return evaluateLet(node, env);
+      // SINGLE(x), typed: the file's form of @x (R340).
+      if (node.name === "SINGLE")
+        return node.args.length === 1
+          ? intersect(node.args[0], env)
+          : err("#N/A", "Wrong number of arguments");
       if (node.name === "LAMBDA") return makeLambda(node, env);
       if (LAMBDA_FORMS.has(node.name)) return evaluateLambdaForm(node, env);
       const impl = FUNCTIONS[node.name];

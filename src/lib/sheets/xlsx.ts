@@ -117,6 +117,9 @@ function anchorArraysForFile(body: string): string {
  * NUMBERVALUE missing).
  */
 const XLFN = new Set([
+  // R340: typed as calls, as the file holds @ and A2#.
+  "ANCHORARRAY",
+  "SINGLE",
   "AGGREGATE",
   "ARABIC",
   "BASE",

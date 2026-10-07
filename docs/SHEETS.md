@@ -90,6 +90,8 @@ Type `=` and a formula, as in Excel. More than 400 of Excel's 510 functions are 
     cell that does not spill (a value, a one-cell answer, a spill that is blocked) makes it #REF!.
     Copying, inserting rows and renaming the sheet move it as they move A2, and an Excel file holds
     it as `_xlfn.ANCHORARRAY(A2)`, both ways.
+  - The file's forms can be typed too (R340): `ANCHORARRAY(A2)` is `A2#`, and `SINGLE(B1:B3)` is
+    `@B1:B3`. A download writes them with Excel's `_xlfn.` prefix.
 - **Text:** TEXT, VALUE, NUMBERVALUE, LEFT, MID, TEXTJOIN, TEXTSPLIT, TEXTBEFORE, TEXTAFTER.
   ARRAYTOTEXT and VALUETOTEXT (R331) write values as text, concise (`TRUE, 1, Seattle`) or strict
   (`{TRUE,1;"Seattle"}`, text quoted). LENB, LEFTB, RIGHTB, MIDB, FINDB, SEARCHB and REPLACEB count
@@ -194,7 +196,8 @@ Type `=` and a formula, as in Excel. More than 400 of Excel's 510 functions are 
   ASINH, ATANH, ACOT, ACOTH, COT, COTH, CSC, CSCH, SEC, SECH, FACTDOUBLE, MULTINOMIAL,
   SERIESSUM, SQRTPI, CEILING.PRECISE, FLOOR.PRECISE, ISO.CEILING, DELTA, GESTEP, ERF (from 0, or
   between two limits), ERF.PRECISE, ERFC, ERFC.PRECISE, BESSELI, BESSELJ, BESSELK, BESSELY, MUNIT,
-  MDETERM and MINVERSE.
+  MDETERM and MINVERSE. ECMA.CEILING (R340) is the name ISO.CEILING had in Excel 2010's beta, kept
+  for files that use it: it computes as ISO.CEILING, with its significance required.
   - ERF and ERFC are right to about 16 digits, far out too: `ERFC(5)` is 1.53745979442803E-12.
   - COT, CSC and SEC (and the hyperbolic three) take an angle below 2^27 in size, as Excel's do,
     and 1/0 is #DIV/0!. ACOT is from 0 to π.

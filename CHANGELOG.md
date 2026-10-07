@@ -24,6 +24,10 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Sheets: ECMA.CEILING, and SINGLE and ANCHORARRAY typed** (R340).
+  ECMA.CEILING is ISO.CEILING's name from Excel 2010's beta. `SINGLE(x)` and
+  `ANCHORARRAY(A2)`, the forms an Excel file holds for `@x` and `A2#`, now work
+  typed or pasted too. Sheets now computes 489 of Excel's 510 functions.
 - **Sheets: CELL and INFO** (R339). CELL gives a cell's address, row, column,
   contents, type, number format code, alignment prefix, width and the
   workbook's file name, so `=MID(CELL("filename",A1),FIND("]",…)+1,255)` gives a

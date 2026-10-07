@@ -109,6 +109,51 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R340: ECMA.CEILING, and the file's SINGLE and ANCHORARRAY typed
+
+**Severity: low, Sheets** (missing functions). Three names from R329's list were `#NAME?`:
+
+- **SINGLE(x) and ANCHORARRAY(A2)** are the forms an Excel file holds for `@x` and `A2#`. A file's
+  were read already, by R162 and R171, but typed, or pasted from a tool that shows a file's text,
+  they were unknown.
+- **ECMA.CEILING** is the name ISO.CEILING had in Excel 2010's beta. Excel keeps it for files and
+  hides it from its function list. Microsoft publishes no page for it. BetterSolutions' page gives
+  five examples, all matching ISO.CEILING: (1.9,1) 2, (3.1,3) 6, (-1.1,1) -1, (8.26,0.05) 8.3 and
+  (50,0) 0.
+
+**Proved in the UI first.** In a new workbook `R340 file forms typed`, with `=SEQUENCE(3)` in B1,
+these were all `#NAME?` on the R339 build:
+
+- three ECMA.CEILINGs;
+- `=SUM(ANCHORARRAY(B1))` and `=ROWS(ANCHORARRAY(B1))`;
+- `=SINGLE(B1:B3)*10` in C2.
+
+**What was written.**
+
+- **ANCHORARRAY in the parser.** `ANCHORARRAY` of one cell is read as that cell's spill, the node
+  `A2#` makes. So the engine depends on the spill, and follows it when it grows, as it does for
+  `A2#`.
+- **SINGLE in the evaluator, as `@`.** It is not in the parser. There it would be the `@` node,
+  whose `@` character R338's export removes by its position, and that would cut the S of `SINGLE`.
+- **ECMA.CEILING** is ISO.CEILING with its significance required, and lifted over a range like
+  ISO.CEILING.
+- **Prefixes.** SINGLE and ANCHORARRAY joined the names a download writes with `_xlfn.`. The
+  file-prefix test, which holds every computed function to XlsxWriter's list, failed until they did.
+
+**Tests:** `sheetsFileFormsR340.test.ts`, 9 cases, all failing on the old engine:
+
+- ECMA.CEILING: the five examples, ISO.CEILING's answers across mixed signs, and a range;
+- SINGLE: against `@` in its own row and outside it;
+- ANCHORARRAY: against `A2#`, including a spill that grows from 3 rows to 5;
+- the file's text for each.
+
+**Mutation harness:** 8 mutants caught; the control survived.
+
+**The UI**, reopened after the deploy: A1:A5 were -1, 8.3, 6, 3 and 0, and C2 was 20. B1 changed
+to `=SEQUENCE(5)` turned A3 to 15 and A4 to 5 at once. The workbook is kept.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R339: CELL and INFO, and a format change only CELL can see
 
 **Severity: low, Sheets** (missing functions). CELL and INFO were `#NAME?`, the last of R329's list

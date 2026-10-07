@@ -15,6 +15,22 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R340: ECMA.CEILING, SINGLE and ANCHORARRAY typed
+
+New workbook `R340 file forms typed` (kept), with `=SEQUENCE(3)` in B1. Typed on the R339 build and
+reopened after the deploy:
+
+| Cell | Formula                    | Before   | After |
+| ---- | -------------------------- | -------- | ----- |
+| A1   | `=ECMA.CEILING(-1.1,1)`    | `#NAME?` | -1    |
+| A2   | `=ECMA.CEILING(8.26,0.05)` | `#NAME?` | 8.3   |
+| A3   | `=SUM(ANCHORARRAY(B1))`    | `#NAME?` | 6     |
+| A4   | `=ROWS(ANCHORARRAY(B1))`   | `#NAME?` | 3     |
+| A5   | `=ECMA.CEILING(50,0)`      | `#NAME?` | 0     |
+| C2   | `=SINGLE(B1:B3)*10`        | `#NAME?` | 20    |
+
+B1 then changed to `=SEQUENCE(5)`: A3 became 15 and A4 5 at once.
+
 ## 2026-10-08 — R339: CELL and INFO
 
 New workbook `R339 cell and info` (kept), with `Name` in C1 and 42 in C2. A1:A9 were typed on the
