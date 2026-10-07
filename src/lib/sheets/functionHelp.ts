@@ -25,6 +25,88 @@ export const FUNCTION_HELP: Record<string, FunctionHelp> = {
     desc: "A total that can leave out hidden rows, errors and nested subtotals.",
     cat: "Math",
   },
+  WRAPROWS: {
+    sig: "WRAPROWS(vector, wrap_count, [pad_with])",
+    desc: "A row or column folded into rows of that many values.",
+    cat: "Dynamic array",
+  },
+  WRAPCOLS: {
+    sig: "WRAPCOLS(vector, wrap_count, [pad_with])",
+    desc: "A row or column folded into columns of that many values.",
+    cat: "Dynamic array",
+  },
+  EXPAND: {
+    sig: "EXPAND(array, rows, [columns], [pad_with])",
+    desc: "The array grown to that size, the new cells padded (#N/A unless you say).",
+    cat: "Dynamic array",
+  },
+  ARRAYTOTEXT: {
+    sig: "ARRAYTOTEXT(array, [format])",
+    desc: "An array as text: 0 lists the values, 1 writes it as an array constant.",
+    cat: "Text",
+  },
+  VALUETOTEXT: {
+    sig: "VALUETOTEXT(value, [format])",
+    desc: "A value as text; format 1 puts text in quotes.",
+    cat: "Text",
+  },
+  SHEET: {
+    sig: "SHEET([value])",
+    desc: "A sheet's number among the tabs, this one's when left out.",
+    cat: "Information",
+  },
+  SHEETS: {
+    sig: "SHEETS([reference])",
+    desc: "How many sheets the workbook has.",
+    cat: "Information",
+  },
+  AREAS: { sig: "AREAS(reference)", desc: "How many areas a reference has: 1.", cat: "Lookup" },
+  NORMSDIST: {
+    sig: "NORMSDIST(z)",
+    desc: "The standard normal cumulative distribution (NORM.S.DIST's older name).",
+    cat: "Statistical",
+  },
+  NORMSINV: {
+    sig: "NORMSINV(probability)",
+    desc: "The inverse of the standard normal (NORM.S.INV's older name).",
+    cat: "Statistical",
+  },
+  NORMINV: {
+    sig: "NORMINV(probability, mean, standard_dev)",
+    desc: "The inverse of the normal distribution (NORM.INV's older name).",
+    cat: "Statistical",
+  },
+  LENB: { sig: "LENB(text)", desc: "The same as LEN outside double-byte languages.", cat: "Text" },
+  LEFTB: {
+    sig: "LEFTB(text, [num_bytes])",
+    desc: "The same as LEFT outside double-byte languages.",
+    cat: "Text",
+  },
+  RIGHTB: {
+    sig: "RIGHTB(text, [num_bytes])",
+    desc: "The same as RIGHT outside double-byte languages.",
+    cat: "Text",
+  },
+  MIDB: {
+    sig: "MIDB(text, start_num, num_bytes)",
+    desc: "The same as MID outside double-byte languages.",
+    cat: "Text",
+  },
+  FINDB: {
+    sig: "FINDB(find_text, within_text, [start_num])",
+    desc: "The same as FIND outside double-byte languages.",
+    cat: "Text",
+  },
+  SEARCHB: {
+    sig: "SEARCHB(find_text, within_text, [start_num])",
+    desc: "The same as SEARCH outside double-byte languages.",
+    cat: "Text",
+  },
+  REPLACEB: {
+    sig: "REPLACEB(old_text, start_num, num_bytes, new_text)",
+    desc: "The same as REPLACE outside double-byte languages.",
+    cat: "Text",
+  },
   MDETERM: {
     sig: "MDETERM(array)",
     desc: "The determinant of a square block of numbers.",

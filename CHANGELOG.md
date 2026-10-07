@@ -24,6 +24,10 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Sheets: eighteen array, text and sheet functions** (R331): WRAPROWS,
+  WRAPCOLS, EXPAND, ARRAYTOTEXT, VALUETOTEXT, SHEET, SHEETS, AREAS, NORMINV,
+  NORMSINV, NORMSDIST and the seven byte functions (LENB, LEFTB…). SHEET follows
+  the tabs as they are moved: the engine is now told their order.
 - **Sheets: 31 math and engineering functions** (R330), from the 128 of Excel's
   510 that were `#NAME?`: the inverse hyperbolic and reciprocal trigonometric
   functions, FACTDOUBLE, MULTINOMIAL, SERIESSUM, SQRTPI, the .PRECISE

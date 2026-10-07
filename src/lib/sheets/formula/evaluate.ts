@@ -112,6 +112,8 @@ export interface EvalEnv {
   formula?(sheet: string, row: number, col: number): string | undefined;
   /** Names LET has given values to, and a LAMBDA's parameters, lower-cased. */
   names?: ReadonlyMap<string, Value>;
+  /** The workbook's sheets, table sheets too, in tab order (SHEET and SHEETS, R331). */
+  sheetNames?: () => readonly string[];
   /** LAMBDA parameters this call left out, lower-cased (ISOMITTED, R328). */
   omitted?: ReadonlySet<string>;
   /** How many LAMBDA calls deep this is: a recursion stops where Excel's does (LAMBDA_STACK). */

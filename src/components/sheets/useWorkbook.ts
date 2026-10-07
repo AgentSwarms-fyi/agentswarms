@@ -889,8 +889,11 @@ export function useWorkbook(args: {
     (order: string[]) => {
       const byId = new Map(tabsRef.current.map((t) => [t.id, t]));
       setTabsBoth(order.map((id, i) => ({ ...byId.get(id)!, position: i })));
+      // SHEET() is a sheet's place among the tabs (R331).
+      engineRef.current?.setSheetOrder(order);
+      bump();
     },
-    [setTabsBoth],
+    [bump, setTabsBoth],
   );
 
   const anyDirty = useMemo(

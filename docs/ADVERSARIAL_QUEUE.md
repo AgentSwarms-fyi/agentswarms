@@ -955,9 +955,7 @@ more missing). Open from that round:
 - **128 of Excel's 510 functions are missing** (R329's inventory: openpyxl's list of Excel's
   functions and XlsxWriter's newer ones, against the registry). In the order to take them:
   1. ~~Math and engineering~~: done in R330, 31 functions. 97 remain.
-  2. Arrays and text: EXPAND, WRAPROWS, WRAPCOLS, ARRAYTOTEXT, VALUETOTEXT, the byte functions
-     (LENB, LEFTB, MIDB, RIGHTB, FINDB, SEARCHB, REPLACEB, the same as the plain ones outside
-     double-byte languages), SHEET, SHEETS, AREAS, and NORMINV, NORMSINV, NORMSDIST.
+  2. ~~Arrays and text~~: done in R331, 18 functions. 79 remain.
   3. CONVERT, with Excel's full unit table: formula.js lacks "F", "C" and "ft2".
   4. Statistics: T.TEST, F.TEST, Z.TEST, CHISQ.TEST and their old names, COVAR, PEARSON, STEYX,
      SKEW.P, STDEVPA, VARPA, MODE.MULT, PROB, SUMX2MY2, SUMX2PY2, SUMXMY2, BINOM.DIST.RANGE,

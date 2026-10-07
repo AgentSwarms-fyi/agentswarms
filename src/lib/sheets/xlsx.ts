@@ -181,6 +181,11 @@ const XLFN = new Set([
   "WRAPCOLS",
   "EXPAND",
   "LAMBDA",
+  // R331: arrays, text and sheets.
+  "ARRAYTOTEXT",
+  "VALUETOTEXT",
+  "SHEET",
+  "SHEETS",
   // R330: math and engineering.
   "ACOT",
   "ACOTH",

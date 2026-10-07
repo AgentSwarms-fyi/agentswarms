@@ -109,6 +109,59 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-07 — R331: arrays, text and sheets, and the tab order the engine never had
+
+**Severity: low, Sheets** (missing functions). This is the second group of R329's inventory:
+WRAPROWS, WRAPCOLS, EXPAND, ARRAYTOTEXT, VALUETOTEXT, SHEET, SHEETS, AREAS, the old names
+NORMINV, NORMSINV and NORMSDIST, and the seven byte functions. All of them were `#NAME?`.
+
+**Found on the way:** SHEET needs to know where a sheet sits among the tabs, and the engine did
+not. Dragging a tab, or moving it from its menu, renumbered the tabs on screen and on the server,
+but the engine kept the order the workbook had when it opened. Every function written so far took a
+sheet by name, so nothing showed it until now.
+
+**The fixes:**
+
+- WRAPROWS and WRAPCOLS fold one row or one column, padding past its end with `#N/A` or the value
+  given. A blank cell inside the vector stays blank. A block is `#VALUE!` and a count below 1 is
+  `#NUM!`.
+- EXPAND grows an array. A size left out keeps the array's, and a smaller size is `#VALUE!`.
+- ARRAYTOTEXT and VALUETOTEXT write values as their page shows. Concise is `TRUE, #DIV/0!,
+1234.01234, Seattle, Hello, 1123`. Strict is `{TRUE,#DIV/0!;1234.01234,"Seattle";"Hello",1123}`,
+  with a quote inside text doubled. Any other format is `#VALUE!`.
+- SHEET takes this sheet, a reference, a name or a sheet's name as text. A text name is case-blind,
+  and one with no sheet is `#N/A`. SHEETS counts the workbook's sheets, and 1 for a reference.
+  AREAS is 1 for any reference, because the parser has no union operator; a non-reference is
+  `#VALUE!`.
+- NORMINV and NORMSINV are the new functions under their old names, so R329's bounds hold.
+  NORMSDIST is NORM.S.DIST's cumulative curve. The byte functions are LEN, LEFT and the rest, as in
+  Excel outside the double-byte languages.
+- **The engine has the tab order.** `setSheetOrder` puts the sheets in the order given, keeps any it
+  leaves out after them, and recomputes. Moving a tab calls it, and the workbook opens in its saved
+  order as before.
+- The functions of one value lift. ARRAYTOTEXT reads its array as an array when an old file comes
+  in. The four Excel added after 2007 go into a file with `_xlfn.`, and all eighteen have function
+  help.
+
+**Tests:** `sheetsArraysTextR331.test.ts`, 73 cases, including a dragged order, an order that
+leaves a sheet out, and a sheet added and removed. All of them failed before. All 75 Sheets test
+files pass.
+
+- **Mutation harness:** 18 mutants caught, and the control survived. On the first run I had marked
+  one as equivalent, `xs[i] ?? pad`, which turns a blank inside the vector into padding. It was not
+  equivalent; no case had a blank, and one now does.
+
+**The UI**, in a new workbook `R331 arrays text sheets`, typed before the deploy (all `#NAME?`) and
+reopened after. WRAPROWS(SEQUENCE(7),3,"-") spilled 1 2 3 / 4 5 6 / 7 - -. EXPAND({1,2;3,4},3,3,0)
+gave the block with 0s, ARRAYTOTEXT(…,1) `{1,2;"a",TRUE}` and VALUETOTEXT("Hello",1) `"Hello"`.
+LENB was 3, SHEET 1, SHEETS 1, NORMSDIST(1) 0.8413447461 and AREAS 1.
+
+A grid sheet was then added, holding `=SHEET()`, `=SHEETS()` and `=SHEET(Sheet1!A1)`: 2, 2 and 1.
+Its menu's **Move left** made them 1, 2 and 2 at once, and a reload kept both the order and the
+values. The workbook is kept.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-07 — R330: thirty-one math and engineering functions, and formula.js's four wrong ones
 
 **Severity: low, Sheets** (missing functions; a workbook using one showed `#NAME?`, or Excel's saved

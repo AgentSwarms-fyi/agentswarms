@@ -262,6 +262,22 @@ export class WorkbookEngine {
     this.recalcAll();
   }
 
+  /**
+   * The tabs in a new order (R331): SHEET() is a sheet's place among them.
+   * Ids the engine does not hold are skipped, and any it holds that the
+   * order leaves out keep their place after it.
+   */
+  setSheetOrder(ids: readonly string[]): void {
+    const before = [...this.sheets.keys()];
+    const order = [...ids.filter((id) => this.sheets.has(id))];
+    for (const id of before) if (!order.includes(id)) order.push(id);
+    if (order.every((id, i) => id === before[i])) return;
+    const defs = new Map(this.sheets);
+    this.sheets.clear();
+    for (const id of order) this.sheets.set(id, defs.get(id)!);
+    this.recalcAll();
+  }
+
   renameSheet(id: string, name: string): void {
     const s = this.sheets.get(id);
     if (!s) return;
@@ -944,7 +960,7 @@ export class WorkbookEngine {
    * is hidden, by a filter or by hand (SUBTOTAL), and its formula (SUBTOTAL
    * leaves other subtotals out; ISFORMULA, FORMULATEXT).
    */
-  private cellFacts(): Pick<EvalEnv, "rowHidden" | "formula" | "definedName"> {
+  private cellFacts(): Pick<EvalEnv, "rowHidden" | "formula" | "definedName" | "sheetNames"> {
     const hidden = new Map<string, { filter: Set<number>; manual: Set<number> }>();
     const gridOf = (sheet: string) =>
       this.sheets.get(this.byName.get(sheet.toLowerCase()) ?? "")?.grid;
@@ -963,6 +979,7 @@ export class WorkbookEngine {
         return i && i.startsWith("=") ? i : undefined;
       },
       definedName: (name) => this.defined.get(name.toLowerCase())?.ast,
+      sheetNames: () => [...this.sheets.values()].map((s) => s.name),
     };
   }
 

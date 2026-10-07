@@ -1031,6 +1031,141 @@ F.MINVERSE = (args) => {
   }
   return inv;
 };
+// ── Arrays, text and sheets Excel has (R331) ──────────────────────────────
+
+/** One row or one column as a list, or the #VALUE! WRAPROWS and WRAPCOLS give. */
+function vectorOf(a: Arg | undefined, name: string): Scalar[] | SheetError {
+  if (!a) return err("#N/A", "Wrong number of arguments");
+  const m = asMatrix(a.value());
+  if (m.length !== 1 && (m[0]?.length ?? 0) !== 1)
+    return err("#VALUE!", `${name} takes one row or one column`);
+  return m.length === 1 ? m[0] : m.map((line) => line[0]);
+}
+/** What fills the rest: the argument, or Excel's #N/A when it is left out. */
+const padOf = (a: Arg | undefined): Scalar =>
+  !a || a.node.k === "empty" ? err("#N/A", "Past the end of the array") : scalarOf(a.value());
+/** WRAPROWS and WRAPCOLS(vector, wrap_count, [pad_with]). */
+const wrap =
+  (byRows: boolean): FnImpl =>
+  (args) => {
+    const bad = arity(args, 2, 3);
+    if (bad) return bad;
+    const xs = vectorOf(args[0], byRows ? "WRAPROWS" : "WRAPCOLS");
+    if (isError(xs)) return xs;
+    const k = num(args[1]);
+    if (isError(k)) return k;
+    const n = Math.trunc(k);
+    if (n < 1) return err("#NUM!", "The count must be 1 or more");
+    const lines = Math.ceil(xs.length / n);
+    if (lines * n > 1_000_000) return err("#NUM!", "Too large");
+    const pad = padOf(args[2]);
+    const at = (i: number, j: number) => (i * n + j < xs.length ? xs[i * n + j] : pad);
+    return byRows
+      ? Array.from({ length: lines }, (_, i) => Array.from({ length: n }, (__, j) => at(i, j)))
+      : Array.from({ length: n }, (_, j) => Array.from({ length: lines }, (__, i) => at(i, j)));
+  };
+F.WRAPROWS = wrap(true);
+F.WRAPCOLS = wrap(false);
+/** EXPAND(array, rows, [columns], [pad_with]): a size left out keeps the array's. */
+F.EXPAND = (args) => {
+  const bad = arity(args, 2, 4);
+  if (bad) return bad;
+  const m = asMatrix(args[0].value());
+  const r0 = m.length;
+  const c0 = m[0]?.length ?? 0;
+  const size = (a: Arg | undefined, keep: number) => (!a || a.node.k === "empty" ? keep : num(a));
+  const r = size(args[1], r0);
+  if (isError(r)) return r;
+  const c = size(args[2], c0);
+  if (isError(c)) return c;
+  const R = Math.trunc(r);
+  const C = Math.trunc(c);
+  if (R < r0 || C < c0) return err("#VALUE!", "EXPAND cannot make the array smaller");
+  if (R * C > 1_000_000) return err("#NUM!", "Too large");
+  const pad = padOf(args[3]);
+  return Array.from({ length: R }, (_, i) =>
+    Array.from({ length: C }, (__, j) => (i < r0 && j < c0 ? m[i][j] : pad)),
+  );
+};
+
+/** A value as ARRAYTOTEXT and VALUETOTEXT write it; strict quotes text, as a formula would. */
+function valueText(x: Scalar, strict: boolean): string {
+  if (isError(x)) return x.err;
+  if (typeof x === "string") return strict ? `"${x.replace(/"/g, '""')}"` : x;
+  return toText(x) as string;
+}
+/** The format: 0 concise (the default) or 1 strict. */
+function textFormat(a: Arg | undefined): boolean | SheetError {
+  const f = num(a, 0);
+  if (isError(f)) return f;
+  return f === 0
+    ? false
+    : f === 1
+      ? true
+      : err("#VALUE!", "The format is 0 (concise) or 1 (strict)");
+}
+F.ARRAYTOTEXT = (args) => {
+  const bad = arity(args, 1, 2);
+  if (bad) return bad;
+  const strict = textFormat(args[1]);
+  if (isError(strict)) return strict;
+  const m = asMatrix(args[0].value());
+  return strict
+    ? `{${m.map((line) => line.map((x) => valueText(x, true)).join(",")).join(";")}}`
+    : m.flatMap((line) => line.map((x) => valueText(x, false))).join(", ");
+};
+F.VALUETOTEXT = (args) => {
+  const bad = arity(args, 1, 2);
+  if (bad) return bad;
+  const strict = textFormat(args[1]);
+  if (isError(strict)) return strict;
+  return valueText(scalarOf(args[0].value()), strict);
+};
+
+/** SHEET([value]): a sheet's place among the tabs, hidden ones counted, as Excel's. */
+F.SHEET = (args, ctx) => {
+  const bad = arity(args, 0, 1);
+  if (bad) return bad;
+  const names = ctx.env.sheetNames?.() ?? [ctx.env.sheet];
+  const place = (name: string, missing: SheetError) => {
+    const i = names.findIndex((n) => n.toLowerCase() === name.toLowerCase());
+    return i < 0 ? missing : i + 1;
+  };
+  const a = args[0];
+  if (!a || a.node.k === "empty") return place(ctx.env.sheet, err("#N/A", "No such sheet"));
+  // A reference, a name for one, or a table sheet's column: the sheet it is on.
+  if (a.ref) return place(a.ref.sheet, err("#REF!", `No sheet "${a.ref.sheet}"`));
+  if (a.node.k === "struct" && a.node.table)
+    return place(a.node.table, err("#REF!", `No sheet "${a.node.table}"`));
+  const v = scalarOf(a.value());
+  if (isError(v)) return v;
+  // A sheet's name as text; Excel's own answer for one it does not have is #N/A.
+  if (typeof v === "string") return place(v, err("#N/A", `No sheet "${v}"`));
+  return err("#VALUE!", "SHEET takes a reference or a sheet's name");
+};
+/** SHEETS([reference]): every sheet in the workbook, or 1 for a reference to one. */
+F.SHEETS = (args, ctx) => {
+  const bad = arity(args, 0, 1);
+  if (bad) return bad;
+  const names = ctx.env.sheetNames?.() ?? [ctx.env.sheet];
+  const a = args[0];
+  if (!a || a.node.k === "empty") return names.length;
+  const sheet = a.ref?.sheet ?? (a.node.k === "struct" ? a.node.table : undefined);
+  if (!sheet) return err("#REF!", "SHEETS takes a reference");
+  return names.some((n) => n.toLowerCase() === sheet.toLowerCase())
+    ? 1
+    : err("#REF!", `No sheet "${sheet}"`);
+};
+/** AREAS(reference): Sheets has no unions of ranges, so every reference is one area. */
+F.AREAS = (args) => {
+  const bad = arity(args, 1, 1);
+  if (bad) return bad;
+  const a = args[0];
+  return a.ref || (a.node.k === "struct" && a.node.table)
+    ? 1
+    : err("#VALUE!", "AREAS takes a reference");
+};
+
 /** MUNIT(n): the n×n identity. */
 F.MUNIT = ofNumber((x) => {
   const n = Math.trunc(x);
@@ -2795,8 +2930,27 @@ const SAME_AS: Record<string, string> = {
   CRITBINOM: "BINOM.INV",
   CONFIDENCE: "CONFIDENCE.NORM",
   BINOMDIST: "BINOM.DIST",
+  // R331: two more of the pre-2010 names, and the byte functions. Outside
+  // the double-byte languages (Japanese, Chinese, Korean) Excel's LENB,
+  // LEFTB… count a character as one byte, the same as LEN, LEFT…
+  NORMINV: "NORM.INV",
+  NORMSINV: "NORM.S.INV",
+  LENB: "LEN",
+  LEFTB: "LEFT",
+  RIGHTB: "RIGHT",
+  MIDB: "MID",
+  FINDB: "FIND",
+  SEARCHB: "SEARCH",
+  REPLACEB: "REPLACE",
 };
 for (const [name, now] of Object.entries(SAME_AS)) if (!F[name] && F[now]) F[name] = F[now];
+/** NORMSDIST(z): NORM.S.DIST's cumulative curve, Excel's name before 2010 (R331). */
+F.NORMSDIST = (args, ctx) =>
+  arity(args, 1, 1) ??
+  F["NORM.S.DIST"](
+    [args[0], { node: { k: "bool", v: true }, value: () => true, isRef: false }],
+    ctx,
+  );
 
 /** A number as an argument, for handing a library function a value read here. */
 const numberArg = (v: number): Arg => ({ node: { k: "num", v }, value: () => v, isRef: false });
@@ -3593,6 +3747,9 @@ const SINGLE_VALUE_FUNCTIONS = [
   ...["FACTDOUBLE", "SQRTPI", "CEILING.PRECISE", "FLOOR.PRECISE", "ISO.CEILING", "DELTA"],
   ...["GESTEP", "ERF", "ERF.PRECISE", "ERFC", "ERFC.PRECISE", "BESSELI", "BESSELJ", "BESSELK"],
   "BESSELY",
+  // R331's.
+  ...["NORMINV", "NORMSINV", "NORMSDIST", "VALUETOTEXT", "LENB", "LEFTB", "RIGHTB", "MIDB"],
+  ...["FINDB", "SEARCHB", "REPLACEB"],
   // Dates, text and information.
   ...["DATEDIF", "YEARFRAC", "WEEKNUM", "ISOWEEKNUM"],
   ...["CLEAN", "DOLLAR", "FIXED", "UNICHAR", "UNICODE", "ADDRESS", "ERROR.TYPE"],

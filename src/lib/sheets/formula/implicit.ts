@@ -73,6 +73,7 @@ const ARRAY_ARGS: ReadonlyMap<string, readonly number[] | "all"> = new Map<
   ["WRAPCOLS", [0]],
   ["EXPAND", [0]],
   ["TEXTJOIN", "all"],
+  ["ARRAYTOTEXT", [0]],
   ["CONCAT", "all"],
 ]);
 

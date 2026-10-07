@@ -15,6 +15,31 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-07 — R331: arrays, text and sheets
+
+New workbook `R331 arrays text sheets` (kept). Sheet1 was typed before the deploy, when every
+formula showed `#NAME?`, and reopened after:
+
+| Cell  | Formula                           | After                 |
+| ----- | --------------------------------- | --------------------- |
+| A1:C3 | `=WRAPROWS(SEQUENCE(7), 3, "-")`  | 1 2 3 / 4 5 6 / 7 - - |
+| A5:C7 | `=EXPAND({1,2;3,4}, 3, 3, 0)`     | 1 2 0 / 3 4 0 / 0 0 0 |
+| A9    | `=ARRAYTOTEXT({1,2;"a",TRUE}, 1)` | `{1,2;"a",TRUE}`      |
+| A10   | `=VALUETOTEXT("Hello", 1)`        | `"Hello"`             |
+| A11   | `=LENB("abc")`                    | 3                     |
+| A12   | `=SHEET()`                        | 1                     |
+| A13   | `=SHEETS()`                       | 1                     |
+| A14   | `=NORMSDIST(1)`                   | 0.8413447461          |
+| A15   | `=AREAS(B2:D4)`                   | 1                     |
+
+Then **+ → Grid sheet** added Sheet2, typed with `=SHEET()`, `=SHEETS()` and `=SHEET(Sheet1!A1)`:
+
+| State                         | SHEET() | SHEETS() | SHEET(Sheet1!A1) |
+| ----------------------------- | ------- | -------- | ---------------- |
+| Added, after Sheet1           | 2       | 2        | 1                |
+| Sheet2's menu → **Move left** | 1       | 2        | 2                |
+| Reloaded                      | 1       | 2        | 2                |
+
 ## 2026-10-07 — R330: math and engineering functions
 
 New workbook `R330 math functions` (kept). A1:A10 were typed before the deploy, when every one
