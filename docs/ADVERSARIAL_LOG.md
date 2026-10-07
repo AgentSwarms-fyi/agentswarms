@@ -109,6 +109,38 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R334: a General number wider than its column showed
+
+**Severity: low, Sheets** (a value hidden that Excel shows). Found in R333's UI round. CHISQ.TEST's
+answer, 0.000308192017, showed as `##########` in a default-width column. The grid drew `####`
+for any number whose text was wider than its cell. Excel does that only for a number with a format
+of its own. A General number it rounds to fit: fewer decimals while a digit that is not 0 is left,
+then scientific notation with fewer digits, and `####` only when nothing fits.
+
+**The fix:** `generalToFit` in `format.ts` does that, and `numberToFit` applies it to General
+cells only. Both are pure, so they are tested without a canvas. The grid calls `numberToFit` with
+its own measure of the text before it falls back to `####`. Rounding goes through `excelRound`,
+from the 15 digits Excel keeps, and the scientific mantissa is rounded the same way. 1.5E-07,
+stored a hair under itself, shows as `2E-07` as in Excel, not `1E-07`. 2.675 shows as `2.68`.
+
+**Tests:** `sheetsGeneralFitR334.test.ts`, 26 cases: the decimals, the scientific forms, the `####`
+cases, explicit formats left alone, and the grid's use of `numberToFit`, pinned on the call with
+the cell's format and width. All of them failed before.
+
+- **Mutation harness:** 8 mutants caught, and the control survived. They cover no decimals, decimals
+  or mantissa rounded from the double, a 0 kept, no scientific form, a mantissa of 10, every format
+  rounding, and the grid going straight to `####`.
+
+**The UI**, hot-deployed, in `R333 statistics`. D4, which had shown `##########`, shows
+`0.000308192`. D2 changed too, from `0.2022939234` to `0.202293923`. Measured in the page, the
+grid's proportional digits make `0.2022939234` 92.1 px, against the 92 px the cell has inside its
+padding, while D1's text of the same length is 84.8 px. So D2 misses by a tenth of a pixel and is
+rounded. Before the deploy it showed in full, so on that load it measured as fitting. Why is not
+established: a measure taken before the grid's font loaded is a guess, not a finding. Either way
+the rule is now Excel's, and no General number shows `####` while a shorter form fits.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-07 — R333: twenty statistics functions, and a t-test that ignored its type
 
 **Severity: medium, Sheets** (missing functions, and wrong answers from the library they would have

@@ -92,6 +92,11 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **Sheets: a General number wider than its column showed ####** (R334). Excel
+  rounds such a number to fit, with fewer decimals and then in scientific
+  notation, and shows #### only when nothing fits. CHISQ.TEST's 0.000308192017
+  was `##########` in a default-width column where Excel shows `0.000308192`. A
+  number with a format of its own still shows ####, as in Excel.
 - **Sheets: functions of one value given a range** (R329). Only a first list of
   functions worked element by element, so `=SIN(A1:A3)`, `=SUM(SIN(A1:A3))`,
   `=PMT(r,n,-B2:B9)` and about 160 others were `#VALUE!`. `=GAMMA(A1:A3)`,

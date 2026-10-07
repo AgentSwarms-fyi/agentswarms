@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R334: a General number in a narrow column
+
+In `R333 statistics`, after the deploy and a reload, read from the grid's cells:
+
+| Cell | Value           | Before deploy  | After deploy   |
+| ---- | --------------- | -------------- | -------------- |
+| D4   | 0.000308192017… | `##########`   | `0.000308192`  |
+| D2   | 0.20229392337…  | `0.2022939234` | `0.202293923`  |
+| D1   | 0.19601578492…  | `0.1960157849` | `0.1960157849` |
+
+D2's full text measures 92.1 px against the 92 px the cell has inside its padding (measured in
+the page with the grid's font); D1's is 84.8 px. Why D2 fitted before the deploy is not
+established. The values themselves are unchanged (E4 is still
+`=D4*10000` = 3.08192017).
+
 ## 2026-10-07 — R333: statistics
 
 New workbook `R333 statistics` (kept). A1:A9 and B1:B9 hold the T.TEST page's two samples. D1:D7

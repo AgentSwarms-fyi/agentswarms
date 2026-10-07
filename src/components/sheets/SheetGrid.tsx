@@ -14,7 +14,8 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { a1, colLetters, normRange, rangeA1, type RangeAddr } from "@/lib/sheets/a1";
-import { cellView, editText } from "@/lib/sheets/cellView";
+import { cellView, editText, effectiveFormat } from "@/lib/sheets/cellView";
+import { numberToFit } from "@/lib/sheets/format";
 import { inkOn } from "@/lib/sheets/ink";
 import type { CellInput, GridData, WorkbookEngine } from "@/lib/sheets/engine";
 import { AxisGeometry } from "@/lib/sheets/geometry";
@@ -537,9 +538,15 @@ export function SheetGrid(props: Props) {
     const indent = (st?.ind ?? 0) * INDENT_PX * z;
     const inner = pos.width - pad * 2 - indent;
     let text = view.text;
-    // A number that does not fit shows ####, as in Excel (text runs on instead).
+    // A number that does not fit shows ####, as in Excel (text runs on instead);
+    // a General one is first rounded to fit, as Excel does (R334).
     if (view.kind === "number" && !st?.wrap && measureText(text, font) > inner) {
-      text = "#".repeat(Math.max(1, Math.floor(inner / Math.max(1, measureText("#", font)))));
+      const fitted =
+        typeof value === "number"
+          ? numberToFit(value, effectiveFormat(input), (s) => measureText(s, font) <= inner)
+          : null;
+      text =
+        fitted ?? "#".repeat(Math.max(1, Math.floor(inner / Math.max(1, measureText("#", font)))));
     }
     const isLink = !!input?.l || /^=\s*HYPERLINK\s*\(/i.test(input?.i ?? "");
     // A formula from an Excel file that this engine cannot compute shows the

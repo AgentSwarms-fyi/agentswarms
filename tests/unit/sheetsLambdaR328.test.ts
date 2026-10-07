@@ -5,7 +5,7 @@
 // in showing only the values Excel last saved, and never recomputed when an
 // input changed. LET could not hold a function, LAMBDA(x, x*2)(3) did not
 // parse, and a download wrote LET's names bare where Excel wants _xlpm.x.
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import { WorkbookEngine, type GridData, type SheetDef } from "@/lib/sheets/engine";
 import { parseFormula } from "@/lib/sheets/formula/parser";
@@ -273,6 +273,11 @@ describe("the parser", () => {
 });
 
 describe("in a file", () => {
+  // ExcelJS loads once per worker, slowly under a full run; not the tests' time.
+  beforeAll(async () => {
+    await import("exceljs");
+  }, 120_000);
+
   it.each([
     ["=LET(x,1,x+1)", "_xlfn.LET(_xlpm.x,1,_xlpm.x+1)"],
     // XlsxWriter's own example.

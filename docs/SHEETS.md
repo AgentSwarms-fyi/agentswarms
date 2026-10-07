@@ -208,6 +208,12 @@ The same rules as Excel apply:
 - General shows ten significant digits, and a whole part of eleven digits in full:
   12345678901.005 shows as `12345678901`. Numbers from 1E+11 up and under 1E-6 show in scientific
   notation with a two-digit exponent (`1.5E-07`).
+- A General number wider than its column is rounded to fit, as in Excel (R334). It keeps fewer
+  decimals while a digit that is not 0 is left, so 0.000308192017 shows as `0.000308192`, then
+  `0.000308` and `0.0003` as the column narrows. Then it moves to scientific notation with fewer
+  digits: `3E-04`, and `1.23E+08` for 123456789. It is rounded from the 15 digits Excel keeps, so
+  2.675 shows as `2.68`. Only when nothing fits does it show `####`. A number with a format of its
+  own (`0.00`, a currency, a date) shows `####` when it does not fit, as in Excel.
 - A number format past 15 digits shows 15 and then zeros, as Excel does:
   `=TEXT(12345678901234567,"#,##0")` is `12,345,678,901,234,600`, and `=TEXT(1.5E+21,"0")` writes
   out all 22 digits.
