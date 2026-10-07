@@ -954,11 +954,7 @@ more missing). Open from that round:
 - ~~**LAMBDA and AGGREGATE** are not computed.~~ Closed by R327 (AGGREGATE) and R328 (LAMBDA).
 - **128 of Excel's 510 functions are missing** (R329's inventory: openpyxl's list of Excel's
   functions and XlsxWriter's newer ones, against the registry). In the order to take them:
-  1. Math and engineering: ACOSH, ASINH, ATANH, ACOT, ACOTH, COT, COTH, CSC, CSCH, SEC, SECH,
-     FACTDOUBLE, MULTINOMIAL, SERIESSUM, SQRTPI, CEILING.PRECISE, FLOOR.PRECISE, ISO.CEILING,
-     DELTA, GESTEP, ERF (two limits), ERF.PRECISE, ERFC, ERFC.PRECISE, BESSELI/J/K/Y, MUNIT,
-     MDETERM, MINVERSE. formula.js has most; its ISO.CEILING is wrong in 4 of 6 documented cases
-     and its ERF(lower, upper) ignores the lower limit.
+  1. ~~Math and engineering~~: done in R330, 31 functions. 97 remain.
   2. Arrays and text: EXPAND, WRAPROWS, WRAPCOLS, ARRAYTOTEXT, VALUETOTEXT, the byte functions
      (LENB, LEFTB, MIDB, RIGHTB, FINDB, SEARCHB, REPLACEB, the same as the plain ones outside
      double-byte languages), SHEET, SHEETS, AREAS, and NORMINV, NORMSINV, NORMSDIST.

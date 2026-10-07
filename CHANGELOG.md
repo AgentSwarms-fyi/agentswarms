@@ -24,6 +24,14 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Sheets: 31 math and engineering functions** (R330), from the 128 of Excel's
+  510 that were `#NAME?`: the inverse hyperbolic and reciprocal trigonometric
+  functions, FACTDOUBLE, MULTINOMIAL, SERIESSUM, SQRTPI, the .PRECISE
+  roundings and ISO.CEILING, DELTA, GESTEP, ERF, ERFC and their .PRECISE forms,
+  the four Bessel functions, MUNIT, MDETERM and MINVERSE. Each was checked
+  against the examples on its page in Excel's documentation. formula.js was not
+  used where it was wrong: ISO.CEILING, ERF between two limits, ERFC far out,
+  and a Bessel order below 0.
 - **Sheets: LAMBDA** (R328). LAMBDA was #NAME?, so a workbook that defined its
   own functions showed the values Excel last saved and never recomputed. Now
   a LAMBDA is called where it is written (`=LAMBDA(x, x*2)(3)`), by a LET name,

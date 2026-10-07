@@ -109,6 +109,69 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-07 — R330: thirty-one math and engineering functions, and formula.js's four wrong ones
+
+**Severity: low, Sheets** (missing functions; a workbook using one showed `#NAME?`, or Excel's saved
+value when imported). This is the first group of R329's inventory of 128 missing functions.
+
+Registering them from formula.js would have been one line each. Checked against the examples on
+each function's page in Excel's documentation, formula.js was right on most, but not on these:
+
+- **ISO.CEILING** was wrong in 4 of the 6 page examples. `ISO.CEILING(4.3)` was 0, where Excel
+  says 5.
+- **ERF(lower, upper)** ignored the lower limit. `ERF(0,1)` was 1.1E-16, where Excel says
+  0.8427.
+- **ERFC(5)** was 1.53743684E-12, right to five digits. The true value is 1.53745979E-12.
+- **BESSELJ(1,-1)** was -0.44, where Excel says `#NUM!`. A fractional order was not truncated:
+  `BESSELJ(1,1.9)` was J₁.₉, not J₁.
+
+One more thing was checked rather than assumed. The page says a negative FACTDOUBLE is `#NUM!`, and
+formula.js gives FACTDOUBLE(-1) as 1. Excel gives 1 too, because (-1)!! is defined as 1, and
+`#NUM!` starts below -1.
+
+**What was written:**
+
+- CEILING.PRECISE, FLOOR.PRECISE and ISO.CEILING are CEILING.MATH and FLOOR.MATH without a mode.
+  They take two arguments, not three.
+- erf and erfc are computed to about 16 digits. Below 2 the series used has every term positive,
+  so it does not lose digits to cancellation; from 2 up, Laplace's continued fraction is used. They
+  were checked against 20-digit reference values from 1e-10 to 10.
+- The reciprocal trigonometric functions take an angle below 2^27, as their pages say, and 1/0 is
+  `#DIV/0!`. ACOT is from 0 to π.
+- MDETERM is computed by elimination with partial pivoting. MINVERSE uses Gauss-Jordan, and a matrix
+  with no inverse is `#NUM!`. MUNIT keeps to the million-cell limit of SEQUENCE and MAKEARRAY.
+- The Bessel functions still come from formula.js, which is right to 9 digits on every page
+  example, with the order truncated and checked first.
+- The functions of one value lift, as in R329, and SERIESSUM lifts x, n and m but not its
+  coefficients. The twelve Excel added after 2007 go into a file with `_xlfn.`. All 31 have function
+  help, the error and Bessel functions under Engineering.
+
+**Tests:** `sheetsMathR330.test.ts`, 143 cases, every page example plus the edges each page names.
+All of them failed before, since the functions were `#NAME?`. All 74 Sheets test files pass.
+
+- **Mutation harness:** 20 mutants caught, and the control survived. The first run let one
+  survive: dropping the two-argument limit on CEILING.PRECISE, which no case gave three arguments.
+  Two cases now do.
+
+**The UI**, in a new workbook `R330 math functions`, typed before the deploy (all `#NAME?`) and
+reopened after:
+
+| Cell  | Formula                                        | After        |
+| ----- | ---------------------------------------------- | ------------ |
+| A1    | `=ACOSH(10)`                                   | 2.993222846  |
+| A2    | `=SEC(45)`                                     | 1.903594407  |
+| A3    | `=ISO.CEILING(4.3)`                            | 5            |
+| A4    | `=ERF(0, 1)`                                   | 0.8427007929 |
+| A5    | `=BESSELJ(1.9, 2)`                             | 0.3299258287 |
+| A6    | `=MDETERM({1,3,8,5;1,3,6,1;1,1,1,0;7,3,10,2})` | 88           |
+| A7:B8 | `=MINVERSE({4,-1;2,0})`                        | 0 0.5 / -1 2 |
+| A9    | `=FACTDOUBLE(7)`                               | 105          |
+| A10   | `=SUM(MUNIT(3))`                               | 3            |
+
+Typing `=BESSELJ(` showed "BESSELJ(x, n) — The Bessel function Jₙ(x)." The workbook is kept.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-07 — R329: functions of one value given a range, and the values Excel refuses
 
 **Severity: medium, Sheets** (wrong answers to ordinary formulas, some silent). Found while

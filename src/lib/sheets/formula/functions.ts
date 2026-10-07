@@ -781,6 +781,265 @@ const multipleMath =
   };
 F["CEILING.MATH"] = multipleMath(true);
 F["FLOOR.MATH"] = multipleMath(false);
+
+// ── Math and engineering Excel has (R330) ─────────────────────────────────
+//
+// FOUND IN R329's inventory: these were #NAME?. formula.js has most of them,
+// but its ISO.CEILING was wrong in 4 of the 6 cases on Excel's page, its
+// ERF(lower, upper) ignored the lower limit, its ERFC(5) was right to 5
+// digits, and its BESSELJ took a negative order and did not truncate one.
+// So they are written here, and each is checked against its page.
+
+/** CEILING.PRECISE, ISO.CEILING and FLOOR.PRECISE: toward +∞ or −∞ whatever the signs. */
+const precise =
+  (ceiling: boolean): FnImpl =>
+  (args, ctx) =>
+    arity(args, 1, 2) ?? multipleMath(ceiling)(args.slice(0, 2), ctx);
+F["CEILING.PRECISE"] = precise(true);
+F["ISO.CEILING"] = precise(true);
+F["FLOOR.PRECISE"] = precise(false);
+
+/** A function of one number, given its own errors. */
+const ofNumber =
+  (fn: (x: number) => Value): FnImpl =>
+  (args) => {
+    const bad = arity(args, 1, 1);
+    if (bad) return bad;
+    const x = num(args[0]);
+    return isError(x) ? x : fn(x);
+  };
+/** Excel's trigonometry takes an angle below 2^27 in size. */
+const ANGLE_LIMIT = 2 ** 27;
+const reciprocal = (of: (x: number) => number, zeroDivides: boolean): FnImpl =>
+  ofNumber((x) =>
+    Math.abs(x) >= ANGLE_LIMIT
+      ? err("#NUM!", "The number must be below 2^27 in size")
+      : zeroDivides && x === 0
+        ? err("#DIV/0!", "It is 1 divided by 0 at 0")
+        : 1 / of(x),
+  );
+F.COT = reciprocal(Math.tan, true);
+F.CSC = reciprocal(Math.sin, true);
+F.SEC = reciprocal(Math.cos, false);
+F.COTH = reciprocal(Math.tanh, true);
+F.CSCH = reciprocal(Math.sinh, true);
+F.SECH = reciprocal(Math.cosh, false);
+F.ACOSH = ofNumber((x) => (x < 1 ? err("#NUM!", "ACOSH takes 1 or more") : Math.acosh(x)));
+F.ASINH = ofNumber(Math.asinh);
+F.ATANH = ofNumber((x) =>
+  x <= -1 || x >= 1 ? err("#NUM!", "ATANH takes a number between -1 and 1") : Math.atanh(x),
+);
+/** ACOT is in 0 to π, as Excel's. */
+F.ACOT = ofNumber((x) => Math.PI / 2 - Math.atan(x));
+F.ACOTH = ofNumber((x) =>
+  Math.abs(x) <= 1
+    ? err("#NUM!", "ACOTH takes a number above 1 in size")
+    : 0.5 * Math.log((x + 1) / (x - 1)),
+);
+/** n!!: 1 for 0 and -1, as Excel's, and #NUM! below. */
+F.FACTDOUBLE = ofNumber((x) => {
+  const n = Math.trunc(x);
+  if (n < -1) return err("#NUM!", "FACTDOUBLE takes -1 or more");
+  let r = 1;
+  for (let k = n; k > 1; k -= 2) r *= k;
+  return Number.isFinite(r) ? r : err("#NUM!", "Too large");
+});
+F.SQRTPI = ofNumber((x) =>
+  x < 0 ? err("#NUM!", "SQRTPI takes 0 or more") : Math.sqrt(x * Math.PI),
+);
+F.MULTINOMIAL = (args) => {
+  const bad = arity(args, 1);
+  if (bad) return bad;
+  const xs = collectNumbers(args);
+  if (isError(xs)) return xs;
+  if (xs.some((x) => x < 0)) return err("#NUM!", "MULTINOMIAL takes no negative numbers");
+  // (a+b+…)! / (a!·b!·…), built up one factor at a time so it stays in range.
+  let r = 1;
+  let total = 0;
+  for (const x of xs) {
+    for (let k = 1; k <= Math.trunc(x); k++) r = (r * ++total) / k;
+  }
+  return Number.isFinite(r) ? r : err("#NUM!", "Too large");
+};
+/** SERIESSUM(x, n, m, coefficients): Σ aᵢ·x^(n+i·m). */
+F.SERIESSUM = (args) => {
+  const bad = arity(args, 4, 4);
+  if (bad) return bad;
+  const [x, n, m] = [num(args[0]), num(args[1]), num(args[2])];
+  for (const v of [x, n, m]) if (isError(v)) return v;
+  let sum = 0;
+  let i = 0;
+  for (const a of flat(args[3].value())) {
+    if (isError(a)) return a;
+    if (a !== null && typeof a !== "number")
+      return err("#VALUE!", "SERIESSUM's coefficients must be numbers");
+    sum += (a ?? 0) * (x as number) ** ((n as number) + i++ * (m as number));
+  }
+  return Number.isFinite(sum) ? sum : err("#NUM!", "Too large");
+};
+F.DELTA = (args) => {
+  const bad = arity(args, 1, 2);
+  if (bad) return bad;
+  const a = num(args[0]);
+  if (isError(a)) return a;
+  const b = num(args[1], 0);
+  return isError(b) ? b : a === b ? 1 : 0;
+};
+F.GESTEP = (args) => {
+  const bad = arity(args, 1, 2);
+  if (bad) return bad;
+  const a = num(args[0]);
+  if (isError(a)) return a;
+  const step = num(args[1], 0);
+  return isError(step) ? step : a >= step ? 1 : 0;
+};
+
+const SQRT_PI = Math.sqrt(Math.PI);
+/** erf for 0 ≤ x < 2: (2/√π)·e^(−x²)·Σ 2ⁿx^(2n+1)/(2n+1)!!, every term positive. */
+function erfSeries(x: number): number {
+  let term = x;
+  let sum = x;
+  const x2 = 2 * x * x;
+  for (let n = 1; n < 500; n++) {
+    term *= x2 / (2 * n + 1);
+    sum += term;
+    if (term < sum * 1e-17) break;
+  }
+  return (2 / SQRT_PI) * Math.exp(-x * x) * sum;
+}
+/** erfc for x ≥ 2, by Laplace's continued fraction (modified Lentz). */
+function erfcFraction(x: number): number {
+  const tiny = 1e-300;
+  let f = x;
+  let c = f;
+  let d = 0;
+  for (let k = 1; k < 1000; k++) {
+    const a = k / 2;
+    d = x + a * d;
+    if (d === 0) d = tiny;
+    c = x + a / c;
+    if (c === 0) c = tiny;
+    d = 1 / d;
+    const delta = c * d;
+    f *= delta;
+    if (Math.abs(delta - 1) < 1e-16) break;
+  }
+  return Math.exp(-x * x) / (SQRT_PI * f);
+}
+/** The error function and its complement, to about 16 digits. */
+export const erf = (x: number): number =>
+  x < 0 ? -erf(-x) : x < 2 ? erfSeries(x) : 1 - erfcFraction(x);
+export const erfc = (x: number): number =>
+  x < 0 ? 2 - erfc(-x) : x < 2 ? 1 - erfSeries(x) : erfcFraction(x);
+/** ERF(lower, [upper]): from 0 to lower, or from lower to upper. */
+F.ERF = (args) => {
+  const bad = arity(args, 1, 2);
+  if (bad) return bad;
+  const lower = num(args[0]);
+  if (isError(lower)) return lower;
+  if (!args[1] || args[1].node.k === "empty") return erf(lower);
+  const upper = num(args[1]);
+  return isError(upper) ? upper : erf(upper) - erf(lower);
+};
+F["ERF.PRECISE"] = ofNumber(erf);
+F.ERFC = ofNumber(erfc);
+F["ERFC.PRECISE"] = ofNumber(erfc);
+
+/** BESSELI/J/K/Y(x, n): the order truncated, and none below 0, as Excel's. */
+for (const name of ["BESSELI", "BESSELJ", "BESSELK", "BESSELY"]) {
+  const lib = (formulajs as unknown as Record<string, (x: number, n: number) => unknown>)[name];
+  F[name] = (args) => {
+    const bad = arity(args, 2, 2);
+    if (bad) return bad;
+    const x = num(args[0]);
+    if (isError(x)) return x;
+    const n = num(args[1]);
+    if (isError(n)) return n;
+    if (n < 0) return err("#NUM!", "The order must be 0 or more");
+    return scalarOf(fromFormulaJs(lib(x, Math.trunc(n))));
+  };
+}
+
+/** A square block of numbers, or the error MDETERM and MINVERSE give. */
+function squareMatrix(a: Arg | undefined): number[][] | SheetError {
+  if (!a) return err("#N/A", "Wrong number of arguments");
+  const m = asMatrix(a.value());
+  if (m.length !== (m[0]?.length ?? 0)) return err("#VALUE!", "The array must be square");
+  const out: number[][] = [];
+  for (const line of m) {
+    const row: number[] = [];
+    for (const x of line) {
+      if (isError(x)) return x;
+      if (typeof x !== "number") return err("#VALUE!", "Every cell must hold a number");
+      row.push(x);
+    }
+    out.push(row);
+  }
+  return out;
+}
+/** MDETERM: by elimination with partial pivoting. */
+F.MDETERM = (args) => {
+  const bad = arity(args, 1, 1);
+  if (bad) return bad;
+  const m = squareMatrix(args[0]);
+  if (isError(m)) return m;
+  const n = m.length;
+  let det = 1;
+  for (let c = 0; c < n; c++) {
+    let p = c;
+    for (let r = c + 1; r < n; r++) if (Math.abs(m[r][c]) > Math.abs(m[p][c])) p = r;
+    if (m[p][c] === 0) return 0;
+    if (p !== c) {
+      [m[p], m[c]] = [m[c], m[p]];
+      det = -det;
+    }
+    det *= m[c][c];
+    for (let r = c + 1; r < n; r++) {
+      const f = m[r][c] / m[c][c];
+      for (let k = c; k < n; k++) m[r][k] -= f * m[c][k];
+    }
+  }
+  return Number.isFinite(det) ? det : err("#NUM!", "Too large");
+};
+/** MINVERSE: by Gauss-Jordan; a matrix with no inverse is #NUM!. */
+F.MINVERSE = (args) => {
+  const bad = arity(args, 1, 1);
+  if (bad) return bad;
+  const m = squareMatrix(args[0]);
+  if (isError(m)) return m;
+  const n = m.length;
+  const inv = m.map((_, r) => Array.from({ length: n }, (__, c) => (r === c ? 1 : 0)));
+  for (let c = 0; c < n; c++) {
+    let p = c;
+    for (let r = c + 1; r < n; r++) if (Math.abs(m[r][c]) > Math.abs(m[p][c])) p = r;
+    if (m[p][c] === 0) return err("#NUM!", "The matrix has no inverse (its determinant is 0)");
+    [m[p], m[c]] = [m[c], m[p]];
+    [inv[p], inv[c]] = [inv[c], inv[p]];
+    const pivot = m[c][c];
+    for (let k = 0; k < n; k++) {
+      m[c][k] /= pivot;
+      inv[c][k] /= pivot;
+    }
+    for (let r = 0; r < n; r++) {
+      if (r === c || m[r][c] === 0) continue;
+      const f = m[r][c];
+      for (let k = 0; k < n; k++) {
+        m[r][k] -= f * m[c][k];
+        inv[r][k] -= f * inv[c][k];
+      }
+    }
+  }
+  return inv;
+};
+/** MUNIT(n): the n×n identity. */
+F.MUNIT = ofNumber((x) => {
+  const n = Math.trunc(x);
+  if (n < 1) return err("#VALUE!", "MUNIT takes 1 or more");
+  if (n * n > 1_000_000) return err("#NUM!", "Too large");
+  return Array.from({ length: n }, (_, r) =>
+    Array.from({ length: n }, (__, c) => (r === c ? 1 : 0)),
+  );
+});
 /** The whole numbers GCD and LCM take: truncated, as Excel's, and none negative (R176). */
 function wholeNumbers(args: Arg[]): number[] | SheetError {
   const xs = collectNumbers(args);
@@ -3329,6 +3588,11 @@ const SINGLE_VALUE_FUNCTIONS = [
   // Money: one loan, one asset (NPV, IRR and the schedules take lists).
   ...["PMT", "IPMT", "PPMT", "FV", "PV", "NPER", "RATE", "CUMIPMT", "CUMPRINC", "ISPMT"],
   ...["EFFECT", "NOMINAL", "PDURATION", "RRI", "SLN", "SYD", "DB", "DDB", "VDB"],
+  // R330's math and engineering.
+  ...["ACOSH", "ASINH", "ATANH", "ACOT", "ACOTH", "COT", "COTH", "CSC", "CSCH", "SEC", "SECH"],
+  ...["FACTDOUBLE", "SQRTPI", "CEILING.PRECISE", "FLOOR.PRECISE", "ISO.CEILING", "DELTA"],
+  ...["GESTEP", "ERF", "ERF.PRECISE", "ERFC", "ERFC.PRECISE", "BESSELI", "BESSELJ", "BESSELK"],
+  "BESSELY",
   // Dates, text and information.
   ...["DATEDIF", "YEARFRAC", "WEEKNUM", "ISOWEEKNUM"],
   ...["CLEAN", "DOLLAR", "FIXED", "UNICHAR", "UNICODE", "ADDRESS", "ERROR.TYPE"],
@@ -3341,6 +3605,7 @@ export const LIFTS: ReadonlyMap<string, (argCount: number) => number[]> = new Ma
   ...["NETWORKDAYS", "NETWORKDAYS.INTL", "WORKDAY", "WORKDAY.INTL"].map(
     (n) => [n, firstTwo] as const,
   ),
+  ["SERIESSUM", () => [0, 1, 2]] as const,
   ...["MATCH", "XMATCH", "XLOOKUP", "VLOOKUP", "HLOOKUP"].map((n) => [n, first] as const),
   ...["COUNTIF", "SUMIF", "AVERAGEIF"].map((n) => [n, second] as const),
   ...["TEXTBEFORE", "TEXTAFTER"].map((n) => [n, first] as const),

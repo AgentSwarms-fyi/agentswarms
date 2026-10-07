@@ -15,6 +15,26 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-07 — R330: math and engineering functions
+
+New workbook `R330 math functions` (kept). A1:A10 were typed before the deploy, when every one
+showed `#NAME?`, and the workbook was reopened after it:
+
+| Formula                                        | After                          |
+| ---------------------------------------------- | ------------------------------ |
+| `=ACOSH(10)`                                   | 2.993222846                    |
+| `=SEC(45)`                                     | 1.903594407                    |
+| `=ISO.CEILING(4.3)`                            | 5                              |
+| `=ERF(0, 1)`                                   | 0.8427007929                   |
+| `=BESSELJ(1.9, 2)`                             | 0.3299258287                   |
+| `=MDETERM({1,3,8,5;1,3,6,1;1,1,1,0;7,3,10,2})` | 88                             |
+| `=MINVERSE({4,-1;2,0})`                        | spilled 0, 0.5 / -1, 2 (A7:B8) |
+| `=FACTDOUBLE(7)`                               | 105                            |
+| `=SUM(MUNIT(3))`                               | 3                              |
+
+Typing `=BESSELJ(` in A11 showed the hint "BESSELJ(x, n) — The Bessel function Jₙ(x)."; the edit
+was cancelled.
+
 ## 2026-10-07 — R329: functions of one value over ranges
 
 New workbook `R329 functions over ranges` (kept). A1:A3 were typed 0, 0.5 and 1, and row 1 the

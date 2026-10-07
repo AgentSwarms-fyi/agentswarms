@@ -50,7 +50,7 @@ The figures in each were checked against a separate calculation in Python from t
 
 ### Formulas
 
-Type `=` and a formula, as in Excel. About 240 functions are available:
+Type `=` and a formula, as in Excel. More than 400 of Excel's 510 functions are available:
 
 - **Totals:** SUM, AVERAGE, COUNT, COUNTA, SUMIF(S), COUNTIF(S), AVERAGEIF(S), MINIFS, MAXIFS,
   SUMPRODUCT, SUMSQ, SUBTOTAL and AGGREGATE.
@@ -125,6 +125,18 @@ Type `=` and a formula, as in Excel. About 240 functions are available:
   matches and #NUM! when more than one record does. A criteria column whose label is not a field of
   the table matches nothing: Excel reads such a column as a formula criterion, which is not
   supported here.
+- **Math, trigonometry and engineering** (R330, beside the ones of every spreadsheet): ACOSH,
+  ASINH, ATANH, ACOT, ACOTH, COT, COTH, CSC, CSCH, SEC, SECH, FACTDOUBLE, MULTINOMIAL,
+  SERIESSUM, SQRTPI, CEILING.PRECISE, FLOOR.PRECISE, ISO.CEILING, DELTA, GESTEP, ERF (from 0, or
+  between two limits), ERF.PRECISE, ERFC, ERFC.PRECISE, BESSELI, BESSELJ, BESSELK, BESSELY, MUNIT,
+  MDETERM and MINVERSE.
+  - ERF and ERFC are right to about 16 digits, far out too: `ERFC(5)` is 1.53745979442803E-12.
+  - COT, CSC and SEC (and the hyperbolic three) take an angle below 2^27 in size, as Excel's do,
+    and 1/0 is #DIV/0!. ACOT is from 0 to π.
+  - FACTDOUBLE(-1) is 1, as in Excel, and below that #NUM!. A Bessel order is truncated, and one
+    below 0 is #NUM!.
+  - MINVERSE of a matrix with no inverse is #NUM!. MDETERM is exact to about 16 digits, as
+    Excel's page says of its own: the 4×4 example on that page shows 88.
 - **Complex numbers:** all twenty-five of Excel's — IMSUM, IMSUB, IMPRODUCT, IMDIV, IMCONJUGATE,
   IMPOWER, IMSQRT, IMABS, IMREAL, IMAGINARY, IMARGUMENT, IMEXP, IMLN, IMLOG10, IMLOG2, and the
   trigonometric and hyperbolic ones (IMSIN … IMCSCH) — over Excel's text form (`3+4i`, `2-j`,
