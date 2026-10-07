@@ -15,6 +15,17 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-07 — R324: the browser checks, run and broken on purpose
+
+| What was run                                                            | What came back                                                                                                               |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `E2E_CHANNEL=chrome npx playwright test`, against the placeholder build | 12 passed, 2 failed on two selectors, not the pages: the sign-in heading is shown twice                                      |
+| The same, with the selectors taking the visible copy                    | **14 passed** (1.3 min): twelve public pages, docs client navigation, sign-in ↔ sign-up                                      |
+| `dist/client/assets/terms-*.js` made to throw after load; `-g terms`    | **failed**: "pageerror: e2e mutant: the terms page crashed in the browser"; then restored                                    |
+| The whole gate, with the browser step after the build                   | **failed**: the server died midway, "ReadableStream is already closed" inside undici; every later page refused. That is R325 |
+| After R325's guard, the checks twice                                    | **14 passed**, then **14 passed** (52 s, 50 s)                                                                               |
+| The next gate run                                                       | The race recurred: "survived undici closing a response stream twice …"; **14 passed**                                        |
+
 ## 2026-10-07 — R323: switching nodes on the swarm canvas
 
 Swarm "Approval durability check", canvas view. The evidence is the inspector's loads of the MCP

@@ -109,6 +109,89 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-07 — R325: a stream closed twice inside Node's fetch ended the server
+
+**Severity: medium, the server** (a worker, or the whole server, killed by a benign error). Found by
+R324's browser checks on their first full run in the gate.
+
+**The defect.** Midway through the run, the server under test died with:
+
+```
+TypeError [ERR_INVALID_STATE]: Invalid state: ReadableStream is already closed
+    at ReadableByteStreamController.close (node:internal/webstreams/readablestream:1187:13)
+    at node:internal/deps/undici/undici:1573:30
+```
+
+Every later page was then refused (`net::ERR_CONNECTION_REFUSED`). undici, the fetch inside Node, can
+close a response body's stream twice when the body is cancelled while it is still being read. The
+second close throws from a microtask nothing can catch, and Node exits the process. `server.mjs`
+restarts a worker that dies, but everything that worker held dies with it: in-flight requests,
+streams, and swarm runs executing in it. With `WEB_CONCURRENCY=1` it is the whole server.
+
+**The fix.** `serverGuards.mjs` installs an `uncaughtException` handler, first thing in the primary
+and every worker:
+
+- **This one error is survived.** It must be `ERR_INVALID_STATE`, say "ReadableStream is already
+  closed", and have undici in its stack. It is logged with a warning, and the process keeps
+  serving. The stream was already closed, so nothing is left half-done.
+- **Everything else ends the process as before**: printed with its stack, exit code 1.
+
+**Tests:** `serverGuards.test.ts`:
+
+- the error is recognised; the same message without undici in the stack is not, and nor is any
+  other error;
+- the handler warns and stays on the double close, and exits with 1 on anything else;
+- **real child processes**: one with the guard survives the error thrown from a microtask and
+  prints "still serving", one without it dies of it, and one with it still dies of an ordinary
+  error;
+- `server.mjs` installs the guard before it forks or serves.
+
+The browser checks then passed twice in a row against the guarded server, where the race did not
+recur. In the next gate run it did. The server logged "[agentswarms] survived undici closing a
+response stream twice (Invalid state: ReadableStream is already closed); nothing was left
+half-done", kept serving, and all 14 checks passed.
+
+On the way, the docs check flagged `E2E_PORT` as an unknown variable. Its list of what the code reads
+covered `src`, `scripts` and a few root files, but not `playwright.config.ts`, which is now on it.
+
+- **Mutation harness:** 4 mutants caught, and the control survived.
+
+### 2026-10-07 — R324: no check ever ran a page in a browser
+
+**A gap, not a defect.** Found in the gap review after 1.6.0. The unit suite runs code in Node.
+`scripts/ui-smoke.mjs` renders every route on the server. The rounds' UI drives are by hand. Nothing
+automatic loaded a page in a browser, so a page that rendered and then crashed while hydrating, or
+whose client-side navigation broke, would pass CI.
+
+**What was added:**
+
+- **The checks.** `tests/e2e/public.spec.ts` (Playwright, `@playwright/test` 1.63) loads twelve public
+  pages in Chromium. Each must show its heading with no uncaught page error, no console error and no
+  error boundary. The docs must navigate on the client (a marker on `window` survives only that),
+  and the sign-in card must switch to sign-up, which needs the page hydrated. The console filter
+  drops only an offline CI's analytics and the placeholder Supabase host.
+- **What they run against.** `playwright.config.ts` starts the built server (`node server.mjs`) on
+  port 4173, with no scheduler.
+- **CI.** A second job builds with the same placeholders, installs Chromium and runs the checks. It
+  uses no secrets. Vitest leaves `tests/e2e` alone.
+- **Locally.** `npm run test:e2e` runs them after a build. `E2E_CHANNEL=chrome` uses the installed
+  Chrome rather than downloading Playwright's.
+
+**Checked:** 14 passed in 1.3 min locally, against a build with CI's placeholder Supabase URL. Then
+one route's built chunk (`terms-*.js`) was made to throw after load: the /terms check failed with
+"pageerror: e2e mutant: the terms page crashed in the browser". The chunk was restored.
+`e2eSuiteWired.test.ts` pins the CI job's order (build, then Chromium, then the checks), the absence
+of secrets, the built server, Vitest's exclude, and that the checks fail on page and console errors.
+
+**Not covered yet:** signed-in pages. They need a database CI can own, such as `supabase start` in
+the job.
+
+**The first full run in the gate failed, and was right to.** The server under test died midway of an
+error inside undici. That is R325.
+
+- **Mutation harness:** 5 mutants caught (no browser installed, the checks not run, page errors
+  not watched, the dev server, Vitest picking them up), and the control survived.
+
 ### 2026-10-07 — R323: the fourteen react-hooks warnings, read one by one
 
 **Severity: low, swarm canvas** (one real defect among warnings). Part of the gap review's "lint

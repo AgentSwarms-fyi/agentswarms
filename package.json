@@ -33,6 +33,7 @@
     "check": "npm run typecheck && npm run lint && npm run check:docs && npm run check:md-docs && npm run check:doc-commands && npm run check:infra && npm run test && npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:differential": "tsx tests/differential/report.ts",
     "eval:nl2sql": "tsx evals/nl2sql/run.ts",
@@ -152,6 +153,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "@playwright/test": "^1.63.0",
     "@types/d3-geo": "^3.1.1",
     "@types/node": "^22.20.5",
     "@types/react": "^19.3.0",

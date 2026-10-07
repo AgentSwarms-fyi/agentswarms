@@ -27,6 +27,27 @@ npm run check
 It takes a few minutes because the build is real. Run it before every push;
 `npm run format` fixes the formatting half in place.
 
+## Browser checks
+
+`tests/e2e` holds Playwright checks that load the **built** app in Chromium
+(R324). The unit suite runs code in Node and `scripts/ui-smoke.mjs` renders
+every route on the server; neither runs a page in a browser, so a page that
+rendered and then crashed while hydrating passed both. Each public page must
+show its heading with no uncaught page error, no console error and no error
+boundary; the docs must navigate on the client, and the sign-in card must
+switch to sign-up, which only happens once the page has hydrated.
+
+```bash
+npm run build
+npm run test:e2e
+```
+
+The config starts `node server.mjs` itself on port 4173 (`E2E_PORT`). CI
+installs Playwright's Chromium; locally, `E2E_CHANNEL=chrome` drives the
+Chrome you already have instead of downloading one. They need no backend and
+no secrets: the pages covered render without a session. Signed-in pages are
+not covered yet; that needs a database CI can own, such as `supabase start`.
+
 ## What is covered
 
 | Area                    | File                                        | Why it matters                                        |
@@ -43,6 +64,7 @@ It takes a few minutes because the build is real. Run it before every push;
 | Request limiting        | `tests/unit/rateLimit.test.ts`              | Enforces the documented governance ceilings           |
 | Dashboard pages         | `tests/unit/biDashboardPages.test.ts`       | A widget must land where the dashboard reads it       |
 | **End-to-end journeys** | `tests/journey/`                            | The seams between units — where the real bugs were    |
+| **Browser checks**      | `tests/e2e/`                                | The client: hydration, navigation, page errors        |
 
 ## Journey tests
 
@@ -545,7 +567,8 @@ each needing a real project for the same reason.
 ## CI
 
 `.github/workflows/ci.yml` runs typecheck, tests and a production build on
-every push to `main` and on every pull request — a push to a side branch with
+every push to `main` and on every pull request, and, in a second job, the
+browser checks against that build — a push to a side branch with
 no PR open does not trigger it. No secrets are used; the build gets placeholder
 `VITE_*` values, which is enough to prove the bundle compiles.
 
@@ -553,8 +576,10 @@ no PR open does not trigger it. No secrets are used; the build gets placeholder
 permanently red has been cleared with `npm run format`, so `npm run lint`
 reports **0 errors** and CI fails on any new one.
 
-Around 210 warnings remain, almost all `@typescript-eslint/no-explicit-any` at
-untyped external boundaries — LLM provider responses, the MCP protocol, AlaSQL's UMD
+Around 220 warnings remain: 158 `@typescript-eslint/no-explicit-any` and 62
+from react-refresh about non-component exports outside the route files. None
+comes from the react-hooks rule since R323. The `any`s sit at untyped external
+boundaries — LLM provider responses, the MCP protocol, AlaSQL's UMD
 surface, Supabase `Json`. That rule is deliberately a **warning** rather than an
 error: replacing those with `unknown` plus narrowing is worth doing and is its
 own project, and a permanently-red required check is one everybody learns to

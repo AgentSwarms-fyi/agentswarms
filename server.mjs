@@ -22,6 +22,12 @@ import { readFileSync } from "node:fs";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { installServerGuards } from "./serverGuards.mjs";
+
+// Before anything else, in the primary and in every worker: undici can throw
+// from a microtask when it closes a response stream twice, which used to end
+// the process (R325). See serverGuards.mjs.
+installServerGuards();
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8080);

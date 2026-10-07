@@ -50,7 +50,8 @@ export default defineConfig({
     // must never run by accident in CI, where they would either fail on
     // missing credentials or, worse, write to whatever project happened to be
     // configured.
-    exclude: ["tests/integration/**", "node_modules/**", "dist/**"],
+    // tests/e2e is Playwright's (npm run test:e2e), against the built app.
+    exclude: ["tests/integration/**", "tests/e2e/**", "node_modules/**", "dist/**"],
     pool: "forks",
     // Vitest 4 moved the pool's options to the top level: `maxWorkers` is
     // what `poolOptions.forks.maxForks` was.

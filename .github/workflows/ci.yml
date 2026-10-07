@@ -106,3 +106,49 @@ jobs:
           name: test-results-node-${{ matrix.node }}
           path: test-results/
           if-no-files-found: ignore
+
+  # The client, in a real browser (R324). The unit suite runs code in Node and
+  # scripts/ui-smoke.mjs renders routes on the server; neither runs the page
+  # in a browser, so a page that rendered and then crashed while hydrating
+  # passed both. This builds the app, starts it, and loads the public pages in
+  # Chromium: an uncaught page error, a console error, an error boundary or a
+  # client-side navigation that does not happen fails the job. No backend and
+  # no secrets: the public pages render without a session.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    name: e2e (browser)
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate route tree
+        run: npm run generate:routes
+
+      - name: Build
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: https://placeholder.supabase.co
+          VITE_SUPABASE_PUBLISHABLE_KEY: placeholder-anon-key
+          VITE_SUPABASE_PROJECT_ID: placeholder
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser checks
+        run: npm run test:e2e
+
+      - name: Upload the browser report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-report
+          path: test-results/
+          if-no-files-found: ignore

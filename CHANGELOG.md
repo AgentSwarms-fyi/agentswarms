@@ -22,6 +22,16 @@ development branch and may be ahead of the latest tag.
   resuming a swarm run after its approval now claims. One widens the cost
   columns to unconstrained `numeric`, without rewriting the tables.
 
+### Added
+
+- **Browser checks in CI** (R324). A second CI job builds the app, starts it,
+  and loads the public pages in Chromium with Playwright: an uncaught page
+  error, a console error, an error boundary, or a client-side navigation that
+  does not happen fails it. The unit suite and the server-side route smoke
+  never ran a page in a browser. `npm run test:e2e` runs them locally after a
+  build (`E2E_CHANNEL=chrome` uses the Chrome you have). Signed-in pages are
+  not covered yet.
+
 ### Security: dependencies
 
 `npm audit` went from **44 advisories (4 critical, 24 high)** to **2 moderate**,
@@ -53,6 +63,12 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **A stream closed twice inside Node's fetch ended the server** (R325): undici
+  can throw "ReadableStream is already closed" from a microtask when a response
+  body is cancelled mid-read, which killed a worker, with every request and
+  swarm run it held (or the whole server with `WEB_CONCURRENCY=1`). That one
+  error is now logged and survived; every other uncaught exception still ends
+  the process. Found by the new browser checks.
 - **The swarm canvas's node inspector pruned only the first node it showed**
   (R323): its mount effect removes MCP servers that no longer exist from the
   node's selection, and selecting another node kept the same mount. It is

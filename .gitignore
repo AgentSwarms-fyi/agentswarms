@@ -73,3 +73,6 @@ backups/
 
 # Copied from node_modules at build start by vite.config.ts (R321).
 public/vendor/
+
+# Test output: Vitest's reports and the browser checks' traces (R324). CI uploads them.
+test-results/

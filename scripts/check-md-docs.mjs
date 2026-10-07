@@ -173,7 +173,9 @@ const envHaystack = (() => {
   // unknown.
   walk("tests");
   walk("evals");
-  for (const f of [".env.example", "docker-compose.yml", "Dockerfile"])
+  // playwright.config.ts reads the browser checks' variables (E2E_PORT,
+  // E2E_CHANNEL) that TESTING.md documents (R324).
+  for (const f of [".env.example", "docker-compose.yml", "Dockerfile", "playwright.config.ts"])
     if (fs.existsSync(f)) parts.push(read(f));
   return parts.join("\n");
 })();
