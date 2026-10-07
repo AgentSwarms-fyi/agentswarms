@@ -991,6 +991,9 @@ export function AgentForm({
         await refreshMemoryItems();
       })();
     }
+    // once per mount: the
+    // parent keys this form by agent id (R323), so a different agent is a new form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function updateGuardrail<K extends keyof Guardrails>(key: K, value: Guardrails[K]) {

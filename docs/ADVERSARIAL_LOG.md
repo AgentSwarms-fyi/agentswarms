@@ -109,6 +109,53 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-07 — R323: the fourteen react-hooks warnings, read one by one
+
+**Severity: low, swarm canvas** (one real defect among warnings). Part of the gap review's "lint
+warnings". Of the 235 warnings, the hooks rule's are the ones that can hide a stale-closure bug, so
+each of its fourteen was read.
+
+**The defect.** The canvas rendered the swarm's `NodeInspector` without a key. The inspector loads
+the MCP servers once per mount and prunes servers that no longer exist from the inspected node's
+selection. Selecting another node kept the same mount, so only the first node selected was ever
+pruned. A later node could show, and run with, a server that had been removed.
+
+**The changes:**
+
+- **The inspector is keyed by node id**, so another node is another mount and is pruned. **The
+  agent form is keyed by agent id**: it loads that agent's memory settings on mount. It sits in a
+  dialog that is closed between edits, so it was safe before; the key makes it safe without relying
+  on the dialog.
+- **The running-node Set** on the swarm page was memoised on a computed expression in its
+  dependency list, which the rule cannot check. It is keyed on the ids' JSON now, which also
+  survives an id containing the old `|` separator.
+- **Two dependency lists were wrong.** The sample notebook's run callback listed `sampleSlug`, which
+  it does not read. The data catalog carried a disable directive for a warning that no longer
+  existed.
+- **Ten effects are deliberately keyed to a trigger**: a load per agent, conversation, base, token
+  or range, a subscription per user, and a check once per user id. The load functions are recreated
+  every render and are not a reason to reload. Each now says so above a directive that sits on the
+  dependency line. A two-line directive comment first pointed the directive at its own second line,
+  which the linter reported as unused.
+
+Warnings go from 235 to 220: no hooks warnings remain. The rest are `no-explicit-any` (158) and
+react-refresh's "only export components" outside the route files (62).
+
+**Tests:** `remountPerItem.test.ts` pins the two keys and their mount-only effects, the running-node
+Set's key, and the JSON round trip of an id with a `|` in it. The 75 test files that read these
+components pass in the gate.
+
+- **Mutation harness:** 5 mutants caught, and the control survived.
+
+**The after**, hot-deployed, on the canvas of "Approval durability check". The page's resource
+timing counted the inspector's loads of the MCP server list as nodes were selected. Selecting
+Summarise made 1, Human approval made 2 (the inspector read "APPROVAL NODE · Human approval"), and
+Summarise again made 3: one inspector per node. Unkeyed, the count stays at 1 after the first node.
+The console showed no React errors.
+
+Not driven: a node that still selects a removed MCP server. Staging one means deleting a connected
+server from under a saved swarm; the remount that prunes it is what was checked.
+
 ### 2026-10-07 — R322: a notebook's first run on a slow host, refused by its own kernel
 
 **Severity: medium, notebooks** (the first run after a cold start fails on a slow host). Found staging

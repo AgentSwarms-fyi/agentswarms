@@ -171,6 +171,9 @@ export function ApprovalInbox() {
       mounted = false;
       supabase.removeChannel(channel);
     };
+    // amIApprover reads the user this effect was set up for and the group ref;
+    // re-subscribing on every render would drop events.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const decide = async (id: string, status: "approved" | "rejected") => {

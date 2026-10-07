@@ -106,7 +106,7 @@ function SampleNotebookPage() {
       setOutputs((o) => ({ ...o, [cell.id]: res }));
       return res;
     },
-    [tokenRef, sampleSlug],
+    [tokenRef],
   );
 
   const runAll = async () => {

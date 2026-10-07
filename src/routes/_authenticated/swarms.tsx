@@ -900,10 +900,10 @@ function SwarmsCanvas({
   const events = activeRun?.events ?? EMPTY_EVENTS;
   const finalOutput = activeRun?.finalOutput ?? null;
   const traceRunId = activeRun?.dbRunId ?? null;
-  const runningNodeIds = useMemo(
-    () => new Set(activeRun?.runningNodeIds ?? []),
-    [activeRun?.runId, (activeRun?.runningNodeIds ?? []).join("|")],
-  );
+  // Keyed on the ids' content, so a run that re-reports the same nodes keeps
+  // the same Set and nothing downstream re-renders for it.
+  const runningKey = JSON.stringify(activeRun?.runningNodeIds ?? []);
+  const runningNodeIds = useMemo(() => new Set<string>(JSON.parse(runningKey)), [runningKey]);
   // Typed input form fields declared on the input node (empty = single textarea).
   const inputFields = useMemo(
     () => nodes.find((n) => n.data.kind === "input")?.data.inputFields ?? [],
@@ -2439,6 +2439,9 @@ function SwarmsCanvas({
         {/* Right side: inspector when a node is selected */}
         {selectedNode && (
           <NodeInspector
+            // One inspector per node: its mount effect prunes MCP servers that
+            // no longer exist from THIS node's selection (R323).
+            key={selectedNode.id}
             node={selectedNode}
             knowledgeBases={knowledgeBases}
             agentLibrary={agentLibrary}

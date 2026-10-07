@@ -437,6 +437,9 @@ export function NodeInspector({
       }
       setMcpServersLoaded(true);
     })();
+    // once per mount: the
+    // canvas keys the inspector by node id (R323), so another node is another mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const currentProvider = data.provider || "openrouter";

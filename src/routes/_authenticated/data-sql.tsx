@@ -998,7 +998,6 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
     } finally {
       setSuggestionsLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestionDatasets, semantics, savedMetrics, biModel]);
 
   // Switching source invalidates the chips immediately, rather than leaving

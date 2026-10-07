@@ -423,6 +423,9 @@ function PlaygroundPage() {
     setConversations([]);
     setConvosLoaded(false);
     loadConversations();
+    // a load per agent; the
+    // request counter, not the dependency list, keeps an older load from landing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAgent]);
 
   useEffect(() => {
@@ -432,6 +435,9 @@ function PlaygroundPage() {
     setMessages([]);
     setMessagesLoaded(false);
     loadMessages();
+    // a load per conversation;
+    // the request counter keeps an older load from landing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeConvo]);
 
   useEffect(() => {

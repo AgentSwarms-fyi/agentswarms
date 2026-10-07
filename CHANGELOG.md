@@ -53,6 +53,11 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **The swarm canvas's node inspector pruned only the first node it showed**
+  (R323): its mount effect removes MCP servers that no longer exist from the
+  node's selection, and selecting another node kept the same mount. It is
+  keyed by node id now. Found reading the fourteen react-hooks lint warnings,
+  which are now none (235 warnings to 220).
 - **A notebook's first run on a slow host failed over a running kernel** (R322).
   The gateway gave a kernel create 20 s; a slow first boot finished after
   that, started the kernel anyway, and every retry was refused ("Resource

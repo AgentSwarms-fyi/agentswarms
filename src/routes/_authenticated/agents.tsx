@@ -201,6 +201,8 @@ function AgentsPage() {
                   <DialogTitle>{editing ? "Edit Agent" : "Create Agent"}</DialogTitle>
                 </DialogHeader>
                 <AgentForm
+                  // One form per agent: it loads that agent's memory settings on mount (R323).
+                  key={editing?.id ?? "new"}
                   agent={editing}
                   userId={user?.id || ""}
                   onSaved={() => {

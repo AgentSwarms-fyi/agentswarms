@@ -72,6 +72,9 @@ export function OnboardingDialog() {
     return () => {
       cancelled = true;
     };
+    // Keyed to the user's id: the user object is replaced on every token refresh, and the check is
+    // once per user.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
   async function handleSave() {

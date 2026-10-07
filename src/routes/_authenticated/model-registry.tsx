@@ -113,6 +113,9 @@ function ModelRegistryPage() {
 
   useEffect(() => {
     void load();
+    // a load per session
+    // token; load is recreated each render and is not a reason to reload.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.access_token]);
 
   async function load() {

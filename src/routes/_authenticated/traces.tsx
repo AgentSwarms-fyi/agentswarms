@@ -190,6 +190,9 @@ function TracesPage() {
   useEffect(() => {
     if (!user) return;
     load();
+    // a load per user, token
+    // and range; load is recreated each render and is not a reason to reload.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, session?.access_token, rangeFilter]);
 
   const models = useMemo(

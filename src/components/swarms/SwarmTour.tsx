@@ -70,6 +70,9 @@ export function SwarmTour({
     }, 2000);
 
     return () => clearInterval(timer);
+    // The effect drives idx itself; depending on it would restart the cycle on every step it
+    // shows.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeNodeIds, steps]);
 
   // Auto-highlight the current step's node whenever the step changes or

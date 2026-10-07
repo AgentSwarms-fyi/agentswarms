@@ -15,6 +15,17 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-07 — R323: switching nodes on the swarm canvas
+
+Swarm "Approval durability check", canvas view. The evidence is the inspector's loads of the MCP
+server list, counted from the page's resource timing.
+
+| What was driven, hot-deployed             | What came back                                                                          |
+| ----------------------------------------- | --------------------------------------------------------------------------------------- |
+| Select "Summarise for the approver"       | Inspector "AGENT NODE"; MCP list loads: **1**                                           |
+| Select "Human approval"                   | Inspector "APPROVAL NODE · Human approval"; loads: **2** (a new inspector for the node) |
+| Select "Summarise for the approver" again | Loads: **3**. No React errors in the console                                            |
+
 ## 2026-10-07 — R322: a notebook's first run after a cold start
 
 Notebook `My Python notebook` (`575aaa44`). Each check started from no kernel container, so the run

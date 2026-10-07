@@ -493,6 +493,9 @@ function KnowledgePage() {
       loadDocs(selectedBase.id);
       loadSources(selectedBase.id);
     }
+    // a load per selected
+    // base; the loaders are recreated each render and are not a reason to reload.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedBase]);
 
   async function loadConnectedProviders() {

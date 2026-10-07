@@ -979,6 +979,9 @@ function RunPanel({ run, runs, onChanged }: { run: Run; runs: Run[]; onChanged: 
     return () => {
       cancelled = true;
     };
+    // Keyed to the fields that decide which runs are comparable; the rest of `run` changes as it
+    // progresses.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run.id, run.dataset_id, run.evaluator?.kind]);
   const pending = run.case_count - run.done_count;
   const judge = run.evaluator.kind === "llm_judge" ? run.evaluator : null;
