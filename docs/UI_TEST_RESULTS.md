@@ -15,6 +15,23 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-07 — R333: statistics
+
+New workbook `R333 statistics` (kept). A1:A9 and B1:B9 hold the T.TEST page's two samples. D1:D7
+were typed before the deploy, when each showed `#NAME?`, and reopened after:
+
+| Cell  | Formula                                    | After                                     |
+| ----- | ------------------------------------------ | ----------------------------------------- |
+| D1    | `=T.TEST(A1:A9, B1:B9, 2, 1)`              | 0.1960157849                              |
+| D2    | `=T.TEST(A1:A9, B1:B9, 2, 3)`              | 0.2022939234                              |
+| D3    | `=F.TEST({6,7,9,15,21}, {20,28,31,38,40})` | 0.6483178468                              |
+| D4    | `=CHISQ.TEST({58,35;…}, {45.35,47.65;…})`  | `##########` (E4 `=D4*10000`: 3.08192017) |
+| D5    | `=PEARSON(A1:A9, B1:B9)`                   | 0.1018200868                              |
+| D6    | `=BINOM.DIST.RANGE(60, 0.75, 45, 50)`      | 0.5236297935                              |
+| D7:D9 | `=MODE.MULT({1,2,3,4,3,2,1,2,3,5,6,1})`    | 1, 2, 3                                   |
+
+D4's hashes are R334: a General number wider than its column, which Excel would round to fit.
+
 ## 2026-10-07 — R332: CONVERT
 
 New workbook `R332 CONVERT` (kept), typed before the deploy, when every cell showed `#NAME?`, and

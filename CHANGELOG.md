@@ -24,6 +24,11 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Sheets: twenty statistics functions** (R333): the t, F, z and chi-squared
+  tests under their new names and old, COVAR, PEARSON, STEYX, SKEW.P, STDEVPA,
+  VARPA, MODE.MULT, PROB, the three SUMX2 sums and BINOM.DIST.RANGE. formula.js's
+  T.TEST ignored its tails and type and its F.TEST was wrong, so these are
+  written here and checked against the pages and an independent oracle.
 - **Sheets: CONVERT** (R332), with every unit on Excel's page, the SI prefixes
   on the metric units (squared or cubed on an area or a volume) and the binary
   prefixes on bits and bytes. formula.js's own CONVERT lacked units on that

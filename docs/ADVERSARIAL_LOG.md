@@ -109,6 +109,72 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-07 — R333: twenty statistics functions, and a t-test that ignored its type
+
+**Severity: medium, Sheets** (missing functions, and wrong answers from the library they would have
+come from). This is the fourth group of R329's inventory: T.TEST, F.TEST, Z.TEST and CHISQ.TEST
+with their old names, COVAR, PEARSON, STEYX, SKEW.P, STDEVPA, VARPA, MODE.MULT, PROB, SUMX2MY2,
+SUMX2PY2, SUMXMY2 and BINOM.DIST.RANGE. All were `#NAME?`.
+
+formula.js was checked against each page's example:
+
+- **Its T.TEST ignored tails and type.** It answered 0.19199589, the two-tailed equal-variance p,
+  for every test. The page's paired example is 0.196016.
+- **Its F.TEST** was 0.614 for the page's 0.64831785.
+- **Its CHISQ.TEST** came back rounded to six places, 0.000308.
+- **Its MODE.MULT** was `[2,3,1]` across a row, where Excel gives {1;2;3} down a column, in order of
+  first appearance.
+
+The rest were right on their pages.
+
+**An oracle, not only the pages.** A page gives one example, and T.TEST has six combinations of
+tails and type. `stats_oracle.py` is an independent check, written apart from the engine's jStat.
+It computes the incomplete beta and gamma functions by Numerical Recipes' continued fractions, in
+Python. It reproduces the pages' T.TEST 0.196016, F.TEST 0.64831785 and CHISQ.TEST 0.0003082, and
+gives the other t-tests. jStat's t, F and chi-squared tails agree with it to 1E-8 or better, at a
+fractional number of degrees of freedom too.
+
+That matters for Welch's test (type 3), whose degrees of freedom are not whole. Excel's T.TEST uses
+them unrounded, and the Analysis ToolPak rounds them down, so the two disagree in Excel itself
+([real-statistics.com](https://real-statistics.com/students-t-distribution/two-sample-t-test-uequal-variances/)).
+Sheets follows T.TEST.
+
+**What was written:**
+
+- **T.TEST:** paired, pooled or Welch, with tails 1 or 2; any other is `#NUM!`. Paired arrays of
+  different sizes are `#N/A`, and a test with no variance is `#DIV/0!`.
+- **F.TEST** is two-tailed: twice the smaller tail of F = var1/var2.
+- **Z.TEST** is 1 − Φ((mean − x)/(σ/√n)), with σ from the sample when it is left out. It lifts
+  over x.
+- **CHISQ.TEST** uses (r−1)(c−1) degrees of freedom, or n−1 for one row or column. Shapes that differ
+  are `#N/A`, and an expected 0 is `#DIV/0!`.
+- **MODE.MULT** gives a column in order of first appearance, and `#N/A` when nothing repeats.
+- **STEYX, SKEW.P, VARPA and STDEVPA** are as their pages define them. VARPA and STDEVPA count text
+  as 0 and TRUE as 1 from a range.
+- **PROB** checks that its probabilities add up to 1 at Excel's 15 digits, since 0.7 + 0.2 + 0.1 is
+  0.9999999999999999 as stored.
+- **SUMX2MY2, SUMX2PY2 and SUMXMY2** work over pairs, as CORREL does.
+- **COVAR and PEARSON** are COVARIANCE.P and CORREL.
+- **BINOM.DIST.RANGE** comes from formula.js, behind its page's bounds.
+
+**Tests:** `sheetsStatisticsR333.test.ts`, 79 cases, all failing before. All 77 Sheets test files
+pass; two DuckDB-backed files timed out once under load and passed alone.
+
+- **Mutation harness:** 18 mutants caught, and the control survived. The first run let two survive,
+  and each was a gap in the cases. The page's probabilities, 0.2, 0.3, 0.1 and 0.4, happen to add
+  to exactly 1, so nothing tested the 15-digit sum. The pooled variance was only ever tested on
+  arrays of equal size, where weighting changes nothing. Cases for both were added.
+
+**The UI**, in a new workbook `R333 statistics`. A1:B9 hold the T.TEST page's two samples. D1:D7
+were typed before the deploy, all `#NAME?`, and reopened after: paired T.TEST 0.1960157849, Welch
+0.2022939234, F.TEST 0.6483178468, CHISQ.TEST 0.000308192017 (read as `=D4*10000`, 3.08192017),
+PEARSON 0.1018200868, BINOM.DIST.RANGE 0.5236297935, and MODE.MULT spilling 1, 2, 3.
+
+**Found while doing it:** D4 itself showed `##########`. A General number wider than its column
+shows hashes here, where Excel rounds it to fit (0.000308192). That is R334.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-07 — R332: CONVERT, with Excel's whole unit table
 
 **Severity: low, Sheets** (a missing function). This is the third group of R329's inventory.

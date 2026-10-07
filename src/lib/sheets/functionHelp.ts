@@ -25,6 +25,98 @@ export const FUNCTION_HELP: Record<string, FunctionHelp> = {
     desc: "A total that can leave out hidden rows, errors and nested subtotals.",
     cat: "Math",
   },
+  "T.TEST": {
+    sig: "T.TEST(array1, array2, tails, type)",
+    desc: "Student's t-test: type 1 paired, 2 equal variances, 3 unequal; tails 1 or 2.",
+    cat: "Statistical",
+  },
+  TTEST: {
+    sig: "TTEST(array1, array2, tails, type)",
+    desc: "T.TEST's older name.",
+    cat: "Statistical",
+  },
+  "F.TEST": {
+    sig: "F.TEST(array1, array2)",
+    desc: "The two-tailed probability that two arrays' variances are not different.",
+    cat: "Statistical",
+  },
+  FTEST: { sig: "FTEST(array1, array2)", desc: "F.TEST's older name.", cat: "Statistical" },
+  "Z.TEST": {
+    sig: "Z.TEST(array, x, [sigma])",
+    desc: "The one-tailed P-value of a z-test of x against the array's mean.",
+    cat: "Statistical",
+  },
+  ZTEST: { sig: "ZTEST(array, x, [sigma])", desc: "Z.TEST's older name.", cat: "Statistical" },
+  "CHISQ.TEST": {
+    sig: "CHISQ.TEST(actual_range, expected_range)",
+    desc: "The chi-squared test of independence between observed and expected counts.",
+    cat: "Statistical",
+  },
+  CHITEST: {
+    sig: "CHITEST(actual_range, expected_range)",
+    desc: "CHISQ.TEST's older name.",
+    cat: "Statistical",
+  },
+  "MODE.MULT": {
+    sig: "MODE.MULT(number1, [number2], …)",
+    desc: "Every most frequent value, down a column, in the order they first appear.",
+    cat: "Statistical",
+  },
+  COVAR: {
+    sig: "COVAR(array1, array2)",
+    desc: "The population covariance (COVARIANCE.P's older name).",
+    cat: "Statistical",
+  },
+  PEARSON: {
+    sig: "PEARSON(array1, array2)",
+    desc: "The Pearson correlation coefficient, as CORREL.",
+    cat: "Statistical",
+  },
+  STEYX: {
+    sig: "STEYX(known_y's, known_x's)",
+    desc: "The standard error of each predicted y in a linear regression.",
+    cat: "Statistical",
+  },
+  "SKEW.P": {
+    sig: "SKEW.P(number1, [number2], …)",
+    desc: "The skewness of a population.",
+    cat: "Statistical",
+  },
+  STDEVPA: {
+    sig: "STDEVPA(value1, [value2], …)",
+    desc: "A population's standard deviation, text as 0 and TRUE as 1.",
+    cat: "Statistical",
+  },
+  VARPA: {
+    sig: "VARPA(value1, [value2], …)",
+    desc: "A population's variance, text as 0 and TRUE as 1.",
+    cat: "Statistical",
+  },
+  PROB: {
+    sig: "PROB(x_range, prob_range, lower_limit, [upper_limit])",
+    desc: "The probability that a value falls between the limits.",
+    cat: "Statistical",
+  },
+  SUMX2MY2: {
+    sig: "SUMX2MY2(array_x, array_y)",
+    desc: "The sum of x² − y² over the pairs.",
+    cat: "Math",
+  },
+  SUMX2PY2: {
+    sig: "SUMX2PY2(array_x, array_y)",
+    desc: "The sum of x² + y² over the pairs.",
+    cat: "Math",
+  },
+  SUMXMY2: {
+    sig: "SUMXMY2(array_x, array_y)",
+    desc: "The sum of (x − y)² over the pairs.",
+    cat: "Math",
+  },
+  "BINOM.DIST.RANGE": {
+    sig: "BINOM.DIST.RANGE(trials, probability_s, number_s, [number_s2])",
+    desc: "The probability of a number of successes, or a range of them.",
+    cat: "Statistical",
+  },
   CONVERT: {
     sig: "CONVERT(number, from_unit, to_unit)",
     desc: 'A measurement in another unit of the same kind: "mi" to "km", "F" to "C", "kWh" to "BTU".',

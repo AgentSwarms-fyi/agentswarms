@@ -110,6 +110,14 @@ Type `=` and a formula, as in Excel. More than 400 of Excel's 510 functions are 
     1900-03-01. A blank cell read as a date is serial 0, which YEAR, MONTH and DAY read as 1900, 1
     and 0. DATEDIF in days is the difference of the serials, so 1900-02-28 to 03-01 is 2 days. A
     table sheet counts its dates the same way.
+- **Tests and more statistics** (R333): T.TEST, F.TEST, Z.TEST and CHISQ.TEST (and TTEST,
+  FTEST, ZTEST, CHITEST), COVAR, PEARSON, STEYX, SKEW.P, STDEVPA, VARPA, MODE.MULT, PROB,
+  SUMX2MY2, SUMX2PY2, SUMXMY2 and BINOM.DIST.RANGE.
+  - T.TEST's type 1 is paired (the arrays must be the same size), 2 assumes equal variances and 3
+    does not. Type 3 uses Welch's degrees of freedom unrounded, as Excel's T.TEST does; the Analysis
+    ToolPak rounds them, so its p-values differ slightly.
+  - MODE.MULT spills every most frequent value down a column, in the order they first appear.
+  - PROB's probabilities must add up to 1 at Excel's 15 digits, so 0.7, 0.2 and 0.1 do.
 - **Statistics:** STDEV, VAR, RANK, MODE, PERCENTILE and QUARTILE, under their old names and new
   ones; FORECAST(.LINEAR), TREND, GROWTH, FREQUENCY. Also AVERAGEA, MAXA and MINA (from a range,
   text counts as 0 and TRUE as 1), TRIMMEAN, QUARTILE.EXC, PERCENTRANK and its .INC and .EXC forms

@@ -181,6 +181,14 @@ const XLFN = new Set([
   "WRAPCOLS",
   "EXPAND",
   "LAMBDA",
+  // R333: statistics.
+  "T.TEST",
+  "F.TEST",
+  "Z.TEST",
+  "CHISQ.TEST",
+  "MODE.MULT",
+  "SKEW.P",
+  "BINOM.DIST.RANGE",
   // R331: arrays, text and sheets.
   "ARRAYTOTEXT",
   "VALUETOTEXT",

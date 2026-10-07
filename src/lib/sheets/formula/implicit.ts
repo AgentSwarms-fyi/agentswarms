@@ -53,6 +53,12 @@ const ARRAY_ARGS: ReadonlyMap<string, readonly number[] | "all"> = new Map<
   ["TTEST", [0, 1]],
   ["T.TEST", [0, 1]],
   ["PROB", [0, 1]],
+  ["F.TEST", "all"],
+  ["FTEST", "all"],
+  ["Z.TEST", [0]],
+  ["ZTEST", [0]],
+  ["CHISQ.TEST", "all"],
+  ["CHITEST", "all"],
   ["AGGREGATE", "all"],
   // Dynamic arrays' own.
   ["FILTER", "all"],

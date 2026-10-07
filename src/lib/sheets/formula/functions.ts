@@ -1390,6 +1390,233 @@ F.CONVERT = (args) => {
   return (x * a.factor + a.offset - b.offset) / b.factor;
 };
 
+// ── Statistics Excel has (R333) ────────────────────────────────────────────
+//
+// FOUND IN R329's inventory: these were #NAME?. formula.js has most, and
+// is right on the pages' examples for Z.TEST, COVAR, PEARSON, STEYX,
+// SKEW.P, STDEVPA, VARPA, PROB, the SUMX2 three and BINOM.DIST.RANGE, but
+// not on these: its T.TEST ignores tails and type and gives the two-tailed
+// equal-variance p for every test (0.192 for the page's paired 0.196), its
+// F.TEST was 0.614 for the page's 0.648, its CHISQ.TEST is rounded to six
+// places, and its MODE.MULT is in the wrong order and shape. The tests here
+// are written over formula.js's distributions, which agree with an
+// independent incomplete-beta and incomplete-gamma to 1E-8 or better, at a
+// fractional number of degrees of freedom too.
+
+const statsLib = formulajs as unknown as {
+  T: { DIST: { RT: (t: number, df: number) => number } };
+  F: { DIST: (x: number, d1: number, d2: number, cumulative: boolean) => number };
+  CHISQ: { DIST: { RT: (x: number, df: number) => number } };
+};
+const meanOf = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+const sumSqDev = (xs: number[]) => {
+  const m = meanOf(xs);
+  return xs.reduce((a, x) => a + (x - m) ** 2, 0);
+};
+const sampleVar = (xs: number[]) => sumSqDev(xs) / (xs.length - 1);
+/** The numbers of one argument, as Excel's statistics read a range. */
+const argNumbers = (a: Arg | undefined) =>
+  a ? collectNumbers([a]) : err("#N/A", "Wrong number of arguments");
+
+/**
+ * T.TEST(array1, array2, tails, type): 1 paired, 2 equal variances, 3
+ * unequal (Welch's, with its degrees of freedom unrounded, as Excel's
+ * T.TEST does; the Analysis ToolPak rounds them, T.TEST does not).
+ */
+F["T.TEST"] = (args) => {
+  const bad = arity(args, 4, 4);
+  if (bad) return bad;
+  const tails = num(args[2]);
+  if (isError(tails)) return tails;
+  const type = num(args[3]);
+  if (isError(type)) return type;
+  const k = Math.trunc(tails);
+  const kind = Math.trunc(type);
+  if (k !== 1 && k !== 2) return err("#NUM!", "Tails is 1 or 2");
+  if (kind < 1 || kind > 3) return err("#NUM!", "Type is 1 (paired), 2 or 3");
+  let t: number;
+  let df: number;
+  if (kind === 1) {
+    const pairs = pairedNumbers(args[0], args[1]);
+    if (isError(pairs)) return pairs;
+    const d = pairs[0].map((x, i) => x - pairs[1][i]);
+    if (d.length < 2) return err("#DIV/0!", "A paired test needs at least two pairs");
+    const se = Math.sqrt(sampleVar(d) / d.length);
+    if (se === 0) return err("#DIV/0!", "The differences do not vary");
+    t = meanOf(d) / se;
+    df = d.length - 1;
+  } else {
+    const a = argNumbers(args[0]);
+    if (isError(a)) return a;
+    const b = argNumbers(args[1]);
+    if (isError(b)) return b;
+    if (a.length < 2 || b.length < 2)
+      return err("#DIV/0!", "Each array needs at least two numbers");
+    const [n1, n2, v1, v2] = [a.length, b.length, sampleVar(a), sampleVar(b)];
+    let se: number;
+    if (kind === 2) {
+      df = n1 + n2 - 2;
+      se = Math.sqrt((((n1 - 1) * v1 + (n2 - 1) * v2) / df) * (1 / n1 + 1 / n2));
+    } else {
+      const [s1, s2] = [v1 / n1, v2 / n2];
+      se = Math.sqrt(s1 + s2);
+      df = (s1 + s2) ** 2 / (s1 ** 2 / (n1 - 1) + s2 ** 2 / (n2 - 1));
+    }
+    if (se === 0) return err("#DIV/0!", "Neither array varies");
+    t = (meanOf(a) - meanOf(b)) / se;
+  }
+  return k * statsLib.T.DIST.RT(Math.abs(t), df);
+};
+/** F.TEST(array1, array2): the two-tailed probability that the variances are the same. */
+F["F.TEST"] = (args) => {
+  const bad = arity(args, 2, 2);
+  if (bad) return bad;
+  const a = argNumbers(args[0]);
+  if (isError(a)) return a;
+  const b = argNumbers(args[1]);
+  if (isError(b)) return b;
+  if (a.length < 2 || b.length < 2) return err("#DIV/0!", "Each array needs at least two numbers");
+  const [v1, v2] = [sampleVar(a), sampleVar(b)];
+  if (v1 === 0 || v2 === 0) return err("#DIV/0!", "An array does not vary");
+  const p = statsLib.F.DIST(v1 / v2, a.length - 1, b.length - 1, true);
+  return 2 * Math.min(p, 1 - p);
+};
+/** Z.TEST(array, x, [sigma]): the one-tailed P of a mean above the array's, by the normal. */
+F["Z.TEST"] = (args) => {
+  const bad = arity(args, 2, 3);
+  if (bad) return bad;
+  const xs = argNumbers(args[0]);
+  if (isError(xs)) return xs;
+  if (!xs.length) return err("#N/A", "The array has no numbers");
+  const x = num(args[1]);
+  if (isError(x)) return x;
+  const given = args[2] && args[2].node.k !== "empty";
+  const sigma = given ? num(args[2]) : Math.sqrt(xs.length > 1 ? sampleVar(xs) : NaN);
+  if (isError(sigma)) return sigma;
+  if (!(sigma > 0)) return err("#DIV/0!", "The standard deviation is 0");
+  const z = (meanOf(xs) - x) / (sigma / Math.sqrt(xs.length));
+  return 0.5 * erfc(z / Math.SQRT2);
+};
+/** CHISQ.TEST(actual, expected): degrees of freedom (r−1)(c−1), or n−1 for one row or column. */
+F["CHISQ.TEST"] = (args) => {
+  const bad = arity(args, 2, 2);
+  if (bad) return bad;
+  const actual = asMatrix(args[0].value());
+  const expected = asMatrix(args[1].value());
+  const r = actual.length;
+  const c = actual[0]?.length ?? 0;
+  if (expected.length !== r || (expected[0]?.length ?? 0) !== c)
+    return err("#N/A", "The two ranges are different sizes");
+  let chi = 0;
+  for (let i = 0; i < r; i++)
+    for (let j = 0; j < c; j++) {
+      const a = actual[i][j];
+      const e = expected[i][j];
+      if (isError(a)) return a;
+      if (isError(e)) return e;
+      if (typeof a !== "number" || typeof e !== "number") continue;
+      if (e === 0) return err("#DIV/0!", "An expected value is 0");
+      chi += (a - e) ** 2 / e;
+    }
+  const df = r > 1 && c > 1 ? (r - 1) * (c - 1) : r * c - 1;
+  if (df < 1) return err("#N/A", "One value has no degrees of freedom");
+  return statsLib.CHISQ.DIST.RT(chi, df);
+};
+/** MODE.MULT: every value that occurs most, at least twice, in order of first appearance, down a column. */
+F["MODE.MULT"] = (args) => {
+  const bad = arity(args, 1);
+  if (bad) return bad;
+  const xs = collectNumbers(args);
+  if (isError(xs)) return xs;
+  const counts = new Map<number, number>();
+  for (const x of xs) counts.set(x, (counts.get(x) ?? 0) + 1);
+  const most = Math.max(0, ...counts.values());
+  if (most < 2) return err("#N/A", "No value occurs more than once");
+  return [...counts].filter(([, n]) => n === most).map(([x]) => [x]);
+};
+/** STEYX(known_y's, known_x's): the standard error of a predicted y in a regression. */
+F.STEYX = (args) => {
+  const bad = arity(args, 2, 2);
+  if (bad) return bad;
+  const pairs = pairedNumbers(args[0], args[1]);
+  if (isError(pairs)) return pairs;
+  const [ys, xs] = pairs;
+  if (xs.length < 3) return err("#DIV/0!", "STEYX needs at least three pairs");
+  const [mx, my] = [meanOf(xs), meanOf(ys)];
+  let sxx = 0;
+  let sxy = 0;
+  let syy = 0;
+  for (let i = 0; i < xs.length; i++) {
+    sxx += (xs[i] - mx) ** 2;
+    sxy += (xs[i] - mx) * (ys[i] - my);
+    syy += (ys[i] - my) ** 2;
+  }
+  if (sxx === 0) return err("#DIV/0!", "The x values do not vary");
+  return Math.sqrt(Math.max(0, syy - sxy ** 2 / sxx) / (xs.length - 2));
+};
+/** SKEW.P: the skewness of a population. */
+F["SKEW.P"] = (args) => {
+  const bad = arity(args, 1);
+  if (bad) return bad;
+  const xs = collectNumbers(args);
+  if (isError(xs)) return xs;
+  if (xs.length < 3) return err("#DIV/0!", "SKEW.P needs at least three numbers");
+  const m = meanOf(xs);
+  const sd = Math.sqrt(sumSqDev(xs) / xs.length);
+  if (sd === 0) return err("#DIV/0!", "The numbers do not vary");
+  return xs.reduce((a, x) => a + ((x - m) / sd) ** 3, 0) / xs.length;
+};
+/** VARPA and STDEVPA: a population's, text in a range counted as 0 and TRUE as 1. */
+const populationA =
+  (root: boolean): FnImpl =>
+  (args) => {
+    const bad = arity(args, 1);
+    if (bad) return bad;
+    const xs = collectNumbersA(args);
+    if (isError(xs)) return xs;
+    if (!xs.length) return err("#DIV/0!", "There are no values");
+    const v = sumSqDev(xs) / xs.length;
+    return root ? Math.sqrt(v) : v;
+  };
+F.VARPA = populationA(false);
+F.STDEVPA = populationA(true);
+/** PROB(x_range, prob_range, lower_limit, [upper_limit]). */
+F.PROB = (args) => {
+  const bad = arity(args, 3, 4);
+  if (bad) return bad;
+  const pairs = pairedNumbers(args[0], args[1]);
+  if (isError(pairs)) return pairs;
+  const [xs, ps] = pairs;
+  if (ps.some((p) => p < 0 || p > 1)) return err("#NUM!", "Each probability is from 0 to 1");
+  const total = ps.reduce((a, b) => a + b, 0);
+  // To Excel's 15 digits: 0.1+0.2+0.3+0.4 is 1.0000000000000002 as stored.
+  if (Number(total.toPrecision(15)) !== 1)
+    return err("#NUM!", "The probabilities must add up to 1");
+  const lower = num(args[2]);
+  if (isError(lower)) return lower;
+  const upper = args[3] && args[3].node.k !== "empty" ? num(args[3]) : lower;
+  if (isError(upper)) return upper;
+  return xs.reduce((a, x, i) => (x >= lower && x <= upper ? a + ps[i] : a), 0);
+};
+/** SUMX2MY2, SUMX2PY2 and SUMXMY2, over pairs of numbers. */
+const sumOfPairs =
+  (term: (x: number, y: number) => number): FnImpl =>
+  (args) => {
+    const bad = arity(args, 2, 2);
+    if (bad) return bad;
+    const pairs = pairedNumbers(args[0], args[1]);
+    if (isError(pairs)) return pairs;
+    return pairs[0].reduce((a, x, i) => a + term(x, pairs[1][i]), 0);
+  };
+F.SUMX2MY2 = sumOfPairs((x, y) => x * x - y * y);
+F.SUMX2PY2 = sumOfPairs((x, y) => x * x + y * y);
+F.SUMXMY2 = sumOfPairs((x, y) => (x - y) ** 2);
+// The pre-2010 names of the tests, the same functions.
+F.TTEST = F["T.TEST"];
+F.FTEST = F["F.TEST"];
+F.ZTEST = F["Z.TEST"];
+F.CHITEST = F["CHISQ.TEST"];
+
 /** MUNIT(n): the n×n identity. */
 F.MUNIT = ofNumber((x) => {
   const n = Math.trunc(x);
@@ -2944,6 +3171,8 @@ export const LIBRARY_NAMES = [
   "HYPGEOMDIST",
   "NEGBINOMDIST",
   "GAMMADIST",
+  // R333: right on its page's examples; the bounds are DOMAIN's.
+  "BINOM.DIST.RANGE",
 ];
 for (const name of LIBRARY_NAMES) {
   if (F[name]) continue;
@@ -3107,6 +3336,15 @@ const DOMAIN: Record<string, (x: number[]) => [ErrorCode, string] | null> = {
           ? ["#NUM!", "The size must be at least 1"]
           : null,
 };
+/** BINOM.DIST.RANGE(trials, probability_s, number_s, [number_s2]) (R333). */
+DOMAIN["BINOM.DIST.RANGE"] = ([n, p, s, s2]) =>
+  n < 0 || p < 0 || p > 1
+    ? ["#NUM!", "Trials must be 0 or more and the probability from 0 to 1"]
+    : s < 0 || s > n
+      ? ["#NUM!", "number_s must be from 0 to the trials"]
+      : !Number.isNaN(s2) && (s2 < s || s2 > n)
+        ? ["#NUM!", "number_s2 must be from number_s to the trials"]
+        : null;
 // The pre-2010 name formula.js registers by itself, under the same rule.
 DOMAIN.EXPONDIST = DOMAIN["EXPON.DIST"];
 for (const [name, check] of Object.entries(DOMAIN)) {
@@ -3158,6 +3396,9 @@ const SAME_AS: Record<string, string> = {
   // the double-byte languages (Japanese, Chinese, Korean) Excel's LENB,
   // LEFTB… count a character as one byte, the same as LEN, LEFT…
   NORMINV: "NORM.INV",
+  // R333.
+  COVAR: "COVARIANCE.P",
+  PEARSON: "CORREL",
   NORMSINV: "NORM.S.INV",
   LENB: "LEN",
   LEFTB: "LEFT",
@@ -3971,8 +4212,9 @@ const SINGLE_VALUE_FUNCTIONS = [
   ...["FACTDOUBLE", "SQRTPI", "CEILING.PRECISE", "FLOOR.PRECISE", "ISO.CEILING", "DELTA"],
   ...["GESTEP", "ERF", "ERF.PRECISE", "ERFC", "ERFC.PRECISE", "BESSELI", "BESSELJ", "BESSELK"],
   "BESSELY",
-  // R331's and R332's.
+  // R331's, R332's and R333's.
   "CONVERT",
+  "BINOM.DIST.RANGE",
   ...["NORMINV", "NORMSINV", "NORMSDIST", "VALUETOTEXT", "LENB", "LEFTB", "RIGHTB", "MIDB"],
   ...["FINDB", "SEARCHB", "REPLACEB"],
   // Dates, text and information.
@@ -3988,6 +4230,9 @@ export const LIFTS: ReadonlyMap<string, (argCount: number) => number[]> = new Ma
     (n) => [n, firstTwo] as const,
   ),
   ["SERIESSUM", () => [0, 1, 2]] as const,
+  // R333: x and sigma lift, the array does not; PROB's limits.
+  ...["Z.TEST", "ZTEST"].map((n) => [n, () => [1, 2]] as const),
+  ["PROB", () => [2, 3]] as const,
   ...["MATCH", "XMATCH", "XLOOKUP", "VLOOKUP", "HLOOKUP"].map((n) => [n, first] as const),
   ...["COUNTIF", "SUMIF", "AVERAGEIF"].map((n) => [n, second] as const),
   ...["TEXTBEFORE", "TEXTAFTER"].map((n) => [n, first] as const),
