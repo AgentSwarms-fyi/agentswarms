@@ -109,6 +109,50 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-07 — R326: provider logos from three third parties, four that never existed
+
+**Severity: low, Integrations and Model Registry** (images, not code). This finishes R321's "nothing
+phones home".
+
+**The defect.** Both pages loaded their provider logos from jsdelivr (Simple Icons v11). Integrations
+also took vLLM's from huggingface.co and Groq's favicon from groq.com. Offline they did not show, and
+every browser asked three third parties for them. Four of the jsdelivr URLs, `cohere`, `deepseek`,
+`elevenlabs` and `mistralai`, had never existed in Simple Icons v11. Their requests always failed, and
+those cards always showed an empty slot.
+
+**The fix:**
+
+- **The 19 SVGs are in `public/provider-logos`.** Fifteen come from Simple Icons v11.15.0, as
+  before. `deepseek`, `mistralai`, `elevenlabs` and a real `vllm` mark come from v16.34.0. Both
+  versions are CC0.
+- **`ATTRIBUTION.md`** beside them names the source and licence, and says each logo is its owner's
+  trademark.
+- **Cohere and Groq** have no Simple Icons mark, so they show the app's own icon rather than an
+  empty slot or a favicon fetched from groq.com.
+- **vLLM's monochrome mark** is now inverted in dark mode like the others.
+
+**Tests:** `providerLogos.test.ts` checks the following:
+
+- every value in both maps is a local `/provider-logos` path, and the file exists;
+- each SVG is an SVG;
+- the attribution names Simple Icons, CC0 and the trademark;
+- neither page names jsdelivr, huggingface.co or groq.com.
+
+Five of its seven cases fail on the old maps.
+
+- **Mutation harness:** 4 mutants caught, and the control survived.
+
+**The after**, hot-deployed. The page's resource timing and each image's loaded size were read:
+
+- **Integrations:** twelve logos, all from `/provider-logos/`, none broken, none fetched from
+  elsewhere. vLLM now shows its own mark.
+- **Model Registry:** 265 logos, lazy-loaded as they scroll into view. `deepseek` and `mistralai`,
+  which had never loaded, did (150 px wide), as did `openai` and `google`. Nothing was fetched from
+  jsdelivr, huggingface.co or groq.com. No ElevenLabs model is listed on this deployment.
+
+The page's lazy images stayed unloaded while its tab was in the background. That is the browser
+deferring them, not the page; brought to the front, they loaded.
+
 ### 2026-10-07 — R325: a stream closed twice inside Node's fetch ended the server
 
 **Severity: medium, the server** (a worker, or the whole server, killed by a benign error). Found by

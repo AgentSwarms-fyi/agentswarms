@@ -44,24 +44,24 @@ import { isProviderSupported, isModelSupported } from "@/lib/providerSupport";
 import { useIsSuperadmin } from "@/hooks/use-iam";
 import { reportFailure } from "@/lib/silentFailureNet";
 
-// Real provider logos (Simple Icons via jsdelivr — open-source SVGs).
+// Real provider logos: Simple Icons SVGs (CC0), served from the app itself
+// (public/provider-logos, R326).
 // Anything not listed falls back to the Boxes icon. Slugs match devToSlug
 // in src/utils/modelRegistry.functions.ts.
 const LOGO: Record<string, string> = {
-  openai: "https://cdn.jsdelivr.net/npm/simple-icons@11/icons/openai.svg",
-  anthropic: "https://cdn.jsdelivr.net/npm/simple-icons@11/icons/anthropic.svg",
-  google: "https://cdn.jsdelivr.net/npm/simple-icons@11/icons/google.svg",
-  alibaba: "https://cdn.jsdelivr.net/npm/simple-icons@11/icons/alibabacloud.svg",
-  deepseek: "https://cdn.jsdelivr.net/npm/simple-icons@11/icons/deepseek.svg",
-  xai: "https://cdn.jsdelivr.net/npm/simple-icons@11/icons/x.svg",
-  meta: "https://cdn.jsdelivr.net/npm/simple-icons@11/icons/meta.svg",
-  mistral: "https://cdn.jsdelivr.net/npm/simple-icons@11/icons/mistralai.svg",
-  cohere: "https://cdn.jsdelivr.net/npm/simple-icons@11/icons/cohere.svg",
-  perplexity: "https://cdn.jsdelivr.net/npm/simple-icons@11/icons/perplexity.svg",
-  nvidia: "https://cdn.jsdelivr.net/npm/simple-icons@11/icons/nvidia.svg",
-  bytedance: "https://cdn.jsdelivr.net/npm/simple-icons@11/icons/bytedance.svg",
-  baidu: "https://cdn.jsdelivr.net/npm/simple-icons@11/icons/baidu.svg",
-  elevenlabs: "https://cdn.jsdelivr.net/npm/simple-icons@11/icons/elevenlabs.svg",
+  openai: "/provider-logos/openai.svg",
+  anthropic: "/provider-logos/anthropic.svg",
+  google: "/provider-logos/google.svg",
+  alibaba: "/provider-logos/alibabacloud.svg",
+  deepseek: "/provider-logos/deepseek.svg",
+  xai: "/provider-logos/x.svg",
+  meta: "/provider-logos/meta.svg",
+  mistral: "/provider-logos/mistralai.svg",
+  perplexity: "/provider-logos/perplexity.svg",
+  nvidia: "/provider-logos/nvidia.svg",
+  bytedance: "/provider-logos/bytedance.svg",
+  baidu: "/provider-logos/baidu.svg",
+  elevenlabs: "/provider-logos/elevenlabs.svg",
 };
 
 function fmtNum(n: number | null): string {

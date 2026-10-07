@@ -63,6 +63,11 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **Provider logos came from three third parties, and four never loaded**
+  (R326): Integrations and Model Registry fetched them from jsdelivr,
+  huggingface.co and groq.com, and the Cohere, DeepSeek, ElevenLabs and
+  Mistral URLs had never existed. The logos (Simple Icons, CC0) are now served
+  by the app; Cohere and Groq, which have no mark there, show their icon.
 - **A stream closed twice inside Node's fetch ended the server** (R325): undici
   can throw "ReadableStream is already closed" from a microtask when a response
   body is cancelled mid-read, which killed a worker, with every request and

@@ -246,8 +246,9 @@ export const Route = createFileRoute("/_authenticated/integrations")({
   component: IntegrationsPage,
 });
 
-// Real provider logos (Simple Icons via jsdelivr — open-source SVGs).
-// Keys are the LLM_PROVIDERS ids below. Anything not listed falls back to
+// Real provider logos: Simple Icons SVGs (CC0), served from the app itself
+// (public/provider-logos, R326) so an offline install shows them and no
+// browser asks a third party for them. Keys are the LLM_PROVIDERS ids below. Anything not listed falls back to
 // the lucide `icon` set on each provider entry. Mirrors the LOGO map on the
 // Model Registry page so the two screens feel consistent.
 // Provider logos are also colour-treated below: monochrome SVGs from Simple
@@ -257,23 +258,24 @@ const PROVIDER_LOGO: Record<string, string> = {
   // Local asset — OpenRouter's own /Logo.svg path 404s.
   openrouter: "/provider-logos/openrouter.png",
   // Simple Icons (monochrome, will be inverted in dark mode).
-  openai: "https://cdn.jsdelivr.net/npm/simple-icons@11/icons/openai.svg",
-  anthropic: "https://cdn.jsdelivr.net/npm/simple-icons@11/icons/anthropic.svg",
-  gemini: "https://cdn.jsdelivr.net/npm/simple-icons@11/icons/googlegemini.svg",
-  vertex_ai: "https://cdn.jsdelivr.net/npm/simple-icons@11/icons/googlecloud.svg",
-  grok: "https://cdn.jsdelivr.net/npm/simple-icons@11/icons/x.svg",
-  qwen: "https://cdn.jsdelivr.net/npm/simple-icons@11/icons/alibabacloud.svg",
-  nvidia: "https://cdn.jsdelivr.net/npm/simple-icons@11/icons/nvidia.svg",
-  bedrock: "https://cdn.jsdelivr.net/npm/simple-icons@11/icons/amazon.svg",
-  azure_openai: "https://cdn.jsdelivr.net/npm/simple-icons@11/icons/microsoftazure.svg",
-  oci_genai: "https://cdn.jsdelivr.net/npm/simple-icons@11/icons/oracle.svg",
-  vllm: "https://huggingface.co/front/assets/huggingface_logo-noborder.svg",
-  groq: "https://groq.com/favicon.ico",
+  openai: "/provider-logos/openai.svg",
+  anthropic: "/provider-logos/anthropic.svg",
+  gemini: "/provider-logos/googlegemini.svg",
+  vertex_ai: "/provider-logos/googlecloud.svg",
+  grok: "/provider-logos/x.svg",
+  qwen: "/provider-logos/alibabacloud.svg",
+  nvidia: "/provider-logos/nvidia.svg",
+  bedrock: "/provider-logos/amazon.svg",
+  azure_openai: "/provider-logos/microsoftazure.svg",
+  oci_genai: "/provider-logos/oracle.svg",
+  vllm: "/provider-logos/vllm.svg",
+  // Groq has no Simple Icons mark, so it keeps its lucide icon rather than a
+  // favicon fetched from groq.com.
 };
 
 // Logos that are full-colour or raster (favicons / coloured marks) — these
 // must NOT receive the dark:invert treatment used for monochrome Simple Icons.
-const PROVIDER_LOGO_COLOR = new Set(["openrouter", "groq", "vllm"]);
+const PROVIDER_LOGO_COLOR = new Set(["openrouter"]);
 
 const LLM_PROVIDERS = [
   {

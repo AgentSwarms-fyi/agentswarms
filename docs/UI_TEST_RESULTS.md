@@ -15,6 +15,13 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-07 — R326: provider logos served by the app
+
+| What was driven, hot-deployed                  | What came back                                                                                                                    |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Integrations                                   | 12 logos, all `/provider-logos/*`, none broken; no request to jsdelivr, huggingface.co or groq.com                                |
+| Model Registry, scrolled with the tab in front | `deepseek` and `mistralai` (404 before, always) load at 150 px, as do `openai` and `google`; still nothing fetched from elsewhere |
+
 ## 2026-10-07 — R324: the browser checks, run and broken on purpose
 
 | What was run                                                            | What came back                                                                                                               |
