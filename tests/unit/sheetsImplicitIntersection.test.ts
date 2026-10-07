@@ -40,7 +40,9 @@ describe("where an older formula takes one value", () => {
   it("not where every Excel works over arrays, or takes a range as it is", () => {
     expect(at("=SUMPRODUCT((C2:C4>1)*B2:B4)")).toBe("=SUMPRODUCT((C2:C4>1)*B2:B4)");
     expect(at("=LOOKUP(2,1/(C2:C4>0),B2:B4)")).toBe("=LOOKUP(2,1/(C2:C4>0),B2:B4)");
-    expect(at("=INDEX(B:B,MATCH(A2,C:C,0))")).toBe("=INDEX(B:B,MATCH(A2,C:C,0))");
+    // INDEX takes its range as it is. Since R338 the INDEX itself takes an @, as
+    // in Microsoft's table (=INDEX(A1:A10,B1) is =@INDEX(A1:A10,B1)); B:B does not.
+    expect(at("=INDEX(B:B,MATCH(A2,C:C,0))")).toBe("=@INDEX(B:B,MATCH(A2,C:C,0))");
     expect(at('=SUM(B2:B4)+COUNTIF(A:A,"x")')).toBe('=SUM(B2:B4)+COUNTIF(A:A,"x")');
     expect(at("=A1+Rate*2", ranges())).toBe("=A1+Rate*2");
     expect(at("=A1:A1*2")).toBe("=A1:A1*2");

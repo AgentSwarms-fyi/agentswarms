@@ -103,6 +103,14 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **Sheets: an older Excel file's formula whose function answers with several
+  values** (R338). Typed in one cell in Excel 2019 or older, `=LINEST(B2:B7,A2:A7)`
+  showed the slope, `=ROW(A2:A4)` showed 2 and `=INDEX(A2:B7,0,2)` showed the cell
+  in its own row. Imported here, they spilled, mostly into `#SPILL!`. They now
+  take Excel 365's `@` (`=@LINEST(…)`) and show what older Excel showed. A range
+  that INDEX, OFFSET or INDIRECT answers with is read in the formula's own row
+  by `@`, as Excel's `@` reads it. A download gives the formula back without the
+  `@`.
 - **Sheets: TREND and GROWTH with several x columns** (R337). They fitted one
   x, from formula.js. A TREND over two x columns was #NUM! where its answer is 34. GROWTH over the collinear columns in Microsoft's GROWTH article gave
   29558.23 where Excel gives 472.432432563203.

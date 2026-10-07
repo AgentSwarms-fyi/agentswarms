@@ -22,7 +22,7 @@ import {
 } from "./values";
 import { FUNCTIONS, LIFTS, OWN_LIFTS } from "./functions";
 import { paramName } from "./scope";
-import { tailOf, wholeRange, zipN } from "./arrays";
+import { areaOf, tailOf, wholeRange, zipN } from "./arrays";
 
 export type RangeRef = {
   sheet: string;
@@ -469,10 +469,13 @@ export function evaluate(node: Node, env: EvalEnv): Value {
  * row, used or not. From an array that is not a range, its first value.
  */
 function intersect(arg: Node, env: EvalEnv): Value {
-  const ref = rangeOf(arg, env);
+  let ref: RangeRef | undefined = rangeOf(arg, env);
   if (!ref) {
     const v = evaluate(arg, env);
-    return isMatrix(v) ? (v[0]?.[0] ?? null) : v;
+    // INDEX, OFFSET and INDIRECT answer with a range (R338): @ intersects it.
+    // Any other array gives its top-left value, as Excel's @ does.
+    ref = areaOf(v);
+    if (!ref) return isMatrix(v) ? (v[0]?.[0] ?? null) : v;
   }
   const oneRow = ref.whole !== "cols" && ref.r0 === ref.r1;
   const oneCol = ref.whole !== "rows" && ref.c0 === ref.c1;

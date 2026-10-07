@@ -61,7 +61,7 @@ import {
   yearFrac,
   type Basis,
 } from "./securities";
-import { lineUp, tailOf, withTail, zipN, type Tail } from "./arrays";
+import { lineUp, tailOf, withArea, withTail, zipN, type Tail } from "./arrays";
 import { leastSquares } from "./regression";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -2718,18 +2718,27 @@ F.INDEX = (args) => {
     if (t.axis === "rows") return c === 0 ? [t.line.slice()] : (t.line[c - 1] ?? null);
     return r === 0 ? t.line.map((x) => [x]) : (t.line[r - 1] ?? null);
   }
-  if (r === 0 && c === 0) return m;
+  // From a reference, a row or column of it is a reference too (R338): @ takes
+  // the cell of it in the formula's own row or column, as Excel's does.
+  const ref = args[0].ref;
+  const part = (v: Value, r0: number, c0: number, r1: number, c1: number) =>
+    ref ? withArea(v, { sheet: ref.sheet, r0, c0, r1, c1 }) : v;
+  if (r === 0 && c === 0) return ref ? part(m, ref.r0, ref.c0, ref.r1, ref.c1) : m;
   // A whole column (or row) of a tailed array keeps its tail: INDEX(A:A="",0).
-  if (r === 0)
-    return withTail(
+  if (r === 0) {
+    const col = withTail(
       m.map((row) => [row[c - 1]]),
       t?.axis === "rows" ? { ...t, line: [t.line[c - 1] ?? null] } : undefined,
     );
-  if (c === 0)
-    return withTail(
+    return ref ? part(col, ref.r0, ref.c0 + c - 1, ref.r1, ref.c0 + c - 1) : col;
+  }
+  if (c === 0) {
+    const row = withTail(
       [m[r - 1]],
       t?.axis === "cols" ? { ...t, line: [t.line[r - 1] ?? null] } : undefined,
     );
+    return ref ? part(row, ref.r0 + r - 1, ref.c0, ref.r0 + r - 1, ref.c1) : row;
+  }
   return m[r - 1][c - 1];
 };
 /**
@@ -2990,7 +2999,8 @@ F.OFFSET = (args, ctx) => {
   if (r1 < r0 || c1 < c0 || r0 < 0 || c0 < 0 || r1 >= MAX_ROWS || c1 >= MAX_COLS)
     return err("#REF!", "That is outside the sheet");
   if (r0 === r1 && c0 === c1) return ctx.env.cell(ref.sheet, r0, c0);
-  return ctx.env.range({ sheet: ref.sheet, r0, c0, r1, c1 });
+  const area = { sheet: ref.sheet, r0, c0, r1, c1 };
+  return withArea(ctx.env.range(area), area);
 };
 
 /** INDIRECT(text): the cell or range the text names, as "B2", "Sales!A1:C9" or "'Q3 data'!D4". */
@@ -3016,7 +3026,17 @@ F.INDIRECT = (args, ctx) => {
     return err("#REF!", `"${t}" is not a reference`);
   }
   if (node.k !== "cell" && node.k !== "range") return err("#REF!", `"${t}" is not a reference`);
-  return ctx.evaluate ? ctx.evaluate(node) : err("#REF!");
+  if (!ctx.evaluate) return err("#REF!");
+  const v = ctx.evaluate(node);
+  if (node.k !== "range" || node.wholeCols || node.wholeRows) return v;
+  const sheet = node.sheet ?? ctx.env.sheet;
+  return withArea(v, {
+    sheet,
+    r0: Math.min(node.start.row, node.end.row),
+    c0: Math.min(node.start.col, node.end.col),
+    r1: Math.max(node.start.row, node.end.row),
+    c1: Math.max(node.start.col, node.end.col),
+  });
 };
 
 /**

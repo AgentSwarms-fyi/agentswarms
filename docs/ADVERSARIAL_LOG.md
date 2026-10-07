@@ -109,6 +109,87 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R338: an older file's formula whose function answers with several values
+
+**Severity: medium, Sheets** (an imported workbook shows the wrong numbers). Typed in one cell
+without Ctrl+Shift+Enter in Excel 2019 or older, a formula such as `=LINEST(B2:B7,A2:A7)` showed
+one value: the slope. A file holds such a formula plain. R162 gave a plain formula Excel 365's `@`
+on a range, where one value is expected, but not on a function whose answer is several values. So
+the import spilled it. R337 queued this when ROW of a range became an array.
+
+**The source.** Microsoft's page on the implicit intersection operator, downloaded and its table read
+cell by cell. `=INDEX(A1:A10,B1)` is shown as `=@INDEX(A1:A10,B1)` and `=OFFSET(A1:A2,1,1)` as
+`=@OFFSET(A1:A2,1,1)`. Its rule: "functions that return multi-cell ranges or arrays have an @ prefix
+if you authored them in an older version", except "if they're wrapped in a function that accepts an
+array or range (for example, SUM() or AVERAGE())". And "If you remove an automatically added @ and
+later open the workbook in an older version of Excel", the formula reads as a legacy array formula,
+so the `@` Excel adds is not written to the file.
+
+**Proved in the UI first.** A workbook built by openpyxl, which writes every formula plain, was
+imported on the R337 build as `R338 legacy formulas`. Five cells were `#SPILL!`:
+
+- D2, `=LINEST(B2:B7,A2:A7)`, where older Excel shows 1000;
+- D5, `=ROW(A2:A4)`, older Excel 2;
+- D7, `=TRANSPOSE(A2:A4)`, older Excel 1;
+- D8, `=INDEX(A2:B7,0,2)` in row 8, older Excel `#VALUE!`;
+- D9, `=ABS(-LINEST(…))`, older Excel 1000.
+
+D10, `=TREND(…,{7;8})`, spilled 10000 into D11.
+
+**A second fault, found writing the fix.** `@` on what INDEX, OFFSET or INDIRECT answers with took the
+array's top-left value. Excel's `@` reads a range by the formula's own row or column, and these three
+answer with a range. In row 5, `=@INDEX(A2:B7,0,2)` must be B5; the engine gave B2. The engine had
+no idea of a function answering with a reference.
+
+**What was written.**
+
+- **`formula/implicit.ts`: where the cell takes the value.** A walk marks each position whose value
+  is the cell's. That is the formula itself, an operand of an operator, an argument of one value,
+  and a value IF, IFERROR, IFNA or CHOOSE passes on. Inside SUM, SUMPRODUCT or INDEX's array nothing
+  is.
+- **Where the `@` goes.** At those positions an `@` goes in front of each of these:
+  - LINEST, LOGEST, TREND, GROWTH, TRANSPOSE, MMULT, MINVERSE, FREQUENCY and MODE.MULT;
+  - ROW or COLUMN over several cells;
+  - INDEX, OFFSET or INDIRECT, unless their arguments pick one cell;
+  - a range passed on to the cell.
+- **On the way out** a plain formula drops those `@`. An `@` before anything else is still written
+  as `_xlfn.SINGLE`. `=@ABS(A1:A3)` is not what older Excel's `=ABS(A1:A3)` computes, because that
+  reads A1:A3 in the formula's row.
+- **`formula/arrays.ts`: the range an answer came from.** INDEX, OFFSET and INDIRECT mark the range
+  they answer with, as a whole column's blank rows are marked. `@` intersects that range by position.
+
+**One R162 expectation changed.** `=INDEX(B:B,MATCH(A2,C:C,0))` was expected to stay as it was. It
+now becomes `=@INDEX(…)`, which is what Microsoft's table shows for `=INDEX(A1:A10,B1)`. Its value is
+the same.
+
+**Not checked against Excel:** the exact rule for INDEX. Microsoft names the case, an index that can
+be 0, but not the rule. Sheets leaves INDEX alone only when its indexes are numbers that pick one
+cell. This is queued.
+
+**Tests:**
+
+- **`sheetsArrayAnswersR338.test.ts`, 17 cases.** Microsoft's table row by row, the SUM and AVERAGE
+  exception, each function's rule, IF's branches, the way out, and `@` on each function's range.
+- **A new fixture, `openpyxl-array-answers.xlsx`,** with its generator: 16 formulas whose older-Excel
+  values were worked out by hand. It is checked on the way in, as shown and as computed, and on the
+  way out, where the file holds no `@`.
+
+11 cases fail on the unfixed engine. The 6 that pass guard what should not change.
+
+- **Mutation harness:** 17 mutants caught, and the control survived. The first run let one through,
+  and it was a dead condition: an array argument was excluded twice. The code lost the second check,
+  and the mutant was rewritten to add arrays back.
+
+**The UI.** The same file imported on the new build as `R338 legacy formulas (after)`:
+
+- D2 1000, D3 11000, D4 2000, D5 2, D6 18, D7 1, D8 `#VALUE!`, D9 1000 and D10 9000, each as the
+  note beside it says, with nothing spilled;
+- the formula bar shows `=@LINEST(B2:B7,A2:A7)` and `=@TREND(B2:B7,A2:A7,{7;8})`.
+
+Both workbooks are kept.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R337: LINEST and LOGEST, and what TREND, GROWTH, SLOPE and ROW got wrong on the way
 
 **Severity: medium, Sheets.** LINEST and LOGEST were `#NAME?`, the last of R333's statistics

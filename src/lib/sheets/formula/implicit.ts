@@ -138,6 +138,118 @@ function walk(n: Node, ctx: Ctx, visit: (n: Node, ctx: Ctx) => void): void {
   }
 }
 
+// ── A function's array answer where the cell takes it (R338) ────────────────
+//
+// FOUND IN R337: older Excel cut a function's array answer to its first
+// value where the formula's own cell took it, and Excel 365 shows an @ in
+// front of the function there. Microsoft's page on @ gives
+// =INDEX(A1:A10,B1) as =@INDEX(A1:A10,B1) and =OFFSET(A1:A2,1,1) as
+// =@OFFSET(A1:A2,1,1), with "a common exception ... if they're wrapped in a
+// function that accepts an array or range (for example, SUM() or
+// AVERAGE())". Without the @ such a file's =LINEST(B2:B7,A2:A7) spilled its
+// intercept into the next cell, and =ROW(A2:A4) three rows.
+
+/** Functions whose answer is an array whatever their arguments. */
+const ARRAY_ANSWERS = new Set([
+  "TRANSPOSE",
+  "MMULT",
+  "MINVERSE",
+  "FREQUENCY",
+  "LINEST",
+  "LOGEST",
+  "TREND",
+  "GROWTH",
+  "MODE.MULT",
+]);
+
+/** A number other than 0 written in the formula. */
+const nonZero = (n: Node | undefined) => n?.k === "num" && n.v !== 0;
+
+/** One cell named in the formula: A1, or A1:A1. */
+const oneCell = (n: Node | undefined) =>
+  n?.k === "cell" ? !n.spill : n?.k === "range" ? !manyCells(n) : false;
+
+/** Can this call answer with several cells or values, as Excel reads it? */
+function manyAnswers(n: Extract<Node, { k: "call" }>, isRange: (name: string) => boolean): boolean {
+  const name = n.name.toUpperCase();
+  const [first, a1, a2, a3, a4] = n.args;
+  if (ARRAY_ANSWERS.has(name)) return true;
+  switch (name) {
+    // "The INDEX function can return an array or range when its second or third argument is 0."
+    case "INDEX": {
+      const flat =
+        first?.k === "range" &&
+        (first.start.row === first.end.row || first.start.col === first.end.col) &&
+        !first.wholeCols &&
+        !first.wholeRows;
+      return !(nonZero(a1) && (a2 ? nonZero(a2) : flat));
+    }
+    // A multi-cell range when the base is one, or a height or width says so.
+    case "OFFSET":
+      return !(
+        oneCell(first) &&
+        (!a3 || (a3.k === "num" && a3.v === 1)) &&
+        (!a4 || (a4.k === "num" && a4.v === 1))
+      );
+    case "INDIRECT":
+      return !(a1 === undefined && first?.k === "str" && !first.v.includes(":"));
+    case "ROW":
+    case "COLUMN":
+      return (
+        !!first &&
+        (first.k === "range"
+          ? manyCells(first)
+          : first.k === "cell"
+            ? !!first.spill
+            : first.k === "name"
+              ? isRange(first.name)
+              : false)
+      );
+    default:
+      return false;
+  }
+}
+
+/** The arguments whose value is the function's own answer: IF's branches, CHOOSE's choices. */
+const PASSES_ON: ReadonlyMap<string, (i: number) => boolean> = new Map([
+  ["IF", (i: number) => i >= 1],
+  ["IFERROR", () => true],
+  ["IFNA", () => true],
+  ["CHOOSE", (i: number) => i >= 1],
+]);
+
+/**
+ * Each node with whether its value is the cell's: the formula itself, an
+ * operand of an operator whose value is, a value IF or CHOOSE passes on,
+ * and an argument a function of one value takes. Not inside a function that
+ * takes a range or array (SUM, SUMPRODUCT, INDEX's array).
+ */
+function walkCell(n: Node, cell: boolean, visit: (n: Node, cell: boolean) => void): void {
+  visit(n, cell);
+  switch (n.k) {
+    case "unary":
+    case "percent":
+      walkCell(n.arg, cell, visit);
+      break;
+    case "bin":
+      walkCell(n.left, cell, visit);
+      walkCell(n.right, cell, visit);
+      break;
+    case "call": {
+      const name = n.name.toUpperCase();
+      // Only an argument of one value, or a branch IF or CHOOSE passes on; an
+      // array argument (SUMPRODUCT's, INDEX's array) is taken whole.
+      n.args.forEach((a, i) => {
+        const passes = argCtx(name, i, n.args.length) === "value" || !!PASSES_ON.get(name)?.(i);
+        walkCell(a, cell && passes, visit);
+      });
+      break;
+    }
+    default:
+      break;
+  }
+}
+
 function parsed(formula: string): { body: string; ast: Node } | null {
   if (!formula.startsWith("=")) return null;
   const body = formula.slice(1);
@@ -170,6 +282,23 @@ export function withIntersections(formula: string, isRange: (name: string) => bo
             : false;
     const s = spanOf(n)?.[0];
     if (many && s !== undefined) at.push(s);
+  });
+  // Where the cell takes the value: a function that can answer with several
+  // (R338), and a range IF or CHOOSE passes on to the cell.
+  walkCell(p.ast, true, (n, cell) => {
+    if (!cell) return;
+    const many =
+      n.k === "call"
+        ? manyAnswers(n, isRange)
+        : n.k === "range"
+          ? manyCells(n)
+          : n.k === "cell"
+            ? !!n.spill
+            : n.k === "name"
+              ? isRange(n.name)
+              : false;
+    const s = spanOf(n)?.[0];
+    if (many && s !== undefined && !at.includes(s)) at.push(s);
   });
   if (!at.length) return formula;
   let body = p.body;
@@ -206,13 +335,21 @@ export function intersectionsForFile(formula: string, dynamic: boolean): string 
   const p = parsed(formula);
   if (!p) return formula;
   const edits: { at: number; del: number; ins: string }[] = [];
+  // Where the cell takes the value, older Excel took one value from a range
+  // or a function's answer anyway (R338).
+  const atCell = new Set<Node>();
+  walkCell(p.ast, true, (n, cell) => {
+    if (cell && n.k === "single") atCell.add(n);
+  });
   walk(p.ast, "value", (n, ctx) => {
     if (n.k !== "single") return;
     const span = spanOf(n);
     if (!span) return;
     const [s, e] = span;
     const plainRead = n.arg.k === "range" || n.arg.k === "name" || n.arg.k === "cell";
-    if (!dynamic && ctx === "value" && plainRead) {
+    const cellRead =
+      atCell.has(n) && (plainRead || (n.arg.k === "call" && manyAnswers(n.arg, () => true)));
+    if (!dynamic && ((ctx === "value" && plainRead) || cellRead)) {
       edits.push({ at: s, del: 1, ins: "" });
     } else {
       edits.push({ at: s, del: 1, ins: "_xlfn.SINGLE(" }, { at: e, del: 0, ins: ")" });

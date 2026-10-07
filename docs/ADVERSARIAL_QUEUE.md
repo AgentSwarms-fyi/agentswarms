@@ -951,13 +951,13 @@ left out the blank rows). Open from that round:
   data is not what Excel's is.
 - ~~Legacy files' implicit intersection.~~ Closed by R162: a file's plain formula takes Excel
   365's `@`.
-- **A legacy file's plain formula whose whole answer is an array** shows only its first value in
-  the Excel that wrote it. Examples are `=LINEST(B2:B9,A2:A9)`, `=TRANSPOSE(A1:A3)` and
-  `=ROW(A1:A3)` typed without Ctrl+Shift+Enter. Here such a formula spills. R162's `@` covers a
-  range where one value is expected, not a function's array answer. Found in R337, when ROW of a
-  range became an array. Next: check in Excel 365 that such a formula opens with `@` in front of
-  the function, then give it that `@` on the way in. An array operated on inside the formula
-  (`SUM(LINEST(…)*{9,1})`) must keep working.
+- ~~A legacy file's plain formula whose whole answer is an array~~ (`=LINEST(…)`,
+  `=TRANSPOSE(…)`, `=ROW(A1:A3)` typed without Ctrl+Shift+Enter) spilled. Closed by R338: it takes
+  Excel 365's `@` on the way in and loses it on the way out, as Microsoft's page on `@` describes.
+  - **Still open:** Microsoft does not publish the exact rule for when INDEX takes an `@`. Sheets
+    gives it unless INDEX's indexes are numbers that pick one cell. `=INDEX(LINEST(…),2)` therefore
+    shows `=@INDEX(LINEST(…),2)`; the value is the same either way. Checking this against Excel 365
+    needs a copy of Excel.
 
 Closed with the missing functions: R147 (seven listed long-tail functions never registered; 34
 more missing). Open from that round:

@@ -976,6 +976,28 @@ own product; `=SUM(LEN(A2:A4))` becomes `=SUM(LEN(@A2:A4))`. Where every Excel w
 changes. A download gives such a formula back as it came, and an `@` that older Excel would not read
 the same goes out as Excel 365's `_xlfn.SINGLE`.
 
+A function whose answer can be several values takes the `@` too, where the cell takes its answer
+(R338). In the Excel that wrote it, `=LINEST(B2:B7,A2:A7)` typed in one cell showed the slope alone,
+and `=ROW(A2:A4)` showed 2. Here they become `=@LINEST(B2:B7,A2:A7)` and `=@ROW(A2:A4)` and show the
+same, rather than spilling. This follows Microsoft's page on `@`, which gives `=INDEX(A1:A10,B1)` as
+`=@INDEX(A1:A10,B1)` and `=OFFSET(A1:A2,1,1)` as `=@OFFSET(A1:A2,1,1)`:
+
+- **Which functions.** LINEST, LOGEST, TREND, GROWTH, TRANSPOSE, MMULT, MINVERSE, FREQUENCY and
+  MODE.MULT always take the `@`. ROW and COLUMN take it over several cells. INDEX, OFFSET and
+  INDIRECT take it unless their own arguments pick one cell: `INDEX(A1:A10,3)`, `OFFSET(A1,1,1)` and
+  `INDIRECT("B2")` stay as they are.
+- **Under an operator or a function of one value**, the `@` still goes in: `=ABS(-LINEST(…))` becomes
+  `=ABS(-@LINEST(…))`.
+- **A range that IF, IFERROR or CHOOSE passes on to the cell** takes it too: `=IF(A2>0,B2:B7,0)`
+  becomes `=IF(A2>0,@B2:B7,0)`.
+- **Not inside a function that takes an array or range.** The page names SUM and AVERAGE as the
+  exception, so `=SUM(LINEST(B2:B7,A2:A7)*{9,1})` (LINEST's page's 11,000) stays as it is.
+- **What `@` takes from the answer.** From a range that INDEX, OFFSET or INDIRECT answers with, `@`
+  takes the cell in the formula's own row or column, as it does from a range written out. In row 5,
+  `=@INDEX(A2:B7,0,2)` is B5, and in row 8 it is `#VALUE!`. From any other array, `@` takes the first
+  value.
+- **On the way out**, a download drops these `@` again, so older Excel reads the formula as it was.
+
 **Hidden sheets** come in hidden, and so do very hidden ones (helper sheets that only a macro can
 show), so the formulas that read them still compute. The dialog marks each one "(hidden, as in
 Excel)". The workbook opens on the first sheet showing. A download writes them hidden, and Excel

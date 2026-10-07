@@ -15,6 +15,24 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R338: an older file's formulas whose function answers with several values
+
+A workbook built by openpyxl (every formula plain, as Excel 2019 wrote them), handed to the Import
+dialog's file input. It was imported on the R337 build as `R338 legacy formulas` and on the R338
+build as `R338 legacy formulas (after)`. Both are kept.
+
+| Cell | Formula                                | R337 build         | R338 build                          | Older Excel |
+| ---- | -------------------------------------- | ------------------ | ----------------------------------- | ----------- |
+| D2   | `=LINEST(B2:B7,A2:A7)`                 | `#SPILL!`          | 1000, shown `=@LINEST(B2:B7,A2:A7)` | 1000        |
+| D3   | `=SUM(LINEST(B2:B7,A2:A7)*{9,1})`      | 11000              | 11000, no `@`                       | 11000       |
+| D4   | `=INDEX(LINEST(B2:B7,A2:A7),2)`        | 2000               | 2000                                | 2000        |
+| D5   | `=ROW(A2:A4)`                          | `#SPILL!`          | 2                                   | 2           |
+| D6   | `=SUMPRODUCT((B2:B7>5000)*ROW(B2:B7))` | 18                 | 18                                  | 18          |
+| D7   | `=TRANSPOSE(A2:A4)`                    | `#SPILL!`          | 1                                   | 1           |
+| D8   | `=INDEX(A2:B7,0,2)` (row 8)            | `#SPILL!`          | `#VALUE!`                           | `#VALUE!`   |
+| D9   | `=ABS(-LINEST(B2:B7,A2:A7))`           | `#SPILL!`          | 1000                                | 1000        |
+| D10  | `=TREND(B2:B7,A2:A7,{7;8})`            | 9000, 10000 in D11 | 9000, shown `=@TREND(…)`, D11 empty | 9000        |
+
 ## 2026-10-08 — R337: regression
 
 New workbook `R337 regression` (kept). A1:A8 were typed before the deploy and the workbook was
