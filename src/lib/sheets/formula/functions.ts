@@ -1166,6 +1166,230 @@ F.AREAS = (args) => {
     : err("#VALUE!", "AREAS takes a reference");
 };
 
+// ── CONVERT (R332) ─────────────────────────────────────────────────────────
+//
+// FOUND IN R329's inventory: CONVERT was #NAME?, and formula.js's knows too
+// few of Excel's units: "F", "C" and "ft2", all on Excel's own page, were
+// #N/A. This is the page's table: every unit and spelling, case-sensitive,
+// the SI prefixes on the metric units (raised to the power on a square or
+// cube: "cm2" is 1E-4 m²), and the binary prefixes on bits and bytes only.
+
+/** A unit: its group, how many of the group's base it is, and whether a prefix may go on it. */
+type ConvertUnit = {
+  group: string;
+  factor: number;
+  offset: number;
+  prefix: boolean;
+  power: number;
+};
+const CONVERT_UNITS = new Map<string, ConvertUnit>();
+const units = (
+  names: string[],
+  group: string,
+  factor: number,
+  opts: { prefix?: boolean; power?: number; offset?: number } = {},
+) => {
+  for (const n of names)
+    CONVERT_UNITS.set(n, {
+      group,
+      factor,
+      offset: opts.offset ?? 0,
+      prefix: opts.prefix ?? false,
+      power: opts.power ?? 1,
+    });
+};
+const SI = { prefix: true };
+const INCH = 0.0254;
+const FOOT = 0.3048;
+const MILE = 1609.344;
+const NAUTICAL_MILE = 1852;
+const LIGHT_YEAR = 9460730472580800;
+const PICA_POINT = INCH / 72;
+const LB = 453.59237; // grams
+const LBF = 4.4482216152605; // newtons
+const HORSEPOWER = 745.6998715822702; // watts
+const US_FLUID_OUNCE = 2.95735295625e-5; // m³
+// Mass, in grams.
+units(["g"], "mass", 1, SI);
+units(["sg"], "mass", 14593.902937206363);
+units(["lbm"], "mass", LB);
+units(["u"], "mass", 1.6605390666e-24, SI);
+units(["ozm"], "mass", LB / 16);
+units(["grain"], "mass", 0.06479891);
+units(["cwt", "shweight"], "mass", LB * 100);
+units(["uk_cwt", "lcwt", "hweight"], "mass", LB * 112);
+units(["stone"], "mass", LB * 14);
+units(["ton"], "mass", LB * 2000);
+units(["uk_ton", "LTON", "brton"], "mass", LB * 2240);
+// Distance, in metres.
+units(["m"], "distance", 1, SI);
+units(["mi"], "distance", MILE);
+units(["Nmi"], "distance", NAUTICAL_MILE);
+units(["in"], "distance", INCH);
+units(["ft"], "distance", FOOT);
+units(["yd"], "distance", 0.9144);
+units(["ang"], "distance", 1e-10, SI);
+units(["ell"], "distance", INCH * 45);
+units(["ly"], "distance", LIGHT_YEAR, SI);
+units(["parsec", "pc"], "distance", 3.085677581491367e16, SI);
+units(["Picapt", "Pica"], "distance", PICA_POINT);
+units(["pica"], "distance", INCH / 6);
+units(["survey_mi"], "distance", 6336000 / 3937);
+// Time, in seconds.
+units(["yr"], "time", 365.25 * 86400);
+units(["day", "d"], "time", 86400);
+units(["hr"], "time", 3600);
+units(["mn", "min"], "time", 60);
+units(["sec", "s"], "time", 1, SI);
+// Pressure, in pascals.
+units(["Pa", "p"], "pressure", 1, SI);
+units(["atm", "at"], "pressure", 101325, SI);
+units(["mmHg"], "pressure", 133.322387415, SI);
+units(["psi"], "pressure", LBF / (INCH * INCH));
+units(["Torr"], "pressure", 101325 / 760);
+// Force, in newtons.
+units(["N"], "force", 1, SI);
+units(["dyn", "dy"], "force", 1e-5, SI);
+units(["lbf"], "force", LBF);
+// Energy, in joules.
+units(["J"], "energy", 1, SI);
+units(["e"], "energy", 1e-7, SI);
+units(["c"], "energy", 4.184, SI);
+units(["cal"], "energy", 4.1868, SI);
+units(["eV", "ev"], "energy", 1.602176634e-19, SI);
+units(["HPh", "hh"], "energy", HORSEPOWER * 3600);
+units(["Wh", "wh"], "energy", 3600, SI);
+units(["flb"], "energy", FOOT * LBF);
+units(["BTU", "btu"], "energy", 1055.05585262);
+// Power, in watts.
+units(["HP", "h"], "power", HORSEPOWER);
+units(["PS"], "power", 735.49875);
+units(["W", "w"], "power", 1, SI);
+// Magnetism, in teslas.
+units(["T"], "magnetism", 1, SI);
+units(["ga"], "magnetism", 1e-4, SI);
+// Temperature, as kelvin = value × factor + offset.
+units(["C", "cel"], "temperature", 1, { offset: 273.15 });
+units(["F", "fah"], "temperature", 5 / 9, { offset: (459.67 * 5) / 9 });
+units(["K", "kel"], "temperature", 1, SI);
+units(["Rank"], "temperature", 5 / 9);
+units(["Reau"], "temperature", 1.25, { offset: 273.15 });
+// Volume, in cubic metres.
+units(["tsp"], "volume", US_FLUID_OUNCE / 6);
+units(["tspm"], "volume", 5e-6);
+units(["tbs"], "volume", US_FLUID_OUNCE / 2);
+units(["oz"], "volume", US_FLUID_OUNCE);
+units(["cup"], "volume", US_FLUID_OUNCE * 8);
+units(["pt", "us_pt"], "volume", US_FLUID_OUNCE * 16);
+units(["uk_pt"], "volume", 5.6826125e-4);
+units(["qt"], "volume", US_FLUID_OUNCE * 32);
+units(["uk_qt"], "volume", 1.1365225e-3);
+units(["gal"], "volume", 3.785411784e-3);
+units(["uk_gal"], "volume", 4.54609e-3);
+units(["l", "L", "lt"], "volume", 1e-3, SI);
+units(["ang3", "ang^3"], "volume", 1e-30, { prefix: true, power: 3 });
+units(["barrel"], "volume", 3.785411784e-3 * 42);
+units(["bushel"], "volume", 0.03523907016688);
+units(["ft3", "ft^3"], "volume", FOOT ** 3);
+units(["in3", "in^3"], "volume", INCH ** 3);
+units(["ly3", "ly^3"], "volume", LIGHT_YEAR ** 3, { prefix: true, power: 3 });
+units(["m3", "m^3"], "volume", 1, { prefix: true, power: 3 });
+units(["mi3", "mi^3"], "volume", MILE ** 3);
+units(["yd3", "yd^3"], "volume", 0.9144 ** 3);
+units(["Nmi3", "Nmi^3"], "volume", NAUTICAL_MILE ** 3);
+units(["Picapt3", "Picapt^3", "Pica3", "Pica^3"], "volume", PICA_POINT ** 3);
+units(["GRT", "regton"], "volume", FOOT ** 3 * 100);
+units(["MTON"], "volume", FOOT ** 3 * 40);
+// Area, in square metres.
+units(["uk_acre"], "area", 4046.8564224);
+units(["us_acre"], "area", 4046.8726098742513);
+units(["ang2", "ang^2"], "area", 1e-20, { prefix: true, power: 2 });
+units(["ar"], "area", 100, SI);
+units(["ft2", "ft^2"], "area", FOOT ** 2);
+units(["ha"], "area", 10000);
+units(["in2", "in^2"], "area", INCH ** 2);
+units(["ly2", "ly^2"], "area", LIGHT_YEAR ** 2, { prefix: true, power: 2 });
+units(["m2", "m^2"], "area", 1, { prefix: true, power: 2 });
+units(["Morgen"], "area", 2500);
+units(["mi2", "mi^2"], "area", MILE ** 2);
+units(["Nmi2", "Nmi^2"], "area", NAUTICAL_MILE ** 2);
+units(["Picapt2", "Pica2", "Pica^2", "Picapt^2"], "area", PICA_POINT ** 2);
+units(["yd2", "yd^2"], "area", 0.9144 ** 2);
+// Information, in bits.
+units(["bit"], "information", 1, SI);
+units(["byte"], "information", 8, SI);
+// Speed, in metres per second.
+units(["admkn"], "speed", 1853.184 / 3600);
+units(["kn"], "speed", NAUTICAL_MILE / 3600);
+units(["m/h", "m/hr"], "speed", 1 / 3600, SI);
+units(["m/s", "m/sec"], "speed", 1, SI);
+units(["mph"], "speed", MILE / 3600);
+
+const SI_PREFIXES: Record<string, number> = {
+  Y: 1e24,
+  Z: 1e21,
+  E: 1e18,
+  P: 1e15,
+  T: 1e12,
+  G: 1e9,
+  M: 1e6,
+  k: 1e3,
+  h: 1e2,
+  da: 1e1,
+  e: 1e1,
+  d: 1e-1,
+  c: 1e-2,
+  m: 1e-3,
+  u: 1e-6,
+  n: 1e-9,
+  p: 1e-12,
+  f: 1e-15,
+  a: 1e-18,
+  z: 1e-21,
+  y: 1e-24,
+};
+const BINARY_PREFIXES: Record<string, number> = {
+  Yi: 2 ** 80,
+  Zi: 2 ** 70,
+  Ei: 2 ** 60,
+  Pi: 2 ** 50,
+  Ti: 2 ** 40,
+  Gi: 2 ** 30,
+  Mi: 2 ** 20,
+  ki: 2 ** 10,
+};
+/** A unit as written: the unit itself, or a prefix on one that takes it. */
+function convertUnit(name: string): ConvertUnit | null {
+  const exact = CONVERT_UNITS.get(name);
+  if (exact) return exact;
+  const withPrefix = (prefixLength: number, scale: number | undefined, binary: boolean) => {
+    const u = scale === undefined ? undefined : CONVERT_UNITS.get(name.slice(prefixLength));
+    if (!u || !u.prefix || (binary && u.group !== "information")) return null;
+    return { ...u, factor: u.factor * scale! ** u.power };
+  };
+  return (
+    withPrefix(2, BINARY_PREFIXES[name.slice(0, 2)], true) ??
+    withPrefix(2, name.startsWith("da") ? SI_PREFIXES.da : undefined, false) ??
+    withPrefix(1, SI_PREFIXES[name[0]], false)
+  );
+}
+F.CONVERT = (args) => {
+  const bad = arity(args, 3, 3);
+  if (bad) return bad;
+  const x = num(args[0]);
+  if (isError(x)) return x;
+  const from = text(args[1]);
+  if (isError(from)) return from;
+  const to = text(args[2]);
+  if (isError(to)) return to;
+  const a = convertUnit(from);
+  if (!a) return err("#N/A", `CONVERT has no unit "${from}" (units are case-sensitive)`);
+  const b = convertUnit(to);
+  if (!b) return err("#N/A", `CONVERT has no unit "${to}" (units are case-sensitive)`);
+  if (a.group !== b.group) return err("#N/A", `${from} is ${a.group} and ${to} is ${b.group}`);
+  return (x * a.factor + a.offset - b.offset) / b.factor;
+};
+
 /** MUNIT(n): the n×n identity. */
 F.MUNIT = ofNumber((x) => {
   const n = Math.trunc(x);
@@ -3747,7 +3971,8 @@ const SINGLE_VALUE_FUNCTIONS = [
   ...["FACTDOUBLE", "SQRTPI", "CEILING.PRECISE", "FLOOR.PRECISE", "ISO.CEILING", "DELTA"],
   ...["GESTEP", "ERF", "ERF.PRECISE", "ERFC", "ERFC.PRECISE", "BESSELI", "BESSELJ", "BESSELK"],
   "BESSELY",
-  // R331's.
+  // R331's and R332's.
+  "CONVERT",
   ...["NORMINV", "NORMSINV", "NORMSDIST", "VALUETOTEXT", "LENB", "LEFTB", "RIGHTB", "MIDB"],
   ...["FINDB", "SEARCHB", "REPLACEB"],
   // Dates, text and information.

@@ -25,6 +25,11 @@ export const FUNCTION_HELP: Record<string, FunctionHelp> = {
     desc: "A total that can leave out hidden rows, errors and nested subtotals.",
     cat: "Math",
   },
+  CONVERT: {
+    sig: "CONVERT(number, from_unit, to_unit)",
+    desc: 'A measurement in another unit of the same kind: "mi" to "km", "F" to "C", "kWh" to "BTU".',
+    cat: "Engineering",
+  },
   WRAPROWS: {
     sig: "WRAPROWS(vector, wrap_count, [pad_with])",
     desc: "A row or column folded into rows of that many values.",

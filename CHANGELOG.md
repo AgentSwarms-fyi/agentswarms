@@ -24,6 +24,10 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Sheets: CONVERT** (R332), with every unit on Excel's page, the SI prefixes
+  on the metric units (squared or cubed on an area or a volume) and the binary
+  prefixes on bits and bytes. formula.js's own CONVERT lacked units on that
+  page, such as "F", "C" and "ft2".
 - **Sheets: eighteen array, text and sheet functions** (R331): WRAPROWS,
   WRAPCOLS, EXPAND, ARRAYTOTEXT, VALUETOTEXT, SHEET, SHEETS, AREAS, NORMINV,
   NORMSINV, NORMSDIST and the seven byte functions (LENB, LEFTB…). SHEET follows

@@ -15,6 +15,28 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-07 — R332: CONVERT
+
+New workbook `R332 CONVERT` (kept), typed before the deploy, when every cell showed `#NAME?`, and
+reopened after:
+
+| Formula                           | After       |
+| --------------------------------- | ----------- |
+| `=CONVERT(68, "F", "C")`          | 20          |
+| `=CONVERT(100, "ft2", "m2")`      | 9.290304    |
+| `=CONVERT(6, "mi", "km")`         | 9.656064    |
+| `=CONVERT(1, "kWh", "BTU")`       | 3412.141633 |
+| `=CONVERT(1, "Gibyte", "Mibyte")` | 1024        |
+| `=CONVERT(1, "LBM", "kg")`        | #N/A        |
+
+The last cell's error says `CONVERT has no unit "LBM" (units are case-sensitive)`.
+
+**Image smoke.** The app image was then rebuilt from this tree (`378f6accc1bb`). The first build
+failed in `npm ci` on a network reset and was run again. The app container was recreated from the
+image, with nothing copied in. On it, this workbook showed the same six values, `R328 LAMBDA`
+computed its names (14 and 120) and its MAP, BYROW, MAKEARRAY and SCAN spills, and the Sheets docs
+page says "More than 400 of Excel's 510 functions".
+
 ## 2026-10-07 — R331: arrays, text and sheets
 
 New workbook `R331 arrays text sheets` (kept). Sheet1 was typed before the deploy, when every

@@ -109,6 +109,61 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-07 — R332: CONVERT, with Excel's whole unit table
+
+**Severity: low, Sheets** (a missing function). This is the third group of R329's inventory.
+CONVERT was `#NAME?`. formula.js has one, but it lacks units on Excel's own page: `CONVERT(68,
+"F", "C")` and `CONVERT(100, "ft2", "m2")` were `#N/A`.
+
+**What was written:** Excel's table from its page, every unit and every spelling of one, case-
+sensitive. Each unit has a group, a factor to the group's base and whether it takes a prefix. A
+temperature also has an offset to kelvin.
+
+- An exact unit wins over a prefix reading, so `"min"`, `"mi"`, `"pc"` and `"Pa"` are units.
+- The SI prefixes go on the metric units, `"da"` included. On a square or a cube the prefix is
+  raised with it: `"cm2"` is 1E-4 m² and `"km3"` 1E9 m³.
+- The binary prefixes go on bits and bytes only: `"Gibyte"` is 1,024 `"Mibyte"`, and `"kim"` is
+  `#N/A`.
+- Two groups, or a unit it does not know, is `#N/A`, and the cell says which unit. A number that is
+  not one is `#VALUE!`. CONVERT lifts over a range.
+- **The page has one example that does not add up.** It shows `CONVERT(6,"gal","l")` as
+  22.71741274, which is 3.786235 L to the gallon. The US gallon is exactly 3.785411784 L, and other
+  references give 5 gallons as 18.9271. CONVERT answers 22.712470704, and a mutant using the page's
+  figure is caught.
+
+Where Excel's exact constant is not on the page, such as the atomic mass unit, the parsec or mmHg,
+the current SI or conventional value is used. Those units are tested only as far as their
+definitions fix them.
+
+**Tests:** `sheetsConvertR332.test.ts`, 100 cases. The page's examples come first, then every
+group against the units' definitions (an inch is 2.54 cm, a pound 453.59237 g, a barrel 42 gallons),
+then temperatures, prefixes and the refusals. All of them failed before.
+
+- **Mutation harness:** 13 mutants caught, and the control survived. They cover matching without
+  case, a prefix on any unit, a binary prefix on any metric unit, a prefix not raised on a square,
+  each prefix table dropped, groups not compared, temperatures without offsets, and the page's
+  gallon.
+
+**The UI**, in a new workbook `R332 CONVERT`, typed before the deploy (all `#NAME?`) and reopened
+after:
+
+| Cell | Formula                           | After       |
+| ---- | --------------------------------- | ----------- |
+| A1   | `=CONVERT(68, "F", "C")`          | 20          |
+| A2   | `=CONVERT(100, "ft2", "m2")`      | 9.290304    |
+| A3   | `=CONVERT(6, "mi", "km")`         | 9.656064    |
+| A4   | `=CONVERT(1, "kWh", "BTU")`       | 3412.141633 |
+| A5   | `=CONVERT(1, "Gibyte", "Mibyte")` | 1024        |
+| A6   | `=CONVERT(1, "LBM", "kg")`        | #N/A        |
+
+A6's error reads `CONVERT has no unit "LBM" (units are case-sensitive)`. The workbook is kept.
+
+**A real image**, rebuilt from this tree (`378f6accc1bb`) and run with nothing copied in, showed the
+same values here and in `R328 LAMBDA`. It is the first image since R327's. Its first build failed
+in `npm ci` on a network reset and was simply run again.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-07 — R331: arrays, text and sheets, and the tab order the engine never had
 
 **Severity: low, Sheets** (missing functions). This is the second group of R329's inventory:

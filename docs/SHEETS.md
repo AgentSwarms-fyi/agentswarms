@@ -144,6 +144,14 @@ Type `=` and a formula, as in Excel. More than 400 of Excel's 510 functions are 
     and 1/0 is #DIV/0!. ACOT is from 0 to π.
   - FACTDOUBLE(-1) is 1, as in Excel, and below that #NUM!. A Bessel order is truncated, and one
     below 0 is #NUM!.
+  - CONVERT (R332) takes every unit on Excel's page, in its groups: mass, distance, time,
+    pressure, force, energy, power, magnetism, temperature, volume, area, information and speed.
+    Units are case-sensitive, as in Excel (`"lbm"`, not `"LBM"`). The SI prefixes go on the metric
+    units (`"km"`, `"kWh"`, `"ml"`), and on a square or a cube they are squared or cubed with it
+    (`"cm2"` is 1E-4 m²). The binary prefixes (`"ki"`, `"Mi"`, `"Gi"`…) go on bits and bytes only. A
+    unit it does not know, or two of different groups, is #N/A, and the cell says which. Excel's page
+    gives 6 gallons as 22.71741274 litres; they are 22.712470704 (3.785411784 L each), which is
+    what CONVERT answers.
   - MINVERSE of a matrix with no inverse is #NUM!. MDETERM is exact to about 16 digits, as
     Excel's page says of its own: the 4×4 example on that page shows 88.
 - **Complex numbers:** all twenty-five of Excel's — IMSUM, IMSUB, IMPRODUCT, IMDIV, IMCONJUGATE,

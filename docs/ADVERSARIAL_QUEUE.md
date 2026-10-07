@@ -956,8 +956,11 @@ more missing). Open from that round:
   functions and XlsxWriter's newer ones, against the registry). In the order to take them:
   1. ~~Math and engineering~~: done in R330, 31 functions. 97 remain.
   2. ~~Arrays and text~~: done in R331, 18 functions. 79 remain.
-  3. CONVERT, with Excel's full unit table: formula.js lacks "F", "C" and "ft2".
-  4. Statistics: T.TEST, F.TEST, Z.TEST, CHISQ.TEST and their old names, COVAR, PEARSON, STEYX,
+  3. ~~CONVERT~~: done in R332. 78 remain.
+  4. Statistics (formula.js's T.TEST ignores its tails and type and answers 0.192 for the page's
+     0.196; its F.TEST is 0.614 for the page's 0.648; its CHISQ.TEST is rounded to 6 places; its
+     MODE.MULT is in the wrong order and shape): T.TEST, F.TEST, Z.TEST, CHISQ.TEST and their old
+     names, COVAR, PEARSON, STEYX,
      SKEW.P, STDEVPA, VARPA, MODE.MULT, PROB, SUMX2MY2, SUMX2PY2, SUMXMY2, BINOM.DIST.RANGE,
      LINEST, LOGEST, then FORECAST.ETS and its three companions.
   5. Securities: ACCRINT, ACCRINTM, the six COUP functions, DISC, DOLLARDE, DOLLARFR,
