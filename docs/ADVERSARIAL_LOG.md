@@ -109,7 +109,71 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
-### 2026-10-08 — R334: a General number wider than its column showed
+### 2026-10-08 — R335: nineteen securities functions, and the YEARFRAC already there
+
+**Severity: medium, Sheets** (missing functions; and a registered function that answered wrong).
+This is the fifth group of R329's inventory: COUPDAYBS, COUPDAYS, COUPDAYSNC, COUPNCD, COUPNUM,
+COUPPCD, DISC, INTRATE, PRICEDISC, RECEIVED, YIELDDISC, ACCRINTM, PRICEMAT, YIELDMAT, TBILLEQ,
+TBILLPRICE, TBILLYIELD, DOLLARDE and DOLLARFR. All were `#NAME?`.
+
+**The ground truth.** All 30 securities pages were fetched from Microsoft's support site and
+copied verbatim: syntax, error remarks and examples. Several values remembered from older versions
+of the pages were wrong. COUPNUM's example is 4, on 2007–2008 dates, and DISC's printed result is
+0.001038. The equations on these pages are images, and were read off them.
+
+**What was written** (`formula/securities.ts`):
+
+- **A coupon date** keeps a schedule from a month's last day on last days, and under 30/360 no month
+  has more than 30 days.
+- **Days between two coupon dates** are counted with the US and European 30/360 corrections. These
+  follow the analysis functions Excel shipped as an add-in, as LibreOffice reproduces them for
+  Excel's answers. The pages give each equation and one example, not how February's end moves.
+- **The year fraction** follows Excel's YEARFRAC, as David A. Wheeler measured it. Under US 30/360
+  February's end is the 30th. Under actual/actual the year has 366 days only when the span holds a
+  February 29th, and spans past a year use the average year.
+- In `functions.ts`, each page's rules: dates, frequency and basis truncated; a frequency of 1, 2
+  or 4; a basis of 0 to 4; settlement before maturity; and the bounds each page names, `≥` or `>`
+  as the page has it (TBILLYIELD alone refuses settlement on the maturity date). A Treasury bill
+  past a year after settlement is `#NUM!`.
+
+**Found while doing it:**
+
+- **YEARFRAC was wrong.** The new year fraction was compared with the YEARFRAC already registered,
+  formula.js's, over 3,300 spans and five bases. formula.js's ignored European 30/360's rule that a
+  31st is the 30th: YEARFRAC(2009-01-01, 2009-12-31, 4) was 1, where it is 359/360. It also counted
+  a 366-day year for any span ending on January 29th, leap year or not: 2009-01-01 to 2009-01-29
+  was 28/366. YEARFRAC now uses the same day counts as the securities, so the engine has one.
+- **DISC's page prints a result its own dates do not give.** The data are 1 July 2018 to 1 January
+  2048, with a result of 0.001038. Those dates give 0.000686, and 0.001038 is exactly what a
+  maturity in 2038 gives (0.0010381908). DURATION's page uses the same dates, and its 10.9191453
+  does fit 2048. DISC answers for the dates it is given.
+- Leaving off an optional basis made the first build `#NUM!`. A missing argument came through as
+  `undefined`, not as one left empty; such arguments now read as empty. The probe caught it before
+  any test was written.
+
+**Tests:** `sheetsSecuritiesR335.test.ts`, 87 cases: every page's example, the rules each page
+names, inverses (DISC and PRICEDISC, TBILLPRICE and TBILLYIELD, DOLLARDE and DOLLARFR), and the
+three counts of a coupon period adding up. COUPDAYBS in US 30/360 is also checked against the
+engine's own DAYS360, which was checked against Excel in its own round. There are the YEARFRAC
+page's examples and the two cases found. 81 of the cases fail on the unfixed engine; the other 4
+are YEARFRAC cases formula.js already got right. All 79 Sheets test files pass.
+
+- **Mutation harness:** 22 mutants caught, and the control survived. The first run had three
+  surprises. One mutant I had marked equivalent was caught, because settling on a coupon date tells
+  them apart. Two others survived: the 30/360 month-end rule and the US correction of a 31st after
+  an early day. No case had a February-end coupon in 30/360, or a 31st settlement. The DAYS360
+  comparison and a February 28th coupon case now catch both, along with the US 30th-to-31st rule.
+
+**The UI**, in a new workbook `R335 securities`, typed before the deploy (all `#NAME?`) and
+reopened after. COUPDAYBS gave 71, COUPNUM 4, PRICEDISC 99.79583333, RECEIVED 1014584.654,
+TBILLPRICE 98.45, YIELDMAT 0.0609543337, ACCRINTM 20.54794521 and DOLLARDE 1.125. Then
+`=YEARFRAC(DATE(2009,1,1), DATE(2009,12,31), 4)` showed 0.9972222222, and
+`=YEARFRAC(DATE(2009,1,1), DATE(2009,1,29), 1)*365` showed 28; formula.js had given 1 and
+27.92. The workbook is kept.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
+### 2026-10-08 — R334: a General number wider than its column showed hashes
 
 **Severity: low, Sheets** (a value hidden that Excel shows). Found in R333's UI round. CHISQ.TEST's
 answer, 0.000308192017, showed as `##########` in a default-width column. The grid drew `####`

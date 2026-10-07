@@ -962,9 +962,10 @@ more missing). Open from that round:
      parameters, so a matching answer may not be possible; it was listed here with: COVAR, PEARSON, STEYX,
      SKEW.P, STDEVPA, VARPA, MODE.MULT, PROB, SUMX2MY2, SUMX2PY2, SUMXMY2, BINOM.DIST.RANGE,
      LINEST, LOGEST, then FORECAST.ETS and its three companions.
-  5. Securities: ACCRINT, ACCRINTM, the six COUP functions, DISC, DOLLARDE, DOLLARFR,
-     DURATION, MDURATION, INTRATE, PRICE, PRICEDISC, PRICEMAT, RECEIVED, the three TBILL
-     functions, YIELD, YIELDDISC, YIELDMAT, AMORDEGRC, AMORLINC, then the four ODD ones.
+  5. Securities: ~~the coupon, discount, maturity, Treasury-bill and dollar functions~~ done in
+     R335, 19 functions. Still to take: PRICE, YIELD, DURATION, MDURATION, ACCRINT, AMORDEGRC,
+     AMORLINC, then the four ODD ones (R336). Each page's example is in R335's log entry's source,
+     fetched verbatim from Microsoft's support site.
   6. CELL and INFO, as far as a browser can answer them.
 
   Out of reach and to stay so: the seven CUBE functions (OLAP), RTD, WEBSERVICE and FILTERXML

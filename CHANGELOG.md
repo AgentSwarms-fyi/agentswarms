@@ -24,6 +24,10 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Sheets: nineteen securities functions** (R335): the six COUP functions,
+  DISC, INTRATE, PRICEDISC, RECEIVED, YIELDDISC, ACCRINTM, PRICEMAT, YIELDMAT,
+  the three Treasury-bill functions, DOLLARDE and DOLLARFR, on Excel's five
+  day-count bases, each checked against its page's example.
 - **Sheets: twenty statistics functions** (R333): the t, F, z and chi-squared
   tests under their new names and old, COVAR, PEARSON, STEYX, SKEW.P, STDEVPA,
   VARPA, MODE.MULT, PROB, the three SUMX2 sums and BINOM.DIST.RANGE. formula.js's
@@ -92,6 +96,11 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **Sheets: YEARFRAC's European 30/360 and its leap years** (R335).
+  YEARFRAC(2009-01-01, 2009-12-31, 4) was 1, where a 31st counts as the 30th
+  and Excel gives 359/360. Any span ending on January 29th was counted over a
+  366-day year: 2009-01-01 to 2009-01-29 was 28/366, not 28/365. YEARFRAC now
+  uses the securities functions' day counts.
 - **Sheets: a General number wider than its column showed ####** (R334). Excel
   rounds such a number to fit, with fewer decimals and then in scientific
   notation, and shows #### only when nothing fits. CHISQ.TEST's 0.000308192017

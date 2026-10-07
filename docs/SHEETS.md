@@ -183,6 +183,18 @@ Type `=` and a formula, as in Excel. More than 400 of Excel's 510 functions are 
   - For loans and investments, beside PMT, IPMT, PPMT, FV, PV, NPER, RATE, NPV, IRR, XNPV and XIRR:
     CUMIPMT and CUMPRINC (interest and principal between two periods), MIRR (which skips blank
     flows, as IRR does), FVSCHEDULE, SYD, ISPMT, PDURATION and RRI.
+  - For securities (R335): the coupon schedule (COUPDAYBS, COUPDAYS, COUPDAYSNC, COUPNCD, COUPNUM,
+    COUPPCD), the discount family (DISC, INTRATE, PRICEDISC, RECEIVED, YIELDDISC), ACCRINTM,
+    PRICEMAT and YIELDMAT, the Treasury bills (TBILLEQ, TBILLPRICE, TBILLYIELD), and DOLLARDE and
+    DOLLARFR. They take Excel's five day-count bases: 0 US 30/360, 1 actual/actual, 2 actual/360,
+    3 actual/365 and 4 European 30/360. A coupon schedule from a month's last day stays on last
+    days, and COUPNCD and COUPPCD return date numbers, so format them as dates. Dates, the
+    frequency and the basis are truncated; a frequency other than 1, 2 or 4, a basis past 4, or
+    settlement on or after maturity is #NUM!, as on Excel's pages.
+  - YEARFRAC uses the same day counts (R335). It now counts a 31st as the 30th under European
+    30/360, and takes a 366-day year only for a span that holds a February 29th.
+  - Excel's DISC page prints 0.001038 for 1 July 2018 to 1 January 2048. Those dates give 0.000686;
+    0.001038 is what a maturity in 2038 gives. DISC answers for the dates you give it.
   - VDB depreciates from one period to another by declining balance (double, unless a factor is
     given) and switches to straight line over what is left once that is larger, unless its last
     argument is TRUE. A part period takes its share of that period, so `=VDB(2400,300,10,0,0.875,1.5)`

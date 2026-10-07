@@ -25,6 +25,101 @@ export const FUNCTION_HELP: Record<string, FunctionHelp> = {
     desc: "A total that can leave out hidden rows, errors and nested subtotals.",
     cat: "Math",
   },
+  COUPDAYBS: {
+    sig: "COUPDAYBS(settlement, maturity, frequency, [basis])",
+    desc: "Days from the start of the coupon period to settlement.",
+    cat: "Financial",
+  },
+  COUPDAYS: {
+    sig: "COUPDAYS(settlement, maturity, frequency, [basis])",
+    desc: "Days in the coupon period that holds the settlement date.",
+    cat: "Financial",
+  },
+  COUPDAYSNC: {
+    sig: "COUPDAYSNC(settlement, maturity, frequency, [basis])",
+    desc: "Days from settlement to the next coupon date.",
+    cat: "Financial",
+  },
+  COUPNCD: {
+    sig: "COUPNCD(settlement, maturity, frequency, [basis])",
+    desc: "The next coupon date after settlement, as a date number.",
+    cat: "Financial",
+  },
+  COUPNUM: {
+    sig: "COUPNUM(settlement, maturity, frequency, [basis])",
+    desc: "How many coupons are payable from settlement to maturity.",
+    cat: "Financial",
+  },
+  COUPPCD: {
+    sig: "COUPPCD(settlement, maturity, frequency, [basis])",
+    desc: "The coupon date before settlement, as a date number.",
+    cat: "Financial",
+  },
+  DISC: {
+    sig: "DISC(settlement, maturity, pr, redemption, [basis])",
+    desc: "A security's discount rate.",
+    cat: "Financial",
+  },
+  INTRATE: {
+    sig: "INTRATE(settlement, maturity, investment, redemption, [basis])",
+    desc: "The interest rate of a fully invested security.",
+    cat: "Financial",
+  },
+  PRICEDISC: {
+    sig: "PRICEDISC(settlement, maturity, discount, redemption, [basis])",
+    desc: "The price per $100 of a discounted security.",
+    cat: "Financial",
+  },
+  RECEIVED: {
+    sig: "RECEIVED(settlement, maturity, investment, discount, [basis])",
+    desc: "What a fully invested security pays at maturity.",
+    cat: "Financial",
+  },
+  YIELDDISC: {
+    sig: "YIELDDISC(settlement, maturity, pr, redemption, [basis])",
+    desc: "The annual yield of a discounted security.",
+    cat: "Financial",
+  },
+  ACCRINTM: {
+    sig: "ACCRINTM(issue, settlement, rate, [par], [basis])",
+    desc: "Interest accrued by a security that pays at maturity.",
+    cat: "Financial",
+  },
+  PRICEMAT: {
+    sig: "PRICEMAT(settlement, maturity, issue, rate, yld, [basis])",
+    desc: "The price per $100 of a security that pays interest at maturity.",
+    cat: "Financial",
+  },
+  YIELDMAT: {
+    sig: "YIELDMAT(settlement, maturity, issue, rate, pr, [basis])",
+    desc: "The annual yield of a security that pays interest at maturity.",
+    cat: "Financial",
+  },
+  TBILLEQ: {
+    sig: "TBILLEQ(settlement, maturity, discount)",
+    desc: "A Treasury bill's bond-equivalent yield.",
+    cat: "Financial",
+  },
+  TBILLPRICE: {
+    sig: "TBILLPRICE(settlement, maturity, discount)",
+    desc: "A Treasury bill's price per $100.",
+    cat: "Financial",
+  },
+  TBILLYIELD: {
+    sig: "TBILLYIELD(settlement, maturity, pr)",
+    desc: "A Treasury bill's yield.",
+    cat: "Financial",
+  },
+  DOLLARDE: {
+    sig: "DOLLARDE(fractional_dollar, fraction)",
+    desc: "A price written in fractions (1.02 is 1 2/16) as a decimal.",
+    cat: "Financial",
+  },
+  DOLLARFR: {
+    sig: "DOLLARFR(decimal_dollar, fraction)",
+    desc: "A decimal price written in fractions: 1.125 in sixteenths is 1.02.",
+    cat: "Financial",
+  },
   "T.TEST": {
     sig: "T.TEST(array1, array2, tails, type)",
     desc: "Student's t-test: type 1 paired, 2 equal variances, 3 unequal; tails 1 or 2.",

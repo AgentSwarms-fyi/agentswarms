@@ -15,6 +15,29 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R335: securities, and YEARFRAC
+
+New workbook `R335 securities` (kept). A1:A8 were typed before the deploy, when every cell showed
+`#NAME?`, and the workbook was reopened after:
+
+| Formula                                                                             | After        |
+| ----------------------------------------------------------------------------------- | ------------ |
+| `=COUPDAYBS(DATE(2011,1,25), DATE(2011,11,15), 2, 1)`                               | 71           |
+| `=COUPNUM(DATE(2007,1,25), DATE(2008,11,15), 2, 1)`                                 | 4            |
+| `=PRICEDISC(DATE(2008,2,16), DATE(2008,3,1), 0.0525, 100, 2)`                       | 99.79583333  |
+| `=RECEIVED(DATE(2008,2,15), DATE(2008,5,15), 1000000, 0.0575, 2)`                   | 1014584.654  |
+| `=TBILLPRICE(DATE(2008,3,31), DATE(2008,6,1), 0.09)`                                | 98.45        |
+| `=YIELDMAT(DATE(2008,3,15), DATE(2008,11,3), DATE(2007,11,8), 0.0625, 100.0123, 0)` | 0.0609543337 |
+| `=ACCRINTM(DATE(2008,4,1), DATE(2008,6,15), 0.1, 1000, 3)`                          | 20.54794521  |
+| `=DOLLARDE(1.02, 16)`                                                               | 1.125        |
+
+Then, typed after the deploy:
+
+| Formula                                             | After        | formula.js's YEARFRAC |
+| --------------------------------------------------- | ------------ | --------------------- |
+| `=YEARFRAC(DATE(2009,1,1), DATE(2009,12,31), 4)`    | 0.9972222222 | 1                     |
+| `=YEARFRAC(DATE(2009,1,1), DATE(2009,1,29), 1)*365` | 28           | 27.92                 |
+
 ## 2026-10-08 — R334: a General number in a narrow column
 
 In `R333 statistics`, after the deploy and a reload, read from the grid's cells:

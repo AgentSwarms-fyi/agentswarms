@@ -37,6 +37,20 @@ import {
 import type { ErrorCode } from "./lexer";
 import { colLetters, MAX_COLS, MAX_ROWS } from "../a1";
 import { parseFormula } from "./parser";
+import {
+  checkBasis,
+  checkFrequency,
+  coupdaybs,
+  coupdays,
+  coupdaysnc,
+  coupncd,
+  coupnum,
+  couppcd,
+  dollarde,
+  dollarfr,
+  yearFrac,
+  type Basis,
+} from "./securities";
 import { lineUp, tailOf, withTail, zipN, type Tail } from "./arrays";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -1616,6 +1630,198 @@ F.TTEST = F["T.TEST"];
 F.FTEST = F["F.TEST"];
 F.ZTEST = F["Z.TEST"];
 F.CHITEST = F["CHISQ.TEST"];
+
+// ── Securities (R335) ──────────────────────────────────────────────────────
+//
+// FOUND IN R329's inventory: these were #NAME?. The schedule and the day
+// counts are in securities.ts; here, each page's argument rules: dates and
+// the frequency and basis truncated, a frequency of 1, 2 or 4, a basis of 0
+// to 4, settlement before maturity, and the bounds each page names.
+
+/** A securities function's arguments as numbers, NaN for one left out. */
+function securityArgs(args: Arg[], min: number, max: number): number[] | SheetError {
+  const bad = arity(args, min, max);
+  if (bad) return bad;
+  const xs: number[] = [];
+  for (const a of args) {
+    if (a.node.k === "empty") {
+      xs.push(NaN);
+      continue;
+    }
+    const v = num(a);
+    if (isError(v)) return v;
+    xs.push(v);
+  }
+  // An optional argument left off the end reads as one left empty.
+  while (xs.length < max) xs.push(NaN);
+  return xs;
+}
+const badBasis = () => err("#NUM!", "The basis is 0 to 4");
+const badFrequency = () =>
+  err("#NUM!", "The frequency is 1, 2 or 4 (yearly, half-yearly, quarterly)");
+const tooLate = () => err("#NUM!", "The settlement must come before the maturity");
+const badDate = () => err("#VALUE!", "That is not a date");
+
+/** COUPDAYBS, COUPDAYS, COUPDAYSNC, COUPNCD, COUPNUM and COUPPCD(settlement, maturity, frequency, [basis]). */
+const coupon =
+  (fn: (s: number, m: number, f: number, b: Basis) => number): FnImpl =>
+  (args) => {
+    const xs = securityArgs(args, 3, 4);
+    if (isError(xs)) return xs;
+    const [s, m] = [Math.trunc(xs[0]), Math.trunc(xs[1])];
+    if (s < 0 || m < 0) return badDate();
+    const f = checkFrequency(xs[2]);
+    if (f === null) return badFrequency();
+    const b = checkBasis(xs[3]);
+    if (b === null) return badBasis();
+    if (s >= m) return tooLate();
+    return fn(s, m, f, b);
+  };
+F.COUPDAYBS = coupon(coupdaybs);
+F.COUPDAYS = coupon(coupdays);
+F.COUPDAYSNC = coupon(coupdaysnc);
+F.COUPNCD = coupon(coupncd);
+F.COUPNUM = coupon(coupnum);
+F.COUPPCD = coupon(couppcd);
+
+/**
+ * The discount family, (settlement, maturity, a, b, [basis]), each over
+ * YEARFRAC of settlement to maturity: DISC, INTRATE, PRICEDISC, RECEIVED and
+ * YIELDDISC. Both amounts must be above 0.
+ */
+const discounted =
+  (fn: (a: number, b: number, years: number) => number): FnImpl =>
+  (args) => {
+    const xs = securityArgs(args, 4, 5);
+    if (isError(xs)) return xs;
+    const [s, m] = [Math.trunc(xs[0]), Math.trunc(xs[1])];
+    if (s < 0 || m < 0) return badDate();
+    if (!(xs[2] > 0) || !(xs[3] > 0)) return err("#NUM!", "Both amounts must be above 0");
+    const b = checkBasis(xs[4]);
+    if (b === null) return badBasis();
+    if (s >= m) return tooLate();
+    const v = fn(xs[2], xs[3], yearFrac(s, m, b));
+    return Number.isFinite(v) && v > 0 ? v : err("#NUM!", "There is no such amount");
+  };
+F.DISC = discounted((pr, redemption, years) => (redemption - pr) / redemption / years);
+F.INTRATE = discounted(
+  (investment, redemption, years) => (redemption - investment) / investment / years,
+);
+F.PRICEDISC = discounted(
+  (discount, redemption, years) => redemption - discount * redemption * years,
+);
+F.RECEIVED = discounted((investment, discount, years) => investment / (1 - discount * years));
+F.YIELDDISC = discounted((pr, redemption, years) => (redemption / pr - 1) / years);
+
+/** ACCRINTM(issue, settlement, rate, [par], [basis]): par × rate × YEARFRAC; par left out is $1,000. */
+F.ACCRINTM = (args) => {
+  const xs = securityArgs(args, 3, 5);
+  if (isError(xs)) return xs;
+  const [issue, s] = [Math.trunc(xs[0]), Math.trunc(xs[1])];
+  if (issue < 0 || s < 0) return badDate();
+  const par = Number.isNaN(xs[3]) ? 1000 : xs[3];
+  if (!(xs[2] > 0) || !(par > 0)) return err("#NUM!", "The rate and par must be above 0");
+  const b = checkBasis(xs[4]);
+  if (b === null) return badBasis();
+  if (issue >= s) return err("#NUM!", "The issue must come before the settlement");
+  return par * xs[2] * yearFrac(issue, s, b);
+};
+/** PRICEMAT and YIELDMAT(settlement, maturity, issue, rate, yld or pr, [basis]). */
+const atMaturity =
+  (price: boolean): FnImpl =>
+  (args) => {
+    const xs = securityArgs(args, 5, 6);
+    if (isError(xs)) return xs;
+    const [s, m, issue] = [Math.trunc(xs[0]), Math.trunc(xs[1]), Math.trunc(xs[2])];
+    if (s < 0 || m < 0 || issue < 0) return badDate();
+    const [rate, other] = [xs[3], xs[4]];
+    if (rate < 0 || (price ? other < 0 : !(other > 0)))
+      return err(
+        "#NUM!",
+        price
+          ? "The rate and yield must be 0 or more"
+          : "The rate must be 0 or more and the price above 0",
+      );
+    const b = checkBasis(xs[5]);
+    if (b === null) return badBasis();
+    if (s >= m) return tooLate();
+    const issMat = yearFrac(issue, m, b);
+    const issSet = yearFrac(issue, s, b);
+    const setMat = yearFrac(s, m, b);
+    return price
+      ? ((1 + issMat * rate) / (1 + setMat * other) - issSet * rate) * 100
+      : ((1 + issMat * rate) / (other / 100 + issSet * rate) - 1) / setMat;
+  };
+F.PRICEMAT = atMaturity(true);
+F.YIELDMAT = atMaturity(false);
+
+/** A Treasury bill's days, settlement to maturity: none past a year after settlement. */
+function billDays(args: Arg[], strict: boolean): number[] | SheetError {
+  const xs = securityArgs(args, 3, 3);
+  if (isError(xs)) return xs;
+  const [s, m] = [Math.trunc(xs[0]), Math.trunc(xs[1])];
+  if (s < 0 || m < 0) return badDate();
+  if (strict ? s >= m : s > m) return tooLate();
+  const p = serialParts(s);
+  // A year after settlement; from February 29th, February 28th.
+  const yearOn = dateSerial(p.y + 1, p.m, Math.min(p.d, p.m === 2 ? 28 : p.d));
+  if (m > yearOn) return err("#NUM!", "A Treasury bill matures within a year");
+  return [m - s, xs[2]];
+}
+F.TBILLEQ = (args) => {
+  const r = billDays(args, false);
+  if (isError(r)) return r;
+  const [dsm, discount] = r;
+  if (!(discount > 0)) return err("#NUM!", "The discount must be above 0");
+  return (365 * discount) / (360 - discount * dsm);
+};
+F.TBILLPRICE = (args) => {
+  const r = billDays(args, false);
+  if (isError(r)) return r;
+  const [dsm, discount] = r;
+  if (!(discount > 0)) return err("#NUM!", "The discount must be above 0");
+  const v = 100 * (1 - (discount * dsm) / 360);
+  return v > 0 ? v : err("#NUM!", "The discount is too large for the days");
+};
+F.TBILLYIELD = (args) => {
+  const r = billDays(args, true);
+  if (isError(r)) return r;
+  const [dsm, pr] = r;
+  if (!(pr > 0)) return err("#NUM!", "The price must be above 0");
+  return ((100 - pr) / pr) * (360 / dsm);
+};
+
+/**
+ * YEARFRAC(start_date, end_date, [basis]), on the same day counts as the
+ * securities. FOUND IN R335, comparing the two over 3,300 spans: formula.js's
+ * YEARFRAC, registered until now, ignored European 30/360's rule that a 31st
+ * is the 30th (YEARFRAC(2009-01-01, 2009-12-31, 4) was 1, not 359/360), and
+ * counted a 366-day year for any span ending on January 29th, leap or not
+ * (2009-01-01 to 2009-01-29 was 28/366).
+ */
+F.YEARFRAC = (args) => {
+  const xs = securityArgs(args, 2, 3);
+  if (isError(xs)) return xs;
+  const [s, e] = [Math.trunc(xs[0]), Math.trunc(xs[1])];
+  if (s < 0 || e < 0) return badDate();
+  const b = checkBasis(xs[2]);
+  if (b === null) return badBasis();
+  return yearFrac(s, e, b);
+};
+
+/** DOLLARDE and DOLLARFR(dollar, fraction): 1.02 in sixteenths is 1 2/16. */
+const dollar =
+  (toDecimal: boolean): FnImpl =>
+  (args) => {
+    const xs = securityArgs(args, 2, 2);
+    if (isError(xs)) return xs;
+    const f = Math.trunc(xs[1]);
+    if (f < 0) return err("#NUM!", "The fraction must be 0 or more");
+    if (f < 1) return err("#DIV/0!", "The fraction is 0");
+    return toDecimal ? dollarde(xs[0], f) : dollarfr(xs[0], f);
+  };
+F.DOLLARDE = dollar(true);
+F.DOLLARFR = dollar(false);
 
 /** MUNIT(n): the n×n identity. */
 F.MUNIT = ofNumber((x) => {
@@ -4212,6 +4418,10 @@ const SINGLE_VALUE_FUNCTIONS = [
   ...["FACTDOUBLE", "SQRTPI", "CEILING.PRECISE", "FLOOR.PRECISE", "ISO.CEILING", "DELTA"],
   ...["GESTEP", "ERF", "ERF.PRECISE", "ERFC", "ERFC.PRECISE", "BESSELI", "BESSELJ", "BESSELK"],
   "BESSELY",
+  // R335's securities.
+  ...["COUPDAYBS", "COUPDAYS", "COUPDAYSNC", "COUPNCD", "COUPNUM", "COUPPCD", "DISC", "INTRATE"],
+  ...["PRICEDISC", "RECEIVED", "YIELDDISC", "ACCRINTM", "PRICEMAT", "YIELDMAT", "TBILLEQ"],
+  ...["TBILLPRICE", "TBILLYIELD", "DOLLARDE", "DOLLARFR"],
   // R331's, R332's and R333's.
   "CONVERT",
   "BINOM.DIST.RANGE",
