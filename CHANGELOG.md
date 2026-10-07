@@ -24,6 +24,9 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Sheets: eleven bond functions** (R336): PRICE, YIELD, DURATION, MDURATION,
+  ACCRINT, the four ODD functions, AMORDEGRC and AMORLINC. Sheets now computes
+  482 of Excel's 510 functions; the rest are listed in the adversarial queue.
 - **Sheets: nineteen securities functions** (R335): the six COUP functions,
   DISC, INTRATE, PRICEDISC, RECEIVED, YIELDDISC, ACCRINTM, PRICEMAT, YIELDMAT,
   the three Treasury-bill functions, DOLLARDE and DOLLARFR, on Excel's five

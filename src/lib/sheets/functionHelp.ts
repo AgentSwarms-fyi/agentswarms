@@ -25,6 +25,61 @@ export const FUNCTION_HELP: Record<string, FunctionHelp> = {
     desc: "A total that can leave out hidden rows, errors and nested subtotals.",
     cat: "Math",
   },
+  PRICE: {
+    sig: "PRICE(settlement, maturity, rate, yld, redemption, frequency, [basis])",
+    desc: "The price per $100 of a bond that pays periodic interest.",
+    cat: "Financial",
+  },
+  YIELD: {
+    sig: "YIELD(settlement, maturity, rate, pr, redemption, frequency, [basis])",
+    desc: "The yield of a bond that pays periodic interest.",
+    cat: "Financial",
+  },
+  DURATION: {
+    sig: "DURATION(settlement, maturity, coupon, yld, frequency, [basis])",
+    desc: "A bond's Macaulay duration, in years.",
+    cat: "Financial",
+  },
+  MDURATION: {
+    sig: "MDURATION(settlement, maturity, coupon, yld, frequency, [basis])",
+    desc: "A bond's modified duration: DURATION / (1 + yld/frequency).",
+    cat: "Financial",
+  },
+  ACCRINT: {
+    sig: "ACCRINT(issue, first_interest, settlement, rate, par, frequency, [basis], [calc_method])",
+    desc: "Interest accrued by a security that pays periodic interest.",
+    cat: "Financial",
+  },
+  ODDFPRICE: {
+    sig: "ODDFPRICE(settlement, maturity, issue, first_coupon, rate, yld, redemption, frequency, [basis])",
+    desc: "The price of a bond with an odd first period.",
+    cat: "Financial",
+  },
+  ODDFYIELD: {
+    sig: "ODDFYIELD(settlement, maturity, issue, first_coupon, rate, pr, redemption, frequency, [basis])",
+    desc: "The yield of a bond with an odd first period.",
+    cat: "Financial",
+  },
+  ODDLPRICE: {
+    sig: "ODDLPRICE(settlement, maturity, last_interest, rate, yld, redemption, frequency, [basis])",
+    desc: "The price of a bond with an odd last period.",
+    cat: "Financial",
+  },
+  ODDLYIELD: {
+    sig: "ODDLYIELD(settlement, maturity, last_interest, rate, pr, redemption, frequency, [basis])",
+    desc: "The yield of a bond with an odd last period.",
+    cat: "Financial",
+  },
+  AMORDEGRC: {
+    sig: "AMORDEGRC(cost, date_purchased, first_period, salvage, period, rate, [basis])",
+    desc: "French declining depreciation for a period (kept for old workbooks).",
+    cat: "Financial",
+  },
+  AMORLINC: {
+    sig: "AMORLINC(cost, date_purchased, first_period, salvage, period, rate, [basis])",
+    desc: "French straight-line depreciation for a period.",
+    cat: "Financial",
+  },
   COUPDAYBS: {
     sig: "COUPDAYBS(settlement, maturity, frequency, [basis])",
     desc: "Days from the start of the coupon period to settlement.",

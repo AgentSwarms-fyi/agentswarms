@@ -191,6 +191,15 @@ Type `=` and a formula, as in Excel. More than 400 of Excel's 510 functions are 
     days, and COUPNCD and COUPPCD return date numbers, so format them as dates. Dates, the
     frequency and the basis are truncated; a frequency other than 1, 2 or 4, a basis past 4, or
     settlement on or after maturity is #NUM!, as on Excel's pages.
+  - Bonds (R336): PRICE, YIELD, DURATION, MDURATION, ACCRINT, ODDFPRICE, ODDFYIELD, ODDLPRICE and
+    ODDLYIELD, each from its page's equation, and AMORDEGRC and AMORLINC (French depreciation, with
+    no basis 2). YIELD and ODDFYIELD solve their price function for the yield; with one period
+    left YIELD uses its page's closed form. DURATION times each cash flow from the days to the next
+    coupon (DSC/E), as its page's 10.9191453 requires. ACCRINT sums its page's quasi-coupon
+    periods: with settlement past the first interest date it can differ from a YEARFRAC-based
+    figure (LibreOffice's), and follows Excel's page. AMORDEGRC is checked against its page for
+    periods 0 and 1; later periods follow the add-in's algorithm and have not been checked
+    against Excel.
   - YEARFRAC uses the same day counts (R335). It now counts a 31st as the 30th under European
     30/360, and takes a 366-day year only for a span that holds a February 29th.
   - Excel's DISC page prints 0.001038 for 1 July 2018 to 1 January 2048. Those dates give 0.000686;

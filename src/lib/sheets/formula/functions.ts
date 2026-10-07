@@ -38,8 +38,18 @@ import type { ErrorCode } from "./lexer";
 import { colLetters, MAX_COLS, MAX_ROWS } from "../a1";
 import { parseFormula } from "./parser";
 import {
+  accrint,
+  amordegrc,
+  amorlinc,
   checkBasis,
   checkFrequency,
+  duration,
+  oddfprice,
+  oddlprice,
+  oddlyield,
+  price,
+  solveRate,
+  yieldOf,
   coupdaybs,
   coupdays,
   coupdaysnc,
@@ -1822,6 +1832,165 @@ const dollar =
   };
 F.DOLLARDE = dollar(true);
 F.DOLLARFR = dollar(false);
+
+// ── Bond prices, yields and durations (R336) ───────────────────────────────
+
+/** The dates, frequency and basis every bond page checks: settlement before maturity. */
+function bondTerms(
+  xs: number[],
+  fi: number,
+  bi: number,
+): { s: number; m: number; f: number; b: Basis } | SheetError {
+  const [s, m] = [Math.trunc(xs[0]), Math.trunc(xs[1])];
+  if (s < 0 || m < 0) return badDate();
+  const f = checkFrequency(xs[fi]);
+  if (f === null) return badFrequency();
+  const b = checkBasis(xs[bi]);
+  if (b === null) return badBasis();
+  if (s >= m) return tooLate();
+  return { s, m, f, b };
+}
+const noRate = () => err("#NUM!", "No rate gives that price");
+
+/** PRICE(settlement, maturity, rate, yld, redemption, frequency, [basis]). */
+F.PRICE = (args) => {
+  const xs = securityArgs(args, 6, 7);
+  if (isError(xs)) return xs;
+  const t = bondTerms(xs, 5, 6);
+  if (isError(t)) return t;
+  const [rate, yld, red] = [xs[2], xs[3], xs[4]];
+  if (rate < 0 || yld < 0) return err("#NUM!", "The rate and yield must be 0 or more");
+  if (!(red > 0)) return err("#NUM!", "The redemption must be above 0");
+  return price(t.s, t.m, rate, yld, red, t.f, t.b);
+};
+/** YIELD(settlement, maturity, rate, pr, redemption, frequency, [basis]). */
+F.YIELD = (args) => {
+  const xs = securityArgs(args, 6, 7);
+  if (isError(xs)) return xs;
+  const t = bondTerms(xs, 5, 6);
+  if (isError(t)) return t;
+  const [rate, pr, red] = [xs[2], xs[3], xs[4]];
+  if (rate < 0) return err("#NUM!", "The rate must be 0 or more");
+  if (!(pr > 0) || !(red > 0)) return err("#NUM!", "The price and redemption must be above 0");
+  return yieldOf(t.s, t.m, rate, pr, red, t.f, t.b) ?? noRate();
+};
+/** DURATION and MDURATION(settlement, maturity, coupon, yld, frequency, [basis]). */
+const bondDuration =
+  (modified: boolean): FnImpl =>
+  (args) => {
+    const xs = securityArgs(args, 5, 6);
+    if (isError(xs)) return xs;
+    const t = bondTerms(xs, 4, 5);
+    if (isError(t)) return t;
+    const [coupon, yld] = [xs[2], xs[3]];
+    if (coupon < 0 || yld < 0) return err("#NUM!", "The coupon and yield must be 0 or more");
+    const d = duration(t.s, t.m, coupon, yld, t.f, t.b);
+    return modified ? d / (1 + yld / t.f) : d;
+  };
+F.DURATION = bondDuration(false);
+F.MDURATION = bondDuration(true);
+
+/** ACCRINT(issue, first_interest, settlement, rate, par, frequency, [basis], [calc_method]). */
+F.ACCRINT = (args) => {
+  const bad = arity(args, 6, 8);
+  if (bad) return bad;
+  // calc_method is TRUE or FALSE; the rest are numbers.
+  const xs = securityArgs(args.slice(0, 7), 6, 7);
+  if (isError(xs)) return xs;
+  const fromIssue = args[7] && args[7].node.k !== "empty" ? bool(args[7]) : true;
+  if (isError(fromIssue)) return fromIssue;
+  const [issue, first, s] = [Math.trunc(xs[0]), Math.trunc(xs[1]), Math.trunc(xs[2])];
+  if (issue < 0 || first < 0 || s < 0) return badDate();
+  const par = Number.isNaN(xs[4]) ? 1000 : xs[4];
+  if (!(xs[3] > 0) || !(par > 0)) return err("#NUM!", "The rate and par must be above 0");
+  const f = checkFrequency(xs[5]);
+  if (f === null) return badFrequency();
+  const b = checkBasis(xs[6]);
+  if (b === null) return badBasis();
+  if (issue >= s) return err("#NUM!", "The issue must come before the settlement");
+  return accrint(issue, first, s, xs[3], par, f, b, fromIssue);
+};
+
+/** ODDFPRICE and ODDFYIELD(settlement, maturity, issue, first_coupon, rate, yld or pr, redemption, frequency, [basis]). */
+const oddFirst =
+  (yieldWanted: boolean): FnImpl =>
+  (args) => {
+    const xs = securityArgs(args, 8, 9);
+    if (isError(xs)) return xs;
+    const [s, m, issue, first] = xs.slice(0, 4).map(Math.trunc);
+    if ([s, m, issue, first].some((x) => x < 0)) return badDate();
+    const [rate, other, red] = [xs[4], xs[5], xs[6]];
+    if (rate < 0 || (yieldWanted ? !(other > 0) : other < 0))
+      return err(
+        "#NUM!",
+        yieldWanted
+          ? "The rate must be 0 or more and the price above 0"
+          : "The rate and yield must be 0 or more",
+      );
+    if (!(red > 0)) return err("#NUM!", "The redemption must be above 0");
+    const f = checkFrequency(xs[7]);
+    if (f === null) return badFrequency();
+    const b = checkBasis(xs[8]);
+    if (b === null) return badBasis();
+    if (!(m > first && first > s && s > issue))
+      return err("#NUM!", "The dates must run issue, settlement, first coupon, maturity");
+    const at = (y: number) => oddfprice(s, m, issue, first, rate, y, red, f, b);
+    return yieldWanted ? (solveRate(at, other, f) ?? noRate()) : at(other);
+  };
+F.ODDFPRICE = oddFirst(false);
+F.ODDFYIELD = oddFirst(true);
+/** ODDLPRICE and ODDLYIELD(settlement, maturity, last_interest, rate, yld or pr, redemption, frequency, [basis]). */
+const oddLastFn =
+  (yieldWanted: boolean): FnImpl =>
+  (args) => {
+    const xs = securityArgs(args, 7, 8);
+    if (isError(xs)) return xs;
+    const [s, m, last] = xs.slice(0, 3).map(Math.trunc);
+    if ([s, m, last].some((x) => x < 0)) return badDate();
+    const [rate, other, red] = [xs[3], xs[4], xs[5]];
+    if (rate < 0 || (yieldWanted ? !(other > 0) : other < 0))
+      return err(
+        "#NUM!",
+        yieldWanted
+          ? "The rate must be 0 or more and the price above 0"
+          : "The rate and yield must be 0 or more",
+      );
+    if (!(red > 0)) return err("#NUM!", "The redemption must be above 0");
+    const f = checkFrequency(xs[6]);
+    if (f === null) return badFrequency();
+    const b = checkBasis(xs[7]);
+    if (b === null) return badBasis();
+    if (!(m > s && s > last))
+      return err("#NUM!", "The dates must run last interest, settlement, maturity");
+    return yieldWanted
+      ? oddlyield(s, m, last, rate, other, red, f, b)
+      : oddlprice(s, m, last, rate, other, red, f, b);
+  };
+F.ODDLPRICE = oddLastFn(false);
+F.ODDLYIELD = oddLastFn(true);
+
+/** AMORDEGRC and AMORLINC(cost, date_purchased, first_period, salvage, period, rate, [basis]): no basis 2. */
+const amortisation =
+  (declining: boolean): FnImpl =>
+  (args) => {
+    const xs = securityArgs(args, 6, 7);
+    if (isError(xs)) return xs;
+    const [cost, bought, first, salvage, period, rate] = xs;
+    if (Math.trunc(bought) < 0 || Math.trunc(first) < 0) return badDate();
+    const b = checkBasis(xs[6]);
+    if (b === null || b === 2) return err("#NUM!", "The basis is 0, 1, 3 or 4");
+    if (!(rate > 0) || cost < 0 || salvage < 0 || salvage > cost || period < 0)
+      return err("#NUM!", "The cost, salvage, period and rate must make sense together");
+    const p = Math.trunc(period);
+    const [d0, d1] = [Math.trunc(bought), Math.trunc(first)];
+    if (!declining) return amorlinc(cost, d0, d1, salvage, p, rate, b);
+    return (
+      amordegrc(cost, d0, d1, salvage, p, rate, b) ??
+      err("#NUM!", "AMORDEGRC takes a life (1/rate) of 3 to 4 years, 5 to 6, or more than 6")
+    );
+  };
+F.AMORDEGRC = amortisation(true);
+F.AMORLINC = amortisation(false);
 
 /** MUNIT(n): the n×n identity. */
 F.MUNIT = ofNumber((x) => {
@@ -4418,6 +4587,9 @@ const SINGLE_VALUE_FUNCTIONS = [
   ...["FACTDOUBLE", "SQRTPI", "CEILING.PRECISE", "FLOOR.PRECISE", "ISO.CEILING", "DELTA"],
   ...["GESTEP", "ERF", "ERF.PRECISE", "ERFC", "ERFC.PRECISE", "BESSELI", "BESSELJ", "BESSELK"],
   "BESSELY",
+  // R336's.
+  ...["PRICE", "YIELD", "DURATION", "MDURATION", "ACCRINT", "ODDFPRICE", "ODDFYIELD", "ODDLPRICE"],
+  ...["ODDLYIELD", "AMORDEGRC", "AMORLINC"],
   // R335's securities.
   ...["COUPDAYBS", "COUPDAYS", "COUPDAYSNC", "COUPNCD", "COUPNUM", "COUPPCD", "DISC", "INTRATE"],
   ...["PRICEDISC", "RECEIVED", "YIELDDISC", "ACCRINTM", "PRICEMAT", "YIELDMAT", "TBILLEQ"],

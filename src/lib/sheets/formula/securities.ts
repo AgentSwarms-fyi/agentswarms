@@ -250,3 +250,306 @@ export const dollarfr = (x: number, f: number): number => {
   const whole = Math.trunc(x);
   return whole + ((x - whole) * f) / digitsFor(f);
 };
+
+// ── Prices, yields, durations, accrued interest, odd periods (R336) ──────────
+//
+// Each from its page's equation, checked first in Python against the pages'
+// examples. One choice the pages settle: DURATION times each cash flow from
+// DSC/E, the days to the next coupon over the period's; LibreOffice's form,
+// built on YEARFRAC, gives 10.92157 for the page's 10.9191453.
+
+/** A bond's coupon facts at settlement: N coupons left, E days in the period, A accrued, DSC to the next. */
+function facts(s: number, m: number, f: number, b: Basis) {
+  return {
+    n: coupnum(s, m, f, b),
+    e: coupdays(s, m, f, b),
+    a: coupdaybs(s, m, f, b),
+    dsc: coupdaysnc(s, m, f, b),
+  };
+}
+
+/** PRICE(settlement, maturity, rate, yld, redemption, frequency, basis) per $100. */
+export function price(
+  s: number,
+  m: number,
+  rate: number,
+  yld: number,
+  red: number,
+  f: number,
+  b: Basis,
+): number {
+  const { n, e, a, dsc } = facts(s, m, f, b);
+  const c = (100 * rate) / f;
+  if (n === 1) return (c + red) / ((yld / f) * ((e - a) / e) + 1) - (c * a) / e;
+  const y = 1 + yld / f;
+  const t0 = dsc / e;
+  let p = red / y ** (n - 1 + t0);
+  for (let k = 1; k <= n; k++) p += c / y ** (k - 1 + t0);
+  return p - (c * a) / e;
+}
+
+/**
+ * The rate at which a price function, falling as the rate rises, gives a
+ * target: by bisection to the last digit, from just above −f (where the
+ * discount factor would vanish) up to where the price falls below it.
+ * Null when no rate up to 10^6 does.
+ */
+export function solveRate(
+  priceAt: (y: number) => number,
+  target: number,
+  f: number,
+): number | null {
+  let lo = -f * (1 - 1e-12);
+  let hi = 1;
+  while (priceAt(hi) > target) {
+    hi *= 2;
+    if (hi > 1e6) return null;
+  }
+  if (!(priceAt(lo) >= target)) return null;
+  for (let i = 0; i < 400; i++) {
+    const mid = (lo + hi) / 2;
+    if (mid === lo || mid === hi) break;
+    if (priceAt(mid) > target) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+/** YIELD: the page's closed form for one period or less to redemption, else PRICE solved for it. */
+export function yieldOf(
+  s: number,
+  m: number,
+  rate: number,
+  pr: number,
+  red: number,
+  f: number,
+  b: Basis,
+): number | null {
+  const { n, e, a } = facts(s, m, f, b);
+  if (n <= 1) {
+    const paid = pr / 100 + (a / e) * (rate / f);
+    return ((red / 100 + rate / f - paid) / paid) * ((f * e) / (e - a));
+  }
+  return solveRate((y) => price(s, m, rate, y, red, f, b), pr, f);
+}
+
+/** DURATION: Macaulay's, each cash flow timed DSC/E periods past the last coupon. */
+export function duration(
+  s: number,
+  m: number,
+  coupon: number,
+  yld: number,
+  f: number,
+  b: Basis,
+): number {
+  const { n, e, dsc } = facts(s, m, f, b);
+  const c = (coupon * 100) / f;
+  const y = 1 + yld / f;
+  let pv = 0;
+  let timed = 0;
+  for (let k = 1; k <= n; k++) {
+    const t = k - 1 + dsc / e;
+    const v = (k === n ? c + 100 : c) / y ** t;
+    pv += v;
+    timed += t * v;
+  }
+  return timed / pv / f;
+}
+
+/** The normal length in days of a coupon period on the basis. */
+function periodLength(from: CouponDate, to: CouponDate, f: number, b: Basis): number {
+  if (b === 1) return CouponDate.diff(from, to);
+  return (b === 3 ? 365 : 360) / f;
+}
+/** Days from one date to another as the basis counts them. */
+function daysOn(a: number, b2: number, b: Basis): number {
+  if (b === 2 || b === 3 || b === 1) return Math.max(0, b2 - a);
+  return CouponDate.diff(new CouponDate(a, b), new CouponDate(b2, b));
+}
+
+/**
+ * Quasi-coupon periods on a schedule anchored at `anchor`, stepping back
+ * from it (or on from it) until they cover [from, to]: each with its start,
+ * end and normal length.
+ */
+function quasiPeriods(anchor: number, from: number, to: number, f: number, b: Basis) {
+  const step = 12 / f;
+  const at = (j: number) => {
+    const d = new CouponDate(anchor, b);
+    d.addMonths(j * step);
+    return d;
+  };
+  let j = 0;
+  while (at(j).serial() > from) j--;
+  const out: { start: number; end: number; length: number }[] = [];
+  for (; at(j).serial() < to; j++) {
+    const s0 = at(j);
+    const s1 = at(j + 1);
+    out.push({ start: s0.serial(), end: s1.serial(), length: periodLength(s0, s1, f, b) });
+  }
+  return out;
+}
+/** Σ (days of [from, to] in each quasi period) / its normal length. */
+function periodsIn(
+  periods: { start: number; end: number; length: number }[],
+  from: number,
+  to: number,
+  b: Basis,
+): number {
+  let sum = 0;
+  for (const p of periods) {
+    const a = Math.max(from, p.start);
+    const z = Math.min(to, p.end);
+    if (z > a) sum += daysOn(a, z, b) / p.length;
+  }
+  return sum;
+}
+
+/**
+ * ACCRINT: par × rate/frequency × Σ A_i/NL_i over the quasi-coupon periods
+ * on first_interest's schedule, from issue (or, with calc_method FALSE and
+ * settlement past the first interest date, from the coupon date before
+ * settlement) to settlement.
+ */
+export function accrint(
+  issue: number,
+  first: number,
+  s: number,
+  rate: number,
+  par: number,
+  f: number,
+  b: Basis,
+  fromIssue: boolean,
+): number {
+  let start = issue;
+  if (!fromIssue && s > first) {
+    const periods = quasiPeriods(first, first, s, f, b);
+    start = Math.max(issue, ...periods.filter((p) => p.start <= s).map((p) => p.start));
+  }
+  const periods = quasiPeriods(first, Math.min(start, first), s, f, b);
+  return ((par * rate) / f) * periodsIn(periods, start, s, b);
+}
+
+/**
+ * ODDFPRICE: the page's equation for an odd first period, short or long. With
+ * one quasi period before the first coupon it is the page's short-coupon form.
+ */
+export function oddfprice(
+  s: number,
+  m: number,
+  issue: number,
+  first: number,
+  rate: number,
+  yld: number,
+  red: number,
+  f: number,
+  b: Basis,
+): number {
+  const before = quasiPeriods(first, issue, first, f, b);
+  const c = (100 * rate) / f;
+  const y = 1 + yld / f;
+  // The quasi period holding settlement, and the whole ones after it to the first coupon.
+  const i = before.findIndex((p) => s >= p.start && s < p.end);
+  const here = before[i];
+  const e = here.length;
+  const dsc = daysOn(s, here.end, b);
+  const nq = before.length - 1 - i;
+  const regular = coupnum(first, m, f, b);
+  const t0 = nq + dsc / e;
+  let p = red / y ** (regular + t0);
+  p += (c * periodsIn(before, issue, first, b)) / y ** t0;
+  for (let k = 1; k <= regular; k++) p += c / y ** (k + t0);
+  return p - c * periodsIn(before, issue, s, b);
+}
+
+/** ODDLPRICE and ODDLYIELD's three sums over the quasi periods from the last interest date. */
+function oddLast(s: number, m: number, last: number, f: number, b: Basis) {
+  const periods = quasiPeriods(last, last, m, f, b);
+  return {
+    dc: periodsIn(periods, last, m, b),
+    a: periodsIn(periods, last, s, b),
+    dsc: periodsIn(periods, s, m, b),
+  };
+}
+export function oddlprice(
+  s: number,
+  m: number,
+  last: number,
+  rate: number,
+  yld: number,
+  red: number,
+  f: number,
+  b: Basis,
+): number {
+  const { dc, a, dsc } = oddLast(s, m, last, f, b);
+  const c = (100 * rate) / f;
+  return (red + dc * c) / (1 + (dsc * yld) / f) - a * c;
+}
+export function oddlyield(
+  s: number,
+  m: number,
+  last: number,
+  rate: number,
+  pr: number,
+  red: number,
+  f: number,
+  b: Basis,
+): number {
+  const { dc, a, dsc } = oddLast(s, m, last, f, b);
+  const c = (100 * rate) / f;
+  const paid = pr + a * c;
+  return ((red + dc * c - paid) / paid) * (f / dsc);
+}
+
+/**
+ * AMORDEGRC: the French declining depreciation. The rate is multiplied by
+ * 1.5, 2 or 2.5 by the life (1/rate); the first period is prorated over its
+ * year fraction; each period's amount is rounded to a whole number; and the
+ * period before the last takes half of what is left, the last the rest.
+ * Null for a life the page refuses (under 3 years, or between 4 and 5).
+ */
+export function amordegrc(
+  cost: number,
+  bought: number,
+  first: number,
+  salvage: number,
+  period: number,
+  rate: number,
+  b: Basis,
+): number | null {
+  const life = 1 / rate;
+  const coeff = life >= 3 && life <= 4 ? 1.5 : life >= 5 && life <= 6 ? 2 : life > 6 ? 2.5 : null;
+  if (coeff === null) return null;
+  const r = rate * coeff;
+  const round = (x: number) => Math.sign(x) * Math.floor(Math.abs(x) + 0.5 + 1e-9);
+  let amount = round(yearFrac(bought, first, b) * r * cost);
+  if (period === 0) return amount;
+  let left = cost - amount;
+  let rest = left - salvage;
+  for (let n = 0; n < period; n++) {
+    amount = round(r * left);
+    rest -= amount;
+    if (rest < 0) return period - n <= 1 ? round(left * 0.5) : 0;
+    left -= amount;
+  }
+  return amount;
+}
+
+/** AMORLINC: straight-line French depreciation, the first period prorated, the last what is left. */
+export function amorlinc(
+  cost: number,
+  bought: number,
+  first: number,
+  salvage: number,
+  period: number,
+  rate: number,
+  b: Basis,
+): number {
+  const one = cost * rate;
+  const first0 = yearFrac(bought, first, b) * rate * cost;
+  const full = Math.trunc((cost - salvage - first0) / one);
+  if (period === 0) return first0;
+  if (period <= full) return one;
+  if (period === full + 1) return cost - salvage - one * full - first0;
+  return 0;
+}

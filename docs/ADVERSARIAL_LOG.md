@@ -109,6 +109,70 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R336: bond prices, yields and durations, and the choices the pages settle
+
+**Severity: low, Sheets** (missing functions). This is the last group of R329's securities list:
+PRICE, YIELD, DURATION, MDURATION, ACCRINT, ODDFPRICE, ODDFYIELD, ODDLPRICE, ODDLYIELD, AMORDEGRC
+and AMORLINC. All were `#NAME?`.
+
+**Modelled first.** Each equation from R335's fetched pages was written first in Python
+(`r336_model*.py` in the round's scratch), with dates done by Python's own calendar, and checked
+against the pages' examples before any engine code. All reproduced them: PRICE 94.63436162,
+YIELD 0.0650000069, ODDFPRICE 113.597717, ODDFYIELD 0.0772455, ODDLPRICE 99.878286, ODDLYIELD
+0.0451922, AMORDEGRC 776 and AMORLINC 360.
+
+**Two choices the pages settle:**
+
+- **DURATION.** It times each cash flow at k − 1 + DSC/E periods, DSC being the days to the next
+  coupon and E the days in the period. That gives the page's 10.9191453, and MDURATION the page's
+  5.736 (5.73567). The form LibreOffice uses, built on YEARFRAC, gives 10.92157 and 5.7339.
+- **ACCRINT.** It sums its page's quasi-coupon periods. Every page example settles before the first
+  interest date, where both forms agree. Past it they differ: 1 March to 1 November 2008 at 10%
+  semiannual 30/360 is 66.944 by the page's sum (a whole period, then 61 of 180 days). By YEARFRAC,
+  as LibreOffice computes it, it is 66.667. Sheets follows the page.
+
+**What was written** (`formula/securities.ts`):
+
+- PRICE uses the page's two equations, with one period or more to go.
+- YIELD uses the page's closed form for one period, and otherwise solves PRICE by bisection down to
+  the last bit.
+- ODDFPRICE uses one form for short and long first periods, from the long-first equation, which
+  reduces to the short one with a single quasi period. ODDFYIELD solves it for the yield.
+- ODDLPRICE and ODDLYIELD sum over the quasi periods from the last interest date.
+- AMORDEGRC and AMORLINC follow the add-in's French depreciation. AMORDEGRC uses the page's life
+  bands (`#NUM!` for a life under 3 years or between 4 and 5) and rounds each period; neither takes
+  basis 2.
+
+**What is not checked:** AMORDEGRC's periods after the first. Its page gives only period 1 (776).
+Periods 0 and 1 are tested; the rest follow the add-in's algorithm as LibreOffice reproduces it,
+and nothing here confirms them against Excel. SHEETS.md says so.
+
+**Tests:** `sheetsBondsR336.test.ts`, 56 cases: every page's example and the rules each page names.
+
+- PRICE and YIELD undo each other on three bonds and all five bases, including one period to go.
+  ODDFYIELD and ODDLYIELD undo their prices.
+- A zero-coupon bond's duration is its term.
+- ODDFPRICE's long form meets its short form where they join.
+- AMORLINC sums to the cost less the salvage.
+
+53 of the cases fail on the unfixed engine; the one that passes checks that a file gets no prefix.
+All 80 Sheets test files pass.
+
+- **Mutation harness:** 15 mutants caught, the control survived, and one survives because it is
+  equivalent. With one period left, YIELD's closed form is the exact inverse of PRICE's one-period
+  form. The first run let two through, and each was a gap in the cases. Both pages' DURATION
+  examples settle on a coupon date, where DSC/E is 1, so timing by whole periods looked the same;
+  a mid-period case now catches it. No case had a long first period with settlement a whole period
+  before the first coupon; one does now. Both of these values come from the Python model, not this
+  code.
+
+**The UI**, in a new workbook `R336 bonds`, typed before the deploy (all `#NAME?`) and reopened after:
+PRICE 94.63436162, YIELD 0.065000007, DURATION 10.91914528, MDURATION 5.735669814, ACCRINT
+16.66666667, ODDFPRICE 113.5977175, ODDLYIELD 0.0451922356 and AMORDEGRC 776. The workbook is
+kept. With R329 to R336, Sheets computes 482 of Excel's 510 functions.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R335: nineteen securities functions, and the YEARFRAC already there
 
 **Severity: medium, Sheets** (missing functions; and a registered function that answered wrong).

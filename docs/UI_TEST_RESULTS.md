@@ -15,6 +15,22 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R336: bonds
+
+New workbook `R336 bonds` (kept). A1:A8 were typed before the deploy, when every cell showed
+`#NAME?`, and the workbook was reopened after:
+
+| Formula                                                                                                     | After        | Page       |
+| ----------------------------------------------------------------------------------------------------------- | ------------ | ---------- |
+| `=PRICE(DATE(2008,2,15), DATE(2017,11,15), 0.0575, 0.065, 100, 2, 0)`                                       | 94.63436162  | $94.63     |
+| `=YIELD(DATE(2008,2,15), DATE(2016,11,15), 0.0575, 95.04287, 100, 2, 0)`                                    | 0.065000007  | 6.5%       |
+| `=DURATION(DATE(2018,7,1), DATE(2048,1,1), 0.08, 0.09, 2, 1)`                                               | 10.91914528  | 10.9191453 |
+| `=MDURATION(DATE(2008,1,1), DATE(2016,1,1), 0.08, 0.09, 2, 1)`                                              | 5.735669814  | 5.736      |
+| `=ACCRINT(DATE(2008,3,1), DATE(2008,8,31), DATE(2008,5,1), 0.1, 1000, 2, 0)`                                | 16.66666667  | 16.666667  |
+| `=ODDFPRICE(DATE(2008,11,11), DATE(2021,3,1), DATE(2008,10,15), DATE(2009,3,1), 0.0785, 0.0625, 100, 2, 1)` | 113.5977175  | $113.60    |
+| `=ODDLYIELD(DATE(2008,4,20), DATE(2008,6,15), DATE(2007,12,24), 0.0375, 99.875, 100, 2, 0)`                 | 0.0451922356 | 4.52%      |
+| `=AMORDEGRC(2400, DATE(2008,8,19), DATE(2008,12,31), 300, 1, 0.15, 1)`                                      | 776          | 776        |
+
 ## 2026-10-08 — R335: securities, and YEARFRAC
 
 New workbook `R335 securities` (kept). A1:A8 were typed before the deploy, when every cell showed
