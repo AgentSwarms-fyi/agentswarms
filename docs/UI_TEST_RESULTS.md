@@ -15,6 +15,24 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R337: regression
+
+New workbook `R337 regression` (kept). A1:A8 were typed before the deploy and the workbook was
+reopened after; A14:A15 were typed after only:
+
+| Cell | Formula                                                                | Before                   | After                                                                        | Expected (source)                  |
+| ---- | ---------------------------------------------------------------------- | ------------------------ | ---------------------------------------------------------------------------- | ---------------------------------- |
+| A1   | `=LINEST({1;9;5;7},{0;4;2;3},,FALSE)`                                  | `#NAME?`                 | 2, 1                                                                         | 2, 1 (LINEST page)                 |
+| A2   | `=LOGEST({33100;…;220000},{11;…;16},TRUE,FALSE)`                       | `#NAME?`                 | 1.463275628, 495.3047702                                                     | 1.46328, 495.305 (LOGEST page)     |
+| A3   | `=TREND({9;8;19;18;29},{1,2;2,1;3,4;4,3;5,6},{6,7})`                   | `#NUM!`, `#NUM!`         | 34                                                                           | 34 (y = 1 + 2·x1 + 3·x2)           |
+| A4   | `=GROWTH(EXP({1;2;3;4;5}),{1,2;3,4;4,5;6,7;7,8},{9,11})`               | 29558.23449, 310847.8439 | 472.4324326                                                                  | 472.432432563203 (GROWTH article)  |
+| A5   | `=SLOPE({1;2;3},{1;1;1})`                                              | `#NUM!`                  | `#DIV/0!`                                                                    | `#DIV/0!` (LINEST and SLOPE pages) |
+| A6   | `=CORREL({1;2;3},{1;1;1})`                                             | `#NUM!`                  | `#DIV/0!`                                                                    | `#DIV/0!` (CORREL page)            |
+| A7   | `=FORECAST(2,{1;2;3},{1;1;1})`                                         | `#NUM!`                  | `#DIV/0!`                                                                    | `#DIV/0!` (FORECAST page)          |
+| A8   | `=LINEST({142000;…},{2310,2,2,20;…},TRUE,TRUE)` (the office buildings) | `#NAME?`                 | 5×5: −234.2371645, 13.26801148, 0.9967479934, 459.7536742, 1732393319 down A | the page's column A                |
+| A14  | `=SUMPRODUCT(({4;7;9}=7)*ROW(A1:A3))`                                  | —                        | 2                                                                            | 2                                  |
+| A15  | `=LINEST({3;7;…;25},ROW(1000:1010)^COLUMN($A:$C))`                     | —                        | 0.01651126651, −49.68240093, 49832.91064, −16661772.83                       | the exact cubic fit                |
+
 ## 2026-10-08 — R336: bonds
 
 New workbook `R336 bonds` (kept). A1:A8 were typed before the deploy, when every cell showed

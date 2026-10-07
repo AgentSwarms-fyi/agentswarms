@@ -110,6 +110,26 @@ Type `=` and a formula, as in Excel. More than 400 of Excel's 510 functions are 
     1900-03-01. A blank cell read as a date is serial 0, which YEAR, MONTH and DAY read as 1900, 1
     and 0. DATEDIF in days is the difference of the serials, so 1900-02-28 to 03-01 is 2 days. A
     table sheet counts its dates the same way.
+- **Regression** (R337): LINEST and LOGEST, with TREND and GROWTH computed from the same fit.
+  - LINEST gives mn…m1 and b in a row. With `stats` TRUE, four more rows follow, as on its page:
+    the standard errors, r² and sey, F and df, ssreg and ssresid. The cells those rows leave empty
+    are `#N/A`, as is seb when `const` is FALSE. An empty `const` (`=LINEST(A2:A5,B2:B5,,FALSE)`)
+    counts as TRUE, as in the page's first example.
+  - With y in one column, each column of the x's is a variable; with y in one row, each row is.
+    One variable may take any shape the y's have, and without x's they are 1, 2, 3…. x's that do
+    not line up are `#REF!`, and a blank, text or TRUE among the values is `#VALUE!`.
+  - A column the earlier ones (and the constant) already explain is left out of the model, as
+    LINEST's page says: its coefficient and standard error are 0 and it adds 1 to df. The page
+    calls the choice of which collinear column goes arbitrary. In Microsoft's GROWTH article,
+    Excel's own output drops the later one, and Sheets does the same. A column counts as explained
+    when less than 1e-10 of it is left over; Excel does not publish its tolerance.
+  - LOGEST is LINEST of ln y. Its coefficients are e raised to LINEST's, and its statistics are
+    LINEST's own. A y of 0 or below is `#NUM!`, in GROWTH too.
+  - TREND and GROWTH give the fit's y at each new x. With several variables, each row of the new
+    x's is one point (each column, when y is a row). With one variable, the new x's take any shape
+    and the answer has the same shape. Without new x's they are the known ones.
+  - A statistic that would divide by zero is `#NUM!`. For example, two points and a constant leave
+    no degrees of freedom for the standard errors. Excel's pages do not say what Excel shows there.
 - **Tests and more statistics** (R333): T.TEST, F.TEST, Z.TEST and CHISQ.TEST (and TTEST,
   FTEST, ZTEST, CHITEST), COVAR, PEARSON, STEYX, SKEW.P, STDEVPA, VARPA, MODE.MULT, PROB,
   SUMX2MY2, SUMX2PY2, SUMXMY2 and BINOM.DIST.RANGE.
@@ -215,6 +235,9 @@ Type `=` and a formula, as in Excel. More than 400 of Excel's 510 functions are 
     blanks.
   - CORREL, SLOPE, INTERCEPT, RSQ, COVARIANCE and FORECAST read their two ranges side by side, and
     leave out a row where either is not a number.
+  - Data that do not vary give `#DIV/0!`, as on each function's page (R337). SLOPE, INTERCEPT and
+    FORECAST do so when the x's do not vary; CORREL, PEARSON and RSQ when either list does not. With
+    no pairs at all each is `#N/A`, except CORREL, which is `#DIV/0!`.
   - VSTACK, HSTACK, TAKE, DROP, CHOOSECOLS and CHOOSEROWS take one value as a one-cell array, so
     `=VSTACK("Name",A2:A9)` puts a heading over a list. A RANK of a number not in the list is
     `#N/A`.
@@ -265,6 +288,12 @@ The same rules as Excel apply:
     `SUM(--(A:A=""))` and `COUNT(IF(A:A="",1))` all give the number of blank rows, and
     `MATCH(TRUE,INDEX(A:A="",0),0)` the first empty one.
   - A whole column spilled into the grid (`=A:A=""` in a cell) shows only the rows the sheet uses.
+  - ROW and COLUMN of a range give every row (as a column) and every column (as a row), as Excel's
+    do (R337). `=SUMPRODUCT((A1:A9="x")*ROW(A1:A9))` sums the matching rows, and LINEST's page's
+    `=LINEST(y, x^COLUMN($A:$C))` fits a cubic. `ROW(A:A)` is the exception to the million rows
+    above: it runs to the rows the sheet uses, where Excel's runs to row 1,048,576.
+    `MAX((A:A<>"")*ROW(A:A))` still finds the last row; the blank rows below the data are not
+    numbered.
 - Array formulas work element by element, as in Excel's dynamic arrays:
   - A function of one value given a range answers for each cell: `ISNUMBER(SEARCH("x",A2:A9))`,
     `LEN(A2:A9)`, `ROUND(B2:B9,0)`, `SUM(SIN(A2:A9))`, `PMT(5%/12,360,-B2:B9)`,

@@ -945,8 +945,19 @@ left out the blank rows). Open from that round:
 
 - **A whole column spilled into the grid shows only the used rows.** Excel spills all 1,048,576,
   or `#SPILL!` below row 1. The part shown is the useful part; the difference is on purpose.
+  `ROW(A:A)` and `COLUMN(1:1)` run to the data's extent the same way (R337). A full column of row
+  numbers in every cell that names one would cost a million-row array each time.
+  `MAX((A:A<>"")*ROW(A:A))` is unaffected; a sum of the row numbers of the blank rows below the
+  data is not what Excel's is.
 - ~~Legacy files' implicit intersection.~~ Closed by R162: a file's plain formula takes Excel
   365's `@`.
+- **A legacy file's plain formula whose whole answer is an array** shows only its first value in
+  the Excel that wrote it. Examples are `=LINEST(B2:B9,A2:A9)`, `=TRANSPOSE(A1:A3)` and
+  `=ROW(A1:A3)` typed without Ctrl+Shift+Enter. Here such a formula spills. R162's `@` covers a
+  range where one value is expected, not a function's array answer. Found in R337, when ROW of a
+  range became an array. Next: check in Excel 365 that such a formula opens with `@` in front of
+  the function, then give it that `@` on the way in. An array operated on inside the formula
+  (`SUM(LINEST(…)*{9,1})`) must keep working.
 
 Closed with the missing functions: R147 (seven listed long-tail functions never registered; 34
 more missing). Open from that round:
@@ -957,15 +968,15 @@ more missing). Open from that round:
   1. ~~Math and engineering~~: done in R330, 31 functions. 97 remain.
   2. ~~Arrays and text~~: done in R331, 18 functions. 79 remain.
   3. ~~CONVERT~~: done in R332. 78 remain.
-  4. ~~Statistics~~: done in R333, 20 functions; 58 remain. Still to take: LINEST, LOGEST, and
-     FORECAST.ETS with its three companions. Excel does not publish how FORECAST.ETS fits its
+  4. ~~Statistics~~: done in R333, 20 functions; 58 remain. ~~LINEST and LOGEST~~ were done in
+     R337. Still to take: FORECAST.ETS with its three companions. Excel does not publish how FORECAST.ETS fits its
      parameters, so a matching answer may not be possible; it was listed here with: COVAR, PEARSON, STEYX,
      SKEW.P, STDEVPA, VARPA, MODE.MULT, PROB, SUMX2MY2, SUMX2PY2, SUMXMY2, BINOM.DIST.RANGE,
      LINEST, LOGEST, then FORECAST.ETS and its three companions.
-  5. ~~Securities~~: done in R335 (19 functions) and R336 (11). 482 of the 510 are computed.
-     The 28 left: LINEST, LOGEST, the four FORECAST.ETS; CELL and INFO; ANCHORARRAY and SINGLE
-     typed as calls (the file forms of A2# and @, which work as syntax), and ECMA.CEILING; and the
-     ones out of reach below.
+  5. ~~Securities~~: done in R335 (19 functions) and R336 (11), and ~~LINEST and LOGEST~~ in
+     R337. 484 of the 510 are computed. The 26 left: the four FORECAST.ETS; CELL and INFO;
+     ANCHORARRAY and SINGLE typed as calls (the file forms of A2# and @, which work as syntax), and
+     ECMA.CEILING; and the ones out of reach below.
   6. CELL and INFO, as far as a browser can answer them.
 
   Out of reach and to stay so: the seven CUBE functions (OLAP), RTD, WEBSERVICE and FILTERXML

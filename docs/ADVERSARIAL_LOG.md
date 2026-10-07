@@ -109,6 +109,100 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R337: LINEST and LOGEST, and what TREND, GROWTH, SLOPE and ROW got wrong on the way
+
+**Severity: medium, Sheets.** LINEST and LOGEST were `#NAME?`, the last of R333's statistics
+except FORECAST.ETS. Writing them turned up three wrong answers in functions already there:
+
+- **TREND and GROWTH fitted one x.** Both came from formula.js. A TREND over two x columns,
+  `=TREND({9;8;19;18;29},{1,2;2,1;3,4;4,3;5,6},{6,7})`, was `#NUM! #NUM!` where the answer is 34.
+  Microsoft's GROWTH article has a collinear case (C = B + 1 beside B); over it, GROWTH gave
+  29558.23449 where Excel gives 472.432432563203.
+- **SLOPE, INTERCEPT, FORECAST, CORREL, PEARSON and RSQ** were `#NUM!` on data that do not vary.
+  LINEST's page says "SLOPE and INTERCEPT return a #DIV/0! error" there. FORECAST's, CORREL's and
+  RSQ's pages say the same for their own cases.
+- **ROW and COLUMN of a range** gave its first row or column. LINEST's page fits a cubic with
+  `=LINEST(y, x^COLUMN($A:$C))`, which therefore raised x to the first power only. The same fault
+  made `SUMPRODUCT((A1:A9="x")*ROW(A1:A9))` count row 1 for every match. A probe of the old engine
+  found it: `=ROW(1000:1002)` was 1000.
+
+**The sources.** The pages were downloaded and their tables read cell by cell. LINEST's page has
+three examples, with Example 3's 5×5 table (office buildings) printed only in its first column.
+LOGEST's, TREND's and CORREL's examples are images, read from the images. The GROWTH article
+(learn.microsoft.com) shows Excel 2003's LOGEST table for its collinear case, all 15 cells, and its
+GROWTH predictions.
+
+**Modelled first.** Least squares in exact fractions, in Python (`r337_model*.py` in the round's
+scratch): the normal equations solved by Gauss-Jordan, collinear columns found by a singular Gram
+matrix. It reproduced every page and the article before any engine code:
+
+- LINEST's slope 2 and intercept 1, and the 11,000.
+- Example 3's column, and the page's t-values 5.1, 31.3, 4.8 and 17.7.
+- LOGEST's 1.46328 and 495.305, GROWTH's six fitted units and 320,197 and 468,536, and TREND's
+  146,172 to 150,244.
+- The article's whole LOGEST table, with C dropped, its coefficient 1 and error 0, and df 3.
+
+**What was written.**
+
+- **`formula/regression.ts`.** The x's are centred when there is a constant, then made orthogonal
+  left to right (modified Gram-Schmidt, each column twice). A column with less than 1e-10 of it
+  left over is dropped: coefficient 0, error 0, df plus 1. The standard errors come from R⁻¹, and
+  seb from s²(1/n + x̄ᵀ(XᵀX)⁻¹x̄).
+- **LINEST and LOGEST** read their arguments as the page describes, with orientation, `#REF!` for
+  x's that do not line up and `#VALUE!` for a blank or text.
+- **TREND and GROWTH** are now the same fit, leaving formula.js.
+- **A `PAIRED` table** gives the six functions their pages' `#DIV/0!` and `#N/A`.
+- **ROW and COLUMN** return every row and column of a range.
+
+**Choices, said in SHEETS.md:**
+
+- **Which collinear column goes.** The page calls it arbitrary. Excel's output in the article drops
+  the later one, and so does this.
+- **The tolerance.** Excel does not publish its own.
+- **A statistic that would divide by zero** is `#NUM!`. Two points and a constant are an example.
+  No page says what Excel shows there.
+- **ROW(A:A)** runs to the data's extent, not row 1,048,576, so that a cell naming it does not
+  build a million-row array. The last-row idiom `MAX((A:A<>"")*ROW(A:A))` is unaffected.
+
+**Not taken here, queued:** a legacy file's plain `=LINEST(…)` (or `=TRANSPOSE(…)`,
+`=ROW(A1:A3)`), typed in an Excel before dynamic arrays, showed its first value there. Here it
+spills. R162's `@` covers ranges, not a function's array answer.
+
+**Tests:** `sheetsRegressionR337.test.ts`, 40 cases.
+
+- **Pages and article:** every page's example and the article's two tables, to Excel's printed
+  digits. The rest of Example 3's table comes from the oracle.
+- **Arguments:** each rule above.
+- **The cubic:** the page's polynomial form, at x = 1000…1010. Its columns are nearly collinear, so
+  the case checks the fit against the oracle's exact one to 5e-10. Taking each column once leaves
+  it 1.1e-9 out, taking it twice 1.4e-10.
+
+37 cases fail on the unfixed engine; the 3 that pass guard what should not change. All 81 Sheets
+test files pass.
+
+- **Mutation harness:** 23 mutants, all caught, and the control survived. The first run let one
+  through: a single Gram-Schmidt pass. The well-conditioned pages cannot tell one pass from two, so
+  the cubic was added to catch it.
+
+**The UI**, in a new workbook `R337 regression`, typed before the deploy and reopened after:
+
+- **LINEST** (Example 1): `#NAME?` before, 2 and 1 after.
+- **LOGEST:** `#NAME?` before, 1.463275628 and 495.3047702 after.
+- **The two-variable TREND:** `#NUM! #NUM!` before, 34 after.
+- **The article's GROWTH:** 29558.23449 and 310847.8439 before, 472.4324326 after.
+- **SLOPE, CORREL and FORECAST** on data that do not vary: `#NUM!` before, `#DIV/0!` after.
+- **The office buildings' 5×5 table:** `#NAME?` before; after, the page's column A,
+  −234.2371645, 13.26801148, 0.9967479934, 459.7536742 and 1732393319.
+
+Typed after the deploy only, because the ROW fault was found after the before state was taken:
+
+- `=SUMPRODUCT(({4;7;9}=7)*ROW(A1:A3))` is 2.
+- The page's polynomial form gives 0.01651126651, −49.68240093, 49832.91064 and −16661772.83.
+
+The workbook is kept.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R336: bond prices, yields and durations, and the choices the pages settle
 
 **Severity: low, Sheets** (missing functions). This is the last group of R329's securities list:

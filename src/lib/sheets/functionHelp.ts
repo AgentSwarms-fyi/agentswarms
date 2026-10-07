@@ -227,6 +227,26 @@ export const FUNCTION_HELP: Record<string, FunctionHelp> = {
     desc: "The standard error of each predicted y in a linear regression.",
     cat: "Statistical",
   },
+  LINEST: {
+    sig: "LINEST(known_y's, [known_x's], [const], [stats])",
+    desc: "The least-squares line's coefficients, mn…m1 and b, and with stats its regression statistics.",
+    cat: "Statistical",
+  },
+  LOGEST: {
+    sig: "LOGEST(known_y's, [known_x's], [const], [stats])",
+    desc: "The exponential curve y = b·m^x that fits the data, and with stats its statistics.",
+    cat: "Statistical",
+  },
+  TREND: {
+    sig: "TREND(known_y's, [known_x's], [new_x's], [const])",
+    desc: "The y values on the least-squares line at the new x values.",
+    cat: "Statistical",
+  },
+  GROWTH: {
+    sig: "GROWTH(known_y's, [known_x's], [new_x's], [const])",
+    desc: "The y values on the fitted exponential curve at the new x values.",
+    cat: "Statistical",
+  },
   "SKEW.P": {
     sig: "SKEW.P(number1, [number2], …)",
     desc: "The skewness of a population.",

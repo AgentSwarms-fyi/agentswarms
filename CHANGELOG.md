@@ -24,6 +24,10 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Sheets: LINEST and LOGEST** (R337), with TREND and GROWTH now computed from
+  the same least-squares fit: several x variables, `const`, the statistics
+  rows, and collinear columns left out as Excel leaves them out. Sheets now
+  computes 484 of Excel's 510 functions.
 - **Sheets: eleven bond functions** (R336): PRICE, YIELD, DURATION, MDURATION,
   ACCRINT, the four ODD functions, AMORDEGRC and AMORLINC. Sheets now computes
   482 of Excel's 510 functions; the rest are listed in the adversarial queue.
@@ -99,6 +103,16 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **Sheets: TREND and GROWTH with several x columns** (R337). They fitted one
+  x, from formula.js. A TREND over two x columns was #NUM! where its answer is 34. GROWTH over the collinear columns in Microsoft's GROWTH article gave
+  29558.23 where Excel gives 472.432432563203.
+- **Sheets: SLOPE, INTERCEPT, FORECAST, CORREL, PEARSON and RSQ on data that do
+  not vary** (R337) were #NUM!. Their pages give #DIV/0!, or #N/A where there
+  are no pairs at all.
+- **Sheets: ROW and COLUMN of a range gave its first row or column** (R337).
+  They now give every one, as Excel's do, so
+  `=SUMPRODUCT((A1:A9="x")*ROW(A1:A9))` sums the matching rows, and LINEST's
+  page's polynomial form `x^COLUMN($A:$C)` works.
 - **Sheets: YEARFRAC's European 30/360 and its leap years** (R335).
   YEARFRAC(2009-01-01, 2009-12-31, 4) was 1, where a 31st counts as the 30th
   and Excel gives 359/360. Any span ending on January 29th was counted over a

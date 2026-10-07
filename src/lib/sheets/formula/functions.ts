@@ -62,6 +62,7 @@ import {
   type Basis,
 } from "./securities";
 import { lineUp, tailOf, withTail, zipN, type Tail } from "./arrays";
+import { leastSquares } from "./regression";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -2731,15 +2732,28 @@ F.INDEX = (args) => {
     );
   return m[r - 1][c - 1];
 };
+/**
+ * ROW(reference) and COLUMN(reference): every row a range spans, as a
+ * column, and every column, as a row, as Excel's are. FOUND IN R337: both
+ * gave only the first, so LINEST's page's polynomial fit,
+ * =LINEST(y, x^COLUMN($A:$C)), raised x to the first power alone, and
+ * SUMPRODUCT((A1:A9="x")*ROW(A1:A9)) counted row 1 for every match. A whole
+ * column's rows (ROW(A:A)) run to the data's extent, as reading A:A does;
+ * Excel's run to row 1,048,576.
+ */
 F.ROW = (args, ctx) => {
   if (!args.length) return ctx.env.row + 1;
   const ref = args[0].ref;
-  return ref ? ref.r0 + 1 : err("#VALUE!");
+  if (!ref) return err("#VALUE!");
+  if (ref.r0 === ref.r1) return ref.r0 + 1;
+  return Array.from({ length: ref.r1 - ref.r0 + 1 }, (_, i) => [ref.r0 + i + 1]);
 };
 F.COLUMN = (args, ctx) => {
   if (!args.length) return ctx.env.col + 1;
   const ref = args[0].ref;
-  return ref ? ref.c0 + 1 : err("#VALUE!");
+  if (!ref) return err("#VALUE!");
+  if (ref.c0 === ref.c1) return ref.c0 + 1;
+  return [Array.from({ length: ref.c1 - ref.c0 + 1 }, (_, i) => ref.c0 + i + 1)];
 };
 F.ROWS = (args) => {
   const v = args[0].value();
@@ -3352,6 +3366,154 @@ F.FREQUENCY = (args) => {
   return counts.map((c) => [c]);
 };
 
+// ── Regression: LINEST, LOGEST, TREND, GROWTH (R337) ───────────────────────
+
+/** Every cell a number, as LINEST reads its ranges: a blank, text or TRUE is #VALUE!. */
+function numberGrid(v: Value): number[][] | SheetError {
+  const out: number[][] = [];
+  for (const row of asMatrix(v)) {
+    const r: number[] = [];
+    for (const x of row) {
+      if (isError(x)) return x;
+      if (typeof x !== "number") return err("#VALUE!", "Every value must be a number");
+      r.push(x);
+    }
+    out.push(r);
+  }
+  return out;
+}
+
+/**
+ * known_y's and known_x's as LINEST's page reads them. With y in one column
+ * each column of the x's is a variable, and with y in one row each row; one
+ * variable may take any shape the y's have. Without x's they are 1, 2, 3…
+ * in the y's shape. Sizes that do not line up are #REF!.
+ */
+type Regression = {
+  y: number[];
+  xs: number[][];
+  /** The variables are rows (y is one row and the x's are given). */
+  across: boolean;
+  /** The x's as given: TREND's and GROWTH's new_x's when those are left out. */
+  known: number[][];
+};
+function regressionData(yArg: Arg, xArg: Arg | undefined): Regression | SheetError {
+  const ys = numberGrid(yArg.value());
+  if (isError(ys)) return ys;
+  const rows = ys.length;
+  const cols = ys[0].length;
+  const y = ys.flat();
+  if (!xArg || xArg.node.k === "empty") {
+    let i = 0;
+    const known = ys.map((r) => r.map(() => ++i));
+    return { y, xs: [known.flat()], across: false, known };
+  }
+  const known = numberGrid(xArg.value());
+  if (isError(known)) return known;
+  const mismatch = err("#REF!", "The x's do not line up with the y's");
+  if (cols === 1) {
+    if (known.length !== rows) return mismatch;
+    return { y, xs: known[0].map((_, j) => known.map((r) => r[j])), across: false, known };
+  }
+  if (rows === 1) {
+    if (known[0].length !== cols) return mismatch;
+    return { y, xs: known, across: true, known };
+  }
+  if (known.length !== rows || known[0].length !== cols) return mismatch;
+  return { y, xs: [known.flat()], across: false, known };
+}
+
+/** ln of each y, for LOGEST and GROWTH: a y of 0 or below is #NUM!. */
+function logs(y: number[]): number[] | SheetError {
+  if (y.some((v) => v <= 0)) return err("#NUM!", "Every y must be above 0");
+  return y.map(Math.log);
+}
+
+const fitted = (v: number): Scalar =>
+  Number.isFinite(v) ? v : err("#NUM!", "This statistic cannot be computed from this data");
+
+/**
+ * LINEST(known_y's, [known_x's], [const], [stats]) and LOGEST: the line or
+ * curve's coefficients, mn…m1 and b, and with stats four rows more (LINEST's
+ * page's table). The cells the table does not use are #N/A, as is seb when
+ * const is FALSE. LOGEST is LINEST of ln y: its coefficients are e to
+ * LINEST's, and its statistics are LINEST's, as Excel's are.
+ */
+const regression =
+  (log: boolean): FnImpl =>
+  (args) => {
+    const bad = arity(args, 1, 4);
+    if (bad) return bad;
+    const data = regressionData(args[0], args[1]);
+    if (isError(data)) return data;
+    const withConst = bool(args[2], true);
+    if (isError(withConst)) return withConst;
+    const stats = bool(args[3], false);
+    if (isError(stats)) return stats;
+    const y = log ? logs(data.y) : data.y;
+    if (isError(y)) return y;
+    const fit = leastSquares(y, data.xs, withConst);
+    const coef = (v: number) => fitted(log ? Math.exp(v) : v);
+    const first = [...fit.m.map(coef).reverse(), coef(fit.b)];
+    if (!stats) return [first];
+    const width = first.length;
+    const unused = () => err("#N/A", "LINEST's table has nothing here");
+    const pair = (a: number, b: number): Scalar[] => [
+      fitted(a),
+      fitted(b),
+      ...Array.from({ length: width - 2 }, unused),
+    ];
+    return [
+      first,
+      [...fit.se.map(fitted).reverse(), withConst ? fitted(fit.seb) : unused()],
+      pair(fit.r2, fit.sey),
+      pair(fit.F, fit.df),
+      pair(fit.ssreg, fit.ssresid),
+    ];
+  };
+F.LINEST = regression(false);
+F.LOGEST = regression(true);
+
+/**
+ * TREND(known_y's, [known_x's], [new_x's], [const]) and GROWTH: the fit's y
+ * at each new x. FOUND IN R337: both came from formula.js, which fits one x
+ * and ignores the shape of its arguments, so TREND with two x columns was
+ * wrong (it flattened them into one) and GROWTH with collinear x's could not
+ * give Excel's answers. Both are now LINEST's fit. With one variable the new
+ * x's take any shape and the answer has it; with several, each row (or
+ * column, when y is a row) of the new x's is one point.
+ */
+const projection =
+  (log: boolean): FnImpl =>
+  (args) => {
+    const bad = arity(args, 1, 4);
+    if (bad) return bad;
+    const data = regressionData(args[0], args[1]);
+    if (isError(data)) return data;
+    const withConst = bool(args[3], true);
+    if (isError(withConst)) return withConst;
+    const y = log ? logs(data.y) : data.y;
+    if (isError(y)) return y;
+    const given = args[2] && args[2].node.k !== "empty" ? numberGrid(args[2].value()) : data.known;
+    if (isError(given)) return given;
+    const fit = leastSquares(y, data.xs, withConst);
+    const at = (xs: number[]) => {
+      const v = xs.reduce((a, x, j) => a + fit.m[j] * x, fit.b);
+      return fitted(log ? Math.exp(v) : v);
+    };
+    const k = data.xs.length;
+    if (k === 1) return given.map((r) => r.map((x) => at([x])));
+    const mismatch = err("#REF!", "The new x's need one value for each variable");
+    if (data.across) {
+      if (given.length !== k) return mismatch;
+      return [given[0].map((_, c) => at(given.map((r) => r[c])))];
+    }
+    if (given[0].length !== k) return mismatch;
+    return given.map((r) => [at(r)]);
+  };
+F.TREND = projection(false);
+F.GROWTH = projection(true);
+
 /** LET is evaluated by the evaluator (its names need a scope); this entry only makes it known. */
 F.LET = () => err("#VALUE!", "LET is evaluated where it stands");
 /** LAMBDA and the functions that take one are evaluated by the evaluator too (R328). */
@@ -3372,8 +3534,6 @@ export const LIBRARY_NAMES = [
   "FLOOR.MATH",
   "NETWORKDAYS.INTL",
   "WORKDAY.INTL",
-  "TREND",
-  "GROWTH",
   "STDEV",
   "STDEV.S",
   "STDEV.P",
@@ -3616,6 +3776,44 @@ for (const [name, [min, code]] of Object.entries(TOO_FEW)) {
       const xs = collectNumbers(args);
       if (isError(xs)) return xs;
       if (xs.some((x) => x <= 0)) return err("#NUM!", "Every value must be above 0");
+      return inner(args, ctx);
+    };
+  }
+}
+/**
+ * FOUND IN R337, from LINEST's page: "SLOPE and INTERCEPT return a #DIV/0!
+ * error" where the x's do not vary. formula.js's NaN came out as #NUM!
+ * there, and for the other paired functions whose pages give #DIV/0!:
+ * FORECAST where the variance of the x's is 0, CORREL where either list's
+ * standard deviation is 0 or a list is empty, RSQ with one data point. With
+ * no pairs at all, every page but CORREL's gives #N/A. PEARSON's page gives
+ * only that #N/A; its #DIV/0! is CORREL's, as it is the same coefficient.
+ */
+const PAIRED: Record<string, { lists: [number, number]; still: "x" | "either"; none: ErrorCode }> =
+  {
+    SLOPE: { lists: [0, 1], still: "x", none: "#N/A" },
+    INTERCEPT: { lists: [0, 1], still: "x", none: "#N/A" },
+    FORECAST: { lists: [1, 2], still: "x", none: "#N/A" },
+    "FORECAST.LINEAR": { lists: [1, 2], still: "x", none: "#N/A" },
+    RSQ: { lists: [0, 1], still: "either", none: "#N/A" },
+    CORREL: { lists: [0, 1], still: "either", none: "#DIV/0!" },
+    PEARSON: { lists: [0, 1], still: "either", none: "#N/A" },
+  };
+{
+  const correl = F.CORREL;
+  const still = (xs: number[]) => xs.every((x) => x === xs[0]);
+  for (const [name, rule] of Object.entries(PAIRED)) {
+    const inner = name === "PEARSON" ? correl : F[name];
+    if (!inner) continue;
+    F[name] = (args, ctx) => {
+      const [i, j] = rule.lists;
+      const got = args[i] && args[j] ? pairedNumbers(args[i], args[j]) : null;
+      if (got && !isError(got)) {
+        const [ys, xs] = got;
+        if (!xs.length) return err(rule.none, "There are no pairs of numbers");
+        if (still(xs)) return err("#DIV/0!", "The x values do not vary");
+        if (rule.still === "either" && still(ys)) return err("#DIV/0!", "The y values do not vary");
+      }
       return inner(args, ctx);
     };
   }
