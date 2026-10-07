@@ -63,6 +63,14 @@ import {
 } from "./securities";
 import { lineUp, tailOf, withArea, withTail, zipN, type Tail } from "./arrays";
 import { leastSquares } from "./regression";
+import {
+  DEFAULT_COLUMN_PX,
+  formatCode,
+  negativeColor,
+  parentheses,
+  prefix,
+  widthInChars,
+} from "./cellInfo";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -3533,6 +3541,125 @@ const projection =
   };
 F.TREND = projection(false);
 F.GROWTH = projection(true);
+
+// ── CELL and INFO (R339) ───────────────────────────────────────────────────
+
+/** A sheet name as a reference writes it: quoted when it is more than letters, digits, _ and . */
+const sheetPrefix = (s: string) =>
+  /^[A-Za-z_][A-Za-z0-9_.]*$/.test(s) ? s : `'${s.replace(/'/g, "''")}'`;
+
+/**
+ * CELL(info_type, [reference]): about the upper-left cell of a reference, as
+ * CELL's page lists. FOUND IN R329's inventory: CELL was #NAME?, so the
+ * common =MID(CELL("filename",A1),FIND("]",CELL("filename",A1))+1,255),
+ * which gives a sheet its own name, did not work. Without a reference Excel
+ * reads the cell selected when it calculates; a formula here has no
+ * selection to read, so it reads its own cell.
+ */
+F.CELL = (args, ctx) => {
+  const e = arity(args, 1, 2);
+  if (e) return e;
+  const t = text(args[0]);
+  if (isError(t)) return t;
+  const env = ctx.env;
+  let sheet = env.sheet;
+  let row = env.row;
+  let col = env.col;
+  if (args[1] && args[1].node.k !== "empty") {
+    const ref = args[1].ref;
+    if (!ref) {
+      const v = scalarOf(args[1].value());
+      return isError(v) ? v : err("#VALUE!", "CELL's second argument is a reference, such as A1");
+    }
+    [sheet, row, col] = [ref.sheet, ref.r0, ref.c0];
+  }
+  const look = env.cellLook?.(sheet, row, col) ?? {};
+  const typed = look.input ?? "";
+  const isFormula = typed.startsWith("=");
+  switch (t.trim().toLowerCase()) {
+    case "address": {
+      const a = `$${colLetters(col)}$${row + 1}`;
+      if (sheet.toLowerCase() === env.sheet.toLowerCase()) return a;
+      const book = env.book?.();
+      return `${sheetPrefix(book ? `[${book}]${sheet}` : sheet)}!${a}`;
+    }
+    case "col":
+      return col + 1;
+    case "row":
+      return row + 1;
+    case "contents":
+      return env.cell(sheet, row, col);
+    case "type": {
+      const v = env.cell(sheet, row, col);
+      if (!typed && (v === null || v === "")) return "b";
+      return !isFormula && typeof v === "string" ? "l" : "v";
+    }
+    case "format":
+      return formatCode(look.format);
+    case "color":
+      return negativeColor(look.format);
+    case "parentheses":
+      return parentheses(look.format);
+    case "prefix":
+      return prefix(!isFormula && typeof env.cell(sheet, row, col) === "string", look.align);
+    // Sheets keeps no protection: every cell is locked, as Excel's are until unlocked.
+    case "protect":
+      return 1;
+    case "width": {
+      const w = env.colWidth?.(sheet, col) ?? { px: DEFAULT_COLUMN_PX, set: false };
+      return [[widthInChars(w.px), !w.set]];
+    }
+    case "filename": {
+      const book = env.book?.();
+      return book ? `[${book}]${sheet}` : "";
+    }
+    default:
+      return err("#VALUE!", `CELL does not know "${t}"`);
+  }
+};
+
+/**
+ * INFO(type_text): about the place the workbook is open in. INFO's page says
+ * it is "not available in Excel Web App"; Sheets answers what a browser can
+ * know. "release" is 16.0, the Excel whose formulas Sheets computes, so that
+ * a workbook testing for a version takes Excel 365's branch. "memavail",
+ * "memused" and "totmem" are #N/A, as on the page.
+ */
+F.INFO = (args, ctx) => {
+  const e = arity(args, 1, 1);
+  if (e) return e;
+  const t = text(args[0]);
+  if (isError(t)) return t;
+  const platform = String(
+    (globalThis as { navigator?: { platform?: string } }).navigator?.platform ?? "",
+  );
+  switch (t.trim().toLowerCase()) {
+    case "directory":
+      return "";
+    case "numfile":
+      return ctx.env.sheetNames?.().length ?? 1;
+    case "origin":
+      return "$A:$A$1";
+    case "osversion":
+      return /mac/i.test(platform)
+        ? "macOS"
+        : /win/i.test(platform)
+          ? "Windows"
+          : platform || "Web";
+    case "recalc":
+      return "Automatic";
+    case "release":
+      return "16.0";
+    case "system":
+      return /mac/i.test(platform) ? "mac" : "pcdos";
+    case "memavail":
+    case "memused":
+    case "totmem":
+      return err("#N/A", `INFO("${t}") is no longer supported, as in Excel`);
+    default:
+      return err("#VALUE!", `INFO does not know "${t}"`);
+  }
+};
 
 /** LET is evaluated by the evaluator (its names need a scope); this entry only makes it known. */
 F.LET = () => err("#VALUE!", "LET is evaluated where it stands");

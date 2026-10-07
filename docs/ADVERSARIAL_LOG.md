@@ -109,6 +109,77 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R339: CELL and INFO, and a format change only CELL can see
+
+**Severity: low, Sheets** (missing functions). CELL and INFO were `#NAME?`, the last of R329's list
+that a browser can answer. Without CELL, the usual way to give a sheet its own name,
+`=MID(CELL("filename",A1),FIND("]",CELL("filename",A1))+1,255)`, did not work. Neither did the
+example at the top of CELL's page, `=IF(CELL("type",A1)="v",A1*2,0)`.
+
+**The sources.** CELL's and INFO's pages, downloaded and their tables read cell by cell: CELL's
+twelve info types and its table of format codes, and INFO's seven types. CELL's page marks "color",
+"filename", "format", "parentheses", "prefix", "protect" and "width" as not supported in Excel for the
+web, and INFO's says INFO "is not available in Excel Web App". Sheets answers them from what it
+keeps. Each answer that is Sheets' own choice is said so in SHEETS.md.
+
+**Proved in the UI first.** In a new workbook `R339 cell and info`, nine formulas over CELL and INFO
+were all `#NAME?` on the R338 build.
+
+**What was written.**
+
+- **`formula/cellInfo.ts`.** The page's format codes: G, F, `,`, C, P and S with the decimals, D1
+  to D9 for dates and times, `-` for a color on negatives, and `()` for parentheses on positives.
+  Also the prefix, and pixels to characters as a download converts them.
+- **CELL and INFO in `functions.ts`.** CELL reads its reference's upper-left cell, or the formula's
+  own cell when there is no reference.
+- **`EvalEnv` gained three facts:** a cell's typed text, format and alignment; a column's width; and
+  the workbook's file name.
+- **The file name.** The engine takes it from the page, as `fileName(name, "xlsx")` names a
+  download. It follows a rename: CELL formulas are marked when compiled, and a rename, a resized
+  column or a new format or style recomputes those formulas alone.
+
+**Found in the UI after the first deploy:**
+
+- A5, `=CELL("format",C2)`, stayed `G` after C2 was given the currency format from the toolbar.
+- A10, `=CELL("prefix",C1)`, stayed `'` after C1 was centred.
+
+The engine's `setFormat` and `setStyle` recomputed CELL formulas, and the tests drove those two. The
+page, though, applies a format or style through `setInputs` with the cell's text unchanged, and
+`setInputs` recomputes only cells whose text changed. It now recomputes the CELL formulas when a
+format or style changes. A test drives that path, and a mutant removing it is caught. After the
+second deploy, C2 given the percent format turned A5 to `P0` at once, and C1 right-aligned turned A10
+to `"`.
+
+**Choices, said in SHEETS.md:**
+
+- "filename" is `[file]sheet`, without Excel's folder.
+- "protect" is always 1, as Sheets has no protection.
+- Without a reference CELL reads its own cell, not the selection.
+- INFO's "release" is 16.0, "system" pcdos or mac, "origin" $A:$A$1 and "directory" "".
+
+**Tests:** `sheetsCellInfoR339.test.ts`, 21 cases.
+
+- Every row of the page's format table, and both suffixes.
+- Each info type, for text typed in and text a formula gives.
+- "width": the default, a set column, and a 100-pixel column, which rounds 13.57 to 14.
+- A rename, a resized column, and a new format or alignment, both through the engine's own calls
+  and through the page's.
+- INFO's answers and its `#N/A`s.
+
+17 cases fail on the old engine; the 3 that pass test the new format-code module directly. All 83
+Sheets files pass. `sheetsDefinedNames`' source check, which read `new WorkbookEngine(defs,
+resolver, { names:` on one line, now allows the line break the new `book` argument brought.
+
+- **Mutation harness:** 20 mutants caught, and the control survived. One case was added before the
+  run: every width in the tests was a whole number of characters, so truncating would have passed.
+
+**A real image** (`895b0c76f601`, built from R338's commit) was smoked before this round's deploy.
+The R336, R337 and R338 workbooks showed their values. The browser pane refuses to register the
+app's service worker, though `/sw.js` serves 200 and the app catches the refusal. Those are the
+console's errors; they are not the app's.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R338: an older file's formula whose function answers with several values
 
 **Severity: medium, Sheets** (an imported workbook shows the wrong numbers). Typed in one cell

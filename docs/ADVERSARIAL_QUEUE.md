@@ -974,10 +974,10 @@ more missing). Open from that round:
      SKEW.P, STDEVPA, VARPA, MODE.MULT, PROB, SUMX2MY2, SUMX2PY2, SUMXMY2, BINOM.DIST.RANGE,
      LINEST, LOGEST, then FORECAST.ETS and its three companions.
   5. ~~Securities~~: done in R335 (19 functions) and R336 (11), and ~~LINEST and LOGEST~~ in
-     R337. 484 of the 510 are computed. The 26 left: the four FORECAST.ETS; CELL and INFO;
-     ANCHORARRAY and SINGLE typed as calls (the file forms of A2# and @, which work as syntax), and
-     ECMA.CEILING; and the ones out of reach below.
-  6. CELL and INFO, as far as a browser can answer them.
+     R337. 484 of the 510 are computed.
+  6. ~~CELL and INFO~~, as far as a browser can answer them: done in R339. 486 are computed. The 24
+     left: the four FORECAST.ETS; ANCHORARRAY and SINGLE typed as calls (the file forms of A2# and @,
+     which work as syntax), and ECMA.CEILING; and the ones out of reach below.
 
   Out of reach and to stay so: the seven CUBE functions (OLAP), RTD, WEBSERVICE and FILTERXML
   (a server-side fetch from a formula), IMAGE, GETPIVOTDATA, PHONETIC, ASC, JIS and BAHTTEXT.

@@ -24,6 +24,7 @@ import { workbookParams } from "@/lib/sheets/workbookParams";
 import type { Role } from "@/lib/sheets/share";
 import { adjustNames, type DefinedName } from "@/lib/sheets/definedNames";
 import { mapGridFormulas } from "@/lib/sheets/ops";
+import { fileName } from "./download";
 import {
   sheetsGet,
   sheetsSaveGrid,
@@ -120,6 +121,8 @@ export function useWorkbook(args: {
   asShare?: string | null;
   /** The workbook's defined names, loaded with its sheets (R148). */
   names?: DefinedName[] | null;
+  /** The workbook's name, for CELL("filename") (R339). */
+  book?: string | null;
 }) {
   const saveFn = useServerFn(sheetsSaveGrid);
   const saveTableFn = useServerFn(sheetsSaveTableConfig);
@@ -133,6 +136,10 @@ export function useWorkbook(args: {
   // Read when the engine is built: the names come with the tabs.
   const namesArgRef = useRef(args.names);
   namesArgRef.current = args.names;
+  // CELL("filename") names the file a download would give (R339).
+  const bookFile = args.book ? fileName(args.book, "xlsx") : undefined;
+  const bookRef = useRef(bookFile);
+  bookRef.current = bookFile;
   // Names save as a whole list, one save at a time; a change made while one
   // is running is sent once it lands.
   const namesSave = useRef({ dirty: false, inFlight: false, again: false });
@@ -142,6 +149,10 @@ export function useWorkbook(args: {
   const [rev, setRev] = useState(0);
   const bump = useCallback(() => setRev((r) => r + 1), []);
   const engineRef = useRef<WorkbookEngine | null>(null);
+  // A rename after the engine is built: CELL("filename") follows it.
+  useEffect(() => {
+    if (bookFile && engineRef.current?.setBook(bookFile)) bump();
+  }, [bookFile, bump]);
   const [tabs, setTabs] = useState<TabMeta[]>([]);
   const tabsRef = useRef<TabMeta[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
@@ -211,7 +222,10 @@ export function useWorkbook(args: {
       onError: (m) => toast.error(`Formulas over tables could not be computed: ${m}`),
     });
     resolverRef.current = resolver;
-    engineRef.current = new WorkbookEngine(defs, resolver, { names: namesArgRef.current ?? [] });
+    engineRef.current = new WorkbookEngine(defs, resolver, {
+      names: namesArgRef.current ?? [],
+      book: bookRef.current,
+    });
     namesSave.current = { dirty: false, inFlight: false, again: false };
     setTabs(meta);
     const configs: Record<string, TableConfig> = {};

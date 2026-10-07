@@ -98,6 +98,34 @@ Type `=` and a formula, as in Excel. More than 400 of Excel's 510 functions are 
   hidden ones counted, for this sheet, a reference, a name or a sheet's name as text (#N/A when
   there is no such sheet). It follows the tabs when they are moved. AREAS is 1 for any reference,
   as Sheets has no unions of ranges.
+- **CELL and INFO** (R339). CELL tells about the upper-left cell of a reference: its "address",
+  "row" and "col", "contents" (its value) and "type". The type is b for blank, l for text typed in,
+  and v for anything else. From what Sheets keeps about the cell it also gives these:
+  - "format", as CELL's page codes it: G, F2, ,0, C2-, P0, S2, and D1 to D9 for dates and times.
+  - "color" and "parentheses".
+  - "prefix": ' " and ^ for left, right and centred text.
+  - "width": characters, rounded, and whether the width is the default.
+  - "filename".
+
+  CELL's page marks these as not supported in Excel for the web; Sheets answers them.
+  - **"filename"** is `[file]sheet`, the file being the name a download gives the workbook
+    (`[Plan.xlsx]Summary`). So `=MID(CELL("filename",A1),FIND("]",CELL("filename",A1))+1,255)` gives
+    a sheet its own name. Excel's starts with the folder the file is in, and a workbook here has none.
+    It follows a rename.
+  - **"protect" is always 1.** Sheets has no sheet protection, and Excel locks every cell until it is
+    unlocked.
+  - **Without a reference**, Excel reads the cell selected when it calculates. Here CELL reads the
+    formula's own cell.
+  - **Updates.** A new format, alignment or column width updates CELL at once.
+  - **INFO.** INFO's page says it is not available in Excel for the web. Sheets answers what a
+    browser can know:
+    - "numfile" is the workbook's sheets, and "recalc" is Automatic.
+    - "release" is 16.0, the Excel whose formulas Sheets computes, so a workbook that tests the
+      version takes Excel 365's branch.
+    - "system" is pcdos or mac, and "osversion" is the browser's platform.
+    - "origin" is $A:$A$1 and "directory" is "".
+    - "memavail", "memused" and "totmem" are `#N/A`, as on the page.
+
 - **Dates and times:** DATE, TIME, TIMEVALUE, EDATE, EOMONTH, DAYS, DAYS360, NETWORKDAYS(.INTL),
   WORKDAY(.INTL).
   - DAYS360 counts twelve 30-day months, the US (NASD) way or, with TRUE, the European way.

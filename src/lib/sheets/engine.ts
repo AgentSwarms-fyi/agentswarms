@@ -18,6 +18,7 @@ import {
   type TableCallRequest,
 } from "./formula/evaluate";
 import { FUNCTIONS } from "./formula/functions";
+import { DEFAULT_COLUMN_PX } from "./formula/cellInfo";
 import { FormulaSyntaxError, isFormula, parseFormula, type Node } from "./formula/parser";
 import { walkScoped } from "./formula/scope";
 import type { ChartDef } from "./charts";
@@ -121,6 +122,8 @@ type Compiled = {
   volatile: boolean;
   /** Recomputed when rows are hidden or shown (a filter applied). */
   visibility?: boolean;
+  /** Calls CELL: recomputed when a column's width or the workbook's name changes (R339). */
+  cellInfo?: boolean;
   tables: string[];
   /** Functions it calls that this engine does not have (from an Excel file). */
   unknown?: string[];
@@ -140,6 +143,8 @@ function unknownFunctions(node: Node, out: Set<string>): void {
 const VOLATILE = /\b(NOW|TODAY|RAND|RANDBETWEEN|RANDARRAY)\s*\(/i;
 /** Formulas whose answer depends on which rows are hidden (SUBTOTAL leaves filtered rows out). */
 const ROW_VISIBILITY = /\b(SUBTOTAL|AGGREGATE)\s*\(/i;
+/** Formulas that ask CELL about a cell's look or the workbook's name. */
+const CELL_INFO = /\bCELL\s*\(/i;
 
 function tablesIn(node: Node, out: Set<string>): void {
   switch (node.k) {
@@ -209,8 +214,16 @@ export class WorkbookEngine {
   /** The same list until the names change, so a page can compare it. */
   private definedList: DefinedName[] = [];
 
-  constructor(sheets: SheetDef[], resolver?: TableResolver, opts: { names?: DefinedName[] } = {}) {
+  /** The workbook's file name, as a download names it, for CELL("filename") (R339). */
+  private book?: string;
+
+  constructor(
+    sheets: SheetDef[],
+    resolver?: TableResolver,
+    opts: { names?: DefinedName[]; book?: string } = {},
+  ) {
     this.resolver = resolver;
+    this.book = opts.book;
     // Known before the first computation, so formulas that use them are right at once.
     if (opts.names) this.setDefinedNames(opts.names, { recalc: false });
     for (const s of sheets) this.addSheetDef(s);
@@ -304,6 +317,7 @@ export class WorkbookEngine {
         ast,
         volatile: VOLATILE.test(input),
         ...(ROW_VISIBILITY.test(input) ? { visibility: true } : {}),
+        ...(CELL_INFO.test(input) ? { cellInfo: true } : {}),
         tables: [...t],
         ...(u.size ? { unknown: [...u] } : {}),
       });
@@ -341,6 +355,8 @@ export class WorkbookEngine {
     const s = this.sheets.get(sheetId);
     if (!s?.grid) return;
     const changed: CellId[] = [];
+    // A new number format or style with the same text: only CELL can see it (R339).
+    let look = false;
     for (const e of edits) {
       const key = cellKey(e.row, e.col);
       const prev = s.grid.cells[key];
@@ -350,10 +366,12 @@ export class WorkbookEngine {
       if (e.format !== undefined) {
         if (e.format === null) delete next.f;
         else next.f = e.format;
+        if (next.f !== prev?.f) look = true;
       }
       if (e.style !== undefined) {
         if (e.style === null) delete next.s;
         else next.s = e.style;
+        if (JSON.stringify(next.s) !== JSON.stringify(prev?.s)) look = true;
       }
       if (e.link !== undefined) {
         if (e.link === null) delete next.l;
@@ -373,9 +391,13 @@ export class WorkbookEngine {
       }
     }
     if (changed.length) this.recalc(changed);
+    if (look) this.recalcCellInfo();
   }
 
-  /** Formats and styles only (no recalculation needed). */
+  /**
+   * Formats and styles only: no value changes, so only formulas that ask CELL
+   * about a cell's look are recomputed (R339).
+   */
   setFormat(sheetId: string, cells: { row: number; col: number }[], format: string | null): void {
     const s = this.sheets.get(sheetId);
     if (!s?.grid) return;
@@ -388,6 +410,7 @@ export class WorkbookEngine {
       if (next.i === "" && !next.f && !next.s && !next.l) delete s.grid.cells[key];
       else s.grid.cells[key] = next;
     }
+    this.recalcCellInfo();
   }
 
   setStyle(sheetId: string, cells: { row: number; col: number }[], patch: CellStyle): void {
@@ -405,6 +428,14 @@ export class WorkbookEngine {
       if (next.i === "" && !next.f && !next.s && !next.l) delete s.grid.cells[key];
       else s.grid.cells[key] = next;
     }
+    this.recalcCellInfo();
+  }
+
+  /** Recompute the formulas that call CELL; true if there were any (R339). */
+  private recalcCellInfo(): boolean {
+    const ids = [...this.compiled].filter(([, c]) => c.cellInfo).map(([id]) => id);
+    if (ids.length) this.recalc(ids);
+    return ids.length > 0;
   }
 
   // ── Values ───────────────────────────────────────────────────────────────
@@ -953,6 +984,8 @@ export class WorkbookEngine {
       const ids = [...this.compiled].filter(([, c]) => c.visibility).map(([id]) => id);
       if (ids.length) this.recalc(ids);
     }
+    // A column resized: CELL("width") changes (R339).
+    if ("colWidths" in patch) this.recalcCellInfo();
   }
 
   /**
@@ -960,7 +993,10 @@ export class WorkbookEngine {
    * is hidden, by a filter or by hand (SUBTOTAL), and its formula (SUBTOTAL
    * leaves other subtotals out; ISFORMULA, FORMULATEXT).
    */
-  private cellFacts(): Pick<EvalEnv, "rowHidden" | "formula" | "definedName" | "sheetNames"> {
+  private cellFacts(): Pick<
+    EvalEnv,
+    "rowHidden" | "formula" | "definedName" | "sheetNames" | "cellLook" | "colWidth" | "book"
+  > {
     const hidden = new Map<string, { filter: Set<number>; manual: Set<number> }>();
     const gridOf = (sheet: string) =>
       this.sheets.get(this.byName.get(sheet.toLowerCase()) ?? "")?.grid;
@@ -980,7 +1016,27 @@ export class WorkbookEngine {
       },
       definedName: (name) => this.defined.get(name.toLowerCase())?.ast,
       sheetNames: () => [...this.sheets.values()].map((s) => s.name),
+      cellLook: (sheet, row, col) => {
+        const c = gridOf(sheet)?.cells[cellKey(row, col)];
+        return { input: c?.i, format: c?.f, align: c?.s?.align };
+      },
+      colWidth: (sheet, col) => {
+        const px = gridOf(sheet)?.colWidths?.[String(col)];
+        return px === undefined ? { px: DEFAULT_COLUMN_PX, set: false } : { px, set: true };
+      },
+      book: () => this.book,
     };
+  }
+
+  /**
+   * The workbook's file name changed (a rename): CELL formulas recompute, as
+   * CELL("filename") and CELL("address") of another sheet name it. Returns
+   * whether anything was recomputed.
+   */
+  setBook(book: string): boolean {
+    if (book === this.book) return false;
+    this.book = book;
+    return this.recalcCellInfo();
   }
 
   /** The workbook's defined names, as set (the engine's own list; do not change it). */

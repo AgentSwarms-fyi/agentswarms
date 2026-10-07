@@ -114,6 +114,19 @@ export interface EvalEnv {
   names?: ReadonlyMap<string, Value>;
   /** The workbook's sheets, table sheets too, in tab order (SHEET and SHEETS, R331). */
   sheetNames?: () => readonly string[];
+  /**
+   * What CELL asks about a cell beyond its value (R339): what was typed, its
+   * number format and its horizontal alignment.
+   */
+  cellLook?(
+    sheet: string,
+    row: number,
+    col: number,
+  ): { input?: string; format?: string; align?: "left" | "center" | "right" };
+  /** A column's width in pixels, and whether it was set (CELL("width")). */
+  colWidth?(sheet: string, col: number): { px: number; set: boolean };
+  /** The workbook's file name, as a download names it (CELL("filename")). */
+  book?(): string | undefined;
   /** LAMBDA parameters this call left out, lower-cased (ISOMITTED, R328). */
   omitted?: ReadonlySet<string>;
   /** How many LAMBDA calls deep this is: a recursion stops where Excel's does (LAMBDA_STACK). */

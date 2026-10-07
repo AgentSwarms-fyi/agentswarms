@@ -227,6 +227,16 @@ export const FUNCTION_HELP: Record<string, FunctionHelp> = {
     desc: "The standard error of each predicted y in a linear regression.",
     cat: "Statistical",
   },
+  CELL: {
+    sig: "CELL(info_type, [reference])",
+    desc: 'About a cell: "address", "row", "col", "contents", "type", "format", "width", "filename" and more.',
+    cat: "Information",
+  },
+  INFO: {
+    sig: "INFO(type_text)",
+    desc: 'About where the workbook is open: "numfile", "recalc", "release", "system" and more.',
+    cat: "Information",
+  },
   LINEST: {
     sig: "LINEST(known_y's, [known_x's], [const], [stats])",
     desc: "The least-squares line's coefficients, mn…m1 and b, and with stats its regression statistics.",

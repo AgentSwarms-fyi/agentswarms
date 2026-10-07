@@ -24,6 +24,11 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Sheets: CELL and INFO** (R339). CELL gives a cell's address, row, column,
+  contents, type, number format code, alignment prefix, width and the
+  workbook's file name, so `=MID(CELL("filename",A1),FIND("]",…)+1,255)` gives a
+  sheet its own name. INFO gives what a browser can know. Sheets now computes
+  486 of Excel's 510 functions.
 - **Sheets: LINEST and LOGEST** (R337), with TREND and GROWTH now computed from
   the same least-squares fit: several x variables, `const`, the statistics
   rows, and collinear columns left out as Excel leaves them out. Sheets now

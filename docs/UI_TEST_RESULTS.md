@@ -15,6 +15,36 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R339: CELL and INFO
+
+New workbook `R339 cell and info` (kept), with `Name` in C1 and 42 in C2. A1:A9 were typed on the
+R338 build, when every cell was `#NAME?`, and the workbook was reopened after:
+
+| Cell | Formula                                                         | Before   | After                             |
+| ---- | --------------------------------------------------------------- | -------- | --------------------------------- |
+| A1   | `=CELL("address",B2)`                                           | `#NAME?` | `$B$2`                            |
+| A2   | `=CELL("row",B5)`                                               | `#NAME?` | 5                                 |
+| A3   | `=CELL("type",C1)`                                              | `#NAME?` | `l`                               |
+| A4   | `=CELL("contents",C2)`                                          | `#NAME?` | 42                                |
+| A5   | `=CELL("format",C2)`                                            | `#NAME?` | `G`                               |
+| A6   | `=MID(CELL("filename",A1),FIND("]",CELL("filename",A1))+1,255)` | `#NAME?` | `Sheet1`                          |
+| A7   | `=INFO("numfile")`                                              | `#NAME?` | 1                                 |
+| A8   | `=INFO("recalc")`                                               | `#NAME?` | `Automatic`                       |
+| A9   | `=CELL("width",C1)`                                             | `#NAME?` | 14, TRUE                          |
+| A11  | `=CELL("filename",A1)` (typed after)                            | —        | `[R339 cell and info.xlsx]Sheet1` |
+
+The toolbar, after the deploy:
+
+| Change                       | First deploy                        | Second deploy (setInputs fixed) |
+| ---------------------------- | ----------------------------------- | ------------------------------- |
+| C2 given the currency format | A5 stayed `G`                       | (on reopening) `C2`             |
+| C1 centred                   | A10 `=CELL("prefix",C1)` stayed `'` | (on reopening) `^`              |
+| C2 given the percent format  | —                                   | A5 `P0` at once                 |
+| C1 right-aligned             | —                                   | A10 `"` at once                 |
+
+A real image, `895b0c76f601` built from R338's commit, was smoked before this round's deploy: `R336
+bonds`, `R337 regression` and `R338 legacy formulas (after)` reopened with their values.
+
 ## 2026-10-08 — R338: an older file's formulas whose function answers with several values
 
 A workbook built by openpyxl (every formula plain, as Excel 2019 wrote them), handed to the Import
