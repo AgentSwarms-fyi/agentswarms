@@ -258,6 +258,14 @@ Otherwise approve it unchanged.`}</Code>
         ]}
       />
 
+      <P>
+        Redaction covers the whole conversation on every turn, not only the newest message: the
+        earlier messages sent with it (user messages under <strong>input</strong>, the agent&apos;s
+        replies under <strong>output</strong>), the conversation summary and recalled memories, the
+        knowledge-base search query, and the memory written after the turn. A value redacted when it
+        was typed stays redacted on every turn after.
+      </P>
+
       <H3 id="pii-entities">The eight detectors</H3>
       <Table
         headers={["Entity", "Label in the UI", "Notes"]}

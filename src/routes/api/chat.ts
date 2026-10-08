@@ -20,6 +20,8 @@ import {
   parseGuardrails,
   isAnyGuardrailActive,
   evaluateInputGuardrails,
+  piiRedactorFor,
+  redactHistoryPII,
   applyOutputGuardrails,
   type OutputDecision,
 } from "@/utils/guardrails";
@@ -348,6 +350,8 @@ function withPostTurnMemory(
     config: import("@/utils/memory/types").MemoryConfig;
     userMessage: string;
     apiKey: string;
+    /** The agent's PII policy, applied to what memory stores (R351). */
+    redact: (text: string, side: "input" | "output") => string;
   },
 ): ReadableStream<Uint8Array> | null {
   if (!upstream) return upstream;
@@ -410,6 +414,7 @@ function withPostTurnMemory(
                 windowMessages: ctx.config.stm_window_messages,
                 summaryModel: ctx.config.stm_summary_model,
                 apiKey: ctx.apiKey,
+                redact: ctx.redact,
               });
             } catch (e) {
               console.warn("[memory.post] summarize failed:", (e as Error).message);
@@ -422,8 +427,8 @@ function withPostTurnMemory(
                 userId: ctx.userId,
                 agentId: ctx.agentId,
                 conversationId: ctx.conversationId ?? null,
-                userMessage: ctx.userMessage,
-                assistantMessage: assistantText,
+                userMessage: ctx.redact(ctx.userMessage, "input"),
+                assistantMessage: ctx.redact(assistantText, "output"),
                 apiKey: ctx.apiKey,
                 maxItems: ctx.config.ltm_max_items,
               });
@@ -1553,6 +1558,10 @@ export const Route = createFileRoute("/api/chat")({
             ? parseGuardrails({ ...agentGuardrails, ...body.guardrails })
             : agentGuardrails;
 
+          // The prompt as the guardrail lets it leave this server: the
+          // knowledge-base search, the memory recall and the memory written
+          // after the turn all read this, not the raw text (R351).
+          let guardedPrompt = promptText;
           if (isAnyGuardrailActive(effectiveGuardrails) && promptText) {
             const decision = evaluateInputGuardrails(promptText, effectiveGuardrails);
             // THE TRACE IS STORAGE, AND STORAGE IS TRANSIT.
@@ -1595,6 +1604,7 @@ export const Route = createFileRoute("/api/chat")({
             // PII redaction in input — rewrite the last user message in
             // place so the upstream LLM never sees the raw values.
             if (Object.keys(decision.redactions).length > 0) {
+              guardedPrompt = decision.outboundText;
               const last = [...body.messages].reverse().find((m) => m.role === "user");
               if (last) {
                 if (typeof last.content === "string") {
@@ -1609,6 +1619,20 @@ export const Route = createFileRoute("/api/chat")({
               if (trace.requestPayload) {
                 trace.requestPayload.guardrailRedactions = decision.redactions;
               }
+            }
+          }
+          // The rest of the conversation is held to the same PII policy (R351).
+          // The check above rewrites only the newest user message, so a value
+          // it redacted on the turn it was typed went to the model, raw, in
+          // the history of every turn after. In place: the trace holds this
+          // same array, and the trace is storage too.
+          if (isAnyGuardrailActive(effectiveGuardrails)) {
+            const history = redactHistoryPII(body.messages, effectiveGuardrails);
+            history.messages.forEach((m, i) => {
+              body.messages[i].content = m.content;
+            });
+            if (Object.keys(history.counts).length > 0 && trace.requestPayload) {
+              trace.requestPayload.historyRedactions = history.counts;
             }
           }
           // Record the resolved guardrails on the trace for transparency.
@@ -1719,7 +1743,7 @@ export const Route = createFileRoute("/api/chat")({
           const autoRagAllowed = !explicitAllowList || explicitAllowList.includes("kb_search");
 
           if (autoRagAllowed && (body.agentId || extraKbIds.length > 0) && authToken) {
-            const query = promptText;
+            const query = guardedPrompt;
             if (query) {
               try {
                 const sbAuto = getServerSupabase(authToken);
@@ -1833,15 +1857,19 @@ export const Route = createFileRoute("/api/chat")({
                   userId,
                   agentId: body.agentId,
                   conversationId: body.conversationId ?? null,
-                  userPrompt: promptText,
+                  userPrompt: guardedPrompt,
                   config: memoryConfig,
                 });
                 recalledItems = loaded.recalled;
                 memorySummaryUsed = !!loaded.summaryBlock;
+                // The summary and the recalled memories were written from what
+                // the person typed, and may hold what this policy redacts: a
+                // summary folded before R351 read "User's email address is …".
+                const redactMemory = piiRedactorFor(effectiveGuardrails);
                 effectiveSystemPrompt = composeSystemPrompt({
                   basePrompt: effectiveSystemPrompt,
-                  ltmBlock: loaded.ltmBlock,
-                  summaryBlock: loaded.summaryBlock,
+                  ltmBlock: redactMemory(loaded.ltmBlock, "input").text,
+                  summaryBlock: redactMemory(loaded.summaryBlock, "input").text,
                 });
               }
             } catch (e) {
@@ -2321,8 +2349,9 @@ export const Route = createFileRoute("/api/chat")({
                       conversationId: body.conversationId,
                       authToken,
                       config: memoryConfig,
-                      userMessage: promptText,
+                      userMessage: guardedPrompt,
                       apiKey: memoryApiKey,
+                      redact: (text, side) => piiRedactorFor(effectiveGuardrails)(text, side).text,
                     })
                   : withMem;
                 const guarded = withOutputGuardrails(
@@ -2365,8 +2394,9 @@ export const Route = createFileRoute("/api/chat")({
                   conversationId: body.conversationId,
                   authToken,
                   config: memoryConfig,
-                  userMessage: promptText,
+                  userMessage: guardedPrompt,
                   apiKey: memoryApiKey,
+                  redact: (text, side) => piiRedactorFor(effectiveGuardrails)(text, side).text,
                 })
               : withMem;
             const guarded = withOutputGuardrails(

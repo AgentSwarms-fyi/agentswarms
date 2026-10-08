@@ -724,8 +724,10 @@ least twice, not a hypothetical.
       no matching passages…". The R347 fixture agent, which has none, answered a request to repeat
       an email with "I could not find the information you are looking for in the available
       documents." The trace of that turn holds the instruction.
-    - **The conversation summary carries what the PII guardrail redacts** (seen in R350, next:
-      R351). The summarizer folds the stored messages, which hold what the person typed. For the
+    - ~~**The conversation summary carries what the PII guardrail redacts**~~ (seen in R350).
+      **R351**: and so did the history of every later turn. The whole conversation, the summary,
+      the recalled memories, the search query and the memory written after a turn are now held to
+      the policy. The summarizer folds the stored messages, which hold what the person typed. For the
       R347 fixture (`piiMode: "redact"`), the chat turn reached the model as `[REDACTED_EMAIL]`,
       but the summary read "User's email address is r348.check@example.test", and the trace of the
       next turn shows that summary in the system prompt. The email reached the summary model and

@@ -109,6 +109,74 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R351: the PII guardrail covered only the newest message
+
+**Severity: high (privacy).** An agent set to redact PII sent a redacted value to the model, raw,
+on every turn after the one where it was typed. It was also sent in the conversation summary, and
+on to the knowledge-base search and long-term memory.
+
+**Found from the UI (R350).** The R347 fixture agent has `piiMode: "redact"`. Its first message in
+the r348 conversation, "My email is r348.check@example.test…", reached the model as
+`[REDACTED_EMAIL]`.
+
+- The trace of the ninth turn after it (11:35:44) carried that sentence raw in its history, and
+  recorded no redaction.
+- The rolling summary, folded from the stored messages, read "User's email address is
+  r348.check@example.test". The trace of the next turn (11:36:08) shows that summary in the
+  system prompt.
+
+**Where the raw text went.** `evaluateInputGuardrails` rewrote only the newest user message.
+
+- **The history.** Every earlier message, user and assistant, went to the model as stored. The
+  browser and the embed widget both send the whole conversation each turn.
+- **The summary.** It was folded from the stored messages, sent to the summary model, kept in
+  `conversation_memory`, and put into the system prompt.
+- **The search.** The knowledge-base search query was `promptText`, the raw prompt. It was
+  embedded by the embedding provider, keyword-searched, and written into the `kb.search` audit
+  row.
+- **Long-term memory.** The recall query, and the user and assistant text the extraction reads,
+  were raw too.
+- **The trace.** Its stored request holds the same messages array, so it kept the raw history.
+
+**What was written.**
+
+- **`redactHistoryPII(messages, guardrails)`** (`utils/guardrails.ts`) redacts every user message
+  under the policy's input side and every assistant message under its output side. It leaves
+  image parts and system messages alone, and returns unchanged messages as the same objects.
+  `piiRedactorFor(guardrails)` is the per-side redactor.
+- **`/api/chat`** redacts the whole history in place, so the stored trace is redacted too, and
+  records `historyRedactions`.
+  - `guardedPrompt` (the redacted newest prompt) is what the knowledge-base search, the memory
+    recall and the post-turn memory read.
+  - The summary block and the recalled memories are redacted on their way into the system prompt.
+    This covers what was stored before.
+  - The post-turn work gets the agent's redactor: the summary fold sends redacted turns and a
+    redacted summary-so-far, and the extraction reads the redacted user and assistant text.
+- **The embed widget** redacts the visitor's whole conversation the same way.
+
+**Tests:**
+
+- `piiHistoryRedaction.test.ts`, new, 11 cases: the fixture's conversation, unchanged messages
+  kept as the same objects, each `piiApplyTo` direction, the legacy switch, a message with an
+  image, the per-side redactor, and the wiring of both routes.
+- `memorySummaryFold.test.ts` gains one case: under the policy, the fold's prompt to the summary
+  model holds `[REDACTED_EMAIL]` for both a turn and the summary so far, and no address.
+
+Mutation run: the control survives and 10 of 10 mutants are caught. The first run let the embed
+widget's write-back go (its test checked only the call); the test now pins the write-back and
+that it comes before the history is sent.
+
+**The UI** (R351 build): one more turn in the r348 conversation. Its trace (12:08:21):
+
+- The first history message reads "My email is [REDACTED_EMAIL]…", with `historyRedactions:
+{email: 1}`.
+- The summary block reads "User's email address is [REDACTED_EMAIL]".
+- The raw address appears nowhere in the stored request.
+
+**Docs:** the Guardrails page (`/docs/guardrails#pii-modes`) now says what redaction covers.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R350: the conversation summary stopped at message 480
 
 **Severity: medium.** Any conversation with short-term memory (on by default) that passes 500

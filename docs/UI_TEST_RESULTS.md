@@ -15,6 +15,15 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R351: a redacted value, on the turns after
+
+| Page                                            | What was driven                                            | Result                                                                                                                                                                                        |
+| ----------------------------------------------- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| /traces (R350 build)                            | The fixture's turn at 11:35:44 (the ninth after the email) | **Defect.** History message 1: "My email is r348.check@example.test. Repeat back exactly the email add…"; no redaction recorded                                                               |
+| /traces (R350 build)                            | The turn at 11:36:08                                       | **Defect.** Summary block: "User's email address is r348.check@example.test…"                                                                                                                 |
+| /playground, the r348 conversation (R351 build) | "Filler 11. Reply with just OK."                           | "OK."                                                                                                                                                                                         |
+| /traces (R351 build)                            | That turn (12:08:21)                                       | History message 1: "My email is [REDACTED_EMAIL]…"; `historyRedactions: {email: 1}`; summary block "User's email address is [REDACTED_EMAIL]…"; the raw address nowhere in the stored request |
+
 ## 2026-10-08 — R350: the conversation summary, folded forward
 
 | Page                                                   | What was driven                                                                                                                                                                                      | Result                                                                                                                                                                                                       |

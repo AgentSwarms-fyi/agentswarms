@@ -21,6 +21,7 @@ vi.mock("@/utils/observability/recordGatewayUsage.server", () => ({
 }));
 
 import { summarizeIfNeeded } from "@/utils/memory/summarize.server";
+import { parseGuardrails, piiRedactorFor } from "@/utils/guardrails";
 
 type Row = Record<string, unknown>;
 
@@ -81,14 +82,18 @@ function client(tables: Record<string, Row[]>, failing: Record<string, string> =
 
 /** The summary model, stubbed: it answers with the ids of the turns it was given. */
 let folded: string[][] = [];
+/** Each summary prompt, as the model was sent it. */
+let prompts: string[] = [];
 beforeEach(() => {
   folded = [];
+  prompts = [];
   vi.stubGlobal(
     "fetch",
     vi.fn(async (_url: string, init: { body: string }) => {
       const prompt = JSON.parse(init.body).messages[1].content as string;
       const ids = [...prompt.matchAll(/: message (\d+)/g)].map((m) => `m${m[1]}`);
       folded.push(ids);
+      prompts.push(prompt);
       return {
         ok: true,
         json: async () => ({
@@ -206,5 +211,41 @@ describe("a read or write that fails", () => {
         .slice(30)
         .map((m) => m.id),
     ]);
+  });
+});
+
+describe("under an agent's PII policy (R351)", () => {
+  it("the fold sends the turns, and the summary so far, as the policy lets them out", async () => {
+    // The stored messages hold what the person typed: the email went to the
+    // summary model and stayed in the summary.
+    const messages = conversation(60).map((m, i) =>
+      i === 0 ? { ...m, content: "message 1: my email is r351.check@example.test" } : m,
+    );
+    const tables: Record<string, Row[]> = {
+      messages,
+      conversation_memory: [
+        {
+          conversation_id: "c1",
+          user_id: "u1",
+          summary: "The user wrote from r350.old@example.test.",
+          last_summarized_message_id: null,
+        },
+      ],
+    };
+    const { sb } = client(tables);
+    const redact = piiRedactorFor(parseGuardrails({ piiMode: "redact" }));
+    await summarizeIfNeeded({
+      sb,
+      userId: "u1",
+      conversationId: "c1",
+      windowMessages: 20,
+      summaryModel: "openai/gpt-4o-mini",
+      apiKey: "test-key",
+      redact: (text, side) => redact(text, side).text,
+    });
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).not.toContain("@example.test");
+    expect(prompts[0]).toContain("my email is [REDACTED_EMAIL]");
+    expect(prompts[0]).toContain("The user wrote from [REDACTED_EMAIL].");
   });
 });

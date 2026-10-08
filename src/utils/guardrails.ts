@@ -819,3 +819,63 @@ export function applyOutputGuardrails(
 
   return { text, warnings, blocked };
 }
+
+/** Text as the PII policy lets the model see it, for one side of the conversation. */
+export function piiRedactorFor(
+  g: Guardrails,
+): (text: string, side: "input" | "output") => { text: string; counts: Record<string, number> } {
+  const policy = piiPolicy(g);
+  return (text, side) => {
+    const on = side === "input" ? policy.onInput : policy.onOutput;
+    return on ? redactPII(text, policy.entities) : { text, counts: {} };
+  };
+}
+
+type HistoryMessage = {
+  role: string;
+  content: string | ReadonlyArray<{ type?: unknown; text?: unknown }>;
+};
+
+/**
+ * The conversation as the model may be sent it under this PII policy (R351).
+ *
+ * The input guardrail rewrote only the newest user message, so a value it
+ * redacted on the turn it was typed went to the model, raw, in the history of
+ * every turn after: the R347 fixture redacted an email on its first turn and
+ * sent it unredacted on each of the next ten. Every user message is redacted
+ * under the input policy, and every assistant message under the output policy
+ * (a reply stored before that policy, or before a rewrite reached the store,
+ * can hold a value too). Image parts are left as they are.
+ */
+export function redactHistoryPII<M extends HistoryMessage>(
+  messages: readonly M[],
+  g: Guardrails,
+): { messages: M[]; counts: Record<string, number> } {
+  const redact = piiRedactorFor(g);
+  const counts: Record<string, number> = {};
+  const add = (c: Record<string, number>) => {
+    for (const [k, n] of Object.entries(c)) counts[k] = (counts[k] ?? 0) + n;
+  };
+  const side = (role: string): "input" | "output" | null =>
+    role === "user" ? "input" : role === "assistant" ? "output" : null;
+  const out = messages.map((m) => {
+    const s = side(m.role);
+    if (!s) return m;
+    if (typeof m.content === "string") {
+      const r = redact(m.content, s);
+      add(r.counts);
+      return r.text === m.content ? m : ({ ...m, content: r.text } as M);
+    }
+    let changed = false;
+    const parts = m.content.map((p) => {
+      if (p.type !== "text" || typeof p.text !== "string") return p;
+      const r = redact(p.text, s);
+      add(r.counts);
+      if (r.text === p.text) return p;
+      changed = true;
+      return { ...p, text: r.text };
+    });
+    return changed ? ({ ...m, content: parts } as M) : m;
+  });
+  return { messages: out, counts };
+}

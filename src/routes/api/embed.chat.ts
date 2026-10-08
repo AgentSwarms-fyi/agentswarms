@@ -33,6 +33,7 @@ import { EMBED_CONFIG_UNREADABLE } from "@/utils/agents/agentConfigGate";
 import {
   applyOutputGuardrails,
   evaluateInputGuardrails,
+  redactHistoryPII,
   parseGuardrails,
   type Guardrails,
 } from "@/utils/guardrails";
@@ -352,6 +353,11 @@ export const Route = createFileRoute("/api/embed/chat")({
             }
           }
         }
+        // And every earlier message (R351): the widget sends the visitor's
+        // whole conversation with each turn, so a value redacted when it was
+        // typed went back to the model raw on every turn after.
+        const guardedHistory = redactHistoryPII(history, cfg.guardrails).messages;
+        guardedHistory.forEach((m, i) => (history[i] = m));
 
         // RAG over the resource's wired knowledge bases (owner-scoped ids).
         let citations: Citation[] = [];

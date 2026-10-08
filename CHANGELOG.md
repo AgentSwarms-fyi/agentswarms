@@ -83,6 +83,23 @@ development branch and may be ahead of the latest tag.
   build (`E2E_CHANNEL=chrome` uses the Chrome you have). Signed-in pages are
   not covered yet.
 
+### Security: guardrails
+
+- **An agent's PII redaction now covers the whole conversation** (R351). The
+  input guardrail rewrote only the newest user message, so a value it redacted
+  on the turn it was typed went to the model unredacted in the history of
+  every later turn. The conversation summary, folded from the stored messages,
+  kept it too ("User's email address is …"), and that summary was sent in the
+  system prompt. The raw prompt also went on to the knowledge-base search (its
+  embedding, and the audit row) and to the long-term memory recall and
+  extraction. Now every earlier user message is redacted under the input
+  policy and every assistant message under the output policy. The search,
+  recall and memory read the redacted prompt, the summary and recalled
+  memories are redacted when they are put into the prompt (which covers those
+  stored before), and new folds are made from redacted turns. The embed widget
+  redacts the visitor's whole conversation the same way. The stored trace is
+  redacted with it.
+
 ### Security: dependencies
 
 `npm audit` went from **44 advisories (4 critical, 24 high)** to **2 moderate**,

@@ -96,8 +96,14 @@ export async function summarizeIfNeeded(opts: {
   windowMessages: number;
   summaryModel: string | null;
   apiKey: string;
+  /**
+   * The agent's PII policy for each side of the conversation (R351). The
+   * stored messages hold what the person typed, so a fold without it sent a
+   * redacted email to the summary model and kept it in the summary.
+   */
+  redact?: (text: string, side: "input" | "output") => string;
 }): Promise<{ summary: string | null; foldedCount: number }> {
-  const { sb, userId, conversationId, windowMessages, summaryModel, apiKey } = opts;
+  const { sb, userId, conversationId, windowMessages, summaryModel, apiKey, redact } = opts;
 
   // The stored summary, and how far it reaches. A failed read is not "no
   // summary yet": a fold from nothing would replace the stored summary with
@@ -150,8 +156,19 @@ export async function summarizeIfNeeded(opts: {
   const newSummary = await callOpenRouterForSummary({
     apiKey,
     model: summaryModel || SUMMARY_MODEL_FALLBACK,
-    previousSummary,
-    newTurns: fresh,
+    // A summary folded before R351 can hold what the policy redacts.
+    previousSummary: redact ? redact(previousSummary, "input") : previousSummary,
+    newTurns: redact
+      ? fresh.map((m) => ({
+          ...m,
+          content:
+            m.role === "user"
+              ? redact(m.content, "input")
+              : m.role === "assistant"
+                ? redact(m.content, "output")
+                : m.content,
+        }))
+      : fresh,
     userId,
   });
   if (!newSummary) {
