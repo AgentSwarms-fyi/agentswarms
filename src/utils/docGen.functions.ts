@@ -212,7 +212,7 @@ async function gatherWebResearch(
 }
 
 export const gatherDocContext = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),

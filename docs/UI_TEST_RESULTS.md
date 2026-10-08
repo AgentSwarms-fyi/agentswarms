@@ -15,6 +15,18 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R349: server functions after the `validator()` rename
+
+| Page                           | What was driven                               | Result                                                                        |
+| ------------------------------ | --------------------------------------------- | ----------------------------------------------------------------------------- |
+| /ml/… (revenue_facts · groups) | Load                                          | Silhouette 0.249 and the rest of the model page; no 4xx or 5xx                |
+| /traces                        | Load                                          | 25 rows; no 4xx or 5xx                                                        |
+| /admin/runtime?tab=ml          | Load                                          | "This host reports 8 CPU and 9.7 GB RAM…"; no 4xx or 5xx                      |
+| /sheets/… (R341 asc and jis)   | **File → Version history…**                   | The list (one automatic version); server functions answered 200               |
+| the same                       | Name "R349 validator check", **Save version** | Toast `Saved the version "R349 validator check"`, listed first as Named; 200s |
+
+The named version is kept on the R341 test workbook.
+
 ## 2026-10-08 — R348: an agent with no knowledge base, before and after
 
 | Page                                                   | What was driven                                                                                                    | Result                                                                                                                                                                                                                                                                                                         |

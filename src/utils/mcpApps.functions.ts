@@ -96,7 +96,7 @@ export const mcpAppList = createServerFn({ method: "POST" })
 
 export const mcpAppGet = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(
     async ({
       data,
@@ -112,7 +112,7 @@ export const mcpAppGet = createServerFn({ method: "POST" })
 
 export const mcpAppCreate = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         name: z.string().min(1).max(120),
@@ -169,7 +169,7 @@ const SaveSchema = z.object({
 
 export const mcpAppSave = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => SaveSchema.parse(input))
+  .validator((input: unknown) => SaveSchema.parse(input))
   .handler(async ({ data, context }): Promise<(Fail & { stale?: boolean }) | { ok: true }> => {
     const { id, expected_source_fingerprint: expected, overwrite, ...patch } = data;
     if (!expected) {
@@ -217,7 +217,7 @@ export const mcpAppSave = createServerFn({ method: "POST" })
 
 export const mcpAppDelete = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }): Promise<Fail | { ok: true }> => {
     const owned = await ownedApp(context.supabase, data.id);
     if (!owned.ok) return owned;
@@ -244,7 +244,7 @@ export const mcpAppDelete = createServerFn({ method: "POST" })
 
 export const mcpAppDeploy = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(
     async ({
       data,
@@ -293,7 +293,7 @@ export const mcpAppDeploy = createServerFn({ method: "POST" })
 
 export const mcpAppStop = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }): Promise<Fail | { ok: true }> => {
     const owned = await ownedApp(context.supabase, data.id);
     if (!owned.ok) return owned;
@@ -311,7 +311,7 @@ export const mcpAppStop = createServerFn({ method: "POST" })
 
 export const mcpAppLogs = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }): Promise<Fail | { ok: true; logs: string }> => {
     const owned = await ownedApp(context.supabase, data.id);
     if (!owned.ok) return owned;
@@ -344,7 +344,7 @@ export const mcpAppLogs = createServerFn({ method: "POST" })
  */
 export const mcpAppApproveTools = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ id: z.string().uuid(), tools_hash: z.string().max(200).optional() }).parse(input),
   )
   .handler(async ({ data, context }): Promise<Fail | { ok: true }> => {
@@ -386,7 +386,7 @@ export const mcpAppApproveTools = createServerFn({ method: "POST" })
  */
 export const mcpAppTest = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         id: z.string().uuid(),
@@ -490,7 +490,7 @@ export type McpKeyRow = {
 
 export const mcpAppKeysList = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }): Promise<Fail | { ok: true; keys: McpKeyRow[] }> => {
     const { data: rows, error } = await context.supabase
       .from("mcp_app_keys")
@@ -509,7 +509,7 @@ export const mcpAppKeysList = createServerFn({ method: "POST" })
 
 export const mcpAppKeyCreate = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         id: z.string().uuid(),
@@ -555,7 +555,7 @@ export const mcpAppKeyCreate = createServerFn({ method: "POST" })
 
 export const mcpAppKeyRevoke = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ id: z.string().uuid(), key_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data, context }): Promise<Fail | { ok: true }> => {
@@ -579,7 +579,7 @@ export const mcpAppKeyRevoke = createServerFn({ method: "POST" })
 
 export const mcpAppSetPublic = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ id: z.string().uuid(), is_public: z.boolean() }).parse(input),
   )
   .handler(async ({ data, context }): Promise<Fail | { ok: true; url: string | null }> => {
@@ -619,7 +619,7 @@ export const mcpAppSetPublic = createServerFn({ method: "POST" })
  */
 export const mcpAppRegisterInternal = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }): Promise<Fail | { ok: true; server_id: string }> => {
     const owned = await ownedApp(context.supabase, data.id);
     if (!owned.ok) return owned;
@@ -719,7 +719,7 @@ export const mcpAppRegisterInternal = createServerFn({ method: "POST" })
 
 export const mcpAppUnregisterInternal = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }): Promise<Fail | { ok: true }> => {
     const owned = await ownedApp(context.supabase, data.id);
     if (!owned.ok) return owned;
@@ -763,7 +763,7 @@ export type McpVersionRow = {
 
 export const mcpAppVersions = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }): Promise<Fail | { ok: true; versions: McpVersionRow[] }> => {
     const { data: rows, error } = await context.supabase
       .from("mcp_app_versions")
@@ -777,7 +777,7 @@ export const mcpAppVersions = createServerFn({ method: "POST" })
 
 export const mcpAppRestoreVersion = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ id: z.string().uuid(), version_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data, context }): Promise<Fail | { ok: true }> => {

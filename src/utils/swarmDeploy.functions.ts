@@ -31,7 +31,7 @@ export const SWARM_KEY_SCOPES = ["run", "read_runs"] as const;
 export type SwarmKeyScope = (typeof SWARM_KEY_SCOPES)[number];
 
 export const createSwarmApiKey = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -150,7 +150,7 @@ export const createSwarmApiKey = createServerFn({ method: "POST" })
  * instance rather than a stale assumption baked into the UI.
  */
 export const jsSandboxStatusFn = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }) => {
     // Signed-in callers only: this reports a deployment detail of the instance.
     const userId = await userFromToken(data.access_token);
@@ -173,7 +173,7 @@ export const jsSandboxStatusFn = createServerFn({ method: "POST" })
  * THIS snapshot until it is published again. The draft stays editable.
  */
 export const publishSwarm = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), swarm_id: z.string().uuid() }).parse(input),
   )
   .handler(
@@ -219,7 +219,7 @@ export const publishSwarm = createServerFn({ method: "POST" })
  * able to choose it, rather than discovering the product decided for them.
  */
 export const unpublishSwarm = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), swarm_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: false; error: string } | { ok: true }> => {

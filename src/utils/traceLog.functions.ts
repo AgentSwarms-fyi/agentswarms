@@ -44,7 +44,7 @@ const TRACE_LIST_COLUMNS =
   "id, agent_name, llm_provider, llm_model, latency_ms, tokens_in, tokens_out, cost_usd, status, prompt, error_message, created_at, parent_trace_id, decision_id, pricing_missing:request_payload->>pricing_missing";
 
 export const getExecutionTraces = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => TraceLogInput.parse(input))
+  .validator((input: unknown) => TraceLogInput.parse(input))
   .handler(
     async ({
       data,
@@ -92,7 +92,7 @@ export const getExecutionTraces = createServerFn({ method: "POST" })
   );
 
 export const getExecutionTraceDetail = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => TraceDetailInput.parse(input))
+  .validator((input: unknown) => TraceDetailInput.parse(input))
   .handler(
     async ({
       data,

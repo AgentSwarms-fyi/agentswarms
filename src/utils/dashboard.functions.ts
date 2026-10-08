@@ -151,7 +151,7 @@ const cost = (r: TraceRow) => Number(r.cost_usd ?? 0);
 const tokens = (r: TraceRow) => Number(r.tokens_in ?? 0) + Number(r.tokens_out ?? 0);
 
 export const dashboardOverview = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),

@@ -48,7 +48,7 @@ const NameSchema = z
   .regex(/^[A-Za-z][A-Za-z0-9_]*$/, "Start with a letter; letters, digits and _ only");
 
 export const listSecrets = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(
     async ({
       data,
@@ -72,7 +72,7 @@ export const listSecrets = createServerFn({ method: "POST" })
   );
 
 export const createSecret = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -110,7 +110,7 @@ export const createSecret = createServerFn({ method: "POST" })
   });
 
 export const updateSecret = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -153,7 +153,7 @@ export const updateSecret = createServerFn({ method: "POST" })
   });
 
 export const deleteSecret = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), secret_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {

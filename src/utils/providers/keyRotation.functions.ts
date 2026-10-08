@@ -34,7 +34,7 @@ export type KeyRotationError = { ok: false; error: string };
 
 /** Read-only: the keyring fingerprints and per-table migration state. */
 export const getKeyEncryptionStatus = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<KeyStatusPayload | KeyRotationError> => {
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) return { ok: false, error: guard.error };
@@ -68,7 +68,7 @@ export type CreateDataKeyPayload = { ok: true; kid: string; provider: string; ke
  * restarts, then the sweep below moves the rows. Superadmin only, audited.
  */
 export const createKmsDataKey = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<CreateDataKeyPayload | KeyRotationError> => {
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) return { ok: false, error: guard.error };
@@ -106,7 +106,7 @@ export type RotatePayload = {
 
 /** Re-encrypt every stored credential onto the current key. Idempotent. */
 export const reEncryptCredentials = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<RotatePayload | KeyRotationError> => {
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) return { ok: false, error: guard.error };

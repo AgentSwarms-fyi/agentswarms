@@ -135,7 +135,7 @@ function isBanned(u: AdminUser): boolean {
 // --- Users ---------------------------------------------------------------
 
 export const iamListUsers = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<IamError | { ok: true; users: IamUserRow[] }> => {
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) return guard;
@@ -177,7 +177,7 @@ export const iamListUsers = createServerFn({ method: "POST" })
   });
 
 export const iamCreateUser = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -234,7 +234,7 @@ export const iamCreateUser = createServerFn({ method: "POST" })
   );
 
 export const iamSetUserBan = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({ access_token: z.string().min(1), user_id: z.string().uuid(), banned: z.boolean() })
       .parse(input),
@@ -275,7 +275,7 @@ export const iamSetUserBan = createServerFn({ method: "POST" })
   });
 
 export const iamDeleteUser = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), user_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<IamError | { ok: true }> => {
@@ -311,7 +311,7 @@ export const iamDeleteUser = createServerFn({ method: "POST" })
 // --- Superadmin role -----------------------------------------------------
 
 export const iamGrantSuperadmin = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), user_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<IamError | { ok: true }> => {
@@ -334,7 +334,7 @@ export const iamGrantSuperadmin = createServerFn({ method: "POST" })
   });
 
 export const iamRevokeSuperadmin = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), user_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<IamError | { ok: true }> => {
@@ -417,7 +417,7 @@ export const iamRevokeSuperadmin = createServerFn({ method: "POST" })
 // --- Groups --------------------------------------------------------------
 
 export const iamListGroups = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<IamError | { ok: true; groups: IamGroupRow[] }> => {
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) return guard;
@@ -448,7 +448,7 @@ export const iamListGroups = createServerFn({ method: "POST" })
   });
 
 export const iamCreateGroup = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -481,7 +481,7 @@ export const iamCreateGroup = createServerFn({ method: "POST" })
   });
 
 export const iamUpdateGroup = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -509,7 +509,7 @@ export const iamUpdateGroup = createServerFn({ method: "POST" })
   });
 
 export const iamDeleteGroup = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), group_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<IamError | { ok: true }> => {
@@ -540,7 +540,7 @@ export const iamDeleteGroup = createServerFn({ method: "POST" })
   });
 
 export const iamAddGroupMember = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -570,7 +570,7 @@ export const iamAddGroupMember = createServerFn({ method: "POST" })
   });
 
 export const iamRemoveGroupMember = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -608,7 +608,7 @@ export const iamRemoveGroupMember = createServerFn({ method: "POST" })
 const ATTRIBUTE_KEY_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
 export const iamListUserAttributes = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }) => {
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) return guard;
@@ -631,7 +631,7 @@ export const iamListUserAttributes = createServerFn({ method: "POST" })
   });
 
 export const iamSetUserAttribute = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -670,7 +670,7 @@ export const iamSetUserAttribute = createServerFn({ method: "POST" })
   });
 
 export const iamDeleteUserAttribute = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -701,7 +701,7 @@ export const iamDeleteUserAttribute = createServerFn({ method: "POST" })
 // --- Model rules ---------------------------------------------------------
 
 export const iamListModelRules = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<IamError | { ok: true; rules: IamModelRuleRow[] }> => {
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) return guard;
@@ -714,7 +714,7 @@ export const iamListModelRules = createServerFn({ method: "POST" })
   });
 
 export const iamSetModelRules = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -766,7 +766,7 @@ export const iamSetModelRules = createServerFn({ method: "POST" })
 // --- Resource grants -----------------------------------------------------
 
 export const iamListGrantableResources = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<IamError | { ok: true; resources: IamResourceOption[] }> => {
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) return guard;
@@ -909,7 +909,7 @@ export const iamListGrantableResources = createServerFn({ method: "POST" })
   });
 
 export const iamListGrants = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<IamError | { ok: true; grants: IamGrantRow[] }> => {
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) return guard;
@@ -1069,7 +1069,7 @@ export const iamListGrants = createServerFn({ method: "POST" })
   });
 
 export const iamCreateGrant = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -1162,7 +1162,7 @@ export const iamCreateGrant = createServerFn({ method: "POST" })
   });
 
 export const iamDeleteGrant = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), grant_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<IamError | { ok: true }> => {
@@ -1210,7 +1210,7 @@ export type IamSettings = {
 const MAX_RETENTION_DAYS = 3650;
 
 export const iamGetSettings = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<IamError | ({ ok: true } & IamSettings)> => {
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) return guard;
@@ -1233,7 +1233,7 @@ export const iamGetSettings = createServerFn({ method: "POST" })
   });
 
 export const iamUpdateSettings = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -1357,7 +1357,7 @@ function mapSsoProvider(p: GotrueSsoProvider): IamSsoProvider {
 }
 
 export const iamListSsoProviders = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(
     async ({
       data,
@@ -1374,7 +1374,7 @@ export const iamListSsoProviders = createServerFn({ method: "POST" })
   );
 
 export const iamCreateSsoProvider = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -1416,7 +1416,7 @@ export const iamCreateSsoProvider = createServerFn({ method: "POST" })
   );
 
 export const iamUpdateSsoProvider = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -1450,7 +1450,7 @@ export const iamUpdateSsoProvider = createServerFn({ method: "POST" })
   });
 
 export const iamDeleteSsoProvider = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), provider_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<(IamError & { saml_disabled?: boolean }) | { ok: true }> => {
@@ -1483,7 +1483,7 @@ export type IamScimToken = {
 };
 
 export const iamListScimTokens = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<IamError | { ok: true; tokens: IamScimToken[] }> => {
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) return guard;
@@ -1499,7 +1499,7 @@ export const iamListScimTokens = createServerFn({ method: "POST" })
   });
 
 export const iamCreateScimToken = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), label: z.string().min(1).max(80) }).parse(input),
   )
   .handler(async ({ data }): Promise<IamError | { ok: true; id: string; token: string }> => {
@@ -1529,7 +1529,7 @@ export const iamCreateScimToken = createServerFn({ method: "POST" })
   });
 
 export const iamRevokeScimToken = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), token_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<IamError | { ok: true }> => {

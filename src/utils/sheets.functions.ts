@@ -164,7 +164,7 @@ type ListedRow = {
 
 /** The caller's workbooks and the ones shared with them, newest first. */
 export const sheetsList = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => tokenOnly.parse(input))
+  .validator((input: unknown) => tokenOnly.parse(input))
   .handler(
     async ({
       data,
@@ -237,7 +237,7 @@ export const sheetsList = createServerFn({ method: "POST" })
 
 /** A new workbook with one empty grid sheet. */
 export const sheetsCreate = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly
       .extend({
         name: z.string().trim().min(1).max(200),
@@ -277,7 +277,7 @@ export const sheetsCreate = createServerFn({ method: "POST" })
  * those keep; `as_share` lets the owner look at it as one of its shares does.
  */
 export const sheetsGet = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly
       .extend({ id: z.string().uuid(), as_share: z.string().uuid().nullable().optional() })
       .parse(input),
@@ -382,7 +382,7 @@ export const sheetsGet = createServerFn({ method: "POST" })
 
 /** Rename a workbook or change its description: its owner or an editor. */
 export const sheetsUpdateWorkbook = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly
       .extend({
         id: z.string().uuid(),
@@ -411,7 +411,7 @@ export const sheetsUpdateWorkbook = createServerFn({ method: "POST" })
 
 /** Delete a workbook: its owner only. */
 export const sheetsDelete = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => tokenOnly.extend({ id: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => tokenOnly.extend({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data }): Promise<{ ok: true } | Fail> => {
     const caller = await resolveCaller(data.access_token);
     if (!caller.ok) return caller;
@@ -430,7 +430,7 @@ export const sheetsDelete = createServerFn({ method: "POST" })
 
 /** A new grid sheet at the end of the workbook. */
 export const sheetsAddTab = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly
       .extend({ workbook_id: z.string().uuid(), name: z.string().trim().min(1).max(100) })
       .parse(input),
@@ -476,7 +476,7 @@ export const sheetsAddTab = createServerFn({ method: "POST" })
   });
 
 export const sheetsRenameTab = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly
       .extend({ tab_id: z.string().uuid(), name: z.string().trim().min(1).max(100) })
       .parse(input),
@@ -507,7 +507,7 @@ export const sheetsRenameTab = createServerFn({ method: "POST" })
   });
 
 export const sheetsDeleteTab = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => tokenOnly.extend({ tab_id: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => tokenOnly.extend({ tab_id: z.string().uuid() }).parse(input))
   .handler(async ({ data }): Promise<{ ok: true } | Fail> => {
     const caller = await resolveCaller(data.access_token);
     if (!caller.ok) return caller;
@@ -565,7 +565,7 @@ export const sheetsDeleteTab = createServerFn({ method: "POST" })
   });
 
 export const sheetsReorderTabs = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly
       .extend({ workbook_id: z.string().uuid(), order: z.array(z.string().uuid()).min(1).max(500) })
       .parse(input),
@@ -592,7 +592,7 @@ export const sheetsReorderTabs = createServerFn({ method: "POST" })
  * table, so the workbook's "edited" time stays.
  */
 export const sheetsSetPreview = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly.extend({ workbook_id: z.string().uuid(), preview: previewSchema }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: true } | Fail> => {
@@ -616,7 +616,7 @@ export const sheetsSetPreview = createServerFn({ method: "POST" })
  * a few at a time; each is built once and kept.
  */
 export const sheetsBackfillPreviews = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly.extend({ ids: z.array(z.string().uuid()).min(1).max(4) }).parse(input),
   )
   .handler(
@@ -669,7 +669,7 @@ export const sheetsBackfillPreviews = createServerFn({ method: "POST" })
  * caller is told so.
  */
 export const sheetsSaveGrid = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly
       .extend({
         tab_id: z.string().uuid(),
@@ -739,7 +739,7 @@ export const sheetsSaveGrid = createServerFn({ method: "POST" })
  * with it, and a new workbook with it.
  */
 export const sheetsImportGrids = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly
       .extend({
         /** Append to this workbook; without it, a new workbook named `name`. */
@@ -885,7 +885,7 @@ export const sheetsImportGrids = createServerFn({ method: "POST" })
  * is sent and kept as sent, once every name is valid and unique (R148).
  */
 export const sheetsSetNames = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly
       .extend({ id: z.string().uuid(), names: z.array(nameSchema).max(MAX_NAMES) })
       .parse(input),

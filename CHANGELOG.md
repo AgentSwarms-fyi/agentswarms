@@ -108,6 +108,11 @@ and both of those are one advisory that cannot be triggered here (see
   upload, and the versions fetched (pdf.js 4.7.76, mammoth 1.8.0) were not the
   audited ones in the lockfile (4.10.38, 1.13.0). The build now copies them into
   `public/vendor`.
+- **Server functions declare their input with `validator()`** (R349), the name
+  TanStack Start 1.168 gave `inputValidator()`, which it deprecated. The 396
+  calls used the old name, so each build printed 1,173 deprecation lines: more
+  than half its log, burying any new warning. The build log goes from 2,150
+  lines to 977. A test keeps the old name out.
 - **JSON columns are read as the objects they hold, not `any`** (R347). The
   integrations page's config, an agent's tools in its export, and an imported
   agent file go through `recordOf` and `textOf` (`lib/jsonRecord.ts`). A tools

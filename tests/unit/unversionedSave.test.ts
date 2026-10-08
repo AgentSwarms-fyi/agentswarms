@@ -28,7 +28,7 @@ vi.mock("@tanstack/react-start", () => ({
     let validate: (v: unknown) => unknown = (v) => v;
     const b = {
       middleware: () => b,
-      inputValidator: (v: (x: unknown) => unknown) => ((validate = v), b),
+      validator: (v: (x: unknown) => unknown) => ((validate = v), b),
       handler:
         (h: (o: { data: unknown; context: unknown }) => unknown) =>
         (opts: { data: unknown; context?: unknown }) =>

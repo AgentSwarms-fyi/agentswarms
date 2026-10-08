@@ -76,7 +76,7 @@ function toReport(row: Record<string, unknown>): BiReportRow {
 }
 
 export const biReportsList = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ accessToken: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ accessToken: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<Fail | { ok: true; reports: BiReportRow[] }> => {
     const userId = await resolveCaller(data.accessToken);
     const { data: rows, error } = await supabaseAdmin
@@ -89,7 +89,7 @@ export const biReportsList = createServerFn({ method: "POST" })
   });
 
 export const biReportGet = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ accessToken: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(
@@ -117,7 +117,7 @@ const BAND = z.object({
 });
 
 export const biReportSave = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         accessToken: z.string().min(1),
@@ -203,7 +203,7 @@ export const biReportSave = createServerFn({ method: "POST" })
   );
 
 export const biReportCreate = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         accessToken: z.string().min(1),
@@ -232,7 +232,7 @@ export const biReportCreate = createServerFn({ method: "POST" })
   });
 
 export const biReportDelete = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ accessToken: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<Fail | { ok: true }> => {

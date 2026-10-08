@@ -178,7 +178,7 @@ async function lastRunDrift(
  * the connection as the caller, the moment the picker opens.
  */
 export const etlListWarehouseTables = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), connection_id: z.string().uuid() }).parse(input),
   )
   .handler(
@@ -206,7 +206,7 @@ export const etlListWarehouseTables = createServerFn({ method: "POST" })
  * counts rows in every table, which is what a picker must not wait for).
  */
 export const etlListLakehouseTables = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(
     async ({
       data,
@@ -231,7 +231,7 @@ export const etlListLakehouseTables = createServerFn({ method: "POST" })
   );
 
 export const listEtlPipelines = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<{ pipelines: EtlPipelineSummary[] }> => {
     const userId = await resolveCaller(data.access_token);
     const { data: rows, error } = await supabaseAdmin
@@ -252,7 +252,7 @@ export const listEtlPipelines = createServerFn({ method: "POST" })
   });
 
 export const getEtlPipeline = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(
@@ -309,7 +309,7 @@ export type EtlRecentRun = {
  * the numbers are unit-tested, not component folklore.
  */
 export const getEtlOverview = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }) => {
     const userId = await resolveCaller(data.access_token);
 
@@ -469,7 +469,7 @@ async function snapshotEtlVersion(
 }
 
 export const saveEtlPipeline = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => UpsertSchema.parse(input))
+  .validator((input: unknown) => UpsertSchema.parse(input))
   .handler(
     async ({
       data,
@@ -707,7 +707,7 @@ export const saveEtlPipeline = createServerFn({ method: "POST" })
   );
 
 export const deleteEtlPipeline = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: boolean }> => {
@@ -746,7 +746,7 @@ export const deleteEtlPipeline = createServerFn({ method: "POST" })
 // ── Runs ────────────────────────────────────────────────────────────────────
 
 export const runEtlPipeline = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -769,7 +769,7 @@ export const runEtlPipeline = createServerFn({ method: "POST" })
   });
 
 export const cancelEtlRunFn = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), run_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: boolean; error?: string }> => {
@@ -795,7 +795,7 @@ export type EtlRunSummary = Pick<
 >;
 
 export const listEtlRuns = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -820,7 +820,7 @@ export const listEtlRuns = createServerFn({ method: "POST" })
   });
 
 export const getEtlRunLogs = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), run_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ logs: string; error: string | null; status: string }> => {
@@ -842,7 +842,7 @@ export const getEtlRunLogs = createServerFn({ method: "POST" })
  * lands in the row — the notebook API key rule, for the same reason.
  */
 export const rotateEtlTriggerToken = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ token: string }> => {
@@ -875,7 +875,7 @@ export type EtlVersionSummary = {
 };
 
 export const listEtlVersions = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), pipeline_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ versions: EtlVersionSummary[] }> => {
@@ -892,7 +892,7 @@ export const listEtlVersions = createServerFn({ method: "POST" })
   });
 
 export const restoreEtlVersion = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -965,7 +965,7 @@ function previewCell(v: unknown): EtlPreviewCell {
 }
 
 export const previewEtlNode = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -1007,7 +1007,7 @@ export const previewEtlNode = createServerFn({ method: "POST" })
   });
 
 export const getEtlPreview = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), session_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<EtlPreviewResult> => {
@@ -1055,7 +1055,7 @@ export const getEtlPreview = createServerFn({ method: "POST" })
   });
 
 export const duplicateEtlPipeline = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ id: string; name: string }> => {
@@ -1113,7 +1113,7 @@ export const duplicateEtlPipeline = createServerFn({ method: "POST" })
  * may carry a token.
  */
 export const etlEngineStatus = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(
     async ({
       data,
@@ -1131,7 +1131,7 @@ export const etlEngineStatus = createServerFn({ method: "POST" })
  * models and ML schedules, for the editor's pickers.
  */
 export const etlChainCandidates = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(
     async ({
       data,

@@ -81,7 +81,7 @@ export type SheetSourceTable = { schema: string; table: string; columns: number 
 
 /** Lakehouse tables the caller can read, for "Open a table". */
 export const sheetsTableSources = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => tokenOnly.parse(input))
+  .validator((input: unknown) => tokenOnly.parse(input))
   .handler(
     async ({
       data,
@@ -117,7 +117,7 @@ export const sheetsTableSources = createServerFn({ method: "POST" })
 
 /** Open a lakehouse table as a new table sheet at the end of the workbook. */
 export const sheetsAddTableTab = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly
       .extend({
         workbook_id: z.string().uuid(),
@@ -153,7 +153,7 @@ const querySql = z.string().trim().min(1).max(20_000);
 
 /** A query's first rows, read as the caller, for the dialog's preview. */
 export const sheetsPreviewQuery = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly
       .extend({
         workbook_id: z.string().uuid(),
@@ -211,7 +211,7 @@ export const sheetsPreviewQuery = createServerFn({ method: "POST" })
 
 /** A new table sheet whose rows are a query over the lakehouse. */
 export const sheetsAddQueryTab = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly
       .extend({
         workbook_id: z.string().uuid(),
@@ -266,7 +266,7 @@ export const sheetsAddQueryTab = createServerFn({ method: "POST" })
  * loses a column. Versioned like any save of the sheet.
  */
 export const sheetsSetTableQuery = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly
       .extend({
         tab_id: z.string().uuid(),
@@ -342,7 +342,7 @@ export const sheetsSetTableQuery = createServerFn({ method: "POST" })
 
 /** A connection's tables, for "import a table". */
 export const sheetsConnectionTables = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly.extend({ connection_id: z.string().uuid() }).parse(input),
   )
   .handler(
@@ -374,7 +374,7 @@ export const sheetsConnectionTables = createServerFn({ method: "POST" })
  * table, opened as a table sheet.
  */
 export const sheetsImportFromConnection = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly
       .extend({
         workbook_id: z.string().uuid(),
@@ -453,7 +453,7 @@ export const sheetsImportFromConnection = createServerFn({ method: "POST" })
 
 /** Import a CSV file into a new lakehouse table, opened as a table sheet. */
 export const sheetsImportCsv = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly
       .extend({
         workbook_id: z.string().uuid(),
@@ -519,7 +519,7 @@ export const sheetsImportCsv = createServerFn({ method: "POST" })
  * can do this, and only in a schema the caller owns.
  */
 export const sheetsRefreshImport = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => tokenOnly.extend({ tab_id: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => tokenOnly.extend({ tab_id: z.string().uuid() }).parse(input))
   .handler(async ({ data }): Promise<{ ok: true; rows: number } | Fail> => {
     const caller = await resolveCaller(data.access_token);
     if (!caller.ok) return caller;
@@ -579,7 +579,7 @@ export type TablePage = {
  * table sheets are read as saved.
  */
 export const sheetsTablePage = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly
       .extend({
         tab_id: z.string().uuid(),
@@ -705,7 +705,7 @@ export const sheetsTablePage = createServerFn({ method: "POST" })
 
 /** A column's values and counts, for the filter list. */
 export const sheetsTableValues = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly
       .extend({
         tab_id: z.string().uuid(),
@@ -770,7 +770,7 @@ export const sheetsTableValues = createServerFn({ method: "POST" })
  * over.
  */
 export const sheetsSaveTableConfig = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly
       .extend({
         tab_id: z.string().uuid(),
@@ -854,7 +854,7 @@ export type SheetCatalogAsset = {
 
 /** Tables in the data catalog the caller can see, for "Open from the catalog". */
 export const sheetsCatalogAssets = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly.extend({ search: z.string().trim().max(200).optional() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: true; assets: SheetCatalogAsset[] } | Fail> => {
@@ -915,7 +915,7 @@ export const sheetsCatalogAssets = createServerFn({ method: "POST" })
  * connected warehouse is imported through its connection first.
  */
 export const sheetsOpenCatalogAsset = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly
       .extend({
         workbook_id: z.string().uuid(),
@@ -1035,7 +1035,7 @@ export type TableCallAnswer = { v: string | number | boolean | null } | { e: str
  * with its error without failing the others.
  */
 export const sheetsTableCalls = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly
       .extend({
         workbook_id: z.string().uuid(),
@@ -1159,7 +1159,7 @@ const pivotSource = z
  * With `tab_id`, an existing pivot's definition is changed instead.
  */
 export const sheetsSavePivot = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly
       .extend({
         workbook_id: z.string().uuid(),
@@ -1275,7 +1275,7 @@ export const sheetsSavePivot = createServerFn({ method: "POST" })
  * column policies and audit apply to a download as they do to the screen.
  */
 export const sheetsTableExport = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly
       .extend({
         tab_id: z.string().uuid(),

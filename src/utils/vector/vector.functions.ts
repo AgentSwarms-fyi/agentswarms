@@ -42,7 +42,7 @@ export type VectorStoreStatus = {
 };
 
 export const vectorStoreStatus = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<{ ok: false; error: string } | VectorStoreStatus> => {
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) return guard;
@@ -72,7 +72,7 @@ export const vectorStoreStatus = createServerFn({ method: "POST" })
  * pretending to work.
  */
 export const vectorStoreReindex = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -203,7 +203,7 @@ async function copyChunksToStore(
  */
 export const saveKbRetrievalSettings = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         knowledgeBaseId: z.string().uuid(),
@@ -297,7 +297,7 @@ export const saveKbRetrievalSettings = createServerFn({ method: "POST" })
  */
 export const vectorStoreBrief = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({}).parse(input ?? {}))
+  .validator((input: unknown) => z.object({}).parse(input ?? {}))
   .handler(
     async (): Promise<{
       kind: string;
@@ -330,7 +330,7 @@ export const vectorStoreBrief = createServerFn({ method: "POST" })
  */
 export const forgetVectors = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         documentIds: z.array(z.string().uuid()).max(2000).optional(),

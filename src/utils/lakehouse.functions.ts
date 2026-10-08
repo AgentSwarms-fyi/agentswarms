@@ -57,7 +57,7 @@ export type LakehouseOverview = {
 };
 
 export const getLakehouseOverview = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<LakehouseOverview> => {
     const userId = await resolveCaller(data.access_token);
     if (!lakehouseEnabled()) return { enabled: false, schemas: [], tables: [] };
@@ -198,7 +198,7 @@ async function readPartitionColumns(
 }
 
 export const getLakehouseTable = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -274,7 +274,7 @@ export const getLakehouseTable = createServerFn({ method: "POST" })
 // ── Query ───────────────────────────────────────────────────────────────────
 
 export const runLakehouseQuery = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -289,7 +289,7 @@ export const runLakehouseQuery = createServerFn({ method: "POST" })
   });
 
 export const listLakehouseHistory = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(
     async ({
       data,
@@ -328,7 +328,7 @@ export const listLakehouseHistory = createServerFn({ method: "POST" })
 
 /** Whether the page should offer Spark at all, and where it would run. */
 export const lakehouseSparkStatus = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(
     async ({
       data,
@@ -341,7 +341,7 @@ export const lakehouseSparkStatus = createServerFn({ method: "POST" })
   );
 
 export const startLakehouseSparkQuery = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -356,7 +356,7 @@ export const startLakehouseSparkQuery = createServerFn({ method: "POST" })
   });
 
 export const getLakehouseSparkQuery = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<SparkQueryView | null> => {
@@ -365,7 +365,7 @@ export const getLakehouseSparkQuery = createServerFn({ method: "POST" })
   });
 
 export const cancelLakehouseSparkQuery = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ cancelled: boolean }> => {
@@ -376,7 +376,7 @@ export const cancelLakehouseSparkQuery = createServerFn({ method: "POST" })
 // ── Schema lifecycle ────────────────────────────────────────────────────────
 
 export const createLakehouseSchema = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -426,7 +426,7 @@ export const createLakehouseSchema = createServerFn({ method: "POST" })
   });
 
 export const dropLakehouseSchema = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), name: z.string().regex(SCHEMA_NAME) }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: boolean }> => {
@@ -509,7 +509,7 @@ const COLUMN_TYPES = [
 ] as const;
 
 export const createLakehouseTable = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -540,7 +540,7 @@ export const createLakehouseTable = createServerFn({ method: "POST" })
 const IMPORT_MAX_ROWS = 500_000;
 
 export const importDatasetToLakehouse = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -652,7 +652,7 @@ export const importDatasetToLakehouse = createServerFn({ method: "POST" })
 export type LakeMountCandidate = { id: string; name: string; asset_count: number };
 
 export const listLakeMountCandidates = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<{ sources: LakeMountCandidate[] }> => {
     const userId = await resolveCaller(data.access_token);
     const { data: sources } = await supabaseAdmin
@@ -680,7 +680,7 @@ export const listLakeMountCandidates = createServerFn({ method: "POST" })
  * names a path, and the mount's credential is scoped to its own bucket.
  */
 export const mountLakeSource = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -804,7 +804,7 @@ export const mountLakeSource = createServerFn({ method: "POST" })
  * value, and a query filtering on that column opens only the matching files.
  */
 export const setLakehousePartitioning = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -860,7 +860,7 @@ const layoutInput = z.object({
  * the advice those two signals add up to.
  */
 export const getLakehouseLayout = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => layoutInput.parse(input))
+  .validator((input: unknown) => layoutInput.parse(input))
   .handler(async ({ data }) => {
     const userId = await resolveCaller(data.access_token);
     const allowed = await accessibleSchemas(userId);
@@ -881,7 +881,7 @@ export const getLakehouseLayout = createServerFn({ method: "POST" })
  * which file a new row goes to, this decides the order of what is there.
  */
 export const rewriteLakehouseLayout = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     layoutInput
       .extend({
         columns: z.array(z.string().regex(TABLE_NAME)).min(1).max(4),
@@ -947,7 +947,7 @@ export const rewriteLakehouseLayout = createServerFn({ method: "POST" })
 
 /** Forget a table's cluster keys: the files stay as they are, maintenance merges them again. */
 export const clearLakehouseLayout = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => layoutInput.parse(input))
+  .validator((input: unknown) => layoutInput.parse(input))
   .handler(async ({ data }): Promise<{ clustered_by: string[] }> => {
     const userId = await resolveCaller(data.access_token);
     const allowed = await accessibleSchemas(userId);
@@ -983,7 +983,7 @@ export type LakehouseProfile = {
  * "it's slow" and a fix.
  */
 export const profileLakehouseQuery = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), sql: z.string().min(1).max(50_000) }).parse(input),
   )
   .handler(async ({ data }): Promise<LakehouseProfile> => {
@@ -1050,7 +1050,7 @@ export type LakehousePolicy = {
  * which is the one thing a security policy should not volunteer.
  */
 export const getLakehousePolicy = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -1086,7 +1086,7 @@ export const getLakehousePolicy = createServerFn({ method: "POST" })
  * blocking every reader, which is the worst possible time to find out.
  */
 export const setLakehousePolicy = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -1191,7 +1191,7 @@ export type LakehouseTagPolicy = {
 const TAG = /^[A-Za-z0-9][A-Za-z0-9_:.-]{0,63}$/;
 
 export const listLakehouseTagPolicies = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<LakehouseTagPolicy[]> => {
     const userId = await resolveCaller(data.access_token);
     const { data: rows } = await supabaseAdmin
@@ -1218,7 +1218,7 @@ export const listLakehouseTagPolicies = createServerFn({ method: "POST" })
  * rule waits for the tag.
  */
 export const setLakehouseTagPolicy = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -1319,7 +1319,7 @@ export const setLakehouseTagPolicy = createServerFn({ method: "POST" })
   });
 
 export const deleteLakehouseTagPolicy = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ deleted: boolean }> => {
@@ -1363,7 +1363,7 @@ export type LakehouseMatview = {
 
 /** Every materialized view in a schema the caller can reach. */
 export const listLakehouseMatviews = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<LakehouseMatview[]> => {
     const userId = await resolveCaller(data.access_token);
     const allowed = await accessibleSchemas(userId);
@@ -1400,7 +1400,7 @@ export const listLakehouseMatviews = createServerFn({ method: "POST" })
  * broken.
  */
 export const saveLakehouseMatview = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -1419,7 +1419,7 @@ export const saveLakehouseMatview = createServerFn({ method: "POST" })
 
 /** Rebuild one view now. */
 export const refreshLakehouseMatview = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ rows: number | null; error?: string; ms: number }> => {
@@ -1442,7 +1442,7 @@ export const refreshLakehouseMatview = createServerFn({ method: "POST" })
  * would be the wrong default. Drop it from the table view if you want it gone.
  */
 export const deleteLakehouseMatview = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: true }> => {
@@ -1488,7 +1488,7 @@ export const deleteLakehouseMatview = createServerFn({ method: "POST" })
  * a lake someone else owns.
  */
 export const getLakehouseIntegrity = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }) => {
     const userId = await resolveCaller(data.access_token);
     if (!lakehouseEnabled()) {

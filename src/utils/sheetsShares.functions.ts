@@ -60,9 +60,7 @@ async function workbookName(id: string): Promise<string> {
 
 /** The workbook's shares, with who each one is. Owner only. */
 export const sheetsSharesList = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
-    tokenOnly.extend({ workbook_id: z.string().uuid() }).parse(input),
-  )
+  .validator((input: unknown) => tokenOnly.extend({ workbook_id: z.string().uuid() }).parse(input))
   .handler(async ({ data }): Promise<{ ok: true; shares: ShareRow[] } | Fail> => {
     const who = await caller(data.access_token);
     if (!who.ok) return who;
@@ -119,7 +117,7 @@ export const sheetsSharesList = createServerFn({ method: "POST" })
 
 /** Groups a workbook can be shared with. */
 export const sheetsShareGroups = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => tokenOnly.parse(input))
+  .validator((input: unknown) => tokenOnly.parse(input))
   .handler(
     async ({ data }): Promise<{ ok: true; groups: { id: string; name: string }[] } | Fail> => {
       const who = await caller(data.access_token);
@@ -202,7 +200,7 @@ export function shareProblem(
  * sheet reads the lakehouse as whoever opens it.
  */
 export const sheetsShareSet = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly
       .extend({
         workbook_id: z.string().uuid(),
@@ -320,7 +318,7 @@ export const sheetsShareSet = createServerFn({ method: "POST" })
 
 /** Stop sharing with someone or a group. Owner only. */
 export const sheetsShareRemove = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly.extend({ workbook_id: z.string().uuid(), share_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: true } | Fail> => {

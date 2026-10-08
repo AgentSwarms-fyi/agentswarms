@@ -57,7 +57,7 @@ export type QualityRunOutcome =
   | { ok: false; error: string };
 
 export const runQualityTests = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ accessToken: z.string().min(1), tableId: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<QualityRunOutcome> => {
@@ -98,7 +98,7 @@ export type DatasetVersionRow = {
 };
 
 export const listDatasetVersionsFn = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ accessToken: z.string().min(1), tableId: z.string().uuid() }).parse(input),
   )
   .handler(
@@ -131,7 +131,7 @@ export const listDatasetVersionsFn = createServerFn({ method: "POST" })
   );
 
 export const restoreDatasetVersionFn = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ accessToken: z.string().min(1), versionId: z.string().uuid() }).parse(input),
   )
   .handler(
@@ -161,7 +161,7 @@ export const restoreDatasetVersionFn = createServerFn({ method: "POST" })
  * treat a failure here as non-fatal — see saveDataset.
  */
 export const snapshotDatasetFn = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         accessToken: z.string().min(1),

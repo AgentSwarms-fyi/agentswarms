@@ -79,7 +79,7 @@ import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 const FETCH_CAP = 300;
 
 export const auditListEvents = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -267,7 +267,7 @@ export const auditListEvents = createServerFn({ method: "POST" })
   );
 
 export const auditSetRetention = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({ access_token: z.string().min(1), days: z.number().int().min(1).max(365) })
       .parse(input),
@@ -306,7 +306,7 @@ export type GroupSpendRow = {
 };
 
 export const adminSpendBreakdown = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({ access_token: z.string().min(1), days: z.number().int().min(1).max(365) })
       .parse(input),
@@ -383,7 +383,7 @@ export const adminSpendBreakdown = createServerFn({ method: "POST" })
  * no longer matches its content, i.e. a row was edited or deleted in place.
  */
 export const auditChainVerify = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(
     async ({
       data,

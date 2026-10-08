@@ -112,7 +112,7 @@ async function liveHash(
 }
 
 export const nbGitHistory = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), notebook_id: z.string().uuid() }).parse(input),
   )
   .handler(
@@ -169,7 +169,7 @@ export const nbGitHistory = createServerFn({ method: "POST" })
   );
 
 export const nbGitCommit = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -234,7 +234,7 @@ export const nbGitCommit = createServerFn({ method: "POST" })
   );
 
 export const nbGitRestore = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),

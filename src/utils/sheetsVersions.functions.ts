@@ -52,7 +52,7 @@ const pick = base.extend({
 });
 
 export const sheetsVersionsList = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => base.parse(input))
+  .validator((input: unknown) => base.parse(input))
   .handler(async ({ data }): Promise<{ ok: true; versions: VersionSummary[] } | Fail> => {
     const who = await caller(data.access_token);
     if (!who.ok) return who;
@@ -69,7 +69,7 @@ export const sheetsVersionsList = createServerFn({ method: "POST" })
   });
 
 export const sheetsVersionSave = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     base.extend({ label: z.string().trim().min(1).max(200) }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: true } | Fail> => {
@@ -101,7 +101,7 @@ async function versionOf(workbookId: string, versionId: string) {
  * are replaced by the version's (new ids; the page reloads the workbook).
  */
 export const sheetsVersionRestore = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => pick.parse(input))
+  .validator((input: unknown) => pick.parse(input))
   .handler(async ({ data }): Promise<{ ok: true } | Fail> => {
     const who = await caller(data.access_token);
     if (!who.ok) return who;
@@ -162,7 +162,7 @@ export const sheetsVersionRestore = createServerFn({ method: "POST" })
 
 /** Open a version as a new workbook, leaving this one as it is. */
 export const sheetsVersionOpenCopy = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => pick.parse(input))
+  .validator((input: unknown) => pick.parse(input))
   .handler(async ({ data }): Promise<{ ok: true; workbook_id: string } | Fail> => {
     const who = await caller(data.access_token);
     if (!who.ok) return who;

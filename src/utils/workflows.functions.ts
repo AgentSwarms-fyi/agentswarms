@@ -119,7 +119,7 @@ function toRow(row: Record<string, unknown>): WorkflowRowDto {
 }
 
 export const workflowsList = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ accessToken: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ accessToken: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<Fail | { ok: true; workflows: WorkflowRowDto[] }> => {
     const userId = await resolveCaller(data.accessToken);
     const { data: rows, error } = await supabaseAdmin
@@ -152,7 +152,7 @@ export const workflowsList = createServerFn({ method: "POST" })
   });
 
 export const workflowGet = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ accessToken: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<Fail | { ok: true; workflow: WorkflowRowDto }> => {
@@ -194,7 +194,7 @@ const NODE = z.object({
 });
 
 export const workflowSave = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         accessToken: z.string().min(1),
@@ -395,7 +395,7 @@ async function missingTargets(
 }
 
 export const workflowCreate = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         accessToken: z.string().min(1),
@@ -423,7 +423,7 @@ export const workflowCreate = createServerFn({ method: "POST" })
   });
 
 export const workflowDelete = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ accessToken: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<Fail | { ok: true }> => {
@@ -438,7 +438,7 @@ export const workflowDelete = createServerFn({ method: "POST" })
   });
 
 export const workflowRunNow = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         accessToken: z.string().min(1),
@@ -466,7 +466,7 @@ export const workflowRunNow = createServerFn({ method: "POST" })
   });
 
 export const workflowRerun = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         accessToken: z.string().min(1),
@@ -488,7 +488,7 @@ export const workflowRerun = createServerFn({ method: "POST" })
  * trigger token is. Rotating replaces the old one immediately.
  */
 export const workflowRotateToken = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ accessToken: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<Fail | { ok: true; token: string }> => {
@@ -514,7 +514,7 @@ export const workflowRotateToken = createServerFn({ method: "POST" })
   });
 
 export const workflowRevokeToken = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ accessToken: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<Fail | { ok: true }> => {
@@ -538,7 +538,7 @@ export const workflowRevokeToken = createServerFn({ method: "POST" })
   });
 
 export const workflowRunsList = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         accessToken: z.string().min(1),
@@ -569,7 +569,7 @@ export const workflowRunsList = createServerFn({ method: "POST" })
  * last-known state and comes back in a few seconds.
  */
 export const workflowRunGet = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ accessToken: z.string().min(1), runId: z.string().uuid() }).parse(input),
   )
   .handler(
@@ -612,7 +612,7 @@ export const workflowRunGet = createServerFn({ method: "POST" })
   );
 
 export const workflowRunCancel = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ accessToken: z.string().min(1), runId: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<Fail | { ok: true }> => {
@@ -637,7 +637,7 @@ export type WorkflowCandidates = {
 
 /** Everything the caller owns that a step could point at. */
 export const workflowCandidates = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({ accessToken: z.string().min(1), exclude: z.string().uuid().optional() })
       .parse(input),

@@ -109,6 +109,46 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R349: 396 server functions on a deprecated name
+
+**Severity: low, build health.** TanStack Start 1.168 renamed `createServerFn().inputValidator()`
+to `validator()`. The old name still works and is marked `@deprecated`, and its compiler warns
+once per call, per build pass. The app had 396 calls in 63 files. The R348 build's log was 2,150
+lines, 1,173 of them `createServerFn().inputValidator() is deprecated. Use
+createServerFn().validator() instead.` Only one other line in it was a warning (the chunk-size
+note). Any new warning had to be found among them.
+
+**Checked before renaming.** The two names are one function at run time. In
+`start-client-core`'s `createServerFn`, both keys are set by the same `setValidator`, and the
+middleware reads `validator`, falling back to `inputValidator`. The compiler
+(`handleCreateServerFn`) strips both from the client bundle the same way. So the rename changes
+no behaviour.
+
+**What was written.**
+
+- All 396 calls in `src` are `.validator(`. Prettier rejoined the chains the shorter name now
+  fits on one line.
+- Ten tests stand in for `createServerFn` with a builder whose `inputValidator` key captured the
+  validator. That key is now `validator`.
+- `serverFnValidator.test.ts`, new: no file in `src` calls `.inputValidator(`. It also checks
+  that the installed TanStack Start has `validator` and marks `inputValidator` deprecated, so the
+  guard notices if the library changes its mind.
+
+**Tests:** the guard and the ten files with stand-ins pass (150 cases). Mutation run: the control
+survives and 2 of 2 mutants are caught. One puts a server function back on `inputValidator()`; the
+other has a test's stand-in offer only the old name.
+
+**The build:** no deprecation lines, and 977 lines in all. The chunk-size note is its only
+warning.
+
+**The UI** (R349 build):
+
+- An ML model, the traces list and the runtime's Machine learning tab loaded with no 4xx or 5xx.
+- A test workbook's version history listed its versions through its validated server function.
+- **Save version** "R349 validator check" was saved (toast "Saved the version…") and listed.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R348: an agent with no knowledge base was told one had been searched
 
 **Severity: medium.** It affected every agent with no knowledge base attached, on every turn.

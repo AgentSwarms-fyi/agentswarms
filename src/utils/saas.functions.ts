@@ -99,7 +99,7 @@ async function loadConnection(
 }
 
 export const listSaasConnections = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<SaasConnectionSummary[]> => {
     const { sb, userId } = await requireUser(data.access_token);
     // `config` is deliberately NOT selected — a summary must not be able to
@@ -181,7 +181,7 @@ async function withDatasetCounts(
  * nothing.
  */
 export const setSaasSchedule = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -221,7 +221,7 @@ export const setSaasSchedule = createServerFn({ method: "POST" })
   });
 
 export const saveSaasConnection = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -279,7 +279,7 @@ export const saveSaasConnection = createServerFn({ method: "POST" })
   });
 
 export const deleteSaasConnection = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: true }> => {
@@ -318,7 +318,7 @@ export const deleteSaasConnection = createServerFn({ method: "POST" })
  * connector's own message rather than at sync time.
  */
 export const discoverSaasStreams = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -337,7 +337,7 @@ export const discoverSaasStreams = createServerFn({ method: "POST" })
   });
 
 export const syncSaasConnection = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -401,7 +401,7 @@ export const syncSaasConnection = createServerFn({ method: "POST" })
  * "this synced 40 rows because it is broken".
  */
 export const saasStreamStates = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ states: StreamState[] }> => {
@@ -444,7 +444,7 @@ export const saasStreamStates = createServerFn({ method: "POST" })
  * ask for a refresh should not be able to spend that on their behalf.
  */
 export const resetSaasCursor = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),

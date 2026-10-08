@@ -43,7 +43,7 @@ async function guardedFetch(
 
 export const probeMcpServer = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator(z.object({ id: z.string().uuid() }))
+  .validator(z.object({ id: z.string().uuid() }))
   .handler(async ({ data, context }): Promise<ProbeResult> => {
     const { supabase } = context;
     const { data: row, error } = await supabase

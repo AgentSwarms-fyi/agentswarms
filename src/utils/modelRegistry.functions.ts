@@ -40,7 +40,7 @@ export type RegistryMeta = {
 // --- Read RPC (browse) ---------------------------------------------------
 
 export const getModelRegistry = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => {
+  .validator((input: unknown) => {
     const Schema = z.object({ access_token: z.string().min(1) });
     return Schema.parse(input);
   })
@@ -115,7 +115,7 @@ export const getModelRegistry = createServerFn({ method: "POST" })
 
 // Server function so an admin can trigger a sync from the UI.
 export const triggerModelRegistrySync = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => {
+  .validator((input: unknown) => {
     const Schema = z.object({ access_token: z.string().min(1) });
     return Schema.parse(input);
   })

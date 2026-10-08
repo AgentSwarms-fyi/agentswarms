@@ -57,7 +57,7 @@ const KEY_COLUMNS =
   "id, name, key_prefix, scopes, is_active, expires_at, revoked_at, last_used_at, use_count, created_at";
 
 export const mlApiKeysList = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), model_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<Fail | { ok: true; keys: MlApiKeyRow[] }> => {
@@ -74,7 +74,7 @@ export const mlApiKeysList = createServerFn({ method: "POST" })
   });
 
 export const mlApiKeyCreate = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -110,7 +110,7 @@ export const mlApiKeyCreate = createServerFn({ method: "POST" })
   });
 
 export const mlApiKeyRevoke = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),

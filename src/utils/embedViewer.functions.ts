@@ -35,7 +35,7 @@ async function requireEmbedKeyOwner(accessToken: string, embedKeyId: string) {
 const ATTRIBUTE_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
 export const embedSetSignedViewer = createServerFn({ method: "POST" })
-  .inputValidator(
+  .validator(
     z.object({
       accessToken: z.string().min(10),
       embedKeyId: z.string().uuid(),

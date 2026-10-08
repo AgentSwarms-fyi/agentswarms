@@ -161,7 +161,7 @@ async function probeOne(entry: (typeof SERVICE_CATALOGUE)[number]): Promise<Serv
 }
 
 export const serviceHealth = createServerFn({ method: "POST" })
-  .inputValidator((i: unknown) => z.object({ access_token: z.string().min(1) }).parse(i))
+  .validator((i: unknown) => z.object({ access_token: z.string().min(1) }).parse(i))
   .handler(async ({ data }): Promise<{ services: ServiceProbe[]; checkedAt: string }> => {
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) throw new Error(guard.error);
@@ -270,7 +270,7 @@ async function readCgroup(paths: string[]): Promise<string | null> {
 }
 
 export const systemMetrics = createServerFn({ method: "POST" })
-  .inputValidator((i: unknown) => z.object({ access_token: z.string().min(1) }).parse(i))
+  .validator((i: unknown) => z.object({ access_token: z.string().min(1) }).parse(i))
   .handler(async ({ data }): Promise<SystemMetrics> => {
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) throw new Error(guard.error);

@@ -73,7 +73,7 @@ async function requireUserId(accessToken: string): Promise<string> {
 
 /** The trained models this user may score rows with — every one, or the named analyst's choice. */
 export const analystScorableModels = createServerFn({ method: "POST" })
-  .inputValidator((d: { accessToken: string; analystId?: string }) => d)
+  .validator((d: { accessToken: string; analystId?: string }) => d)
   .handler(async ({ data }) =>
     scorableModelsForUser(
       await requireUserId(data.accessToken),
@@ -83,7 +83,7 @@ export const analystScorableModels = createServerFn({ method: "POST" })
 
 /** Score one step's rows with a named model, as this user. */
 export const analystScoreRows = createServerFn({ method: "POST" })
-  .inputValidator(
+  .validator(
     (d: { accessToken: string; analystId?: string; model: string; rows: Record<string, Cell>[] }) =>
       d,
   )
@@ -100,7 +100,7 @@ export const analystScoreRows = createServerFn({ method: "POST" })
 
 /** A forecast model's projected periods, as this user — the forecast step's one call. */
 export const analystForecast = createServerFn({ method: "POST" })
-  .inputValidator((d: { accessToken: string; analystId?: string; model: string }) => d)
+  .validator((d: { accessToken: string; analystId?: string; model: string }) => d)
   .handler(async ({ data }): Promise<WireScoreResult> => {
     const res = await forecastForAnalyst({
       userId: await requireUserId(data.accessToken),

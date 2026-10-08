@@ -44,7 +44,7 @@ const SCHEDULE_COLUMNS =
   "id, name, kind, schedule, cron_expr, timezone, config, promote_if_better, is_active, next_run_at, last_run_at, last_status, last_error, last_ref_id, last_version_id, created_at";
 
 export const mlSchedulesList = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), model_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ schedules: MlScheduleView[] }> => {
@@ -61,7 +61,7 @@ export const mlSchedulesList = createServerFn({ method: "POST" })
   });
 
 export const mlScheduleCreate = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -136,7 +136,7 @@ export const mlScheduleCreate = createServerFn({ method: "POST" })
   );
 
 export const mlScheduleUpdate = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -174,7 +174,7 @@ export const mlScheduleUpdate = createServerFn({ method: "POST" })
   });
 
 export const mlScheduleDelete = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<Fail | { ok: true }> => {
@@ -190,7 +190,7 @@ export const mlScheduleDelete = createServerFn({ method: "POST" })
 
 /** Start a schedule now, as the owner; the cadence is unchanged. */
 export const mlScheduleRunNow = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<Fail | { ok: true; ref_id: string }> => {
@@ -209,7 +209,7 @@ export const mlScheduleRunNow = createServerFn({ method: "POST" })
 
 /** The Markdown model card of a version (production by default). */
 export const mlModelCard = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -325,7 +325,7 @@ export type MlDeploymentView = {
 };
 
 export const mlDeploymentGet = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ accessToken: z.string().min(1), modelId: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<Fail | { ok: true; deployment: MlDeploymentView | null }> => {
@@ -442,7 +442,7 @@ export const mlDeploymentGet = createServerFn({ method: "POST" })
  * ready before the model is loaded would be a lie the first caller pays for.
  */
 export const mlDeploy = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         accessToken: z.string().min(1),
@@ -465,7 +465,7 @@ export const mlDeploy = createServerFn({ method: "POST" })
   });
 
 export const mlUndeploy = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ accessToken: z.string().min(1), modelId: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<Fail | { ok: true }> => {
@@ -485,7 +485,7 @@ export const mlUndeploy = createServerFn({ method: "POST" })
  * candidate's copies come down either way.
  */
 export const mlShadowSet = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         accessToken: z.string().min(1),
@@ -523,7 +523,7 @@ export const mlShadowSet = createServerFn({ method: "POST" })
   });
 
 export const mlDeploymentUpdate = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         accessToken: z.string().min(1),

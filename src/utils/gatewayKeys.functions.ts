@@ -85,7 +85,7 @@ async function capsFor(userId: string, keyIds: string[]): Promise<Map<string, nu
 }
 
 export const gatewayKeysList = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<Fail | { ok: true; keys: GatewayKeyListRow[] }> => {
     const caller = await resolveCaller(data.access_token);
     if (!caller.ok) return caller;
@@ -108,7 +108,7 @@ export const gatewayKeysList = createServerFn({ method: "POST" })
 
 /** The owner's agents, for the create dialog's allow-list. */
 export const gatewayAgentsList = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(
     async ({
       data,
@@ -188,7 +188,7 @@ async function checkAgentIds(userId: string, ids: string[]): Promise<AllowListCh
 
 /** The semantic models the caller may read, for the key form's allow-list. */
 export const gatewaySemanticModelsList = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(
     async ({
       data,
@@ -229,7 +229,7 @@ const createSchema = z.object({
 });
 
 export const gatewayKeyCreate = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => createSchema.parse(input))
+  .validator((input: unknown) => createSchema.parse(input))
   .handler(
     async ({
       data,
@@ -288,7 +288,7 @@ export const gatewayKeyCreate = createServerFn({ method: "POST" })
   );
 
 export const gatewayKeyUpdate = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -383,7 +383,7 @@ export const gatewayKeyUpdate = createServerFn({ method: "POST" })
  * answer is one API call away for anyone entitled to it.
  */
 export const gatewayCacheList = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(
     async ({
       data,
@@ -417,7 +417,7 @@ export const gatewayCacheList = createServerFn({ method: "POST" })
  * callers get back, and because the next question after it costs money again.
  */
 export const gatewayCacheClear = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<Fail | { ok: true; cleared: number }> => {
     const caller = await resolveCaller(data.access_token);
     if (!caller.ok) return caller;
@@ -439,7 +439,7 @@ export const gatewayCacheClear = createServerFn({ method: "POST" })
   });
 
 export const gatewayKeyRevoke = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<Fail | { ok: true }> => {

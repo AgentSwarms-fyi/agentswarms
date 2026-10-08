@@ -125,7 +125,7 @@ function buildJudgePrompt(
 
 export const createEvalDataset = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((i: unknown) =>
+  .validator((i: unknown) =>
     z
       .object({ name: z.string().min(1).max(120), description: z.string().max(2000).optional() })
       .parse(i),
@@ -153,7 +153,7 @@ const caseFields = {
 
 export const addEvalCases = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((i: unknown) =>
+  .validator((i: unknown) =>
     z
       .object({
         datasetId: z.string().uuid(),
@@ -192,7 +192,7 @@ export const addEvalCases = createServerFn({ method: "POST" })
 
 export const updateEvalCase = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((i: unknown) => z.object({ id: z.string().uuid(), ...caseFields }).parse(i))
+  .validator((i: unknown) => z.object({ id: z.string().uuid(), ...caseFields }).parse(i))
   .handler(async ({ data, context }) => {
     const { error } = await context.supabase
       .from("eval_cases")
@@ -209,7 +209,7 @@ export const updateEvalCase = createServerFn({ method: "POST" })
 
 export const startEvalRun = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((i: unknown) =>
+  .validator((i: unknown) =>
     z
       .object({
         swarmId: z.string().uuid(),
@@ -262,7 +262,7 @@ export const startEvalRun = createServerFn({ method: "POST" })
 
 export const cancelEvalRun = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((i: unknown) => z.object({ runId: z.string().uuid() }).parse(i))
+  .validator((i: unknown) => z.object({ runId: z.string().uuid() }).parse(i))
   .handler(async ({ data, context }) => {
     const { error } = await context.supabase
       .from("eval_runs")
@@ -277,7 +277,7 @@ export const cancelEvalRun = createServerFn({ method: "POST" })
 
 export const runEvalCase = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((i: unknown) =>
+  .validator((i: unknown) =>
     z.object({ runId: z.string().uuid(), caseId: z.string().uuid() }).parse(i),
   )
   .handler(async ({ data, context }) => {

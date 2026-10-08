@@ -58,7 +58,7 @@ export type IcebergCatalogView = Omit<IcebergCatalogRow, "user_id"> & {
 
 /** The caller's catalogs, each with the schemas mounted from it. */
 export const icebergCatalogsList = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<{ ok: true; catalogs: IcebergCatalogView[] } | Fail> => {
     const caller = await resolveCaller(data.access_token);
     if (!caller.ok) return caller;
@@ -86,7 +86,7 @@ export const icebergCatalogsList = createServerFn({ method: "POST" })
 
 /** Register a catalog: it is attached and asked for its namespaces first, and saved only if that worked. */
 export const icebergCatalogCreate = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), config: configSchema }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: true; id: string; namespaces: string[] } | Fail> => {
@@ -132,7 +132,7 @@ export const icebergCatalogCreate = createServerFn({ method: "POST" })
 
 /** Remove a catalog: its mounted schemas go first (engine and rows), then the catalog, then the attachment. */
 export const icebergCatalogDelete = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: true; schemas: number } | Fail> => {
@@ -183,7 +183,7 @@ export const icebergCatalogDelete = createServerFn({ method: "POST" })
   });
 
 export const icebergNamespacesList = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: true; namespaces: string[] } | Fail> => {
@@ -200,7 +200,7 @@ export const icebergNamespacesList = createServerFn({ method: "POST" })
   });
 
 export const icebergTablesList = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -223,7 +223,7 @@ export const icebergTablesList = createServerFn({ method: "POST" })
   });
 
 export const icebergMount = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -255,7 +255,7 @@ export const icebergMount = createServerFn({ method: "POST" })
 
 /** Bring a mount's views level with the namespace (new tables appear, renamed ones follow). */
 export const icebergMountRefresh = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), schema_name: z.string().regex(NAME) }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: true; views: number; skipped: number } | Fail> => {
@@ -294,7 +294,7 @@ export const icebergMountRefresh = createServerFn({ method: "POST" })
   });
 
 export const icebergPublish = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -337,7 +337,7 @@ export const icebergPublish = createServerFn({ method: "POST" })
   });
 
 export const icebergImport = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),

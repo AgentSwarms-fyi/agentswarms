@@ -83,7 +83,7 @@ type CatalogError = { ok: false; error: string };
 
 /** Set a source's crawl cadence (manual disables scheduled crawls). */
 export const catalogSetSchedule = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -116,7 +116,7 @@ export const catalogSetSchedule = createServerFn({ method: "POST" })
   });
 
 export const catalogCreateSource = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -203,7 +203,7 @@ export const catalogCreateSource = createServerFn({ method: "POST" })
   });
 
 export const catalogCrawlSource = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), source_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<CatalogError | { ok: true; stats: CrawlStats }> => {
@@ -240,7 +240,7 @@ export const catalogCrawlSource = createServerFn({ method: "POST" })
   });
 
 export const catalogDeleteSource = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), source_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<CatalogError | { ok: true }> => {
@@ -268,7 +268,7 @@ export const catalogDeleteSource = createServerFn({ method: "POST" })
  * populate its explorer, so it must not cost an S3 round trip per keystroke.
  */
 export const catalogListStorageTables = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), source_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<CatalogError | { ok: true; tables: ObjectStoreTable[] }> => {

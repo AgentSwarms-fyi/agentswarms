@@ -79,7 +79,7 @@ async function modelFor(
  * the browser only where the person can change the workbook.
  */
 export const sheetsAssist = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -136,7 +136,7 @@ export const sheetsAssist = createServerFn({ method: "POST" })
  * so it is the owner's and editors'.
  */
 export const sheetsAiFill = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -207,7 +207,7 @@ export const sheetsAiFill = createServerFn({ method: "POST" })
  * Its name only: which models a person may use is IAM's, and the channel's.
  */
 export const sheetsAssistDefaults = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<{ ok: true; model: string } | Fail> => {
     const who = await caller(data.access_token);
     if (!who.ok) return who;

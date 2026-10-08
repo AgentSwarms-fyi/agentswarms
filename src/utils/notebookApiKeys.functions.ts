@@ -63,7 +63,7 @@ async function ownerOf(
 }
 
 export const nbApiKeysList = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), notebook_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<Fail | { ok: true; keys: NbApiKeyRow[] }> => {
@@ -83,7 +83,7 @@ export const nbApiKeysList = createServerFn({ method: "POST" })
   });
 
 export const nbApiKeyCreate = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -126,7 +126,7 @@ export const nbApiKeyCreate = createServerFn({ method: "POST" })
   });
 
 export const nbApiKeyRevoke = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),

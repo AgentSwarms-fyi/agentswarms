@@ -18,7 +18,7 @@ async function resolveCaller(accessToken: string): Promise<{ ok: true; userId: s
 const DATA_URL = /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/;
 
 export const documentVisionExtract = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),

@@ -122,7 +122,7 @@ const VERSION_SUMMARY =
 // ── Registry ─────────────────────────────────────────────────────────────────
 
 export const mlListModels = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(
     async ({ data }): Promise<{ enabled: boolean; models: MlModelSummary[]; limits: MlLimits }> => {
       const userId = await resolveCaller(data.access_token);
@@ -178,7 +178,7 @@ export type MlSourceTable = {
  * kind (R111: the output pickers offered every schema that had a table).
  */
 export const mlListSources = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(
     async ({
       data,
@@ -237,7 +237,7 @@ function columnKind(
 
 /** Profile one table: per-column statistics, samples and a task suggestion. */
 export const mlProfileSource = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), schema: IDENT, table: IDENT }).parse(input),
   )
   .handler(async ({ data }): Promise<{ row_count: number; columns: MlColumnProfile[] }> => {
@@ -320,7 +320,7 @@ const prepSchema = z.object({
 });
 
 export const mlValidatePrep = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -360,7 +360,7 @@ const createSchema = z.object({
 
 /** Create a model and train its first version. */
 export const mlCreateModel = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => createSchema.parse(input))
+  .validator((input: unknown) => createSchema.parse(input))
   .handler(
     async ({
       data,
@@ -443,7 +443,7 @@ export const mlCreateModel = createServerFn({ method: "POST" })
 
 /** Train a new version of an existing model (owner only). */
 export const mlTrainVersion = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -489,7 +489,7 @@ export type MlModelDetail = {
 };
 
 export const mlGetModel = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), model_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<MlModelDetail> => {
@@ -544,7 +544,7 @@ export const mlGetModel = createServerFn({ method: "POST" })
   });
 
 export const mlGetJob = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), job_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ job: MlJobRow; version: MlVersionRow | null }> => {
@@ -561,7 +561,7 @@ export const mlGetJob = createServerFn({ method: "POST" })
   });
 
 export const mlCancelJob = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), job_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: boolean }> => {
@@ -571,7 +571,7 @@ export const mlCancelJob = createServerFn({ method: "POST" })
 
 /** Move a version between stages; `production` is exclusive per model. */
 export const mlPromoteVersion = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -606,7 +606,7 @@ export const mlPromoteVersion = createServerFn({ method: "POST" })
 
 /** Who may approve this model's promotions. Empty means ungated. */
 export const mlSetPromotionApprovers = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -657,7 +657,7 @@ export const mlSetPromotionApprovers = createServerFn({ method: "POST" })
  * client still cannot promote anything it should not.
  */
 export const mlApplyApprovedPromotion = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), approval_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
@@ -667,7 +667,7 @@ export const mlApplyApprovedPromotion = createServerFn({ method: "POST" })
 
 /** Versions of this model waiting on somebody's yes. */
 export const mlPendingPromotions = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), model_id: z.string().uuid() }).parse(input),
   )
   .handler(
@@ -697,7 +697,7 @@ export const mlPendingPromotions = createServerFn({ method: "POST" })
   );
 
 export const mlUpdateModel = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -730,7 +730,7 @@ export const mlUpdateModel = createServerFn({ method: "POST" })
 
 /** Delete a model, its versions and jobs. Live jobs are cancelled first. */
 export const mlDeleteModel = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), model_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: true }> => {
@@ -753,7 +753,7 @@ const TABLE_NAME = /^[a-z_][a-z0-9_]{0,62}$/;
 
 /** Score a lakehouse table into a new lakehouse table the caller owns. */
 export const mlPredictBatch = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -791,7 +791,7 @@ export const mlPredictBatch = createServerFn({ method: "POST" })
 
 /** Score up to a few hundred rows and wait for the answer (the try-it form). */
 export const mlPredictRows = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -819,7 +819,7 @@ export const mlPredictRows = createServerFn({ method: "POST" })
   });
 
 export const mlListPredictions = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), model_id: z.string().uuid() }).parse(input),
   )
   .handler(
@@ -852,7 +852,7 @@ export const mlListPredictions = createServerFn({ method: "POST" })
   );
 
 export const mlCancelPrediction = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), prediction_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: boolean }> => {
@@ -877,7 +877,7 @@ const outcomeSourceInput = z.object({
 
 /** Where this model's real outcomes land, or null to stop measuring it. */
 export const mlSetOutcomeSource = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -930,7 +930,7 @@ export const mlSetOutcomeSource = createServerFn({ method: "POST" })
 
 /** Every measurement of this model against reality, newest first. */
 export const mlListEvaluations = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), model_id: z.string().uuid() }).parse(input),
   )
   .handler(
@@ -950,7 +950,7 @@ export const mlListEvaluations = createServerFn({ method: "POST" })
 
 /** Measure one prediction run now, rather than waiting for the sweep. */
 export const mlEvaluatePrediction = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), prediction_id: z.string().uuid() }).parse(input),
   )
   .handler(
@@ -975,7 +975,7 @@ export const mlEvaluatePrediction = createServerFn({ method: "POST" })
 
 /** The production version's calibration evidence and its operating point. */
 export const mlDecisionSettings = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), model_id: z.string().uuid() }).parse(input),
   )
   .handler(
@@ -1060,7 +1060,7 @@ export const mlDecisionSettings = createServerFn({ method: "POST" })
  * prediction, so this takes effect on the next run rather than the next train.
  */
 export const mlSetDecisionThreshold = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -1116,7 +1116,7 @@ export type { MlFairnessRow, MlSensitiveSuggestion };
 
 /** Which columns to compare groups by, and which answer is the good one. */
 export const mlSetFairnessConfig = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -1160,7 +1160,7 @@ export const mlSetFairnessConfig = createServerFn({ method: "POST" })
 
 /** Every fairness check of this model, newest first, with its configuration. */
 export const mlListFairness = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), model_id: z.string().uuid() }).parse(input),
   )
   .handler(
@@ -1195,7 +1195,7 @@ export const mlListFairness = createServerFn({ method: "POST" })
 
 /** Compare the most recent batch run's groups now. */
 export const mlRunFairnessCheck = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), prediction_id: z.string().uuid() }).parse(input),
   )
   .handler(
@@ -1222,7 +1222,7 @@ export const mlRunFairnessCheck = createServerFn({ method: "POST" })
  * tick, never a configuration.
  */
 export const mlSuggestSensitiveColumns = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), model_id: z.string().uuid() }).parse(input),
   )
   .handler(
@@ -1239,7 +1239,7 @@ export const mlSuggestSensitiveColumns = createServerFn({ method: "POST" })
 
 /** Read one measured check back in plain words. */
 export const mlNarrateFairness = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), check_id: z.string().uuid() }).parse(input),
   )
   .handler(
@@ -1263,7 +1263,7 @@ export type { MlForecastVersionOption };
 
 /** Ready forecast versions the caller may attach to a BI chart. */
 export const mlListForecastVersions = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<{ versions: MlForecastVersionOption[] }> => {
     const userId = await resolveCaller(data.access_token);
     return { versions: await listForecastVersionsForUser(userId) };

@@ -69,7 +69,7 @@ vi.mock("@tanstack/react-start", () => ({
   createServerFn: () => {
     let validate: (i: unknown) => unknown = (i) => i;
     const b = {
-      inputValidator: (v: (i: unknown) => unknown) => ((validate = v), b),
+      validator: (v: (i: unknown) => unknown) => ((validate = v), b),
       handler: (h: (a: { data: unknown }) => unknown) => (opts: { data: unknown }) =>
         h({ data: validate(opts.data) }),
     };

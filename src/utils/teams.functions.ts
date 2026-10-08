@@ -37,7 +37,7 @@ export type TeamsBotSummary = {
 };
 
 export const listTeamsBots = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<TeamsBotSummary[]> => {
     const { userId } = await requireUser(data.access_token);
     const { data: rows, error } = await supabaseAdmin
@@ -64,7 +64,7 @@ export const listTeamsBots = createServerFn({ method: "POST" })
   });
 
 export const saveTeamsBot = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -146,7 +146,7 @@ export const saveTeamsBot = createServerFn({ method: "POST" })
   });
 
 export const deleteTeamsBot = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: true }> => {

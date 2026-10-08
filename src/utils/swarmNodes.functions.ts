@@ -25,7 +25,7 @@ async function userFromToken(
 }
 
 export const executeHttpNode = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -52,7 +52,7 @@ export const executeHttpNode = createServerFn({ method: "POST" })
   );
 
 export const executeToolNode = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),

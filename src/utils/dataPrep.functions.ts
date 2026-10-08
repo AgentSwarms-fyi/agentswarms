@@ -71,7 +71,7 @@ const RunSchema = z.object({
  * runs, so both produce identical results.
  */
 export const prepRunAndSave = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => RunSchema.parse(input))
+  .validator((input: unknown) => RunSchema.parse(input))
   .handler(async ({ data }): Promise<PrepRunOutcome | { ok: false; error: string }> => {
     try {
       const { userId } = await requireUser(data.accessToken);
@@ -128,7 +128,7 @@ type PreviewCell = string | number | boolean | null;
  * point: what you see is what will be materialised.
  */
 export const prepPreview = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         accessToken: z.string().min(1),
@@ -215,7 +215,7 @@ function mentionsTable(sql: string, table: string): boolean {
  * Runs under the caller's JWT, so RLS already limits it to their own objects.
  */
 export const datasetDependents = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ accessToken: z.string().min(1), tableId: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<DatasetDependents & { tableName: string }> => {
@@ -284,7 +284,7 @@ export const datasetDependents = createServerFn({ method: "POST" })
 
 /** The lakehouse tables the caller may link, and the schemas they may write into. */
 export const prepLakehouseTables = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ accessToken: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ accessToken: z.string().min(1) }).parse(input))
   .handler(async ({ data }) => {
     const { userId } = await requireUser(data.accessToken);
     const { listLakehouseTablesForUser } = await import("@/utils/lakehouse/tables.server");
@@ -316,7 +316,7 @@ export type PrepLakehouseRunOutcome = {
  * not apply; the ML wizard, agents and dashboards see the table at once.
  */
 export const prepRunToLakehouse = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => LakeRunSchema.parse(input))
+  .validator((input: unknown) => LakeRunSchema.parse(input))
   .handler(async ({ data }): Promise<PrepLakehouseRunOutcome | { ok: false; error: string }> => {
     try {
       const { userId } = await requireUser(data.accessToken);

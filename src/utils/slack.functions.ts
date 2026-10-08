@@ -151,9 +151,7 @@ function parseInput<T>(schema: z.ZodType<T>, input: unknown): T {
 }
 
 export const listSlackWorkspaces = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
-    parseInput(z.object({ access_token: z.string().min(1) }), input),
-  )
+  .validator((input: unknown) => parseInput(z.object({ access_token: z.string().min(1) }), input))
   .handler(async ({ data }): Promise<SlackWorkspaceSummary[]> => {
     const { sb } = await requireUser(data.access_token);
     const { data: rows, error } = await (sb as unknown as LooseClient)
@@ -181,7 +179,7 @@ export const listSlackWorkspaces = createServerFn({ method: "POST" })
   });
 
 export const saveSlackWorkspace = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     parseInput(
       z.object({
         access_token: z.string().min(1),
@@ -294,9 +292,7 @@ export type SlackCommandRouteSummary = {
 };
 
 export const listSlackRoutes = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
-    parseInput(z.object({ access_token: z.string().min(1) }), input),
-  )
+  .validator((input: unknown) => parseInput(z.object({ access_token: z.string().min(1) }), input))
   .handler(async ({ data }): Promise<SlackCommandRouteSummary[]> => {
     const { sb } = await requireUser(data.access_token);
     const { data: rows, error } = await sb
@@ -308,7 +304,7 @@ export const listSlackRoutes = createServerFn({ method: "POST" })
   });
 
 export const saveSlackRoute = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     parseInput(
       z.object({
         access_token: z.string().min(1),
@@ -383,7 +379,7 @@ export const saveSlackRoute = createServerFn({ method: "POST" })
   });
 
 export const deleteSlackRoute = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     parseInput(z.object({ access_token: z.string().min(1), id: z.string().uuid() }), input),
   )
   .handler(async ({ data }): Promise<{ ok: true }> => {
@@ -398,7 +394,7 @@ export const deleteSlackRoute = createServerFn({ method: "POST" })
   });
 
 export const deleteSlackWorkspace = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     parseInput(z.object({ access_token: z.string().min(1), id: z.string().uuid() }), input),
   )
   .handler(async ({ data }): Promise<{ ok: true }> => {

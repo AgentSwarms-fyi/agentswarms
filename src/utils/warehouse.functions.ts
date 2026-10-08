@@ -164,7 +164,7 @@ const ConfigSchema = z.discriminatedUnion("provider", [
 ]);
 
 export const listWarehouseConnections = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(
     async ({
       data,
@@ -212,7 +212,7 @@ export const listWarehouseConnections = createServerFn({ method: "POST" })
   );
 
 export const saveWarehouseConnection = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -269,7 +269,7 @@ export const saveWarehouseConnection = createServerFn({ method: "POST" })
   });
 
 export const deleteWarehouseConnection = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), connection_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
@@ -293,7 +293,7 @@ export const deleteWarehouseConnection = createServerFn({ method: "POST" })
   });
 
 export const testWarehouseConnectionFn = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), connection_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {

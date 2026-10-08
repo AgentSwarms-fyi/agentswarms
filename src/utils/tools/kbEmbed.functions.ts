@@ -41,7 +41,7 @@ const writerFor = (docs: { is_sample?: boolean | null }[], userClient: typeof su
 
 export const embedKbDocuments = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         documentIds: z.array(z.string().uuid()).min(1).max(200),
@@ -92,7 +92,7 @@ export const embedKbDocuments = createServerFn({ method: "POST" })
 
 export const backfillKbEmbeddings = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         knowledgeBaseId: z.string().uuid(),
@@ -263,7 +263,7 @@ export const kbEmbedStatus = createServerFn({ method: "POST" })
  */
 export const kbEmbedProbe = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         provider: z.string().max(64).optional().nullable(),

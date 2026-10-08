@@ -72,7 +72,7 @@ async function requireUser(
 
 /** Probe an Ollama server from the AgentSwarms server (default: localhost). */
 export const detectOllama = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => {
+  .validator((input: unknown) => {
     const d = (input ?? {}) as { access_token?: string; endpoint?: string };
     return {
       access_token: typeof d.access_token === "string" ? d.access_token : undefined,
@@ -91,7 +91,7 @@ export const detectOllama = createServerFn({ method: "POST" })
 
 /** Models installed on the caller's CONNECTED Ollama integration. */
 export const listOllamaModels = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => {
+  .validator((input: unknown) => {
     const d = (input ?? {}) as { access_token?: string };
     return { access_token: typeof d.access_token === "string" ? d.access_token : undefined };
   })

@@ -37,7 +37,7 @@ type GitError = { ok: false; error: string };
 
 /** Non-secret config for the client (token presence only, never the token). */
 export const gitGetConfig = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(
     async ({
       data,
@@ -88,7 +88,7 @@ export const gitGetConfig = createServerFn({ method: "POST" })
   );
 
 export const gitSaveConfig = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -149,7 +149,7 @@ export const gitSaveConfig = createServerFn({ method: "POST" })
   });
 
 export const gitExportNow = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(
     async ({ data }): Promise<GitError | { ok: true; commit_url: string; files: number }> => {
       try {

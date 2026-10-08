@@ -223,7 +223,7 @@ async function registerInCatalog(
  * applied, hidden columns left out) as a new lakehouse table.
  */
 export const sheetsSaveTableAs = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly
       .extend({
         tab_id: z.string().uuid(),
@@ -307,7 +307,7 @@ export const sheetsSaveTableAs = createServerFn({ method: "POST" })
  * sheet computed them) as a new lakehouse table with the column types given.
  */
 export const sheetsSaveGridAs = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly
       .extend({
         tab_id: z.string().uuid(),
@@ -427,7 +427,7 @@ export const sheetsSaveGridAs = createServerFn({ method: "POST" })
 
 /** Re-crawl a saved table's catalog entry on demand ("Update the catalog"). */
 export const sheetsRegisterTable = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     tokenOnly
       .extend({
         schema: nameStr,

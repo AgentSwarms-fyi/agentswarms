@@ -383,7 +383,7 @@ export function validateHierarchies(
 }
 
 export const semanticListModels = createServerFn({ method: "GET" })
-  .inputValidator((d: { accessToken: string }) => d)
+  .validator((d: { accessToken: string }) => d)
   .handler(async ({ data }) => {
     const { sb, userId } = await requireUser(data.accessToken);
     const { data: rows, error } = await sb.from("semantic_models").select("*").order("name");
@@ -419,7 +419,7 @@ export const semanticListModels = createServerFn({ method: "GET" })
   });
 
 export const semanticUpsertModel = createServerFn({ method: "POST" })
-  .inputValidator(
+  .validator(
     (d: {
       accessToken: string;
       model: z.input<typeof modelSchema>;
@@ -511,7 +511,7 @@ export const semanticUpsertModel = createServerFn({ method: "POST" })
   );
 
 export const semanticDeleteModel = createServerFn({ method: "POST" })
-  .inputValidator((d: { accessToken: string; id: string }) => d)
+  .validator((d: { accessToken: string; id: string }) => d)
   .handler(async ({ data }) => {
     const { sb } = await requireUser(data.accessToken);
     const { error } = await sb.from("semantic_models").delete().eq("id", data.id);
@@ -522,7 +522,7 @@ export const semanticDeleteModel = createServerFn({ method: "POST" })
 type Cell = string | number | boolean | null;
 
 export const semanticRunQuery = createServerFn({ method: "POST" })
-  .inputValidator((d: { accessToken: string; query: SemanticQuery }) => d)
+  .validator((d: { accessToken: string; query: SemanticQuery }) => d)
   .handler(async ({ data }) => {
     const { sb, userId } = await requireUser(data.accessToken);
     const res = await runSemanticQuery({ sb, userId, query: data.query, maxRows: 1000 });
@@ -578,7 +578,7 @@ export type ModelValidationReport = {
 };
 
 export const semanticValidateModel = createServerFn({ method: "POST" })
-  .inputValidator((d: { accessToken: string; model: z.input<typeof modelSchema> }) => d)
+  .validator((d: { accessToken: string; model: z.input<typeof modelSchema> }) => d)
   .handler(async ({ data }): Promise<ModelValidationReport> => {
     const { sb, userId } = await requireUser(data.accessToken);
     return validateModelPayload(sb, userId, data.model);
@@ -784,7 +784,7 @@ function rowToModelPayload(row: Record<string, unknown>): z.input<typeof modelSc
  * the stamp always refers to the definition that was actually validated.
  */
 export const semanticSetModelStatus = createServerFn({ method: "POST" })
-  .inputValidator((d: { accessToken: string; id: string; status: string }) => d)
+  .validator((d: { accessToken: string; id: string; status: string }) => d)
   .handler(
     async ({
       data,
@@ -836,7 +836,7 @@ export const semanticSetModelStatus = createServerFn({ method: "POST" })
 
 /** Version history for a model (newest first). Owner-only via RLS. */
 export const semanticListVersions = createServerFn({ method: "GET" })
-  .inputValidator((d: { accessToken: string; modelId: string }) => d)
+  .validator((d: { accessToken: string; modelId: string }) => d)
   .handler(async ({ data }) => {
     const { sb } = await requireUser(data.accessToken);
     const { data: rows, error } = await sb
@@ -860,7 +860,7 @@ export const semanticListVersions = createServerFn({ method: "GET" })
  * restore.
  */
 export const semanticRestoreVersion = createServerFn({ method: "POST" })
-  .inputValidator((d: { accessToken: string; versionId: string }) => d)
+  .validator((d: { accessToken: string; versionId: string }) => d)
   .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
     const { sb, userId } = await requireUser(data.accessToken);
     const { data: version, error } = await sb
@@ -920,7 +920,7 @@ export const semanticRestoreVersion = createServerFn({ method: "POST" })
  * them the caller's visible rows.
  */
 export const semanticModelDependents = createServerFn({ method: "GET" })
-  .inputValidator((d: { accessToken: string; modelId: string }) => d)
+  .validator((d: { accessToken: string; modelId: string }) => d)
   .handler(async ({ data }) => {
     const { sb, userId } = await requireUser(data.accessToken);
     const { data: row, error } = await sb
@@ -962,7 +962,7 @@ export const semanticModelDependents = createServerFn({ method: "GET" })
 
 /** Local datasets (with columns) to author models against. */
 export const semanticListLocalSources = createServerFn({ method: "GET" })
-  .inputValidator((d: { accessToken: string }) => d)
+  .validator((d: { accessToken: string }) => d)
   .handler(async ({ data }) => {
     const { sb } = await requireUser(data.accessToken);
     const { data: rows, error } = await sb

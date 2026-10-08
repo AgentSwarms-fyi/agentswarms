@@ -51,7 +51,7 @@ async function listAllAuthUsers(): Promise<AdminUser[]> {
 }
 
 export const listApproverDirectory = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(
     async ({
       data,
@@ -143,7 +143,7 @@ function approvalEmailHtml(args: {
 }
 
 export const notifySwarmApprovers = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),

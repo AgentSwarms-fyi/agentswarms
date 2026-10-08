@@ -65,7 +65,7 @@ const testSchema = z.object({
 });
 
 export const sqlModelsList = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(
     async ({
       data,
@@ -119,7 +119,7 @@ export const sqlModelsList = createServerFn({ method: "POST" })
  * rather than saved and discovered at the next build when nothing runs.
  */
 export const sqlModelSave = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -336,7 +336,7 @@ export const sqlModelSave = createServerFn({ method: "POST" })
  * Lakehouse page is where a table is dropped, deliberately.
  */
 export const sqlModelDelete = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<Fail | { ok: true; dependants: string[] }> => {
@@ -361,7 +361,7 @@ export const sqlModelDelete = createServerFn({ method: "POST" })
 
 /** Build now: the named models with their ancestors, or everything active. */
 export const sqlModelsBuild = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -387,7 +387,7 @@ export const sqlModelsBuild = createServerFn({ method: "POST" })
   );
 
 export const sqlModelRunsList = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -416,7 +416,7 @@ export const sqlModelRunsList = createServerFn({ method: "POST" })
  * empty grid that looks like a correct answer.
  */
 export const sqlModelPreview = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -474,7 +474,7 @@ export const sqlModelPreview = createServerFn({ method: "POST" })
 
 /** Pause or resume a model without editing it. */
 export const sqlModelToggle = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),

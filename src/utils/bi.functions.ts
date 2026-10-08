@@ -102,7 +102,7 @@ export type PublicDashboard = {
 
 /** Anonymous fetch of a published dashboard by its unguessable slug. */
 export const biGetPublicDashboard = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ slug: z.string().min(8).max(64) }).parse(input))
+  .validator((input: unknown) => z.object({ slug: z.string().min(8).max(64) }).parse(input))
   .handler(
     async ({
       data,
@@ -147,7 +147,7 @@ export const biGetPublicDashboard = createServerFn({ method: "POST" })
 
 /** Groups any signed-in user can share a dashboard with. */
 export const biListShareTargets = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(
     async ({
       data,
@@ -169,7 +169,7 @@ export const biListShareTargets = createServerFn({ method: "POST" })
   );
 
 export const biGetShares = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), dashboard_id: z.string().uuid() }).parse(input),
   )
   .handler(
@@ -199,7 +199,7 @@ export const biGetShares = createServerFn({ method: "POST" })
 
 /** Replace the set of groups this dashboard is shared with (owner only). */
 export const biSetShares = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -272,7 +272,7 @@ export const biSetShares = createServerFn({ method: "POST" })
  * IAM model rules of every group the dashboard is currently shared with.
  */
 export const biSetReaderModel = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -329,7 +329,7 @@ export const biSetReaderModel = createServerFn({ method: "POST" })
  * mistimed client call degrades to correct behaviour, not an error.
  */
 export const biGetSharedWidgetResults = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), dashboard_id: z.string().uuid() }).parse(input),
   )
   .handler(

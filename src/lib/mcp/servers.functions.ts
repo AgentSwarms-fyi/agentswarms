@@ -18,7 +18,7 @@ const SaveSchema = z.object({
 
 export const saveMcpServer = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => SaveSchema.parse(input))
+  .validator((input: unknown) => SaveSchema.parse(input))
   .handler(
     async ({ data, context }): Promise<{ ok: true; id: string } | { ok: false; error: string }> => {
       const { supabase, userId } = context;

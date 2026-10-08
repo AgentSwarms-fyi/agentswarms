@@ -122,7 +122,7 @@ export const testIntegrationKey = createServerFn({ method: "POST" })
   // Wrap parse in try/catch so a Zod failure returns a TestResult instead
   // of throwing — otherwise the client sees the raw error and shows the
   // infamous "Server returned ok=false but no detail".
-  .inputValidator((input: unknown): ValidatedInput => {
+  .validator((input: unknown): ValidatedInput => {
     const parsed = TestSchema.safeParse(input);
     if (!parsed.success) {
       return {
@@ -178,7 +178,7 @@ export const testIntegrationKey = createServerFn({ method: "POST" })
 // workflow count is surfaced in the UI so the user knows the integration
 // is real and what's reachable.
 export const testN8nInstance = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => N8nTestSchema.parse(input))
+  .validator((input: unknown) => N8nTestSchema.parse(input))
   .handler(async ({ data }): Promise<TestResult & { workflowCount?: number }> => {
     const auth = await validateAccessToken(data.access_token);
     if (!auth.ok) return { ok: false, detail: auth.detail };
@@ -195,7 +195,7 @@ export const testN8nInstance = createServerFn({ method: "POST" })
 // Live-test a Firecrawl API key with a cheap 1-result search so the user knows
 // the key works before we mark the connector active.
 export const testFirecrawlKey = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => FirecrawlTestSchema.parse(input))
+  .validator((input: unknown) => FirecrawlTestSchema.parse(input))
   .handler(async ({ data }): Promise<TestResult> => {
     const auth = await validateAccessToken(data.access_token);
     if (!auth.ok) return { ok: false, detail: auth.detail };
@@ -210,7 +210,7 @@ export const testFirecrawlKey = createServerFn({ method: "POST" })
 // backwards, given that a misconfigured gateway can take EVERY routed LLM
 // call down at once. A blank api_key tests against the saved encrypted key.
 export const testLlmGateway = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => GatewayTestSchema.parse(input))
+  .validator((input: unknown) => GatewayTestSchema.parse(input))
   .handler(async ({ data }): Promise<TestResult> => {
     const auth = await validateAccessToken(data.access_token);
     if (!auth.ok) return { ok: false, detail: auth.detail };
@@ -255,7 +255,7 @@ const NotificationTestSchema = z.object({
 });
 
 export const testNotificationChannel = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => NotificationTestSchema.parse(input))
+  .validator((input: unknown) => NotificationTestSchema.parse(input))
   .handler(async ({ data }): Promise<TestResult> => {
     const auth = await validateAccessToken(data.access_token);
     if (!auth.ok) return { ok: false, detail: auth.detail };
@@ -291,7 +291,7 @@ export const testNotificationChannel = createServerFn({ method: "POST" })
 // owner emails only — the grantee can use a shared key (resolution happens
 // server-side at call time) but can never read it.
 export const listSharedProviders = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1).max(10000) }).parse(input),
   )
   .handler(
@@ -546,7 +546,7 @@ export async function saveIntegrationForUser(
 }
 
 export const saveIntegration = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => SaveIntegrationSchema.parse(input))
+  .validator((input: unknown) => SaveIntegrationSchema.parse(input))
   .handler(async ({ data }): Promise<{ ok: true; id: string } | { ok: false; error: string }> => {
     const auth = await validateAccessToken(data.access_token);
     if (!auth.ok) return { ok: false, error: auth.detail };

@@ -80,7 +80,7 @@ const SaveSchema = z.object({
 
 export const saveProviderCredential = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => SaveSchema.parse(input))
+  .validator((input: unknown) => SaveSchema.parse(input))
   .handler(async ({ data, context }) => {
     const { encryptJson } = await import("./crypto.server");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -189,7 +189,7 @@ export const saveProviderCredential = createServerFn({ method: "POST" })
 
 export const listProviderCredentials = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator(() => ({}))
+  .validator(() => ({}))
   .handler(async ({ context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { userId } = context;
@@ -206,7 +206,7 @@ export const listProviderCredentials = createServerFn({ method: "POST" })
 const DeleteSchema = z.object({ provider: providerEnum });
 export const deleteProviderCredential = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => DeleteSchema.parse(input))
+  .validator((input: unknown) => DeleteSchema.parse(input))
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { userId } = context;

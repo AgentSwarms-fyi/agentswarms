@@ -56,7 +56,7 @@ export type RunRow = {
 };
 
 export const experimentsList = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ accessToken: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ accessToken: z.string().min(1) }).parse(input))
   .handler(
     async ({
       data,
@@ -114,7 +114,7 @@ export const experimentsList = createServerFn({ method: "POST" })
   );
 
 export const experimentRunsList = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ accessToken: z.string().min(1), experimentId: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<Fail | { ok: true; runs: RunRow[] }> => {
@@ -133,7 +133,7 @@ export const experimentRunsList = createServerFn({ method: "POST" })
   });
 
 export const experimentSave = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         accessToken: z.string().min(1),
@@ -159,7 +159,7 @@ export const experimentSave = createServerFn({ method: "POST" })
   });
 
 export const experimentDelete = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ accessToken: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<Fail | { ok: true; deletedRuns: number }> => {
@@ -181,7 +181,7 @@ export const experimentDelete = createServerFn({ method: "POST" })
   });
 
 export const experimentRunDelete = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ accessToken: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<Fail | { ok: true }> => {
@@ -204,7 +204,7 @@ export const experimentRunDelete = createServerFn({ method: "POST" })
  * promotion rules. Nothing here is a shortcut around the registry.
  */
 export const experimentRunRegister = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         accessToken: z.string().min(1),

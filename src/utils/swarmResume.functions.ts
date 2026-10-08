@@ -26,7 +26,7 @@ type Fail = { ok: false; error: string };
  * anything.
  */
 export const resumeApprovedSwarmRun = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), approval_id: z.string().uuid() }).parse(input),
   )
   .handler(
@@ -166,7 +166,7 @@ export const resumeApprovedSwarmRun = createServerFn({ method: "POST" })
  * a run that is over.
  */
 export const cancelParkedSwarmRun = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), run_id: z.string().uuid() }).parse(input),
   )
   .handler(

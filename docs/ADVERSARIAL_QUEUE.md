@@ -724,8 +724,8 @@ least twice, not a hypothetical.
       no matching passages…". The R347 fixture agent, which has none, answered a request to repeat
       an email with "I could not find the information you are looking for in the available
       documents." The trace of that turn holds the instruction.
-    - **396 server functions use the deprecated `createServerFn().inputValidator()`** (seen in
-      R347). TanStack Start 1.168 renamed it `validator()`; the old name still works and is marked
+    - ~~**396 server functions use the deprecated `createServerFn().inputValidator()`**~~ (seen in
+      R347). **R349**: all renamed to `validator()`; the build prints no deprecation line. TanStack Start 1.168 renamed it `validator()`; the old name still works and is marked
       `@deprecated`. Every build prints about 1,170 warnings for it, which bury anything new.
     - **A saved LLM gateway cannot be removed from the page** (seen in R347). Integrations → LLM
       Gateway saves a row and can disable it, but nothing deletes it. R347 left its save round trip
