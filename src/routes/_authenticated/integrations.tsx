@@ -66,6 +66,7 @@ import { saveProviderCredential } from "@/utils/providers/credentials.functions"
 import { detectOllama } from "@/utils/providers/ollama.functions";
 import { invalidateOllamaModels } from "@/hooks/use-ollama-models";
 import { GatewayApiCard } from "@/components/gateway/GatewayApiCard";
+import { recordOf, textOf } from "@/lib/jsonRecord";
 
 // Providers we can live-test against the real upstream API.
 // bedrock/azure/vertex/oci use signed requests and live in the encrypted
@@ -569,7 +570,7 @@ type Integration = {
   type: string;
   name: string;
   provider: string | null;
-  config: Record<string, any>;
+  config: Record<string, unknown>;
   is_active: boolean;
 };
 
@@ -656,7 +657,19 @@ function IntegrationsPage() {
     setReadState({ loaded: true, error: readError ? readError.message : null });
 
     const merged: Integration[] = [];
-    if (integ) merged.push(...(integ as Integration[]));
+    // A row's config is a json column: an object for every row this page
+    // writes, read here as the fields it holds and nothing more.
+    if (integ)
+      merged.push(
+        ...integ.map((r) => ({
+          id: r.id,
+          type: r.type,
+          name: r.name,
+          provider: r.provider,
+          config: recordOf(r.config),
+          is_active: r.is_active,
+        })),
+      );
     if (creds) {
       for (const c of creds) {
         // Map back from internal "vertex" to UI's "vertex_ai".
@@ -675,22 +688,22 @@ function IntegrationsPage() {
     setIntegrations(merged);
     const gw = merged.find((i) => i.type === "llm_gateway");
     if (gw) {
-      const c = gw.config as Record<string, any>;
-      setGatewayUrl(c?.base_url || "");
+      const c = gw.config;
+      setGatewayUrl(textOf(c.base_url));
       // The key is write-only: encrypted rows never ship it back, and legacy
       // plaintext rows are no longer pre-filled into the form either.
       setGatewayKey("");
-      setGatewayHasKey(Boolean(c?.api_key_enc || c?.api_key));
-      setGatewayProvider(c?.provider || "litellm");
+      setGatewayHasKey(Boolean(c.api_key_enc || c.api_key));
+      setGatewayProvider(textOf(c.provider) || "litellm");
       setGatewayRoute(gw.is_active);
-      setGatewayRouteAll(c?.route_all === true);
+      setGatewayRouteAll(c.route_all === true);
     }
     const n8n = merged.find((i) => i.type === "n8n");
     if (n8n) {
-      const c = n8n.config as Record<string, any>;
-      setN8nUrl(c?.instance_url || "");
-      setN8nToken(c?.webhook_token || "");
-      setN8nAuthType(c?.auth_type || "header");
+      const c = n8n.config;
+      setN8nUrl(textOf(c.instance_url));
+      setN8nToken(textOf(c.webhook_token));
+      setN8nAuthType(textOf(c.auth_type) || "header");
     }
   }
 
@@ -1225,17 +1238,17 @@ function IntegrationsPage() {
                 <Card
                   key={provider.id}
                   className={`glow-card relative flex flex-col ${
-                    (provider as any).freeHighlight
+                    provider.freeHighlight
                       ? "border-primary/60 bg-primary/5 shadow-[0_0_0_1px_hsl(var(--primary)/0.2)]"
                       : "border-border/50"
                   }`}
                 >
-                  {provider.recommended && !(provider as any).freeHighlight && (
+                  {provider.recommended && !provider.freeHighlight && (
                     <Badge className="absolute -top-2.5 right-3 h-5 bg-primary px-1.5 text-[10px] text-primary-foreground shadow-sm">
                       Recommended
                     </Badge>
                   )}
-                  {(provider as any).freeHighlight && (
+                  {provider.freeHighlight && (
                     <Badge className="absolute -top-2.5 right-3 h-5 bg-primary px-1.5 text-[10px] text-primary-foreground shadow-sm">
                       Free tier
                     </Badge>

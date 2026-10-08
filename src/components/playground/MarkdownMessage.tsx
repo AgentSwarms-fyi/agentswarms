@@ -1,4 +1,4 @@
-import { useState, type ReactNode, isValidElement, Children } from "react";
+import { useState, type ReactElement, type ReactNode, isValidElement, Children } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -178,19 +178,23 @@ function MarkdownChunk({ content }: { content: string }) {
  * className is "language-<lang> hljs ...". We extract the language and
  * the raw text from that child to drive the header label and clipboard.
  */
+/** The props react-markdown gives a fenced block's <code> element. */
+type CodeProps = { className?: string; children?: ReactNode };
+
 function CodeBlock({ children }: { children?: ReactNode }) {
   const [copied, setCopied] = useState(false);
 
   const codeChild = Children.toArray(children).find(
-    (c) => isValidElement(c) && (c.type === "code" || (c as any).props?.className),
-  ) as any;
+    (c): c is ReactElement<CodeProps> =>
+      isValidElement<CodeProps>(c) && (c.type === "code" || Boolean(c.props.className)),
+  );
 
-  const className: string = codeChild?.props?.className || "";
+  const className = codeChild?.props.className || "";
   const langMatch = /language-([\w-]+)/.exec(className);
   const language = langMatch ? langMatch[1] : "text";
 
   // Walk the code child's children to extract raw text.
-  const codeText = extractText(codeChild?.props?.children);
+  const codeText = extractText(codeChild?.props.children);
 
   // A mermaid fence renders as the actual diagram (with SVG/PNG download and
   // a fallback to plain source when it does not parse) — see MermaidBlock.
@@ -289,7 +293,7 @@ function extractText(node: ReactNode): string {
   if (node == null || typeof node === "boolean") return "";
   if (typeof node === "string" || typeof node === "number") return String(node);
   if (Array.isArray(node)) return node.map(extractText).join("");
-  if (isValidElement(node)) return extractText((node.props as any).children);
+  if (isValidElement<{ children?: ReactNode }>(node)) return extractText(node.props.children);
   return "";
 }
 

@@ -108,6 +108,12 @@ and both of those are one advisory that cannot be triggered here (see
   upload, and the versions fetched (pdf.js 4.7.76, mammoth 1.8.0) were not the
   audited ones in the lockfile (4.10.38, 1.13.0). The build now copies them into
   `public/vendor`.
+- **JSON columns are read as the objects they hold, not `any`** (R347). The
+  integrations page's config, an agent's tools in its export, and an imported
+  agent file go through `recordOf` and `textOf` (`lib/jsonRecord.ts`). A tools
+  value that is not an object no longer exports tools named after its indices,
+  and a file holding a JSON array is refused rather than imported with every
+  field defaulted. Lint warnings 55 to 37.
 - **Component files export only components** (R346). React Fast Refresh
   reloads the whole page when a component file also exports a helper, a
   constant or a hook; the linter flagged 51 such exports. Helpers, constants and
@@ -144,6 +150,17 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **SQL Chat shows the SQL it ran** (R347). On the Data Catalog's Workbench, a
+  question answered by running SQL showed the answer and no tool chip. The page
+  read the chat stream with a reader of its own that never saw the tool events;
+  it now uses the shared one, and each call shows its SQL, its result and
+  whether it succeeded (Running, Success, Error, or No result once the answer
+  has ended without one).
+- **The agents list says "Guarded" when the guardrails are enforced** (R347).
+  The badge checked four settings of its own. An imported agent whose only
+  guardrail was PII redaction had its prompts redacted and showed no badge; a
+  guardrails object with nothing set showed one. It now asks the enforcer's own
+  question of the enforcer's own reading.
 - **Sheets: an older Excel file's formula whose function answers with several
   values** (R338). Typed in one cell in Excel 2019 or older, `=LINEST(B2:B7,A2:A7)`
   showed the slope, `=ROW(A2:A4)` showed 2 and `=INDEX(A2:B7,0,2)` showed the cell

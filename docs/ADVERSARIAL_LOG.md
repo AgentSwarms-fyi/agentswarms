@@ -109,6 +109,92 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R347: SQL Chat's missing tool calls, the "Guarded" badge, and JSON read as `any`
+
+**Severity: medium** (SQL Chat hid every query it ran; the agents list misreported guardrails),
+and low code health (18 `any`s). Typing the `any`s on the Data Catalog, the agents list and the
+integrations page led to both defects.
+
+**Found from the UI, 1: SQL Chat showed no tool calls.** On the Workbench's SQL Chat, the
+question "How many rows does sftest_users have?" got the answer "The `sftest_users` table contains
+8 rows." and no tool chip. The response stream had both events: `event: tool` with a `tool_call`
+(`SELECT COUNT(*) FROM sftest_users`), and its `tool_result`. The page had its own SSE reader. It
+parsed every `data:` line and looked for `parsed.tool_result`, a property no event has, so a chip
+was never drawn. Before R194, Prompt Compare's own reader had likewise dropped a platform event
+(the cost, after `[DONE]`).
+
+**Found from the UI, 2: an agent whose guardrails were enforced was not listed as guarded.** An
+agent imported from a file whose only guardrail was `piiMode: "redact"` (`R347 PII-only agent`)
+had the email in its first message sent on as `[REDACTED_EMAIL]`. Its trace records
+`guardrailRedactions: {email: 1}` and `blockPII: false`. Its card on /agents said nothing. The
+card checked four fields itself (input filters, output filters, `blockPII`, and a content-safety
+level other than "off"). The enforcer reads the JSON through `parseGuardrails` and asks
+`isAnyGuardrailActive`. The Agent Builder sets `blockPII` with a PII mode, which is why its own
+agents agreed; an imported file need not. The two readings also disagreed the other way: a
+guardrails object with nothing set has no content-safety level, which is not "off", so the card
+said "Guarded" while nothing was enforced.
+
+**What was written.**
+
+- **`lib/chatToolCalls.ts`**: `withToolEvent` folds the stream's tool events into one row per call,
+  matching a result to its call by id. `settledToolCalls` marks a call that never got a result
+  "No result" once the answer has ended. SQL Chat now reads its answer with `readChatStream`.
+  Each chip shows the call's SQL (only when it is text), the start of its result, and Running,
+  Success, Error or No result.
+- **`lib/agentGuarded.ts`**: `agentIsGuarded(tools)` is
+  `isAnyGuardrailActive(parseGuardrails(…))`, the enforcer's question of the enforcer's
+  reading, and the agents page asks it.
+- **`lib/jsonRecord.ts`**: `isRecord`, `recordOf` and `textOf`, for JSON columns read as the
+  object they should hold. The integrations page reads its rows' config through them (and drops
+  the `as Integration[]` cast). Agent export reads an agent's tools through them, and the import
+  parser reads the file as `unknown`. Two answers changed:
+  - a tools value that is an array or a string no longer exports tools named "0", "1"…;
+  - a file that is a JSON array is refused ("does not contain an agent definition"), where it was
+    imported with every field defaulted.
+    A YAML file whose `agents:` is a list still imports its first.
+- **The rest of the `any`s**: Markdown's code block types the `<code>` child it reads its language
+  and text from. The export dialog's icons are `LucideIcon`. The provider cards read
+  `freeHighlight` without a cast.
+
+**Tests:** three new files, 19 cases.
+
+- `chatToolCalls.test.ts` feeds `readChatStream` the stream captured from that answer and folds
+  it, then covers each folding case. It also pins the page to the shared reader.
+- `agentGuarded.test.ts` imports the PII-only file through `parseImportedAgent`, and covers every
+  kind of guardrail and the non-object cases.
+- `jsonRecord.test.ts` covers the helpers, the manifest's reads, and the import's array and YAML
+  cases.
+
+Mutation run: the control survives and 12 of 12 mutants are caught. They include: a result
+matched by name, every result a success, the page dropping tool events, the badge's old check,
+the badge reading the raw JSON, arrays taken as records, and YAML agent lists refused.
+
+**The UI** (R347 build):
+
+- SQL Chat, the same question: a `sql_query` chip, "Success", and, expanded, the SQL and its
+  result (`"count_star()":8`).
+- /agents: the fixture reads "Guarded". The other 12 agents are unchanged (none was guarded
+  before, none is now).
+- Integrations: three "Free tier" badges. The gateway form shows its defaults (no gateway is
+  saved).
+- Agent Chat: a fenced SQL block is labelled "SQL" and highlighted, and Copy reports "Copied".
+- The export dialog lists its ten formats with their icons.
+
+**Also seen, queued.**
+
+- Every agent turn is told a knowledge base was searched, even with none attached. The same
+  fixture's first answer was "I could not find the information you are looking for in the
+  available documents." That is R348.
+- 396 uses of the deprecated `createServerFn().inputValidator()`.
+- A saved gateway cannot be removed from the page.
+
+The real image built from R346 (`9596d3e074e6`) ran healthy and passed a smoke test (theme,
+docs rail, BI dashboard with its map, no 4xx or 5xx).
+
+Warnings go from 55 to 37.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R346: component files export only components
 
 **Severity: low, code health** (lint warnings, and a docs check that went blind). React Fast

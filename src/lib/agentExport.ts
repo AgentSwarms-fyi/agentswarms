@@ -1,5 +1,6 @@
 import yaml from "js-yaml";
-import { parseGuardrails } from "@/utils/guardrails";
+import { parseGuardrails, type Guardrails } from "@/utils/guardrails";
+import { isRecord, recordOf } from "@/lib/jsonRecord";
 import type { Agent } from "@/components/agents/AgentForm";
 import {
   cleanModelId,
@@ -22,17 +23,19 @@ export type ExportFormat =
   | "strands-ts";
 
 export function buildAgentManifest(agent: Agent) {
-  const tools = (agent.tools || {}) as any;
+  // The tools column is JSON; each part is read as the object it should be.
+  const tools = recordOf(agent.tools);
+  const toolConfigs = recordOf(tools.toolConfigs);
   // Tool ids are OBJECT KEYS FROM THE IMPORTED agent.json, so they are as
   // attacker-controlled as the model id was, and they reach generated
   // TypeScript unquoted: `description: "${t} — implement your logic here."`.
   // A key of `x"); process.exit(1); //` closes that literal. Every real id is
   // `kb_search`-shaped, so safeIdentifier is the identity function on all of
   // them and this costs nothing.
-  const builtIn = Object.entries(tools.builtInTools || {})
+  const builtIn = Object.entries(recordOf(tools.builtInTools))
     .filter(([, v]) => v)
     .map(([k]) => safeIdentifier(k, "tool"));
-  const workflows = Object.entries(tools.activeWorkflows || {})
+  const workflows = Object.entries(recordOf(tools.activeWorkflows))
     .filter(([, v]) => v)
     .map(([k]) => safeIdentifier(k, "workflow"));
 
@@ -53,9 +56,9 @@ export function buildAgentManifest(agent: Agent) {
     tools: {
       built_in: builtIn,
       workflows,
-      requires_config: builtIn.filter((id) => tools.toolConfigs?.[id]),
+      requires_config: builtIn.filter((id) => toolConfigs[id]),
     },
-    guardrails: tools.guardrails || {},
+    guardrails: recordOf(tools.guardrails),
     knowledge_base_id: agent.knowledge_base_id,
     exported_at: new Date().toISOString(),
   };
@@ -812,7 +815,7 @@ export function parseImportedAgent(
   llm_model?: string;
   temperature?: number;
   max_tokens?: number;
-  tools?: any;
+  tools?: { builtInTools: Record<string, boolean>; guardrails?: Guardrails };
   toolCount: number;
 } {
   if (content.length > MAX_IMPORT_BYTES) {
@@ -822,15 +825,19 @@ export function parseImportedAgent(
   }
 
   const isYaml = filename.endsWith(".yaml") || filename.endsWith(".yml");
-  let parsed: any;
+  let parsed: unknown;
   if (isYaml) {
     // js-yaml v4 `load` uses the default schema, which cannot construct
     // functions or arbitrary types — checked, `!!js/function` is rejected.
     parsed = yaml.load(content);
-    if (parsed?.agents && typeof parsed.agents === "object") {
-      const key = Object.keys(parsed.agents)[0];
-      const a = parsed.agents[key];
-      if (!a || typeof a !== "object") throw new Error("No agent definition found in this file.");
+    // `agents` is a map of name to definition (CrewAI's agents.yaml), or a
+    // list, whose first index is its first key.
+    const agents = isRecord(parsed) ? parsed.agents : undefined;
+    if (agents && typeof agents === "object") {
+      const byKey = agents as Record<string, unknown>;
+      const key = Object.keys(byKey)[0];
+      const a = byKey[key];
+      if (!isRecord(a)) throw new Error("No agent definition found in this file.");
       const llm = str(a.llm, "openrouter/openai/gpt-4o-mini", 200);
       const [provider, ...modelParts] = llm.split("/");
       const { flags, count } = toolFlags(a.tools);
@@ -849,11 +856,11 @@ export function parseImportedAgent(
   } else {
     parsed = JSON.parse(content);
   }
-  if (!parsed || typeof parsed !== "object") {
+  if (!isRecord(parsed)) {
     throw new Error("This file does not contain an agent definition.");
   }
-  const model = parsed.model && typeof parsed.model === "object" ? parsed.model : {};
-  const { flags, count } = toolFlags(parsed.tools?.built_in);
+  const model = recordOf(parsed.model);
+  const { flags, count } = toolFlags(recordOf(parsed.tools).built_in);
   return {
     name: str(parsed.name, "Imported Agent", 200),
     description: optStr(parsed.description),

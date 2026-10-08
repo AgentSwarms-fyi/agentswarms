@@ -714,6 +714,20 @@ least twice, not a hypothetical.
       - **Next:** reproduce it on a route that waits on the signal, such as a chat image turn left
         mid-call. Then see whether a request middleware in `createStart` (`requestMiddleware`) gets
         the rejection before h3 logs it. If it does, it can answer an aborted request quietly.
+    - **An agent with no knowledge base is told one was searched** (seen in R347, next: R348).
+      `/api/chat` runs its knowledge-base search for every agent turn (`body.agentId`), and
+      `retrieveCitationsReport` answers `{ citations: [], degraded: [] }` both when the agent has no
+      knowledge base and when its knowledge bases had no match. The chat then tells the model "A
+      knowledge base is attached to this assistant and was searched for this question. It returned
+      no matching passages…". The R347 fixture agent, which has none, answered a request to repeat
+      an email with "I could not find the information you are looking for in the available
+      documents." The trace of that turn holds the instruction.
+    - **396 server functions use the deprecated `createServerFn().inputValidator()`** (seen in
+      R347). TanStack Start 1.168 renamed it `validator()`; the old name still works and is marked
+      `@deprecated`. Every build prints about 1,170 warnings for it, which bury anything new.
+    - **A saved LLM gateway cannot be removed from the page** (seen in R347). Integrations → LLM
+      Gateway saves a row and can disable it, but nothing deletes it. R347 left its save round trip
+      undriven for that reason: a test gateway would stay in the account.
     - ~~**Data incidents** (`dataMonitors/run.server`)~~. **R312**: every status write by either
       writer is now held to "not resolved". Acknowledge no longer opens again an incident a run
       resolved; a run no longer takes over its owner's resolve; and a failure no longer goes

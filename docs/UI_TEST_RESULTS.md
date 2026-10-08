@@ -15,6 +15,26 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R347: SQL Chat's tool calls, the "Guarded" badge, typed JSON reads
+
+| Page                                         | What was driven                                                                                        | Result                                                                                                                                                                                                                                                                                   |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| /data-sql, Workbench → SQL Chat (R346 build) | "How many rows does sftest_users have? Use the sql_query tool."                                        | **Defect.** Answer "The `sftest_users` table contains 8 rows.", no tool chip. The response held `event: tool` blocks for the `sql_query` call (`SELECT COUNT(*) FROM sftest_users`) and its result                                                                                       |
+| /agents (R346 build)                         | **Import Agent**, drop `r347-pii-only.json` (only guardrail `piiMode: "redact"`), **Add to my agents** | Imported; card "Active", no "Guarded"                                                                                                                                                                                                                                                    |
+| /playground, the fixture                     | "My email is r347.check@example.test. Repeat back exactly…"                                            | Trace: prompt sent as `My email is [REDACTED_EMAIL]…`, `guardrailRedactions: {email: 1}`, stored `blockPII: false`. **Defect**: the agent is guarded, the card says not. The reply, "I could not find the information you are looking for in the available documents.", is R348's defect |
+| /data-sql, SQL Chat (R347 build)             | The same question; expand the chip                                                                     | `sql_query` · **Success**; the SQL and its result `{"sql":…,"rows":[{"count_star()":8}],…}`; then the answer                                                                                                                                                                             |
+| /agents (R347 build)                         | Load                                                                                                   | The fixture reads **Guarded**; the other 12 agents unchanged (no badge before or after)                                                                                                                                                                                                  |
+| /integrations (R347 build)                   | LLM Providers; **LLM Gateway**                                                                         | Three "Free tier" badges; the gateway form shows LiteLLM and empty fields (no gateway saved). A save was not driven: nothing on the page can remove a saved gateway (queued)                                                                                                             |
+| /playground, the fixture (R347 build)        | "Write a SQL query that counts the rows of a table named orders…"; **Copy**                            | A code block labelled **SQL**, highlighted (4 spans), `SELECT COUNT(*) FROM orders;`; Copy turned to "Copied" (the page may not read the clipboard back)                                                                                                                                 |
+| /agents (R347 build)                         | The fixture's **More actions → Export code**; Escape                                                   | `Export "R347 PII-only agent"` with its ten formats and their icons; closed without downloading                                                                                                                                                                                          |
+
+The fixture `R347 PII-only agent` and its two conversations are kept in the account.
+
+Real-image smoke, `agentswarms-share-agentswarms` built from the R346 commit (`9596d3e074e6`), run
+with `docker compose up -d --no-build`: healthy. /settings kept Native and Teal, /docs/sql-models
+rendered its rail, and the Global Electricity dashboard drew 28 charts and a 177-shape map. No 4xx
+or 5xx in resource timings.
+
 ## 2026-10-08 — R346: every page whose helpers, providers or hooks moved
 
 | Page              | What was driven                                    | Result                                                                                                                                                                       |

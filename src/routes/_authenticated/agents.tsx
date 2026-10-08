@@ -56,6 +56,7 @@ import { ExportAgentDialog } from "@/components/agents/ExportAgentDialog";
 import { ShareAgentDialog } from "@/components/agents/ShareAgentDialog";
 import { ImportAgentDialog } from "@/components/agents/ImportAgentDialog";
 import { AgentVersionsDialog } from "@/components/agents/AgentVersionsDialog";
+import { agentIsGuarded } from "@/lib/agentGuarded";
 
 export const Route = createFileRoute("/_authenticated/agents")({
   component: AgentsPage,
@@ -147,13 +148,9 @@ function AgentsPage() {
     }
   }
 
+  // "Guarded" when the enforcer would act on its guardrails (agentGuarded.ts).
   function hasGuardrails(agent: Agent): boolean {
-    const tools = agent.tools as any;
-    if (!tools?.guardrails) return false;
-    const g = tools.guardrails;
-    return (
-      g.enableInputFilters || g.enableOutputFilters || g.blockPII || g.contentSafetyLevel !== "off"
-    );
+    return agentIsGuarded(agent.tools);
   }
 
   return (
