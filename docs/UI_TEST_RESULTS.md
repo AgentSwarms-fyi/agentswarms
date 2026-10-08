@@ -15,6 +15,17 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R366: a Builder server that is not an MCP server, and the R365 real image
+
+| Page                                        | What was driven                                                    | Result                                                                                                                                                                                               |
+| ------------------------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| /mcp-builder/…, "R366 not MCP" (R365 build) | Source serving a plain 404 on the sandbox's port; **Deploy**       | "initialize → HTTP 404", Error. **Defect:** `nb-6c925617…` still up on the host a minute later; Running kernels leaves MCP servers out                                                               |
+| the same (R366 build)                       | **Deploy** again                                                   | Error, "initialize → HTTP 404"; `nb-81edb7ed…` created, started, then killed and destroyed a second after the 404; none left. Logs panel: "serving on 0.0.0.0:8888/mcp", GET /mcp 404, POST /mcp 404 |
+| Real image `696dff219035` (R365's commit)   | /settings, /audit, /mcp-builder, /traces                           | Healthy; no 4xx or 5xx; Traces' newest row "Gateway: R365 name"; `serverCompression.mjs` in `/app`                                                                                                   |
+| the same, /playground, R347 agent           | "write the numbers from one to eighty", a page timer on the answer | `/api/chat` not compressed (1,879 either way); answer at 6.2 s, response end 7.8 s                                                                                                                   |
+
+The app "R366 not MCP" is kept, Error and stopped.
+
 ## 2026-10-08 — R365: what a gateway call is called
 
 | Page                         | What was driven                                         | Result                                                                                                             |

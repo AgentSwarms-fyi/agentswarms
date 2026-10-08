@@ -1563,8 +1563,9 @@ is locked` until it is restarted. That is the fixture, not this app,
     sent `tools/list` and `tools/call` with no `initialize` and no session
     id. DONE (R99): FastMCP refused it with `400 Missing session ID`, and
     the call now runs in a session of its own.
-  - A deploy whose handshake fails leaves its sandbox running under an app
-    marked Error.
+  - ~~A deploy whose handshake fails leaves its sandbox running under an app
+    marked Error.~~ **R366**: it is stopped after its logs are kept, as a
+    failed start's is.
   - ~~The Builder page's own Deploy handler awaits without a `try`, the shape
     the console had.~~ **R361**: so did eleven more of its calls; all now go
     through `reported`.

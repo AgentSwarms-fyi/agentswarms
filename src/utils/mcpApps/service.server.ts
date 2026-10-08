@@ -514,8 +514,17 @@ export async function deploy(app: McpAppRow): Promise<DeployResult> {
 
   const shook = await handshake(started.endpoint);
   if (!shook.ok) {
+    // FOUND FROM THE UI (R366). The server came up but did not answer as an
+    // MCP server, and its sandbox was left running under an app marked Error:
+    // still holding its CPU and memory until the idle reaper came for it, and
+    // listed nowhere an owner could see. Nothing can use it. As a failed start
+    // does: its logs first, kept on the session row for the Logs tab, then
+    // the sandbox.
+    const logs = await logsOf(app.id).catch(() => "");
+    if (logs) await persistLogs(started.session.id, logs);
+    await stopSession(started.session).catch(() => {});
     await setAppStatus(app.id, "error", shook.message);
-    return { ok: false, error: shook.message, logs: await logsOf(app.id).catch(() => "") };
+    return { ok: false, error: shook.message, logs };
   }
 
   const hash = toolsFingerprint(shook.tools);

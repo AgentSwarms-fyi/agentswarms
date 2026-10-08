@@ -109,6 +109,47 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R366: a Builder deploy that failed its handshake left its sandbox running
+
+**Severity: low (a bounded leak).** Queued since R98.
+
+**Shown from the UI.** MCP Builder → New server, "R366 not MCP". Its source served a plain
+HTTP 404 on the sandbox's port, from an object with `run` and `tool`, which is all the runner
+looks for. The readiness probe accepts any answer short of a 5xx, so the sandbox came up; the
+handshake's `initialize` got 404. **Deploy** said "initialize → HTTP 404" and the app read
+**Error**. A minute later its sandbox, `nb-6c925617…`, was still up on the host. The Notebooks
+page's Running kernels leaves MCP servers out by design, so nothing an owner could open showed it;
+it held its CPU and memory until the idle reaper's 15 minutes ran out. Each deploy stops the app's
+previous sandbox first, so the leak was one sandbox per failed app at a time.
+
+**Why.** A failed start (the sandbox never ready) already read the container's logs, kept them on
+the session row for the Logs tab, and stopped the sandbox. A failed handshake (the sandbox ready,
+the server not an MCP server) set Error and returned.
+
+**What was written.** The handshake's failure path does what a failed start does: it reads the
+logs, keeps them on the session row (`persistLogs`), stops the sandbox it started, then marks the
+app Error and answers with the logs it read.
+
+**Tests:** `mcpHandshakeFailStops.test.ts`, new, 3 cases, pinned by source as the module's other
+rules are: the sandbox is stopped before Error is written; the logs are read and kept before the
+stop, and the answer carries them rather than reading a sandbox now gone; and the failed start
+does the same. Mutation run: the control survives and 3 of 3 mutants are caught: the sandbox left
+running, the logs not kept, and the logs read after the stop.
+
+**The UI** (R366 build, on the real image built from R365's commit): **Deploy** on the same app.
+It read **Error**, "initialize → HTTP 404", as before. Docker's events for the sandbox,
+`nb-81edb7ed…`: created, started, then killed, stopped and destroyed a second after the
+handshake's 404. No sandbox was left. The Logs panel still showed its output: "[mcp] serving on
+0.0.0.0:8888/mcp via http", the readiness GET answered 404, the handshake's POST answered 404.
+
+**The real image** (`696dff219035`, R365's commit) was smoked first: healthy;
+`serverCompression.mjs` and `serverGuards.mjs` in `/app`; Settings, Audit, MCP Builder and
+Traces loaded with no 4xx or 5xx, Traces' newest row "Gateway: R365 name". An Agent Chat turn on
+the R347 agent: `/api/chat` not compressed (1,879 bytes either way), the answer on the page at
+6.2 s and the response ending at 7.8 s, so it streamed.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R365: a gateway key's model calls were named "Playground"
 
 **Severity: low (attribution).** Seen in R363.

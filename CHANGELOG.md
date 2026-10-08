@@ -203,6 +203,11 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **A Builder deploy that fails its handshake stops its sandbox** (R366). A
+  server that started but did not answer as an MCP server left its sandbox
+  running under an app marked Error, holding its CPU and memory until the idle
+  reaper took it, and listed nowhere an owner could see. It is now stopped, as
+  a failed start already was, and its output is kept for the Logs tab.
 - **A gateway key's model calls carry the key's name** (R365). A call
   through a key to a bare model was listed on Traces and in the audit log as
   "Playground", like a turn typed in Agent Chat, so a key's traffic could not
