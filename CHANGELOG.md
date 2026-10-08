@@ -203,6 +203,11 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **A gateway key's model calls carry the key's name** (R365). A call
+  through a key to a bare model was listed on Traces and in the audit log as
+  "Playground", like a turn typed in Agent Chat, so a key's traffic could not
+  be told from the owner's own. It now reads `Gateway: <key name>`; a call to
+  an agent still carries the agent's name.
 - **Streamed answers stream again in the production server** (R364). Its
   compression matched `text/event-stream`, and gzip holds its output until the
   stream ends, so Agent Chat's answer appeared all at once when it was done,

@@ -729,10 +729,8 @@ least twice, not a hypothetical.
       **R364**: not the guardrails, which pass chunks on. `server.mjs` gzipped every
       `text/` response, event streams included, and gzip holds its output until the stream
       ends; Agent Chat was held the same way. Event streams are no longer compressed.
-    - **A gateway call's chat turn is named "Playground"** (seen in R363). A model call made
-      through a gateway key shows on Traces and in the audit log as "Playground", like a turn
-      typed in Agent Chat, so a key's traffic cannot be told from the owner's own. It should
-      carry the key's name.
+    - ~~**A gateway call's chat turn is named "Playground"**~~ (seen in R363). **R365**: a
+      bare model's turn through a key reads `Gateway: <key name>`.
     - **A caller who hangs up before the answer does not stop the provider call** (read in
       R363). The plain chat path's provider fetch is not tied to the request's signal, so the
       call runs until its first bytes; the answer is then dropped and the stream cancelled.

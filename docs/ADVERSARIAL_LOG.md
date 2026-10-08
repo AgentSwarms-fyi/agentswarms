@@ -109,6 +109,35 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R365: a gateway key's model calls were named "Playground"
+
+**Severity: low (attribution).** Seen in R363.
+
+**Shown.** Traces, after R363's and R364's gateway runs: every call through the "R363 hang-up"
+and "R364 stream" keys was listed as **"Playground"**, `google/gemini-2.5-flash`, beside the
+owner's own Agent Chat turns. So was the audit log's "model call" row for each. The gateway's
+guide promised that Observability "shows gateway traffic beside everything else"; it showed it,
+but as the owner's own.
+
+**Why.** The chat route names a turn "Playground" unless the internal channel gives it a name.
+Every other headless caller does ("AI SQL", "Document OCR", "ML fairness assistant"), and a
+gateway call to an agent carries the agent's name. A call to a bare model carried none.
+
+**What was written.** `buildInternalChatBody` takes a `label`, which a bare model's turn carries as
+its name. An agent's turn keeps the agent's name. The gateway passes `Gateway: <key name>`, in
+the form the Traces page already uses ("KB: Query Embedding", "Chat: tool-round").
+
+**Tests:** `aiGateway.test.ts`, one new case: a bare model is named by its label and is unnamed
+without one, an agent keeps its own name with a label given, and the gateway passes the key's
+name. Mutation run: the control survives and 3 of 3 mutants are caught: the label dropped, the
+gateway passing none, and the label replacing an agent's name.
+
+**The UI** (R365 build): a new key, "R365 name" (revoked after), one call. Traces: **"Gateway:
+R365 name"**, `google/gemini-2.5-flash`, ok. The audit log: `gateway.chat` for the key, and the
+model call "Gateway: R365 name · 9 tok · $0.0000093".
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R364: the production server held every event stream until it ended
 
 **Severity: high (streaming did not stream).** Seen in R363 as "a streamed AI-gateway call sends

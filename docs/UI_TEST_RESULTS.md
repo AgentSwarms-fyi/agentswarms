@@ -15,6 +15,13 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R365: what a gateway call is called
+
+| Page                         | What was driven                                         | Result                                                                                                             |
+| ---------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| /traces (R364 build)         | Read after R363's and R364's gateway runs               | **Defect.** Every call through "R363 hang-up" and "R364 stream" listed as "Playground", like an Agent Chat turn    |
+| /traces, /audit (R365 build) | One call through a new key, "R365 name" (revoked after) | Traces "Gateway: R365 name", ok; audit `gateway.chat` and the model call "Gateway: R365 name · 9 tok · $0.0000093" |
+
 ## 2026-10-08 — R364: does a streamed answer stream?
 
 | Page                                          | What was driven                                                                                      | Result                                                                                                                                             |

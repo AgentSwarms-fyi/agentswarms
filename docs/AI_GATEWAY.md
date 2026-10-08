@@ -282,9 +282,10 @@ provider failure: nothing else is tried, and the call is audited once as
   changes. Agent turns also audit `agent.chat`, as in the app. A metric
   query audits `metric.query` with `via: gateway`, the key, the compiled
   SQL and a digest of the result, exactly as the agent tool does.
-- **Traces.** Each turn is an execution trace under the owner, with the
-  agent's name, so Observability shows gateway traffic beside everything
-  else.
+- **Traces.** Each turn is an execution trace under the owner, named for
+  the agent it ran, or `Gateway: <key name>` for a bare model, so
+  Observability shows gateway traffic beside everything else and tells it
+  apart from the owner's own chats.
 
 Errors use the OpenAI shape, `{ "error": { "message", "type", "code" } }`:
 `invalid_api_key` (401), `insufficient_scope` and `model_not_allowed` (403),

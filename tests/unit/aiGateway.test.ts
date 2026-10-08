@@ -315,6 +315,53 @@ describe("the platform's stream becomes OpenAI chunks", () => {
     expect(m.systemPrompt).toBe("Answer in French.");
     expect(m.temperature).toBe(0.9);
   });
+
+  it("names a bare model's turn after the key it came through, and an agent's after the agent (R365)", async () => {
+    // FOUND FROM THE UI (R365): every call through the R363 and R364 test keys
+    // was listed on Traces, and in the audit log's model calls, as
+    // "Playground", like a turn typed in Agent Chat. The chat route names a
+    // turn "Playground" unless the internal channel names it.
+    const { buildInternalChatBody } = await import("@/utils/gateway/api.server");
+    const msgs = [{ role: "user" as const, content: "Hi" }];
+    const named = buildInternalChatBody({
+      ownerId: "u1",
+      target: { kind: "model", provider: "openrouter", model: "google/gemini-2.5-flash" },
+      candidate: { provider: "openrouter", model: "google/gemini-2.5-flash" },
+      messages: msgs,
+      label: "Gateway: R365 key",
+    });
+    expect(named.agentName).toBe("Gateway: R365 key");
+    const unnamed = buildInternalChatBody({
+      ownerId: "u1",
+      target: { kind: "model", provider: "openrouter", model: "x" },
+      candidate: { provider: "openrouter", model: "x" },
+      messages: msgs,
+    });
+    expect("agentName" in unnamed).toBe(false);
+    const agent = buildInternalChatBody({
+      ownerId: "u1",
+      target: {
+        kind: "agent",
+        agent: {
+          id: "a1",
+          name: "Support",
+          system_prompt: null,
+          llm_provider: "openrouter",
+          llm_model: "x",
+          temperature: null,
+          max_tokens: null,
+          knowledge_base_id: null,
+          tools: {},
+          is_active: true,
+        },
+      },
+      candidate: { provider: "openrouter", model: "x" },
+      messages: msgs,
+      label: "Gateway: R365 key",
+    });
+    expect(agent.agentName).toBe("Support");
+    expect(rd("src/utils/gateway/api.server.ts")).toContain("label: `Gateway: ${key.name}`,");
+  });
 });
 
 describe("a gateway turn is governed like any other", () => {

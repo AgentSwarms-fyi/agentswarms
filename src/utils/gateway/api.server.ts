@@ -642,6 +642,12 @@ export function buildInternalChatBody(args: {
   messages: OpenAiMessage[];
   temperature?: number;
   maxTokens?: number;
+  /**
+   * What a bare model's turn is called on Traces and in the audit log (R365).
+   * An agent's turn carries the agent's name; a bare model has none, and the
+   * chat route then calls it "Playground", like a turn typed in Agent Chat.
+   */
+  label?: string;
 }): Record<string, unknown> {
   const { system, turns } = splitConversation(args.messages);
   const base: Record<string, unknown> = {
@@ -657,6 +663,7 @@ export function buildInternalChatBody(args: {
   if (args.target.kind === "model") {
     return {
       ...base,
+      ...(args.label ? { agentName: args.label } : {}),
       systemPrompt: system || undefined,
       temperature: args.temperature ?? 0.4,
       maxTokens: args.maxTokens ?? 8192,
@@ -811,6 +818,8 @@ export async function runGatewayCompletion(args: {
       messages,
       temperature,
       maxTokens,
+      // A key's traffic, told apart from the owner's own (R365).
+      label: `Gateway: ${key.name}`,
     });
   // Built once up front, for the primary, because the cache needs two things
   // out of it that only it can answer authoritatively: the system instruction
