@@ -203,6 +203,12 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **Streamed answers stream again in the production server** (R364). Its
+  compression matched `text/event-stream`, and gzip holds its output until the
+  stream ends, so Agent Chat's answer appeared all at once when it was done,
+  and an AI-gateway call with `stream: true` sent its first byte when its
+  answer was complete. Event streams are no longer compressed; pages, JSON and
+  static files still are.
 - **A caller who hangs up is recorded as stopped, once, not as a failure**
   (R363). An AI-gateway call cut before its answer started tried the next
   model in the fallback chain for nobody and was audited as an error; one cut

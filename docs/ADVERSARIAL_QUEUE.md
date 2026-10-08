@@ -725,11 +725,10 @@ least twice, not a hypothetical.
         tool loop) asks `err.name === "AbortError"`, and the loop's `fetchWithRetry` backs off
         and retries once on Node's reason before it notices the abort. Both should ask the
         request's signal.
-    - **A streamed AI-gateway call sends nothing until its answer is complete** (seen in R363).
-      `stream: true` through a key: the first byte came at 3.70 s of a 3.70 s call, and a
-      7 s cut of a long answer had received no byte while the chat turn behind it had 576
-      tokens. Something between the chat route and the gateway holds the whole answer:
-      the output guardrails' buffering is the first suspect. A streaming client gets no stream.
+    - ~~**A streamed AI-gateway call sends nothing until its answer is complete**~~ (seen in R363).
+      **R364**: not the guardrails, which pass chunks on. `server.mjs` gzipped every
+      `text/` response, event streams included, and gzip holds its output until the stream
+      ends; Agent Chat was held the same way. Event streams are no longer compressed.
     - **A gateway call's chat turn is named "Playground"** (seen in R363). A model call made
       through a gateway key shows on Traces and in the audit log as "Playground", like a turn
       typed in Agent Chat, so a key's traffic cannot be told from the owner's own. It should

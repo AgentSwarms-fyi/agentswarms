@@ -174,6 +174,12 @@ comfortably serves a lot of users.
    equally well — point them at `:8080` and use `/api/health` as the health
    check.)
 
+   Chat answers arrive as a stream of server-sent events, so the proxy must
+   pass a response on as it is written. Caddy does. With nginx, set
+   `proxy_buffering off;` for the app, and leave `text/event-stream` out of
+   `gzip_types`: either one holds an answer back until it is complete. The app
+   does not compress event streams itself.
+
 The in-process scheduler runs automatically on a single VM — **no cron setup
 needed.** To update: `git pull && docker compose up -d --build`.
 

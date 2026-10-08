@@ -109,6 +109,63 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R364: the production server held every event stream until it ended
+
+**Severity: high (streaming did not stream).** Seen in R363 as "a streamed AI-gateway call sends
+nothing until its answer is complete".
+
+**Where it came from.** Not the output guardrails, which pass each chunk on as it comes, nor any
+of the chat route's other wrappers. `server.mjs` compresses responses with `CompressionStream`
+when the client accepts gzip and the type matches `text/`, `image/svg`, or JSON, JavaScript,
+WebAssembly or XML. The wrapper sits around srvx's static handler, which hands every request it
+has no file for on to the app and returns the app's answer through it. So the app's responses
+are compressed as well, and `text/` matched `text/event-stream`. Gzip emits nothing until it has a
+block's worth of output or its input ends. Run on its own (five SSE events written 200 ms apart),
+it gave its 10-byte header at once and everything else at 1,039 ms, when the input ended.
+Browsers ask for gzip, and so does Node's fetch, which the AI gateway uses to call the chat route.
+
+**Shown from the UI** (the R363 build). Agent Chat, "R347 PII-only agent"
+(`google/gemini-3-flash-preview`, no tools, so the answer streams straight from the model), a new
+chat, "write the numbers from one to eighty in words". A timer in the page recorded when the
+answer's text grew. The `/api/chat` response was gzipped (545 bytes for 1,893). Its first byte came
+at 4.3 s, and it ended at 6.2 s. The answer appeared in **one step, at 6.4 s**, after the response
+had ended. R363's gateway runs show the same thing from a client: a streamed call's first byte at
+3.70 s of 3.70 s, and a 7 s cut that had received nothing while the turn behind it had written 576
+tokens.
+
+**What was written.** The compressor moved to its own module, `serverCompression.mjs`, so it can be
+run against real streams in a test as `serverGuards.mjs` is; `server.mjs` imports it. It passes a
+`text/event-stream` response on untouched, with or without a charset. Pages, JSON and static files
+are still gzipped: an event is a few hundred bytes, with little to save and a stream to lose.
+
+**Tests:** `streamNotCompressed.test.ts`, new, 4 cases, running the compressor itself on real
+streams with a request that accepts gzip:
+
+- An event stream is not encoded, and its first event can be read before the second is written.
+  A compressed stream has nothing to give at that point but its header.
+- The same with `; charset=utf-8`.
+- An HTML page and a JavaScript file are still gzipped, with `Vary`, and decompress to what was
+  sent.
+
+`productionServer.test.ts` reads the compression pins from the new module and checks that
+`server.mjs` serves through it. Mutation run: the control survives and 4 of 4 mutants are caught:
+an event stream compressed again, only a bare event-stream type recognised, nothing compressed,
+and `server.mjs` serving without it.
+
+**The UI** (R364's two server files copied in). The same agent and prompt in a new chat: the
+`/api/chat` response was not compressed (1,889 bytes either way); its first byte came at 3.4 s and
+it ended at 5.6 s. **The answer appeared at 3.6 s, about two seconds before the response ended**:
+after the text, the stream stays open for the post-turn work, and before the fix nothing showed
+until that work was done. Through a new gateway key ("R364 stream", revoked after), `stream: true`
+on a long answer arrived in 20 chunks, the first at 2.8 s and the last at 6.6 s, one piece of text
+in each; it had arrived in one piece, at the end.
+
+**Left for operators:** a reverse proxy that buffers or gzips does the same to the stream. The
+deployment guide now says so for nginx (`proxy_buffering off`, no `text/event-stream` in
+`gzip_types`). Caddy passes it on.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R363: a caller who hung up was recorded as a failure, or not at all
 
 **Severity: medium (the audit trail and the traces misstated what happened).** Queued in R362 as

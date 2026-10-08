@@ -15,6 +15,14 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R364: does a streamed answer stream?
+
+| Page                                          | What was driven                                                                                      | Result                                                                                                                                             |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| /playground, R347 PII-only agent (R363 build) | New chat, "write the numbers from one to eighty in words"; a page timer recorded the answer's growth | **Defect.** `/api/chat` gzipped (545 bytes for 1,893), first byte 4.3 s, end 6.2 s; the answer appeared in **one step at 6.4 s**                   |
+| the same (R364's server files)                | The same prompt in a new chat                                                                        | Not compressed (1,889 for 1,889); first byte 3.4 s, end 5.6 s; the answer appeared at **3.6 s**                                                    |
+| /integrations, key "R364 stream"              | `stream: true`, numbers to two hundred, timed from Node's fetch                                      | 20 chunks, the first at 2.8 s, the last at 6.6 s, one piece of text each (before: first byte at 3.70 s of 3.70 s, R363). The key was revoked after |
+
 ## 2026-10-08 — R363: AI-gateway calls whose caller hangs up
 
 A test key, "R363 hang-up" (`openrouter/*`, fallback `openrouter/openai/gpt-4o-mini`, $1 a month),
