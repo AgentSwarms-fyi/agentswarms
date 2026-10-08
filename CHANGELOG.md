@@ -203,6 +203,13 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **Calls to a running Builder MCP server take half the time** (R367). Each
+  request through `/api/mcp/s/<slug>` spent 1.2 to 1.5 s before the server saw
+  it, mostly database round trips made one after another and a re-probe of a
+  sandbox the request before had just proved serving. The independent reads now
+  run together, a sandbox seen serving in the last 30 s is not re-probed, and
+  its activity is written every 30 s rather than on every call: a warm request
+  now takes about 0.5 s, and a session's three about 2 s instead of 3.8 s.
 - **A Builder deploy that fails its handshake stops its sandbox** (R366). A
   server that started but did not answer as an MCP server left its sandbox
   running under an app marked Error, holding its CPU and memory until the idle

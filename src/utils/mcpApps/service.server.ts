@@ -5,6 +5,7 @@
 // rather than growing a second copy of all of it. What lives here is only what
 // is genuinely different: scale-to-zero cold starts, the start lease, and the
 // deploy handshake that records what tools the server actually exposes.
+import { recentlyServing, sawServing, touchDue } from "./warmPath";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Database } from "@/integrations/supabase/types";
 import {
@@ -173,11 +174,18 @@ async function waitReady(session: SessionRow, deadline: number): Promise<WaitOut
 /**
  * Return a live endpoint for this app, cold-starting the sandbox if needed.
  *
- * Scale-to-zero means the first call after an idle period pays the start cost;
- * every later call finds the session already ready and does one DB read.
+ * Scale-to-zero means the first call after an idle period pays the start cost.
+ * A later call reads the settings, the owner's grant and the live session at
+ * once, and takes a sandbox this process saw serving moments ago as serving
+ * (R367, see warmPath.ts).
  */
 export async function ensureRunning(app: McpAppRow): Promise<EnsureResult> {
-  const settings = await getRuntimeSettings();
+  // Three round trips at once, not one after another (R367).
+  const [settings, permitted, existing] = await Promise.all([
+    getRuntimeSettings(),
+    canUseRuntime(app.user_id),
+    liveSession(app.id),
+  ]);
   if (!settings.enabled) {
     return fail(
       503,
@@ -185,11 +193,11 @@ export async function ensureRunning(app: McpAppRow): Promise<EnsureResult> {
       "The server runtime is not enabled on this instance, so MCP servers cannot run.",
     );
   }
-  // Re-checked on every cold start, not only at deploy time: revoking an
-  // owner's runtime grant has to actually stop their published servers, and
-  // this is the one place every path (edge request, test console, deploy)
-  // funnels through.
-  if (!(await canUseRuntime(app.user_id))) {
+  // Re-checked on every request, not only at deploy time: revoking an owner's
+  // runtime grant has to actually stop their published servers, and this is
+  // the one place every path (edge request, test console, deploy) funnels
+  // through.
+  if (!permitted) {
     return fail(
       403,
       "not_permitted",
@@ -197,12 +205,19 @@ export async function ensureRunning(app: McpAppRow): Promise<EnsureResult> {
     );
   }
 
+  // Seen serving moments ago: no re-probe, and its activity written only as
+  // often as the idle reaper could need it.
+  if (existing?.status === "ready" && existing.endpoint && recentlyServing(existing.id)) {
+    if (touchDue(existing.last_active_at)) await touch(existing.id);
+    return { ok: true, endpoint: existing.endpoint, session: existing };
+  }
+
   const deadline = Date.now() + COLD_START_MS;
 
-  const existing = await liveSession(app.id);
   if (existing) {
     const outcome = await waitReady(existing, deadline);
     if (outcome.ready && outcome.row.endpoint) {
+      sawServing(outcome.row.id);
       await touch(outcome.row.id);
       return { ok: true, endpoint: outcome.row.endpoint, session: outcome.row };
     }
@@ -219,6 +234,7 @@ export async function ensureRunning(app: McpAppRow): Promise<EnsureResult> {
       if (!s) continue;
       const outcome = await waitReady(s, deadline);
       if (outcome.ready && outcome.row.endpoint) {
+        sawServing(outcome.row.id);
         await touch(outcome.row.id);
         return { ok: true, endpoint: outcome.row.endpoint, session: outcome.row };
       }
@@ -309,6 +325,7 @@ export async function ensureRunning(app: McpAppRow): Promise<EnsureResult> {
       await stopSession(outcome.row).catch(() => {});
       return fail(409, "stopped", STOPPED_WHILE_DEPLOYING);
     }
+    sawServing(outcome.row.id);
     return { ok: true, endpoint: outcome.row.endpoint!, session: outcome.row };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

@@ -1544,9 +1544,10 @@ is locked` until it is restarted. That is the fixture, not this app,
     open from it: Test connection (`src/lib/mcp/probe.functions.ts`)
     opens a session and never ends it.~~ **R360**: it ends it in a
     `finally`; the sandbox's log shows the DELETE.
-  - Each request through `/api/mcp/s/<slug>` costs about 1.1 s before it
-    reaches the sandbox, because `ensureRunning` re-probes it every time.
-    A session is three requests, so an agent tool call costs about 3.8 s.
+  - ~~Each request through `/api/mcp/s/<slug>` costs about 1.1 s before it
+    reaches the sandbox, because `ensureRunning` re-probes it every time.~~
+    **R367**: the re-probe was one part; about eleven database round trips one
+    after another were the rest. A warm request now takes about 0.5 s.
   - The first `tools/call` in a freshly started sandbox took about 10 s,
     against 0.44 s for the same FastMCP with no container limits. It was
     not diagnosed.

@@ -109,6 +109,55 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R367: every call to a Builder MCP server re-proved what the last one had
+
+**Severity: medium (an agent's tool call through a Builder server paid about 3.8 s before the
+server saw it).** Queued since R98 as "`ensureRunning` re-probes it every time".
+
+**Measured from the UI.** MCP Integrations → "R99 hello" (a Builder server) → **Refresh**, warm.
+The app logs each proxied request (`[mcp-endpoint] … duration_ms`): 1,397, 1,223, 1,202, 1,459,
+1,209 and 1,309 ms, about 3.8 s per Refresh's three requests. The sandbox's own log showed a
+readiness `GET /mcp` before every one of the six POSTs. The sandbox answers in milliseconds.
+
+**Where the time went.** Counted, a warm request made about eleven round trips to the database,
+one after another; from the container, one round trip took 140 to 235 ms on a fresh connection.
+Two were the app and the key, read in turn. Seven were in `ensureRunning`: the runtime settings,
+the owner's grant (which read the settings again, then called a function), the live session,
+then `refreshSession` (the settings a third time, a container inspect, the readiness GET, and a
+row update), then a touch. So the queued diagnosis was half right: the re-probe was real, but it
+was one part of the cost.
+
+**What was written.**
+
+- **`warmPath.ts`**, new: a sandbox this server process saw serving within the last 30 s is taken
+  as serving, and its activity is written for the idle reaper at most every 30 s (the idle TTL is
+  minutes). A forward that fails forgets it, so the next request probes again and starts a fresh
+  sandbox if it died.
+- **`ensureRunning`** reads the settings, the grant and the live session at once, and refuses on
+  either check, as before, before it serves anything. The grant is still read on every request:
+  revoking an owner's runtime still stops their servers on the next call.
+- **The proxy** reads the app and the key at once and judges them in the old order, and forgets a
+  sandbox a forward to it failed on.
+
+**Tests:** `mcpWarmPath.test.ts`, new, 11 cases: the window and its end, an unseen session never
+assumed, forgetting, when a touch is due (including no record and an unreadable one), and the
+interval inside any idle limit; by source, the three reads at once with both refusals before the
+warm path, the warm path only for a ready session with an endpoint that was seen, the throttled
+touch, every proved sandbox remembered, the failed forward forgotten, and the parallel auth in the
+old order. Mutation run: the control survives and 9 of 9 mutants are caught. The ten other test
+files that read the service or the proxy pass.
+
+**The UI** (R367 build). The same Refresh, after the restart had cleared every process's record: a
+cold start (initialize 23.7 s; the sandbox had been reaped), then three warm Refreshes. The
+requests took 1,013, 495, 485 / 1,072, 488, 518 / 915, 490, 479 ms: **about 2.0 s a Refresh,
+from 3.8 s**. The sandbox saw 4 readiness GETs for 11 POSTs, from processes that had not yet seen
+it, where it had seen one for each. The card read "Active · 2 tools · 0s ago" each time.
+
+**Left in the queue:** the first request a fresh sandbox serves is still slow (tools/list 12.4 s
+after one cold start, 2.8 s after another), which is the sandbox's own and was not diagnosed.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R366: a Builder deploy that failed its handshake left its sandbox running
 
 **Severity: low (a bounded leak).** Queued since R98.

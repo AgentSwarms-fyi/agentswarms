@@ -36,6 +36,7 @@ import {
   toolsFromListResult,
 } from "@/utils/mcpApps/protocol";
 import { ensureRunning, runningEndpoint, type McpAppRow } from "@/utils/mcpApps/service.server";
+import { forgetServing } from "@/utils/mcpApps/warmPath";
 import { MCP_SERVICE_PATH } from "@/utils/notebookRuntime/orchestrator";
 
 /** Largest request body we will read. MCP arguments are small; this is a guard. */
@@ -151,15 +152,26 @@ async function authenticate(
   const slug = slugOf(request);
   if (!slug) return { ok: false, response: json({ error: "Not found" }, 404) };
 
-  const { data: app } = await supabaseAdmin
-    .from("mcp_apps")
-    .select("*")
-    .eq("slug", slug)
-    .maybeSingle();
+  const raw = (request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
+  const wellFormed = Boolean(raw) && looksLikeMcpApiKey(raw);
+  // The app and the key are read at once (R367): two round trips one after
+  // the other were two of the eleven every request paid. The answers are
+  // judged in the same order as before.
+  const [{ data: app }, { data: key }] = await Promise.all([
+    supabaseAdmin.from("mcp_apps").select("*").eq("slug", slug).maybeSingle(),
+    wellFormed
+      ? supabaseAdmin
+          .from("mcp_app_keys")
+          .select(
+            "id, app_id, is_internal, is_active, expires_at, revoked_at, tool_allowlist, ip_allowlist, use_count",
+          )
+          .eq("key_hash", await hashMcpApiKey(raw))
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+  ]);
   if (!app) return { ok: false, response: json({ error: "Not found" }, 404) };
 
-  const raw = (request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
-  if (!raw || !looksLikeMcpApiKey(raw)) {
+  if (!wellFormed) {
     return {
       ok: false,
       response: json({ error: "Missing or malformed API key" }, 401, {
@@ -167,14 +179,6 @@ async function authenticate(
       }),
     };
   }
-
-  const { data: key } = await supabaseAdmin
-    .from("mcp_app_keys")
-    .select(
-      "id, app_id, is_internal, is_active, expires_at, revoked_at, tool_allowlist, ip_allowlist, use_count",
-    )
-    .eq("key_hash", await hashMcpApiKey(raw))
-    .maybeSingle();
 
   // The key must belong to THIS app: otherwise a key for your own server would
   // open every other server on the instance.
@@ -382,6 +386,9 @@ async function handlePost(request: Request): Promise<Response> {
       request.headers.get("mcp-protocol-version"),
     );
     if (!upstream.ok) {
+      // It was taken as serving (R367); the next request proves it again, and
+      // starts a fresh one if it died.
+      forgetServing(started.session.id);
       return json({ error: "upstream_unreachable", message: upstream.message }, 502, cors);
     }
 

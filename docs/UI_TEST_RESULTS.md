@@ -15,6 +15,13 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R367: how long a call to a Builder MCP server takes
+
+| Page                           | What was driven                                         | Result                                                                                                                                                                |
+| ------------------------------ | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| /mcp, "R99 hello" (R366 build) | **Refresh** twice, warm; the app's `[mcp-endpoint]` log | 1,397 / 1,223 / 1,202 and 1,459 / 1,209 / 1,309 ms per request, ~3.8 s a Refresh; a readiness GET in the sandbox's log before every POST                              |
+| the same (R367 build)          | One cold **Refresh**, then three warm                   | Cold: initialize 23.7 s. Warm: 1,013 / 495 / 485, 1,072 / 488 / 518, 915 / 490 / 479 ms, ~2.0 s a Refresh; 4 readiness GETs for 11 POSTs; "Active · 2 tools · 0s ago" |
+
 ## 2026-10-08 — R366: a Builder server that is not an MCP server, and the R365 real image
 
 | Page                                        | What was driven                                                    | Result                                                                                                                                                                                               |

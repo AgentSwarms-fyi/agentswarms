@@ -232,6 +232,14 @@ The kernel pods have **no direct internet route**. Their only egress is an **HTT
   Exceeding the budget is reported as _still starting_, not as a crash — the
   two are distinguished, because a container that exited needs its traceback
   read while a slow one just needs another attempt.
+- **MCP warm requests** (`SERVING_FOR_MS` and `TOUCH_EVERY_MS`, 30 s each —
+  source constants in `src/utils/mcpApps/warmPath.ts`): a server process that
+  saw an MCP sandbox serving within the last 30 s forwards to it without
+  re-probing it, and writes its activity for the reaper at most every 30 s.
+  Each process keeps its own record, so a cluster re-probes once per worker. A
+  forward that fails clears the record, and the next request probes again and
+  starts a fresh sandbox if the old one died. The owner's runtime grant and the
+  runtime switch are still read on every request.
 
 ### 5.4 Filesystem
 
