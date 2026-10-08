@@ -11,7 +11,9 @@ import { z } from "zod";
 
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import type { Database } from "@/integrations/supabase/types";
+import type { Database, Tables } from "@/integrations/supabase/types";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { toolsFromArray, type JsonValue, type McpTool } from "@/utils/mcpApps/sse";
 import { auditEvent } from "@/utils/audit.server";
 import {
   generateMcpApiKey,
@@ -41,9 +43,9 @@ export type McpAppSummary = {
   secret_refs: string[];
   requested_egress_hosts: string[];
   requirements: string;
-  // `any` rather than `unknown`: an MCP input schema is arbitrary JSON, and the
-  // server-fn serialisation check rejects `unknown` index signatures outright.
-  tools: { name: string; description?: string; inputSchema?: Record<string, any> }[];
+  // An MCP input schema is arbitrary JSON: JsonObject, which the server-fn
+  // serialisation check accepts where it rejects `unknown` index signatures.
+  tools: McpTool[];
   tools_changed_at: string | null;
   tools_approved_at: string | null;
   /**
@@ -66,9 +68,9 @@ const LIST_COLUMNS =
 
 /** Fetch one app under the caller's own RLS, so a foreign id simply isn't found. */
 async function ownedApp(
-  supabase: { from: (t: string) => any },
+  supabase: SupabaseClient<Database>,
   appId: string,
-): Promise<{ ok: true; app: any } | Fail> {
+): Promise<{ ok: true; app: Tables<"mcp_apps"> } | Fail> {
   const { data, error } = await supabase.from("mcp_apps").select("*").eq("id", appId).maybeSingle();
   // R256: twelve actions start here - deploy, stop, delete, save, approve
   // tools - and a failed read answered every one of them "MCP server not
@@ -102,7 +104,9 @@ export const mcpAppGet = createServerFn({ method: "POST" })
     }): Promise<Fail | { ok: true; app: McpAppSummary & { source_code: string } }> => {
       const owned = await ownedApp(context.supabase, data.id);
       if (!owned.ok) return owned;
-      return { ok: true, app: owned.app };
+      // The stored list is what the deploy's handshake read, in this shape;
+      // read back through the same normaliser, it is checked rather than assumed.
+      return { ok: true, app: { ...owned.app, tools: toolsFromArray(owned.app.tools) } };
     },
   );
 
@@ -391,7 +395,7 @@ export const mcpAppTest = createServerFn({ method: "POST" })
       })
       .parse(input),
   )
-  .handler(async ({ data, context }): Promise<Fail | { ok: true; result: any }> => {
+  .handler(async ({ data, context }): Promise<Fail | { ok: true; result: JsonValue }> => {
     const owned = await ownedApp(context.supabase, data.id);
     if (!owned.ok) return owned;
 

@@ -580,12 +580,13 @@ no PR open does not trigger it. No secrets are used; the build gets placeholder
 permanently red has been cleared with `npm run format`, so `npm run lint`
 reports **0 errors** and CI fails on any new one.
 
-Around 151 warnings remain: 89 `@typescript-eslint/no-explicit-any` and 62
+Around 127 warnings remain: 65 `@typescript-eslint/no-explicit-any` and 62
 from react-refresh about non-component exports outside the route files. None
 comes from the react-hooks rule since R323. R342 took 69 `any`s out of seven
 files (the agent form, analytics, quality trends, the dashboard's activity
 chart, knowledge, the playground and the swarm tracer), each by the type the
-value has, and checked each page in the browser. The `any`s sit at untyped external
+value has, and checked each page in the browser. R344 took 24 more at the MCP
+boundary: a JSON-RPC message is an `RpcMessage` of JSON values. The `any`s sit at untyped external
 boundaries — LLM provider responses, the MCP protocol, AlaSQL's UMD
 surface, Supabase `Json`. That rule is deliberately a **warning** rather than an
 error: replacing those with `unknown` plus narrowing is worth doing and is its

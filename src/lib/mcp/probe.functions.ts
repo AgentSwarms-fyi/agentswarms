@@ -13,13 +13,9 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 // against a real server. The shared implementation has no imports of its own
 // precisely so this file can share it.
 import { MCP_CONNECT_BUDGET_MS } from "@/utils/mcpApps/budgets";
-import { readRpcBody } from "@/utils/mcpApps/sse";
+import { readRpcBody, toolsFromListResult, type McpTool } from "@/utils/mcpApps/sse";
 
-type ProbeTool = {
-  name: string;
-  description?: string;
-  inputSchema?: Record<string, any>;
-};
+type ProbeTool = McpTool;
 type ProbeResult = {
   ok: boolean;
   toolsCount: number;
@@ -169,14 +165,7 @@ export const probeMcpServer = createServerFn({ method: "POST" })
         const arr = parsed?.result?.tools;
         if (Array.isArray(arr)) {
           toolsCount = arr.length;
-          tools = arr
-            .filter((t: any) => t && typeof t.name === "string")
-            .map((t: any) => ({
-              name: t.name as string,
-              description: typeof t.description === "string" ? t.description : undefined,
-              inputSchema:
-                t.inputSchema && typeof t.inputSchema === "object" ? t.inputSchema : undefined,
-            }));
+          tools = toolsFromListResult(parsed);
         } else if (parsed?.error?.message) {
           listMsg = `tools/list → ${parsed.error.message}`;
         }

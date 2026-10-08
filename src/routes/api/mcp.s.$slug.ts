@@ -310,17 +310,24 @@ async function handlePost(request: Request): Promise<Response> {
     return json({ error: "payload_too_large" }, 413, cors);
   }
 
-  let body: any;
+  let parsed: unknown;
   try {
-    body = JSON.parse(raw || "{}");
+    parsed = JSON.parse(raw || "{}");
   } catch {
     return json(rpcError(null, -32700, "Parse error"), 400, cors);
   }
-  if (Array.isArray(body)) {
+  if (Array.isArray(parsed)) {
     // Batching was removed in protocol revision 2025-06-18, which is the one we
     // advertise. Accepting it would mean guessing at semantics we don't declare.
     return json(rpcError(null, -32600, "JSON-RPC batching is not supported"), 400, cors);
   }
+  // A request's parts as the caller sent them, each checked where it is read.
+  // Anything but an object has no method, and is refused as one.
+  const body = (parsed && typeof parsed === "object" ? parsed : {}) as {
+    id?: string | number | null;
+    method?: unknown;
+    params?: { name?: unknown };
+  };
 
   const method = typeof body?.method === "string" ? body.method : "";
   if (!FORWARDED_METHODS.has(method)) {

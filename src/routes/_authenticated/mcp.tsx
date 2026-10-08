@@ -37,6 +37,7 @@ import {
   Wifi,
   WifiOff,
   ChevronRight,
+  type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
@@ -44,6 +45,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { probeMcpServer } from "@/lib/mcp/probe.functions";
 import { saveMcpServer } from "@/lib/mcp/servers.functions";
+import type { McpTool } from "@/utils/mcpApps/sse";
 
 export const Route = createFileRoute("/_authenticated/mcp")({
   component: McpPage,
@@ -52,7 +54,13 @@ export const Route = createFileRoute("/_authenticated/mcp")({
 type McpServerType = "database" | "filesystem" | "git" | "api" | "custom";
 type McpAuthType = "none" | "token" | "oauth";
 
-type McpTool = { name: string; description?: string; inputSchema?: Record<string, any> };
+/** A parameter as a tool's input schema describes it; every part is optional. */
+type SchemaParam = {
+  type?: string | string[];
+  enum?: unknown[];
+  anyOf?: unknown[];
+  description?: string;
+};
 type McpServer = {
   id: string;
   name: string;
@@ -66,7 +74,7 @@ type McpServer = {
   last_ping: string | null;
 };
 
-const TYPE_ICON: Record<McpServerType, any> = {
+const TYPE_ICON: Record<McpServerType, LucideIcon> = {
   database: Database,
   filesystem: FolderTree,
   git: GitBranch,
@@ -547,8 +555,12 @@ function AddServerDialog({
 function ToolRow({ tool }: { tool: McpTool }) {
   const [open, setOpen] = useState(false);
   const schema = tool.inputSchema;
-  const props = (schema?.properties ?? {}) as Record<string, any>;
-  const required = new Set<string>(Array.isArray(schema?.required) ? schema!.required : []);
+  const props = (schema?.properties ?? {}) as Record<string, SchemaParam | undefined>;
+  const required = new Set<string>(
+    Array.isArray(schema?.required)
+      ? schema.required.filter((r): r is string => typeof r === "string")
+      : [],
+  );
   const paramEntries = Object.entries(props);
   const hasParams = paramEntries.length > 0;
 
@@ -585,7 +597,7 @@ function ToolRow({ tool }: { tool: McpTool }) {
               </thead>
               <tbody>
                 {paramEntries.map(([name, def]) => {
-                  const d = def as any;
+                  const d = def;
                   const type = d?.type
                     ? Array.isArray(d.type)
                       ? d.type.join(" | ")

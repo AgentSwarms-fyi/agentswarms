@@ -109,6 +109,54 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R344: the MCP boundary, typed as the JSON it is
+
+**Severity: low, code health** (lint warnings). The MCP code held 24 of the 89 remaining `any`s.
+Most came from one source: `SseParseResult = Record<string, any>`. Every caller of `readRpcBody` and
+`parseJsonOrSse` read the message through it unchecked.
+
+**What was written.**
+
+- **`RpcMessage`, in `mcpApps/sse.ts`.** The JSON-RPC envelope (`id`, `method`, `params`, `error`),
+  and a `result` that is a `JsonObject`. A local `JsonValue` type keeps the module import-free, as
+  its header requires, and it has the same structure as the database's `Json`.
+- **The JSON-typed input schema.** It also settles the comment in `mcpApps.functions.ts` that kept
+  `Record<string, any>`, because "the server-fn serialisation check rejects `unknown` index
+  signatures". `JsonObject` is serialisable.
+- **One copy of the tool-list normaliser.** `toolsFromListResult` moved from `protocol.ts` to
+  `sse.ts`, with `toolsFromArray` under it. `probe.functions.ts`, which is bundled into a client
+  route and cannot import `protocol.ts`, had a hand-written second copy. `sse.ts`'s header names that
+  pattern, a second copy, as how the CRLF bug shipped twice. The probe now uses the shared one.
+- **`ownedApp` returns `Tables<"mcp_apps">`.** Its twelve callers are checked against the schema. One
+  real mismatch was behind `any`: the single-app read handed the stored `tools` column, typed `Json`
+  and nullable, to a summary that promises `McpTool[]`. It now reads the column back through the same
+  normaliser that wrote it, which gives the same list for every row the app wrote, and no tools for
+  anything else.
+- **The edge route's request body** is parsed as `unknown`. Only an object is read as a request;
+  anything else has no method and is refused, as before.
+- **`protocol.ts` held two raw NUL bytes** inside the tool fingerprint's template literal, so `grep`
+  called the file binary. They are `\u0000` escapes now: the same character at run time, the same
+  fingerprint.
+- **The rest:** the MCP page's schema parameters, the builder's test result, the icon map, and two
+  tests.
+
+**Tests:**
+
+- tsc and ESLint are clean.
+- The 19 unit test files about MCP pass, the fingerprint's among them.
+
+**The UI**, after the deploy:
+
+- **MCP Integrations, `R99 hello`.** Its greet tool's parameter table read `name · string · Yes`.
+  **Refresh** probed the server through the app's own edge route. The app's runtime started cold,
+  and the probe reported "Discovered 2 tools", the card reading "2 tools · 0s ago".
+- **MCP Builder, the same app.** It opened Running. Selecting greet filled `{"name": ""}` from its
+  schema, and **Call greet** with `{"name": "R344"}` returned `Hello, R344!`.
+
+Warnings go from 151 to 127.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R343: browser checks that timed the server's start, not the pages
 
 **Severity: low, CI** (a check that fails without a defect teaches people to rerun it). The browser

@@ -62,7 +62,8 @@ function statefulServer(opts: { agreed?: string; failCall?: boolean } = {}) {
     }
     if (!("id" in (payload ?? {}))) return new Response(null, { status: 202 });
     if (opts.failCall) throw new Error("connection reset");
-    const name = ((payload?.params as any)?.arguments ?? {}).name;
+    const params = payload?.params as { arguments?: { name?: string } } | undefined;
+    const name = (params?.arguments ?? {}).name;
     return sse({
       jsonrpc: "2.0",
       id: payload?.id,

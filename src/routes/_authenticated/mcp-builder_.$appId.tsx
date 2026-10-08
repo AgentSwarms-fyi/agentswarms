@@ -77,6 +77,7 @@ import {
   type McpKeyRow,
   type McpVersionRow,
 } from "@/utils/mcpApps.functions";
+import type { JsonValue } from "@/utils/mcpApps/sse";
 
 export const Route = createFileRoute("/_authenticated/mcp-builder_/$appId")({
   component: McpAppEditor,
@@ -818,7 +819,7 @@ function ToolsTab({
   onTest: (
     tool: string | undefined,
     args: Record<string, unknown> | undefined,
-  ) => Promise<{ ok: true; result: any } | { ok: false; error: string }>;
+  ) => Promise<{ ok: true; result: JsonValue } | { ok: false; error: string }>;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [argsText, setArgsText] = useState("{}");
@@ -867,7 +868,10 @@ function ToolsTab({
               setSelected(t.name);
               // Prefill the argument object from the schema so the first test
               // click is not a guess at the parameter names.
-              const props = (t.inputSchema?.properties ?? {}) as Record<string, any>;
+              const props = (t.inputSchema?.properties ?? {}) as Record<
+                string,
+                { type?: unknown } | undefined
+              >;
               const stub: Record<string, unknown> = {};
               for (const [k, v] of Object.entries(props)) {
                 stub[k] =

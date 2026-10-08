@@ -108,6 +108,10 @@ and both of those are one advisory that cannot be triggered here (see
   upload, and the versions fetched (pdf.js 4.7.76, mammoth 1.8.0) were not the
   audited ones in the lockfile (4.10.38, 1.13.0). The build now copies them into
   `public/vendor`.
+- **The MCP code reads JSON-RPC as JSON, not `any`** (R344). One `RpcMessage`
+  type for every message the MCP code reads. The tool-list normaliser is one
+  copy, shared by the probe and the server; the probe had kept a second. 24
+  `any`s gone; lint warnings 151 to 127.
 - **The browser checks load each page once before they start** (R343). The
   server answers its health check before it has rendered a page. With four
   checks starting at once on a cold, loaded machine, the first page loads took

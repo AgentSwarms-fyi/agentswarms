@@ -16,8 +16,64 @@
 // conformant server was silently unreadable. Measured against FastMCP 3.4.5
 // behind uvicorn: a tools/list carrying two tools parsed as null.
 
+/** A JSON value, as a body parses to. */
+export type JsonValue =
+  string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue | undefined };
+
+/** A JSON object. */
+export type JsonObject = { [key: string]: JsonValue | undefined };
+
+/**
+ * A JSON-RPC message as read off the wire (R344). Only the envelope is known:
+ * an MCP result is an object whose fields depend on the method, and each is
+ * checked where it is read.
+ */
+export type RpcMessage = {
+  jsonrpc?: string;
+  id?: string | number | null;
+  method?: string;
+  params?: JsonValue;
+  result?: JsonObject;
+  error?: { code?: number; message?: string; data?: JsonValue };
+};
+
 /** A parsed JSON-RPC message, or null if the body carried none we could read. */
-export type SseParseResult = Record<string, any> | null;
+export type SseParseResult = RpcMessage | null;
+
+/** A tool as `tools/list` describes it, in our own shape. */
+export type McpTool = {
+  name: string;
+  description?: string;
+  inputSchema?: JsonObject;
+};
+
+/**
+ * A list of tools in our own shape: an entry without a name is left out, and
+ * anything but a list is no tools. Here, with no imports, so the probe
+ * (bundled into a client route) shares this copy with the server: the same
+ * reason the parser below lives here.
+ */
+export function toolsFromArray(arr: unknown): McpTool[] {
+  if (!Array.isArray(arr)) return [];
+  return arr
+    .filter(
+      (t): t is JsonObject =>
+        !!t && typeof t === "object" && !Array.isArray(t) && typeof t.name === "string",
+    )
+    .map((t) => ({
+      name: t.name as string,
+      description: typeof t.description === "string" ? t.description : undefined,
+      inputSchema:
+        t.inputSchema && typeof t.inputSchema === "object"
+          ? (t.inputSchema as JsonObject)
+          : undefined,
+    }));
+}
+
+/** Normalise whatever `tools/list` returned into our own shape. */
+export function toolsFromListResult(parsed: SseParseResult | undefined): McpTool[] {
+  return toolsFromArray(parsed?.result?.tools);
+}
 
 /**
  * SSE line terminators, per the spec: CRLF, LF or a bare CR — all three, in
@@ -33,8 +89,8 @@ const LINE_BREAK = /\r\n|\r|\n/;
  * the first object seen would hand the caller a log line in place of its
  * result, which reads downstream as "the server returned nothing".
  */
-function isResponse(msg: any): boolean {
-  return Boolean(msg) && typeof msg === "object" && ("result" in msg || "error" in msg);
+function isResponse(msg: unknown): boolean {
+  return typeof msg === "object" && msg !== null && ("result" in msg || "error" in msg);
 }
 
 /**
@@ -91,8 +147,8 @@ function pick(payloads: string[]): { response: SseParseResult; first: SseParseRe
       continue; // keep scanning: a stream can carry partial or non-JSON frames
     }
     if (!parsed || typeof parsed !== "object") continue;
-    if (isResponse(parsed)) return { response: parsed as Record<string, any>, first };
-    if (!first) first = parsed as Record<string, any>;
+    if (isResponse(parsed)) return { response: parsed as RpcMessage, first };
+    if (!first) first = parsed as RpcMessage;
   }
   return { response: null, first };
 }

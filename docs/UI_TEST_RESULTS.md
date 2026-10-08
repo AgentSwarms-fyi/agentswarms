@@ -15,6 +15,15 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R344: the MCP pages after their types
+
+| Page                          | What was driven                                    | Result                                                  |
+| ----------------------------- | -------------------------------------------------- | ------------------------------------------------------- |
+| MCP Integrations, `R99 hello` | expanded greet's parameters                        | `name · string · Yes`                                   |
+| MCP Integrations, `R99 hello` | **Refresh** (probe through the edge, cold runtime) | "Discovered 2 tools"; "2 tools · 0s ago" (was 338h ago) |
+| MCP Builder, `R99 hello`      | selected greet                                     | arguments filled from its schema: `{"name": ""}`        |
+| MCP Builder, `R99 hello`      | **Call greet** `{"name": "R344"}`                  | `Hello, R344!` in the result's content                  |
+
 ## 2026-10-08 — R342: the pages whose `any`s were typed
 
 After the deploy, each page the change touched:
