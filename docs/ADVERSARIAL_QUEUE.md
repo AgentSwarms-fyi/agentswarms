@@ -205,9 +205,12 @@ least twice, not a hypothetical.
   object-storage crawl throws on a failed listing; the warehouse crawl's only
   catch is row estimates; the knowledge-base connectors throw on an empty
   listing, and their other skips (folder depth, the item cap, unsupported
-  types) are deliberate. Still to read for it: the SaaS syncs
-  (`utils/saas/sync.server.ts`), the ETL auto-ingest ledger, and the
-  lakehouse's Iceberg mounts.
+  types) are deliberate. Read in R372: the SaaS syncs remove nothing (their
+  one delete, `resetStreamCursor`, has no caller), and a failed cursor read
+  costs a full re-read, not data; the ETL auto-ingest raises on a failed
+  listing and its ledger only moves forward. The lakehouse's Iceberg catalog
+  sync was the class: **R372**, a failed read of the catalog list detached
+  every catalog.
 
 3.  **A cause named that the evidence cannot support.** R31's freshness test, and
     Prompt Compare crowning the model that failed fastest. R63's dashboard

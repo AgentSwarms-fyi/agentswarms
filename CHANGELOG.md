@@ -203,6 +203,12 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **A failed read of the Iceberg catalog list no longer detaches every
+  catalog** (R372). Each engine connection syncs its attached Iceberg catalogs
+  against their list every 15 seconds, and a read of that list that failed was
+  taken for an empty list: every catalog was detached, and queries on mounted
+  Iceberg schemas failed until a later sync attached them again. A list that
+  cannot be read now changes nothing.
 - **A website source no longer deletes a page that failed to load once**
   (R371). A page answering 503, 429 or timing out during a sync was taken for
   removed from the site: its document, chunks and access list were deleted,

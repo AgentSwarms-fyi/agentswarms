@@ -15,6 +15,16 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-09 — R372: a mounted Iceberg schema after the catalog-sync fix
+
+The defect (every Iceberg catalog detached after one failed read of their list) cannot be made to
+happen from a page; it was shown by `icebergCatalogReadFails.test.ts`. This row checks the ordinary
+path on the fixed build.
+
+| Page                    | What was driven                                                                | Result                                                                     |
+| ----------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
+| /lakehouse (R372 build) | `SELECT count(*) AS n FROM ice_sales.revenue_facts`, lakehouse engine, **Run** | `n` 836, no error; the explorer lists `ice_sales (1)`, `revenue_facts 836` |
+
 ## 2026-10-09 — R371: syncing a website whose page failed once
 
 A throwaway site, `r371-fake-site` (a Python server on the app's network: `/`, `/a`, `/b`, and a

@@ -117,10 +117,20 @@ export async function ensureIcebergCatalogs(c: DuckDBConnection, force = false):
   const now = Date.now();
   if (!force && now - lastSync < SYNC_MS) return;
   lastSync = now;
-  const { data: rows } = await supabaseAdmin
+  const { data: rows, error } = await supabaseAdmin
     .from("iceberg_catalogs")
     .select("*")
     .eq("is_active", true);
+  // FOUND BY READING (R372). This dropped its error, so a read that failed
+  // answered no catalogs and every attached catalog was detached below: a
+  // query on a mounted schema then failed until a later sync attached it
+  // again. A list that could not be read changes nothing.
+  if (error) {
+    console.warn(
+      `[lakehouse] Iceberg catalogs not synced: their list could not be read: ${error.message}`,
+    );
+    return;
+  }
   const live = new Set<string>();
   for (const row of (rows ?? []) as IcebergCatalogRow[]) {
     live.add(row.id);

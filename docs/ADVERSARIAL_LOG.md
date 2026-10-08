@@ -109,6 +109,38 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-09 — R372: a failed read of the Iceberg catalog list detached every catalog
+
+**Severity: low to medium (queries on mounted Iceberg schemas failing for a while, after any blip in
+one read).** Found by reading, for the class R369 and R371 made a queue entry of; not shown in the UI,
+which cannot make that one read fail.
+
+**What it did.** Each lakehouse engine connection keeps its Iceberg catalogs attached by syncing, at
+most every 15 s, against the active rows of `iceberg_catalogs`: it attaches the ones it lacks and
+detaches the ones no longer listed (`ensureIcebergCatalogs`). The read dropped its error, so a read
+that failed answered no rows, and every attached catalog was detached as removed. A query on a mounted
+schema (`ice_sales.revenue_facts`, say) then failed until a later sync read the list and attached it
+again, and a catalog that failed to attach waits five minutes before the next try.
+
+**Shown by a test** that runs `ensureIcebergCatalogs` with the database client mocked and a connection
+that records its SQL: the list read with one catalog attached it (`ATTACH …`); a read that failed then
+ran **`DETACH DATABASE IF EXISTS "ice_11111111…"`** on the code before the fix.
+
+**What was written.** A read of the list that fails is warned of and changes nothing; only a list
+that was read and no longer names a catalog detaches it.
+
+**Tests:** `icebergCatalogReadFails.test.ts`, new: attached, kept through a failed read, detached when
+a list that was read no longer has it. The other seven test files that read the module pass. Mutation
+run: the control survives and 3 of 3 mutants are caught: the failed read carried on from, not looked
+at, and a removed catalog left attached.
+
+**The UI** (R372 build): Lakehouse, `SELECT count(*) AS n FROM ice_sales.revenue_facts` on the
+lakehouse engine: `n` 836, as the explorer lists the table.
+
+**The class, read through** (with R369 and R371): the object-storage crawl, the warehouse crawl, the
+knowledge-base connectors, the SaaS syncs and the ETL auto-ingest do not act on an unreadable answer;
+the Iceberg crawl (R369), the website sync (R371) and this sync did.
+
 ### 2026-10-09 — R371: a website page that failed to load once was deleted from the knowledge base
 
 **Severity: medium (documents, their chunks and their access lists deleted by a transient error,
