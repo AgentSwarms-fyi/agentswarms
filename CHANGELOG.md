@@ -108,6 +108,10 @@ and both of those are one advisory that cannot be triggered here (see
   upload, and the versions fetched (pdf.js 4.7.76, mammoth 1.8.0) were not the
   audited ones in the lockfile (4.10.38, 1.13.0). The build now copies them into
   `public/vendor`.
+- **The browser checks load each page once before they start** (R343). The
+  server answers its health check before it has rendered a page. With four
+  checks starting at once on a cold, loaded machine, the first page loads took
+  24 to 55 s, and one ran past its 60 s budget in three local gates.
 - **69 `any` types replaced by the types the values have** (R342), in the agent
   form, analytics, quality trends, the dashboard's activity chart, knowledge,
   the playground and the swarm tracer. Recharts is imported as it is: the casts

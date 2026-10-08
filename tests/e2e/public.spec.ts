@@ -5,6 +5,7 @@
 // then used: the docs navigate on the client, and the sign-in card switches
 // to sign-up, which only happens if the page hydrated.
 import { expect, test, type Page } from "@playwright/test";
+import { PAGES } from "./pages";
 
 /**
  * Console errors that say something about the environment, not the page: a
@@ -30,22 +31,6 @@ async function settled(page: Page) {
   await page.waitForLoadState("networkidle");
   await expect(page.locator("text=/Something went wrong|Application error/i")).toHaveCount(0);
 }
-
-/** The text a page must show; by default, any first-level heading. */
-const PAGES: { path: string; shows?: string }[] = [
-  { path: "/" },
-  { path: "/login", shows: "Sign in to your account" },
-  { path: "/docs" },
-  { path: "/docs/swarms" },
-  { path: "/docs/knowledge" },
-  { path: "/docs/self-hosting" },
-  { path: "/security" },
-  { path: "/architecture" },
-  { path: "/about" },
-  { path: "/privacy" },
-  { path: "/terms" },
-  { path: "/license" },
-];
 
 /** The visible copy of a text: some pages render one for wide screens and one for narrow. */
 const shown = (page: Page, text: string) => page.getByText(text).filter({ visible: true }).first();

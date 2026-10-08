@@ -109,6 +109,39 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R343: browser checks that timed the server's start, not the pages
+
+**Severity: low, CI** (a check that fails without a defect teaches people to rerun it). The browser
+checks (R324) failed in three local gates, each time the same way:
+
+- **R333:** the first four pages timed out on a cold start.
+- **R339:** the same, with the machine loaded; typecheck took 272 s, not 118.
+- **R342:** `/` ran past its 60 s budget waiting for the network to go quiet.
+
+The other pages took 24 to 55 s, then 2 to 4 s once warm. Rerun alone, all 14 passed each time.
+
+**Why.** Playwright starts `node server.mjs` and waits for `/api/health`. The server answers that
+before it has rendered a page. The first page of each kind then reads its server code and assets from
+disk and compiles them, and with `fullyParallel` four workers did that at once. On this machine's
+hard disk, under the gate's load, the first loads were the slow ones. The pages were never at fault.
+
+**What was written.**
+
+- **A setup project, `tests/e2e/warm.setup.ts`.** It loads every page once, one at a time, with 90 s
+  each. It asserts nothing; a broken page fails in `public.spec.ts`, which says how.
+- **The checks depend on it** (`dependencies: ["warm"]`), so they time pages, not the server's
+  first start.
+- **The page list** moved to `tests/e2e/pages.ts`, shared by both.
+- **`e2eSuiteWired.test.ts`** pins the dependency, and that the warm-up walks the same list.
+
+**Measured.** In a local run the warm-up took 24.3 s. The checks then took 13 to 19 s for the first
+page each worker loaded, as four new browsers fetch every asset at once, and 2 to 4 s after that. All
+15 passed: the warm-up and the 14 checks.
+
+**In the full gate**, the setting that failed: the warm-up took 30.0 s. The first checks then took 5.8
+to 12.5 s, against 24 to 55 s before, and the rest 1.8 to 3.4 s. All 15 passed, and the gate passed
+in full.
+
 ### 2026-10-08 — R342: 69 `any`s, and a Recharts workaround past its reason
 
 **Severity: low, code health** (lint warnings, one of the gaps listed at the start of this run).

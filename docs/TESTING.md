@@ -42,7 +42,11 @@ npm run build
 npm run test:e2e
 ```
 
-The config starts `node server.mjs` itself on port 4173 (`E2E_PORT`). CI
+The config starts `node server.mjs` itself on port 4173 (`E2E_PORT`). Before
+the checks, a setup project (`warm.setup.ts`) loads each page once, one at a
+time (R343). The server answers its health check before it has rendered a page,
+and on a cold, loaded machine the first four pages, loaded at once, took 24 to
+55 s, so one ran past the 60 s budget in three local gates. CI
 installs Playwright's Chromium; locally, `E2E_CHANNEL=chrome` drives the
 Chrome you already have instead of downloading one. They need no backend and
 no secrets: the pages covered render without a session. Signed-in pages are

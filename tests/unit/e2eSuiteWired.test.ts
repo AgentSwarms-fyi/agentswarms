@@ -40,6 +40,17 @@ describe("the checks", () => {
     expect(pkg.devDependencies["@playwright/test"]).toBeTruthy();
   });
 
+  it("load each page once before the timed checks, which wait for that (R343)", () => {
+    expect(config).toMatch(/name: "warm", testMatch: "warm\.setup\.ts"/);
+    expect(config).toMatch(/testMatch: "\*\*\/\*\.spec\.ts",\s*dependencies: \["warm"\]/);
+    const warm = readFileSync("tests/e2e/warm.setup.ts", "utf8");
+    expect(warm).toContain('import { PAGES } from "./pages";');
+    expect(warm).toMatch(/for \(const \{ path \} of PAGES\)/);
+    expect(readFileSync("tests/e2e/public.spec.ts", "utf8")).toContain(
+      'import { PAGES } from "./pages";',
+    );
+  });
+
   it("are left out of Vitest", () => {
     expect(readFileSync("vitest.config.ts", "utf8")).toMatch(/exclude: \[[^\]]*"tests\/e2e\/\*\*"/);
   });

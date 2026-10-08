@@ -13,9 +13,16 @@ import { defineConfig, devices } from "@playwright/test";
 
 const PORT = Number(process.env.E2E_PORT || 4173);
 
+const browser = {
+  ...devices["Desktop Chrome"],
+  // CI installs Playwright's Chromium (`npx playwright install chromium`).
+  // E2E_CHANNEL=chrome drives the Chrome already installed instead, so a
+  // local run needs no browser download.
+  ...(process.env.E2E_CHANNEL ? { channel: process.env.E2E_CHANNEL } : {}),
+};
+
 export default defineConfig({
   testDir: "tests/e2e",
-  testMatch: "**/*.spec.ts",
   timeout: 60_000,
   expect: { timeout: 15_000 },
   fullyParallel: true,
@@ -29,15 +36,14 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   projects: [
+    // Each page loaded once before the checks, so they time pages, not the
+    // server's first start (R343: warm.setup.ts says what that cost).
+    { name: "warm", testMatch: "warm.setup.ts", use: { ...browser } },
     {
       name: "chromium",
-      use: {
-        ...devices["Desktop Chrome"],
-        // CI installs Playwright's Chromium (`npx playwright install chromium`).
-        // E2E_CHANNEL=chrome drives the Chrome already installed instead, so a
-        // local run needs no browser download.
-        ...(process.env.E2E_CHANNEL ? { channel: process.env.E2E_CHANNEL } : {}),
-      },
+      testMatch: "**/*.spec.ts",
+      dependencies: ["warm"],
+      use: { ...browser },
     },
   ],
   webServer: {
