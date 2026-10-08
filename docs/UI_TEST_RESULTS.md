@@ -15,6 +15,17 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-09 — R370: a failed catalog source, said in words
+
+| Page                   | What was driven                                | Result                                                                                                                                                                                        |
+| ---------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| /data-sql (R369 build) | After R369's re-crawl with the catalog stopped | **Defect.** Row "R369 fake catalog 2", a 6 px red dot; the reason only in the dot's and the row's `title`; the page's text mentions it nowhere                                                |
+| the same (R370 build)  | Load the page                                  | Row "R369 fake catalog failed 2"; bar: "The last crawl of “R369 fake catalog” failed: Iceberg: http://r369-fake-iceberg:8181 could not be reached: its host name does not resolve · Re-crawl" |
+| the same               | Catalog started; **Re-crawl** in the bar       | "Crawled 'R369 fake catalog' — 2 assets, 6 columns" (3.3 s); the bar gone; the row no longer "failed"                                                                                         |
+
+The source "R369 fake catalog" was then removed (with its two assets) and the `r369-fake-iceberg`
+container deleted.
+
 ## 2026-10-08 — R369: re-crawling an Iceberg catalog that is down
 
 A throwaway catalog, `r369-fake-iceberg` (a Python server in `python:3.12-slim` on the app's

@@ -203,6 +203,11 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **A catalog source whose last crawl failed says so on the page** (R370). It
+  showed a red dot 6 px wide and the reason only in a hover title, so a
+  scheduled crawl that failed overnight told nobody. The source's row now
+  reads "failed", and a bar above the assets says which source failed and why,
+  with a Re-crawl button for its owner.
 - **A catalog crawl that cannot read an Iceberg catalog no longer empties it**
   (R369). Every failure in the crawl was passed over, so a catalog that was
   down read as one with no tables: the crawl said "0 assets · 2 removed",

@@ -109,6 +109,46 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-09 — R370: a catalog source's failed crawl was said only in a hover title
+
+**Severity: medium (a failure, scheduled or not, that the page did not say).** From the sweep the
+queue proposed in R185, "a failure carried only by a `title=`"; shown in R369.
+
+**Shown from the UI.** After R369's stopped-catalog re-crawl, the Sources list's row for "R369 fake
+catalog" read **"R369 fake catalog 2"** beside a red dot 6 px wide. The reason, "Iceberg:
+http://r369-fake-iceberg:8181 could not be reached: its host name does not resolve", was in that
+dot's `title` and the row button's `title`, and the page's text mentioned it nowhere. A toast said it
+for four seconds after a Re-crawl; a scheduled crawl has no toast.
+
+**The sweep.** `title=\{.*(error|fail)` across the components finds fifteen or so. Most add detail
+to a state the page already says in words: budgets read "unknown", the status band "could not be
+read", a trace node its status, SaaS and Slack rows in red text. Two did not: this one, and the
+Lakehouse Iceberg dialog's "not attached" badge, whose reason is only in its `title` (left in the
+queue: no registered catalog is failing to show it).
+
+**What was written.**
+
+- **`crawlFailures(sources, filter)`** (`src/lib/catalogCrawlFailures.ts`), new: the failed sources
+  the page is showing (all of them under **All assets**, or the one picked), each with its reason
+  trimmed, or "No reason was recorded."
+- **The Data Catalog** shows a bar above the assets, one line per failed source (three, then "…and
+  N more"): "The last crawl of “name” failed: reason", with **Re-crawl** for the source's owner. The
+  failed source's row reads **failed** beside its dot, so the state is not colour alone.
+
+**Tests:** `catalogCrawlFailures.test.ts`, new, 6 cases: which failures are said under All assets and
+under one source, none for a ready or crawling source, a missing reason said as such; by source, the
+page works them out, says each with its reason and Re-crawl for the owner, and marks the row in
+words. Mutation run: the control survives and 7 of 7 mutants are caught. The other tests that read
+the catalog page pass.
+
+**The UI** (R370 build), the same failed source. The row read **"R369 fake catalog failed 2"**, and
+the bar: **"The last crawl of “R369 fake catalog” failed: Iceberg: http://r369-fake-iceberg:8181
+could not be reached: its host name does not resolve · Re-crawl"**. The catalog started again,
+**Re-crawl** in the bar: "Crawled 'R369 fake catalog' — 2 assets, 6 columns" at 3.3 s, the bar gone
+and the row no longer "failed". The source was then removed and its container deleted.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R369: a crawl that could not read its Iceberg catalog emptied it
 
 **Severity: high (curated metadata deleted, and tag policies with it, by a network failure).**

@@ -418,6 +418,11 @@ stays as it was. A namespace or table that cannot be read keeps what was
 catalogued from it (its owner, description and tags included), and the crawl
 says how many parts it could not read.
 
+A source whose last crawl failed reads **failed** in the Sources list, and a
+bar above the assets names it with the reason, for every failed source when
+**All assets** is selected or for the one picked. Its owner can **Re-crawl**
+from the bar; the bar goes once a crawl succeeds.
+
 One crawl of a source runs at a time. A crawl claims its source by moving it to
 "crawling", so a second **Re-crawl** says one is already running, and a
 scheduled pass leaves the source alone (R315). A crawl that died leaves its

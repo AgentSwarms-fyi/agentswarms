@@ -114,6 +114,7 @@ import {
   type SaasSource,
 } from "@/lib/catalogSources";
 import { SCHEDULE_LABELS, scheduleSummary } from "@/lib/saasSchedule";
+import { crawlFailures } from "@/lib/catalogCrawlFailures";
 import { listSaasConnections, setSaasSchedule, syncSaasConnection } from "@/utils/saas.functions";
 import { SAAS_LABELS } from "@/utils/saas/types";
 import type { SaasConnectionSummary, SyncSchedule } from "@/utils/saas/types";
@@ -421,6 +422,11 @@ export function CatalogView({
       return q.split(/\s+/).every((part) => hay.includes(part));
     });
   }, [allAssets, search, sourceFilter, typeFilter, piiOnly, certOnly]);
+
+  // Sources whose last crawl failed, said in words (R370): a scheduled crawl
+  // fails with nobody watching, and a red dot with a hover title said it to
+  // nobody else.
+  const failures = useMemo(() => crawlFailures(sources, sourceFilter), [sources, sourceFilter]);
 
   async function recrawl(source: CatalogSource) {
     if (!ownsSource(source))
@@ -897,6 +903,9 @@ export function CatalogView({
                     />
                   )}
                   {statusDot(s)}
+                  {s.status === "error" ? (
+                    <span className="text-[10px] font-medium text-destructive">failed</span>
+                  ) : null}
                   <span className="ml-auto text-[10px] text-muted-foreground">
                     {assetCountBySource.get(s.id) ?? 0}
                   </span>
@@ -1034,6 +1043,36 @@ export function CatalogView({
           </span>
         </div>
 
+        {failures.length > 0 ? (
+          <div
+            className="space-y-1 border-b border-destructive/30 bg-destructive/5 px-3 py-1.5 text-xs text-destructive"
+            data-testid="catalog-crawl-failures"
+            role="status"
+          >
+            {failures.slice(0, 3).map((f) => {
+              const failed = sources.find((s) => s.id === f.id);
+              return (
+                <div key={f.id} className="flex items-center gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  <span className="min-w-0 flex-1">
+                    The last crawl of “{f.name}” failed: {f.reason}
+                  </span>
+                  {failed && ownsSource(failed) ? (
+                    <button
+                      type="button"
+                      className="underline disabled:opacity-50"
+                      disabled={crawlingIds.has(f.id)}
+                      onClick={() => void recrawl(failed)}
+                    >
+                      Re-crawl
+                    </button>
+                  ) : null}
+                </div>
+              );
+            })}
+            {failures.length > 3 ? <div>…and {failures.length - 3} more.</div> : null}
+          </div>
+        ) : null}
         {localError ? (
           <div
             className="flex items-center gap-2 border-b border-amber-300/60 bg-amber-50 px-3 py-1.5 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300"

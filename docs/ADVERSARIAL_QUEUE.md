@@ -191,7 +191,11 @@ least twice, not a hypothetical.
     `last_error` only in that dot's and the row's `title`. Shown in R369, with
     a throwaway catalog stopped after it was saved: the dot and both titles
     read "Iceberg: http://r369-fake-iceberg:8181 could not be reached…", and
-    nothing on the page said it in words once the toast had gone. Next.
+    nothing on the page said it in words once the toast had gone. **R370**:
+    the row reads "failed" and a bar above the assets gives the reason, with
+    Re-crawl. Left from the sweep: the Lakehouse Iceberg dialog's "not
+    attached" badge carries its reason in a `title` too; no catalog there is
+    failing to show it.
 3.  **A cause named that the evidence cannot support.** R31's freshness test, and
     Prompt Compare crowning the model that failed fastest. R63's dashboard
     chip is the degenerate case: a count of `last_status = 'error'` on a
