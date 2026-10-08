@@ -15,6 +15,13 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R354: a chat turn's tool calls on its trace
+
+| Page                                         | What was driven                                  | Result                                                                                                                                                                                             |
+| -------------------------------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| /playground, Predictive Analyst (R354 build) | "List my ML models by name only. Use your tool." | The models, listed                                                                                                                                                                                 |
+| /traces, that turn (13:28:16)                | Open it                                          | **Tool Calls (2)**: `ml_list_models` `{}`, then `ml_list_models · result` `{"models":[{"name":"revenue_facts · groups",…` (before R354, the same question's trace at 13:01:44 had no such section) |
+
 ## 2026-10-08 — R353: traces, approvals, an upload
 
 | Page                                  | What was driven                                                                                                   | Result                                                                                                                                                                                  |

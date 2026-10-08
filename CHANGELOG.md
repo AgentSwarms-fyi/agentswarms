@@ -177,6 +177,10 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **A chat turn's trace shows the tools it called** (R354). Every trace row
+  `/api/chat` wrote said `tool_calls: []`; the calls were only in the raw
+  request payload, so the Traces page's Tool Calls section never appeared for
+  a chat turn. The row now records each call and its result.
 - **A message sent right after New Chat stays out of the previous chat**
   (R352). New Chat switched to the new conversation only once its insert came
   back. A message sent in that moment was saved to, and answered in, the chat

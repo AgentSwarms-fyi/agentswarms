@@ -109,6 +109,38 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R354: a chat turn's trace said it called no tools
+
+**Severity: low to medium (observability).** Anyone reviewing a turn on the Traces page saw no
+tool calls for any chat turn.
+
+**Found from the UI (R353).** A Predictive Analyst turn, "List my ML models by name only. Use your
+tool.", called `ml_list_models`. Its trace (13:01:44) had no Tool Calls section. The call and its
+result were in the request payload's `toolEvents`, visible only in the raw JSON. `/api/chat`'s
+trace row set `tool_calls: []` on every write, and the page's section reads that column.
+
+**What was written.**
+
+- **`lib/traceToolCalls.ts`**: `traceToolCalls(toolEvents)` keeps the agent loop's `tool_call` and
+  `tool_result` events, the shape the page already reads, and is `[]` for a turn with none.
+- **The chat route's trace row** writes `tool_calls: bodyJson(traceToolCalls(…))`. Like the
+  payload, it honours `PERSIST_PROMPT_BODIES`: with bodies off, no argument or preview is
+  stored.
+
+**Tests:** `traceToolCalls.test.ts`, new, 5 cases.
+
+- That turn's two events are kept in order.
+- Nothing is recorded for a turn with no tool, and only the loop's events are kept.
+- The route writes the column, and the page reads it.
+
+Mutation run: the control survives and 3 of 3 mutants are caught.
+
+**The UI** (R354 build): the same question to Predictive Analyst. Its trace (13:28:16) shows
+**Tool Calls (2)**: `ml_list_models` with `{}`, then `ml_list_models · result` with the start of
+the registry's answer.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R353: trace, approval and dataset code read JSON as `any`
 
 **Severity: low, code health** (14 `any`s).

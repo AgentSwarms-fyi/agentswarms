@@ -732,7 +732,8 @@ least twice, not a hypothetical.
       but the summary read "User's email address is r348.check@example.test", and the trace of the
       next turn shows that summary in the system prompt. The email reached the summary model and
       then the agent's model.
-    - **A chat turn's trace says it called no tools** (seen in R353, next: R354). `/api/chat`
+    - ~~**A chat turn's trace says it called no tools**~~ (seen in R353). **R354**: the row's
+      `tool_calls` carries the turn's events. `/api/chat`
       writes `tool_calls: []` on every trace row, while the turn's `toolEvents` sit in its request
       payload. The Traces page's Tool Calls section reads the column, so a turn that called
       `ml_list_models` showed no tool call, and its provenance said "0 data reads".

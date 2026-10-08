@@ -488,6 +488,7 @@ type TraceContext = {
 // runtime, BI Agent, KB ingestion, memory work, etc. all price the same
 // model the same way.
 import { bodyJson, bodyText } from "@/utils/observability/redaction.server";
+import { traceToolCalls } from "@/lib/traceToolCalls";
 import {
   MAX_BODY_CHARS,
   MAX_MESSAGES,
@@ -700,7 +701,8 @@ async function recordTrace(opts: {
       response_payload: bodyJson(
         skipResponsePayload ? null : { preview: sanitizeTraceValue(assistantText.slice(0, 2000)) },
       ),
-      tool_calls: [],
+      // The turn's tool calls, where the Traces page reads them (R354).
+      tool_calls: bodyJson(traceToolCalls(safePayload.toolEvents)),
     };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error } = await (sb.from("execution_traces") as any).upsert(insertRow);
