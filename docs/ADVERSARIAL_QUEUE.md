@@ -732,8 +732,8 @@ least twice, not a hypothetical.
       but the summary read "User's email address is r348.check@example.test", and the trace of the
       next turn shows that summary in the system prompt. The email reached the summary model and
       then the agent's model.
-    - **A message sent right after New Chat lands in the previous conversation** (seen in R350,
-      next: R352). `createConversation` awaits the insert before it switches `activeConvo`; a
+    - ~~**A message sent right after New Chat lands in the previous conversation**~~ (seen in
+      R350). **R352**: New Chat leaves the chat on screen before its insert. `createConversation` awaits the insert before it switches `activeConvo`; a
       message sent in that gap is saved to, and answered in, the conversation on screen before.
       The R350 check's first turn ("Remember this: my project codename is BLUE HERON") went into
       the r348 conversation, and the new chat began at turn 2.

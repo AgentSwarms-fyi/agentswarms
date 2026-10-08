@@ -172,6 +172,13 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **A message sent right after New Chat stays out of the previous chat**
+  (R352). New Chat switched to the new conversation only once its insert came
+  back. A message sent in that moment was saved to, and answered in, the chat
+  that had been on screen, with its history, while the new chat showed only
+  the reply. New Chat now leaves the old chat first, so the message box is
+  disabled until the new one exists. If the new chat cannot be made, it
+  returns to the old one.
 - **An agent's conversation summary keeps up past 500 messages** (R350). With
   short-term memory, an agent is sent the last messages (20 by default) and a
   summary of everything older. The summary was folded from the conversation's

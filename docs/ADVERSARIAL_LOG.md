@@ -109,6 +109,48 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R352: a message sent right after New Chat went to the previous chat
+
+**Severity: medium.** A message could land in the wrong conversation: saved there, answered from
+that conversation's history, and missing from the chat the person was looking at.
+
+**Found from the UI (R350), reproduced in R352.** Agent Chat, R347 fixture. **New Chat**, then
+the message box, then "R352 race probe. Reply with just OK." and Enter, without pausing.
+
+- The new chat showed a lone "OK." with no message above it, and kept nothing.
+- The probe and its reply were in the conversation that had been on screen before (the R350
+  "New Chat"), after its earlier twelve turns.
+- R350's first attempt lost its codename turn the same way.
+
+**Cause.** `createConversation` awaited the insert, then set `activeConvo` and cleared the
+messages. Until the insert came back, the chat on screen was still active: the message box was
+enabled, and a send used its id and its history.
+
+**What was written.** `createConversation` remembers the chat on screen, then sets `activeConvo`
+to empty and clears the messages before the insert. With no conversation active, the message box
+and the send button are disabled, as they already were for a page with no chat. If the insert
+fails, it goes back to the remembered chat. With no chat before, the R206 "nowhere to write yet"
+message still shows.
+
+**Tests:** `chatConversationStart.test.ts` gains three cases (pinned by source, as its R206 ones
+are; both writes are in the route file):
+
+- The chat on screen is left before the insert.
+- A failed insert goes back to it.
+- A send needs an active conversation.
+
+Mutation run: the control survives and 2 of 2 mutants are caught.
+
+**The UI** (R352 build), the same sequence with "R352 second probe":
+
+- What was typed while the chat was being made was dropped, and the box was empty and enabled
+  again.
+- The new chat held nothing, and neither did the chat on screen before it, nor the older one.
+- In the new chat, "R352 settled probe. Reply with just OK." was saved there, answered "OK", and
+  titled the chat.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R351: the PII guardrail covered only the newest message
 
 **Severity: high (privacy).** An agent set to redact PII sent a redacted value to the model, raw,

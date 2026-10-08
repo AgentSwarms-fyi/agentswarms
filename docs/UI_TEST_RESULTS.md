@@ -15,6 +15,16 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R352: a message sent right after New Chat
+
+| Page                                   | What was driven                                                             | Result                                                                                                                                                                       |
+| -------------------------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| /playground, R347 fixture (R351 build) | **New Chat**, then at once "R352 race probe. Reply with just OK." + Enter   | **Defect.** The new chat showed a lone "OK." and kept nothing; the probe and its reply were saved in the chat on screen before (after its twelve earlier turns)              |
+| the same (R352 build)                  | **New Chat**, then at once "R352 second probe. Reply with just OK." + Enter | Nothing was sent: the typing landed while the box was disabled. The box was empty and enabled again; the new chat, the chat before it and the older one held no second probe |
+| the new chat                           | "R352 settled probe. Reply with just OK."                                   | Saved and answered ("OK") in the new chat, which took the message as its title                                                                                               |
+
+The probe conversations are kept with the fixture.
+
 ## 2026-10-08 — R351: a redacted value, on the turns after
 
 | Page                                            | What was driven                                            | Result                                                                                                                                                                                        |

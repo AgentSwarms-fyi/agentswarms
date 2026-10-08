@@ -545,6 +545,14 @@ function PlaygroundPage() {
 
   async function createConversation() {
     if (!user || !selectedAgent) return;
+    // Leave the chat on screen before the new one exists (R352). The insert
+    // takes a moment, and a message sent in it went to the chat that was on
+    // screen: saved there, answered there, with that chat's history, while
+    // the new chat showed only the reply. With no conversation active the
+    // composer is disabled until the new one is ready.
+    const previous = activeConvo;
+    setActiveConvo("");
+    setMessages([]);
     const { data, error } = await supabase
       .from("conversations")
       .insert({
@@ -560,6 +568,8 @@ function PlaygroundPage() {
       const why = error?.message ?? "no conversation came back";
       setConvoError(why);
       toast.error("Could not start a new chat", { description: why });
+      // Back to the chat that was on screen, which reloads its messages.
+      setActiveConvo(previous);
       return;
     }
     setConvoError(null);
