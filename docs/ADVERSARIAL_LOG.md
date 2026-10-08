@@ -109,6 +109,95 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R363: a caller who hung up was recorded as a failure, or not at all
+
+**Severity: medium (the audit trail and the traces misstated what happened).** Queued in R362 as
+"code that asks whether its client left by the error's name".
+
+**Shown from the UI.** A test key, "R363 hang-up" (Integrations → LLM Gateway → Create key:
+`openrouter/*`, fallback `openrouter/openai/gpt-4o-mini`, $1 a month). curl called
+`openrouter/google/gemini-2.5-flash` through it and cut its own calls; the Audit and Traces pages
+were read after each.
+
+- **Cut before the answer started** (1.5 s; a full call takes 3.3 to 4.5 s). The audit log:
+  `gateway.fallback` "This operation was aborted", then `gateway.chat` ERROR. The gateway took
+  its own aborted fetch for a network failure and tried the fallback model for a caller who had
+  gone. Traces: the turn behind it read **error**, "Invalid state: Controller is already closed".
+- **Cut mid-answer, streamed** (7 s, a long answer). **No `gateway.chat` row at all** for a call
+  that cost $0.0021. Traces: a turn with 847 tokens out, **error**, the same message. The app's
+  log shows that trace written three times: success, then error twice.
+- **Cut at 4 s, not streamed**: again before the answer, again fallback and ERROR; the trace
+  was written error, then "success" with 0 tokens, then error.
+- Pressing **Stop** in Agent Chat before the answer started read "stopped", correctly: that path
+  was handled. Stop mid-answer on an agent with tools read "ok": its answer had been generated
+  whole and was only being replayed.
+
+**Three statements, one fault: the caller leaving was not a state anything recorded.**
+
+- **The chat turn's stream** (`withTraceTap`) recorded its trace from two places. Its `cancel`
+  recorded "error: Stream cancelled" when the reader left. Its read loop, which did not know, went
+  on writing into the cancelled stream, threw "Invalid state: Controller is already closed", and
+  recorded that. The trace row is an upsert, so the last write won, over a success when the
+  answer had finished.
+- **The gateway's candidate loop** caught any failure of its fetch to the chat route as the
+  provider's, so its own abort became a fallback and an error.
+- **The gateway's streamed adapter**, on failure, wrote an error frame into the cancelled stream
+  first, which threw, so `onDone`, and the audit in it, never ran. The non-streamed collector
+  threw out of the call, with no audit either.
+
+**What was written.**
+
+- **`tapStream`** (`src/lib/tapStream.ts`), new: a pass-through stream that says how it ended
+  exactly once, from one place, its own read loop: complete, failed, or left. A reader leaving
+  ends the loop. A failure after the request's signal aborted is the caller leaving too: srvx
+  aborts the signal as well as cancelling the stream, and a fetch tied to the signal can fail
+  first.
+- **`withTraceTap`** is built on it, and handed the turn's request at both of its call sites.
+  It records one trace: success, error, or **cancelled** ("The caller left before the answer
+  ended"), and every record carries the turn's tokens and cost, so a stopped turn still counts
+  against the budgets.
+- **The gateway**: a fetch that fails because the caller left is audited once as `gateway.chat`
+  `cancelled` ("The caller left before the answer started"), answered 499, and nothing else is
+  tried. The streamed adapter says how it ended (`ended`), writes nothing after the caller left,
+  and lets go of its upstream; the call is audited as cancelled, and only a complete answer goes
+  to the semantic cache. The non-streamed collector's failure is audited, as cancelled or as an
+  error with a 502.
+- **The audit log** shows **STOPPED** for a cancelled call, the Traces page's word. It showed
+  nothing, so a cancelled call read like a success.
+
+**Tests:** `tapStream.test.ts` (8, real streams) and `gatewayCallerLeft.test.ts` (14: the adapter
+on real streams, the call sites and the audit label by source).
+
+- A stream read to its end passes everything on and ends complete once.
+- A reader that leaves ends it as left, never failed, and the upstream is let go. So does a
+  failure after the request aborted. A finished answer stays complete when the reader leaves
+  during its record, and nothing is written after.
+- The gateway's adapter ends left, failed or complete as the same cases say. The candidate
+  loop asks the signal before it records a failure or tries a fallback, the stream's audit maps
+  left to cancelled and caches only a complete answer, and the collector audits either way.
+
+Mutation run: the control survives and 14 of 14 mutants are caught. They break each of the above:
+the tap's write guard, its abort rule both ways, its cancel, the chat route's record and its
+signal, the gateway's loop, audit, cache, adapter abort rule, adapter guard, frame reader and
+collector, and the audit log's label. The 32 test files that read the chat route, the gateway or
+the tool loop pass (518 tests).
+
+**The UI** (R363 build), the same key and cuts:
+
+- **Before the answer**: one `gateway.chat` row, "openrouter/google/gemini-2.5-flash · The
+  caller left before the answer started · STOPPED", and no `gateway.fallback`. Traces: **stopped**,
+  7 tokens, $0.0000021. The app's log: one trace write.
+- **Mid-answer, streamed**: a `gateway.chat` row, "… · STOPPED". Traces: **stopped**, 576 tokens
+  out, $0.0014, written once.
+- **Calls left to finish**, streamed and not: 200, the answer, `gateway.chat` with the model and
+  no label, traces ok. An Agent Chat turn answered "ready" with its sources; its trace read ok.
+
+**Left in the queue:** the chat route's pre-answer catch and the tool loop's retry still ask the
+error's name; a streamed gateway call sends nothing until its answer is complete; a gateway
+call's turn is named "Playground"; a hang-up before the answer does not stop the provider call.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R362: a browser that left mid-request was logged as a server fault
 
 **Severity: low (a misleading log).** Queued since 2026-10-06, read in R342, seen again in R346.

@@ -717,12 +717,27 @@ least twice, not a hypothetical.
       - **Next:** reproduce it on a route that waits on the signal, such as a chat image turn left
         mid-call. Then see whether a request middleware in `createStart` (`requestMiddleware`) gets
         the rejection before h3 logs it. If it does, it can answer an aborted request quietly.
-      - **Left from it** (read in R362, not yet shown). Code that asks whether its client left
-        by the error's name (`err.name === "AbortError"`) sees "Error" when srvx gives the signal
-        Node's reason. The AI gateway's turn (`gateway/api.server.ts`) then takes a client that
-        left for a network failure, tries each fallback model, audits a `gateway.fallback` for
-        each, and audits the call as an error. `/api/chat`'s image turn records the cancel as a
-        provider error. Both should ask the request's signal instead.
+      - **Left from it** (read in R362). Code that asks whether its client left by the error's
+        name (`err.name === "AbortError"`) sees "Error" when srvx gives the signal Node's
+        reason. ~~The AI gateway's turn took a client that left for a network failure.~~
+        **R363**: shown and fixed; it did so whatever the reason's name, since it never asked.
+        Still open, read but not shown: `/api/chat`'s pre-answer catch (the image turn, the
+        tool loop) asks `err.name === "AbortError"`, and the loop's `fetchWithRetry` backs off
+        and retries once on Node's reason before it notices the abort. Both should ask the
+        request's signal.
+    - **A streamed AI-gateway call sends nothing until its answer is complete** (seen in R363).
+      `stream: true` through a key: the first byte came at 3.70 s of a 3.70 s call, and a
+      7 s cut of a long answer had received no byte while the chat turn behind it had 576
+      tokens. Something between the chat route and the gateway holds the whole answer:
+      the output guardrails' buffering is the first suspect. A streaming client gets no stream.
+    - **A gateway call's chat turn is named "Playground"** (seen in R363). A model call made
+      through a gateway key shows on Traces and in the audit log as "Playground", like a turn
+      typed in Agent Chat, so a key's traffic cannot be told from the owner's own. It should
+      carry the key's name.
+    - **A caller who hangs up before the answer does not stop the provider call** (read in
+      R363). The plain chat path's provider fetch is not tied to the request's signal, so the
+      call runs until its first bytes; the answer is then dropped and the stream cancelled.
+      It spends little (7 tokens in R363's cut), but it is spent for nobody.
     - ~~**An agent with no knowledge base is told one was searched**~~ (seen in R347). **R348**:
       the search reports how many knowledge bases it covered, and the chat route and the
       `kb_search` tool tell the model of a search, and audit one, only when it covered any.

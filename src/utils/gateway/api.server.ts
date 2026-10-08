@@ -8,6 +8,7 @@
 // is /api/chat's internal channel - the same one deployed swarms, schedules
 // and evals use - reached with the internal run secret and the key owner's
 // id, so a gateway turn is governed as that owner, never as the caller.
+import type { StreamEnd } from "@/lib/tapStream";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { auditEvent } from "@/utils/audit.server";
 import { budgetMessage, getBudgetDecision } from "@/utils/budgetGuard.server";
@@ -374,26 +375,32 @@ async function* sseFrames(
   const decoder = new TextDecoder();
   let buffer = "";
   let event = "message";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let idx: number;
-    while ((idx = buffer.indexOf("\n")) !== -1) {
-      let line = buffer.slice(0, idx);
-      buffer = buffer.slice(idx + 1);
-      if (line.endsWith("\r")) line = line.slice(0, -1);
-      if (line === "") {
-        event = "message";
-        continue;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buffer.indexOf("\n")) !== -1) {
+        let line = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 1);
+        if (line.endsWith("\r")) line = line.slice(0, -1);
+        if (line === "") {
+          event = "message";
+          continue;
+        }
+        if (line.startsWith("event: ")) {
+          event = line.slice(7).trim();
+          continue;
+        }
+        if (!line.startsWith("data: ")) continue;
+        yield { event, data: line.slice(6).trim() };
       }
-      if (line.startsWith("event: ")) {
-        event = line.slice(7).trim();
-        continue;
-      }
-      if (!line.startsWith("data: ")) continue;
-      yield { event, data: line.slice(6).trim() };
     }
+  } finally {
+    // A reader that stopped early (its own caller left, R363) is not waiting
+    // for the rest of the answer, so the upstream need not produce it.
+    reader.cancel().catch(() => {});
   }
 }
 
@@ -478,7 +485,14 @@ export type CompletionMeta = {
 export function adaptUpstreamSse(
   upstream: ReadableStream<Uint8Array>,
   meta: CompletionMeta,
-  onDone?: (summary: { text: string; usage: Usage | null; extras: UpstreamExtras }) => void,
+  onDone?: (summary: {
+    text: string;
+    usage: Usage | null;
+    extras: UpstreamExtras;
+    ended: StreamEnd["how"];
+  }) => void,
+  /** The call's request: a failure after it aborted is its caller leaving. */
+  signal?: AbortSignal,
 ): ReadableStream<Uint8Array> {
   const enc = new TextEncoder();
   const acc = { text: "", usage: null as Usage | null, extras: {} as UpstreamExtras, done: false };
@@ -498,18 +512,32 @@ export function adaptUpstreamSse(
         ...(extra ?? {}),
       })}\n\n`,
     );
+  // The caller can leave mid-answer (R363). The stream is then cancelled, and
+  // writing to it throws: that used to throw from the failure path too, before
+  // `onDone`, so a call whose caller hung up mid-answer was never audited.
+  // `ended` tells the caller which way it went, once.
+  let left = false;
   return new ReadableStream<Uint8Array>({
     async start(controller) {
+      const send = (bytes: Uint8Array) => {
+        if (!left) controller.enqueue(bytes);
+      };
+      let ended: StreamEnd["how"] = "complete";
       try {
         for await (const frame of sseFrames(upstream)) {
+          if (left) {
+            ended = "left";
+            break;
+          }
           const piece = foldFrame(frame, acc);
           if (piece === null) continue;
           const delta: Record<string, unknown> = sentRole
             ? { content: piece }
             : { role: "assistant", content: piece };
           sentRole = true;
-          controller.enqueue(chunk(delta, null));
+          send(chunk(delta, null));
         }
+        if (ended === "left") return;
         const tail: Record<string, unknown> = {
           agentswarms: {
             trace_id: meta.traceId,
@@ -519,19 +547,22 @@ export function adaptUpstreamSse(
           },
         };
         if (meta.includeUsage && acc.usage) tail.usage = acc.usage;
-        controller.enqueue(chunk(sentRole ? {} : { role: "assistant", content: "" }, "stop", tail));
-        controller.enqueue(enc.encode("data: [DONE]\n\n"));
-        onDone?.({ text: acc.text, usage: acc.usage, extras: acc.extras });
+        send(chunk(sentRole ? {} : { role: "assistant", content: "" }, "stop", tail));
+        send(enc.encode("data: [DONE]\n\n"));
       } catch (e) {
-        controller.enqueue(
+        ended = left || signal?.aborted ? "left" : "failed";
+        send(
           enc.encode(
             `data: ${JSON.stringify(openAiError((e as Error).message || "Stream failed", "upstream_error"))}\n\n`,
           ),
         );
-        onDone?.({ text: acc.text, usage: acc.usage, extras: acc.extras });
       } finally {
-        controller.close();
+        onDone?.({ text: acc.text, usage: acc.usage, extras: acc.extras, ended });
+        if (!left) controller.close();
       }
+    },
+    cancel() {
+      left = true;
     },
   });
 }
@@ -887,6 +918,28 @@ export async function runGatewayCompletion(args: {
         body: JSON.stringify(internal),
       });
     } catch (e) {
+      // The caller left before the answer started (R363): the call was
+      // aborted by its own signal, so no model failed. It used to be taken for
+      // a network failure: the next model in the chain was tried for nobody,
+      // a `gateway.fallback` was audited for it, and the call was audited as
+      // an error. It is audited once, as cancelled, and nothing else is tried.
+      if (args.request.signal.aborted) {
+        auditEvent({
+          userId: key.user_id,
+          action: "gateway.chat",
+          resourceType: "gateway_key",
+          resourceId: key.id,
+          resourceName: key.name,
+          detail: {
+            target: target.kind === "agent" ? `agent:${target.agent.id}` : requestedModel,
+            model: `${candidate.provider}/${candidate.model}`,
+            stream,
+            status: "cancelled",
+            reason: "The caller left before the answer started",
+          },
+        });
+        return new Response(null, { status: 499 });
+      }
       lastFailure = {
         status: 502,
         code: "upstream_error",
@@ -929,7 +982,7 @@ export async function runGatewayCompletion(args: {
       ...(meta.traceId ? { "X-Trace-Id": meta.traceId } : {}),
       ...(i > 0 ? { "X-Gateway-Fallback": "true" } : {}),
     };
-    const audit = (status: "success" | "error", usage: Usage | null) =>
+    const audit = (status: "success" | "error" | "cancelled", usage: Usage | null) =>
       auditEvent({
         userId: key.user_id,
         action: "gateway.chat",
@@ -971,10 +1024,19 @@ export async function runGatewayCompletion(args: {
       });
     };
     if (stream) {
-      const out = adaptUpstreamSse(res.body, meta, (s) => {
-        audit(s.text || s.usage ? "success" : "error", s.usage);
-        maybeStore(s.text, s.extras);
-      });
+      const out = adaptUpstreamSse(
+        res.body,
+        meta,
+        (s) => {
+          audit(
+            s.ended === "left" ? "cancelled" : s.ended === "complete" ? "success" : "error",
+            s.usage,
+          );
+          // Only a whole answer is worth repeating to the next caller (R363).
+          if (s.ended === "complete") maybeStore(s.text, s.extras);
+        },
+        args.request.signal,
+      );
       return new Response(out, {
         headers: {
           "Content-Type": "text/event-stream",
@@ -985,7 +1047,19 @@ export async function runGatewayCompletion(args: {
         },
       });
     }
-    const collected = await collectUpstreamSse(res.body, meta);
+    let collected: Awaited<ReturnType<typeof collectUpstreamSse>>;
+    try {
+      collected = await collectUpstreamSse(res.body, meta);
+    } catch (e) {
+      // The answer stopped while it was being collected: its caller left
+      // (R363), or the upstream failed. Either way the call is audited, once.
+      if (args.request.signal.aborted) {
+        audit("cancelled", null);
+        return new Response(null, { status: 499 });
+      }
+      audit("error", null);
+      return gatewayFail(502, "upstream_error", (e as Error).message || "The model call failed");
+    }
     audit(collected.text || collected.usage ? "success" : "error", collected.usage);
     maybeStore(collected.text, collected.extras);
     return gatewayJson(collected.body, 200, headers);

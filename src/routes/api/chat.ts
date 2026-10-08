@@ -489,6 +489,7 @@ type TraceContext = {
 // model the same way.
 import { bodyJson, bodyText } from "@/utils/observability/redaction.server";
 import { traceToolCalls } from "@/lib/traceToolCalls";
+import { tapStream } from "@/lib/tapStream";
 import {
   MAX_BODY_CHARS,
   MAX_MESSAGES,
@@ -762,13 +763,17 @@ async function recordTrace(opts: {
 function withTraceTap(
   upstream: ReadableStream<Uint8Array> | null,
   trace: TraceContext,
-  opts?: { replayedFinal?: boolean; loopUsage?: { tokensIn: number; tokensOut: number } },
+  opts?: {
+    replayedFinal?: boolean;
+    loopUsage?: { tokensIn: number; tokensOut: number };
+    /** The turn's request: its caller leaving is not the turn failing (R363). */
+    signal?: AbortSignal;
+  },
 ): ReadableStream<Uint8Array> | null {
   if (!upstream) {
     void recordTrace({ trace, status: "error", errorMessage: "Empty upstream", assistantText: "" });
     return upstream;
   }
-  const reader = upstream.getReader();
   const decoder = new TextDecoder();
   let textBuffer = "";
   let assistantText = "";
@@ -823,123 +828,118 @@ function withTraceTap(
     }
   };
 
-  return new ReadableStream<Uint8Array>({
-    async start(controller) {
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (!value) continue;
-          controller.enqueue(value);
-          textBuffer += decoder.decode(value, { stream: true });
-          let idx: number;
-          while ((idx = textBuffer.indexOf("\n")) !== -1) {
-            let line = textBuffer.slice(0, idx);
-            textBuffer = textBuffer.slice(idx + 1);
-            if (line.endsWith("\r")) line = line.slice(0, -1);
-            consumeLine(line);
-          }
-        }
-        if (textBuffer.trim()) consumeLine(textBuffer.trim());
-        // Count generated images in the assembled assistant payload.
-        const imgMatches = assistantText.match(IMAGE_MD_RE);
-        if (imgMatches) imageCount = imgMatches.length;
-        // Emit a final cost event so observability tracers (which don't know
-        // the per-model price table or the resolved agent model) can record
-        // accurate per-node cost without a second DB lookup.
-        //
-        // This event reports the WHOLE TURN: the tool rounds' aggregate usage
-        // (loopUsage, from the loop's headers) plus the final call — or, when
-        // the final was replayed from the last tool round, the loop aggregate
-        // alone (which already includes that round). Without the loop part,
-        // agent turns showed latency but zero tokens/cost in the chat UI: the
-        // parent's billing columns are deliberately zero for replayed finals
-        // (children carry the cost), and this event used to mirror that.
-        try {
-          const isImg = isImageModel(trace.model) || imageCount > 0;
-          const loopIn = opts?.loopUsage?.tokensIn ?? 0;
-          const loopOut = opts?.loopUsage?.tokensOut ?? 0;
-          const finalIn = opts?.replayedFinal ? 0 : (upstreamTokensIn ?? trace.promptTokensApprox);
-          const finalOut =
-            isImg || opts?.replayedFinal ? 0 : (upstreamTokensOut ?? approxTokens(assistantText));
-          const tIn = loopIn + finalIn;
-          const tOut = loopOut + finalOut;
-          // The provider's own figure covers the FINAL call only; the tool
-          // rounds are separate upstream calls whose costs live on the child
-          // traces, so their share is still estimated here.
-          const cUsd =
-            upstreamCostUsd !== null
-              ? upstreamCostUsd + estimateCost(trace.provider, trace.model, loopIn, loopOut)
-              : isImg
-                ? estimateImageCost(trace.model, Math.max(1, imageCount)) +
-                  estimateCost(trace.provider, trace.model, loopIn, loopOut)
-                : estimateCost(trace.provider, trace.model, tIn, tOut);
-          controller.enqueue(
-            new TextEncoder().encode(
-              `event: cost\ndata: ${JSON.stringify({ model: trace.model, costUsd: cUsd, tokensIn: tIn, tokensOut: tOut })}\n\n`,
-            ),
-          );
-        } catch {
-          /* never break the stream over telemetry */
-        }
-        // CRITICAL: await the trace insert BEFORE closing the controller.
-        // In Cloudflare Workers / serverless runtimes, fire-and-forget promises
-        // after the response stream closes are killed when the request ends —
-        // which silently drops every trace. Awaiting here keeps the insert
-        // inside the request lifetime so it actually persists.
-        await recordTrace({
-          trace,
-          status: "success",
-          assistantText,
-          upstreamCostUsd: upstreamCostUsd ?? undefined,
-          upstreamTokensIn: upstreamTokensIn ?? undefined,
-          upstreamTokensOut: upstreamTokensOut ?? undefined,
-          imageCount,
-          replayedFinal: opts?.replayedFinal,
-          loopUsage: opts?.loopUsage,
-        });
-        // Fire post-turn n8n notification (also inside request lifetime).
-        if (trace.n8nNotify?.webhookUrl) {
-          const result = await notifyN8nWebhook({
-            webhookUrl: trace.n8nNotify.webhookUrl,
-            authHeader: trace.n8nNotify.authHeader,
-            payload: {
-              event: "agent.turn.completed",
-              traceId: trace.traceId,
-              agentId: trace.agentId ?? null,
-              agentName: trace.agentName,
-              provider: trace.provider,
-              model: trace.model,
-              userId: trace.userId,
-              prompt: trace.promptText.slice(0, 4000),
-              response: assistantText.slice(0, 8000),
-              latencyMs: Date.now() - trace.startedAt,
-              timestamp: new Date().toISOString(),
-            },
-          });
-          if (!result.ok) {
-            console.warn("[n8n notify] failed:", result.detail || result.status);
-          }
-        }
-        controller.close();
-      } catch (err) {
-        await recordTrace({
-          trace,
-          status: "error",
-          errorMessage: err instanceof Error ? err.message : "Stream error",
-          assistantText,
-        });
-        controller.error(err);
+  // One record per turn, however the stream ends (R363). Its status, and the
+  // spend it carries, are decided once: see tapStream.
+  const record = (status: "success" | "error" | "cancelled", errorMessage?: string) => {
+    imageCount = assistantText.match(IMAGE_MD_RE)?.length ?? 0;
+    return recordTrace({
+      trace,
+      status,
+      errorMessage,
+      assistantText,
+      upstreamCostUsd: upstreamCostUsd ?? undefined,
+      upstreamTokensIn: upstreamTokensIn ?? undefined,
+      upstreamTokensOut: upstreamTokensOut ?? undefined,
+      imageCount,
+      replayedFinal: opts?.replayedFinal,
+      loopUsage: opts?.loopUsage,
+    });
+  };
+
+  return tapStream(upstream, {
+    signal: opts?.signal,
+    onChunk(value) {
+      textBuffer += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = textBuffer.indexOf("\n")) !== -1) {
+        let line = textBuffer.slice(0, idx);
+        textBuffer = textBuffer.slice(idx + 1);
+        if (line.endsWith("\r")) line = line.slice(0, -1);
+        consumeLine(line);
       }
     },
-    async cancel(reason) {
-      reader.cancel(reason).catch(() => {});
-      await recordTrace({
-        trace,
-        status: "error",
-        errorMessage: typeof reason === "string" ? reason : "Stream cancelled",
-        assistantText,
-      });
+    async onEnd(end, send) {
+      if (end.how === "left") {
+        // Stop, a closed tab, an API caller that hung up: the turn was
+        // stopped, not failed, and what it spent until then still counts.
+        await record("cancelled", "The caller left before the answer ended");
+        return;
+      }
+      if (end.how === "failed") {
+        await record("error", end.error instanceof Error ? end.error.message : "Stream error");
+        return;
+      }
+      if (textBuffer.trim()) consumeLine(textBuffer.trim());
+      // Count generated images in the assembled assistant payload.
+      const imgMatches = assistantText.match(IMAGE_MD_RE);
+      if (imgMatches) imageCount = imgMatches.length;
+      // Emit a final cost event so observability tracers (which don't know
+      // the per-model price table or the resolved agent model) can record
+      // accurate per-node cost without a second DB lookup.
+      //
+      // This event reports the WHOLE TURN: the tool rounds' aggregate usage
+      // (loopUsage, from the loop's headers) plus the final call — or, when
+      // the final was replayed from the last tool round, the loop aggregate
+      // alone (which already includes that round). Without the loop part,
+      // agent turns showed latency but zero tokens/cost in the chat UI: the
+      // parent's billing columns are deliberately zero for replayed finals
+      // (children carry the cost), and this event used to mirror that.
+      try {
+        const isImg = isImageModel(trace.model) || imageCount > 0;
+        const loopIn = opts?.loopUsage?.tokensIn ?? 0;
+        const loopOut = opts?.loopUsage?.tokensOut ?? 0;
+        const finalIn = opts?.replayedFinal ? 0 : (upstreamTokensIn ?? trace.promptTokensApprox);
+        const finalOut =
+          isImg || opts?.replayedFinal ? 0 : (upstreamTokensOut ?? approxTokens(assistantText));
+        const tIn = loopIn + finalIn;
+        const tOut = loopOut + finalOut;
+        // The provider's own figure covers the FINAL call only; the tool
+        // rounds are separate upstream calls whose costs live on the child
+        // traces, so their share is still estimated here.
+        const cUsd =
+          upstreamCostUsd !== null
+            ? upstreamCostUsd + estimateCost(trace.provider, trace.model, loopIn, loopOut)
+            : isImg
+              ? estimateImageCost(trace.model, Math.max(1, imageCount)) +
+                estimateCost(trace.provider, trace.model, loopIn, loopOut)
+              : estimateCost(trace.provider, trace.model, tIn, tOut);
+        send(
+          new TextEncoder().encode(
+            `event: cost\ndata: ${JSON.stringify({ model: trace.model, costUsd: cUsd, tokensIn: tIn, tokensOut: tOut })}\n\n`,
+          ),
+        );
+      } catch {
+        /* never break the stream over telemetry */
+      }
+      // CRITICAL: await the trace insert BEFORE closing the controller.
+      // In Cloudflare Workers / serverless runtimes, fire-and-forget promises
+      // after the response stream closes are killed when the request ends —
+      // which silently drops every trace. Awaiting here keeps the insert
+      // inside the request lifetime so it actually persists.
+      await record("success");
+      // Fire post-turn n8n notification (also inside request lifetime).
+      if (trace.n8nNotify?.webhookUrl) {
+        const result = await notifyN8nWebhook({
+          webhookUrl: trace.n8nNotify.webhookUrl,
+          authHeader: trace.n8nNotify.authHeader,
+          payload: {
+            event: "agent.turn.completed",
+            traceId: trace.traceId,
+            agentId: trace.agentId ?? null,
+            agentName: trace.agentName,
+            provider: trace.provider,
+            model: trace.model,
+            userId: trace.userId,
+            prompt: trace.promptText.slice(0, 4000),
+            response: assistantText.slice(0, 8000),
+            latencyMs: Date.now() - trace.startedAt,
+            timestamp: new Date().toISOString(),
+          },
+        });
+        if (!result.ok) {
+          console.warn("[n8n notify] failed:", result.detail || result.status);
+        }
+      }
     },
   });
 }
@@ -2326,6 +2326,7 @@ export const Route = createFileRoute("/api/chat")({
                 const loopOut =
                   Number(upstreamWithTools.headers.get("x-agentswarms-loop-usage-out") ?? 0) || 0;
                 const tapped = withTraceTap(upstreamWithTools.body, trace, {
+                  signal: request.signal,
                   replayedFinal: upstreamWithTools.headers.get("x-agentswarms-replayed") === "1",
                   loopUsage:
                     loopIn > 0 || loopOut > 0
@@ -2384,7 +2385,7 @@ export const Route = createFileRoute("/api/chat")({
               maxTokens: body.maxTokens,
               gateway: gatewayOverride,
             });
-            const tapped = withTraceTap(upstream.body, trace);
+            const tapped = withTraceTap(upstream.body, trace, { signal: request.signal });
             const withCits = withCitationsPreamble(tapped, citations);
             const withSrc = withSourcesTrailer(withCits, citationSources(citations), []);
             const withMem = withMemoryUsedPreamble(withSrc, recalledItems, memorySummaryUsed);

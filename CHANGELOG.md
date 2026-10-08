@@ -203,6 +203,14 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **A caller who hangs up is recorded as stopped, once, not as a failure**
+  (R363). An AI-gateway call cut before its answer started tried the next
+  model in the fallback chain for nobody and was audited as an error; one cut
+  mid-answer was not audited at all. Behind both, the chat turn's trace was
+  rewritten as "error: Invalid state: Controller is already closed", even over
+  an answer that had finished. Each is now one `gateway.chat` row and one
+  trace, both reading stopped, with what was spent counted. The audit log says
+  STOPPED, and a gateway answer that did not finish is never cached.
 - **A browser that leaves mid-request is no longer logged as a server fault**
   (R362). Reloading a page while its requests were in flight printed an
   "Error: aborted" or `AbortError` stack marked `status: 500, unhandled: true`

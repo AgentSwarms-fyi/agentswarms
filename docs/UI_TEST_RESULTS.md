@@ -15,6 +15,24 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R363: AI-gateway calls whose caller hangs up
+
+A test key, "R363 hang-up" (`openrouter/*`, fallback `openrouter/openai/gpt-4o-mini`, $1 a month),
+called with curl, which cut its own calls; Audit and Traces read after each.
+
+| Page                                   | What was driven                                 | Result                                                                                                                                                   |
+| -------------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| /audit, /traces (R362 build)           | A call cut at 1.5 s, before its answer          | **Defect.** `gateway.fallback` "This operation was aborted" and `gateway.chat` ERROR; the trace **error**, "Invalid state: Controller is already closed" |
+| the same                               | A streamed call cut at 7 s, mid-answer          | **Defect.** No `gateway.chat` row; the trace **error**, 847 tokens out, $0.0021; written success, then error twice                                       |
+| the same                               | A call cut at 4 s                               | **Defect.** Fallback and ERROR again; the trace written error, "success" with 0 tokens, error                                                            |
+| /playground, Demo · Friendly Assistant | **Stop** before the answer; **Stop** mid-answer | "stopped"; "ok" (an agent with tools, its answer replayed whole)                                                                                         |
+| /audit, /traces (R363 build)           | A call cut at 1.5 s                             | One `gateway.chat` "… · The caller left before the answer started · STOPPED", no fallback; the trace **stopped**, 7 tokens, $0.0000021, written once     |
+| the same                               | A streamed call cut at 7 s                      | `gateway.chat` "… · STOPPED"; the trace **stopped**, 576 tokens out, $0.0014, written once                                                               |
+| the same                               | A call and a streamed call left to finish       | 200 with the answer; `gateway.chat` with the model, no label; traces ok                                                                                  |
+| /playground                            | "reply with the single word ready"              | "ready" with five sources; the trace ok                                                                                                                  |
+
+The key was revoked after the round; its audit rows and traces stay.
+
 ## 2026-10-08 — R362: pages reloaded while they load
 
 | Page                                                            | What was driven                                         | Result                                                                                                                                           |

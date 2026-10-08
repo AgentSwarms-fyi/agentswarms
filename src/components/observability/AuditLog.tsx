@@ -176,6 +176,9 @@ function describeDetail(r: AuditRow): string {
   if (typeof d.schedule === "string") bits.push(String(d.schedule));
   if (Array.isArray(d.kinds) && d.kinds.length > 0) bits.push(d.kinds.join(", "));
   if (d.status === "error") bits.push("ERROR");
+  // A call whose caller left before its answer ended (R363), in the Traces
+  // page's word for it. It read like a success.
+  if (d.status === "cancelled") bits.push("STOPPED");
   return bits.join(" · ");
 }
 

@@ -198,6 +198,7 @@ agent, and there is no global cache and no way to ask for one.
 - An answer that used a tool. It read something live, and freezing it for a
   day would serve yesterday's number tomorrow.
 - An empty answer.
+- An answer that did not finish: its caller hung up, or the stream failed.
 
 **What you get back.** Every reply carries `X-Gateway-Cache: hit | miss |
 skip | off` — `skip` means the key has the cache on but this call was not
@@ -255,7 +256,9 @@ request your IAM rules forbid answers 403 `model_not_allowed`. A forbidden
 model that only appears in a fallback chain is skipped. A fallback happens
 only before any token has reached the caller; once a stream has started,
 its model answers it. Every switch is audited as `gateway.fallback` with
-the models, the status and the reason.
+the models, the status and the reason. A caller who hangs up is not a
+provider failure: nothing else is tried, and the call is audited once as
+`gateway.chat` with `status: "cancelled"`.
 
 ## Governance
 
@@ -268,8 +271,10 @@ the models, the status and the reason.
   `cost_scope_type = gateway_key`, so the ceiling is measured, not
   estimated. Over budget answers 429 `insufficient_quota`.
 - **Rate limits.** Per key, per minute, across every replica.
-- **Audit.** `gateway.chat` for every completed turn (target, model,
-  fallback, tokens, trace id, and whether the cache answered it),
+- **Audit.** `gateway.chat` once for every call (target, model,
+  fallback, tokens, trace id, and whether the cache answered it), with
+  `status` success, error, or cancelled when the caller hung up before the
+  answer ended (the log shows STOPPED),
   `gateway.cache.clear` when an owner empties the cache,
   `gateway.fallback` for every switch,
   `gateway.access.denied` for a revoked, expired, out-of-scope or throttled
@@ -319,5 +324,6 @@ this endpoint in front of the agents.
 | `X-Gateway-Cache` is always `skip`        | The cache is on but nothing qualifies: the calls are follow-ups with a history, or the temperature is above the ceiling.                                           |
 | `X-Gateway-Cache` is always `miss`        | Nothing similar enough is stored yet, the answers used tools, or no embedding provider is connected for the owner.                                                 |
 | 502 `upstream_error` after several models | Every candidate failed; `gateway.chat` in the audit log lists the models tried.                                                                                    |
+| `gateway.chat` reads STOPPED              | The caller closed the connection before the answer ended: a client timeout or a cancelled request. Nothing else was tried; what was spent until then still counts. |
 | 404 `model_not_found` on `/metrics/query` | The name is not among `GET /metrics`: not a model the owner owns or is granted. A model the key's allow-list excludes answers 403 `model_not_allowed`.             |
 | 400 on `/metrics/query` names a field     | The request or the compiler refused it: an unknown metric or dimension, a grain on a non-time dimension, a missing parameter. `GET /metrics` shows the vocabulary. |
