@@ -15,6 +15,15 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R357: removing a saved gateway
+
+| Page                                                      | What was driven                                             | Result                                                                                            |
+| --------------------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| /integrations, LLM Gateway and n8n Workflows (R356 build) | Read each tab's controls                                    | **Gap.** Gateway: Save (disabled), Copy, Create key. n8n: Validate & Save. No removal on either   |
+| /integrations, LLM Gateway (R357 build)                   | URL `http://gateway.r357.test`, no key, **Save (disabled)** | "Gateway saved (disabled)"; **Remove gateway** appeared                                           |
+| the same                                                  | **Remove gateway**, then **Remove gateway** in the dialog   | "Remove the LLM gateway? Its URL and stored key are deleted…"; "Gateway removed"; URL field empty |
+| the same, reloaded                                        | Read the tab                                                | URL empty; no Remove button: the test gateway is gone                                             |
+
 ## 2026-10-08 — R354: a chat turn's tool calls on its trace
 
 | Page                                         | What was driven                                  | Result                                                                                                                                                                                             |

@@ -749,7 +749,8 @@ least twice, not a hypothetical.
     - ~~**396 server functions use the deprecated `createServerFn().inputValidator()`**~~ (seen in
       R347). **R349**: all renamed to `validator()`; the build prints no deprecation line. TanStack Start 1.168 renamed it `validator()`; the old name still works and is marked
       `@deprecated`. Every build prints about 1,170 warnings for it, which bury anything new.
-    - **A saved LLM gateway cannot be removed from the page** (seen in R347). Integrations → LLM
+    - ~~**A saved LLM gateway cannot be removed from the page**~~ (seen in R347). **R357**: nor
+      could an n8n connection; both tabs now have Remove. Integrations → LLM
       Gateway saves a row and can disable it, but nothing deletes it. R347 left its save round trip
       undriven for that reason: a test gateway would stay in the account.
     - ~~**Data incidents** (`dataMonitors/run.server`)~~. **R312**: every status write by either

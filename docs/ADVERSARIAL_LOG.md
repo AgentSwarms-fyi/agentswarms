@@ -109,6 +109,40 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R357: a saved gateway or n8n connection could not be removed
+
+**Severity: low (a missing control).** Queued in R347, when a gateway save round trip was left
+undriven because nothing could take the test gateway away again.
+
+**Shown in the UI.** Integrations → LLM Gateway offered "Save (disabled)", "Copy" and "Create key".
+n8n Workflows offered "Validate & Save". Neither had any control that removed a saved one. The page
+had a disconnect only for LLM providers.
+
+**What was written.**
+
+- **`clearIntegration(type, ask)`** asks first, then clears the integrations row as a provider
+  disconnect does: `is_active: false`, `config: {}`, so the URL and the encrypted key or token are
+  gone. If the write fails, the page says it is still saved and leaves the form as it is.
+- **`removeGateway`** resets every gateway field, routing and "route all" included.
+  **`removeN8n`** resets the URL, the token and the auth type.
+- Each tab shows its Remove button only when something is saved (a gateway URL, an n8n instance
+  URL).
+
+**Tests:** `integrationRemove.test.ts`, new, 4 cases, pinned by source as the page's other writes
+are: the confirmation comes before the write, the write and its failure message, every reset, and
+the condition for each button.
+
+**The UI** (R357 build):
+
+- On LLM Gateway, `http://gateway.r357.test` with no key, **Save (disabled)**: "Gateway saved
+  (disabled)", and **Remove gateway** appeared.
+- **Remove gateway** asked "Remove the LLM gateway? Its URL and stored key are deleted, and no
+  agent routes through it any more." Confirmed: "Gateway removed", and the URL field was empty.
+- After a reload, the URL is empty and there is no Remove button, so the account holds no test
+  gateway.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R356: no lint warnings, and `any` is an error
 
 **Severity: low, code health.** The last ten warnings were all in tests.

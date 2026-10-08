@@ -24,6 +24,10 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Remove a saved LLM gateway or n8n connection** (R357). Both tabs on
+  Integrations could save and disable one but never take it away. Each now has
+  a Remove button once something is saved; it asks first, then deletes the
+  stored URL and key, as a provider disconnect does.
 - **Sheets: ASC and JIS** (R341): full-width and half-width ASCII and
   katakana, both ways. Sheets now computes 491 of Excel's 510 functions.
 - **Sheets: ECMA.CEILING, and SINGLE and ANCHORARRAY typed** (R340).

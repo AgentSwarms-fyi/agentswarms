@@ -895,6 +895,61 @@ function IntegrationsPage() {
     }
   }
 
+  // A saved gateway or n8n connection could be changed and disabled but not
+  // taken away: no control on either tab removed it, so a test gateway stayed
+  // in the account for good (R357). Removing one clears the row as a provider
+  // disconnect does: inactive, with no settings and no stored key.
+  async function clearIntegration(
+    type: "llm_gateway" | "n8n",
+    ask: { title: string; body: string; actionLabel: string },
+  ): Promise<boolean> {
+    const existing = integrations.find((i) => i.type === type);
+    if (!existing) return false;
+    if (!(await confirmAsk(ask))) return false;
+    const { error } = await supabase
+      .from("integrations")
+      .update({ is_active: false, config: {} })
+      .eq("id", existing.id);
+    if (error) {
+      toast.error(`Could not remove it: ${error.message}. It is still saved.`);
+      return false;
+    }
+    return true;
+  }
+
+  async function removeGateway() {
+    const removed = await clearIntegration("llm_gateway", {
+      title: "Remove the LLM gateway?",
+      body: "Its URL and stored key are deleted, and no agent routes through it any more.",
+      actionLabel: "Remove gateway",
+    });
+    if (!removed) return;
+    setGatewayUrl("");
+    setGatewayKey("");
+    setGatewayHasKey(false);
+    setGatewayProvider("litellm");
+    setGatewayRoute(false);
+    setGatewayRouteAll(false);
+    setGatewayStatus(null);
+    toast.success("Gateway removed");
+    loadIntegrations();
+  }
+
+  async function removeN8n() {
+    const removed = await clearIntegration("n8n", {
+      title: "Remove the n8n connection?",
+      body: "Its instance URL and stored token are deleted. Agents that call n8n workflows stop reaching them.",
+      actionLabel: "Remove connection",
+    });
+    if (!removed) return;
+    setN8nUrl("");
+    setN8nToken("");
+    setN8nAuthType("header");
+    setN8nStatus(null);
+    toast.success("n8n connection removed");
+    loadIntegrations();
+  }
+
   async function saveGateway() {
     if (!user) return;
     if (!session?.access_token) {
@@ -1447,17 +1502,28 @@ function IntegrationsPage() {
                     <X className="h-3 w-3 mr-1" /> Gateway failing health checks
                   </Badge>
                 )}
-                <Button onClick={saveGateway} disabled={gatewayTesting}>
-                  {gatewayTesting ? (
-                    <>
-                      <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" /> Validating…
-                    </>
-                  ) : gatewayRoute ? (
-                    "Validate & Save"
-                  ) : (
-                    "Save (disabled)"
+                <div className="flex flex-wrap gap-2">
+                  <Button onClick={saveGateway} disabled={gatewayTesting}>
+                    {gatewayTesting ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" /> Validating…
+                      </>
+                    ) : gatewayRoute ? (
+                      "Validate & Save"
+                    ) : (
+                      "Save (disabled)"
+                    )}
+                  </Button>
+                  {textOf(integrations.find((i) => i.type === "llm_gateway")?.config.base_url) && (
+                    <Button
+                      variant="outline"
+                      onClick={() => void removeGateway()}
+                      disabled={gatewayTesting}
+                    >
+                      Remove gateway
+                    </Button>
                   )}
-                </Button>
+                </div>
               </CardContent>
             </Card>
 
@@ -1778,15 +1844,26 @@ function IntegrationsPage() {
                       <Check className="h-3 w-3 mr-1" /> Currently connected
                     </Badge>
                   ))}
-                <Button onClick={saveN8n} disabled={n8nTesting || !n8nUrl}>
-                  {n8nTesting ? (
-                    <>
-                      <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" /> Validating…
-                    </>
-                  ) : (
-                    "Validate & Save"
+                <div className="flex flex-wrap gap-2">
+                  <Button onClick={saveN8n} disabled={n8nTesting || !n8nUrl}>
+                    {n8nTesting ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" /> Validating…
+                      </>
+                    ) : (
+                      "Validate & Save"
+                    )}
+                  </Button>
+                  {textOf(integrations.find((i) => i.type === "n8n")?.config.instance_url) && (
+                    <Button
+                      variant="outline"
+                      onClick={() => void removeN8n()}
+                      disabled={n8nTesting}
+                    >
+                      Remove connection
+                    </Button>
                   )}
-                </Button>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
