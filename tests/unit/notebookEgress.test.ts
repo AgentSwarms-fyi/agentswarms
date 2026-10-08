@@ -340,9 +340,25 @@ describe("the generated allow-list files stay out of git", () => {
 // ConfigMap is still perfectly valid YAML.
 describe("the Kubernetes egress config stays level with the Compose one", () => {
   const manifest = readFileSync("deploy/k8s/notebooks/notebook-runtime.yaml", "utf8");
-  const docs = (loadAll(manifest) as Record<string, any>[]).filter(Boolean);
-  const cm = docs.find((d) => d.kind === "ConfigMap" && d.metadata?.name === "notebook-egress");
-  const dep = docs.find((d) => d.kind === "Deployment" && d.metadata?.name === "notebook-egress");
+  // The two documents this reads, as far as it reads them.
+  type K8sDoc = {
+    kind?: string;
+    metadata?: { name?: string };
+    data: Record<string, string>;
+    spec: {
+      template: {
+        spec: { containers: { volumeMounts?: { subPath: string; mountPath: string }[] }[] };
+      };
+    };
+  };
+  const docs = (loadAll(manifest) as K8sDoc[]).filter(Boolean);
+  const find = (kind: string) => {
+    const doc = docs.find((d) => d.kind === kind && d.metadata?.name === "notebook-egress");
+    if (!doc) throw new Error(`no ${kind} named notebook-egress in the manifest`);
+    return doc;
+  };
+  const cm = find("ConfigMap");
+  const dep = find("Deployment");
 
   it("defines all three config keys", () => {
     expect(Object.keys(cm.data).sort()).toEqual(["allowed_domains", "allowed_ips", "squid.conf"]);

@@ -26,20 +26,24 @@ const state = {
   calls: [] as string[],
 };
 
+/** A stand-in for a Supabase query chain: each call returns the chain or a result. */
+type Chain = Record<string, (...args: never[]) => unknown>;
+
 vi.mock("@/integrations/supabase/client", () => {
   const from = (table: string) => ({
     select: () => {
-      const q: any = { eq: () => q, maybeSingle: async () => state.lookup };
+      const q: Chain = { eq: () => q, maybeSingle: async () => state.lookup };
       return q;
     },
     delete: () => ({
       eq: () => {
         state.calls.push(`${table}.delete`);
-        const p: any = Promise.resolve(
-          table === "user_data_rows" ? { error: state.clearErr } : state.deleteResult,
+        return Object.assign(
+          Promise.resolve(
+            table === "user_data_rows" ? { error: state.clearErr } : state.deleteResult,
+          ),
+          { select: async () => state.deleteResult },
         );
-        p.select = async () => state.deleteResult;
-        return p;
       },
     }),
     update: () => ({
@@ -50,9 +54,9 @@ vi.mock("@/integrations/supabase/client", () => {
     }),
     insert: () => {
       state.calls.push(`${table}.insert`);
-      const p: any = Promise.resolve({ error: null });
-      p.select = () => ({ single: async () => ({ data: { id: "new-id" }, error: null }) });
-      return p;
+      return Object.assign(Promise.resolve({ error: null }), {
+        select: () => ({ single: async () => ({ data: { id: "new-id" }, error: null }) }),
+      });
     },
   });
   return { supabase: { from, auth: { getSession: async () => ({ data: { session: null } }) } } };

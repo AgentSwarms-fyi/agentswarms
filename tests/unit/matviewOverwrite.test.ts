@@ -29,9 +29,12 @@ vi.mock("@/utils/sheets/owned.server", () => ({ sheetOwnedRefusal: async () => n
 
 vi.mock("@/utils/audit.server", () => ({ auditEvent: () => {} }));
 
+/** A stand-in for a Supabase query chain: each call returns the chain or a result. */
+type Chain = Record<string, (...args: never[]) => unknown>;
+
 vi.mock("@/integrations/supabase/client.server", () => {
   const chain = (table: string) => {
-    const b: any = {
+    const b: Chain = {
       select: () => b,
       eq: () => b,
       maybeSingle: async () => ({ data: state.viewRow, error: state.viewErr }),

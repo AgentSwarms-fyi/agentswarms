@@ -125,6 +125,13 @@ and both of those are one advisory that cannot be triggered here (see
   upload, and the versions fetched (pdf.js 4.7.76, mammoth 1.8.0) were not the
   audited ones in the lockfile (4.10.38, 1.13.0). The build now copies them into
   `public/vendor`.
+- **Lint has no warnings, and a new `any` is an error** (R356). The last ten
+  were test doubles: fake query chains now have a `Chain` type, fake promises
+  with a `select` are built with `Object.assign`, and the Kubernetes tests type
+  the manifest fields they read (the CronJob's nested pod included).
+  `@typescript-eslint/no-explicit-any` is now an error, so `npm run lint` fails
+  on a new one. Where `any` is the honest type, a disable comment beside it
+  says why; about 93 such comments remain.
 - **No `any` left in the application code** (R355). Bedrock's stream events
   and the stored-credential read are typed; a stored credential that is not
   `{ ciphertext, iv }` now says to save it again, instead of failing inside

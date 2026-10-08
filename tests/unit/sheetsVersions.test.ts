@@ -85,11 +85,11 @@ function query(table: string) {
         data: failed ? null : list,
         error: failed ? { message: "disk full" } : null,
       };
-      const done: any = Promise.resolve(result);
-      done.select = () => ({
-        single: async () => ({ data: result.data?.[0] ?? null, error: result.error }),
+      return Object.assign(Promise.resolve(result), {
+        select: () => ({
+          single: async () => ({ data: result.data?.[0] ?? null, error: result.error }),
+        }),
       });
-      return done;
     },
   };
   return b;

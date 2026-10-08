@@ -109,6 +109,38 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R356: no lint warnings, and `any` is an error
+
+**Severity: low, code health.** The last ten warnings were all in tests.
+
+**What was written.**
+
+- **Test doubles.**
+  - Four fake Supabase query chains (dataset writes, materialized views, batch predictions,
+    training sets) have a local `Chain` type: each call returns the chain or a result.
+  - Three fake promises that also answer `.select()` are built with
+    `Object.assign(Promise.resolve(…), { select })` rather than by adding a property to an
+    `any`.
+- **The Kubernetes tests.**
+  - `k8sAppManifest` types the CronJob's `jobTemplate` path and the pod's `seccompProfile`, which
+    it reads.
+  - `notebookEgress` types the two documents it reads, and finds each by name or fails, rather
+    than reading fields off an `any`.
+- **`skillsProgressive`** names the parameter shape it checks.
+- **`no-explicit-any` is an error** in `eslint.config.js`. It was a warning while about 140
+  remained, so the lint gate stayed meaningful.
+
+**Checks:**
+
+- The eight files pass (121 cases), and the type checker and the whole-repo lint are clean (0
+  messages).
+- An `any` added to a module made `eslint` exit 1. The file was then restored from its pre-probe
+  copy.
+
+**The debt that is left.** About 93 `eslint-disable-next-line @typescript-eslint/no-explicit-any`
+comments, mostly where a Supabase builder or a provider response is untyped. Each explains
+itself, or should.
+
 ### 2026-10-08 — R355: the last `any`s in the application code
 
 **Severity: low, code health** (12 warnings; `src` now has none).

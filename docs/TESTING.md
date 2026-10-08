@@ -580,21 +580,21 @@ no PR open does not trigger it. No secrets are used; the build gets placeholder
 permanently red has been cleared with `npm run format`, so `npm run lint`
 reports **0 errors** and CI fails on any new one.
 
-Around 10 warnings remain, all `@typescript-eslint/no-explicit-any` and all in test files; `src` has none since R355. None
-comes from the react-hooks rule since R323, and none from react-refresh since
-R346, which moved every non-component export out of a component file (helpers
-to modules, providers out of their hooks, the confirm dialog's host out of its
-API). `eslint.config.js` scopes that rule off where it cannot apply: route
-files, the server-rendered email templates, and six shadcn/ui files that export
-a variants helper as the shadcn CLI writes them. R342 took 69 `any`s out of seven
-files (the agent form, analytics, quality trends, the dashboard's activity
-chart, knowledge, the playground and the swarm tracer), each by the type the
-value has, and checked each page in the browser. R344 took 24 more at the MCP
-boundary: a JSON-RPC message is an `RpcMessage` of JSON values. R345 typed
-the email templates against their own props and the contact route's client
-against the schema. The `any`s sit at untyped external
-boundaries — LLM provider responses, the MCP protocol, AlaSQL's UMD
-surface, Supabase `Json`. That rule is deliberately a **warning** rather than an
-error: replacing those with `unknown` plus narrowing is worth doing and is its
-own project, and a permanently-red required check is one everybody learns to
-ignore. Treat the count as tracked debt — it should go down, never up.
+No warnings remain. None comes from the react-hooks rule since R323, none from
+react-refresh since R346, which moved every non-component export out of a
+component file (helpers to modules, providers out of their hooks, the confirm
+dialog's host out of its API), and none from `@typescript-eslint/no-explicit-any`
+since R356. `eslint.config.js` scopes react-refresh off where it cannot apply:
+route files, the server-rendered email templates, and six shadcn/ui files that
+export a variants helper as the shadcn CLI writes them.
+
+`no-explicit-any` is an **error** since R356, so a new `any` fails the lint
+step. R342 to R356 took out about 220, each by the type the value has (an
+`RpcMessage` of JSON values at the MCP boundary, `recordOf`/`textOf` for JSON
+columns, a template's own props, a test double's `Chain` type), and checked
+the pages they touched in the browser. Where `any` is the honest type, an
+`eslint-disable-next-line` comment beside it says why: the tool registry's
+`ToolHandler` takes "whatever the model sent", which each handler declares in
+its own signature. About 93 such comments remain, mostly at untyped external
+boundaries (Supabase builders, provider responses); they are the tracked
+debt, and the count should go down, never up.
