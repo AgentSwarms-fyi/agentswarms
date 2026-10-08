@@ -15,6 +15,16 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R345: the contact form after the typed templates
+
+| Page     | What was driven                                                  | Result                                                                                         |
+| -------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| /contact | name, `r345@example.test`, subject and message, **Send message** | `POST /api/contact` 500 `{"error":"Contact form is not configured."}`, shown as an error toast |
+
+The deployment has no `CONTACT_ADMIN_EMAIL` (checked by name in the container; its value was not
+read), so the route refuses before rendering a template. The new `emailTemplatesRender.test.ts`
+renders the templates instead. The 500 is in the queue.
+
 ## 2026-10-08 — R344: the MCP pages after their types
 
 | Page                          | What was driven                                    | Result                                                  |

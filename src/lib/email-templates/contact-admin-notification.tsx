@@ -13,7 +13,7 @@ import {
   Text,
   Hr,
 } from "@react-email/components";
-import type { TemplateEntry } from "./registry";
+import { defineTemplate } from "./registry";
 
 const SITE_NAME = "AgentSwarms";
 
@@ -70,9 +70,9 @@ const Row = ({ label, value }: { label: string; value: string }) => (
   </Text>
 );
 
-export const template = {
+export const template = defineTemplate<ContactAdminProps>({
   component: ContactAdminEmail,
-  subject: (data: Record<string, any>) =>
+  subject: (data) =>
     `[AgentSwarms] New contact: ${data?.subject || data?.name || "visitor message"}`,
   displayName: "Admin: contact form notification",
   previewData: {
@@ -83,7 +83,7 @@ export const template = {
     sourcePage: "/contact",
     submittedAt: "2026-04-21 14:32 UTC",
   },
-} satisfies TemplateEntry;
+});
 
 const main = {
   backgroundColor: "#ffffff",

@@ -108,6 +108,10 @@ and both of those are one advisory that cannot be triggered here (see
   upload, and the versions fetched (pdf.js 4.7.76, mammoth 1.8.0) were not the
   audited ones in the lockfile (4.10.38, 1.13.0). The build now copies them into
   `public/vendor`.
+- **Email templates are checked against their own props** (R345).
+  `defineTemplate` keeps a template's component, subject and preview in step.
+  The contact route's database client is typed with the schema. A new test
+  renders every registered template as its callers do. Lint warnings 127 to 117.
 - **The MCP code reads JSON-RPC as JSON, not `any`** (R344). One `RpcMessage`
   type for every message the MCP code reads. The tool-list normaliser is one
   copy, shared by the probe and the server; the probe had kept a second. 24

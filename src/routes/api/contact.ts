@@ -19,8 +19,9 @@ import * as React from "react";
 import { TEMPLATES } from "@/lib/email-templates/registry";
 import { sendMail } from "@/lib/email/mailer.server";
 import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
+import type { Database } from "@/integrations/supabase/types";
 
-type AnySupabase = SupabaseClient<any, any, any, any, any>;
+type AppSupabase = SupabaseClient<Database>;
 
 const ContactSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -59,7 +60,7 @@ function newMessageId(): string {
 }
 
 async function sendTemplateEmail(args: {
-  supabase: AnySupabase;
+  supabase: AppSupabase;
   templateName: string;
   recipient: string;
   templateData: Record<string, unknown>;
@@ -140,7 +141,7 @@ export const Route = createFileRoute("/api/contact")({
           return Response.json({ success: true });
         }
 
-        const supabase: AnySupabase = createClient(
+        const supabase: AppSupabase = createClient<Database>(
           supabaseUrl,
           supabaseServiceKey,
           withNulSafeFetch(),

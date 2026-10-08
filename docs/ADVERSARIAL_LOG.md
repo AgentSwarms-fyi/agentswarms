@@ -109,6 +109,44 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R345: email templates, each checked against its own props
+
+**Severity: low, code health** (lint warnings). Ten `any`s were in the email path:
+
+- the registry's `ComponentType<any>`, subject and preview;
+- two templates' `subject: (data: Record<string, any>)`;
+- `/api/contact`'s `SupabaseClient<any, any, any, any, any>`.
+
+**What was written.**
+
+- **`TemplateEntry<P>` and `defineTemplate<P>(…)`** in `email-templates/registry.ts`. A template's
+  component, subject and preview data are checked against the same props. Then P is erased, in one
+  place, for the registry. Its callers (`/api/contact`, the budget alert, `/api/email/send`) render
+  from data they put together, so they see `Record<string, unknown>`.
+- **The four registered templates** are each `defineTemplate<TheirProps>({…})`. Their subjects take
+  their props; for instance, the budget alert's reads `scopeLabel`, `percentUsed` and `kind` as
+  `BudgetAlertEmailProps` has them. Every preview matched its props.
+- **`/api/contact`'s client** is `createClient<Database>`, so its two inserts (`contact_messages`,
+  `email_send_log`) are checked against the schema. Both matched.
+
+**Tests:** `emailTemplatesRender.test.ts`, new, as nothing rendered a registered template before. It
+renders each one from its preview to HTML and text, as its callers do, and checks the subjects.
+
+- With full data: the admin notification names the visitor's subject, and the budget alert names a
+  team.
+- With none: "visitor message", and "0% of your AgentSwarms AI budget".
+
+8 cases pass, and the budget alert's existing tests pass.
+
+**The UI.** The contact form on the R345 build, sent with test values (`r345@example.test`),
+answered 500: "Contact form is not configured." This deployment has no `CONTACT_ADMIN_EMAIL`, and
+the route refuses before it renders a template. That is the deployment, not this change. The
+templates' rendering is checked by the new test instead, and the 500 is queued.
+
+Warnings go from 127 to 117.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R344: the MCP boundary, typed as the JSON it is
 
 **Severity: low, code health** (lint warnings). The MCP code held 24 of the 89 remaining `any`s.
