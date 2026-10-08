@@ -96,6 +96,11 @@ Type `=` and a formula, as in Excel. More than 400 of Excel's 510 functions are 
   ARRAYTOTEXT and VALUETOTEXT (R331) write values as text, concise (`TRUE, 1, Seattle`) or strict
   (`{TRUE,1;"Seattle"}`, text quoted). LENB, LEFTB, RIGHTB, MIDB, FINDB, SEARCHB and REPLACEB count
   bytes as Excel does outside the double-byte languages: one per character, as LEN and the rest.
+  ASC and JIS (R341) change the width of ASCII and katakana. ASC makes full-width characters
+  half-width (`ＥＸＣＥＬ` to `EXCEL`, `パソコン` to `ﾊﾟｿｺﾝ`), and JIS the reverse, joining a half-width
+  kana and its mark (`ｶﾞｲﾄﾞ` to `ガイド`). Excel's pages give no table, so Sheets follows OpenOffice's
+  specification of the two, written to match Japanese Excel. That specification does not list ヴ, the
+  small ヮ, ヰ and ヱ, or the space, and Sheets leaves them as they are.
 - **Sheets:** SHEET and SHEETS (R331). SHEET is a sheet's number among the tabs, table sheets and
   hidden ones counted, for this sheet, a reference, a name or a sheet's name as text (#N/A when
   there is no such sheet). It follows the tabs when they are moved. AREAS is 1 for any reference,

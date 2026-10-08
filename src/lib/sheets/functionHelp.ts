@@ -227,6 +227,16 @@ export const FUNCTION_HELP: Record<string, FunctionHelp> = {
     desc: "The standard error of each predicted y in a linear regression.",
     cat: "Statistical",
   },
+  ASC: {
+    sig: "ASC(text)",
+    desc: "Full-width (double-byte) letters, digits and katakana made half-width.",
+    cat: "Text",
+  },
+  JIS: {
+    sig: "JIS(text)",
+    desc: "Half-width letters, digits and katakana made full-width (double-byte).",
+    cat: "Text",
+  },
   CELL: {
     sig: "CELL(info_type, [reference])",
     desc: 'About a cell: "address", "row", "col", "contents", "type", "format", "width", "filename" and more.',

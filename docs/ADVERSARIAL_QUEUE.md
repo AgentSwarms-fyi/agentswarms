@@ -977,13 +977,18 @@ more missing). Open from that round:
      R337. 484 of the 510 are computed.
   6. ~~CELL and INFO~~, as far as a browser can answer them: done in R339. 486 are computed.
   7. ~~ECMA.CEILING, and ANCHORARRAY and SINGLE typed as calls~~: done in R340. 489 are computed.
-     The 21 left are the four FORECAST.ETS functions and the ones out of reach below. Among those,
-     ASC and JIS are character mappings, and BAHTTEXT spells a number in Thai. They can be written,
-     but BAHTTEXT's page gives one example (1234), which does not settle its rules for 1 in the units
-     (เอ็ด).
+  8. ~~ASC and JIS~~: done in R341, by OpenOffice's specification. 491 are computed. The 19 left,
+     counted again against openpyxl's list and XlsxWriter's, are these:
+     - the four FORECAST.ETS functions;
+     - BAHTTEXT, which spells a number in Thai. Its page gives one example (1234), which does not
+       settle when a 1 in the units is เอ็ด;
+     - the ones out of reach below.
 
-  Out of reach and to stay so: the seven CUBE functions (OLAP), RTD, WEBSERVICE and FILTERXML
-  (a server-side fetch from a formula), IMAGE, GETPIVOTDATA, PHONETIC, ASC, JIS and BAHTTEXT.
+  Out of reach and to stay so:
+  - the seven CUBE functions (OLAP);
+  - RTD;
+  - WEBSERVICE, FILTERXML and QUERYSTRING (a server-side fetch from a formula, and its query);
+  - IMAGE, GETPIVOTDATA and PHONETIC.
 
 - ~~**INDIRECT reads A1-style text only.**~~ Closed by R327: `INDIRECT("R2C3",FALSE)` reads R1C1.
 - **OFFSET and INDIRECT are not volatile, as they are in Excel.** They recompute when a cell they

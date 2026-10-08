@@ -24,6 +24,8 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Sheets: ASC and JIS** (R341): full-width and half-width ASCII and
+  katakana, both ways. Sheets now computes 491 of Excel's 510 functions.
 - **Sheets: ECMA.CEILING, and SINGLE and ANCHORARRAY typed** (R340).
   ECMA.CEILING is ISO.CEILING's name from Excel 2010's beta. `SINGLE(x)` and
   `ANCHORARRAY(A2)`, the forms an Excel file holds for `@x` and `A2#`, now work

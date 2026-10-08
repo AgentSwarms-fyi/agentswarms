@@ -15,6 +15,17 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R341: ASC and JIS
+
+New workbook `R341 asc and jis` (kept). Typed on the R340 build and reopened after the deploy:
+
+| Cell | Formula                       | Before   | After        |
+| ---- | ----------------------------- | -------- | ------------ |
+| A1   | `=ASC("ＥＸＣＥＬ ２０２６")` | `#NAME?` | `EXCEL 2026` |
+| A2   | `=JIS("ｶﾞｲﾄﾞ")`               | `#NAME?` | `ガイド`     |
+| A3   | `=ASC("パソコン")`            | `#NAME?` | `ﾊﾟｿｺﾝ`      |
+| A4   | `=JIS("Excel")`               | `#NAME?` | `Ｅｘｃｅｌ` |
+
 ## 2026-10-08 — R340: ECMA.CEILING, SINGLE and ANCHORARRAY typed
 
 New workbook `R340 file forms typed` (kept), with `=SEQUENCE(3)` in B1. Typed on the R339 build and

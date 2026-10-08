@@ -109,6 +109,59 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R341: ASC and JIS, out of reach no longer
+
+**Severity: low, Sheets** (missing functions). The queue listed ASC and JIS as out of reach, beside
+the CUBE functions. They are not: they are character mappings. ASC makes full-width ASCII and
+katakana half-width, and JIS the reverse. Excel's pages say what they do in Japanese, ASC for any
+double-byte language, but give no table.
+
+**The source.** OpenOffice's specification of the two (wiki.openoffice.org,
+Calc/Features/JIS_and_ASC_functions), written "for interoperability with Japanese localized
+Microsoft Excel versions". It was downloaded and its tables read entry by entry:
+
+- the ASCII block, with JIS's four exceptions (`"` to ", `\` to ￥, and the two quote marks);
+- the katakana, where a half-width kana and its voiced (ﾞ) or semi-voiced (ﾟ) mark join in JIS, and
+  split again in ASC;
+- seven punctuation marks.
+
+The specification does not list ヴ, ヮ, ヰ, ヱ or the space. Sheets leaves them as they are, and
+SHEETS.md says so.
+
+**Proved in the UI first.** In a new workbook `R341 asc and jis`, `=ASC("ＥＸＣＥＬ ２０２６")`,
+`=JIS("ｶﾞｲﾄﾞ")`, `=ASC("パソコン")` and `=JIS("Excel")` were `#NAME?` on the R340 build.
+
+**What was written:** `formula/kana.ts`, the specification's tables, and ASC and JIS in
+`functions.ts`, which take text and answer for each cell of a range.
+
+**The independent check** is Unicode's NFKC normalization, which is built into the JavaScript engine
+and is not this code. It maps each half-width katakana, alone or with its mark, to the full-width
+form, and full-width ASCII to ASCII. So:
+
+- JIS of every half-width katakana, with each mark it takes, must equal NFKC of it;
+- ASC of the whole full-width ASCII block must equal NFKC of it;
+- NFKC must join each of ASC's split kana back to the katakana it came from.
+
+**Tests:** `sheetsKanaR341.test.ts`, 9 cases.
+
+- The NFKC checks above.
+- The specification's exceptions and punctuation.
+- ASC undoing JIS on mixed text.
+- What is left alone.
+- A range and a number given to either.
+
+4 cases fail on the old engine. The 5 that pass test the new module directly.
+
+- **Mutation harness:** 10 mutants caught; the control survived.
+
+**The inventory, counted again** against openpyxl's list and XlsxWriter's: 491 of 510 are computed.
+The R340 entry's count of 21 left was right, but it named 20; the twenty-first is QUERYSTRING.
+
+**The UI**, reopened after the deploy: `EXCEL 2026`, `ガイド`, `ﾊﾟｿｺﾝ` and `Ｅｘｃｅｌ`. The workbook is
+kept.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R340: ECMA.CEILING, and the file's SINGLE and ANCHORARRAY typed
 
 **Severity: low, Sheets** (missing functions). Three names from R329's list were `#NAME?`:

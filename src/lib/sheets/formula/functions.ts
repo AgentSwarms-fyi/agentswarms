@@ -63,6 +63,7 @@ import {
 } from "./securities";
 import { lineUp, tailOf, withArea, withTail, zipN, type Tail } from "./arrays";
 import { leastSquares } from "./regression";
+import { toFullWidth, toHalfWidth } from "./kana";
 import {
   DEFAULT_COLUMN_PX,
   formatCode,
@@ -3667,6 +3668,24 @@ F.INFO = (args, ctx) => {
   }
 };
 
+/**
+ * ASC(text) and JIS(text) (R341): full-width ASCII and katakana made
+ * half-width, and the reverse, as OpenOffice's specification of the two maps
+ * them (formula/kana.ts). FOUND IN R329's inventory: both were #NAME?.
+ */
+F.ASC = (args) => {
+  const e = arity(args, 1, 1);
+  if (e) return e;
+  const t = text(args[0]);
+  return isError(t) ? t : toHalfWidth(t);
+};
+F.JIS = (args) => {
+  const e = arity(args, 1, 1);
+  if (e) return e;
+  const t = text(args[0]);
+  return isError(t) ? t : toFullWidth(t);
+};
+
 /** LET is evaluated by the evaluator (its names need a scope); this entry only makes it known. */
 F.LET = () => err("#VALUE!", "LET is evaluated where it stands");
 /**
@@ -4945,6 +4964,9 @@ const SINGLE_VALUE_FUNCTIONS = [
   ...["ACOSH", "ASINH", "ATANH", "ACOT", "ACOTH", "COT", "COTH", "CSC", "CSCH", "SEC", "SECH"],
   ...["FACTDOUBLE", "SQRTPI", "CEILING.PRECISE", "FLOOR.PRECISE", "ISO.CEILING", "DELTA"],
   "ECMA.CEILING",
+  // R341's.
+  "ASC",
+  "JIS",
   ...["GESTEP", "ERF", "ERF.PRECISE", "ERFC", "ERFC.PRECISE", "BESSELI", "BESSELJ", "BESSELK"],
   "BESSELY",
   // R336's.
