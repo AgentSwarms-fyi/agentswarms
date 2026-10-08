@@ -109,6 +109,53 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R359: server functions had no CSRF check
+
+**Severity: medium (defence in depth).** The functions authenticate with a bearer token the
+browser does not attach on its own, so a cross-site page could not act as a signed-in user through
+them. But the framework's same-origin check, which TanStack applies by default, was off.
+
+**Found while reading the request pipeline for the srvx queue item.** In
+`@tanstack/start-server-core`, the handler sets `requestMiddleware: startInstance ?
+startOptions.requestMiddleware : isServerFnRequest ? [defaultCsrfMiddleware] : undefined`. So an
+app with a start instance gets only the middleware it lists. `src/start.ts` lists
+`functionMiddleware` and no `requestMiddleware`. TanStack's warning ("server functions are not
+protected by the CSRF middleware") fires only when `NODE_ENV !== "production"`, and the container
+never printed it.
+
+**Shown on the live instance.** POSTs to a `/_serverFn/` id (from the Traces page) behaved the
+same three ways. With `Sec-Fetch-Site: cross-site` and `Origin: https://evil.example`, with
+same-origin headers, and with no headers, each reached the function. Each failed only on my
+body ("Seroval Error"), not on where it came from.
+
+**What was written.** `src/start.ts` registers `createCsrfMiddleware({ filter: (ctx) =>
+ctx.handlerType === "serverFn" })` as `requestMiddleware`, which is TanStack's own advice.
+
+- A browser call passes on `Sec-Fetch-Site: same-origin`, or on a same-origin `Origin` or
+  `Referer`.
+- A call from another site gets 403, and so does a call with none of the three.
+- Nothing calls a server function over HTTP but the app's pages (a search of the repo for
+  `_serverFn` finds only docs).
+- API routes (`/api/…`: health, the AI gateway, MCP) are not server functions and are not
+  filtered.
+
+**Tests:** `serverFnCsrf.test.ts`, new, 4 cases.
+
+- It pins TanStack's verdicts: same-origin by each header passes; cross-site by each header is
+  refused; no header is refused.
+- It pins the wiring in `start.ts`.
+
+**The UI and the instance** (R359 build):
+
+- The same three POSTs: cross-site **403 Forbidden**, same-origin through to the function as
+  before, headerless **403**. `/api/health/ready` 200.
+- In the browser, the Traces list, an ML model, and the runtime's ML tab answered every server
+  function call with 200.
+- Sheets → Version history → **Save version** "R359 csrf check" was saved and listed, so writes
+  pass too.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R358: the contact form took a message it could not send
 
 **Severity: low (an honest error).** Queued in R345. On an instance with no

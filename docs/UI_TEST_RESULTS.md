@@ -15,6 +15,15 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R359: server functions and where their calls come from
+
+| Where                                              | What was driven                                                                                         | Result                                                                                                             |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `POST /_serverFn/<id>` (R358 build)                | With `Sec-Fetch-Site: cross-site` + `Origin: https://evil.example`; with same-origin headers; with none | **Defect.** All three reached the function (500 "Seroval Error" on the test body, the same for each)               |
+| the same (R359 build)                              | The same three                                                                                          | cross-site **403 Forbidden**; same-origin through to the function as before; none **403**; `/api/health/ready` 200 |
+| /traces, /ml/…, /admin/runtime?tab=ml (R359 build) | Load                                                                                                    | Every `/_serverFn/` call 200                                                                                       |
+| /sheets/… (R341 test workbook)                     | Version history → name "R359 csrf check" → **Save version**                                             | `Saved the version "R359 csrf check"`, listed; 200s                                                                |
+
 ## 2026-10-08 — R358: the contact form on an instance with no contact address
 
 | Page                  | What was driven                              | Result                                                                                                                                                                       |

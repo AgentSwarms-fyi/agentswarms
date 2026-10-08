@@ -89,6 +89,14 @@ development branch and may be ahead of the latest tag.
 
 ### Security: guardrails
 
+- **Server functions refuse calls from other sites** (R359). TanStack Start
+  applies its CSRF check to server functions only when there is no start
+  instance; this app's `src/start.ts` set none, and the warning about that
+  prints only in development, so production had no check. A call with
+  `Sec-Fetch-Site: cross-site` reached the function. The start instance now
+  registers TanStack's `createCsrfMiddleware` for server functions: a call
+  from another site, or one with no `Sec-Fetch-Site`, `Origin` or `Referer`,
+  gets 403. API routes are not affected.
 - **An agent's PII redaction now covers the whole conversation** (R351). The
   input guardrail rewrote only the newest user message, so a value it redacted
   on the turn it was typed went to the model unredacted in the history of
