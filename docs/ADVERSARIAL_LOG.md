@@ -109,6 +109,60 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R342: 69 `any`s, and a Recharts workaround past its reason
+
+**Severity: low, code health** (lint warnings, one of the gaps listed at the start of this run).
+Lint reported 220 warnings: 158 `@typescript-eslint/no-explicit-any` and 62 react-refresh. Seven
+files held 69 of the `any`s, and they were taken first. Each `any` got the type its value has. None
+became a blanket `unknown`.
+
+- **The Recharts casts.** `analytics.tsx`, `QualityTrends.tsx` and `ActivityChart.tsx` each cast
+  every Recharts component through `any`, "React 19's stricter JSX component typing rejects recharts
+  class components". `BiChartRender.tsx` imports the same components plainly, and it typechecks. So
+  the workaround had outlived its reason. With a named import, every prop at every call site is
+  checked against Recharts' own types, and none was wrong.
+- **AgentForm.tsx (20).** The icons became `LucideIcon`. The row's `tools` became the database's
+  `Json`. The stored tools are read through one `StoredTools` type: every field the form reads,
+  optional, and as loose as an older row can be. Before, the tools were read in two places, one of
+  them `as any`. The integrations and credential rows take the Supabase client's own types.
+- **knowledge.tsx.** `kb_chunks` was cast to `any` although the generated types have it. The
+  document inserts are `TablesInsert<"knowledge_documents">`, and a dropped file's rejection is
+  react-dropzone's `FileRejection`. A document's embedding model is read from its metadata by a
+  helper that checks the value is a string.
+- **playground.tsx.** A message's metadata is a `MessageMeta`, the trace's payloads are `Json`, and
+  the tool calls have the two shapes providers write.
+- **tracer.ts.** Its writes are checked against the table types; `jsonValue` returns `Json`, not
+  `any`. All five inserts and the update matched.
+- **Catches.** A `catch (err: any)` reading `err.message` now reads it from an `Error` and otherwise
+  gives the value as text. Before, it showed nothing.
+
+**One test read the old code.** `swarmCancelServerRun.test.ts` matched `.update(numbers as any)`. It
+checks that only the numbers are written when the close did not land, so it now matches
+`.update(numbers)`.
+
+**Tests:**
+
+- tsc and ESLint are clean on the seven files.
+- The 48 unit test files that read them pass.
+- The full gate passed; see the commit.
+
+**The UI**, after the deploy, page by page:
+
+- **Dashboard:** the activity chart drawn, with its axes and area.
+- **Analytics:** 11 charts, among them an area chart and two pies, with their axis ticks.
+- **Knowledge, `RAG eval · Halvard Systems`:** all 12 documents with their embedding-model badge
+  and chunk counts.
+- **Agent form:** an agent's edit form opened on its stored guardrails. Saved unchanged, it said
+  "Agent updated".
+- **Playground:** a conversation with a document card read from a message's metadata.
+- No console errors on any of these.
+- **Quality trends** showed its empty state: no answers were scored in the last 30 days, so its
+  chart could not be drawn. Its changes are the import and one parameter's type.
+
+Warnings go from 220 to 151: 89 `any`s and the 62 react-refresh ones.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R341: ASC and JIS, out of reach no longer
 
 **Severity: low, Sheets** (missing functions). The queue listed ASC and JIS as out of reach, beside

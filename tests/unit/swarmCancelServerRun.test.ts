@@ -124,7 +124,7 @@ describe("the browser run's close", () => {
       /\.eq\("id", runId\)\s*\.eq\("user_id", userId\)\s*\.eq\("status", "running"\)\s*\.select\("id"\);/,
     );
     expect(close).toMatch(
-      /if \(!closeErr && !closed\?\.length\) \{\s*await supabase\s*\.from\("swarm_runs"\)\s*\.update\(numbers as any\)/,
+      /if \(!closeErr && !closed\?\.length\) \{\s*await supabase\s*\.from\("swarm_runs"\)\s*\.update\(numbers\)/,
     );
   });
 });

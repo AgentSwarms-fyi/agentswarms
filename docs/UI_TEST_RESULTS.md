@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R342: the pages whose `any`s were typed
+
+After the deploy, each page the change touched:
+
+| Page                                      | What was checked                                              | Result                                               |
+| ----------------------------------------- | ------------------------------------------------------------- | ---------------------------------------------------- |
+| Dashboard (ActivityChart)                 | the Activity chart                                            | drawn, with axes and area                            |
+| Analytics                                 | the Recharts surfaces                                         | 11 charts, an area chart and 2 pies, 21 axis ticks   |
+| Analytics → Observability (QualityTrends) | the quality chart                                             | empty state: no scores in the last 30 days           |
+| Knowledge, `RAG eval · Halvard Systems`   | documents, embedding-model badges, chunk counts               | 12 documents, 12 badges, counts shown; 12/12 indexed |
+| Agent Builder, `R293 budget probe 3`      | edit form, Guardrails tab, Update Agent                       | stored values shown; "Agent updated"                 |
+| Agent Chat                                | a conversation with a document card from a message's metadata | shown                                                |
+
+No console errors on any of these pages.
+
 ## 2026-10-08 — R341: ASC and JIS
 
 New workbook `R341 asc and jis` (kept). Typed on the R340 build and reopened after the deploy:

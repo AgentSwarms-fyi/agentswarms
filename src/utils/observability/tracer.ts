@@ -3,6 +3,7 @@
 // Keeps a local map of nodeId -> stepId for the current run so edges and
 // step finishers can resolve without round-tripping IDs.
 import { supabase } from "@/integrations/supabase/client";
+import type { Json } from "@/integrations/supabase/types";
 
 export type SwarmTracer = {
   runId: string;
@@ -47,7 +48,8 @@ export type SwarmTracer = {
 
 const noop = () => {};
 
-const jsonValue = (value: unknown) => value as any;
+/** A value for a json column. */
+const jsonValue = (value: unknown) => value as Json;
 
 export async function createSwarmTracer(opts: {
   swarmId?: string | null;
@@ -70,7 +72,7 @@ export async function createSwarmTracer(opts: {
         input_prompt: opts.inputPrompt ?? null,
         swarm_snapshot: jsonValue(opts.swarmSnapshot ?? {}),
         status: "running",
-      } as any)
+      })
       .select("id")
       .single();
     if (runError || !runRow?.id)
@@ -108,7 +110,7 @@ export async function createSwarmTracer(opts: {
               agent_id: args.agentId ?? null,
               input: jsonValue(args.input ?? {}),
               status: "running",
-            } as any)
+            })
             .select("id")
             .single()
             .then(({ data, error }) => {
@@ -145,7 +147,7 @@ export async function createSwarmTracer(opts: {
                 latency_ms: latencyMs,
                 error_message: args.errorMessage ?? null,
                 finished_at: new Date().toISOString(),
-              } as any)
+              })
               .eq("id", stepId)
               .eq("user_id", userId);
           }),
@@ -165,7 +167,7 @@ export async function createSwarmTracer(opts: {
               target_node_id: args.targetNodeId,
               payload_preview: args.payloadPreview ?? null,
               bytes: args.bytes ?? 0,
-            } as any),
+            }),
           ),
         );
       },
@@ -210,17 +212,13 @@ export async function createSwarmTracer(opts: {
               error_message: args.errorMessage ?? null,
               finished_at: new Date().toISOString(),
               ...numbers,
-            } as any)
+            })
             .eq("id", runId)
             .eq("user_id", userId)
             .eq("status", "running")
             .select("id");
           if (!closeErr && !closed?.length) {
-            await supabase
-              .from("swarm_runs")
-              .update(numbers as any)
-              .eq("id", runId)
-              .eq("user_id", userId);
+            await supabase.from("swarm_runs").update(numbers).eq("id", runId).eq("user_id", userId);
           }
         } catch {
           // ignore

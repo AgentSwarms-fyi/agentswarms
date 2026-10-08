@@ -16,20 +16,19 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
-import * as Recharts from "recharts";
-// React 19's stricter JSX component typing rejects recharts class components.
-// Cast each one through `any` so JSX accepts them without per-callsite casts.
-const ResponsiveContainer = Recharts.ResponsiveContainer as any;
-const AreaChart = Recharts.AreaChart as any;
-const Area = Recharts.Area as any;
-const XAxis = Recharts.XAxis as any;
-const YAxis = Recharts.YAxis as any;
-const Tooltip = Recharts.Tooltip as any;
-const CartesianGrid = Recharts.CartesianGrid as any;
-const PieChart = Recharts.PieChart as any;
-const Pie = Recharts.Pie as any;
-const Cell = Recharts.Cell as any;
-const Legend = Recharts.Legend as any;
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  PieChart,
+  Pie,
+  Cell,
+  Legend,
+} from "recharts";
 import {
   DollarSign,
   Cpu,
@@ -39,6 +38,7 @@ import {
   TrendingDown,
   Sparkles,
   CalendarIcon,
+  type LucideIcon,
 } from "lucide-react";
 import {
   format,
@@ -661,7 +661,7 @@ function KpiCard({
   trendLabel,
   subtext,
 }: {
-  icon: any;
+  icon: LucideIcon;
   label: string;
   value: string;
   trend?: number;

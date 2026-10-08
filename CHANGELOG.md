@@ -108,6 +108,11 @@ and both of those are one advisory that cannot be triggered here (see
   upload, and the versions fetched (pdf.js 4.7.76, mammoth 1.8.0) were not the
   audited ones in the lockfile (4.10.38, 1.13.0). The build now copies them into
   `public/vendor`.
+- **69 `any` types replaced by the types the values have** (R342), in the agent
+  form, analytics, quality trends, the dashboard's activity chart, knowledge,
+  the playground and the swarm tracer. Recharts is imported as it is: the casts
+  written for React 19's typing were no longer needed. Lint warnings go from
+  220 to 151.
 - **Prettier 3.9's** formatting is applied, in 46 files. `react-refresh` 0.5
   flagged every route file's page component; route files are hot-reloaded by
   TanStack's router plugin, so the rule is now off under `src/routes/` only.

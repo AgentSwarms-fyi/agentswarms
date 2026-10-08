@@ -693,6 +693,20 @@ least twice, not a hypothetical.
       request mid-flight. It predates the dependency pass (srvx 0.11.22 before and after). It is
       noise in an operator's log, not a failure, so it should be logged as a disconnect or not at
       all.
+      - **Where it comes from (read in R342).** srvx aborts `request.signal` when the response
+        closes before it has ended (`adapters/node.mjs`, `_abortController`). A handler awaiting
+        something tied to that signal then rejects with the AbortError. TanStack Start's h3
+        (`h3-v2`, 2.0.1-rc.20) logs any error that is not its own `HTTPError` as unhandled, in
+        `prepareResponse`, with no look at the signal. srvx's own catch does check for an abort,
+        but h3 has logged by then. Two places pass the request's signal on: `api/chat.ts`'s
+        image-generation calls, and the AI gateway's turn (`gateway/api.server.ts`), which catches
+        its own error.
+      - **Not reproduced.** Cutting page loads with curl (`-m 0.03` to `0.12` s) logged nothing,
+        as those pages answer in one piece. The 2026-10-06 stack was cut to its last 15 lines, so
+        the handler that threw is not known.
+      - **Next:** reproduce it on a route that waits on the signal, such as a chat image turn left
+        mid-call. Then see whether a request middleware in `createStart` (`requestMiddleware`) gets
+        the rejection before h3 logs it. If it does, it can answer an aborted request quietly.
     - ~~**Data incidents** (`dataMonitors/run.server`)~~. **R312**: every status write by either
       writer is now held to "not resolved". Acknowledge no longer opens again an incident a run
       resolved; a run no longer takes over its owner's resolve; and a failure no longer goes

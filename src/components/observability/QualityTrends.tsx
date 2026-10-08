@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import * as Recharts from "recharts";
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+} from "recharts";
 import { format } from "date-fns";
 import { Gauge, TrendingUp, TrendingDown, Minus, ClipboardCheck, Target } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -14,13 +22,6 @@ import {
 } from "@/lib/evalScorecard";
 
 // React 19's stricter JSX typing rejects recharts' class components — cast via any.
-const ResponsiveContainer = Recharts.ResponsiveContainer as any;
-const AreaChart = Recharts.AreaChart as any;
-const Area = Recharts.Area as any;
-const XAxis = Recharts.XAxis as any;
-const YAxis = Recharts.YAxis as any;
-const Tooltip = Recharts.Tooltip as any;
-const CartesianGrid = Recharts.CartesianGrid as any;
 
 const pct = (n: number | null | undefined) => (n == null ? "—" : Math.round(n * 100) + "%");
 const scoreColor = (n: number | null | undefined) =>
@@ -241,7 +242,7 @@ export function QualityTrends() {
                     border: "1px solid hsl(var(--border))",
                     background: "hsl(var(--popover))",
                   }}
-                  formatter={(v: number, _n: string, p: any) => [
+                  formatter={(v: number, _n: string, p: { payload?: { count?: number } }) => [
                     `${v}%  ·  ${p?.payload?.count ?? 0} evals`,
                     "Avg quality",
                   ]}

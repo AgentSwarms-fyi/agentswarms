@@ -46,6 +46,8 @@ import {
   Boxes,
   HeartPulse,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import type { Json } from "@/integrations/supabase/types";
 import { ModelRegistryPicker } from "@/components/agents/ModelRegistryPicker";
 import { ModelCombobox } from "@/components/models/ModelCombobox";
 import { PromptLibraryPicker } from "@/components/prompts/PromptLibraryPicker";
@@ -58,7 +60,7 @@ type BuiltInTool = {
   id: string;
   name: string;
   description: string;
-  icon: any;
+  icon: LucideIcon;
   category: "search" | "utility" | "automation" | "knowledge" | "data";
   requiresConfig?: boolean;
   // When true, this card is informational only — the capability is enabled
@@ -213,7 +215,7 @@ type WorkflowProvider = {
   id: string;
   name: string;
   description: string;
-  icon: any;
+  icon: LucideIcon;
   openSource: boolean;
   fields: { key: string; label: string; placeholder: string; type?: string }[];
 };
@@ -507,10 +509,28 @@ export type Agent = {
   llm_model: string;
   temperature: number;
   max_tokens: number;
-  tools: any;
+  tools: Json;
   n8n_webhook_url: string | null;
   knowledge_base_id: string | null;
   is_active: boolean;
+};
+
+/**
+ * The agent's tools column as this form reads it. Every field may be missing
+ * from an older row, and the lists are checked where they are read.
+ */
+type StoredTools = {
+  guardrails?: Partial<Guardrails>;
+  builtInTools?: Record<string, boolean>;
+  skillIds?: unknown;
+  toolConfigs?: Record<string, Record<string, unknown>>;
+  workflows?: Record<string, Record<string, string>>;
+  activeWorkflows?: Record<string, boolean>;
+  mcpServerNames?: unknown[];
+  routeThroughGateway?: boolean;
+  biVisuals?: boolean;
+  knowledgeBaseIds?: unknown;
+  reranker?: { provider?: string; model?: string } | null;
 };
 
 type Guardrails = {
@@ -676,8 +696,13 @@ export function AgentForm({
   const [maxTokens, setMaxTokens] = useState(agent?.max_tokens || 4096);
   const [n8nWebhook, setN8nWebhook] = useState(agent?.n8n_webhook_url || "");
   const [useN8n, setUseN8n] = useState(!!agent?.n8n_webhook_url);
-  const initialExtraKbs: string[] = Array.isArray((agent?.tools as any)?.knowledgeBaseIds)
-    ? ((agent!.tools as any).knowledgeBaseIds as string[])
+  // The agent's tools column as stored: an object, or {} for a row from before it was one.
+  const existingTools: StoredTools =
+    agent?.tools && typeof agent.tools === "object" && !Array.isArray(agent.tools)
+      ? (agent.tools as StoredTools)
+      : {};
+  const initialExtraKbs: string[] = Array.isArray(existingTools.knowledgeBaseIds)
+    ? (existingTools.knowledgeBaseIds as string[])
     : [];
   const initialKbSet = new Set<string>([
     ...(agent?.knowledge_base_id ? [agent.knowledge_base_id] : []),
@@ -687,21 +712,13 @@ export function AgentForm({
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   // Optional retrieval re-ranker (tools.reranker): a cross-encoder that
   // reorders retrieved chunks before they reach the model.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const initialReranker = ((agent?.tools as any)?.reranker ?? null) as {
-    provider?: string;
-    model?: string;
-  } | null;
+  const initialReranker = existingTools.reranker ?? null;
   const [rerankProvider, setRerankProvider] = useState<string>(initialReranker?.provider ?? "none");
   const [rerankModel, setRerankModel] = useState<string>(initialReranker?.model ?? "");
   const [rerankCustom, setRerankCustom] = useState(false);
   const [loading, setLoading] = useState(false);
 
   // Guardrails + Tools state
-  const existingTools =
-    agent?.tools && typeof agent.tools === "object" && !Array.isArray(agent.tools)
-      ? (agent.tools as any)
-      : {};
   const [guardrails, setGuardrails] = useState<Guardrails>({
     ...defaultGuardrails,
     ...(existingTools.guardrails || {}),
@@ -710,14 +727,12 @@ export function AgentForm({
     existingTools.builtInTools || {},
   );
   const [skillIds, setSkillIds] = useState<string[]>(
-    Array.isArray((existingTools as any).skillIds)
-      ? ((existingTools as any).skillIds as unknown[]).filter(
-          (s): s is string => typeof s === "string",
-        )
+    Array.isArray(existingTools.skillIds)
+      ? (existingTools.skillIds as unknown[]).filter((s): s is string => typeof s === "string")
       : [],
   );
   const [toolConfigs, setToolConfigs] = useState<Record<string, Record<string, string>>>(
-    existingTools.toolConfigs || {},
+    (existingTools.toolConfigs as Record<string, Record<string, string>> | undefined) || {},
   );
   const [workflowConfigs, setWorkflowConfigs] = useState<Record<string, Record<string, string>>>(
     existingTools.workflows || {},
@@ -730,7 +745,7 @@ export function AgentForm({
   // `tools.mcpServerNames` and enforced server-side in registry.server.ts.
   const [mcpServerNames, setMcpServerNames] = useState<string[]>(
     Array.isArray(existingTools.mcpServerNames)
-      ? existingTools.mcpServerNames.filter((s: any) => typeof s === "string")
+      ? existingTools.mcpServerNames.filter((s: unknown): s is string => typeof s === "string")
       : [],
   );
   const [availableMcpServers, setAvailableMcpServers] = useState<
@@ -880,20 +895,21 @@ export function AgentForm({
         supabase.from("provider_credentials").select("provider, is_active"),
         supabase.from("integrations").select("provider, type, is_active, config"),
       ]);
-      creds?.forEach((r: any) => {
+      creds?.forEach((r) => {
         if (r.is_active !== false && r.provider) connected.add(r.provider);
       });
       integ
-        ?.filter((r: any) => r.type === "llm_provider")
-        .forEach((r: any) => {
+        ?.filter((r) => r.type === "llm_provider")
+        .forEach((r) => {
           if (r.is_active !== false && r.provider) connected.add(r.provider);
         });
-      const gw = integ?.find((r: any) => r.type === "llm_gateway" && r.is_active);
+      const gw = integ?.find((r) => r.type === "llm_gateway" && r.is_active);
       if (gw?.config) {
+        const config = gw.config as { provider?: string; base_url?: string };
         setGatewayConnected({
           connected: true,
-          provider: (gw.config as any).provider,
-          baseUrl: (gw.config as any).base_url,
+          provider: config.provider,
+          baseUrl: config.base_url,
         });
       }
       setConnectedProviders(connected);
@@ -909,10 +925,10 @@ export function AgentForm({
       .order("name", { ascending: true })
       .then(({ data }) => {
         if (data) {
-          setAvailableMcpServers(data as any);
+          setAvailableMcpServers(data);
           // Only live servers are selectable. Prune anything removed or no
           // longer connected so stale names never render in the picker.
-          const validNames = new Set((data as any[]).map((s) => s.name));
+          const validNames = new Set(data.map((s) => s.name));
           setMcpServerNames((prev) => prev.filter((n) => validNames.has(n)));
         }
         setMcpServersLoaded(true);
@@ -1175,7 +1191,7 @@ export function AgentForm({
     const kbIds = Array.from(selectedKbIds);
     const primaryKbId = kbIds[0] || null;
 
-    const toolsPayload: any = {
+    const toolsPayload: StoredTools & Record<string, unknown> = {
       guardrails,
       builtInTools: enabledTools,
       // Every allow-list key is REMOVED first and written back only when it
@@ -1250,7 +1266,7 @@ export function AgentForm({
       max_tokens: maxTokens,
       n8n_webhook_url: useN8n ? n8nWebhook : null,
       knowledge_base_id: primaryKbId,
-      tools: toolsPayload,
+      tools: toolsPayload as Json,
     };
 
     try {
@@ -1295,8 +1311,8 @@ export function AgentForm({
       if (!agent) clearDraft(AGENT_DRAFT_KEY);
       toast.success(agent ? "Agent updated" : "Agent created");
       onSaved();
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -2116,7 +2132,9 @@ export function AgentForm({
                 <Label>Safety Level</Label>
                 <Select
                   value={guardrails.contentSafetyLevel}
-                  onValueChange={(v: any) => updateGuardrail("contentSafetyLevel", v)}
+                  onValueChange={(v) =>
+                    updateGuardrail("contentSafetyLevel", v as Guardrails["contentSafetyLevel"])
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue />
