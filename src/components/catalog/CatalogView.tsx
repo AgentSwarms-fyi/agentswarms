@@ -80,7 +80,7 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
-import { useBiModelPref } from "@/components/bi/BiModelSelect";
+import { useBiModelPref } from "@/components/bi/biModelPref";
 import {
   assetLineageKeys,
   fmtBytes,

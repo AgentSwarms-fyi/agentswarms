@@ -19,7 +19,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
-import { relTime } from "@/components/ml/mlUi";
+import { relTime } from "@/components/ml/mlFormat";
 import {
   mlScheduleCreate,
   mlScheduleDelete,

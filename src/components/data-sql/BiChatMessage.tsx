@@ -26,7 +26,8 @@ import {
   LayoutDashboard,
 } from "lucide-react";
 import type { BiTurn } from "@/lib/biAgent";
-import { BiChartRender, fmtBiNumber } from "@/components/bi/BiChartRender";
+import { BiChartRender } from "@/components/bi/BiChartRender";
+import { fmtBiNumber } from "@/components/bi/biChartData";
 
 function statusLabel(s: BiTurn["status"]): string {
   switch (s) {

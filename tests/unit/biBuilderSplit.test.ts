@@ -140,7 +140,10 @@ describe("nothing was duplicated on the way out", () => {
 
   for (const [label, decl] of ONCE) {
     it(`${label} is declared exactly once`, () => {
-      const all = [parent, ...Object.values(CHILDREN)];
+      // R346: the picker's list moved to vizTypes.ts, so the picker file exports
+      // only its component. It is still declared once, there.
+      const vizTypes = readFileSync("src/components/bi/vizTypes.ts", "utf8");
+      const all = [parent, ...Object.values(CHILDREN), vizTypes];
       const count = all.filter((s) => decl.test(s)).length;
       expect(count, `${label} is declared in ${count} of these files`).toBe(1);
     });

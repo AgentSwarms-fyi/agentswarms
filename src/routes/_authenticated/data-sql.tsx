@@ -103,7 +103,8 @@ import {
 } from "@/lib/biAgent";
 import { BiChatMessage } from "@/components/data-sql/BiChatMessage";
 import { AddToDashboardDialog } from "@/components/bi/AddToDashboardDialog";
-import { BiModelSelect, useBiModelPref } from "@/components/bi/BiModelSelect";
+import { BiModelSelect } from "@/components/bi/BiModelSelect";
+import { useBiModelPref } from "@/components/bi/biModelPref";
 import type { BiWidgetSource } from "@/lib/biDashboards";
 import { SuggestedQuestions } from "@/components/data-sql/SuggestedQuestions";
 import { SemanticLayerEditor } from "@/components/data-sql/SemanticLayerEditor";

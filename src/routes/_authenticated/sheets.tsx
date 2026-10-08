@@ -64,7 +64,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { confirmAsk, promptAsk } from "@/components/ui/confirm-dialog";
-import { relTime } from "@/components/ml/mlUi";
+import { relTime } from "@/components/ml/mlFormat";
 import { listClaim } from "@/lib/listClaim";
 import { matchSpans, searchWorkbooks, type GallerySort } from "@/lib/sheets/preview";
 import { cn } from "@/lib/utils";

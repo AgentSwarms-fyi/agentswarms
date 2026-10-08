@@ -22,17 +22,15 @@ import {
   type MlSource,
   type MlTask,
 } from "@/utils/ml/types";
+import { Chip, StageChip, TaskBadge } from "@/components/ml/mlUi";
 import {
-  Chip,
   JOB_STATUS_STYLE,
-  StageChip,
-  TaskBadge,
   fmtInt,
   fmtMetric,
   metricLabel,
   metricTone,
   relTime,
-} from "@/components/ml/mlUi";
+} from "@/components/ml/mlFormat";
 
 export const Route = createFileRoute("/_authenticated/ml")({
   component: MlPage,

@@ -57,5 +57,23 @@ export default tseslint.config(
     files: ["src/routes/**/*.{ts,tsx}"],
     rules: { "react-refresh/only-export-components": "off" },
   },
+  {
+    // Two more kinds of file where the rule asks for something it cannot have
+    // (R346, which moved every other non-component export out of a component
+    // file):
+    //
+    // - Email templates are rendered to HTML on the server by React Email
+    //   (/api/contact, /api/email/send, the budget alert). No browser loads
+    //   them, so there is nothing to hot-reload, and each one's `template`
+    //   entry (subject, preview data) belongs beside its component.
+    // - Six shadcn/ui files export a variants helper or hook beside their
+    //   components (buttonVariants, useSidebar…), as the shadcn CLI writes
+    //   them. Splitting them would make every `npx shadcn add` a merge.
+    files: [
+      "src/lib/email-templates/**/*.tsx",
+      "src/components/ui/{badge,button,form,navigation-menu,sidebar,toggle}.tsx",
+    ],
+    rules: { "react-refresh/only-export-components": "off" },
+  },
   eslintPluginPrettier,
 );

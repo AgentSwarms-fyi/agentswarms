@@ -13,13 +13,7 @@ import { AlertTriangle, Database, Loader2 } from "lucide-react";
 
 import { browserEngineStatus, onBrowserEngineStatus } from "@/lib/browserDuckdb";
 import type { EngineStatus } from "@/lib/browserDuckdb";
-
-/** Subscribe a component to engine status. */
-export function useSqlEngineStatus(): EngineStatus {
-  const [status, setStatus] = useState<EngineStatus>(browserEngineStatus);
-  useEffect(() => onBrowserEngineStatus(setStatus), []);
-  return status;
-}
+import { useSqlEngineStatus } from "@/hooks/use-sql-engine-status";
 
 function mb(bytes: number): string {
   return `${(bytes / 1_048_576).toFixed(1)} MB`;

@@ -3,12 +3,8 @@
 // SVG/HTML on design tokens, so they follow light/dark themes.
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Pause, Play } from "lucide-react";
-import {
-  fmtBiNumber,
-  fmtBiValue,
-  toBiNumber,
-  type BiFormatOptions,
-} from "@/components/bi/BiChartRender";
+import { type BiFormatOptions } from "@/components/bi/biChartData";
+import { fmtBiNumber, fmtBiValue, toBiNumber } from "@/components/bi/biChartData";
 import { condFill } from "@/lib/biChartMath";
 import { useRacePlayback } from "@/lib/racePlayback";
 import type { BiCondFormat, BiNumberFormat } from "@/lib/biAgent";
@@ -265,7 +261,7 @@ type BoxStats = {
   max: number;
 };
 
-export function computeBoxStats(
+function computeBoxStats(
   rows: Record<string, unknown>[],
   xField: string,
   yField: string,

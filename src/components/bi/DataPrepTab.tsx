@@ -93,7 +93,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { useTokenRef } from "@/hooks/use-token-ref";
-import { fmtBiNumber } from "@/components/bi/BiChartRender";
+import { fmtBiNumber } from "@/components/bi/biChartData";
 import {
   addTableToFlow,
   aggNeedsColumn,

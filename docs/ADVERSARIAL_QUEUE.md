@@ -701,9 +701,16 @@ least twice, not a hypothetical.
         but h3 has logged by then. Two places pass the request's signal on: `api/chat.ts`'s
         image-generation calls, and the AI gateway's turn (`gateway/api.server.ts`), which catches
         its own error.
-      - **Not reproduced.** Cutting page loads with curl (`-m 0.03` to `0.12` s) logged nothing,
-        as those pages answer in one piece. The 2026-10-06 stack was cut to its last 15 lines, so
-        the handler that threw is not known.
+      - **Not reproduced with curl.** Cutting page loads with curl (`-m 0.03` to `0.12` s) logged
+        nothing, as those pages answer in one piece. The 2026-10-06 stack was cut to its last 15
+        lines, so the handler that threw is not known.
+      - **Seen again in R346, from the browser.** Reloading signed-in pages while they were still
+        loading (Settings after a theme change, then the Layout tab) logged three stacks: one
+        `AbortError` and two `Error: aborted`, each with `status: 500, unhandled: true`. Each came
+        from srvx's `abort` on `ServerResponse` close. The browser's console showed one
+        `Failed to load resource: 500` with no URL at the same time. Loading the same pages to the
+        end showed no 4xx or 5xx in their resource timings. So the recipe is a reload while a
+        page's server functions are in flight; the handler is still unnamed.
       - **Next:** reproduce it on a route that waits on the signal, such as a chat image turn left
         mid-call. Then see whether a request middleware in `createStart` (`requestMiddleware`) gets
         the rejection before h3 logs it. If it does, it can answer an aborted request quietly.

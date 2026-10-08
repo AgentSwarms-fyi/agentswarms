@@ -44,7 +44,8 @@ import {
   Wrench,
 } from "lucide-react";
 
-import { BiChartRender, fmtBiValue } from "@/components/bi/BiChartRender";
+import { BiChartRender } from "@/components/bi/BiChartRender";
+import { fmtBiValue } from "@/components/bi/biChartData";
 import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import { ShareAnalystDialog } from "@/components/bi/ShareAnalystDialog";
 import { ScheduleAnalysisDialog } from "@/components/bi/ScheduleAnalysisDialog";

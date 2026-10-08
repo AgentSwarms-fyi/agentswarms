@@ -15,7 +15,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { relTime } from "@/components/ml/mlUi";
+import { relTime } from "@/components/ml/mlFormat";
 import { cn } from "@/lib/utils";
 import {
   mlDeploy,

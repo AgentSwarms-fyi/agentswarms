@@ -241,6 +241,8 @@ describe("loads that replace what the user edits do not follow the token", () =>
  */
 const REVIEWED: Record<string, number> = {
   "src/components/admin/GroupBudgetsTab.tsx": 1,
+  // R346: moved out of SourcePickers.tsx; re-reads the secret names a picker lists.
+  "src/hooks/use-secret-names.ts": 1,
   "src/components/admin/VectorStorePanel.tsx": 1,
   // R217: loads the model list once (`models.length > 0` stops a re-run).
   "src/components/agents/ModelRegistryPicker.tsx": 1,
@@ -253,7 +255,7 @@ const REVIEWED: Record<string, number> = {
   "src/components/catalog/CatalogView.tsx": 1,
   "src/components/catalog/DatasetQualityPanel.tsx": 1,
   "src/components/dashboard/SpendPanel.tsx": 1,
-  "src/components/etl/SourcePickers.tsx": 5,
+  "src/components/etl/SourcePickers.tsx": 4,
   "src/components/gateway/GatewayApiCard.tsx": 1,
   "src/components/integrations/SaasSourcesTab.tsx": 1,
   "src/components/integrations/SlackRoutingCard.tsx": 1,

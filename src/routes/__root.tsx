@@ -2,9 +2,9 @@ import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/r
 import { Toaster } from "@/components/ui/sonner";
 import { useEffect } from "react";
 import { installSilentFailureNet } from "@/lib/silentFailureNet";
-import { ConfirmHost } from "@/components/ui/confirm-dialog";
-import { ThemeProvider } from "@/hooks/use-theme";
-import { LayoutPrefsProvider } from "@/hooks/use-layout-prefs";
+import { ConfirmHost } from "@/components/ui/confirm-host";
+import { ThemeProvider } from "@/components/ThemeProvider";
+import { LayoutPrefsProvider } from "@/components/LayoutPrefsProvider";
 import { CookieConsent } from "@/components/CookieConsent";
 import { SchemaHealthGuard } from "@/components/SchemaHealthGuard";
 
@@ -14,7 +14,7 @@ import { SchemaHealthGuard } from "@/components/SchemaHealthGuard";
 // workspace) with no accent override (this app's built-in teal).
 //
 // Kept in sync BY HAND with applyTheme/applyAccent/readInitialTheme in
-// hooks/use-theme.tsx, ACCENTS included: this has to be a string that runs
+// components/ThemeProvider.tsx and ACCENTS in hooks/use-theme.ts: this has to be a string that runs
 // before any bundle loads, so it cannot import them. If either list changes,
 // change it here too.
 const themeBootScript = `

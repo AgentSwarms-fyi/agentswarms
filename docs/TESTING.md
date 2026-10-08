@@ -580,9 +580,13 @@ no PR open does not trigger it. No secrets are used; the build gets placeholder
 permanently red has been cleared with `npm run format`, so `npm run lint`
 reports **0 errors** and CI fails on any new one.
 
-Around 117 warnings remain: 55 `@typescript-eslint/no-explicit-any` and 62
-from react-refresh about non-component exports outside the route files. None
-comes from the react-hooks rule since R323. R342 took 69 `any`s out of seven
+Around 55 warnings remain, all `@typescript-eslint/no-explicit-any`. None
+comes from the react-hooks rule since R323, and none from react-refresh since
+R346, which moved every non-component export out of a component file (helpers
+to modules, providers out of their hooks, the confirm dialog's host out of its
+API). `eslint.config.js` scopes that rule off where it cannot apply: route
+files, the server-rendered email templates, and six shadcn/ui files that export
+a variants helper as the shadcn CLI writes them. R342 took 69 `any`s out of seven
 files (the agent form, analytics, quality trends, the dashboard's activity
 chart, knowledge, the playground and the swarm tracer), each by the type the
 value has, and checked each page in the browser. R344 took 24 more at the MCP

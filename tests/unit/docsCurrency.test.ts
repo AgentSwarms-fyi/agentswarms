@@ -261,12 +261,12 @@ describe("every handbook page is reachable", () => {
   // An unlinked page is a page nobody finds, which is the same outcome as not
   // having written it.
   //
-  // Reachability is decided by the SIDEBAR in DocsShell, not by the index
+  // Reachability is decided by the SIDEBAR (docsNav.ts), not by the index
   // page's card grid — checking the index instead flags `account` and
   // `dashboard`, which are in the sidebar on every docs page and perfectly
   // findable. The nav a reader actually uses is the one worth asserting on.
   it("links every docs.*.tsx route from the docs sidebar", () => {
-    const shell = read("src/components/docs/DocsShell.tsx");
+    const shell = read("src/components/docs/docsNav.ts");
     const missing = docPageSlugs().filter((slug) => !shell.includes(`/docs/${slug}`));
     expect(missing, `not linked from the docs sidebar: ${missing.join(", ")}`).toEqual([]);
   });
@@ -274,7 +274,7 @@ describe("every handbook page is reachable", () => {
   it("every sidebar link points at a page that exists", () => {
     // The other direction: a nav entry for a deleted page is a 404 wearing a
     // menu item.
-    const shell = read("src/components/docs/DocsShell.tsx");
+    const shell = read("src/components/docs/docsNav.ts");
     const linked = [...shell.matchAll(/"\/docs\/([a-z/-]+)"/g)].map((m) => m[1]);
     const slugs = new Set(docPageSlugs());
     const dangling = [...new Set(linked)].filter((s) => !slugs.has(s));

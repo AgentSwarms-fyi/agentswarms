@@ -79,8 +79,8 @@ import {
   StoragePathPicker,
   StorageTargetPicker,
   WarehouseTablePicker,
-  useSecretNames,
 } from "@/components/etl/SourcePickers";
+import { useSecretNames } from "@/hooks/use-secret-names";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";

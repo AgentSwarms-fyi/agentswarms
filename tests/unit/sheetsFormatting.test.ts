@@ -323,7 +323,7 @@ describe("the keyboard stays where the person is working", () => {
     expect(startsEdit(" ")).toBe(true);
   });
   it("the app's search palette leaves Ctrl+K to a control that claimed it", () => {
-    const src = readFileSync(resolve(process.cwd(), "src/components/CommandPalette.tsx"), "utf8");
+    const src = readFileSync(resolve(process.cwd(), "src/hooks/use-command-palette.ts"), "utf8");
     const guard = src.indexOf("if (e.defaultPrevented) return;");
     const shortcut = src.indexOf('e.key.toLowerCase() === "k"');
     expect(guard).toBeGreaterThan(0);

@@ -45,7 +45,8 @@ import {
   X,
 } from "lucide-react";
 
-import { BiVizPicker, type ChartType } from "@/components/bi/BiVizPicker";
+import { BiVizPicker } from "@/components/bi/BiVizPicker";
+import { type ChartType } from "@/components/bi/vizTypes";
 import { BiMetricSource, type MetricPreview } from "@/components/bi/BiMetricSource";
 import { BiAiTab, type KbDocOption } from "@/components/bi/BiAiTab";
 import { BiOntologyTab } from "@/components/bi/BiOntologyTab";
@@ -72,7 +73,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { BiChatMessage } from "@/components/data-sql/BiChatMessage";
-import { BiChartRender, fmtBiValue } from "@/components/bi/BiChartRender";
+import { BiChartRender } from "@/components/bi/BiChartRender";
+import { fmtBiValue } from "@/components/bi/biChartData";
 import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import {
   keyFromSource,
@@ -138,8 +140,6 @@ export type BuilderTab = "build" | "ai";
 // file, and any future split children, keep one import site.
 import { groupCheckState, seedSql, selHas, toggleName } from "@/lib/biBuilder";
 import type { SelOrAll, SourceTable } from "@/lib/biBuilder";
-
-export { groupCheckState, selHas, toggleName, type SelOrAll, type SourceTable };
 
 type OntoKb = { id: string; name: string; docCount: number; docs: string[] };
 

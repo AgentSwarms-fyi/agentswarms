@@ -8,7 +8,7 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-const src = readFileSync(resolve(process.cwd(), "src/components/ui/confirm-dialog.tsx"), "utf8");
+const src = readFileSync(resolve(process.cwd(), "src/components/ui/confirm-host.tsx"), "utf8");
 
 describe("a prompt takes the keyboard in its text box", () => {
   it("moves focus to the input when the dialog asks for text", () => {

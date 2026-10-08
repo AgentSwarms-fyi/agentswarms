@@ -20,7 +20,7 @@
 // rather than restating it.
 import { describe, expect, it } from "vitest";
 
-import { extractImages } from "@/components/swarms/RunPanel";
+import { extractImages } from "@/components/swarms/runImages";
 
 const urls = (text: string) => extractImages(text, "node1").map((i) => i.url);
 

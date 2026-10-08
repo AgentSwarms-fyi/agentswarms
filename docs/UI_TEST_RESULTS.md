@@ -15,6 +15,28 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R346: every page whose helpers, providers or hooks moved
+
+| Page              | What was driven                                    | Result                                                                                                                                                                       |
+| ----------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| /settings, Theme  | **Dark**, then **Rose**; reload                    | `<html class="dark">`, `--primary: oklch(0.72 0.13 20)`, both stored; after the reload both still applied and marked chosen. Native and Teal restored                        |
+| /settings, Layout | **Compact**; reload; **Comfortable**               | `data-density="compact"`, `--spacing: .2rem`, kept after the reload; Comfortable restored and the test's stored key removed                                                  |
+| any page          | **Ctrl+K**, type `lakehouse`, **Enter**            | The palette opened, filtered to Lakehouse, and navigated to `/lakehouse`                                                                                                     |
+| /sheets/…         | Sheet tab menu, **Rename**                         | The prompt "Rename sheet" opened on its text box, with `Sheet1` selected; Escape closed it                                                                                   |
+| /sheets           | Workbook actions, **Delete…**, **Cancel**          | `Delete "R341 asc and jis"?`, buttons Cancel and **Delete workbook**, focus on Cancel; after Cancel the workbook is still listed                                             |
+| /docs/ml          | Load                                               | Six sidebar groups, the ML family's five sub-pages, the contents map, 8 section anchors                                                                                      |
+| /ml, /ml/…        | Load the list, open a model                        | Metric names and values (Silhouette 0.249, F1 (macro) 58.8%), "11h ago", and the model's groups and leaderboard                                                              |
+| /admin/runtime    | **Machine learning** tab, reload; `?tab=nonsense`  | `?tab=ml` kept across the reload; an unknown tab falls back to Runtime                                                                                                       |
+| /integrations     | **Data Sources**                                   | Warehouse cards, with initials where there is no logo ("MS")                                                                                                                 |
+| /bi/…             | Load the Global Electricity dashboard; **+ Chart** | KPIs 29.7k and 30.3%, axis ticks 7.5k–30.0k, and the geo map (viewBox 960×500, 177 country shapes, bubbles placed). The picker offers 26 visual types. Closed without adding |
+| /engine-check     | Load                                               | 10/10, phase ready                                                                                                                                                           |
+| /data-sql         | Open an asset                                      | The quality panel ("Quality checks · not run"), version history and columns                                                                                                  |
+
+The browser console showed one `Failed to load resource: 500` with no URL. At the same reloads,
+the app's log has three srvx client-disconnect stacks, the queued item. A second pass over every
+page above, reading each page's resource timings after it loaded, found no 4xx or 5xx. The queue
+item now records this reproduction.
+
 ## 2026-10-08 — R345: the contact form after the typed templates
 
 | Page     | What was driven                                                  | Result                                                                                         |

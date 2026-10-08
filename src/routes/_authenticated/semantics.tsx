@@ -32,7 +32,8 @@ import type { LucideIcon } from "lucide-react";
 
 import { llmJson } from "@/lib/biAgent";
 import { clickable } from "@/lib/clickable";
-import { BiModelSelect, useBiModelPref } from "@/components/bi/BiModelSelect";
+import { BiModelSelect } from "@/components/bi/BiModelSelect";
+import { useBiModelPref } from "@/components/bi/biModelPref";
 import { AddMetricToDashboardDialog } from "@/components/bi/AddMetricToDashboardDialog";
 import { useAuth } from "@/hooks/use-auth";
 import { Badge } from "@/components/ui/badge";

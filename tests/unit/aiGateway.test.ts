@@ -415,6 +415,6 @@ describe("a gateway turn is governed like any other", () => {
     expect(rd("README.md")).toContain("./docs/AI_GATEWAY.md");
     expect(rd(".env.example")).toContain("AI_GATEWAY_RATE_LIMIT_PER_MIN=");
     expect(rd("docs/SCALE_AND_LIMITS.md")).toContain("`AI_GATEWAY_FALLBACK_MODELS`");
-    expect(rd("src/components/docs/DocsShell.tsx")).toContain('to: "/docs/gateway"');
+    expect(rd("src/components/docs/docsNav.ts")).toContain('to: "/docs/gateway"');
   });
 });

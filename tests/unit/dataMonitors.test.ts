@@ -346,7 +346,7 @@ describe("a monitor is governed like everything else", () => {
   it("the page, the nav and the docs exist and agree", () => {
     expect(existsSync(path.join(REPO, "src/routes/_authenticated/data-monitors.tsx"))).toBe(true);
     expect(rd("src/lib/appNav.ts")).toContain('url: "/data-monitors"');
-    expect(rd("src/components/docs/DocsShell.tsx")).toContain('to: "/docs/data-monitors"');
+    expect(rd("src/components/docs/docsNav.ts")).toContain('to: "/docs/data-monitors"');
     for (const f of ["docs/DATA_MONITORS.md", "src/routes/docs.data-monitors.tsx"]) {
       const doc = rd(f).replace(/\s+/g, " ");
       for (const phrase of [

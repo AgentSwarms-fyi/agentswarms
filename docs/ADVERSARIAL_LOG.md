@@ -109,6 +109,62 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R346: component files export only components
+
+**Severity: low, code health** (lint warnings, and a docs check that went blind). React Fast
+Refresh can only hot-swap a file that exports nothing but components. A component file that also
+exports a helper, a constant or a hook reloads the whole page on every edit. The linter flagged 51
+such exports outside the route files, plus 11 in files where the rule cannot apply.
+
+**What was written.**
+
+- **Helpers, constants and hooks moved to modules of their own.** Among them: the explore dialog's
+  SQL reader, the quality status tone, the credential age, warehouse initials, the safe Markdown
+  URL, number compaction, run image extraction, ML formatting (`mlFormat.ts`), BI chart data
+  (`biChartData.ts`), the docs rail (`docsNav.ts`), the runtime tab ids, the visual types, the
+  world atlas (`countryAtlas.ts`), the default error page, and four hooks (command palette, SQL
+  engine status, secret names, BI model preference). Two helpers became private, and two dead
+  exports went.
+- **The theme and layout providers** moved out of `use-theme` and `use-layout-prefs`, which keep
+  the context, the choices and the hook. Both are now `.ts`.
+- **The confirm dialog.** The host component moved to `confirm-host.tsx`. `confirm-dialog.ts`
+  keeps `confirmAsk` and `promptAsk`, which the 57 call sites import, so no call site changed. The
+  host used to assign a module variable from its effect; it now connects through
+  `connectConfirmHost`, whose disconnect clears only its own host. A remount that connects the new
+  host first is then not cut off by the old host's cleanup.
+- **`eslint.config.js` scopes the rule off** where it asks for something it cannot have: the email
+  templates, which React Email renders on the server and no browser loads, and six shadcn/ui
+  files that export a variants helper beside their components, as the shadcn CLI writes them.
+
+**Found on the way: the docs check went blind.** `scripts/check-docs.mjs` read the sidebar groups
+out of `DocsShell.tsx`. Once the rail moved, the read found nothing, and the check still said "45
+pages, no problems found". It now reads `docsNav.ts`, and an empty read fails: pointed back at
+`DocsShell.tsx`, it exits 1 with "no sidebar groups found". Thirteen test files read the old
+locations too (the rail, the visual types, the ML metric names, the Ctrl+K handler, the
+token-keyed hook count); each now reads where the code is.
+
+**Tests:** `confirmAskHost.test.ts`, new, 7 cases. A question with no host rejects. A connected
+host answers it: a yes or no for a confirmation, the text or null for a prompt. Disconnecting
+leaves no host, and an old host's disconnect does not cut off the newer one. Mutation run: the
+control survives and 6 of 6 mutants are caught. They are: connecting stores no host, disconnecting
+leaves it, disconnecting clears a newer host, no host answers no, only a literal `true` is a yes,
+and a prompt passes a non-string through.
+
+**The UI**, on the R346 build:
+
+- Theme and accent (Dark, Rose) painted and survived a reload. Native and Teal were restored.
+- Compact density applied and survived a reload; Comfortable was restored.
+- Ctrl+K opened the palette, and it navigated.
+- A prompt (Rename sheet) opened on its text box with the name selected. A confirmation (Delete
+  workbook) showed the verb, and Cancel kept the workbook.
+- The docs rail, the ML list and model, the runtime tabs, warehouse initials, the BI dashboard,
+  its geo map and its 26-type picker, the engine check and the catalog's quality panel were
+  also checked.
+
+Warnings go from 117 to 55, all `no-explicit-any`.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R345: email templates, each checked against its own props
 
 **Severity: low, code health** (lint warnings). Ten `any`s were in the email path:

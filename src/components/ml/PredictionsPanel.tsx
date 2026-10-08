@@ -30,7 +30,8 @@ import {
 import type { MlModelRow, MlVersionRow } from "@/utils/ml/access.server";
 import type { MlPredictionRow, MlRowsPredictResult } from "@/utils/ml/predict.server";
 import { ML_JOB_LIVE, type MlFeatureSchemaEntry, type MlForecastPoint } from "@/utils/ml/types";
-import { JobStatusChip, fmtDuration, fmtInt, relTime } from "@/components/ml/mlUi";
+import { JobStatusChip } from "@/components/ml/mlUi";
+import { fmtDuration, fmtInt, relTime } from "@/components/ml/mlFormat";
 import { ML_DRIFT_MODERATE, type MlContribution, type MlDrift } from "@/utils/ml/types";
 
 const LIVE = new Set<string>(ML_JOB_LIVE);

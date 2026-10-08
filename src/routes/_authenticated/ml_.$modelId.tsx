@@ -65,11 +65,8 @@ import {
   type MlClusterProfile,
   ML_PERIOD_PLURAL,
 } from "@/utils/ml/types";
+import { JobStatusChip, MetricTile, StageChip, TaskBadge } from "@/components/ml/mlUi";
 import {
-  JobStatusChip,
-  MetricTile,
-  StageChip,
-  TaskBadge,
   fmtDuration,
   fmtInt,
   fmtMetric,
@@ -77,7 +74,7 @@ import {
   metricLabel,
   metricTone,
   relTime,
-} from "@/components/ml/mlUi";
+} from "@/components/ml/mlFormat";
 import { AccuracyPanel } from "@/components/ml/AccuracyPanel";
 import { CalibrationPanel } from "@/components/ml/CalibrationPanel";
 import { SelectionEvidence } from "@/components/ml/SelectionEvidence";

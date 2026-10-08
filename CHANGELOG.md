@@ -108,6 +108,19 @@ and both of those are one advisory that cannot be triggered here (see
   upload, and the versions fetched (pdf.js 4.7.76, mammoth 1.8.0) were not the
   audited ones in the lockfile (4.10.38, 1.13.0). The build now copies them into
   `public/vendor`.
+- **Component files export only components** (R346). React Fast Refresh
+  reloads the whole page when a component file also exports a helper, a
+  constant or a hook; the linter flagged 51 such exports. Helpers, constants and
+  hooks moved to modules of their own (chart and number formatting, the world
+  atlas, the docs navigation, the BI model preference); two became private and
+  two dead exports went. The theme and layout providers moved out of their hooks, and the
+  confirm dialog's host moved out of `confirm-dialog.ts`, which the 57 call
+  sites import. The host now connects through `connectConfirmHost`, and a new
+  test drives it. Lint warnings 117 to 55, all `no-explicit-any`.
+- **The docs check fails when it cannot read the sidebar** (R346). It read the
+  rail's groups out of `DocsShell.tsx`. After the rail moved, it found none and
+  still reported no problems. It reads `docsNav.ts` now, and an empty read is an
+  error.
 - **Email templates are checked against their own props** (R345).
   `defineTemplate` keeps a template's component, subject and preview in step.
   The contact route's database client is typed with the schema. A new test

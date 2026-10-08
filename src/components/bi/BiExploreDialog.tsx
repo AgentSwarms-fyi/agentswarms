@@ -37,13 +37,7 @@ import {
 } from "@/lib/biDrillThrough";
 import type { DrillEntry } from "@/lib/biChartMath";
 import type { BiCrossFilter, BiWidget } from "@/lib/biDashboards";
-
-/** First table referenced by the widget's SQL (handles `t`, "t", schema.t). */
-export function extractBaseTable(sql: string | undefined): string | null {
-  if (!sql) return null;
-  const m = sql.match(/\bfrom\s+[`"[]?([\w.$]+)[`"\]]?/i);
-  return m?.[1] ?? null;
-}
+import { extractBaseTable } from "./exploreSql";
 
 export function BiExploreDialog({
   widget,

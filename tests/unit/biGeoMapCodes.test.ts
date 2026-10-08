@@ -22,7 +22,7 @@
 // was moved to src/lib/countryMatch.ts, which is importable without a DOM.
 import { describe, expect, it } from "vitest";
 
-import { COUNTRY_INDEX } from "@/components/bi/BiGeoMap";
+import { COUNTRY_INDEX } from "@/components/bi/countryAtlas";
 import { COUNTRY_ALIASES, nameForCode, normalizeName, resolveCountry } from "@/lib/countryMatch";
 
 /** What the map would draw for one cell of the location column. */

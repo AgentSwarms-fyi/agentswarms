@@ -54,7 +54,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
-import { providerInitials } from "@/components/integrations/WarehousesTab";
+import { providerInitials } from "@/components/integrations/providerInitials";
 import { SAAS_LABELS, SAAS_PROVIDERS } from "@/utils/saas/types";
 import { SAAS_CARDS } from "@/utils/saas/catalog";
 import type {
