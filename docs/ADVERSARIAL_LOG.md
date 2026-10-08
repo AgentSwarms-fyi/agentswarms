@@ -109,6 +109,67 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R348: an agent with no knowledge base was told one had been searched
+
+**Severity: medium.** It affected every agent with no knowledge base attached, on every turn.
+The model was told the documents had been searched and held nothing, and to say so rather than
+answer from what it knew. The audit log recorded a knowledge-base search for each such turn.
+
+**Found from the UI (R347).** The R347 fixture agent has no knowledge base. Asked "My email is
+r347.check@example.test. Repeat back exactly the email address you received, nothing else.", it
+answered "I could not find the information you are looking for in the available documents." The
+trace of that turn holds the effective system prompt: the agent's own line, then "A knowledge
+base is attached to this assistant and was searched for this question. It returned no matching
+passages. If answering would require information from those documents, say plainly that you could
+not find it in the available documents…". The audit log, beside that turn's model call, held a
+`kb.search` row naming no knowledge base.
+
+**Cause.**
+
+- `/api/chat` runs the search for every turn with an agent (`body.agentId || extraKbIds.length >
+0`). That is right, since only the search reads the agent's knowledge bases.
+- `retrieveCitationsReport` answered `{ citations: [], degraded: [] }` in two cases: when the agent
+  had no knowledge base (or none its owner may read), and when its knowledge bases had no match.
+- The route then passed `searched: true` and wrote the audit row in both cases.
+- The `kb_search` tool guarded on `ctx.agentId`, which is not a knowledge base. So an agent with
+  none was told "No matching documents in any connected knowledge base."
+- The embed widget had it right all along (`searched: cfg.kbIds.length > 0`).
+
+**What was written.**
+
+- **`RetrievalReport.searched`**: how many knowledge bases the search covered. It is 0 at the two
+  early returns (no ids, or none allowed), and `kbIds.length` at the two ends of a search that ran.
+- **`/api/chat`** passes `searched: report.searched > 0` to the grounding prompt, and writes the
+  `kb.search` audit row only then. An agent with none gets its own system prompt, as a chat with
+  no agent does.
+- **`kb_search`** answers "No knowledge base wired — kb_search unavailable" when the search
+  covered none, before it audits anything.
+
+**Tests:** `kbSearchedNothing.test.ts`, new, 7 cases.
+
+- `retrieveCitationsReport` over a fake client: an agent with no knowledge base searched none and
+  read nothing past its own row; a missing agent searched none; an agent with two (one of them
+  listed twice) searched two.
+- The grounding prompt for that report is the agent's own.
+- The route, the tool and both returns are pinned in the source.
+
+The anchors in `retrievalDegraded.test.ts` and `kbRag.test.ts` take the new field. The first gate failed on kbRag's, which had pinned the one-line ranked return. In that run, `sandboxLake.test.ts` also timed out creating DuckDB in its `beforeAll`; alone it passes in about 1 s. Mutation run: the control survives and
+7 of 7 mutants are caught. They are: no knowledge base counted as one, either end reporting none,
+knowledge bases counted twice, the route claiming a search every turn, the route auditing every
+turn, and the tool's old answer.
+
+**The UI** (R348 build):
+
+- The fixture, asked the same thing in a new chat, answered `[REDACTED_EMAIL]`. Its trace's
+  effective system prompt is "You are a helpful assistant." (28 tokens in, against 88 for the
+  same message before). Redaction still applied (`guardrailRedactions: {email: 1}`). The audit
+  log shows the turn's agent chat and model call, and no `kb.search`.
+- "RAG eval · Halvard support", which has a knowledge base, still searched it. It cited five
+  passages and said the warranty period is not in its sources. The audit row reads
+  `kb.search · RAG eval · Halvard Systems`.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R347: SQL Chat's missing tool calls, the "Guarded" badge, and JSON read as `any`
 
 **Severity: medium** (SQL Chat hid every query it ran; the agents list misreported guardrails),

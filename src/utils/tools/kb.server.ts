@@ -365,8 +365,13 @@ export type RetrievalOpts = {
   minSimilarity?: number;
 };
 
-/** What came back, and every way the search fell short of a complete, checked one. */
-export type RetrievalReport = { citations: Citation[]; degraded: string[] };
+/**
+ * What came back, and every way the search fell short of a complete, checked one.
+ * `searched` is how many knowledge bases the search covered: 0 when the agent
+ * has none (or none the owner may read), which is not "they had no match"
+ * (R348).
+ */
+export type RetrievalReport = { citations: Citation[]; degraded: string[]; searched: number };
 
 export async function retrieveCitationsReport(opts: RetrievalOpts): Promise<RetrievalReport> {
   const { sb } = opts;
@@ -411,7 +416,7 @@ export async function retrieveCitationsReport(opts: RetrievalOpts): Promise<Retr
     }
   }
   let kbIds = Array.from(new Set([...agentKbIds, ...(opts.extraKbIds ?? [])]));
-  if (kbIds.length === 0) return { citations: [], degraded };
+  if (kbIds.length === 0) return { citations: [], degraded, searched: 0 };
 
   // Headless tenant guard: with RLS off, restrict the resolved KB ids to what
   // the owner may read — own KBs, public samples, and KBs shared to them via an
@@ -429,7 +434,7 @@ export async function retrieveCitationsReport(opts: RetrievalOpts): Promise<Retr
         .map((k) => k.id),
     );
     kbIds = kbIds.filter((id) => allowed.has(id));
-    if (kbIds.length === 0) return { citations: [], degraded };
+    if (kbIds.length === 0) return { citations: [], degraded, searched: 0 };
   }
 
   // 1b) Retrieval settings live on the knowledge base, not the agent: they
@@ -892,7 +897,12 @@ export async function retrieveCitationsReport(opts: RetrievalOpts): Promise<Retr
       candidates: merged,
       topK,
     });
-    if (ranked) return { citations: applyGroundingBudget(ranked, groundingMaxChars()), degraded };
+    if (ranked)
+      return {
+        citations: applyGroundingBudget(ranked, groundingMaxChars()),
+        degraded,
+        searched: kbIds.length,
+      };
   }
   // The turn's budget, applied last so it counts what the model will read.
   return {
@@ -901,6 +911,7 @@ export async function retrieveCitationsReport(opts: RetrievalOpts): Promise<Retr
       groundingMaxChars(),
     ),
     degraded,
+    searched: kbIds.length,
   };
 }
 

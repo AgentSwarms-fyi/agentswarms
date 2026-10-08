@@ -714,7 +714,9 @@ least twice, not a hypothetical.
       - **Next:** reproduce it on a route that waits on the signal, such as a chat image turn left
         mid-call. Then see whether a request middleware in `createStart` (`requestMiddleware`) gets
         the rejection before h3 logs it. If it does, it can answer an aborted request quietly.
-    - **An agent with no knowledge base is told one was searched** (seen in R347, next: R348).
+    - ~~**An agent with no knowledge base is told one was searched**~~ (seen in R347). **R348**:
+      the search reports how many knowledge bases it covered, and the chat route and the
+      `kb_search` tool tell the model of a search, and audit one, only when it covered any.
       `/api/chat` runs its knowledge-base search for every agent turn (`body.agentId`), and
       `retrieveCitationsReport` answers `{ citations: [], degraded: [] }` both when the agent has no
       knowledge base and when its knowledge bases had no match. The chat then tells the model "A

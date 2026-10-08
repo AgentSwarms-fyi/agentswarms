@@ -1751,14 +1751,15 @@ export const Route = createFileRoute("/api/chat")({
                     minSimilarity: autoRagMinSimilarity(),
                   });
                   citations = report.citations;
-                  // Audited for the same reason it is called unconditionally:
-                  // the search happened, and a provenance record that omits it
-                  // would say the answer consulted nothing. This is the path a
-                  // grounded agent actually takes -- retrieval here is
-                  // automatic, so the kb_search TOOL (and its audit) never runs.
+                  // Audited when a search happened: a provenance record that
+                  // omits it would say the answer consulted nothing. This is
+                  // the path a grounded agent actually takes -- retrieval here
+                  // is automatic, so the kb_search TOOL (and its audit) never
+                  // runs. An agent with no knowledge base searched nothing
+                  // (R348), and its turn records no search.
                   // userId is nullable on this branch; an audit row with no
                   // actor is not worth writing, and RLS would refuse it anyway.
-                  if (userId)
+                  if (userId && report.searched > 0)
                     auditEvent({
                       userId,
                       action: "kb.search",
@@ -1778,9 +1779,13 @@ export const Route = createFileRoute("/api/chat")({
                     });
                   // Called even when nothing came back: an empty result is a
                   // fact about the knowledge base, and the model has to be told
-                  // it searched rather than left to answer from memory.
+                  // it searched rather than left to answer from memory. But only
+                  // when there was one to search. Every agent turn comes through
+                  // here, and an agent with no knowledge base was told "A
+                  // knowledge base is attached ... It returned no matching
+                  // passages", and declined to answer from what it knew (R348).
                   effectiveSystemPrompt = buildGroundingPrompt(citations, body.systemPrompt, {
-                    searched: true,
+                    searched: report.searched > 0,
                     degraded: report.degraded,
                   });
                 }

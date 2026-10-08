@@ -146,7 +146,11 @@ export async function runKbSearch(
     return JSON.stringify({ error: "No knowledge base wired — kb_search unavailable" });
   // Reuse the same retrieval the chat route uses for auto-RAG.
   const { retrieveCitationsReport } = await import("./kb.server");
-  const { citations: cits, degraded } = await retrieveCitationsReport({
+  const {
+    citations: cits,
+    degraded,
+    searched,
+  } = await retrieveCitationsReport({
     sb: ctx.sb,
     agentId: ctx.agentId,
     extraKbIds,
@@ -156,6 +160,11 @@ export async function runKbSearch(
     reranker: ctx.reranker,
     scopeUserId: ctx.scopeUserId,
   });
+  // An agent id is not a knowledge base: an agent with none (or none its owner
+  // may read) searched nothing, and is told so rather than that its knowledge
+  // bases had no match (R348).
+  if (searched === 0)
+    return JSON.stringify({ error: "No knowledge base wired — kb_search unavailable" });
   // A knowledge-base retrieval is a data read, and until now the only one of
   // the agent's data tools that left no audit row at all. Without this an
   // answer grounded in documents showed "no data reads recorded" -- exactly

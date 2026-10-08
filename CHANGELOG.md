@@ -150,6 +150,17 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **An agent with no knowledge base is no longer told one was searched** (R348).
+  Every agent turn ran the knowledge-base search, and an agent with none was
+  told "A knowledge base is attached to this assistant and was searched … It
+  returned no matching passages", and to say it could not find the answer in
+  the documents. Asked to repeat a message back, such an agent answered "I could
+  not find the information you are looking for in the available documents."
+  Each such turn also logged a `kb.search` in the audit log. The search now
+  reports how many knowledge bases it covered; an agent with none gets its own
+  system prompt, no audit row, and, from the `kb_search` tool, "No knowledge
+  base wired" rather than "No matching documents in any connected knowledge
+  base".
 - **SQL Chat shows the SQL it ran** (R347). On the Data Catalog's Workbench, a
   question answered by running SQL showed the answer and no tool chip. The page
   read the chat stream with a reader of its own that never saw the tool events;
