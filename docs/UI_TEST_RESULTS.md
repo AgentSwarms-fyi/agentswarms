@@ -15,6 +15,17 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R362: pages reloaded while they load
+
+| Page                                                            | What was driven                                         | Result                                                                                                                                           |
+| --------------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| /settings, /traces (real image `42aa245557da`, R361's commit)   | Six reloads and moves, each 120 to 300 ms into the load | **Defect.** The app's log: three stacks, 59 lines, two "Error: aborted" (`ECONNRESET`) and one `AbortError`, each `status: 500, unhandled: true` |
+| the same (R362's `server.mjs` and `serverGuards.mjs` copied in) | The same, twice: twelve cuts                            | The log: the workers' start lines, no stack; both pages then loaded with no 4xx or 5xx                                                           |
+
+The real image `42aa245557da`, built from R361's commit, was smoked first: healthy, the Builder
+page's new message in its client bundle, and Settings, Traces, MCP Builder and Contact loaded with
+no 4xx or 5xx (Contact with its "not set up on this instance" notice).
+
 ## 2026-10-08 — R361: Deploy when its call fails
 
 | Page                                      | What was driven                                                                        | Result                                                                                                             |

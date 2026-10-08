@@ -203,6 +203,12 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **A browser that leaves mid-request is no longer logged as a server fault**
+  (R362). Reloading a page while its requests were in flight printed an
+  "Error: aborted" or `AbortError` stack marked `status: 500, unhandled: true`
+  in the app's log, one per request cut. The server now knows which errors are
+  its own client leaving and does not print them; every other error is printed
+  as before.
 - **The MCP Builder page says when a server call fails** (R361). A call that
   did not answer (a dropped connection, a refused request) left Deploy
   disabled for good with no message, and Stop, Approve, Restore, Public,

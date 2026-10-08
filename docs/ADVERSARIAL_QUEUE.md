@@ -688,7 +688,10 @@ least twice, not a hypothetical.
       and asked again; the container allows one kernel, so every retry got "403 Resource Limit".
       The cell said "Kernel connect timed out", and the next press ran. A retry after a create
       that timed out should list the container's kernels and attach to the one it started.
-    - **srvx logs a client disconnect as an unhandled 500** (seen in the same session's app log).
+    - ~~**srvx logs a client disconnect as an unhandled 500**~~ (seen in the same session's app log).
+      **R362**: no request middleware can catch it, since TanStack Start throws the abort reason
+      again after them; `server.mjs` remembers each request's abort reason and does not print h3's
+      report of exactly that reason.
       An `AbortError` with `unhandled: true` and a full stack is printed when a browser drops a
       request mid-flight. It predates the dependency pass (srvx 0.11.22 before and after). It is
       noise in an operator's log, not a failure, so it should be logged as a disconnect or not at
@@ -714,6 +717,12 @@ least twice, not a hypothetical.
       - **Next:** reproduce it on a route that waits on the signal, such as a chat image turn left
         mid-call. Then see whether a request middleware in `createStart` (`requestMiddleware`) gets
         the rejection before h3 logs it. If it does, it can answer an aborted request quietly.
+      - **Left from it** (read in R362, not yet shown). Code that asks whether its client left
+        by the error's name (`err.name === "AbortError"`) sees "Error" when srvx gives the signal
+        Node's reason. The AI gateway's turn (`gateway/api.server.ts`) then takes a client that
+        left for a network failure, tries each fallback model, audits a `gateway.fallback` for
+        each, and audits the call as an error. `/api/chat`'s image turn records the cancel as a
+        provider error. Both should ask the request's signal instead.
     - ~~**An agent with no knowledge base is told one was searched**~~ (seen in R347). **R348**:
       the search reports how many knowledge bases it covered, and the chat route and the
       `kb_search` tool tell the model of a search, and audit one, only when it covered any.

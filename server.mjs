@@ -22,7 +22,7 @@ import { readFileSync } from "node:fs";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { installServerGuards } from "./serverGuards.mjs";
+import { installServerGuards, quietClientGone, rememberClientAborts } from "./serverGuards.mjs";
 
 // Before anything else, in the primary and in every worker: undici can throw
 // from a microtask when it closes a response stream twice, which used to end
@@ -227,6 +227,9 @@ async function startWorker() {
     );
   }
 
+  // A browser that leaves mid-request is not a server fault, and is not
+  // printed as one (R362). See serverGuards.mjs.
+  quietClientGone();
   const server = serve({
     port: PORT,
     hostname: HOSTNAME,
@@ -240,7 +243,7 @@ async function startWorker() {
     middleware: [
       compressStatic(correctContentTypes(serveStatic({ dir: path.join(HERE, "dist", "client") }))),
     ],
-    fetch: app.fetch,
+    fetch: rememberClientAborts(app.fetch),
   });
 
   await server.ready?.();

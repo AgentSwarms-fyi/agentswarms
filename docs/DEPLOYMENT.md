@@ -204,6 +204,10 @@ default deliberately:
 The count is logged at startup (`primary … forking N workers`), so check the
 container's first log line if the number surprises you.
 
+A browser that leaves mid-request (a reload, a closed tab, a cancelled call) is
+not logged: the request's work stops and nothing is printed. A stack in the log
+is a real error.
+
 **Two things behave differently under clustering.** The **scheduler** does not
 multiply — it holds a fleet-wide lease, so exactly one sweep runs however many
 workers or replicas exist. The **lakehouse query engine** does: it lives in each

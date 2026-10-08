@@ -109,6 +109,69 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R362: a browser that left mid-request was logged as a server fault
+
+**Severity: low (a misleading log).** Queued since 2026-10-06, read in R342, seen again in R346.
+
+**Shown, on the real image built from R361's commit** (`42aa245557da`). Settings and Traces,
+reloaded six times while they were still loading, 120 to 300 ms in. The app's log printed three
+stacks, 59 lines: two "Error: aborted" whose cause was Node's own (`abortIncoming`, `code:
+'ECONNRESET'`), and one `AbortError: This operation was aborted`. Each was marked `status: 500,
+unhandled: true`. Nothing had failed: the browser had gone away. An operator reading that log
+sees a server fault per reload.
+
+**Where it comes from.** srvx aborts the request's signal when the connection closes before the
+response is written, with Node's error as the reason when there is one. TanStack Start then throws
+that reason on purpose (`executeMiddleware`, and the handler's `signal.throwIfAborted()` calls),
+which stops the work for a page nobody will read. TanStack's `requestHandler` passes the rejection
+to h3's `toResponse` with no options, and h3 prints any error that is not its own `HTTPError` as
+unhandled, without looking at the signal. srvx's own catch does look at it, but never sees the
+error: h3 has already turned it into a 500.
+
+**Why not a request middleware**, which R342 proposed. TanStack Start throws the abort reason again
+after the middleware chain returns, so a middleware that caught it would change nothing. h3 offers
+no hook here either: `toResponse` is called without its `silent` or `onError` options.
+
+**What was written** (`serverGuards.mjs`, wired in `server.mjs`):
+
+- **`rememberClientAborts(fetch)`** wraps the app's fetch. It remembers the abort reason of each
+  request, in a `WeakSet`, at the moment the signal aborts, or at once if it already had.
+- **`quietClientGone()`** wraps `console.error`. A single-argument call whose argument is h3's
+  unhandled `HTTPError` with exactly a remembered reason as its cause is not printed. Anything
+  else is, untouched.
+
+The check is by identity, not by shape, so an error the app raised itself, an `AbortError`
+included, or one that only looks like Node's hang-up, is printed as before. A log line that
+mentions the reason among other arguments is printed whole.
+
+**Tests:** `clientGoneQuiet.test.ts`, new, 9 cases, run against TanStack's own `requestHandler` and
+so h3's real report:
+
+- A client that leaves mid-request is not printed, nor one that left before the app was handed
+  the request.
+- The same request through a fetch that does not remember is printed, as h3's unhandled 500.
+  This keeps the first two from passing on a log that no longer happens.
+- An app error, an `AbortError` the app raised, and a hang-up-shaped error while the client stayed
+  are each printed once.
+- A log line with the reason among other arguments is printed whole.
+- `server.mjs` serves through `rememberClientAborts` and quiets before it serves.
+
+Mutation run: the control survives and 7 of 7 mutants are caught. They were: the report told by
+its shape, any unhandled `HTTPError` quieted, an early leaver forgotten, the filter printing
+everything, the filter dropping lines logged alongside, and `server.mjs` without either half.
+`serverGuards.test.ts` and `productionServer.test.ts` pass.
+
+**The UI** (R361's image with R362's two server files): the same recipe, twelve cuts across the two
+pages. The log printed the workers' start lines and nothing else: no stack. Both pages then
+loaded to the end with no 4xx or 5xx.
+
+**Left in the queue** (read, not yet shown). Code that asks whether its client left by the error's name sees "Error" for
+srvx's Node reason, not "AbortError". The AI gateway's turn then takes a client that left for a
+network failure: it tries each fallback model and audits each, then audits the call as an error.
+`/api/chat`'s image turn records a cancelled turn as a provider error.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R361: the MCP Builder page went silent when a call failed
 
 **Severity: medium (a stuck control, and false success).** Queued since R98, as the Deploy

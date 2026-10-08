@@ -39,3 +39,56 @@ export function uncaughtExceptionHandler({
 export function installServerGuards(proc = process) {
   proc.on("uncaughtException", uncaughtExceptionHandler());
 }
+
+// A browser that leaves mid-request is not a server fault (R362).
+//
+// FOUND IN R342, SHOWN IN R362. Reloading a page while its requests were in
+// flight printed an 18-line "Error: aborted ... code: 'ECONNRESET' ...
+// status: 500, unhandled: true" stack, so an operator reading the log saw a
+// server fault where a client had only gone away. srvx aborts the request's
+// signal when the connection closes first, with Node's own error as the
+// reason. TanStack Start then throws that reason on purpose, which stops the
+// work for a page nobody will read. h3 prints any error that is not its own
+// HTTPError as unhandled, without looking at the signal, and offers no hook to
+// say otherwise. So each request's abort reason is remembered as it happens,
+// and h3's report of exactly that reason is not printed. Every other error,
+// an abort the app raised itself included, is printed as before.
+
+/** The abort reasons of requests whose client went away. */
+const clientGone = new WeakSet();
+
+function remember(reason) {
+  if (reason !== null && typeof reason === "object") clientGone.add(reason);
+}
+
+/** The app's fetch, remembering the abort reason of a request whose client left. */
+export function rememberClientAborts(fetch) {
+  return (request, ...rest) => {
+    const signal = request?.signal;
+    if (signal?.aborted) remember(signal.reason);
+    else signal?.addEventListener("abort", () => remember(signal.reason), { once: true });
+    return fetch(request, ...rest);
+  };
+}
+
+/** Is this h3's report of a request whose client left? */
+export function isClientGoneReport(err) {
+  return (
+    err instanceof Error &&
+    err.name === "HTTPError" &&
+    err.unhandled === true &&
+    clientGone.has(err.cause)
+  );
+}
+
+/** `log.error` without h3's report of a client that left; answers the undo. */
+export function quietClientGone(log = console) {
+  const print = log.error;
+  log.error = function (...args) {
+    if (args.length === 1 && isClientGoneReport(args[0])) return;
+    return print.apply(this, args);
+  };
+  return () => {
+    log.error = print;
+  };
+}
