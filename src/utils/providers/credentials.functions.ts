@@ -5,6 +5,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import type { Json } from "@/integrations/supabase/types";
 import type {
   AnthropicCreds,
   AzureConfig,
@@ -86,7 +87,8 @@ export const saveProviderCredential = createServerFn({ method: "POST" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { userId } = context;
     let credsPayload: unknown = {};
-    let configPayload: Record<string, unknown> = {};
+    // Plain settings (URLs, regions, names): JSON, as the config column holds it.
+    let configPayload: { [key: string]: Json | undefined } = {};
 
     switch (data.provider) {
       case "bedrock": {
@@ -159,13 +161,13 @@ export const saveProviderCredential = createServerFn({ method: "POST" })
 
     const enc = await encryptJson(credsPayload);
 
-    const { error } = await (supabaseAdmin.from("provider_credentials") as any).upsert(
+    const { error } = await supabaseAdmin.from("provider_credentials").upsert(
       {
         user_id: userId,
         provider: data.provider,
         label: data.label || "",
         default_model: data.defaultModel || null,
-        credentials: enc as unknown as Record<string, unknown>,
+        credentials: enc,
         config: configPayload,
         last_test_status: null,
         last_test_error: null,

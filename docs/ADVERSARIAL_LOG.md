@@ -109,6 +109,37 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R355: the last `any`s in the application code
+
+**Severity: low, code health** (12 warnings; `src` now has none).
+
+**What was written.**
+
+- **Bedrock** (`adapters/bedrock.server.ts`): the event-stream parser returns `unknown[]`, and
+  the stream reads `delta.text` through `recordOf`, keeping its `typeof` check.
+- **The stored-credential read** (`credentials.server.ts`): it read `ciphertext` and `iv` off an
+  `any`, so a row without them failed inside the decryption. It now checks both are text and
+  otherwise says "The stored … credentials cannot be read. Save them again in Provider
+  Integrations."
+- **The credential save** (`credentials.functions.ts`): the upsert is no longer cast to `any`.
+  The encrypted body goes in as it is, and the config payload is declared as JSON values, so the
+  row is checked against the schema.
+- **The chart tooltip** (`ui/chart.tsx`): `ChartTooltipContent` has shadcn's own recharts types
+  back (the tooltip's props plus `hideLabel`, `indicator`, `nameKey`…). They check cleanly; the
+  `any`s were not needed. Nothing in the app renders this component yet.
+- **The tool registry** keeps `args: any` on `ToolHandler` and the memory adapter, with a disable
+  comment saying why. It is the model's JSON arguments, which each handler declares in its own
+  signature; `unknown` would make every one of those signatures a type error, because parameters
+  are contravariant.
+
+**Tests:** the 35 test files that read these modules pass (652 cases). There is no mutation run:
+these are type changes, plus one error message on a path the UI cannot reach.
+
+**The UI** (R355 build): Integrations (two connected providers) and Analytics (11 charts) loaded
+with no 4xx or 5xx. No Bedrock credential is configured on this instance.
+
+Warnings go from 22 to 10, all in test files.
+
 ### 2026-10-08 — R354: a chat turn's trace said it called no tools
 
 **Severity: low to medium (observability).** Anyone reviewing a turn on the Traces page saw no

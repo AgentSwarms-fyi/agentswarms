@@ -1,6 +1,7 @@
 // Server-only helpers for provider credentials. Never import this from client code.
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { decryptJson } from "./crypto.server";
+import { recordOf } from "@/lib/jsonRecord";
 import { bedrockChatStream } from "./adapters/bedrock.server";
 import { vertexChatStream } from "./adapters/vertex.server";
 import { anthropicChatStream } from "./adapters/anthropic.server";
@@ -763,10 +764,13 @@ export async function streamWithProvider(args: {
   const row = await loadCredentialRowShared(userId, provider);
   if (!row)
     throw new Error(`No ${provider} credentials configured. Add them in Provider Integrations.`);
-  const decrypted = await decryptJson<Record<string, unknown>>(
-    (row.credentials as any).ciphertext,
-    (row.credentials as any).iv,
-  );
+  // The stored credential is { ciphertext, iv }; anything else is not one.
+  const stored = recordOf(row.credentials);
+  if (typeof stored.ciphertext !== "string" || typeof stored.iv !== "string")
+    throw new Error(
+      `The stored ${provider} credentials cannot be read. Save them again in Provider Integrations.`,
+    );
+  const decrypted = await decryptJson<Record<string, unknown>>(stored.ciphertext, stored.iv);
   const config = row.config as Record<string, unknown>;
 
   switch (provider) {

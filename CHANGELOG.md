@@ -125,6 +125,13 @@ and both of those are one advisory that cannot be triggered here (see
   upload, and the versions fetched (pdf.js 4.7.76, mammoth 1.8.0) were not the
   audited ones in the lockfile (4.10.38, 1.13.0). The build now copies them into
   `public/vendor`.
+- **No `any` left in the application code** (R355). Bedrock's stream events
+  and the stored-credential read are typed; a stored credential that is not
+  `{ ciphertext, iv }` now says to save it again, instead of failing inside
+  the decryption. The credential save is checked against the schema. The chart
+  tooltip has shadcn's own recharts typing back. The tool registry's handler
+  arguments stay "whatever the model sent", with the reason beside them. Lint
+  warnings 22 to 10, all in test files.
 - **Trace, approval and dataset code reads JSON as JSON, not `any`** (R353).
   The trace log's payloads and tool calls, an approval's payload, the trace
   seeder's rows, the node inspector's MCP list and the uploaded rows are typed.

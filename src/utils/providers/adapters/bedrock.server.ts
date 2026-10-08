@@ -1,6 +1,7 @@
 // AWS Bedrock SigV4 + Converse Stream adapter.
 // Re-emits responses as OpenAI-style SSE chunks for client compatibility.
 import type { BedrockConfig, BedrockCreds, ChatMessage } from "../types";
+import { recordOf } from "@/lib/jsonRecord";
 
 const SERVICE = "bedrock";
 
@@ -85,8 +86,8 @@ async function signRequest(opts: {
 // Bedrock event stream uses a binary framing; we parse JSON event payloads.
 // Each frame: [4 bytes total len][4 bytes headers len][prelude crc][headers][payload][msg crc].
 // We extract the payload bytes for each frame and JSON.parse them.
-function parseEventStreamChunks(buffer: Uint8Array): { events: any[]; remaining: Uint8Array } {
-  const events: any[] = [];
+function parseEventStreamChunks(buffer: Uint8Array): { events: unknown[]; remaining: Uint8Array } {
+  const events: unknown[] = [];
   let offset = 0;
   const dv = new DataView(
     buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer,
@@ -185,7 +186,7 @@ export async function bedrockChatStream(args: {
           const { events, remaining } = parseEventStreamChunks(merged);
           leftover = remaining;
           for (const ev of events) {
-            const delta = ev?.delta?.text;
+            const delta = recordOf(recordOf(ev).delta).text;
             if (typeof delta === "string" && delta.length > 0) {
               controller.enqueue(new TextEncoder().encode(toOpenAIChunk(delta)));
             }

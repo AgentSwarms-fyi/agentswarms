@@ -1547,6 +1547,12 @@ export async function runMcpCallTool(
 // Registry assembly — checks DB so we only advertise tools that are actually
 // reachable for this user/agent. The model lists fewer hallucinated tools.
 // ============================================================================
+// `args` is the model's JSON arguments, which each handler declares in its own
+// signature (`{ query: string; top_k?: number }`…) and checks as it reads them.
+// `unknown` here would make every one of those signatures a type error
+// (parameters are contravariant), so this is the one place the registry says
+// "whatever the model sent" (R355).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type ToolHandler = (ctx: AgentToolContext, args: any) => Promise<string>;
 
 export type ResolvedTools = {
@@ -1873,6 +1879,8 @@ export async function resolveAgentTools(
   // Memory tools — always advertised when allow-listed. Bound with the
   // conversationId from the tool context so memory_set/memory_get can read
   // and write the per-conversation scratchpad.
+  // The memory handlers take the model's arguments as ToolHandler does.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const memCtxify = (h: (mctx: MemoryToolContext, a: any) => Promise<string>): ToolHandler =>
     ((c, a) => h(c as MemoryToolContext, a)) as ToolHandler;
   if (allows("memory_remember")) {
