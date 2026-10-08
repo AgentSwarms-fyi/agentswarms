@@ -196,6 +196,19 @@ least twice, not a hypothetical.
     Re-crawl. Left from the sweep: the Lakehouse Iceberg dialog's "not
     attached" badge carries its reason in a `title` too; no catalog there is
     failing to show it.
+
+- **An unreadable answer taken for an empty one, then acted on** (R369, R371). A
+  catalog crawl that could not reach its catalog listed nothing and removed every
+  asset; a website sync whose page answered 503 removed that page's document.
+  Whatever reconciles a remote listing against what is stored, and removes the
+  difference, must know whether the listing was whole. Checked in R371: the
+  object-storage crawl throws on a failed listing; the warehouse crawl's only
+  catch is row estimates; the knowledge-base connectors throw on an empty
+  listing, and their other skips (folder depth, the item cap, unsupported
+  types) are deliberate. Still to read for it: the SaaS syncs
+  (`utils/saas/sync.server.ts`), the ETL auto-ingest ledger, and the
+  lakehouse's Iceberg mounts.
+
 3.  **A cause named that the evidence cannot support.** R31's freshness test, and
     Prompt Compare crowning the model that failed fastest. R63's dashboard
     chip is the degenerate case: a count of `last_status = 'error'` on a

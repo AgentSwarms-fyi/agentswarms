@@ -15,6 +15,20 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-09 — R371: syncing a website whose page failed once
+
+A throwaway site, `r371-fake-site` (a Python server on the app's network: `/`, `/a`, `/b`, and a
+switch making `/b` answer 503), in a new knowledge base "R371 site KB".
+
+| Page                    | What was driven                        | Result                                                                                                                                                 |
+| ----------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| /knowledge (R370 build) | Connect → Website, **Save & sync now** | "Indexed 3/3 documents"                                                                                                                                |
+| the same                | `/b` at 503; **Sync now**              | **Defect.** "2 docs · +0 ~0 =2 −1 · 1 skipped · Skipped: …/b", status ok; Documents (2)                                                                |
+| the same (R371 build)   | `/b` healthy; **Sync now**             | "3 docs · +1 ~0 =2 −0"; Documents (3)                                                                                                                  |
+| the same                | `/b` at 503; **Sync now**              | "3 docs · +0 ~0 =2 −0 · 1 skipped"; "Nothing was removed this sync (1 not seen, kept): http://r371-fake-site:8080/b answered HTTP 503."; Documents (3) |
+
+The knowledge base was then deleted and the container removed.
+
 ## 2026-10-09 — R370: a failed catalog source, said in words
 
 | Page                   | What was driven                                | Result                                                                                                                                                                                        |

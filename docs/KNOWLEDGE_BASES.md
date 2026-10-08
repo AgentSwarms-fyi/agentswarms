@@ -121,6 +121,14 @@ delete every synced document as remotely removed. `embedding_failed` is a
 distinct status: documents saved, semantic indexing incomplete, keyword
 fallback active, owner notified.
 
+A listing that could not read everything removes nothing. A website page that
+answers 429 or a 5xx, or does not answer, is skipped with "its last synced
+copy is kept"; a crawl also misses what is linked only from that page, so the
+sync removes no document that time, and the source row says "Nothing was
+removed this sync (N not seen, kept): … answered HTTP 503". The next sync that
+reads every page removes what is really gone. A page that answers 404 or 410,
+is no longer HTML, or is no longer public (401, 403) is removed at once.
+
 ## Chunking modes and hybrid retrieval
 
 Three settings change what is stored and what is searched. The first two are per

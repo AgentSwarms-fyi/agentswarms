@@ -42,6 +42,12 @@ export type KbSyncStats = {
   skipped: Array<{ name: string; reason: string }>;
   /** Items whose provider exposes no ACL while the source wants source_acl. */
   acl_unavailable: number;
+  /**
+   * Documents not seen this sync but kept, because the listing could not read
+   * everything (R371), and why. Removed only by a sync that read it all.
+   */
+  kept?: number;
+  incomplete?: string;
 };
 
 export type KbSyncOutcome = {
@@ -126,7 +132,7 @@ export async function syncKbSource(
   }
 
   try {
-    const { items, skipped } = await connector.listItems(config, creds);
+    const { items, skipped, incomplete } = await connector.listItems(config, creds);
     stats.listed = items.length;
     stats.skipped = skipped;
 
@@ -147,14 +153,22 @@ export async function syncKbSource(
     stats.unchanged = unchanged.length;
 
     // Remote deletions → document deletions (kb_chunks cascade on the FK).
-    if (toRemoveExternalIds.length > 0) {
+    // A listing that could not read everything cannot say what was removed
+    // (R371): a page that answered 503 deleted its document, its chunks and
+    // its access list as "removed from the site". Nothing is removed then.
+    const toRemove = incomplete ? [] : toRemoveExternalIds;
+    if (incomplete) {
+      stats.incomplete = incomplete;
+      if (toRemoveExternalIds.length > 0) stats.kept = toRemoveExternalIds.length;
+    }
+    if (toRemove.length > 0) {
       const { error: delErr } = await sb
         .from("knowledge_documents")
         .delete()
         .eq("source_id", source.id)
-        .in("external_id", toRemoveExternalIds);
+        .in("external_id", toRemove);
       if (delErr) throw new Error(`removing deleted items: ${delErr.message}`);
-      stats.removed = toRemoveExternalIds.length;
+      stats.removed = toRemove.length;
     }
 
     const wantAcl = source.access_scope === "source_acl" && connector.supportsAcl;

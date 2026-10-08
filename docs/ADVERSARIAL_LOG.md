@@ -109,6 +109,52 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-09 — R371: a website page that failed to load once was deleted from the knowledge base
+
+**Severity: medium (documents, their chunks and their access lists deleted by a transient error,
+and paid for again).** Found reading for R369's class across the other syncs.
+
+**Shown from the UI.** A throwaway site of my own (`r371-fake-site`, a Python server on the app's
+network: `/` linking to `/a` and `/b`, and a switch that makes `/b` answer 503). Knowledge Bases →
+**New Knowledge Base** "R371 site KB" → **Connect** → Website, "R371 site" at
+`http://r371-fake-site:8080/` → **Save & sync now**: "Indexed 3/3 documents". `/b` switched to 503,
+**Sync now**: the source row read **"2 docs · +0 ~0 =2 −1 · 1 skipped · Skipped:
+http://r371-fake-site:8080/b"**, status ok, and the tab **Documents (2)**. The page's document had
+been deleted as removed from the site.
+
+**Why.** The sync removes every stored document the listing did not return (`diffRemoteItems`). The
+website crawl put a page that answered anything but 200, or did not answer, in `skipped`, and left it
+out of the listing, so a 503 read the same as a 404. The connectors' failure policy covered an empty
+listing ("throw, or every document is deleted"), not a partial one. And a crawl that cannot read a
+page also misses every page linked only from it.
+
+**What was written.**
+
+- **`ListResult.incomplete`**: a listing that could not read everything says what. The website crawl
+  sets it for a page that answers 429 or a 5xx, or does not answer, and skips that page with "its
+  last synced copy is kept". A page that answers 404, 410 or 415 (not a page any more), or 401 or 403
+  (no longer public, so its text must not stay), is skipped as before and removed.
+- **The sync removes nothing from an incomplete listing**, records `incomplete` and how many
+  documents it kept (`kept`), and the next complete sync removes what is really gone.
+- **The source row says it**, in words: "Nothing was removed this sync (N not seen, kept): … answered
+  HTTP 503."
+
+**Tests:** `kbWebIncompleteSync.test.ts`, new, 11 cases, the website listing run against a real HTTP
+server. A site read whole lists every page and is complete; a page answering 503, 500 or 429, or
+dropping its connection, is kept and makes the listing incomplete; a page answering 404, 410, 403 or
+401 is removed with the listing complete. By source: the sync removes nothing from an incomplete
+listing and counts what it kept, and the source row says so. Mutation run: the control survives and 8
+of 8 mutants are caught. The 22 test files that read the connectors, the sync or the page pass.
+
+**The UI** (R371 build), the same source: `/b` healthy again, **Sync now**: "3 docs · +1 ~0 =2 −0".
+`/b` at 503, **Sync now**: **"3 docs · +0 ~0 =2 −0 · 1 skipped"**, and below it **"Nothing was removed
+this sync (1 not seen, kept): http://r371-fake-site:8080/b answered HTTP 503."**, **Documents (3)**.
+The knowledge base was then deleted and the container removed.
+
+**The class** is now a queue entry of its own, with what was read for it and what is left.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-09 — R370: a catalog source's failed crawl was said only in a hover title
 
 **Severity: medium (a failure, scheduled or not, that the page did not say).** From the sweep the

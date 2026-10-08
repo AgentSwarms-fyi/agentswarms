@@ -141,6 +141,9 @@ type KbSource = {
     removed?: number;
     skipped?: { name: string; reason: string }[];
     acl_unavailable?: number;
+    /** Not seen, but kept: the listing could not read everything (R371). */
+    kept?: number;
+    incomplete?: string;
   } | null;
 };
 
@@ -2315,6 +2318,15 @@ function KnowledgePage() {
                                             : "")
                                         : ""}
                                     </p>
+                                    {isConnector && src.last_sync_stats?.incomplete ? (
+                                      <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">
+                                        Nothing was removed this sync
+                                        {src.last_sync_stats.kept
+                                          ? ` (${src.last_sync_stats.kept} not seen, kept)`
+                                          : ""}
+                                        : {src.last_sync_stats.incomplete}.
+                                      </p>
+                                    ) : null}
                                     {isConnector &&
                                       (src.last_sync_stats?.skipped?.length ?? 0) > 0 && (
                                         <p

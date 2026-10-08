@@ -203,6 +203,13 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **A website source no longer deletes a page that failed to load once**
+  (R371). A page answering 503, 429 or timing out during a sync was taken for
+  removed from the site: its document, chunks and access list were deleted,
+  to be fetched and embedded again on the next good sync. Now a sync that
+  could not read every page removes nothing, keeps the documents it did not
+  see, and the source card says so. A page that is gone (404, 410) or no
+  longer public (401, 403) is still removed.
 - **A catalog source whose last crawl failed says so on the page** (R370). It
   showed a red dot 6 px wide and the reason only in a hover title, so a
   scheduled crawl that failed overnight told nobody. The source's row now
