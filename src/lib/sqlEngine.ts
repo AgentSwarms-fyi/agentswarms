@@ -22,6 +22,7 @@
 
 import Papa from "papaparse";
 import { supabase } from "@/integrations/supabase/client";
+import type { Json } from "@/integrations/supabase/types";
 import { sessionUser } from "@/lib/sessionUser";
 import { selectAllWindows } from "@/lib/pagedSelect";
 // Type inference and coercion are shared with the streaming server upload —
@@ -386,7 +387,7 @@ export async function saveDataset(args: {
       .from("user_data_tables")
       .update({
         source_filename: args.sourceFilename,
-        columns: args.columns as any,
+        columns: args.columns,
         // Explicit: `updated_at` is trigger-stamped on any metadata edit, so
         // freshness checks need a timestamp that only moves when rows do.
         data_loaded_at: new Date().toISOString(),
@@ -402,7 +403,7 @@ export async function saveDataset(args: {
         user_id: args.userId,
         name: safeName,
         source_filename: args.sourceFilename,
-        columns: args.columns as any,
+        columns: args.columns,
         is_sample: false,
       })
       .select("id")
@@ -416,7 +417,8 @@ export async function saveDataset(args: {
   for (let i = 0; i < args.rows.length; i += BATCH) {
     const slice = args.rows.slice(i, i + BATCH).map((row) => ({
       table_id: tableId,
-      row: row as any,
+      // Parsed cells: text, numbers, booleans and nulls, JSON as they are.
+      row: row as Json,
     }));
     const { error } = await supabase.from("user_data_rows").insert(slice);
     if (error) throw new Error(error.message);

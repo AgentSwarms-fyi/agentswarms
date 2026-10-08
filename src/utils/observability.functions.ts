@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import type { TablesInsert } from "@/integrations/supabase/types";
 
 const MODELS = [
   { provider: "openai", model: "openai/gpt-5", inCost: 1.25e-6, outCost: 1.0e-5 },
@@ -50,7 +51,7 @@ export const seedTraces = createServerFn({ method: "POST" })
       return { seeded: false, message: "Traces already exist" };
     }
 
-    const rows: any[] = [];
+    const rows: TablesInsert<"execution_traces">[] = [];
     const now = Date.now();
 
     // Generate 30 days of traces, ~10-30 per day

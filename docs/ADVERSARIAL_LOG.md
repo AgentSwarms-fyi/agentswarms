@@ -109,6 +109,49 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R353: trace, approval and dataset code read JSON as `any`
+
+**Severity: low, code health** (14 `any`s).
+
+**What was written.**
+
+- **`traceLog.functions.ts`**: a trace row's `request_payload`, `response_payload` and
+  `tool_calls` are `Json`.
+- **The Traces page** reads each tool call through `recordOf`, and the name and arguments through
+  `textOf`. A tool name that is not text used to be passed straight to React, which throws on an
+  object; it now renders as nothing.
+- **The trace seeder's rows** are `TablesInsert<"execution_traces">[]`.
+- **An approval's payload** is `Json`, and its icons are `LucideIcon`.
+- **The node inspector's MCP list** keeps the type of its query.
+- **Uploaded and sample rows** are inserted as `Json`: parsed CSV cells are text, numbers,
+  booleans and nulls, which is what a cast says, with a comment.
+
+**Tests:** the 33 test files that read these modules pass (709 cases). There is no mutation run:
+the round changes types, and its checks are the type checker and the lint rule.
+
+**The UI** (R353 build):
+
+- The Traces list and its details opened, `Memory: Summarize` traces included.
+- The approvals inbox listed 67 approvals with their icons; one payload expanded as JSON, and
+  nothing was approved or rejected.
+- A three-row CSV, `r353_probe.csv`, uploaded as `r353_probe` (3 rows, schema detected).
+  `SELECT region, units, active FROM r353_probe ORDER BY units` returned its rows.
+
+**Found in that check, queued.**
+
+- **A chat turn's trace says it called no tools.** One Predictive Analyst turn, "List my ML models
+  by name only. Use your tool.", called `ml_list_models`. Its trace row has no Tool Calls section
+  and its provenance reads "0 data reads". `/api/chat` writes `tool_calls: []` on every row; the
+  events are only in the request payload's `toolEvents`. That is R354.
+- **Traces written before R351 still hold what it now redacts.** The `Memory: Summarize` trace at
+  11:35:47 stored the raw email in its prompt. The fold after R351 (12:08:23) sent the summary so
+  far as "User's email address is [REDACTED_EMAIL]", so that check of R351's summary redaction
+  passed on the real database.
+
+Warnings go from 36 to 22.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R352: a message sent right after New Chat went to the previous chat
 
 **Severity: medium.** A message could land in the wrong conversation: saved there, answered from

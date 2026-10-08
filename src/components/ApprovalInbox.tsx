@@ -14,6 +14,8 @@ import {
   Terminal,
   Globe,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import type { Json } from "@/integrations/supabase/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -37,7 +39,7 @@ type Approval = {
   action_type: string;
   action_title: string;
   description: string | null;
-  payload: any;
+  payload: Json;
   risk_level: string;
   status: string;
   created_at: string;
@@ -47,7 +49,7 @@ type Approval = {
   swarm_run_id: string | null;
 };
 
-const ACTION_ICON: Record<string, any> = {
+const ACTION_ICON: Record<string, LucideIcon> = {
   n8n_webhook: Webhook,
   mcp_tool: Database,
   shell_command: Terminal,

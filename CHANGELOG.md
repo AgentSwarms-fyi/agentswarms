@@ -125,6 +125,11 @@ and both of those are one advisory that cannot be triggered here (see
   upload, and the versions fetched (pdf.js 4.7.76, mammoth 1.8.0) were not the
   audited ones in the lockfile (4.10.38, 1.13.0). The build now copies them into
   `public/vendor`.
+- **Trace, approval and dataset code reads JSON as JSON, not `any`** (R353).
+  The trace log's payloads and tool calls, an approval's payload, the trace
+  seeder's rows, the node inspector's MCP list and the uploaded rows are typed.
+  The Traces page reads each tool call as an object, and no longer renders a
+  tool name that is not text. Lint warnings 36 to 22.
 - **Server functions declare their input with `validator()`** (R349), the name
   TanStack Start 1.168 gave `inputValidator()`, which it deprecated. The 396
   calls used the old name, so each build printed 1,173 deprecation lines: more

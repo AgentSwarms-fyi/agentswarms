@@ -58,6 +58,7 @@ import {
   type DecisionChain,
 } from "@/utils/provenance.functions";
 import { isDataRead } from "@/utils/provenance/actions";
+import { recordOf, textOf } from "@/lib/jsonRecord";
 import type { ReplayResult } from "@/utils/provenance/replay.server";
 
 export const Route = createFileRoute("/_authenticated/traces")({
@@ -873,19 +874,19 @@ function TracesPage() {
                   {Array.isArray(selected.tool_calls) && selected.tool_calls.length > 0 && (
                     <Section title={`Tool Calls (${selected.tool_calls.length})`}>
                       <div className="space-y-1.5">
-                        {selected.tool_calls.map((tc: any, i: number) => {
+                        {selected.tool_calls.map((raw, i) => {
                           // Two shapes: the agent loop's events — a `tool_call`
                           // with a JSON `args` string, then a `tool_result` with
                           // `ok` and a preview — and older rows that kept
-                          // `arguments` as an object.
-                          const isResult = tc?.type === "tool_result";
+                          // `arguments` as an object. Each read as the object
+                          // it should be (R353).
+                          const tc = recordOf(raw);
+                          const isResult = tc.type === "tool_result";
                           const body = isResult
                             ? String(tc.preview ?? "")
-                            : tc?.arguments !== undefined
+                            : tc.arguments !== undefined
                               ? JSON.stringify(tc.arguments, null, 2)
-                              : typeof tc?.args === "string"
-                                ? tc.args
-                                : "";
+                              : textOf(tc.args);
                           return (
                             <div
                               key={i}
@@ -902,7 +903,7 @@ function TracesPage() {
                               />
                               <div className="min-w-0 flex-1">
                                 <p className="text-xs font-mono font-semibold break-all">
-                                  {tc?.name}
+                                  {textOf(tc.name)}
                                   {isResult ? (tc.ok ? " · result" : " · failed") : ""}
                                 </p>
                                 {body && (

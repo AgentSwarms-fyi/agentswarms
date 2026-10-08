@@ -732,6 +732,14 @@ least twice, not a hypothetical.
       but the summary read "User's email address is r348.check@example.test", and the trace of the
       next turn shows that summary in the system prompt. The email reached the summary model and
       then the agent's model.
+    - **A chat turn's trace says it called no tools** (seen in R353, next: R354). `/api/chat`
+      writes `tool_calls: []` on every trace row, while the turn's `toolEvents` sit in its request
+      payload. The Traces page's Tool Calls section reads the column, so a turn that called
+      `ml_list_models` showed no tool call, and its provenance said "0 data reads".
+    - **Traces written before R351 hold what it now redacts** (seen in R353). The `Memory: Summarize`
+      trace at 11:35:47 stored "USER: My email is r348.check@example.test…" in its prompt, and the
+      chat traces of that conversation hold the raw sentence in their history. They age out with
+      the traces' retention; nothing rewrites them.
     - ~~**A message sent right after New Chat lands in the previous conversation**~~ (seen in
       R350). **R352**: New Chat leaves the chat on screen before its insert. `createConversation` awaits the insert before it switches `activeConvo`; a
       message sent in that gap is saved to, and answered in, the conversation on screen before.

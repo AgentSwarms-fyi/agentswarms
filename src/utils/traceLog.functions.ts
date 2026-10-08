@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { callerFailure } from "@/utils/callerLookup.server";
+import type { Json } from "@/integrations/supabase/types";
 
 const TraceLogInput = z.object({
   accessToken: z.string().min(1),
@@ -23,9 +24,9 @@ export type ExecutionTraceRow = {
   cost_usd: number;
   status: string;
   prompt: string | null;
-  request_payload?: any;
-  response_payload?: any;
-  tool_calls?: any;
+  request_payload?: Json;
+  response_payload?: Json;
+  tool_calls?: Json;
   error_message: string | null;
   created_at: string;
   /** The decision this turn belongs to (its own id, or the swarm run's). */

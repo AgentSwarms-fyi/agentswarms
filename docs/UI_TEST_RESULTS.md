@@ -15,6 +15,18 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R353: traces, approvals, an upload
+
+| Page                                  | What was driven                                                                                                   | Result                                                                                                                                                                                  |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| /traces                               | `Memory: Summarize` at 11:35:47 and 12:08:23                                                                      | Before R351: prompt "USER: My email is r348.check@example.test…". After: "EXISTING SUMMARY: User's email address is [REDACTED_EMAIL]…" (R351's summary redaction, on the real database) |
+| /playground, Predictive Analyst       | "List my ML models by name only. Use your tool."                                                                  | The models, listed                                                                                                                                                                      |
+| /traces, that turn (13:01:44)         | Open it                                                                                                           | **Defect (queued, R354):** no Tool Calls section, provenance "0 data reads"; the `ml_list_models` call and result are in the request payload's `toolEvents` only                        |
+| header, **Pending approvals (67)**    | Open; **View payload** on the first                                                                               | 67 approvals with icons; the payload as JSON (`last_output`…); closed, nothing approved or rejected                                                                                     |
+| /data-sql, Workbench, **Upload data** | `r353_probe.csv` (3 rows), **Create dataset**; then `SELECT region, units, active FROM r353_probe ORDER BY units` | "Dataset created · 3 rows · 3 columns"; the query returned APAC 7 false, EMEA 12 true, AMER 30 true                                                                                     |
+
+The dataset `r353_probe` and the Predictive Analyst conversation are kept.
+
 ## 2026-10-08 — R352: a message sent right after New Chat
 
 | Page                                   | What was driven                                                             | Result                                                                                                                                                                       |
