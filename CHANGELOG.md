@@ -203,6 +203,14 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **An Iceberg catalog that cannot be reached says where and why** (R368).
+  Adding one to the Data Catalog at an address that did not resolve showed
+  only a toast reading "fetch failed", and the dialog then showed nothing. It
+  now says "https://… could not be reached: its host name does not resolve"
+  (or that the connection was refused, timed out, or its certificate was not
+  accepted), and keeps that in the dialog. A catalog request now gives up
+  after 30 s instead of waiting as long as Node does, and the wizard's last
+  step describes an Iceberg catalog rather than an S3 bucket with no path.
 - **Calls to a running Builder MCP server take half the time** (R367). Each
   request through `/api/mcp/s/<slug>` spent 1.2 to 1.5 s before the server saw
   it, mostly database round trips made one after another and a re-probe of a

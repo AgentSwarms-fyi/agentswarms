@@ -132,6 +132,9 @@ export function AddSourceWizard({
   const [phase, setPhase] = useState<"idle" | "connecting" | "crawling" | "done">("idle");
   const [result, setResult] = useState<CrawlResult | null>(null);
   const [crawlError, setCrawlError] = useState<string | null>(null);
+  // Why the source could not be saved, kept in the dialog (R368): a toast is
+  // gone in seconds, and the dialog then showed nothing at all.
+  const [connectError, setConnectError] = useState<string | null>(null);
 
   // Warehouse config
   const [connections, setConnections] = useState<WarehouseConnectionSummary[] | null>(null);
@@ -192,6 +195,7 @@ export function AddSourceWizard({
 
   async function connectAndCrawl() {
     setBusy(true);
+    setConnectError(null);
     setPhase("connecting");
     try {
       const created = await createFn({
@@ -243,6 +247,7 @@ export function AddSourceWizard({
       onDone();
     } catch (e) {
       toast.error((e as Error).message);
+      setConnectError((e as Error).message);
       setPhase("idle");
     } finally {
       setBusy(false);
@@ -526,17 +531,20 @@ export function AddSourceWizard({
           <div className="space-y-4">
             <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs">
               <p className="flex items-center gap-2 font-medium">
-                {kind === "warehouse" ? (
-                  <Database className="h-3.5 w-3.5 text-primary" />
-                ) : (
+                {kind === "object_storage" ? (
                   <HardDrive className="h-3.5 w-3.5 text-primary" />
+                ) : (
+                  <Database className="h-3.5 w-3.5 text-primary" />
                 )}
                 {name}
               </p>
               <p className="mt-1 text-muted-foreground">
                 {kind === "warehouse"
                   ? `${connections?.find((c) => c.id === connectionId)?.name ?? "Connection"} — every schema and table will be cataloged with column types and row estimates.`
-                  : `${provider === "azure" ? "az" : "s3"}://${bucket}/${prefix} — objects are listed (up to 2,000), partitioned folders are grouped into datasets, and CSV/JSON files are sampled to infer columns.`}
+                  : kind === "iceberg_rest"
+                    ? // It described an S3 bucket here, with an empty path (R368).
+                      `${icebergUri.trim()} — its namespaces and tables are listed (up to 300 namespaces and 1,000 tables), each with the columns of its current schema.`
+                    : `${provider === "azure" ? "az" : "s3"}://${bucket}/${prefix} — objects are listed (up to 2,000), partitioned folders are grouped into datasets, and CSV/JSON files are sampled to infer columns.`}
               </p>
             </div>
 
@@ -576,28 +584,38 @@ export function AddSourceWizard({
                 </div>
               </div>
             ) : (
-              <div className="flex items-center justify-between">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="gap-1.5"
-                  disabled={busy}
-                  onClick={() => setStep("configure")}
-                >
-                  <ArrowLeft className="h-3.5 w-3.5" /> Back
-                </Button>
-                <Button size="sm" className="gap-1.5" disabled={busy} onClick={connectAndCrawl}>
-                  {busy ? (
-                    <>
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      {phase === "connecting" ? "Testing connection…" : "Crawling…"}
-                    </>
-                  ) : (
-                    <>
-                      <Radar className="h-3.5 w-3.5" /> Connect & crawl
-                    </>
-                  )}
-                </Button>
+              <div className="space-y-3">
+                {connectError ? (
+                  <p
+                    role="alert"
+                    className="rounded border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-[11px] text-destructive"
+                  >
+                    Not saved: {connectError}
+                  </p>
+                ) : null}
+                <div className="flex items-center justify-between">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="gap-1.5"
+                    disabled={busy}
+                    onClick={() => setStep("configure")}
+                  >
+                    <ArrowLeft className="h-3.5 w-3.5" /> Back
+                  </Button>
+                  <Button size="sm" className="gap-1.5" disabled={busy} onClick={connectAndCrawl}>
+                    {busy ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        {phase === "connecting" ? "Testing connection…" : "Crawling…"}
+                      </>
+                    ) : (
+                      <>
+                        <Radar className="h-3.5 w-3.5" /> Connect & crawl
+                      </>
+                    )}
+                  </Button>
+                </div>
               </div>
             )}
           </div>

@@ -10,6 +10,7 @@
 // Column names matching common PII patterns are flagged so the catalog
 // can surface classification at a glance. Crawls are bounded (object,
 // sample and byte caps) so a huge bucket cannot wedge the server.
+import { describeFetchFailure } from "@/lib/fetchFailure";
 import { createHash } from "node:crypto";
 import zlib from "node:zlib";
 
@@ -919,12 +920,26 @@ function assertIcebergHostAllowed(uri: string): string {
   return host;
 }
 
+/**
+ * How long one request to a catalog may take. Without it a catalog that never
+ * answered held the save, and later the crawl, until Node gave up (R368).
+ */
+const ICEBERG_TIMEOUT_MS = 30_000;
+
 async function icebergGet<T>(base: string, path: string, token?: string): Promise<T> {
-  const res = await fetch(`${base}${path}`, {
-    headers: token
-      ? { Accept: "application/json", Authorization: `Bearer ${token}` }
-      : { Accept: "application/json" },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${base}${path}`, {
+      headers: token
+        ? { Accept: "application/json", Authorization: `Bearer ${token}` }
+        : { Accept: "application/json" },
+      signal: AbortSignal.timeout(ICEBERG_TIMEOUT_MS),
+    });
+  } catch (e) {
+    // "fetch failed" alone, as the save's toast and the crawl's error used to
+    // read, says neither where nor why (R368).
+    throw new Error(`Iceberg: ${describeFetchFailure(e, base, { timeoutMs: ICEBERG_TIMEOUT_MS })}`);
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`Iceberg REST ${res.status}: ${text.slice(0, 200)}`);

@@ -185,7 +185,13 @@ least twice, not a hypothetical.
     "last rebuild failed" beside the reason and the rows' age. A failure
     carried only by a `title=` is the same shape anywhere: grep
     `title=\{.*(error|fail)` for a state the page shows to a hovering
-    mouse and nobody else.
+    mouse and nobody else. Swept in R368: most such titles add detail to a
+    state the page already says in words. One does not: a **Data Catalog
+    source** whose last crawl failed shows a 1.5 px red dot, and its
+    `last_error` only in that dot's and the row's `title`. Not shown yet: it
+    needs a source that saves and then fails, and the one tried (an Iceberg
+    catalog at an address that does not resolve) is refused at save, which
+    was R368.
 3.  **A cause named that the evidence cannot support.** R31's freshness test, and
     Prompt Compare crowning the model that failed fastest. R63's dashboard
     chip is the degenerate case: a count of `last_status = 'error'` on a

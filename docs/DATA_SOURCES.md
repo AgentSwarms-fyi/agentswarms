@@ -406,6 +406,12 @@ consume each table. Crawls can run on a daily/weekly schedule with
 schema-drift notifications. Object-storage and Iceberg credentials are
 encrypted with the same `PROVIDER_CREDS_SECRET` key.
 
+An Iceberg catalog is tested before it is saved. One that cannot be reached is
+not saved, and the dialog says which address and why: its host name does not
+resolve, nothing is listening there, the connection timed out, or its TLS
+certificate was not accepted. Each request to a catalog, in the test and in a
+crawl, gives up after 30 seconds.
+
 One crawl of a source runs at a time. A crawl claims its source by moving it to
 "crawling", so a second **Re-crawl** says one is already running, and a
 scheduled pass leaves the source alone (R315). A crawl that died leaves its

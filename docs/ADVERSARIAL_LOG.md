@@ -109,6 +109,57 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R368: an Iceberg catalog that could not be reached said "fetch failed"
+
+**Severity: medium (a failure that named nothing to fix, and then vanished).** Found while
+sweeping the queue's "a failure carried only by a `title=`" for the Data Catalog.
+
+**Shown from the UI.** Data Catalog → **+ Add** → Iceberg REST catalog, "R368 unreachable" at
+`https://catalog.invalid` (a domain that never resolves). The last step described it as
+"s3:/// — objects are listed (up to 2,000), partitioned folders are grouped into datasets…", an
+S3 bucket with no path. **Connect & crawl**: a toast read **"fetch failed"** and the dialog went
+back to where it was. Four seconds later the toast was gone, and nothing on the page said that
+the source had not been saved, or why.
+
+**Why.** The save tests the catalog first (`testIcebergCatalog` → `icebergGet`, which a crawl
+uses too). `icebergGet` called `fetch` bare. Node's fetch rejects every failure below HTTP with
+"fetch failed" and keeps the reason in `cause` (here `ENOTFOUND`), and the message was passed on
+as it was. It had no timeout either, so a catalog that never answered held the save until Node
+gave up. The wizard's last step knew two kinds, a warehouse and the rest, and the rest was a
+bucket. And the save's failure was said in a toast only.
+
+**What was written.**
+
+- **`describeFetchFailure`** (`src/lib/fetchFailure.ts`), new: the address (its origin, never
+  its path, query or credentials) and the reason: the host name does not resolve, nothing is
+  listening there, the connection timed out, there is no route, it closed the connection, or its
+  TLS certificate was not accepted; a wait that ran out says how long. It reads the code from the
+  error, its `cause`, or the attempts of an `AggregateError`, which is how a name with two
+  addresses fails. Anything else passes the cause's own message on.
+- **`icebergGet`** gives each request 30 s and says, when it fails, "Iceberg: " and that.
+- **The wizard** keeps the reason in the dialog ("Not saved: …", `role="alert"`) until the next
+  attempt, and describes an Iceberg catalog as one, with the crawler's own limits (300 namespaces,
+  1,000 tables).
+
+**Tests:** `fetchFailure.test.ts`, new, 11 cases. A real refused connection, made against a port
+that was just closed, is described from Node's own error. A name that does not resolve, a timeout
+with its length, a certificate, an `AggregateError` of two refused addresses, and an unknown
+reason are described. The address drops its path, query and credentials. By source: the
+catalog's requests have the timeout and the description, the save's test goes through them, the
+wizard keeps the reason and describes the catalog with the crawler's limits. Mutation run: the
+control survives and 10 of 10 mutants are caught. The other catalog tests pass.
+
+**The UI** (R368 build): the same source and address. The last step read "https://catalog.invalid
+— its namespaces and tables are listed (up to 300 namespaces and 1,000 tables), each with the
+columns of its current schema." **Connect & crawl**: the toast, and then, eight seconds later and
+with the toast gone, the dialog still read **"Not saved: Iceberg: https://catalog.invalid could
+not be reached: its host name does not resolve"**. No source was saved.
+
+**Left in the queue:** a source whose crawl fails after it was saved shows that only in a hover
+title, beside a 1.5 px red dot. It was not shown: the source tried here is refused at save.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R367: every call to a Builder MCP server re-proved what the last one had
 
 **Severity: medium (an agent's tool call through a Builder server paid about 3.8 s before the

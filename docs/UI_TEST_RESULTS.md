@@ -15,6 +15,13 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R368: adding an Iceberg catalog that cannot be reached
+
+| Page                           | What was driven                                                                                          | Result                                                                                                                                                                                                                                                                   |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| /data-sql → + Add (R367 build) | Iceberg REST catalog "R368 unreachable" at `https://catalog.invalid`; the last step; **Connect & crawl** | **Defect.** Last step: "s3:/// — objects are listed…"; toast **"fetch failed"**, then nothing on the page once it faded; not saved                                                                                                                                       |
+| the same (R368 build)          | The same                                                                                                 | Last step: "https://catalog.invalid — its namespaces and tables are listed (up to 300 namespaces and 1,000 tables)…"; toast and, 8 s later, in the dialog: "Not saved: Iceberg: https://catalog.invalid could not be reached: its host name does not resolve"; not saved |
+
 ## 2026-10-08 — R367: how long a call to a Builder MCP server takes
 
 | Page                           | What was driven                                         | Result                                                                                                                                                                |
