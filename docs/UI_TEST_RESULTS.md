@@ -15,6 +15,13 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R360: Refresh on a Builder MCP server
+
+| Page                           | What was driven | Result                                                                                                                                     |
+| ------------------------------ | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| /mcp, "R99 hello" (R359 build) | **Refresh**     | The sandbox `nb-62828e90…` started; its log: `POST /mcp` 200, 202, 200, and **no DELETE**                                                  |
+| the same (R360 build)          | **Refresh**     | The log adds `POST /mcp` 200, 202, 200, then **`DELETE /mcp` 200 OK**; the card "● Active · 2 tools · 0s ago", greet and word_count listed |
+
 ## 2026-10-08 — R359: server functions and where their calls come from
 
 | Where                                              | What was driven                                                                                         | Result                                                                                                             |

@@ -109,6 +109,32 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R360: the MCP probe left its session open
+
+**Severity: low (a slow leak).** Queued since R100, as R99's session leak in the other MCP client.
+
+**Shown.** MCP Integrations → "R99 hello" (a Builder server) → **Refresh**, on the R359 build.
+The probe started the server's sandbox (`nb-62828e90…`). Its log shows the probe's session:
+`POST /mcp` 200 (initialize), 202 (notifications/initialized), 200 (tools/list), and no
+`DELETE`. A server keeps a session until it is ended or expires, and this instance's endpoint for
+Builder servers keeps a row in `mcp_app_sessions` for each one. So every Test connection or
+Refresh left a row.
+
+**What was written.** `probeMcpServer` keeps the session id for the whole probe and ends the
+session in a `finally`, on every way out: success, a failed `tools/list`, or a throw. It sends
+`DELETE` with that id through the same guarded fetch as its other requests, without waiting on
+the answer, as `mcpApps/session.ts` does for the agents' client.
+
+**Tests:** `mcpProbeEndsSession.test.ts`, new, 2 cases, pinned by source as the probe's other
+rules are: the id is kept outside the `try`, and the `finally` sends the `DELETE` with it. The
+cold-start and stream-left-open tests pass.
+
+**The UI** (R360 build): **Refresh** on the same server. The sandbox's log adds `POST /mcp` 200,
+202 and 200, then `DELETE /mcp` 200 OK. The card reads "● Active · 2 tools · 0s ago" with both
+tools listed.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R359: server functions had no CSRF check
 
 **Severity: medium (defence in depth).** The functions authenticate with a bearer token the

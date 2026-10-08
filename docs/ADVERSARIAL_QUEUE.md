@@ -1519,12 +1519,10 @@ is locked` until it is restarted. That is the fixture, not this app,
   - **The first agent call to an idle Builder server always failed.**
     DONE (R100): every client of the endpoint now gives `initialize` the
     endpoint's own cold-start budget plus one request's worth. A 5xx
-    initialize is taken as the answer rather than retried bare. Still
+    initialize is taken as the answer rather than retried bare. ~~Still
     open from it: Test connection (`src/lib/mcp/probe.functions.ts`)
-    opens a session and never ends it, so each press leaves a row in
-    `mcp_app_sessions` for a Builder server. That is R99's leak in its
-    other client. It should end its session, or share
-    `mcpApps/session.ts`.
+    opens a session and never ends it.~~ **R360**: it ends it in a
+    `finally`; the sandbox's log shows the DELETE.
   - Each request through `/api/mcp/s/<slug>` costs about 1.1 s before it
     reaches the sandbox, because `ensureRunning` re-probes it every time.
     A session is three requests, so an agent tool call costs about 3.8 s.

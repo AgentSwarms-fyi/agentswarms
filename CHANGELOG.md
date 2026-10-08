@@ -203,6 +203,10 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **Test connection and Refresh end the MCP session they open** (R360). The
+  probe opened a session, listed the tools, and left it open; for a Builder
+  server, each press left a session row behind. It now ends the session on
+  every way out, as the agents' MCP client already did.
 - **The contact page says when this instance cannot send it** (R358). With no
   `CONTACT_ADMIN_EMAIL`, the page took a whole message and then answered 500
   "Contact form is not configured." It now says so above the form before anyone

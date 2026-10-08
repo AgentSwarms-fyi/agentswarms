@@ -106,6 +106,8 @@ export const probeMcpServer = createServerFn({ method: "POST" })
       );
     };
 
+    // The session this probe opens, ended in `finally` (R360).
+    let sessionId: string | null = null;
     try {
       // 1) initialize
       // initialize is what finds a scaled-to-zero server asleep, so it gets a
@@ -140,7 +142,7 @@ export const probeMcpServer = createServerFn({ method: "POST" })
         };
       }
 
-      const sessionId = initRes.headers.get("Mcp-Session-Id");
+      sessionId = initRes.headers.get("Mcp-Session-Id");
       // Drain the initialize response (some servers require it), up to the
       // answer only: a server may keep the stream open after replying (R98).
       await readRpcBody(initRes).catch(() => null);
@@ -203,5 +205,19 @@ export const probeMcpServer = createServerFn({ method: "POST" })
         status: "error",
         message: err instanceof Error ? err.message : "Probe failed",
       };
+    } finally {
+      // End the session it opened (R360). Ending one is a SHOULD in the spec,
+      // and a server keeps each session until then: this instance's own MCP
+      // endpoint keeps a row per session, so every Test connection or Refresh
+      // of a Builder server left one behind. The agents' client already ends
+      // its sessions (mcpApps/session.ts); this was the other client.
+      if (sessionId) {
+        void guardedFetch(probeUrl, {
+          method: "DELETE",
+          headers: { ...baseHeaders, "Mcp-Session-Id": sessionId },
+        })
+          .then((r) => r.body?.cancel())
+          .catch(() => {});
+      }
     }
   });
