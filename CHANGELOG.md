@@ -203,6 +203,13 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **A catalog crawl that cannot read an Iceberg catalog no longer empties it**
+  (R369). Every failure in the crawl was passed over, so a catalog that was
+  down read as one with no tables: the crawl said "0 assets · 2 removed",
+  marked the source ready, and deleted every asset it had catalogued, with
+  their owners, descriptions and tags. Now the crawl fails with the reason and
+  removes nothing; a namespace or table it could not read keeps what was
+  catalogued from it, and the crawl says how many parts it could not read.
 - **An Iceberg catalog that cannot be reached says where and why** (R368).
   Adding one to the Data Catalog at an address that did not resolve showed
   only a toast reading "fetch failed", and the dialog then showed nothing. It

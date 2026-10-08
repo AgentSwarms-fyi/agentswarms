@@ -15,6 +15,19 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R369: re-crawling an Iceberg catalog that is down
+
+A throwaway catalog, `r369-fake-iceberg` (a Python server in `python:3.12-slim` on the app's
+network; one namespace, two tables), added as "R369 fake catalog". It is mine, stopped and started
+for these rows.
+
+| Page                   | What was driven                                                 | Result                                                                                                                                                                                   |
+| ---------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| /data-sql (R368 build) | Add, crawl; `orders` given an owner and a description, **Save** | "Source connected — 2 assets"; both kept on reopening                                                                                                                                    |
+| the same               | Catalog stopped; **Re-crawl**                                   | **Defect.** "Crawled 'R369 fake catalog' — 0 assets, 0 columns · 2 removed"; green dot; no assets; the owner and description gone                                                        |
+| the same (R369 build)  | Catalog started; **Re-crawl**; `orders` curated again           | "2 assets, 6 columns · 2 added"; saved                                                                                                                                                   |
+| the same               | Catalog stopped; **Re-crawl**                                   | Toast at 3.0 s: "Iceberg: http://r369-fake-iceberg:8181 could not be reached: its host name does not resolve"; red dot; both assets listed; `orders` still has its owner and description |
+
 ## 2026-10-08 — R368: adding an Iceberg catalog that cannot be reached
 
 | Page                           | What was driven                                                                                          | Result                                                                                                                                                                                                                                                                   |

@@ -107,7 +107,14 @@ const STORAGE_PRESETS: Record<
   },
 };
 
-type CrawlResult = { assets: number; columns: number; sampled: number; duration_ms: number };
+type CrawlResult = {
+  assets: number;
+  columns: number;
+  sampled: number;
+  duration_ms: number;
+  /** Parts of the catalog the crawl could not read (R369). */
+  unread?: number;
+};
 
 export function AddSourceWizard({
   open,
@@ -575,6 +582,12 @@ export function AddSourceWizard({
                         {(result.duration_ms / 1000).toFixed(1)}s
                       </p>
                     )}
+                    {result?.unread ? (
+                      <p className="text-xs text-amber-600 dark:text-amber-400">
+                        {result.unread} part(s) of the catalog could not be read and are not listed
+                        yet. Re-crawl the source once they can be.
+                      </p>
+                    ) : null}
                   </>
                 )}
                 <div className="flex justify-end">

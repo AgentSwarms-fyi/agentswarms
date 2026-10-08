@@ -440,9 +440,15 @@ export function CatalogView({
               .filter(Boolean)
               .join(", ")}`
           : "";
-      toast.success(
-        `Crawled "${source.name}" — ${res.stats.assets} assets, ${res.stats.columns} columns${drift}`,
-      );
+      const crawled = `Crawled "${source.name}" — ${res.stats.assets} assets, ${res.stats.columns} columns${drift}`;
+      // Part of the catalog could not be read: kept, and said (R369).
+      if (res.stats.unread) {
+        toast.warning(
+          `${crawled} · ${res.stats.unread} part(s) of the catalog could not be read; what was cataloged from them was kept`,
+        );
+      } else {
+        toast.success(crawled);
+      }
       await reload();
     } catch (e) {
       toast.error((e as Error).message);

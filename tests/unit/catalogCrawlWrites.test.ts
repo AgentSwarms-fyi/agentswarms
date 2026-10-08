@@ -14,7 +14,8 @@ const between = (src: string, start: string, end: string) =>
 
 const persistAssets = between(
   cr,
-  "const keep = new Set(assets.map((a) => a.fqn));",
+  // Renamed in R369: `keep` is now what a crawl could not read.
+  "const seen = new Set(assets.map((a) => a.fqn));",
   "/** Resolve {{secret:NAME}} refs",
 );
 const persistLineage = between(

@@ -123,6 +123,11 @@ export type CrawlStats = {
   sampled: number;
   duration_ms: number;
   changes: CrawlChanges;
+  /**
+   * Namespaces and tables the crawl could not read (R369). What was catalogued
+   * from them is kept as it was, not taken for removed.
+   */
+  unread?: number;
 };
 
 // ── PII classification (column-name heuristics) ──────────────────────────
@@ -680,6 +685,8 @@ export async function persistAssets(
   sourceId: string,
   assets: CrawledAsset[],
   existing: ExistingAsset[],
+  /** Assets the crawl could not read: kept as they are, never removed (R369). */
+  keep: ReadonlySet<string> = new Set(),
 ): Promise<CrawlChanges> {
   const now = new Date().toISOString();
   const existingByFqn = new Map(existing.map((e) => [e.fqn, e]));
@@ -741,8 +748,8 @@ export async function persistAssets(
   }
 
   // Reconcile deletions locally — a NOT IN () URL filter would overflow.
-  const keep = new Set(assets.map((a) => a.fqn));
-  const stale = existing.filter((e) => !keep.has(e.fqn));
+  const seen = new Set(assets.map((a) => a.fqn));
+  const stale = existing.filter((e) => !seen.has(e.fqn) && !keep.has(e.fqn));
   for (let i = 0; i < stale.length; i += 100) {
     const { error: delErr } = await supabaseAdmin
       .from("catalog_assets")
@@ -1019,9 +1026,37 @@ function icebergTableToAsset(
   };
 }
 
+/**
+ * What an Iceberg crawl could not read (R369).
+ *
+ * FOUND FROM THE UI (R369). Every failure in this crawl was caught and passed
+ * over: a namespace that would not list, a table that would not load. With the
+ * catalog down, the crawl found nothing, called that the catalog's answer, and
+ * the save removed every asset it had catalogued before, with their owners,
+ * descriptions and tags, as "2 removed". Now an unreadable part is recorded,
+ * and what was catalogued from it is kept.
+ */
+export type IcebergUnread = {
+  /** Namespaces whose tables could not be listed: everything under them is kept. */
+  namespaces: string[][];
+  /** Namespaces whose child namespaces could not be listed: what is deeper is kept. */
+  deeper: string[][];
+  /** Tables that were listed but could not be loaded. */
+  tables: string[];
+  firstError: string | null;
+};
+
+/** Is this catalogued asset under something the crawl could not read? */
+export function unreadCovers(unread: IcebergUnread, fqn: string): boolean {
+  if (unread.tables.includes(fqn)) return true;
+  const under = (ns: string[]) => fqn.startsWith(`${ns.join(".")}.`);
+  if (unread.namespaces.some(under)) return true;
+  return unread.deeper.some((ns) => under(ns) && fqn.slice(ns.join(".").length + 1).includes("."));
+}
+
 export async function crawlIcebergRest(
   cfg: IcebergRestConfig,
-): Promise<{ assets: CrawledAsset[]; sampled: number }> {
+): Promise<{ assets: CrawledAsset[]; sampled: number; unread: IcebergUnread }> {
   assertIcebergHostAllowed(cfg.uri);
   const base = cfg.uri.replace(/\/+$/, "");
   const token = cfg.token;
@@ -1044,19 +1079,36 @@ export async function crawlIcebergRest(
   const nsPath = (levels: string[]) => levels.map(encodeURIComponent).join("%1F");
 
   // Breadth-first namespace discovery (bounded).
+  const unread: IcebergUnread = { namespaces: [], deeper: [], tables: [], firstError: null };
+  const missed = (e: unknown) => {
+    unread.firstError ??= e instanceof Error ? e.message : String(e);
+  };
   const allNs: string[][] = [];
   const queue: (string[] | null)[] = [null];
   const seen = new Set<string>();
   while (queue.length && allNs.length < ICEBERG_MAX_NAMESPACES) {
     const parent = queue.shift() ?? null;
     const parentQ = parent ? `?parent=${nsPath(parent)}` : "";
-    let listed: { namespaces?: string[][] };
+    let listed: { namespaces: string[][] };
     try {
-      listed = await icebergGet(base, `/v1${pfx}/namespaces${parentQ}`, token);
-    } catch {
+      const got = await icebergGet<{ namespaces?: unknown }>(
+        base,
+        `/v1${pfx}/namespaces${parentQ}`,
+        token,
+      );
+      if (!Array.isArray(got?.namespaces)) {
+        throw new Error("Iceberg: the catalog's answer did not list namespaces");
+      }
+      listed = { namespaces: got.namespaces as string[][] };
+    } catch (e) {
+      // The catalog's own namespaces could not be listed: nothing was read,
+      // which is not an empty catalog. The crawl fails and removes nothing.
+      if (!parent) throw e;
+      unread.deeper.push(parent);
+      missed(e);
       continue;
     }
-    for (const ns of listed.namespaces ?? []) {
+    for (const ns of listed.namespaces) {
       const key = ns.join("");
       if (seen.has(key)) continue;
       seen.add(key);
@@ -1069,13 +1121,23 @@ export async function crawlIcebergRest(
   const assets: CrawledAsset[] = [];
   for (const ns of allNs) {
     if (assets.length >= ICEBERG_MAX_TABLES) break;
-    let tablesResp: { identifiers?: { namespace: string[]; name: string }[] };
+    let tablesResp: { identifiers: { namespace: string[]; name: string }[] };
     try {
-      tablesResp = await icebergGet(base, `/v1${pfx}/namespaces/${nsPath(ns)}/tables`, token);
-    } catch {
+      const got = await icebergGet<{ identifiers?: unknown }>(
+        base,
+        `/v1${pfx}/namespaces/${nsPath(ns)}/tables`,
+        token,
+      );
+      if (!Array.isArray(got?.identifiers)) {
+        throw new Error("Iceberg: the catalog's answer did not list tables");
+      }
+      tablesResp = { identifiers: got.identifiers as { namespace: string[]; name: string }[] };
+    } catch (e) {
+      unread.namespaces.push(ns);
+      missed(e);
       continue;
     }
-    for (const ident of tablesResp.identifiers ?? []) {
+    for (const ident of tablesResp.identifiers) {
       if (assets.length >= ICEBERG_MAX_TABLES) break;
       try {
         const loaded = await icebergGet<IcebergTableResp>(
@@ -1085,12 +1147,20 @@ export async function crawlIcebergRest(
         );
         const asset = icebergTableToAsset(ns, ident.name, loaded);
         if (asset) assets.push(asset);
-      } catch {
-        /* skip a table we can't load */
+      } catch (e) {
+        unread.tables.push(ns.length ? `${ns.join(".")}.${ident.name}` : ident.name);
+        missed(e);
       }
     }
   }
-  return { assets, sampled: 0 };
+  // Tables were listed, or namespaces were, and not one could be read: the
+  // catalog went away mid-crawl. Fail rather than call that empty.
+  if (assets.length === 0 && (unread.tables.length > 0 || unread.namespaces.length > 0)) {
+    throw new Error(
+      `Iceberg: none of the catalog's tables could be read. The first failure: ${unread.firstError}`,
+    );
+  }
+  return { assets, sampled: 0, unread };
 }
 
 /** Decrypt an Iceberg source's stored config + bearer token. */
@@ -1148,6 +1218,9 @@ export async function runCrawl(
     const existing = await loadExistingAssets(source.id);
     let assets: CrawledAsset[];
     let sampled = 0;
+    // What the crawl could not read, kept rather than removed (R369).
+    const keep = new Set<string>();
+    let unreadCount = 0;
     let warehouseConfig: WarehouseConfig | null = null;
     if (source.kind === "warehouse") {
       if (!source.connection_id) throw new Error("Source has no linked connection");
@@ -1160,6 +1233,9 @@ export async function runCrawl(
       const res = await crawlIcebergRest(cfg);
       assets = res.assets;
       sampled = res.sampled;
+      for (const e of existing) if (unreadCovers(res.unread, e.fqn)) keep.add(e.fqn);
+      unreadCount =
+        res.unread.namespaces.length + res.unread.deeper.length + res.unread.tables.length;
     } else {
       const cfg = await decryptStorageConfig(source);
       const prior: PriorAssets = new Map(
@@ -1169,7 +1245,7 @@ export async function runCrawl(
       assets = res.assets;
       sampled = res.sampled;
     }
-    const changes = await persistAssets(userId, source.id, assets, existing);
+    const changes = await persistAssets(userId, source.id, assets, existing, keep);
 
     // Source-derived lineage (Databricks Unity Catalog system tables).
     // Best-effort — refreshes the source's edges, or clears them if the system
@@ -1193,6 +1269,7 @@ export async function runCrawl(
       sampled,
       duration_ms: Date.now() - started,
       changes,
+      ...(unreadCount > 0 ? { unread: unreadCount } : {}),
     };
     auditEvent({
       userId,

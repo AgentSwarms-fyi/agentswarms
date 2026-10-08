@@ -412,6 +412,12 @@ resolve, nothing is listening there, the connection timed out, or its TLS
 certificate was not accepted. Each request to a catalog, in the test and in a
 crawl, gives up after 30 seconds.
 
+A crawl removes an asset only when the source said it is gone. An Iceberg
+catalog that cannot be read fails the crawl, with the reason, and every asset
+stays as it was. A namespace or table that cannot be read keeps what was
+catalogued from it (its owner, description and tags included), and the crawl
+says how many parts it could not read.
+
 One crawl of a source runs at a time. A crawl claims its source by moving it to
 "crawling", so a second **Re-crawl** says one is already running, and a
 scheduled pass leaves the source alone (R315). A crawl that died leaves its

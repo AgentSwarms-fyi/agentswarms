@@ -109,6 +109,64 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R369: a crawl that could not read its Iceberg catalog emptied it
+
+**Severity: high (curated metadata deleted, and tag policies with it, by a network failure).**
+Found while reading the crawl for R368's queued item.
+
+**Shown from the UI.** A throwaway Iceberg REST catalog of my own (a Python server in a
+`python:3.12-slim` container on the app's network, `r369-fake-iceberg`: one namespace, `r369`,
+two tables). Data Catalog → **+ Add** → "R369 fake catalog" at `http://r369-fake-iceberg:8181`:
+"Source connected — 2 assets". On `orders`, owner "R369 finance team" and a description,
+**Save**, and they were there on reopening. Then the container was stopped and the source
+**Re-crawled**. The toast read **"Crawled 'R369 fake catalog' — 0 assets, 0 columns · 2
+removed"**, the source's dot was green, and the list read "No assets match the current filters".
+Both assets were gone, the owner and description with them.
+
+**Why.** `crawlIcebergRest` caught every failure and moved on: the config read ("optional on some
+catalogs"), a namespace listing (`continue`), a table listing (`continue`), a table load ("skip a
+table we can't load"). With the catalog down, every step failed, and the crawl returned no assets
+as the catalog's answer. `persistAssets` then removed each catalogued asset it no longer saw. Those
+rows carry the curation: owner, description, tags, the PII flag, and column descriptions and tags,
+which tag policies key on. A nightly scheduled crawl during a catalog outage would do the same,
+with no toast.
+
+**What was written.**
+
+- **The crawl records what it could not read** (`IcebergUnread`): namespaces whose tables would
+  not list, namespaces whose child namespaces would not list, and tables that would not load. An
+  answer without the list it should hold counts as unread, not as empty.
+- **Nothing read is a failure.** The catalog's own namespace listing failing, or every listed table
+  failing, fails the crawl with the reason (R368's description), and the save never runs.
+- **The save removes only what the crawl read and found gone.** Assets under an unread namespace,
+  deeper than a namespace whose children would not list, or named by an unread table, are kept as
+  they are (`unreadCovers`). A catalog that refuses the `parent` listing still has a namespace's
+  own tables refreshed and removed.
+- **The crawl says it.** `CrawlStats.unread` counts the parts it could not read. A re-crawl with
+  any says so as a warning ("… part(s) of the catalog could not be read; what was cataloged from
+  them was kept"), and the Add source wizard says so too.
+
+**Tests:** `icebergCrawlUnread.test.ts`, new, 14 cases, the crawl run against a real HTTP server
+standing in for the catalog. A catalog that answers is crawled whole. One that is down fails with
+where and why; one whose answer lists no namespaces fails; one where no listed table loads fails. A
+table that will not load, a namespace whose tables will not list, and a refused child listing are
+each recorded while the rest is crawled. `unreadCovers` keeps what is under them and nothing else.
+By source: the save excludes what is kept, the crawl hands it over and counts it, and the page and
+the wizard say it. `catalogCrawlWrites.test.ts` follows the rename of its anchor. Mutation run: the
+control survives and 11 of 11 mutants are caught. The other catalog tests pass.
+
+**The UI** (R369 build), the same source. The catalog restarted: **Re-crawl**, "2 assets, 6
+columns · 2 added". `orders` given its owner and description again (R369's own run had deleted the
+first). The catalog stopped: **Re-crawl**. At 3.0 s the toast read **"Iceberg:
+http://r369-fake-iceberg:8181 could not be reached: its host name does not resolve"**. The source's
+dot turned red; both assets were still listed, and `orders` still had "R369 finance team" and its
+description.
+
+**Left in the queue, next:** that failure, once the toast has gone, is said only in the dot's and
+the row's hover titles.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R368: an Iceberg catalog that could not be reached said "fetch failed"
 
 **Severity: medium (a failure that named nothing to fix, and then vanished).** Found while
