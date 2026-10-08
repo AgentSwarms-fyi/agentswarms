@@ -15,6 +15,17 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R350: the conversation summary, folded forward
+
+| Page                                                   | What was driven                                                                                                                                                                                      | Result                                                                                                                                                                                                       |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| /playground, `R347 PII-only agent` (R350 build)        | **New Chat**, then at once "Remember this: my project codename is BLUE HERON. Reply with just OK.", then ten "Turn N. Reply with just OK.", then "What is my project codename? Answer in two words." | Answer "Turn 3."; trace `summary_used: false`. **Defect (queued, R352):** the first turn was saved to the previous conversation (r348), so this chat began at turn 2 and its summary never held the codename |
+| the r348 conversation (4 messages, the codename third) | Ten "Filler N. Reply with just OK.", then the same question                                                                                                                                          | **BLUE HERON**. Trace: `summary_used: true`; the summary block names the codename and the conversation's first message, folded in two steps                                                                  |
+| /traces, that turn                                     | Read the effective system prompt                                                                                                                                                                     | **Defect (queued, R351):** the summary reads "User's email address is r348.check@example.test" for an agent that redacts emails                                                                              |
+
+Along the way, a mis-aimed click switched the composer's **Deep · slow** on; it was switched back
+to **Browser · fast**. The two conversations are kept with the fixture.
+
 ## 2026-10-08 — R349: server functions after the `validator()` rename
 
 | Page                           | What was driven                               | Result                                                                        |

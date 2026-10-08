@@ -109,6 +109,80 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R350: the conversation summary stopped at message 480
+
+**Severity: medium.** Any conversation with short-term memory (on by default) that passes 500
+messages was affected. An agent is sent the last N messages (20 by default) and a rolling summary
+of the rest, which `summarizeIfNeeded` folds forward after each turn.
+
+**Cause, read while typing the `any`s.** It read the conversation as
+`.order("created_at", { ascending: true }).limit(500)`, which is the first 500 messages. Past 500,
+it folded up to message 480 once. From then on it found nothing new in those 500, so it never
+folded again. Every message after 480 and before the window dropped out of what the agent was
+given, a few more each turn, with nothing said. Its reads also ignored their errors:
+
+- A failed read of the summary looked like "no summary yet", so the fold started from nothing and
+  its upsert replaced the stored summary.
+- A failed read of the messages looked like a short conversation.
+- A failed save was not reported, so the caller took the summary as kept.
+
+**Not shown in the UI, and why.** A conversation of 500 messages takes about 250 model turns. The
+defect is shown instead by `memorySummaryFold.test.ts`. It runs the function over an in-memory
+600-message conversation, through a client that applies `eq`, `gt`, `order` and `limit` as
+Postgres does. On the old code, 4 of its 7 cases failed: the summary stopped at `m480`; a failed
+summary read refolded from nothing and resolved ("summary through m40"); and the failed messages
+read and failed save both resolved.
+
+**What was written** (`utils/memory/summarize.server.ts`):
+
+- The fold reads from where the summary stops: the `created_at` of `last_summarized_message_id`,
+  then the messages after it, oldest first, up to one batch plus the live window.
+- It folds what comes before the window, at most 100 messages (`FOLD_BATCH`) a turn. A
+  conversation that fell behind catches up a batch per turn, and no single summary call grows
+  with the conversation (the old one could be 480 messages long).
+- Each read and the save throw on error. The caller already catches and logs, so a failed read
+  stops the fold and leaves the stored summary as it was.
+- If the last-summarized message has been deleted, the fold starts over from the first message,
+  with the summary as its starting point, as before.
+- `loadMemoryContext` reads the summary typed, and logs a failed read rather than dropping it.
+- Two `as any` casts went: `conversation_memory` is in the generated types.
+
+**Tests:** `memorySummaryFold.test.ts`, new, 8 cases.
+
+- 600 messages are folded over ten turns to exactly m1–m580, no fold larger than 100, and nothing
+  more once caught up.
+- After catching up, a fold takes just the two messages that left the window.
+- A conversation within the window is not summarized.
+- Each failed read and the failed save stop the fold without writing.
+- A stored summary is continued from where it stopped.
+
+Mutation run: the control survives and 8 of 8 mutants are caught. The first run found one
+survivor, the messages read's error check: in that case the lookup also failed and threw first.
+The case now has no stored summary, so only that read can fail.
+
+**The UI** (R350 build): the R347 fixture agent, in a conversation that held 4 messages, the third
+"Remember this: my project codename is BLUE HERON":
+
+- Ten turns of "Reply with just OK." brought it to 24 messages.
+- Asked "What is my project codename? Answer in two words.", it answered **BLUE HERON**.
+- The trace of that turn reads `summary_used: true`. Its summary block names BLUE HERON and the
+  conversation's first message, so it was folded in two steps (after the ninth and tenth turns),
+  the second continuing from the first on the real database.
+
+**Found in that check, queued (R351, R352).**
+
+- **The summary carries what the PII guardrail redacts.** The fixture redacts emails, and its
+  chat turn was redacted. But the summary, folded from the stored messages, reads "User's email
+  address is r348.check@example.test", and it reached the model in the system prompt.
+- **A message sent right after New Chat lands in the previous conversation.** The check's first
+  attempt sent the codename seconds after New Chat. It was saved to, and answered in, the
+  conversation before it, and the new chat began at turn 2. That attempt's answer ("Turn 3.") is
+  why the check moved to the conversation the codename had landed in.
+
+Warnings go from 37 to 36.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R349: 396 server functions on a deprecated name
 
 **Severity: low, build health.** TanStack Start 1.168 renamed `createServerFn().inputValidator()`

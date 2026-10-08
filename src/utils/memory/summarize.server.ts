@@ -86,6 +86,9 @@ async function callOpenRouterForSummary(opts: {
   }
 }
 
+/** The most messages one fold reads beyond the live window (R350). */
+const FOLD_BATCH = 100;
+
 export async function summarizeIfNeeded(opts: {
   sb: SupabaseClient<Database>;
   userId: string;
@@ -96,42 +99,54 @@ export async function summarizeIfNeeded(opts: {
 }): Promise<{ summary: string | null; foldedCount: number }> {
   const { sb, userId, conversationId, windowMessages, summaryModel, apiKey } = opts;
 
-  // Pull current memory row + all conversation messages ordered oldest-first.
-
-  const [{ data: memRow }, { data: msgs }] = await Promise.all([
-    (sb.from("conversation_memory") as any)
-      .select("summary, last_summarized_message_id")
-      .eq("conversation_id", conversationId)
-      .maybeSingle(),
-    sb
-      .from("messages")
-      .select("id, role, content, created_at")
-      .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: true })
-      .limit(500),
-  ]);
-
-  const all = (msgs ?? []) as DbMessage[];
-  if (all.length <= windowMessages) {
-    return { summary: memRow?.summary ?? null, foldedCount: 0 };
-  }
-
-  // The "to summarize" slice is everything older than the live window.
-  const toFold = all.slice(0, all.length - windowMessages);
-
-  // Skip already-summarized turns.
-  const lastSummarizedId: string | null = memRow?.last_summarized_message_id ?? null;
-  let startIdx = 0;
-  if (lastSummarizedId) {
-    const idx = toFold.findIndex((m) => m.id === lastSummarizedId);
-    if (idx >= 0) startIdx = idx + 1;
-  }
-  const fresh = toFold.slice(startIdx);
-  if (fresh.length === 0) {
-    return { summary: memRow?.summary ?? null, foldedCount: 0 };
-  }
-
+  // The stored summary, and how far it reaches. A failed read is not "no
+  // summary yet": a fold from nothing would replace the stored summary with
+  // one of the turns it happened to read (R350).
+  const { data: memRow, error: memErr } = await sb
+    .from("conversation_memory")
+    .select("summary, last_summarized_message_id")
+    .eq("conversation_id", conversationId)
+    .maybeSingle();
+  if (memErr) throw new Error(`could not read the conversation summary: ${memErr.message}`);
   const previousSummary = memRow?.summary ?? "";
+
+  // When the last message the summary covers was written. If that message is
+  // gone, the fold starts over from the first message, with the summary as
+  // its starting point.
+  let foldedThrough: string | null = null;
+  if (memRow?.last_summarized_message_id) {
+    const { data: last, error: lastErr } = await sb
+      .from("messages")
+      .select("created_at")
+      .eq("id", memRow.last_summarized_message_id)
+      .maybeSingle();
+    if (lastErr) throw new Error(`could not read the conversation's messages: ${lastErr.message}`);
+    foldedThrough = last?.created_at ?? null;
+  }
+
+  // The messages after it, oldest first: a batch to fold, then the live
+  // window. This used to read the conversation's first 500 messages. Past
+  // 500 it folded up to message 480 once, then found nothing new among them,
+  // and everything after 480 and before the window dropped out of what the
+  // agent was given (R350). A conversation that falls behind catches up a
+  // batch per turn, and no fold is larger than one batch.
+  let query = sb
+    .from("messages")
+    .select("id, role, content, created_at")
+    .eq("conversation_id", conversationId);
+  if (foldedThrough) query = query.gt("created_at", foldedThrough);
+  const { data: msgs, error: msgErr } = await query
+    .order("created_at", { ascending: true })
+    .limit(FOLD_BATCH + windowMessages);
+  if (msgErr) throw new Error(`could not read the conversation's messages: ${msgErr.message}`);
+  const unfolded = (msgs ?? []) as DbMessage[];
+  // The read's last `windowMessages` may be the live window, which the model
+  // is sent whole; only what comes before them is folded.
+  const fresh = unfolded.slice(0, Math.max(0, unfolded.length - windowMessages));
+  if (fresh.length === 0) {
+    return { summary: previousSummary || null, foldedCount: 0 };
+  }
+
   const newSummary = await callOpenRouterForSummary({
     apiKey,
     model: summaryModel || SUMMARY_MODEL_FALLBACK,
@@ -143,19 +158,20 @@ export async function summarizeIfNeeded(opts: {
     return { summary: previousSummary || null, foldedCount: 0 };
   }
 
-  const lastFolded = toFold[toFold.length - 1];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (sb.from("conversation_memory") as any).upsert(
+  const { error: saveErr } = await sb.from("conversation_memory").upsert(
     {
       conversation_id: conversationId,
       user_id: userId,
       summary: newSummary,
       summary_token_estimate: Math.round(newSummary.length / 4),
-      last_summarized_message_id: lastFolded?.id ?? null,
+      last_summarized_message_id: fresh[fresh.length - 1].id,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "conversation_id" },
   );
+  // A summary that was not saved is folded again next turn; say so rather
+  // than let the caller think it was kept.
+  if (saveErr) throw new Error(`could not save the conversation summary: ${saveErr.message}`);
 
   return { summary: newSummary, foldedCount: fresh.length };
 }

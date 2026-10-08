@@ -72,16 +72,15 @@ export async function loadMemoryContext(opts: {
   let recalled: RecalledItem[] = [];
 
   if (config.stm_enabled && conversationId) {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: memRow } = await (sb.from("conversation_memory") as any)
-        .select("summary")
-        .eq("conversation_id", conversationId)
-        .maybeSingle();
-      summaryBlock = buildSummaryBlock(memRow?.summary ?? null);
-    } catch {
-      /* ignore */
-    }
+    // The turn goes on without the summary if it cannot be read, but says so:
+    // the model is then answering without the conversation's older turns.
+    const { data: memRow, error: memErr } = await sb
+      .from("conversation_memory")
+      .select("summary")
+      .eq("conversation_id", conversationId)
+      .maybeSingle();
+    if (memErr) console.warn("[memory] could not read the conversation summary:", memErr.message);
+    else summaryBlock = buildSummaryBlock(memRow?.summary ?? null);
   }
 
   if (config.ltm_enabled && agentId && userPrompt.trim()) {

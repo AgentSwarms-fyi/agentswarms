@@ -724,6 +724,17 @@ least twice, not a hypothetical.
       no matching passages…". The R347 fixture agent, which has none, answered a request to repeat
       an email with "I could not find the information you are looking for in the available
       documents." The trace of that turn holds the instruction.
+    - **The conversation summary carries what the PII guardrail redacts** (seen in R350, next:
+      R351). The summarizer folds the stored messages, which hold what the person typed. For the
+      R347 fixture (`piiMode: "redact"`), the chat turn reached the model as `[REDACTED_EMAIL]`,
+      but the summary read "User's email address is r348.check@example.test", and the trace of the
+      next turn shows that summary in the system prompt. The email reached the summary model and
+      then the agent's model.
+    - **A message sent right after New Chat lands in the previous conversation** (seen in R350,
+      next: R352). `createConversation` awaits the insert before it switches `activeConvo`; a
+      message sent in that gap is saved to, and answered in, the conversation on screen before.
+      The R350 check's first turn ("Remember this: my project codename is BLUE HERON") went into
+      the r348 conversation, and the new chat began at turn 2.
     - ~~**396 server functions use the deprecated `createServerFn().inputValidator()`**~~ (seen in
       R347). **R349**: all renamed to `validator()`; the build prints no deprecation line. TanStack Start 1.168 renamed it `validator()`; the old name still works and is marked
       `@deprecated`. Every build prints about 1,170 warnings for it, which bury anything new.

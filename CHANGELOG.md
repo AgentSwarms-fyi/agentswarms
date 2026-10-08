@@ -155,6 +155,14 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **An agent's conversation summary keeps up past 500 messages** (R350). With
+  short-term memory, an agent is sent the last messages (20 by default) and a
+  summary of everything older. The summary was folded from the conversation's
+  first 500 messages, so past 500 it stopped at message 480 for good, and
+  everything after 480 and before the window dropped out of what the agent was
+  given. It now folds forward from where it stopped, at most 100 messages a
+  turn. A failed read no longer looks like "no summary yet", which made the
+  next fold replace the stored summary; a failed save is reported.
 - **An agent with no knowledge base is no longer told one was searched** (R348).
   Every agent turn ran the knowledge-base search, and an agent with none was
   told "A knowledge base is attached to this assistant and was searched … It

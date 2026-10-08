@@ -580,7 +580,7 @@ no PR open does not trigger it. No secrets are used; the build gets placeholder
 permanently red has been cleared with `npm run format`, so `npm run lint`
 reports **0 errors** and CI fails on any new one.
 
-Around 37 warnings remain, all `@typescript-eslint/no-explicit-any`. None
+Around 36 warnings remain, all `@typescript-eslint/no-explicit-any`. None
 comes from the react-hooks rule since R323, and none from react-refresh since
 R346, which moved every non-component export out of a component file (helpers
 to modules, providers out of their hooks, the confirm dialog's host out of its
