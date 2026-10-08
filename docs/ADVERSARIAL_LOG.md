@@ -109,6 +109,54 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R361: the MCP Builder page went silent when a call failed
+
+**Severity: medium (a stuck control, and false success).** Queued since R98, as the Deploy
+handler that "awaits without a try".
+
+**Found from the UI.** MCP Builder → "r214 before". A one-shot fault injector made the next
+`/_serverFn/` call reject with `TypeError: Failed to fetch`, as a dropped connection does. Then
+**Deploy**. The button stayed disabled, no message appeared, and the console showed
+"Uncaught (in promise) TypeError: Failed to fetch". The handler set `deploying` and awaited the
+call bare, so `setDeploying(false)` never ran.
+
+**The class, read across the page.** Twelve of its thirteen server calls were awaited bare. Save
+has caught its own since R280. Also:
+
+- Stop and Unregister ignored the answer and said "Stopped" and "Unregistered" whatever it was.
+  Both functions can answer `{ ok: false }`.
+- Revoke reloaded the keys and said nothing.
+- The logs, keys, versions and secrets loaders kept the panel as it was when a read failed.
+
+**What was written.**
+
+- **`reported(call, what)`**, at module level: it awaits the call, says "`what`: the error" on a
+  rejection, and answers `null`.
+- **Every call but Save** goes through it: load, field save, Deploy, the four loaders, Stop,
+  Approve, Restore, Public, Register, Unregister and Revoke.
+- **Deploy** clears `deploying` in a `finally`, and on no answer reloads the server's state (the
+  deploy may still have started).
+- **Stop and Unregister** check `ok` before saying success. **Revoke** says "The key was not
+  revoked: …". The **loaders** show their error.
+
+**Tests:** `mcpBuilderCallsReported.test.ts`, new, 4 cases, pinned by source as the page's other
+rules are.
+
+- The only bare `await …Fn(` left is Save's, inside its own `try`.
+- `reported` says and answers `null`.
+- Deploy is re-enabled in a `finally`.
+- Stop and Unregister check before succeeding, and Revoke says a refusal.
+
+Mutation run: the control survives and 4 of 4 mutants are caught: Deploy bare again, its
+`finally` emptied, Stop over a refusal, and a quiet helper. The other five Builder test files
+pass.
+
+**The UI** (R361 build): the same injected failure, the same **Deploy**. A toast read "Deploy did
+not answer: Failed to fetch", Deploy was enabled again, the status still read "Not deployed", and
+no new uncaught error appeared (the console's only one is the earlier attempt's).
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R360: the MCP probe left its session open
 
 **Severity: low (a slow leak).** Queued since R100, as R99's session leak in the other MCP client.

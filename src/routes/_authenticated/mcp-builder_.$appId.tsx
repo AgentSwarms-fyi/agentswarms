@@ -79,6 +79,23 @@ import {
 } from "@/utils/mcpApps.functions";
 import type { JsonValue } from "@/utils/mcpApps/sse";
 
+/**
+ * A server call this page makes, with a failure to answer said on screen
+ * (R361). Its handlers awaited the calls bare, so a rejected one (a dropped
+ * connection, a refused request) went unhandled: Deploy stayed disabled for
+ * good, and Stop, Approve, Restore, Public, Register, Unregister and Revoke
+ * did nothing, with nothing on screen. Save has caught its rejection since
+ * R280. `null` means the call did not answer.
+ */
+async function reported<T>(call: () => Promise<T>, what: string): Promise<T | null> {
+  try {
+    return await call();
+  } catch (e) {
+    toast.error(`${what}: ${e instanceof Error ? e.message : String(e)}`, { duration: 8000 });
+    return null;
+  }
+}
+
 export const Route = createFileRoute("/_authenticated/mcp-builder_/$appId")({
   component: McpAppEditor,
 });
@@ -169,7 +186,11 @@ function McpAppEditor() {
 
   const reload = useCallback(
     async (adopt = false) => {
-      const res = await getFn({ data: { id: appId } });
+      const res = await reported(
+        () => getFn({ data: { id: appId } }),
+        "Could not load this server",
+      );
+      if (!res) return;
       if (!res.ok) {
         toast.error(res.error);
         return;
@@ -265,7 +286,11 @@ function McpAppEditor() {
   useSaveBeforeLeave({ unsaved, saveNow, name: app?.name ?? "" });
 
   const patch = async (fields: Record<string, unknown>) => {
-    const res = await saveFn({ data: { id: appId, ...fields } as never });
+    const res = await reported(
+      () => saveFn({ data: { id: appId, ...fields } as never }),
+      "Could not save the change",
+    );
+    if (!res) return;
     if (!res.ok) {
       toast.error(res.error);
       return;
@@ -282,8 +307,17 @@ function McpAppEditor() {
       return;
     }
     setDeploying(true);
-    const res = await deployFn({ data: { id: appId } });
-    setDeploying(false);
+    let res: Awaited<ReturnType<typeof deployFn>> | null;
+    try {
+      res = await reported(() => deployFn({ data: { id: appId } }), "Deploy did not answer");
+    } finally {
+      setDeploying(false);
+    }
+    if (!res) {
+      // The deploy may still have started: read the server's state.
+      void reload();
+      return;
+    }
     if (!res.ok) {
       toast.error(res.error, { duration: 8000 });
       void loadLogs();
@@ -299,25 +333,42 @@ function McpAppEditor() {
   };
 
   const loadLogs = async () => {
-    const res = await logsFn({ data: { id: appId } });
+    const res = await reported(() => logsFn({ data: { id: appId } }), "Could not load the logs");
+    if (!res) return;
     if (res.ok) setLogs(res.logs || "(no output yet)");
+    else toast.error(res.error);
   };
 
   const loadKeys = useCallback(async () => {
-    const res = await keysListFn({ data: { id: appId } });
+    const res = await reported(
+      () => keysListFn({ data: { id: appId } }),
+      "Could not load the keys",
+    );
+    if (!res) return;
     if (res.ok) setKeys(res.keys);
+    else toast.error(res.error);
   }, [appId, keysListFn]);
 
   const loadVersions = async () => {
-    const res = await versionsFn({ data: { id: appId } });
+    const res = await reported(
+      () => versionsFn({ data: { id: appId } }),
+      "Could not load the versions",
+    );
+    if (!res) return;
     if (res.ok) setVersions(res.versions);
+    else toast.error(res.error);
   };
 
   const loadSecrets = async () => {
     const token = session?.access_token;
     if (!token) return;
-    const res = await secretsFn({ data: { access_token: token } });
+    const res = await reported(
+      () => secretsFn({ data: { access_token: token } }),
+      "Could not load the secrets",
+    );
+    if (!res) return;
     if (res.ok) setSecrets(res.secrets);
+    else toast.error(res.error);
   };
 
   const publicUrl = useMemo(
@@ -404,7 +455,15 @@ function McpAppEditor() {
               variant="ghost"
               className="gap-1.5"
               onClick={async () => {
-                await stopFn({ data: { id: appId } });
+                const res = await reported(
+                  () => stopFn({ data: { id: appId } }),
+                  "Stop did not answer",
+                );
+                if (!res) return;
+                if (!res.ok) {
+                  toast.error(res.error);
+                  return;
+                }
                 toast.success("Stopped");
                 void reload();
               }}
@@ -442,9 +501,14 @@ function McpAppEditor() {
               // Send the fingerprint THIS view rendered. If a deploy landed
               // while the diff was open, the server refuses rather than
               // approving a tool list nobody read.
-              const res = await approveFn({
-                data: { id: appId, tools_hash: app?.tools_hash ?? undefined },
-              });
+              const res = await reported(
+                () =>
+                  approveFn({
+                    data: { id: appId, tools_hash: app?.tools_hash ?? undefined },
+                  }),
+                "Approve did not answer",
+              );
+              if (!res) return;
               if (res.ok) {
                 toast.success("Tools approved");
                 void reload();
@@ -501,7 +565,11 @@ function McpAppEditor() {
                 versions={versions}
                 onLoadVersions={loadVersions}
                 onRestore={async (versionId) => {
-                  const res = await restoreFn({ data: { id: appId, version_id: versionId } });
+                  const res = await reported(
+                    () => restoreFn({ data: { id: appId, version_id: versionId } }),
+                    "Restore did not answer",
+                  );
+                  if (!res) return;
                   if (!res.ok) {
                     toast.error(res.error);
                     return;
@@ -527,7 +595,11 @@ function McpAppEditor() {
                 publicUrl={publicUrl}
                 onReloadKeys={loadKeys}
                 onSetPublic={async (isPublic) => {
-                  const res = await setPublicFn({ data: { id: appId, is_public: isPublic } });
+                  const res = await reported(
+                    () => setPublicFn({ data: { id: appId, is_public: isPublic } }),
+                    "Could not change who can call it",
+                  );
+                  if (!res) return;
                   if (!res.ok) {
                     toast.error(res.error);
                     return;
@@ -535,7 +607,11 @@ function McpAppEditor() {
                   void reload();
                 }}
                 onRegister={async () => {
-                  const res = await registerFn({ data: { id: appId } });
+                  const res = await reported(
+                    () => registerFn({ data: { id: appId } }),
+                    "Register did not answer",
+                  );
+                  if (!res) return;
                   if (!res.ok) {
                     toast.error(res.error);
                     return;
@@ -544,13 +620,25 @@ function McpAppEditor() {
                   void reload();
                 }}
                 onUnregister={async () => {
-                  await unregisterFn({ data: { id: appId } });
+                  const res = await reported(
+                    () => unregisterFn({ data: { id: appId } }),
+                    "Unregister did not answer",
+                  );
+                  if (!res) return;
+                  if (!res.ok) {
+                    toast.error(res.error);
+                    return;
+                  }
                   toast.success("Unregistered");
                   void reload();
                 }}
                 onCreateKey={(input) => keyCreateFn({ data: { id: appId, ...input } })}
                 onRevokeKey={async (keyId) => {
-                  await keyRevokeFn({ data: { id: appId, key_id: keyId } });
+                  const res = await reported(
+                    () => keyRevokeFn({ data: { id: appId, key_id: keyId } }),
+                    "Revoke did not answer",
+                  );
+                  if (res && !res.ok) toast.error(`The key was not revoked: ${res.error}`);
                   void loadKeys();
                 }}
                 onPatch={patch}

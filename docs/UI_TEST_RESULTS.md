@@ -15,6 +15,16 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R361: Deploy when its call fails
+
+| Page                                      | What was driven                                                                        | Result                                                                                                             |
+| ----------------------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| /mcp-builder/… "r214 before" (R360 build) | Next `/_serverFn/` call made to reject (`TypeError: Failed to fetch`), then **Deploy** | **Defect.** Deploy stayed disabled, no toast; console "Uncaught (in promise) TypeError: Failed to fetch"           |
+| the same (R361 build)                     | The same                                                                               | Toast "Deploy did not answer: Failed to fetch"; Deploy enabled again; status "Not deployed"; no new uncaught error |
+
+The injector touches only that one call in the page; nothing reached the server, and nothing was
+deployed.
+
 ## 2026-10-08 — R360: Refresh on a Builder MCP server
 
 | Page                           | What was driven | Result                                                                                                                                     |

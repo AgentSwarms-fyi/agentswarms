@@ -203,6 +203,13 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **The MCP Builder page says when a server call fails** (R361). A call that
+  did not answer (a dropped connection, a refused request) left Deploy
+  disabled for good with no message, and Stop, Approve, Restore, Public,
+  Register, Unregister and Revoke silent. Each now says what failed, and
+  Deploy is enabled again. Stop and Unregister also no longer say "Stopped" or
+  "Unregistered" over a refusal, Revoke says when a key was not revoked, and
+  the logs, keys, versions and secrets say when they could not be read.
 - **Test connection and Refresh end the MCP session they open** (R360). The
   probe opened a session, listed the tools, and left it open; for a Builder
   server, each press left a session row behind. It now ends the session on

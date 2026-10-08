@@ -1544,8 +1544,9 @@ is locked` until it is restarted. That is the fixture, not this app,
     the call now runs in a session of its own.
   - A deploy whose handshake fails leaves its sandbox running under an app
     marked Error.
-  - The Builder page's own Deploy handler awaits without a `try`, the shape
-    the console had.
+  - ~~The Builder page's own Deploy handler awaits without a `try`, the shape
+    the console had.~~ **R361**: so did eleven more of its calls; all now go
+    through `reported`.
   - One stock deploy in R98's batch of eight took 119 s against a usual
     23 s. The cron lease logged `fetch failed` 27 s after it ended, which
     hints at the network to the database. It was not diagnosed.
