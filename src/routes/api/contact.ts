@@ -91,18 +91,46 @@ async function sendTemplateEmail(args: {
   }
 }
 
+/**
+ * Whether this instance can deliver the form (R358). An instance with no
+ * CONTACT_ADMIN_EMAIL (or no service key to log the message) has nowhere to
+ * send it; that is the operator's setup, not a fault, so it answers 503 and
+ * says so, and the page asks before anyone types a message.
+ */
+function contactSetup(): {
+  supabaseUrl: string;
+  supabaseServiceKey: string;
+  adminEmail: string;
+} | null {
+  const supabaseUrl = process.env.SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const adminEmail = process.env.CONTACT_ADMIN_EMAIL;
+  if (!supabaseUrl || !supabaseServiceKey || !adminEmail) return null;
+  return { supabaseUrl, supabaseServiceKey, adminEmail };
+}
+
+/** What the page says, and the API answers, when the form cannot send here. */
+const CONTACT_UNAVAILABLE =
+  "The contact form is not set up on this instance, so it cannot send messages.";
+
 export const Route = createFileRoute("/api/contact")({
   server: {
     handlers: {
-      POST: async ({ request }) => {
-        const supabaseUrl = process.env.SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL;
-        const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-        const adminEmail = process.env.CONTACT_ADMIN_EMAIL;
+      // Whether the form can send here; it says nothing about the address.
+      GET: async () => Response.json({ available: contactSetup() !== null }),
 
-        if (!supabaseUrl || !supabaseServiceKey || !adminEmail) {
-          console.error("Contact form is not configured");
-          return Response.json({ error: "Contact form is not configured." }, { status: 500 });
+      POST: async ({ request }) => {
+        const setup = contactSetup();
+        if (!setup) {
+          console.warn(
+            "Contact form is not set up (CONTACT_ADMIN_EMAIL or the service key is missing)",
+          );
+          return Response.json(
+            { error: CONTACT_UNAVAILABLE, code: "CONTACT_NOT_CONFIGURED" },
+            { status: 503 },
+          );
         }
+        const { supabaseUrl, supabaseServiceKey, adminEmail } = setup;
 
         const ip =
           request.headers.get("cf-connecting-ip") ??

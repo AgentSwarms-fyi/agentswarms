@@ -195,6 +195,12 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **The contact page says when this instance cannot send it** (R358). With no
+  `CONTACT_ADMIN_EMAIL`, the page took a whole message and then answered 500
+  "Contact form is not configured." It now says so above the form before anyone
+  types, offers the email address instead, and holds the Send button; the API
+  answers 503 with the same sentence. `GET /api/contact` reports whether the
+  form can send, without revealing the address.
 - **A chat turn's trace shows the tools it called** (R354). Every trace row
   `/api/chat` wrote said `tool_calls: []`; the calls were only in the raw
   request payload, so the Traces page's Tool Calls section never appeared for

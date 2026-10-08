@@ -15,6 +15,13 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-08 — R358: the contact form on an instance with no contact address
+
+| Page                  | What was driven                              | Result                                                                                                                                                                       |
+| --------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| /contact (R358 build) | Load                                         | Above the form: "The contact form is not set up on this instance, so it cannot send messages. Email hello@agentswarms.fyi instead."; Send disabled; `GET /api/contact` 200   |
+| the same              | `POST /api/contact` with `r358@example.test` | 503 `{"error":"The contact form is not set up on this instance, so it cannot send messages.","code":"CONTACT_NOT_CONFIGURED"}` (R345: 500 "Contact form is not configured.") |
+
 ## 2026-10-08 — R357: removing a saved gateway
 
 | Page                                                      | What was driven                                             | Result                                                                                            |

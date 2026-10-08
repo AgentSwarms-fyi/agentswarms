@@ -109,6 +109,41 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-08 — R358: the contact form took a message it could not send
+
+**Severity: low (an honest error).** Queued in R345. On an instance with no
+`CONTACT_ADMIN_EMAIL`, the contact page let a visitor write the whole message, then answered 500
+"Contact form is not configured." as an error toast. That is a fault, as far as the visitor could
+tell, for what is the operator's setup. R345's UI row records it.
+
+**What was written.**
+
+- **`/api/contact`.** `contactSetup()` names what the form needs: a contact address, plus the
+  database URL and service key it logs to.
+  - Without them, the POST answers **503** with `code: "CONTACT_NOT_CONFIGURED"` and "The contact
+    form is not set up on this instance, so it cannot send messages."
+  - A new **GET** answers `{ available }` and nothing else, so the address is not revealed.
+- **`/contact`** asks once, on load. If the form cannot send, it shows the sentence above the form
+  with the email link, and disables Send. A failed ask leaves the form as it was.
+
+**Tests:** `contactAvailability.test.ts`, new, 3 cases.
+
+- It drives the route's handlers: with no address, the POST answers 503 and the sentence, and the
+  GET answers `{ available: false }`.
+- With an address, the GET answers `{ available: true }` and does not contain it.
+- The page asks before anyone types, and holds the button.
+
+There is no mutation run; the cases pin each of the three statements.
+
+**The UI** (R358 build), this instance has no `CONTACT_ADMIN_EMAIL`:
+
+- /contact loaded with the notice "The contact form is not set up on this instance, so it cannot
+  send messages. Email hello@agentswarms.fyi instead.", and Send disabled. `GET /api/contact`
+  answered 200.
+- A POST with test values (`r358@example.test`) answered 503 with the same sentence.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-08 — R357: a saved gateway or n8n connection could not be removed
 
 **Severity: low (a missing control).** Queued in R347, when a gateway save round trip was left

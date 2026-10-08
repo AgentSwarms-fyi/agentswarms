@@ -1011,7 +1011,8 @@ left out the blank rows). Open from that round:
   data is not what Excel's is.
 - ~~Legacy files' implicit intersection.~~ Closed by R162: a file's plain formula takes Excel
   365's `@`.
-- **The contact form answers 500 when `CONTACT_ADMIN_EMAIL` is unset** (seen in R345). The local
+- ~~**The contact form answers 500 when `CONTACT_ADMIN_EMAIL` is unset**~~ (seen in R345). **R358**: 503, and the
+  page says so before anyone types. The local
   deployment has no admin address, so `/api/contact` refuses with "Contact form is not configured."
   before it renders anything. A visitor sees that as an error toast. Two questions are open: whether
   an unset address should be a 503 (not available here) rather than a 500, and whether the page should
