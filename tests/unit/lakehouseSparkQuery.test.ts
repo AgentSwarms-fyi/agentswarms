@@ -200,9 +200,10 @@ describe("limits", () => {
     const page = rd("src/routes/_authenticated/lakehouse.tsx");
     expect(page).toContain('localStorage.getItem("lakehouse.engine")');
     expect(page).toContain('localStorage.setItem("lakehouse.engine", v)');
-    // Offered only when the deployment has Spark; polled, not awaited.
+    // Offered only when the deployment has Spark; polled, not awaited, with
+    // the live token: a poll can outlast a session refresh (R271).
     expect(page).toContain("{spark?.configured && (");
-    expect(page).toContain("getSparkFn({ data: { access_token: token, id } })");
+    expect(page).toContain("getSparkFn({ data: { access_token: tokenRef.current, id } })");
   });
 
   it("the cluster reaper counts a query's driver as live", () => {

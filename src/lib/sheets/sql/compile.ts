@@ -535,6 +535,10 @@ class Compiler {
         return this.binary(n.op, this.scalar(n.left), this.scalar(n.right));
       case "call":
         return this.call(n.name, n.args);
+      case "invoke":
+        throw new CompileError(
+          "A LAMBDA can't be called in a table column's formula; use it in a grid sheet",
+        );
     }
   }
 

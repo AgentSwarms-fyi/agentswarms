@@ -37,24 +37,25 @@ describe("the Budgets page", () => {
     expect(page).not.toMatch(
       /^\s*await supabase\.from\("(budget_settings|agent_limits)"\)\.(update|insert)\([^;\n]*;\s*$/m,
     );
-    expect((page.match(/const \{ error \} = await supabase/g) ?? []).length).toBe(2);
-    expect(page).toContain("const { data, error } = await supabase");
+    // Since R293 each write is the reply a writer (lib/latestWrite) checks;
+    // budgetWriteOrder.test.ts runs that check.
+    expect((page.match(/async \(p\) =>\s*await supabase/g) ?? []).length).toBe(2);
   });
 
   it("undoes a failed write on screen and says why", () => {
     const upd = page.slice(
-      page.indexOf("const updateBudget = async"),
-      page.indexOf("const upsertLimit = async"),
+      page.indexOf("const updateBudget = ("),
+      page.indexOf("const upsertLimit = ("),
     );
-    expect(upd).toContain("const before = budget;");
-    expect(upd).toContain("setBudget(before);");
+    // Undone to what is stored (R293), not to the screen before its keystroke.
+    expect(upd).toContain("setBudget((b) => (b ? { ...b, ...pick(saved, undo) } : b));");
     expect(upd).toContain('failedSave("budget", error);');
     const lim = page.slice(
-      page.indexOf("const upsertLimit = async"),
+      page.indexOf("const upsertLimit = ("),
       page.indexOf("if (loadError !== null)"),
     );
-    expect(lim).toContain("setLimits(before);");
-    expect((lim.match(/failedSave\("agent limit"/g) ?? []).length).toBe(2);
+    expect(lim).toContain("...pick(saved, undo)");
+    expect((lim.match(/failedSave\("agent limit"/g) ?? []).length).toBe(1);
     expect(page).toContain("The value shown is what is saved.");
   });
 
@@ -66,8 +67,8 @@ describe("the Budgets page", () => {
     // just one of them.
     expect((page.match(/setSaveState\(\{ ok: true, at: new Date\(\) \}\);/g) ?? []).length).toBe(2);
     const upd = page.slice(
-      page.indexOf("const updateBudget = async"),
-      page.indexOf("const upsertLimit = async"),
+      page.indexOf("const updateBudget = ("),
+      page.indexOf("const upsertLimit = ("),
     );
     expect(upd).toContain("setSaveState({ ok: true, at: new Date() });");
   });

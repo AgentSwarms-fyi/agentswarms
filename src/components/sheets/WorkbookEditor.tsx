@@ -96,7 +96,7 @@ import {
   sheetsReorderTabs,
 } from "@/utils/sheets.functions";
 import { selRange, type Selection } from "@/lib/sheets/selection";
-import { shownInstead } from "@/lib/sheets/sheetTabs";
+import { deleteSheetMessage, shownInstead } from "@/lib/sheets/sheetTabs";
 import { LinkDialog } from "./LinkDialog";
 import { NoteDialog } from "./NoteDialog";
 import { PasteSpecialDialog } from "./PasteSpecialDialog";
@@ -112,6 +112,7 @@ import { useSheetRules } from "./useSheetRules";
 import { ShiftCellsDialog, type ShiftChoice } from "./ShiftCellsDialog";
 import {
   adjustFormulaForShift,
+  defaultShift,
   shiftCellsGrid,
   shiftProblem,
   type ShiftDir,
@@ -132,6 +133,7 @@ import {
 import {
   adjustNames,
   nameProblem,
+  lambdaPreview,
   nameTarget,
   refForRange,
   renameNameInFormula,
@@ -1830,7 +1832,7 @@ export function WorkbookEditor({
       return toast.error("Unhide another sheet first: a workbook keeps at least one sheet showing");
     const ok = await confirmAsk({
       title: `Delete "${t.name}"?`,
-      body: "Its cells go with it. Formulas elsewhere that refer to it will show #REF!.",
+      body: deleteSheetMessage(t.kind, wb.tableConfigs[t.id]),
       actionLabel: "Delete sheet",
     });
     afterDialog();
@@ -1865,6 +1867,29 @@ export function WorkbookEditor({
       toast.error(`Could not reorder the sheets: ${(e as Error).message}`);
     }
   };
+
+  // FOUND IN R246. A workbook with no sheets is not "opening" — it is open
+  // and empty, which two deletes racing each other left a real one on
+  // 2026-10-04. It sat on "Opening…" forever, and every control that could
+  // add a sheet back is below this return, so the workbook could not be
+  // recovered from the UI at all. The engine is built from the loaded tabs,
+  // so its being here with none is exactly the difference between "empty" and
+  // "not loaded yet".
+  if (engine && tabs.length === 0) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+        <p className="text-sm text-muted-foreground">
+          This workbook has no sheets.
+          {wb.readOnly ? " Its owner can add one." : ""}
+        </p>
+        {!wb.readOnly && (
+          <Button onClick={() => void addSheet()} size="sm">
+            Add a sheet
+          </Button>
+        )}
+      </div>
+    );
+  }
 
   if (!engine || !tabId || !activeTab) {
     return (
@@ -2462,13 +2487,17 @@ export function WorkbookEditor({
         activeSheet={activeTab.name}
         selectionRef={refForRange(activeTab.name, range)}
         tableNames={wb.tabs.filter((t) => t.kind === "table").map((t) => t.name)}
-        preview={(ref) => valuePreview(engine.evaluateAt(tabId, 0, 0, `=${ref}`, { array: true }))}
+        preview={(ref) =>
+          lambdaPreview(ref) ??
+          valuePreview(engine.evaluateAt(tabId, 0, 0, `=${ref}`, { array: true }))
+        }
         onChange={changeNames}
       />
       {shiftAsk && (
         <ShiftCellsDialog
           mode={shiftAsk}
           range={describeRange(range)}
+          initial={defaultShift(shiftAsk, range)}
           onCancel={() => {
             setShiftAsk(null);
             afterDialog();

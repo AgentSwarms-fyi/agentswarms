@@ -24,6 +24,7 @@ import {
   sheetsVersionsList,
   type VersionSummary,
 } from "@/utils/sheetsVersions.functions";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 const KIND: Record<VersionSummary["kind"], string> = {
   auto: "Automatic",
@@ -92,6 +93,8 @@ export function VersionHistoryDialog({
         setLabel("");
         await load();
       }
+    } catch (e) {
+      reportFailure("save the version", e);
     } finally {
       setBusy(null);
     }
@@ -117,6 +120,8 @@ export function VersionHistoryDialog({
         toast.success(`Restored ${versionPhrase(v, shown)}`);
         onRestored();
       }
+    } catch (e) {
+      reportFailure("restore the version", e);
     } finally {
       setBusy(null);
     }
@@ -136,6 +141,8 @@ export function VersionHistoryDialog({
       });
       if (!r.ok) toast.error(r.error);
       else onOpened(r.workbook_id);
+    } catch (e) {
+      reportFailure("open the copy", e);
     } finally {
       setBusy(null);
     }

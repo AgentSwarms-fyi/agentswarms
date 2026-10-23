@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
@@ -43,6 +43,9 @@ export const Route = createFileRoute("/_authenticated/account")({
 function AccountPage() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  // Set once the account is deleted, so the way out does not ask about the
+  // profile form's unsaved edits (R282).
+  const accountGoneRef = useRef(false);
   const callDelete = useServerFn(deleteMyAccount);
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [deleting, setDeleting] = useState(false);
@@ -104,6 +107,7 @@ function AccountPage() {
       await callDelete();
       toast.success("Your account has been deleted");
       await supabase.auth.signOut();
+      accountGoneRef.current = true;
       navigate({ to: "/" });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to delete account");
@@ -137,7 +141,7 @@ function AccountPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <ProfileSettingsPanel />
+          <ProfileSettingsPanel goneRef={accountGoneRef} />
         </CardContent>
       </Card>
 

@@ -6,6 +6,7 @@
 // SECURITY DEFINER RPCs (`upsert_sample_dataset` + `insert_sample_rows`).
 // Everyone else just reads the same rows through RLS.
 
+import type { Json } from "@/integrations/supabase/types";
 import sampleCsvUrl from "@/assets/sample-data/saas_sales.csv?url";
 import budgetCsvUrl from "@/assets/sample-data/q3_budget_variance.csv?url";
 import adverseEventsCsvUrl from "@/assets/sample-data/adverse_event_reports.csv?url";
@@ -219,7 +220,7 @@ async function seedPublicSample(spec: SampleSpec): Promise<void> {
   const { data: tableId, error: upsertErr } = await supabase.rpc("upsert_sample_dataset", {
     _name: spec.tableName,
     _source_filename: spec.filename,
-    _columns: columns as any,
+    _columns: columns,
   });
   if (upsertErr || !tableId)
     throw new Error(upsertErr?.message || "Failed to register sample table");
@@ -238,7 +239,8 @@ async function seedPublicSample(spec: SampleSpec): Promise<void> {
     const slice = rows.slice(i, i + BATCH);
     const { error } = await supabase.rpc("insert_sample_rows", {
       _table_id: tableId,
-      _rows: slice as any,
+      // Parsed CSV cells: text, numbers, booleans and nulls, JSON as they are.
+      _rows: slice as Json,
     });
     if (error) throw new Error(error.message);
   }

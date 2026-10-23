@@ -43,8 +43,7 @@ import type { SemanticQuery } from "@/lib/semanticLayer";
 const ROW_CAP = 5000;
 
 export type AnalystRunOutcome =
-  | { ok: true; turn: AnalystTurn }
-  | { ok: false; status: number; error: string };
+  { ok: true; turn: AnalystTurn } | { ok: false; status: number; error: string };
 
 /** The analyst row an embed is allowed to run, or null. */
 export async function loadEmbeddedAnalyst(analystId: string, ownerId: string) {

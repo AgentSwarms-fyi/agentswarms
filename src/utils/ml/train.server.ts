@@ -397,7 +397,13 @@ export async function startTrainingJob(args: {
   // `shards` is what actually started, never what was planned: the merge waits
   // for exactly this many callbacks, and a job waiting on a worker that never
   // existed would hang until the orphan sweep.
-  const { error: recErr } = await supabaseAdmin
+  //
+  // FOUND IN R308 (sweep 10). Starting the workers takes seconds each, and
+  // the page offers Cancel on the queued job meanwhile. The cancel found no
+  // sessions to stop; this write then put "running" over it, the workers
+  // trained, and the job and its version came back as succeeded and a
+  // promotable candidate. The job takes its workers only while still queued.
+  const { data: took, error: recErr } = await supabaseAdmin
     .from("ml_training_jobs")
     .update({
       status: "running",
@@ -406,7 +412,25 @@ export async function startTrainingJob(args: {
       shard_sessions: started,
       started_at: new Date().toISOString(),
     })
-    .eq("id", job.id);
+    .eq("id", job.id)
+    .eq("status", "queued")
+    .select("id");
+  if (!recErr && !took?.length) {
+    const { data: sessions } = await supabaseAdmin
+      .from("notebook_runtime_sessions")
+      .select("*")
+      .in("id", started);
+    for (const session of sessions ?? []) await stopSession(session).catch(() => {});
+    const { data: now } = await supabaseAdmin
+      .from("ml_training_jobs")
+      .select("status")
+      .eq("id", job.id)
+      .maybeSingle();
+    return {
+      ok: false,
+      error: `The training job was ${now?.status ?? "removed"} while its workers were starting, so they were stopped and nothing trained.`,
+    };
+  }
   if (recErr) {
     // FOUND FROM THE SURVEY (R79). The workers are running and the job row
     // does not know them: cancel stops by the sessions on the row, and the

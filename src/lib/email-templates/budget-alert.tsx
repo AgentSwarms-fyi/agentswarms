@@ -11,7 +11,7 @@ import {
   Section,
   Text,
 } from "@react-email/components";
-import type { TemplateEntry } from "./registry";
+import { defineTemplate } from "./registry";
 
 interface BudgetAlertEmailProps {
   siteName?: string;
@@ -132,12 +132,12 @@ export const BudgetAlertEmail = ({
 
 export default BudgetAlertEmail;
 
-export const template = {
+export const template = defineTemplate<BudgetAlertEmailProps>({
   component: BudgetAlertEmail,
   // The subject has to name the team too. An admin who gets "You've used 90%
   // of your budget" about a group they are not in will read it as their own
   // spend and go looking in the wrong place.
-  subject: (data: Record<string, any>) => {
+  subject: (data) => {
     const scope = typeof data?.scopeLabel === "string" ? data.scopeLabel : null;
     const pct = Math.round(data?.percentUsed ?? 0);
     if (data?.kind === "exceeded") {
@@ -159,7 +159,7 @@ export const template = {
     percentUsed: 95,
     kind: "threshold" as const,
   },
-} satisfies TemplateEntry;
+});
 
 // ============ Styles (white body — required) ============
 const main = {

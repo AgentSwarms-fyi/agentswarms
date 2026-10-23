@@ -38,6 +38,7 @@ export const Route = createFileRoute("/api/python-agent")({
       POST: async ({ request }) => {
         const caller = await resolvePythonCaller(request);
         if (!caller) return json(401, { error: "Sign in to run agents from a notebook" });
+        if ("checkFailed" in caller) return json(503, { error: caller.checkFailed });
 
         let body: {
           action?: string;

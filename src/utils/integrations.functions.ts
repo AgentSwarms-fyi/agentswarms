@@ -10,6 +10,8 @@ import { createClient } from "@supabase/supabase-js";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import type { Database } from "@/integrations/supabase/types";
+import { callerFailure } from "@/utils/callerLookup.server";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
 // Providers we support live-testing for.
 const ProviderEnum = z.enum([
@@ -69,14 +71,21 @@ async function validateAccessToken(accessToken: unknown): Promise<AuthResult> {
     return { ok: false, detail: "Server auth configuration is missing" };
   }
 
-  const supabase = createClient<Database>(url, key, {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-    auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
-  });
+  const supabase = createClient<Database>(
+    url,
+    key,
+    withNulSafeFetch({
+      global: { headers: { Authorization: `Bearer ${token}` } },
+      auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
+    }),
+  );
 
   const { data, error } = await supabase.auth.getClaims(token);
   if (error || !data?.claims?.sub) {
-    return { ok: false, detail: "Your session is invalid or expired. Please sign in again." };
+    return {
+      ok: false,
+      detail: callerFailure(error, "Your session is invalid or expired. Please sign in again."),
+    };
   }
 
   return { ok: true, userId: data.claims.sub };
@@ -113,7 +122,7 @@ export const testIntegrationKey = createServerFn({ method: "POST" })
   // Wrap parse in try/catch so a Zod failure returns a TestResult instead
   // of throwing — otherwise the client sees the raw error and shows the
   // infamous "Server returned ok=false but no detail".
-  .inputValidator((input: unknown): ValidatedInput => {
+  .validator((input: unknown): ValidatedInput => {
     const parsed = TestSchema.safeParse(input);
     if (!parsed.success) {
       return {
@@ -169,7 +178,7 @@ export const testIntegrationKey = createServerFn({ method: "POST" })
 // workflow count is surfaced in the UI so the user knows the integration
 // is real and what's reachable.
 export const testN8nInstance = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => N8nTestSchema.parse(input))
+  .validator((input: unknown) => N8nTestSchema.parse(input))
   .handler(async ({ data }): Promise<TestResult & { workflowCount?: number }> => {
     const auth = await validateAccessToken(data.access_token);
     if (!auth.ok) return { ok: false, detail: auth.detail };
@@ -186,7 +195,7 @@ export const testN8nInstance = createServerFn({ method: "POST" })
 // Live-test a Firecrawl API key with a cheap 1-result search so the user knows
 // the key works before we mark the connector active.
 export const testFirecrawlKey = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => FirecrawlTestSchema.parse(input))
+  .validator((input: unknown) => FirecrawlTestSchema.parse(input))
   .handler(async ({ data }): Promise<TestResult> => {
     const auth = await validateAccessToken(data.access_token);
     if (!auth.ok) return { ok: false, detail: auth.detail };
@@ -201,7 +210,7 @@ export const testFirecrawlKey = createServerFn({ method: "POST" })
 // backwards, given that a misconfigured gateway can take EVERY routed LLM
 // call down at once. A blank api_key tests against the saved encrypted key.
 export const testLlmGateway = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => GatewayTestSchema.parse(input))
+  .validator((input: unknown) => GatewayTestSchema.parse(input))
   .handler(async ({ data }): Promise<TestResult> => {
     const auth = await validateAccessToken(data.access_token);
     if (!auth.ok) return { ok: false, detail: auth.detail };
@@ -246,7 +255,7 @@ const NotificationTestSchema = z.object({
 });
 
 export const testNotificationChannel = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => NotificationTestSchema.parse(input))
+  .validator((input: unknown) => NotificationTestSchema.parse(input))
   .handler(async ({ data }): Promise<TestResult> => {
     const auth = await validateAccessToken(data.access_token);
     if (!auth.ok) return { ok: false, detail: auth.detail };
@@ -282,7 +291,7 @@ export const testNotificationChannel = createServerFn({ method: "POST" })
 // owner emails only — the grantee can use a shared key (resolution happens
 // server-side at call time) but can never read it.
 export const listSharedProviders = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1).max(10000) }).parse(input),
   )
   .handler(
@@ -407,13 +416,25 @@ export async function saveIntegrationForUser(
   // partial unique indexes are the backstop, not the mechanism).
   let targetId: string | null = null;
   let existingConfig: Record<string, unknown> | null = null;
+  // FOUND IN R254. Both reads below dropped their errors. A blank secret
+  // field means "keep the saved one", and that promise is kept by merging with
+  // the row read here; a failed read left nothing to merge with, the save fell
+  // through to an insert, the unique index refused it, and the retry UPDATED
+  // the saved row with blanks where its secrets were. An edit that only
+  // renamed a provider erased its API key. A row that could not be read is not
+  // a row that is not there.
+  const unreadable = (e: { message: string }) => ({
+    ok: false as const,
+    error: `Could not read the saved integration, so nothing was saved (a blank secret field would have erased the stored one): ${e.message}`,
+  });
   if (data.id) {
-    const { data: ex } = await supabaseAdmin
+    const { data: ex, error: exErr } = await supabaseAdmin
       .from("integrations")
       .select("id, config")
       .eq("id", data.id)
       .eq("user_id", userId)
       .maybeSingle();
+    if (exErr) return unreadable(exErr);
     if (ex) {
       targetId = ex.id;
       existingConfig = (ex.config ?? null) as Record<string, unknown> | null;
@@ -426,10 +447,11 @@ export async function saveIntegrationForUser(
       .eq("user_id", userId)
       .eq("type", data.type);
     if (data.type === "llm_provider") q = q.eq("provider", data.provider);
-    const { data: rows } = await q
+    const { data: rows, error: rowsErr } = await q
       .order("is_active", { ascending: false })
       .order("updated_at", { ascending: false })
       .limit(1);
+    if (rowsErr) return unreadable(rowsErr);
     if (rows && rows.length > 0) {
       targetId = rows[0].id;
       existingConfig = (rows[0].config ?? null) as Record<string, unknown> | null;
@@ -474,15 +496,26 @@ export async function saveIntegrationForUser(
       if (ins.error.code === "23505") {
         let rq = supabaseAdmin
           .from("integrations")
-          .select("id")
+          .select("id, config")
           .eq("user_id", userId)
           .eq("type", data.type);
         if (data.type === "llm_provider") rq = rq.eq("provider", data.provider);
-        const { data: winner } = await rq.limit(1).maybeSingle();
+        const { data: winner, error: winnerErr } = await rq.limit(1).maybeSingle();
+        if (winnerErr) return unreadable(winnerErr);
         if (winner) {
+          // R254: the row being updated is the winner's, so a blank secret
+          // keeps the WINNER's saved value. `row` was merged with nothing.
+          const winnerRow = {
+            ...row,
+            config: preserveBlankSecrets(
+              data.type,
+              await encryptIntegrationConfig(data.type, data.config as Record<string, unknown>),
+              (winner.config ?? null) as Record<string, unknown> | null,
+            ),
+          };
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const { error: updErr } = await (supabaseAdmin.from("integrations") as any)
-            .update(row)
+            .update(winnerRow)
             .eq("id", winner.id)
             .eq("user_id", userId);
           if (updErr) return { ok: false, error: updErr.message };
@@ -513,7 +546,7 @@ export async function saveIntegrationForUser(
 }
 
 export const saveIntegration = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => SaveIntegrationSchema.parse(input))
+  .validator((input: unknown) => SaveIntegrationSchema.parse(input))
   .handler(async ({ data }): Promise<{ ok: true; id: string } | { ok: false; error: string }> => {
     const auth = await validateAccessToken(data.access_token);
     if (!auth.ok) return { ok: false, error: auth.detail };

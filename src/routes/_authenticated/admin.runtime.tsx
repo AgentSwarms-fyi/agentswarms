@@ -6,7 +6,9 @@ import { Server, ShieldAlert } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
 import { useIsSuperadmin } from "@/hooks/use-iam";
-import { RuntimeTab, isRuntimeTabId, type RuntimeTabId } from "@/components/admin/RuntimeTab";
+import { RuntimeTab } from "@/components/admin/RuntimeTab";
+import { type RuntimeTabId } from "@/components/admin/runtimeTabs";
+import { isRuntimeTabId } from "@/components/admin/runtimeTabs";
 
 export const Route = createFileRoute("/_authenticated/admin/runtime")({
   // The tab lives in the URL so a doc can link straight to Data platform or

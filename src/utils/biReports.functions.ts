@@ -21,12 +21,14 @@ import {
   type ReportBlock,
   type ReportPageSetup,
 } from "@/lib/biReports";
+import { callerFailure } from "@/utils/callerLookup.server";
+import { unversionedSave } from "@/lib/saveVersion";
 
 type Fail = { ok: false; error: string };
 
 async function resolveCaller(accessToken: string): Promise<string> {
   const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
-  if (error || !data?.user) throw new Error("Not signed in");
+  if (error || !data?.user) throw new Error(callerFailure(error, "Not signed in"));
   return data.user.id;
 }
 
@@ -74,7 +76,7 @@ function toReport(row: Record<string, unknown>): BiReportRow {
 }
 
 export const biReportsList = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ accessToken: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ accessToken: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<Fail | { ok: true; reports: BiReportRow[] }> => {
     const userId = await resolveCaller(data.accessToken);
     const { data: rows, error } = await supabaseAdmin
@@ -87,20 +89,26 @@ export const biReportsList = createServerFn({ method: "POST" })
   });
 
 export const biReportGet = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ accessToken: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
-  .handler(async ({ data }): Promise<Fail | { ok: true; report: BiReportRow }> => {
-    const userId = await resolveCaller(data.accessToken);
-    const { data: row } = await supabaseAdmin
-      .from("bi_reports")
-      .select("*")
-      .eq("id", data.id)
-      .eq("user_id", userId)
-      .maybeSingle();
-    if (!row) return { ok: false, error: "Report not found" };
-    return { ok: true, report: toReport(row) };
-  });
+  .handler(
+    async ({ data }): Promise<(Fail & { missing?: true }) | { ok: true; report: BiReportRow }> => {
+      const userId = await resolveCaller(data.accessToken);
+      const { data: row, error } = await supabaseAdmin
+        .from("bi_reports")
+        .select("*")
+        .eq("id", data.id)
+        .eq("user_id", userId)
+        .maybeSingle();
+      // FOUND IN R284, FIXED IN R296. The read's error was dropped, so a read
+      // that failed answered "Report not found" for a report that is there.
+      // Only an answered read with no row is a missing report.
+      if (error) return { ok: false, error: `This report could not be read: ${error.message}` };
+      if (!row) return { ok: false, missing: true, error: "Report not found" };
+      return { ok: true, report: toReport(row) };
+    },
+  );
 
 const BAND = z.object({
   left: z.string().max(200).optional(),
@@ -109,13 +117,20 @@ const BAND = z.object({
 });
 
 export const biReportSave = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         accessToken: z.string().min(1),
         id: z.string().uuid().nullable().optional(),
         name: z.string().trim().min(1).max(REPORT_NAME_MAX),
         description: z.string().trim().max(2000).nullable().optional(),
+        // The updated_at this page read or last saved. The update lands only on
+        // it, so a save from another tab or session in between is not written
+        // over (R284, sweep 9).
+        // "Overwrite with mine", asked for after the refusal, sends `overwrite`
+        // instead; an update with neither is refused (R303).
+        expectedUpdatedAt: z.string().min(1).optional(),
+        overwrite: z.literal(true).optional(),
         page: z.object({
           size: z.enum(["a4", "letter", "legal", "a3"]),
           orientation: z.enum(["portrait", "landscape"]),
@@ -128,33 +143,67 @@ export const biReportSave = createServerFn({ method: "POST" })
       })
       .parse(input),
   )
-  .handler(async ({ data }): Promise<Fail | { ok: true; id: string }> => {
-    const userId = await resolveCaller(data.accessToken);
-    const blocks = data.blocks as unknown as ReportBlock[];
-    const invalid = validateReport({ name: data.name, page: data.page, blocks });
-    if (invalid) return { ok: false, error: invalid };
+  .handler(
+    async ({
+      data,
+    }): Promise<(Fail & { stale?: boolean }) | { ok: true; id: string; updatedAt: string }> => {
+      const userId = await resolveCaller(data.accessToken);
+      if (data.id) {
+        const refused = unversionedSave("report", {
+          version: data.expectedUpdatedAt,
+          overwrite: data.overwrite,
+        });
+        if (refused) return { ok: false, error: refused };
+      }
+      const blocks = data.blocks as unknown as ReportBlock[];
+      const invalid = validateReport({ name: data.name, page: data.page, blocks });
+      if (invalid) return { ok: false, error: invalid };
 
-    const patch = {
-      user_id: userId,
-      name: data.name,
-      description: data.description ?? null,
-      page: { ...data.page, margin: clampMargin(data.page.margin, 595) } as unknown as Json,
-      header: data.header as unknown as Json,
-      footer: data.footer as unknown as Json,
-      blocks: blocks as unknown as Json,
-      updated_at: new Date().toISOString(),
-    };
-    const q = data.id
-      ? supabaseAdmin.from("bi_reports").update(patch).eq("id", data.id).eq("user_id", userId)
-      : supabaseAdmin.from("bi_reports").insert(patch);
-    const { data: row, error } = await q.select("id").maybeSingle();
-    if (error) return { ok: false, error: error.message };
-    if (!row) return { ok: false, error: "Report not found" };
-    return { ok: true, id: String(row.id) };
-  });
+      const patch = {
+        user_id: userId,
+        name: data.name,
+        description: data.description ?? null,
+        page: { ...data.page, margin: clampMargin(data.page.margin, 595) } as unknown as Json,
+        header: data.header as unknown as Json,
+        footer: data.footer as unknown as Json,
+        blocks: blocks as unknown as Json,
+        updated_at: new Date().toISOString(),
+      };
+      let q;
+      if (!data.id) q = supabaseAdmin.from("bi_reports").insert(patch);
+      else {
+        q = supabaseAdmin.from("bi_reports").update(patch).eq("id", data.id).eq("user_id", userId);
+        if (data.expectedUpdatedAt) q = q.eq("updated_at", data.expectedUpdatedAt);
+      }
+      const { data: row, error } = await q.select("id, updated_at").maybeSingle();
+      if (error) return { ok: false, error: error.message };
+      if (!row) {
+        // Nothing matched: the report is gone, or it moved on since this page
+        // read it. Only the second is a stale save.
+        if (data.id && data.expectedUpdatedAt) {
+          const { data: still, error: stillError } = await supabaseAdmin
+            .from("bi_reports")
+            .select("id")
+            .eq("id", data.id)
+            .eq("user_id", userId)
+            .maybeSingle();
+          if (stillError) return { ok: false, error: stillError.message };
+          if (still) {
+            return {
+              ok: false,
+              stale: true,
+              error: "This report was changed in another tab or session after this page read it",
+            };
+          }
+        }
+        return { ok: false, error: "Report not found" };
+      }
+      return { ok: true, id: String(row.id), updatedAt: String(row.updated_at) };
+    },
+  );
 
 export const biReportCreate = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         accessToken: z.string().min(1),
@@ -183,7 +232,7 @@ export const biReportCreate = createServerFn({ method: "POST" })
   });
 
 export const biReportDelete = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ accessToken: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<Fail | { ok: true }> => {

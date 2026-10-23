@@ -122,6 +122,7 @@ function WorkbookPage() {
     role: access?.role,
     asShare: asShare ?? null,
     names,
+    book: name,
   });
   // The thumbnail is drawn from what this page shows: only from everything.
   useWorkbookPreview({ wb, token, workbookId, stored: readOnly ? undefined : storedPreview });

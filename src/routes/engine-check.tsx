@@ -23,7 +23,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import { browserEngineBundle, registerBrowserTables, runBrowserSql } from "@/lib/browserDuckdb";
-import { SqlEngineStatus, useSqlEngineStatus } from "@/components/data/SqlEngineStatus";
+import { SqlEngineStatus } from "@/components/data/SqlEngineStatus";
+import { useSqlEngineStatus } from "@/hooks/use-sql-engine-status";
 
 export const Route = createFileRoute("/engine-check")({ component: EngineCheck });
 

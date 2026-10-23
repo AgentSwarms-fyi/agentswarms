@@ -8,15 +8,7 @@ import { isDateFormat } from "./format";
 import { isError, type Scalar } from "./formula/values";
 
 export type ChartType =
-  | "column"
-  | "bar"
-  | "line"
-  | "area"
-  | "pie"
-  | "doughnut"
-  | "scatter"
-  | "combo"
-  | "radar";
+  "column" | "bar" | "line" | "area" | "pie" | "doughnut" | "scatter" | "combo" | "radar";
 
 export type ChartDef = {
   id: string;

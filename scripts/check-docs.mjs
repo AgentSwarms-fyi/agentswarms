@@ -71,12 +71,18 @@ const idsOf = (route) => {
   return null;
 };
 
-/** Sidebar groups, read from the shell so the docs' own nav is the source. */
+/** Sidebar groups, read from the rail's own module so the docs' nav is the source. */
 const groupOfRoute = new Map();
-for (const g of read("src/components/docs/DocsShell.tsx").matchAll(
+for (const g of read("src/components/docs/docsNav.ts").matchAll(
   /label: "([^"]+)",\s*items: \[([\s\S]*?)\],\s*\}/g,
 )) {
   for (const i of g[2].matchAll(/to: "([^"]+)"/g)) groupOfRoute.set(i[1], g[1]);
+}
+// R346 moved the rail out of DocsShell.tsx, and this read found nothing while
+// every check that uses it still passed. A rail with no groups is a broken read.
+if (groupOfRoute.size === 0) {
+  console.error("docs check: no sidebar groups found in src/components/docs/docsNav.ts");
+  process.exit(1);
 }
 
 const toolIds = new Set(

@@ -12,12 +12,15 @@ import {
   evaluate,
   PendingValue,
   PENDING,
+  settled,
   type EvalEnv,
   type RangeRef,
   type TableCallRequest,
 } from "./formula/evaluate";
 import { FUNCTIONS } from "./formula/functions";
+import { DEFAULT_COLUMN_PX } from "./formula/cellInfo";
 import { FormulaSyntaxError, isFormula, parseFormula, type Node } from "./formula/parser";
+import { walkScoped } from "./formula/scope";
 import type { ChartDef } from "./charts";
 import type { CondFormat } from "./condFormat";
 import type { AutoFilter } from "./filter";
@@ -119,37 +122,29 @@ type Compiled = {
   volatile: boolean;
   /** Recomputed when rows are hidden or shown (a filter applied). */
   visibility?: boolean;
+  /** Calls CELL: recomputed when a column's width or the workbook's name changes (R339). */
+  cellInfo?: boolean;
   tables: string[];
   /** Functions it calls that this engine does not have (from an Excel file). */
   unknown?: string[];
 };
 
+/**
+ * The functions a formula calls that are not this engine's. A LET name or a
+ * LAMBDA parameter called as one is the formula's own (R328); a workbook name
+ * is checked where the formula is computed, as names come and go.
+ */
 function unknownFunctions(node: Node, out: Set<string>): void {
-  switch (node.k) {
-    case "call":
-      if (!FUNCTIONS[node.name]) out.add(node.name);
-      node.args.forEach((a) => unknownFunctions(a, out));
-      break;
-    case "unary":
-    case "percent":
-    case "single":
-      unknownFunctions(node.arg, out);
-      break;
-    case "bin":
-      unknownFunctions(node.left, out);
-      unknownFunctions(node.right, out);
-      break;
-    case "array":
-      node.rows.forEach((r) => r.forEach((n) => unknownFunctions(n, out)));
-      break;
-    default:
-      break;
-  }
+  walkScoped(node, (n, scope) => {
+    if (n.k === "call" && !FUNCTIONS[n.name] && !scope.has(n.name.toLowerCase())) out.add(n.name);
+  });
 }
 
 const VOLATILE = /\b(NOW|TODAY|RAND|RANDBETWEEN|RANDARRAY)\s*\(/i;
 /** Formulas whose answer depends on which rows are hidden (SUBTOTAL leaves filtered rows out). */
 const ROW_VISIBILITY = /\b(SUBTOTAL|AGGREGATE)\s*\(/i;
+/** Formulas that ask CELL about a cell's look or the workbook's name. */
+const CELL_INFO = /\bCELL\s*\(/i;
 
 function tablesIn(node: Node, out: Set<string>): void {
   switch (node.k) {
@@ -161,6 +156,10 @@ function tablesIn(node: Node, out: Set<string>): void {
       out.add(node.name.toLowerCase());
       break;
     case "call":
+      node.args.forEach((a) => tablesIn(a, out));
+      break;
+    case "invoke":
+      tablesIn(node.fn, out);
       node.args.forEach((a) => tablesIn(a, out));
       break;
     case "unary":
@@ -215,8 +214,16 @@ export class WorkbookEngine {
   /** The same list until the names change, so a page can compare it. */
   private definedList: DefinedName[] = [];
 
-  constructor(sheets: SheetDef[], resolver?: TableResolver, opts: { names?: DefinedName[] } = {}) {
+  /** The workbook's file name, as a download names it, for CELL("filename") (R339). */
+  private book?: string;
+
+  constructor(
+    sheets: SheetDef[],
+    resolver?: TableResolver,
+    opts: { names?: DefinedName[]; book?: string } = {},
+  ) {
     this.resolver = resolver;
+    this.book = opts.book;
     // Known before the first computation, so formulas that use them are right at once.
     if (opts.names) this.setDefinedNames(opts.names, { recalc: false });
     for (const s of sheets) this.addSheetDef(s);
@@ -268,6 +275,22 @@ export class WorkbookEngine {
     this.recalcAll();
   }
 
+  /**
+   * The tabs in a new order (R331): SHEET() is a sheet's place among them.
+   * Ids the engine does not hold are skipped, and any it holds that the
+   * order leaves out keep their place after it.
+   */
+  setSheetOrder(ids: readonly string[]): void {
+    const before = [...this.sheets.keys()];
+    const order = [...ids.filter((id) => this.sheets.has(id))];
+    for (const id of before) if (!order.includes(id)) order.push(id);
+    if (order.every((id, i) => id === before[i])) return;
+    const defs = new Map(this.sheets);
+    this.sheets.clear();
+    for (const id of order) this.sheets.set(id, defs.get(id)!);
+    this.recalcAll();
+  }
+
   renameSheet(id: string, name: string): void {
     const s = this.sheets.get(id);
     if (!s) return;
@@ -294,6 +317,7 @@ export class WorkbookEngine {
         ast,
         volatile: VOLATILE.test(input),
         ...(ROW_VISIBILITY.test(input) ? { visibility: true } : {}),
+        ...(CELL_INFO.test(input) ? { cellInfo: true } : {}),
         tables: [...t],
         ...(u.size ? { unknown: [...u] } : {}),
       });
@@ -331,6 +355,8 @@ export class WorkbookEngine {
     const s = this.sheets.get(sheetId);
     if (!s?.grid) return;
     const changed: CellId[] = [];
+    // A new number format or style with the same text: only CELL can see it (R339).
+    let look = false;
     for (const e of edits) {
       const key = cellKey(e.row, e.col);
       const prev = s.grid.cells[key];
@@ -340,10 +366,12 @@ export class WorkbookEngine {
       if (e.format !== undefined) {
         if (e.format === null) delete next.f;
         else next.f = e.format;
+        if (next.f !== prev?.f) look = true;
       }
       if (e.style !== undefined) {
         if (e.style === null) delete next.s;
         else next.s = e.style;
+        if (JSON.stringify(next.s) !== JSON.stringify(prev?.s)) look = true;
       }
       if (e.link !== undefined) {
         if (e.link === null) delete next.l;
@@ -363,9 +391,13 @@ export class WorkbookEngine {
       }
     }
     if (changed.length) this.recalc(changed);
+    if (look) this.recalcCellInfo();
   }
 
-  /** Formats and styles only (no recalculation needed). */
+  /**
+   * Formats and styles only: no value changes, so only formulas that ask CELL
+   * about a cell's look are recomputed (R339).
+   */
   setFormat(sheetId: string, cells: { row: number; col: number }[], format: string | null): void {
     const s = this.sheets.get(sheetId);
     if (!s?.grid) return;
@@ -378,6 +410,7 @@ export class WorkbookEngine {
       if (next.i === "" && !next.f && !next.s && !next.l) delete s.grid.cells[key];
       else s.grid.cells[key] = next;
     }
+    this.recalcCellInfo();
   }
 
   setStyle(sheetId: string, cells: { row: number; col: number }[], patch: CellStyle): void {
@@ -395,6 +428,14 @@ export class WorkbookEngine {
       if (next.i === "" && !next.f && !next.s && !next.l) delete s.grid.cells[key];
       else s.grid.cells[key] = next;
     }
+    this.recalcCellInfo();
+  }
+
+  /** Recompute the formulas that call CELL; true if there were any (R339). */
+  private recalcCellInfo(): boolean {
+    const ids = [...this.compiled].filter(([, c]) => c.cellInfo).map(([id]) => id);
+    if (ids.length) this.recalc(ids);
+    return ids.length > 0;
   }
 
   // ── Values ───────────────────────────────────────────────────────────────
@@ -504,7 +545,7 @@ export class WorkbookEngine {
     }
     // A formula calling a function this engine lacks shows Excel's saved value
     // without being evaluated: an IFERROR around it would otherwise hide the gap.
-    if (c.unknown) {
+    if (this.missingFunctions(c).length) {
       const at = splitId(id);
       const cached = this.cachedFallback(at.sheetId, at.row, at.col, err("#NAME?", ""));
       if (cached !== undefined) {
@@ -585,7 +626,7 @@ export class WorkbookEngine {
     };
     let result: Value;
     try {
-      result = evaluate(c.ast!, env);
+      result = settled(evaluate(c.ast!, env));
     } catch (e) {
       if (e instanceof PendingValue) result = err("#BUSY!", "Waiting for the table's answer");
       else result = err("#VALUE!", e instanceof Error ? e.message : "Could not compute");
@@ -717,7 +758,7 @@ export class WorkbookEngine {
       tableCall: this.resolver?.call ? (req) => this.resolver!.call!(req) : undefined,
     };
     try {
-      const v = evaluate(ast, env);
+      const v = settled(evaluate(ast, env));
       if (isMatrix(v) && !opts.array) return v[0]?.[0] ?? null;
       return v;
     } catch (e) {
@@ -733,7 +774,13 @@ export class WorkbookEngine {
 
   /** The functions a formula uses that this engine does not have. */
   unknownFunctions(sheetId: string, row: number, col: number): string[] {
-    return this.compiled.get(cid(sheetId, row, col))?.unknown ?? [];
+    const c = this.compiled.get(cid(sheetId, row, col));
+    return c ? this.missingFunctions(c) : [];
+  }
+
+  /** Calls that are neither this engine's functions nor a workbook name, such as one holding a LAMBDA (R328). */
+  private missingFunctions(c: Compiled): string[] {
+    return c.unknown?.filter((name) => !this.defined.has(name.toLowerCase())) ?? [];
   }
 
   /** How far a formula's array spills, when it does. */
@@ -937,6 +984,8 @@ export class WorkbookEngine {
       const ids = [...this.compiled].filter(([, c]) => c.visibility).map(([id]) => id);
       if (ids.length) this.recalc(ids);
     }
+    // A column resized: CELL("width") changes (R339).
+    if ("colWidths" in patch) this.recalcCellInfo();
   }
 
   /**
@@ -944,7 +993,10 @@ export class WorkbookEngine {
    * is hidden, by a filter or by hand (SUBTOTAL), and its formula (SUBTOTAL
    * leaves other subtotals out; ISFORMULA, FORMULATEXT).
    */
-  private cellFacts(): Pick<EvalEnv, "rowHidden" | "formula" | "definedName"> {
+  private cellFacts(): Pick<
+    EvalEnv,
+    "rowHidden" | "formula" | "definedName" | "sheetNames" | "cellLook" | "colWidth" | "book"
+  > {
     const hidden = new Map<string, { filter: Set<number>; manual: Set<number> }>();
     const gridOf = (sheet: string) =>
       this.sheets.get(this.byName.get(sheet.toLowerCase()) ?? "")?.grid;
@@ -963,7 +1015,28 @@ export class WorkbookEngine {
         return i && i.startsWith("=") ? i : undefined;
       },
       definedName: (name) => this.defined.get(name.toLowerCase())?.ast,
+      sheetNames: () => [...this.sheets.values()].map((s) => s.name),
+      cellLook: (sheet, row, col) => {
+        const c = gridOf(sheet)?.cells[cellKey(row, col)];
+        return { input: c?.i, format: c?.f, align: c?.s?.align };
+      },
+      colWidth: (sheet, col) => {
+        const px = gridOf(sheet)?.colWidths?.[String(col)];
+        return px === undefined ? { px: DEFAULT_COLUMN_PX, set: false } : { px, set: true };
+      },
+      book: () => this.book,
     };
+  }
+
+  /**
+   * The workbook's file name changed (a rename): CELL formulas recompute, as
+   * CELL("filename") and CELL("address") of another sheet name it. Returns
+   * whether anything was recomputed.
+   */
+  setBook(book: string): boolean {
+    if (book === this.book) return false;
+    this.book = book;
+    return this.recalcCellInfo();
   }
 
   /** The workbook's defined names, as set (the engine's own list; do not change it). */

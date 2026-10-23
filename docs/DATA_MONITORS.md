@@ -53,8 +53,11 @@ The first failing run opens an incident and notifies you (in-app, and on any
 notification channel you connected: Slack, Teams, a webhook). Further
 failing runs extend the same incident and count occurrences; they do not
 notify again. The first passing run resolves it and notifies "Recovered".
-**Acknowledge** marks an incident as seen; **Resolve** closes it by hand. A
-check that cannot answer (a timeout, a dropped table, a query error) is
+**Acknowledge** marks an incident as seen; **Resolve** closes it by hand.
+A resolve stands, whoever made it. If a run resolves the incident as you press
+Acknowledge, you are told so and nothing changes. If you resolve it as a run
+finds the table still failing, that failure opens a new incident and notifies
+you. A check that cannot answer (a timeout, a dropped table, a query error) is
 recorded as an error, shown on the page, and opens no incident: a table is
 not declared broken on a timeout.
 

@@ -29,18 +29,10 @@ import {
   YAxis,
 } from "recharts";
 import { SERIES_COLORS, type ChartData, type ChartDef } from "@/lib/sheets/charts";
+import { compactNumber } from "@/lib/compactNumber";
 
 const AXIS = { fontSize: 11, fill: "var(--muted-foreground)" };
 const LABEL = { fontSize: 10, fill: "var(--foreground)" };
-
-/** 1234567 → 1.2M, as an axis has room for. */
-export function compactNumber(n: number): string {
-  const a = Math.abs(n);
-  if (a >= 1e9) return `${+(n / 1e9).toFixed(1)}B`;
-  if (a >= 1e6) return `${+(n / 1e6).toFixed(1)}M`;
-  if (a >= 1e4) return `${+(n / 1e3).toFixed(1)}K`;
-  return String(+n.toFixed(2));
-}
 
 export function SheetChart({ def, data }: { def: ChartDef; data: ChartData }) {
   if (data.problem) {

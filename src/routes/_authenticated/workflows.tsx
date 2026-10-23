@@ -12,8 +12,8 @@
 // working the moment there were more than about six kinds — fifteen buttons
 // wrapped over three lines, pushed the canvas down the screen, and said
 // nothing about which of them belonged together.
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createFileRoute, useBlocker } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
@@ -89,6 +89,7 @@ import {
   newNodeId,
   parentsOf,
   referencedParams,
+  savedForm,
   topoOrder,
   validateWorkflow,
   type WorkflowEdge,
@@ -117,6 +118,7 @@ import {
   type WorkflowRunDto,
   type WorkflowRowDto,
 } from "@/utils/workflows.functions";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 /** Below this many saved workflows, a search box is furniture rather than help. */
 const WORKFLOW_SEARCH_FROM = 5;
@@ -228,6 +230,19 @@ function WorkflowsPage() {
     hasToken: false,
   });
   const [graph, setGraph] = useState<WorkflowGraph>({ nodes: [], edges: [], params: [] });
+  // What the open workflow is saved as (savedForm), set when it loads and when
+  // a save lands; null while nothing is open.
+  const [savedAs, setSavedAs] = useState<string | null>(null);
+  // The version (updated_at) this page read or last saved for the open
+  // workflow (R289, sweep 9). Save lands only on it; refused, the page says so
+  // and offers Reload or Overwrite with mine. A Reload re-runs the load.
+  const versionRef = useRef<string | null>(null);
+  const [stale, setStale] = useState(false);
+  const [loadNonce, setLoadNonce] = useState(0);
+  const unsaved = useMemo(
+    () => savedAs !== null && savedAs !== savedForm(settings, graph),
+    [savedAs, settings, graph],
+  );
   const [nodeId, setNodeId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
@@ -314,7 +329,7 @@ function WorkflowsPage() {
       if (!live) return;
       if (!res.ok) return toast.error(res.error);
       const w = res.workflow;
-      setSettings({
+      const loaded = {
         name: w.name,
         schedule: w.schedule,
         cronExpr: w.cron_expr ?? "",
@@ -324,8 +339,15 @@ function WorkflowsPage() {
         timeoutMinutes: w.timeout_minutes,
         isActive: w.is_active,
         hasToken: w.has_trigger_token,
-      });
-      setGraph(autoLayout((w.graph ?? { nodes: [], edges: [] }) as unknown as WorkflowGraph));
+      };
+      const loadedGraph = autoLayout(
+        (w.graph ?? { nodes: [], edges: [] }) as unknown as WorkflowGraph,
+      );
+      versionRef.current = w.updated_at || null;
+      setStale(false);
+      setSettings(loaded);
+      setGraph(loadedGraph);
+      setSavedAs(savedForm(loaded, loadedGraph));
       setNodeId(null);
       setOpenRun(null);
       setMintedToken(null);
@@ -335,7 +357,7 @@ function WorkflowsPage() {
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [getFn, signedIn, selectedId, loadRuns]);
+  }, [getFn, signedIn, selectedId, loadRuns, loadNonce]);
 
   // While a run is live, keep asking. The server nudges the run along on read,
   // so this is what makes a manual run visibly move rather than sit still.
@@ -411,10 +433,12 @@ function WorkflowsPage() {
     }));
   };
 
-  async function save() {
+  async function save(overwrite = false) {
     if (!selectedId) return;
     const invalid = validateWorkflow({ name: settings.name, graph });
     if (invalid) return toast.error(invalid);
+    // What this save sends: an edit made while it is in flight stays unsaved.
+    const sent = savedForm(settings, graph);
     setSaving(true);
     try {
       const res = await saveFn({
@@ -432,13 +456,25 @@ function WorkflowsPage() {
           nodes: graph.nodes,
           edges: graph.edges,
           params: graph.params ?? [],
+          // Overwriting is said in so many words: a save with neither is
+          // refused, as a page opened before R289 would send (R303).
+          ...(overwrite
+            ? { overwrite: true as const }
+            : { expectedUpdatedAt: versionRef.current ?? undefined }),
         },
       });
-      if (!res.ok) toast.error(res.error);
-      else {
+      if (!res.ok) {
+        if (res.stale) setStale(true);
+        toast.error(res.error);
+      } else {
+        versionRef.current = res.updatedAt;
+        setStale(false);
+        setSavedAs(sent);
         toast.success("Saved");
         void reload();
       }
+    } catch (e) {
+      reportFailure("save the workflow", e);
     } finally {
       setSaving(false);
     }
@@ -454,9 +490,40 @@ function WorkflowsPage() {
       const detail = await runGetFn({ data: { accessToken: token, runId: res.runId } });
       if (detail.ok) setOpenRun({ run: detail.run, nodes: detail.nodes });
       void loadRuns(selectedId);
+    } catch (e) {
+      reportFailure("start the run", e);
     } finally {
       setRunning(false);
     }
+  }
+
+  /** Ask before something replaces unsaved edits in the editor; true when it may go ahead. */
+  async function mayDiscard(what: string): Promise<boolean> {
+    if (!unsaved) return true;
+    // By the name it is saved under: the name in the editor may be one of the changes.
+    const savedName = workflows.find((w) => w.id === selectedId)?.name ?? settings.name;
+    return Boolean(
+      await confirmAsk({
+        title: `Discard the changes to "${savedName}"?`,
+        body: `They are not saved. ${what}`,
+        actionLabel: "Discard changes",
+      }),
+    );
+  }
+
+  // Leaving the page by a link asks as picking another workflow does, and
+  // closing or reloading the tab gets the browser's own question. FOUND IN
+  // R269 (queued by R268): either one dropped unsaved edits without a word.
+  useBlocker({
+    shouldBlockFn: async () => !(await mayDiscard("Leaving this page drops them.")),
+    enableBeforeUnload: unsaved,
+    disabled: !unsaved,
+  });
+
+  async function pick(id: string) {
+    if (id === selectedId) return;
+    if (!(await mayDiscard("Opening another workflow replaces them."))) return;
+    setSelectedId(id);
   }
 
   async function removeWorkflow(w: WorkflowRowDto) {
@@ -469,11 +536,17 @@ function WorkflowsPage() {
     const res = await deleteFn({ data: { accessToken: token, id: w.id } });
     if (!res.ok) return toast.error(res.error);
     toast.success("Workflow deleted");
-    setSelectedId(null);
-    setRuns([]);
-    setOpenRun(null);
-    setGraph({ nodes: [], edges: [], params: [] });
-    setNodeId(null);
+    // FOUND IN R268: deleting ANOTHER workflow from the list emptied the
+    // editor too, unsaved edits and all, and the reload then opened the first
+    // workflow in the list. Only deleting the open one empties it.
+    if (w.id === selectedId) {
+      setSelectedId(null);
+      setRuns([]);
+      setOpenRun(null);
+      setGraph({ nodes: [], edges: [], params: [] });
+      setNodeId(null);
+      setSavedAs(null);
+    }
     void reload();
   }
 
@@ -551,10 +624,7 @@ function WorkflowsPage() {
                       selectedId === w.id && "border-primary bg-primary/5",
                     )}
                   >
-                    <button
-                      className="min-w-0 flex-1 text-left"
-                      onClick={() => setSelectedId(w.id)}
-                    >
+                    <button className="min-w-0 flex-1 text-left" onClick={() => void pick(w.id)}>
                       <span className="block truncate font-medium">{w.name}</span>
                       <span className="block truncate text-[10px] text-muted-foreground">
                         {w.schedule === "cron" ? w.cron_expr : w.schedule}
@@ -654,6 +724,42 @@ function WorkflowsPage() {
                     )}
                     Run now
                   </Button>
+                  {stale && (
+                    <span
+                      className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs"
+                      title="This workflow was changed in another tab or session, so Save did not write over it."
+                      data-testid="workflow-stale"
+                    >
+                      Changed elsewhere, not saved
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-1.5 text-xs"
+                        disabled={saving}
+                        onClick={() => setLoadNonce((n) => n + 1)}
+                      >
+                        Reload
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-1.5 text-xs"
+                        disabled={saving}
+                        onClick={() => void save(true)}
+                      >
+                        Overwrite with mine
+                      </Button>
+                    </span>
+                  )}
+                  {unsaved && (
+                    <span
+                      className="text-xs text-amber-600 dark:text-amber-400"
+                      title="Save to keep them. Run now runs the saved version."
+                      data-testid="workflow-unsaved"
+                    >
+                      Unsaved changes
+                    </span>
+                  )}
                   <Button size="sm" disabled={saving} onClick={() => void save()}>
                     {saving ? (
                       <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
@@ -827,6 +933,7 @@ function WorkflowsPage() {
             <Button
               onClick={async () => {
                 if (!newName.trim()) return toast.error("Give the workflow a name");
+                if (!(await mayDiscard("Creating a workflow opens it in their place."))) return;
                 const res = await createFn({
                   data: { accessToken: token, name: newName.trim() },
                 });

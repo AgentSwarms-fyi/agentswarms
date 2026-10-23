@@ -26,6 +26,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { readApplicableGrants } from "@/utils/iam.server";
 import { loadWarehouseConnection } from "@/utils/warehouse/connections.server";
 import { executeWarehouseQuery } from "@/utils/warehouse/drivers.server";
 import { warehouseAbsMaxRows } from "@/utils/warehouse/governor.server";
@@ -42,15 +43,21 @@ import type { ChartSpec } from "@/lib/biAgent";
 import type { SqlDialect } from "@/lib/semanticLayer";
 import { rateLimitedGlobal, envInt } from "@/utils/rateLimit.server";
 import { auditEvent } from "@/utils/audit.server";
+import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
 function getServerSupabase(authToken: string) {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_PUBLISHABLE_KEY;
   if (!url || !key) return null;
-  return createClient<Database>(url, key, {
-    auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: `Bearer ${authToken}` } },
-  });
+  return createClient<Database>(
+    url,
+    key,
+    withNulSafeFetch({
+      auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: `Bearer ${authToken}` } },
+    }),
+  );
 }
 
 function json(status: number, body: unknown): Response {
@@ -79,9 +86,13 @@ export const Route = createFileRoute("/api/bi/direct-query")({
         const token = auth?.startsWith("Bearer ") ? auth.slice(7) : undefined;
         const sb = token ? getServerSupabase(token) : null;
         if (!token || !sb) return json(401, { error: "Sign in to run a live query" });
-        const { data: claims } = await sb.auth.getClaims(token);
+        const { data: claims, error: claimsErr } = await sb.auth.getClaims(token);
         const userId = claims?.claims?.sub;
-        if (!userId) return json(401, { error: "Invalid session" });
+        if (!userId) {
+          return json(callerFailureStatus(claimsErr), {
+            error: callerFailure(claimsErr, "Invalid session"),
+          });
+        }
 
         let body: { dashboard_id?: string; widget_id?: string; filters?: DirectFilter[] };
         try {
@@ -139,21 +150,25 @@ export const Route = createFileRoute("/api/bi/direct-query")({
         const rowFilters: DirectRowFilter[] = [];
         let maskedColumns: string[] = [];
         if (!isOwner) {
-          const { data: gm } = await supabaseAdmin
-            .from("iam_group_members")
-            .select("group_id")
-            .eq("user_id", userId);
-          const groupIds = new Set((gm ?? []).map((g) => g.group_id));
-          const { data: grants } = await supabaseAdmin
-            .from("iam_resource_grants")
-            .select("principal_type, principal_id, row_filter, column_mask")
-            .eq("resource_type", "bi_dashboard")
-            .eq("resource_id", body.dashboard_id);
-          const mine = (grants ?? []).filter(
-            (g) =>
-              (g.principal_type === "user" && g.principal_id === userId) ||
-              (g.principal_type === "group" && groupIds.has(g.principal_id)),
-          );
+          // R235: both reads used to drop their errors, and an empty grant
+          // list here means no row filter and no column mask — so one failed
+          // read ran this viewer's live warehouse query with neither, over
+          // every row and every column the owner can see. Access had already
+          // been checked and fails closed; the restrictions that make that
+          // access safe have to fail closed with it.
+          let mine;
+          try {
+            mine = await readApplicableGrants(supabaseAdmin, userId, "bi_dashboard", [
+              body.dashboard_id,
+            ]);
+          } catch (e) {
+            return json(503, {
+              error:
+                "Your access restrictions for this dashboard could not be read, so the query " +
+                "was not run. Try again in a moment.",
+              detail: e instanceof Error ? e.message : undefined,
+            });
+          }
           // {{user.<key>}} tokens resolve to THIS viewer's attribute values
           // BEFORE the merge — the same resolver, fetch and refusal the
           // semantic-model path uses. A missing attribute is a 403 with the

@@ -18,6 +18,7 @@
 // browser supabase client.
 
 import { supabase } from "@/integrations/supabase/client";
+import { sessionUser } from "@/lib/sessionUser";
 import type { Node, Edge } from "@xyflow/react";
 import { buildUserMessage, invokeAgent, type AgentCard } from "@/lib/a2aClient";
 import { runSandboxed, safeStringify } from "@/lib/sandbox/jsSandbox";
@@ -1177,8 +1178,8 @@ export async function runSwarm(
           if (embedTransport) {
             throw new Error("Approval steps are not supported in embedded swarms.");
           }
-          const { data: userData } = await supabase.auth.getUser();
-          if (!userData.user) throw new Error("Not signed in");
+          const approver = await sessionUser();
+          if (!approver) throw new Error("Not signed in");
           const approvalContent = gatherInputs(node, ctx, lastOutput);
           const approverUserIds = Array.isArray(node.data.approverUserIds)
             ? node.data.approverUserIds
@@ -1189,7 +1190,7 @@ export async function runSwarm(
           const { data: created, error } = await supabase
             .from("approvals")
             .insert({
-              user_id: userData.user.id,
+              user_id: approver.id,
               agent_name: node.data.label || "Approval gate",
               agent_avatar: node.data.avatar || "🛡️",
               action_type: "swarm_step",

@@ -17,7 +17,7 @@
 // aggregationPlan.
 import { describe, expect, it } from "vitest";
 
-import { aggregateByField } from "@/components/bi/BiChartRender";
+import { aggregateByField } from "@/components/bi/biChartData";
 import { aggregationPlan, isAggregatableChart, renderAggregateClauses } from "@/lib/biAggregate";
 import { WIDGET_ROW_CAP_DEFAULT, snapshotRows, widgetRowCap } from "@/lib/biDashboards";
 

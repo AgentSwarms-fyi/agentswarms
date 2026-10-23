@@ -7,7 +7,7 @@
 // pinned as source guards — dropping any hop leaves units green while the
 // feature quietly degrades.
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import {
   ANALYST_MEMORY_TURNS,
@@ -471,6 +471,14 @@ async function pdfTextRuns(doc: import("pdf-lib").PDFDocument): Promise<string[]
 }
 
 describe("the branded report builds for real (vector text, pdf-lib)", () => {
+  // R305. The PDF builder and pdf-lib are imported here, with their own
+  // allowance, rather than inside the first test, where the cold import timed
+  // out at 20 s in two full gates on 2026-10-06 and passed alone.
+  beforeAll(async () => {
+    await import("@/lib/biPdf");
+    await import("pdf-lib");
+  }, 120_000);
+
   const longSentence =
     "Revenue concentrates in EMEA, with the United Kingdom contributing the largest share and discounts holding steady across segments (step 1). ";
   const fixtureTurn = (n: number): AnalystTurn => ({

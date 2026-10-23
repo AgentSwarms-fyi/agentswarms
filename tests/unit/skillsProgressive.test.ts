@@ -100,10 +100,8 @@ describe("use_skill tool registration (registry)", () => {
     );
     const def = resolved.tools.find((t) => t.function.name === "use_skill");
     expect(def).toBeTruthy();
-    expect((def!.function.parameters as any).properties.skill.enum).toEqual([
-      "Contract Review",
-      "Escalation",
-    ]);
+    const params = def!.function.parameters as { properties: { skill: { enum: string[] } } };
+    expect(params.properties.skill.enum).toEqual(["Contract Review", "Escalation"]);
 
     const handler = resolved.handlers.get("use_skill")!;
     const ok = JSON.parse(await handler({} as never, { skill: "Escalation" }));

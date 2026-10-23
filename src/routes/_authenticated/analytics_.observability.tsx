@@ -147,7 +147,12 @@ function ObservabilityList() {
               <TableHead className="text-center">Status</TableHead>
               <TableHead className="text-right">Steps</TableHead>
               <TableHead className="text-right">Errors</TableHead>
-              <TableHead className="text-right">Latency</TableHead>
+              <TableHead
+                className="text-right"
+                title="Time the run's steps spent working, added up. A run that waited for an approval can take hours and work for none of them."
+              >
+                Step time
+              </TableHead>
               <TableHead className="text-right">Tokens</TableHead>
               <TableHead className="text-right">Cost</TableHead>
             </TableRow>

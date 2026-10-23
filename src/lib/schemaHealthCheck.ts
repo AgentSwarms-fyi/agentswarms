@@ -25,6 +25,7 @@
 // know which layer found the problem.
 
 import { createClient } from "@supabase/supabase-js";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
 export type SchemaCheck = {
   /** Table to probe. */
@@ -113,7 +114,10 @@ function getProbeClient() {
   if (probeClient === undefined) {
     const url = resolveSupabaseUrl();
     const key = resolveSupabaseKey();
-    probeClient = url && key ? createClient(url, key, { auth: { persistSession: false } }) : null;
+    probeClient =
+      url && key
+        ? createClient(url, key, withNulSafeFetch({ auth: { persistSession: false } }))
+        : null;
   }
   return probeClient;
 }

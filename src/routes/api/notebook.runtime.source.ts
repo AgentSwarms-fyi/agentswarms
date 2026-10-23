@@ -256,6 +256,30 @@ async function handle(request: Request): Promise<Response> {
     const serve = await import("@/utils/ml/serve.server");
     const stash = serve.mlScoreStashOf(session?.inputs);
     if (stash) {
+      // FOUND IN R310. The scorer asks for a URL to its model's artifact
+      // with {"part":"lake_artifact"} (R231), and this branch never read the
+      // part: it answered every call with the bundle, so the scorer read a
+      // "url" the answer did not have and every warm endpoint failed to load
+      // with "KeyError: 'url'". A scorer only reads, so its lake calls are
+      // served read-only from the manifest pinned below.
+      let part = "";
+      let lakeBody: LakeBody = {};
+      try {
+        const body = (await request.json()) as { part?: string } & LakeBody;
+        part = body?.part ?? "";
+        lakeBody = body ?? {};
+      } catch {
+        /* empty body = the bundle */
+      }
+      if (LAKE_PARTS.has(part)) {
+        return lakePart(part, lakeBody, {
+          sessionId: claims.sid,
+          userId: claims.sub,
+          inputs: session?.inputs,
+          readOnly: true,
+          via: `ml_score:${stash.model_id}`,
+        });
+      }
       // One call: the program and its config. A scorer fetches this once, at
       // start, and asks for a URL to its model's artifact when it loads it.
       const out = await serve.mlScoreBundleFor(stash, claims.sub);

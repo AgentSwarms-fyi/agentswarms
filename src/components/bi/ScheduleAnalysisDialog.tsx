@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { CalendarClock, Loader2, Play } from "lucide-react";
 import { toast } from "sonner";
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -126,10 +127,24 @@ export function ScheduleAnalysisDialog({
 
   async function remove() {
     if (!row) return;
+    // R242: user-created configuration, deleted on one click, where every
+    // comparable row on this product asks first.
+    if (
+      !(await confirmAsk({
+        title: "Remove this scheduled analysis?",
+        body: "It stops running and its settings are not kept. This cannot be undone.",
+        actionLabel: "Remove schedule",
+      }))
+    )
+      return;
     setBusy(true);
     const { error } = await supabase.from("ai_analyst_schedules").delete().eq("id", row.id);
     setBusy(false);
-    if (error) return toast.error(error.message);
+    if (error) {
+      return toast.error("Could not remove the schedule", {
+        description: `${error.message}. It is still scheduled and will still run.`,
+      });
+    }
     setRow(null);
     toast.success("Schedule removed");
   }

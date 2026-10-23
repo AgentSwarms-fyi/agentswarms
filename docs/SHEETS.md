@@ -37,38 +37,102 @@ Three real .xlsx files ship in `public/samples/sheets/`. They open in Excel as w
 `npm run sheets:samples` rebuilds them from `scripts/make-sheets-samples.ts`, with the same data
 every time. The script refuses to write a file in which any formula errs.
 
-| Sample | Sheets | What it shows |
-| --- | --- | --- |
+| Sample                     | Sheets                                  | What it shows                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Sales performance 2026** | Dashboard, Orders (240), Products, Reps | Order lines filled with XLOOKUP from the product list; revenue by month and region with `SUMIFS` between dates (`EDATE`); a best-product lookup with INDEX/MATCH; a leaderboard that re-sorts itself (`SORTBY`); open orders over $3,000 (`FILTER`). Returned orders are struck through by a formula rule, with data bars and a color scale. Dropdowns cover regions, SKUs from the product list, and status. Charts: line, stacked column, doughnut, and a combo of sold against target. |
-| **Project tracker** | Summary, Tasks, Team | Tasks late against `TODAY()` in red; blocked and done by text rules; a dropdown of owners from the Team sheet; a due date that must follow the start; each person's load against their hours. Charts: pie of tasks by status, radar of remaining work, bar of open hours. |
-| **Budget and cash flow** | Assumptions, Model, Scenarios | A scenario picked in one cell (a dropdown) drives a 12-month model through INDEX/MATCH and XLOOKUP: customers, revenue, costs, net and cash, with negatives in red. Charts: combo of revenue, costs and net; area of cash; scatter of customers against revenue. |
+| **Project tracker**        | Summary, Tasks, Team                    | Tasks late against `TODAY()` in red; blocked and done by text rules; a dropdown of owners from the Team sheet; a due date that must follow the start; each person's load against their hours. Charts: pie of tasks by status, radar of remaining work, bar of open hours.                                                                                                                                                                                                                 |
+| **Budget and cash flow**   | Assumptions, Model, Scenarios           | A scenario picked in one cell (a dropdown) drives a 12-month model through INDEX/MATCH and XLOOKUP: customers, revenue, costs, net and cash, with negatives in red. Charts: combo of revenue, costs and net; area of cash; scatter of customers against revenue.                                                                                                                                                                                                                          |
 
 The figures in each were checked against a separate calculation in Python from the files' own rows.
 `tests/unit/sheetsSamples.test.ts` reads each file back and keeps those figures.
-
 
 ## Grid sheets
 
 ### Formulas
 
-Type `=` and a formula, as in Excel. About 240 functions are available:
+Type `=` and a formula, as in Excel. More than 400 of Excel's 510 functions are available:
 
 - **Totals:** SUM, AVERAGE, COUNT, COUNTA, SUMIF(S), COUNTIF(S), AVERAGEIF(S), MINIFS, MAXIFS,
-  SUMPRODUCT, SUMSQ, and SUBTOTAL.
+  SUMPRODUCT, SUMSQ, SUBTOTAL and AGGREGATE.
   - SUBTOTAL leaves out rows a filter hides, and with 101–111 rows hidden by hand too.
   - It skips other SUBTOTAL cells, so a total of subtotals counts nothing twice.
+  - AGGREGATE takes Excel's 19 functions and 8 options (R327). Options 0–3 skip nested SUBTOTAL
+    and AGGREGATE cells; 1, 3, 5 and 7 skip hidden rows, by hand or by a filter; 2, 3, 6 and 7
+    skip error values, which makes `=AGGREGATE(14,6,A1:A9/(B1:B9="x"),1)` the largest A where B
+    is "x".
 - **Logic and names:** IF, IFS, IFERROR, IFNA, SWITCH, CHOOSE, AND, OR, XOR, NOT, LET.
+- **Functions of your own** (R328): LAMBDA, and MAP, REDUCE, SCAN, BYROW, BYCOL, MAKEARRAY and
+  ISOMITTED, which take one.
+  - A LAMBDA is called where it is written, `=LAMBDA(x, x*2)(3)`, or given a name and called by
+    it: by LET, `=LET(f, LAMBDA(x, x*2), f(A2))`, or in **Data → Names**, where `DOUBLE` referring
+    to `LAMBDA(x, x*2)` makes `=DOUBLE(A2)` work in every sheet of the workbook.
+  - A parameter in brackets may be left out: `LAMBDA(x, [y], IF(ISOMITTED(y), x, x+y))`.
+  - A LAMBDA sees the LET names given before it, not those after, as in Excel.
+  - A name may call itself, or another name that calls it back:
+    `MYFACT` as `LAMBDA(n, IF(n<2, 1, n*MYFACT(n-1)))` makes `=MYFACT(5)` 120. A name spelled
+    like one of Excel's functions (FACT, ISEVEN) is not called: the function is. As in Excel, a recursion
+    is #NUM! when it reaches 1,024 ÷ (parameters + 1) calls: 511 deep for one parameter.
+  - A cell holding a LAMBDA nobody calls shows #CALC!, as Excel's does, and other cells can't call
+    it through the cell.
+  - MAP's arrays must be the same size, and each call in MAP, SCAN, BYROW and BYCOL must give one
+    value (an array there is #CALC!). MAKEARRAY makes up to a million cells.
+  - A table sheet's column formula can't call one: compute it in a grid sheet.
 - **Lookups and references:** XLOOKUP, VLOOKUP, HLOOKUP, LOOKUP, INDEX, MATCH, XMATCH, OFFSET,
-  INDIRECT (A1 style), ADDRESS, HYPERLINK, ISREF, ISFORMULA, FORMULATEXT.
+  INDIRECT, ADDRESS, HYPERLINK, ISREF, ISFORMULA, FORMULATEXT. `INDIRECT(text, FALSE)` reads R1C1
+  text (R327): `R2C3` is C2, and `R[-1]C` is the cell above the formula.
 - **Dynamic arrays:**
   - UNIQUE, SORT, SORTBY, FILTER, SEQUENCE, RANDARRAY, TRANSPOSE;
   - TAKE, DROP, CHOOSECOLS, CHOOSEROWS, VSTACK, HSTACK, TOCOL, TOROW.
+  - WRAPROWS, WRAPCOLS and EXPAND (R331), padding with #N/A unless told otherwise. WRAPROWS and
+    WRAPCOLS take one row or one column, and EXPAND does not make an array smaller.
   - `A2#` is the whole range the formula in A2 spills into, however big it grows: `=SUM(A2#)`,
     `=XLOOKUP(x,A2#,C2#)`, `=A2#*10` (which spills too), and `Sheet2!A2#` from another sheet. A
     cell that does not spill (a value, a one-cell answer, a spill that is blocked) makes it #REF!.
     Copying, inserting rows and renaming the sheet move it as they move A2, and an Excel file holds
     it as `_xlfn.ANCHORARRAY(A2)`, both ways.
+  - The file's forms can be typed too (R340): `ANCHORARRAY(A2)` is `A2#`, and `SINGLE(B1:B3)` is
+    `@B1:B3`. A download writes them with Excel's `_xlfn.` prefix.
 - **Text:** TEXT, VALUE, NUMBERVALUE, LEFT, MID, TEXTJOIN, TEXTSPLIT, TEXTBEFORE, TEXTAFTER.
+  ARRAYTOTEXT and VALUETOTEXT (R331) write values as text, concise (`TRUE, 1, Seattle`) or strict
+  (`{TRUE,1;"Seattle"}`, text quoted). LENB, LEFTB, RIGHTB, MIDB, FINDB, SEARCHB and REPLACEB count
+  bytes as Excel does outside the double-byte languages: one per character, as LEN and the rest.
+  ASC and JIS (R341) change the width of ASCII and katakana. ASC makes full-width characters
+  half-width (`ＥＸＣＥＬ` to `EXCEL`, `パソコン` to `ﾊﾟｿｺﾝ`), and JIS the reverse, joining a half-width
+  kana and its mark (`ｶﾞｲﾄﾞ` to `ガイド`). Excel's pages give no table, so Sheets follows OpenOffice's
+  specification of the two, written to match Japanese Excel. That specification does not list ヴ, the
+  small ヮ, ヰ and ヱ, or the space, and Sheets leaves them as they are.
+- **Sheets:** SHEET and SHEETS (R331). SHEET is a sheet's number among the tabs, table sheets and
+  hidden ones counted, for this sheet, a reference, a name or a sheet's name as text (#N/A when
+  there is no such sheet). It follows the tabs when they are moved. AREAS is 1 for any reference,
+  as Sheets has no unions of ranges.
+- **CELL and INFO** (R339). CELL tells about the upper-left cell of a reference: its "address",
+  "row" and "col", "contents" (its value) and "type". The type is b for blank, l for text typed in,
+  and v for anything else. From what Sheets keeps about the cell it also gives these:
+  - "format", as CELL's page codes it: G, F2, ,0, C2-, P0, S2, and D1 to D9 for dates and times.
+  - "color" and "parentheses".
+  - "prefix": ' " and ^ for left, right and centred text.
+  - "width": characters, rounded, and whether the width is the default.
+  - "filename".
+
+  CELL's page marks these as not supported in Excel for the web; Sheets answers them.
+  - **"filename"** is `[file]sheet`, the file being the name a download gives the workbook
+    (`[Plan.xlsx]Summary`). So `=MID(CELL("filename",A1),FIND("]",CELL("filename",A1))+1,255)` gives
+    a sheet its own name. Excel's starts with the folder the file is in, and a workbook here has none.
+    It follows a rename.
+  - **"protect" is always 1.** Sheets has no sheet protection, and Excel locks every cell until it is
+    unlocked.
+  - **Without a reference**, Excel reads the cell selected when it calculates. Here CELL reads the
+    formula's own cell.
+  - **Updates.** A new format, alignment or column width updates CELL at once.
+  - **INFO.** INFO's page says it is not available in Excel for the web. Sheets answers what a
+    browser can know:
+    - "numfile" is the workbook's sheets, and "recalc" is Automatic.
+    - "release" is 16.0, the Excel whose formulas Sheets computes, so a workbook that tests the
+      version takes Excel 365's branch.
+    - "system" is pcdos or mac, and "osversion" is the browser's platform.
+    - "origin" is $A:$A$1 and "directory" is "".
+    - "memavail", "memused" and "totmem" are `#N/A`, as on the page.
+
 - **Dates and times:** DATE, TIME, TIMEVALUE, EDATE, EOMONTH, DAYS, DAYS360, NETWORKDAYS(.INTL),
   WORKDAY(.INTL).
   - DAYS360 counts twelve 30-day months, the US (NASD) way or, with TRUE, the European way.
@@ -81,8 +145,92 @@ Type `=` and a formula, as in Excel. About 240 functions are available:
     1900-03-01. A blank cell read as a date is serial 0, which YEAR, MONTH and DAY read as 1900, 1
     and 0. DATEDIF in days is the difference of the serials, so 1900-02-28 to 03-01 is 2 days. A
     table sheet counts its dates the same way.
+- **Regression** (R337): LINEST and LOGEST, with TREND and GROWTH computed from the same fit.
+  - LINEST gives mn…m1 and b in a row. With `stats` TRUE, four more rows follow, as on its page:
+    the standard errors, r² and sey, F and df, ssreg and ssresid. The cells those rows leave empty
+    are `#N/A`, as is seb when `const` is FALSE. An empty `const` (`=LINEST(A2:A5,B2:B5,,FALSE)`)
+    counts as TRUE, as in the page's first example.
+  - With y in one column, each column of the x's is a variable; with y in one row, each row is.
+    One variable may take any shape the y's have, and without x's they are 1, 2, 3…. x's that do
+    not line up are `#REF!`, and a blank, text or TRUE among the values is `#VALUE!`.
+  - A column the earlier ones (and the constant) already explain is left out of the model, as
+    LINEST's page says: its coefficient and standard error are 0 and it adds 1 to df. The page
+    calls the choice of which collinear column goes arbitrary. In Microsoft's GROWTH article,
+    Excel's own output drops the later one, and Sheets does the same. A column counts as explained
+    when less than 1e-10 of it is left over; Excel does not publish its tolerance.
+  - LOGEST is LINEST of ln y. Its coefficients are e raised to LINEST's, and its statistics are
+    LINEST's own. A y of 0 or below is `#NUM!`, in GROWTH too.
+  - TREND and GROWTH give the fit's y at each new x. With several variables, each row of the new
+    x's is one point (each column, when y is a row). With one variable, the new x's take any shape
+    and the answer has the same shape. Without new x's they are the known ones.
+  - A statistic that would divide by zero is `#NUM!`. For example, two points and a constant leave
+    no degrees of freedom for the standard errors. Excel's pages do not say what Excel shows there.
+- **Tests and more statistics** (R333): T.TEST, F.TEST, Z.TEST and CHISQ.TEST (and TTEST,
+  FTEST, ZTEST, CHITEST), COVAR, PEARSON, STEYX, SKEW.P, STDEVPA, VARPA, MODE.MULT, PROB,
+  SUMX2MY2, SUMX2PY2, SUMXMY2 and BINOM.DIST.RANGE.
+  - T.TEST's type 1 is paired (the arrays must be the same size), 2 assumes equal variances and 3
+    does not. Type 3 uses Welch's degrees of freedom unrounded, as Excel's T.TEST does; the Analysis
+    ToolPak rounds them, so its p-values differ slightly.
+  - MODE.MULT spills every most frequent value down a column, in the order they first appear.
+  - PROB's probabilities must add up to 1 at Excel's 15 digits, so 0.7, 0.2 and 0.1 do.
 - **Statistics:** STDEV, VAR, RANK, MODE, PERCENTILE and QUARTILE, under their old names and new
-  ones; FORECAST(.LINEAR), TREND, GROWTH, FREQUENCY.
+  ones; FORECAST(.LINEAR), TREND, GROWTH, FREQUENCY. Also AVERAGEA, MAXA and MINA (from a range,
+  text counts as 0 and TRUE as 1), TRIMMEAN, QUARTILE.EXC, PERCENTRANK and its .INC and .EXC forms
+  (truncated to three digits, as Excel does: 5 of 9 is 0.555), BINOM.DIST, and the T.DIST family
+  (T.DIST, T.DIST.RT, T.DIST.2T, TDIST). VARP and VARA under their old names.
+  - The distributions and their inverses: EXPON.DIST, POISSON.DIST, WEIBULL.DIST, HYPGEOM.DIST,
+    NEGBINOM.DIST, CHISQ.DIST(.RT) and CHISQ.INV(.RT), GAMMA.DIST and GAMMA.INV, BETA.DIST and
+    BETA.INV, F.DIST(.RT) and F.INV(.RT), LOGNORM.DIST and LOGNORM.INV, T.INV and T.INV.2T,
+    BINOM.INV, CONFIDENCE.NORM and CONFIDENCE.T; GAMMA, GAMMALN(.PRECISE), FISHER, FISHERINV, PHI,
+    GAUSS, STANDARDIZE, COMBINA, PERMUTATIONA; and the pre-2010 names (POISSON, CHIDIST, FDIST,
+    TINV, BETADIST, LOGNORMDIST, CRITBINOM…) with their own arguments — BETADIST takes bounds,
+    LOGNORMDIST is cumulative, FDIST and CHIDIST are the right tail, TINV is two-tailed.
+  - A statistic with too few numbers answers Excel's error, never a number: a sample STDEV or VAR
+    needs two (#DIV/0!), SKEW three and KURT four (#DIV/0!), a population STDEV or VAR one
+    (#DIV/0!); LARGE, SMALL, PERCENTILE and QUARTILE of an empty list are #NUM!, GEOMEAN of nothing
+    #NUM!, MODE #N/A; HARMEAN of any value of 0 or less is #NUM!.
+- **Database functions:** DSUM, DAVERAGE, DCOUNT, DCOUNTA, DMAX, DMIN, DPRODUCT, DGET, DSTDEV,
+  DSTDEVP, DVAR and DVARP, over a table whose first row names its columns, with a criteria range
+  read as Excel reads one: its first row names fields (in any case), each row under it is one
+  alternative (OR), the cells in a row must all hold (AND), a blank cell is no condition, and bare
+  text means _begins with_ (`Ap` finds Apple) while `=Apple` is exact. DGET is #VALUE! when nothing
+  matches and #NUM! when more than one record does. A criteria column whose label is not a field of
+  the table matches nothing: Excel reads such a column as a formula criterion, which is not
+  supported here.
+- **Math, trigonometry and engineering** (R330, beside the ones of every spreadsheet): ACOSH,
+  ASINH, ATANH, ACOT, ACOTH, COT, COTH, CSC, CSCH, SEC, SECH, FACTDOUBLE, MULTINOMIAL,
+  SERIESSUM, SQRTPI, CEILING.PRECISE, FLOOR.PRECISE, ISO.CEILING, DELTA, GESTEP, ERF (from 0, or
+  between two limits), ERF.PRECISE, ERFC, ERFC.PRECISE, BESSELI, BESSELJ, BESSELK, BESSELY, MUNIT,
+  MDETERM and MINVERSE. ECMA.CEILING (R340) is the name ISO.CEILING had in Excel 2010's beta, kept
+  for files that use it: it computes as ISO.CEILING, with its significance required.
+  - ERF and ERFC are right to about 16 digits, far out too: `ERFC(5)` is 1.53745979442803E-12.
+  - COT, CSC and SEC (and the hyperbolic three) take an angle below 2^27 in size, as Excel's do,
+    and 1/0 is #DIV/0!. ACOT is from 0 to π.
+  - FACTDOUBLE(-1) is 1, as in Excel, and below that #NUM!. A Bessel order is truncated, and one
+    below 0 is #NUM!.
+  - CONVERT (R332) takes every unit on Excel's page, in its groups: mass, distance, time,
+    pressure, force, energy, power, magnetism, temperature, volume, area, information and speed.
+    Units are case-sensitive, as in Excel (`"lbm"`, not `"LBM"`). The SI prefixes go on the metric
+    units (`"km"`, `"kWh"`, `"ml"`), and on a square or a cube they are squared or cubed with it
+    (`"cm2"` is 1E-4 m²). The binary prefixes (`"ki"`, `"Mi"`, `"Gi"`…) go on bits and bytes only. A
+    unit it does not know, or two of different groups, is #N/A, and the cell says which. Excel's page
+    gives 6 gallons as 22.71741274 litres; they are 22.712470704 (3.785411784 L each), which is
+    what CONVERT answers.
+  - MINVERSE of a matrix with no inverse is #NUM!. MDETERM is exact to about 16 digits, as
+    Excel's page says of its own: the 4×4 example on that page shows 88.
+- **Complex numbers:** all twenty-five of Excel's — IMSUM, IMSUB, IMPRODUCT, IMDIV, IMCONJUGATE,
+  IMPOWER, IMSQRT, IMABS, IMREAL, IMAGINARY, IMARGUMENT, IMEXP, IMLN, IMLOG10, IMLOG2, and the
+  trigonometric and hyperbolic ones (IMSIN … IMCSCH) — over Excel's text form (`3+4i`, `2-j`,
+  `1E-07+2i`) or a plain number. An answer keeps the suffix its arguments used, a mix of `i` and `j`
+  is #VALUE!, a zero part is dropped and a unit written `i` alone, and every number is written to
+  fifteen significant digits as Excel writes one (`IMDIV("1","3")` is `0.333333333333333`). Angles
+  are in (−π, π], so the negative real axis is at π: `IMSQRT("-4")` is `2i`, `IMLN("-1")` is
+  `3.14159265358979i`. Text that is not a complex number is #NUM!, TRUE or FALSE #VALUE!, a pole
+  (`IMCOT("0")`) or an overflow #NUM!. IMSUM and IMPRODUCT read ranges and pass over blank cells; a
+  blank single argument counts as 0 (Excel's own answer for a blank is unconfirmed).
+- **Matrices, bits and types:** MMULT spills its product; BITAND, BITOR, BITXOR, BITLSHIFT,
+  BITRSHIFT; COMPLEX writes Excel's text form (`3+4i`); TYPE (1 number, 2 text, 4 logical, 16 error,
+  64 array) and ERROR.TYPE (2 for #DIV/0!, 7 for #N/A…).
 - **The long tail** of statistical, financial and engineering functions.
   - CEILING, FLOOR and their .MATH forms land on the multiple a decimal step names
     (`=FLOOR(4.35,0.05)` is 4.35), and a positive number with a negative step is #NUM!, as in
@@ -91,17 +239,44 @@ Type `=` and a formula, as in Excel. About 240 functions are available:
   - For loans and investments, beside PMT, IPMT, PPMT, FV, PV, NPER, RATE, NPV, IRR, XNPV and XIRR:
     CUMIPMT and CUMPRINC (interest and principal between two periods), MIRR (which skips blank
     flows, as IRR does), FVSCHEDULE, SYD, ISPMT, PDURATION and RRI.
+  - For securities (R335): the coupon schedule (COUPDAYBS, COUPDAYS, COUPDAYSNC, COUPNCD, COUPNUM,
+    COUPPCD), the discount family (DISC, INTRATE, PRICEDISC, RECEIVED, YIELDDISC), ACCRINTM,
+    PRICEMAT and YIELDMAT, the Treasury bills (TBILLEQ, TBILLPRICE, TBILLYIELD), and DOLLARDE and
+    DOLLARFR. They take Excel's five day-count bases: 0 US 30/360, 1 actual/actual, 2 actual/360,
+    3 actual/365 and 4 European 30/360. A coupon schedule from a month's last day stays on last
+    days, and COUPNCD and COUPPCD return date numbers, so format them as dates. Dates, the
+    frequency and the basis are truncated; a frequency other than 1, 2 or 4, a basis past 4, or
+    settlement on or after maturity is #NUM!, as on Excel's pages.
+  - Bonds (R336): PRICE, YIELD, DURATION, MDURATION, ACCRINT, ODDFPRICE, ODDFYIELD, ODDLPRICE and
+    ODDLYIELD, each from its page's equation, and AMORDEGRC and AMORLINC (French depreciation, with
+    no basis 2). YIELD and ODDFYIELD solve their price function for the yield; with one period
+    left YIELD uses its page's closed form. DURATION times each cash flow from the days to the next
+    coupon (DSC/E), as its page's 10.9191453 requires. ACCRINT sums its page's quasi-coupon
+    periods: with settlement past the first interest date it can differ from a YEARFRAC-based
+    figure (LibreOffice's), and follows Excel's page. AMORDEGRC is checked against its page for
+    periods 0 and 1; later periods follow the add-in's algorithm and have not been checked
+    against Excel.
+  - YEARFRAC uses the same day counts (R335). It now counts a 31st as the 30th under European
+    30/360, and takes a 366-day year only for a span that holds a February 29th.
+  - Excel's DISC page prints 0.001038 for 1 July 2018 to 1 January 2048. Those dates give 0.000686;
+    0.001038 is what a maturity in 2038 gives. DISC answers for the dates you give it.
+  - VDB depreciates from one period to another by declining balance (double, unless a factor is
+    given) and switches to straight line over what is left once that is larger, unless its last
+    argument is TRUE. A part period takes its share of that period, so `=VDB(2400,300,10,0,0.875,1.5)`
+    is 315 and the pieces of a life add up to cost − salvage. A span that ends before it starts or
+    after the life, a negative number, a factor of 0 or a salvage above the cost is #NUM!.
   - They read their arguments as Excel does. In a range, a blank cell is not a 0, and text and TRUE
     are left out, so `=GEOMEAN(A1:A3)` over 1, a blank and 3 is 1.73 and `=NPV(0.1,A1:A3)`
     discounts two payments, not three. STDEVA counts text as 0 and TRUE as 1, and still skips
     blanks.
   - CORREL, SLOPE, INTERCEPT, RSQ, COVARIANCE and FORECAST read their two ranges side by side, and
     leave out a row where either is not a number.
+  - Data that do not vary give `#DIV/0!`, as on each function's page (R337). SLOPE, INTERCEPT and
+    FORECAST do so when the x's do not vary; CORREL, PEARSON and RSQ when either list does not. With
+    no pairs at all each is `#N/A`, except CORREL, which is `#DIV/0!`.
   - VSTACK, HSTACK, TAKE, DROP, CHOOSECOLS and CHOOSEROWS take one value as a one-cell array, so
     `=VSTACK("Name",A2:A9)` puts a heading over a list. A RANK of a number not in the list is
     `#N/A`.
-
-Not yet: LAMBDA and AGGREGATE. A file that uses them shows the value Excel last saved.
 
 The same rules as Excel apply:
 
@@ -113,6 +288,12 @@ The same rules as Excel apply:
 - General shows ten significant digits, and a whole part of eleven digits in full:
   12345678901.005 shows as `12345678901`. Numbers from 1E+11 up and under 1E-6 show in scientific
   notation with a two-digit exponent (`1.5E-07`).
+- A General number wider than its column is rounded to fit, as in Excel (R334). It keeps fewer
+  decimals while a digit that is not 0 is left, so 0.000308192017 shows as `0.000308192`, then
+  `0.000308` and `0.0003` as the column narrows. Then it moves to scientific notation with fewer
+  digits: `3E-04`, and `1.23E+08` for 123456789. It is rounded from the 15 digits Excel keeps, so
+  2.675 shows as `2.68`. Only when nothing fits does it show `####`. A number with a format of its
+  own (`0.00`, a currency, a date) shows `####` when it does not fit, as in Excel.
 - A number format past 15 digits shows 15 and then zeros, as Excel does:
   `=TEXT(12345678901234567,"#,##0")` is `12,345,678,901,234,600`, and `=TEXT(1.5E+21,"0")` writes
   out all 22 digits.
@@ -124,6 +305,12 @@ The same rules as Excel apply:
   `=TEXT(0.01+0.075,"0.00")` is 0.09. TEXT of a blank cell is TEXT of 0 (`0.00`).
 - ROUND, ROUNDUP, ROUNDDOWN and TRUNC round the same 15 digits: `=ROUND(1.005,2)` is 1.01, and
   `=TRUNC(0.29,2)` is 0.29 (TRUNC is ROUNDDOWN, as in Excel).
+- `=`, `<>`, `<`, `>`, `<=` and `>=` compare numbers to the 15 significant digits Excel keeps
+  (R327): `=0.1+0.2=0.3` is TRUE, and `=(0.1+0.2)>0.3` is FALSE. MATCH, the lookups and sorting
+  compare the stored values, as Excel's do, so a lookup of a computed value can still miss; ROUND
+  it first.
+- UPPER and LOWER change case one character for one, as Excel does (R327): `=UPPER("straße")` is
+  `STRAßE`, `=LOWER("İ")` is `i`, and a final Σ lowers to σ.
 - PROPER capitalises the first letter of each word in any alphabet: `=PROPER("ÉCOLE normale")` is
   `École Normale`. As in Excel, anything that is not a letter starts a word, so `o'neil 2-way`
   becomes `O'Neil 2-Way`. A letter whose capital is two letters, such as `ß`, stays as it is.
@@ -137,9 +324,20 @@ The same rules as Excel apply:
     `SUM(--(A:A=""))` and `COUNT(IF(A:A="",1))` all give the number of blank rows, and
     `MATCH(TRUE,INDEX(A:A="",0),0)` the first empty one.
   - A whole column spilled into the grid (`=A:A=""` in a cell) shows only the rows the sheet uses.
+  - ROW and COLUMN of a range give every row (as a column) and every column (as a row), as Excel's
+    do (R337). `=SUMPRODUCT((A1:A9="x")*ROW(A1:A9))` sums the matching rows, and LINEST's page's
+    `=LINEST(y, x^COLUMN($A:$C))` fits a cubic. `ROW(A:A)` is the exception to the million rows
+    above: it runs to the rows the sheet uses, where Excel's runs to row 1,048,576.
+    `MAX((A:A<>"")*ROW(A:A))` still finds the last row; the blank rows below the data are not
+    numbered.
 - Array formulas work element by element, as in Excel's dynamic arrays:
   - A function of one value given a range answers for each cell: `ISNUMBER(SEARCH("x",A2:A9))`,
-    `LEN(A2:A9)`, `ROUND(B2:B9,0)`.
+    `LEN(A2:A9)`, `ROUND(B2:B9,0)`, `SUM(SIN(A2:A9))`, `PMT(5%/12,360,-B2:B9)`,
+    `NORM.S.DIST(A2:A9,TRUE)`. Every function whose arguments each take one value does this
+    (R329): the math, trigonometry, number-system, complex-number, distribution, loan,
+    depreciation and date functions. One that takes a list (GCD, NPV, IMSUM, the statistics) takes
+    the whole range, and NETWORKDAYS and WORKDAY take their start and end one by one but their
+    holidays as one list, down a column or across a row.
   - So does the one value of a lookup or a criterion: `MATCH(A2:A9,list,0)`,
     `SUM(COUNTIF(A:A,{"apple","cherry"}))`.
   - `IF` over a range takes each branch's cell in the same place, so `MAX(IF(A2:A9="West",C2:C9))`
@@ -147,6 +345,11 @@ The same rules as Excel apply:
     on its own.
 - A formula whose answer is an empty cell (`=A500`, a gap in a spilled range) shows 0, as in Excel.
 - Errors are `#DIV/0!`, `#N/A`, `#VALUE!`, `#REF!` and `#NAME?`. A cell with an error explains it when you hover over it.
+- A value a function's page in Excel's documentation refuses gets the error that page names
+  (R329): `FACT(-1)` and `NORM.INV(0,0,1)` are `#NUM!`, `ROMAN(4000)` is `#VALUE!`, `ATAN2(0,0)`
+  and `LOG(10,1)` are `#DIV/0!`. The same holds for the inverse distributions at their bounds,
+  EXPON.DIST, POISSON.DIST and WEIBULL.DIST below 0, PERMUT, QUOTIENT, BASE and
+  CONFIDENCE.NORM.
 
 A formula that returns several values (UNIQUE, FILTER, SORT, SEQUENCE) **spills** into the cells below and to the
 right. If a typed value is in the way, the formula shows `#SPILL!` and says which cells it needs;
@@ -161,7 +364,10 @@ While a formula is being typed:
 - The list under the formula bar suggests function names and the workbook's names. Press
   **Tab** to insert one.
 - A hint shows the arguments of the function the caret is in.
-- Clicking or dragging across cells inserts their reference, as Excel's point mode does.
+- Clicking or dragging across cells inserts their reference, as Excel's point mode does. Dragging
+  across the whole of a spilled array inserts its spill reference, `A2#`, so the formula follows the
+  array when it grows or shrinks; part of it is an ordinary range, and a spill that is blocked has
+  no `A2#`.
 
 Open parentheses are closed for you on **Enter**.
 
@@ -188,6 +394,8 @@ A name stands for cells, a range or a value, and formulas use it as Excel's do:
 - A name for cells is a reference wherever a function takes one: `ROWS(Revenue)`,
   `INDEX(Revenue,2)`, `OFFSET(Revenue,1,0)`, `SUMIFS(Revenue,Region,"West")`. A name that refers
   to itself shows `#CYCLE!`. LET's own names come before the workbook's.
+- A name can hold a LAMBDA, and formulas then call it like a function (R328): `DOUBLE` as
+  `LAMBDA(x, x*2)` makes `=DOUBLE(B2)`. Such a name may call itself; see Functions of your own.
 
 A name follows Excel's rules: it starts with a letter or `_`, holds letters, digits, `.` and `_`, and
 cannot read as a cell (`A1`, `R1C1`) or as TRUE or FALSE. Case does not matter. A workbook keeps up
@@ -245,6 +453,7 @@ own menu: hide and unhide,
 
 **Paste special…** (Ctrl+Alt+V, or the cell's menu) is Excel's Paste Special, for cells copied in
 the workbook.
+
 - **Paste.** All; Formulas (the target keeps its formats); Values (what the cells showed); Values and
   number formats; Formats; or Notes.
 - **Operation.** Add, subtract, multiply or divide each copied number into the cell it lands on. A
@@ -257,7 +466,9 @@ the workbook.
 It is one Ctrl+Z. After a cut it is refused, as in Excel: what was cut moves whole.
 
 A cell's menu also has **Insert cells…** and **Delete cells…**, as Excel's: shift the neighbouring
-cells right or down (insert) or left or up (delete), or take whole rows or columns. Only the cells
+cells right or down (insert) or left or up (delete), or take whole rows or columns. The dialog starts
+on the way the selection's shape suggests: sideways for a selection taller than it is wide (B8:B12
+shifts right), up or down otherwise, one cell included. Only the cells
 in the block's rows (or columns) move. Formulas that pointed at a moved cell follow it, and one
 that pointed into deleted cells shows `#REF!`. A range follows when it lies wholly in the rows (or
 columns) that move, so `=SUM(A2:E2)` grows with a cell inserted into row 2, while `=SUM(C1:C9)`
@@ -282,6 +493,15 @@ A sheet tab's menu (the arrow on the tab) renames, duplicates, moves, hides and 
   view moves to the next one showing. Ctrl+Z takes back a Hide or an Unhide, and a hidden sheet
   is never left on screen.
 - A workbook keeps at least one sheet showing, so hiding or deleting the last one is refused.
+  That holds for two deletes arriving at the same moment too: the count that decides is taken
+  after the delete, and a delete that turns out to have taken the last sheet puts it back whole,
+  cells and all, and says so (R246). If a workbook does end up with no sheets, it says that
+  plainly and offers to add one, rather than sitting on "Opening…".
+- **Delete** asks first, and says what goes. A grid sheet's cells go with it, and formulas
+  elsewhere that refer to it show #REF!. A table sheet has no cells: only the sheet goes, and the
+  lakehouse table (or the query's tables, or the sheet a pivot sums up) stays; a table Sheets held
+  — rows uploaded or imported into it — can be changed from the Lakehouse again. Formulas and
+  pivots that use a deleted table sheet show an error.
 - Moving a tab passes over the hidden sheets beside it, and Find leaves hidden sheets out, as
   Excel's does.
 - Only grid sheets can be hidden or duplicated for now.
@@ -342,6 +562,7 @@ A cell with a note has a red corner at its top right. The note shows on hover, a
 active cell. A note can sit on an empty cell, as in Excel.
 
 A note stays with its cell:
+
 - a sort moves it with its row;
 - Copy and Paste bring it, and Cut moves it;
 - inserted and deleted rows move it.
@@ -401,7 +622,7 @@ TEXT(). Among them:
   argument's, so `=SUM(B1:B9)` over dollars is dollars. Two dates apart (`=A2-A1`) are a number of
   days. `*` and `/` take none (Excel would show `=A1*100` over 12% as 1200%).
 - **Spacing codes:** `_)` is a space as wide as ")", so `#,##0_);(#,##0)` lines up positives with
-  negatives, and Excel's Accounting format `_("$"* #,##0.00_)` shows ` $1,234.50 `. A fill (`* `),
+  negatives, and Excel's Accounting format `_("$"* #,##0.00_)` shows `$1,234.50`. A fill (`* `),
   which Excel stretches to the cell's width, is left out.
 
 ### Conditional formatting
@@ -456,6 +677,7 @@ data sorted here finds its rows.
 
 **Data → Sort…** is Excel's Custom Sort. It sorts the selection, the data around the active cell,
 or the filter's range when the active cell is in it.
+
 - **Levels.** Sort by one column, then by another for rows that tie, and so on (up to 8 levels),
   each A to Z or Z to A. **Add level** takes the next column not used yet. Levels move up and down
   and are deleted with the buttons beside them.
@@ -478,6 +700,7 @@ row, so checking only Email keeps one row per address. **My data has headers** k
 out of it; it is ticked when the first row is all text.
 
 As in Excel, cells are compared as they are shown, ignoring case:
+
 - `ASHA@EXAMPLE.COM` repeats `asha@example.com`;
 - the number 1 repeats the text `1`;
 - one date shown as `2026-03-08` and as `8 Mar 2026` does not repeat.
@@ -491,8 +714,9 @@ many remain. One Ctrl+Z puts them back.
 
 **Data → Text to columns…** splits each cell of one column into the cells to its right, as
 Excel's does: "Asha Rao" into Asha and Rao, "Lisbon,PT,2026" into three.
+
 - **Split at.** Tab, semicolon, comma, space, or any other one character. **Treat several in a
-  row as one** makes "Asha   Rao" two pieces, not four.
+  row as one** makes "Asha Rao" two pieces, not four.
 - **Quotes.** Text in double quotes (or single, or none) stays whole: `"Lisbon, PT",2026` is two
   pieces. A doubled quote inside is one quote.
 - **Destination.** The first cell of the column unless you type another. A preview shows the first
@@ -621,7 +845,7 @@ sheet follows, as does `=SUM(ByMonth[revenue])` in a grid sheet.
   out, and at most 1,000 values are used.
 - **Row Zero's quoted form** reads the same: `'{{Start}}'` and `{{Start}}` are one value.
 - **A variable whose name is not defined** stops the sheet with a reason (`{{Region}} has no value: name a cell
-  Region…`) rather than showing no rows. The query editor lists each variable with its value now.
+Region…`) rather than showing no rows. The query editor lists each variable with its value now.
 
 The values travel with each read, and the SQL is still the saved one: a value is bound as a literal
 on the server, whatever a browser sends.
@@ -639,7 +863,9 @@ sheet's calculated columns, pivots and formulas stand on its columns. So it is c
 Sheets:
 
 - In the Lakehouse it reads like any table. Its page says **Held by Sheets · workbook › sheet**,
-  links to the sheet, and offers no **Insert row** or **Drop**.
+  links to the sheet, and offers no **Insert row** or **Drop**. If it is also a materialized view,
+  **Rebuild** is off, and says why on hover: only Sheets changes it; delete the sheet, and it can
+  be rebuilt there.
 - Anything that would change it is refused, naming the sheet:
   - a statement in the SQL editor or a workflow SQL step;
   - an ETL pipeline writing it;
@@ -647,7 +873,7 @@ Sheets:
   - a materialized view, SQL model or batch prediction whose name it has taken;
   - dropping the schema that holds it.
 - To change the data somewhere else, copy it: `CREATE TABLE schema.table_copy AS SELECT * FROM
-  schema.table`. Or delete the sheet in Sheets; the table stays, and is an ordinary lakehouse
+schema.table`. Or delete the sheet in Sheets; the table stays, and is an ordinary lakehouse
   table again.
 
 A table opened from the Lakehouse or the catalog is not held: it was there before the sheet and
@@ -786,6 +1012,28 @@ own product; `=SUM(LEN(A2:A4))` becomes `=SUM(LEN(@A2:A4))`. Where every Excel w
 changes. A download gives such a formula back as it came, and an `@` that older Excel would not read
 the same goes out as Excel 365's `_xlfn.SINGLE`.
 
+A function whose answer can be several values takes the `@` too, where the cell takes its answer
+(R338). In the Excel that wrote it, `=LINEST(B2:B7,A2:A7)` typed in one cell showed the slope alone,
+and `=ROW(A2:A4)` showed 2. Here they become `=@LINEST(B2:B7,A2:A7)` and `=@ROW(A2:A4)` and show the
+same, rather than spilling. This follows Microsoft's page on `@`, which gives `=INDEX(A1:A10,B1)` as
+`=@INDEX(A1:A10,B1)` and `=OFFSET(A1:A2,1,1)` as `=@OFFSET(A1:A2,1,1)`:
+
+- **Which functions.** LINEST, LOGEST, TREND, GROWTH, TRANSPOSE, MMULT, MINVERSE, FREQUENCY and
+  MODE.MULT always take the `@`. ROW and COLUMN take it over several cells. INDEX, OFFSET and
+  INDIRECT take it unless their own arguments pick one cell: `INDEX(A1:A10,3)`, `OFFSET(A1,1,1)` and
+  `INDIRECT("B2")` stay as they are.
+- **Under an operator or a function of one value**, the `@` still goes in: `=ABS(-LINEST(…))` becomes
+  `=ABS(-@LINEST(…))`.
+- **A range that IF, IFERROR or CHOOSE passes on to the cell** takes it too: `=IF(A2>0,B2:B7,0)`
+  becomes `=IF(A2>0,@B2:B7,0)`.
+- **Not inside a function that takes an array or range.** The page names SUM and AVERAGE as the
+  exception, so `=SUM(LINEST(B2:B7,A2:A7)*{9,1})` (LINEST's page's 11,000) stays as it is.
+- **What `@` takes from the answer.** From a range that INDEX, OFFSET or INDIRECT answers with, `@`
+  takes the cell in the formula's own row or column, as it does from a range written out. In row 5,
+  `=@INDEX(A2:B7,0,2)` is B5, and in row 8 it is `#VALUE!`. From any other array, `@` takes the first
+  value.
+- **On the way out**, a download drops these `@` again, so older Excel reads the formula as it was.
+
 **Hidden sheets** come in hidden, and so do very hidden ones (helper sheets that only a macro can
 show), so the formulas that read them still compute. The dialog marks each one "(hidden, as in
 Excel)". The workbook opens on the first sheet showing. A download writes them hidden, and Excel
@@ -793,6 +1041,7 @@ opens on the first sheet showing too. A very hidden sheet goes back out as an or
 
 The file's **named ranges** come with it, with their comments, and the formulas that use them
 compute here. The dialog says how many there are. Some are left out, and the import says which:
+
 - Excel's own names (print areas, filter ranges);
 - hidden helper names;
 - names pointing into another workbook;
@@ -828,7 +1077,11 @@ as a plain formula, Excel would take only the value in the formula's own row. Ex
 show these formulas in braces, as array formulas.
 Functions Excel added after 2007 go out under the names Excel's files use for them
 (`_xlfn.XLOOKUP`, `_xlfn._xlws.FILTER`, `_xlfn.NUMBERVALUE`), every one Sheets computes; without
-the prefix Excel reads the name as unknown and, recalculating on open, shows #NAME?.
+the prefix Excel reads the name as unknown and, recalculating on open, shows #NAME?. LET's names
+and a LAMBDA's parameters go out as `_xlpm.x`, where they are given and where they are used
+(R328): `=LET(x,1,x+1)` is `_xlfn.LET(_xlpm.x,1,_xlpm.x+1)` in the file. A workbook name that
+holds a LAMBDA goes out with the names, and a file's named LAMBDAs come in computing, recursive
+ones included, rather than showing the values Excel saved.
 A table sheet contributes the rows its view shows (its filters, sort and hidden columns), read
 through the lakehouse, so your grants and row and column policies apply, up to
 `SHEETS_EXPORT_MAX_ROWS` (100,000). **Download this sheet as CSV** writes the active sheet as it
@@ -884,13 +1137,13 @@ The workbook's owner shares it from **Share**, beside **File**. It can go to a p
 they sign in with, or to an IAM group. The share lets them view it or edit it. It then appears on
 their Sheets page with who shared it, and **Shared with me** lists only those.
 
-| What | Owner | Can edit | Can view |
-|---|---|---|---|
-| Open it, sort and filter a table sheet's view, download | ✓ | ✓ | ✓, what the share gives |
-| Change cells, sheets and table settings; pivots; version history; save to the lakehouse; rename | ✓ | ✓ | |
-| Add a table sheet over a lakehouse table | ✓ | ✓ | |
-| Upload a file, import from a connection, refresh an import | ✓ | | |
-| Share it, delete it | ✓ | | |
+| What                                                                                            | Owner | Can edit | Can view                |
+| ----------------------------------------------------------------------------------------------- | ----- | -------- | ----------------------- |
+| Open it, sort and filter a table sheet's view, download                                         | ✓     | ✓        | ✓, what the share gives |
+| Change cells, sheets and table settings; pivots; version history; save to the lakehouse; rename | ✓     | ✓        |                         |
+| Add a table sheet over a lakehouse table                                                        | ✓     | ✓        |                         |
+| Upload a file, import from a connection, refresh an import                                      | ✓     |          |                         |
+| Share it, delete it                                                                             | ✓     |          |                         |
 
 An import makes a new table in its owner's schema, which the sheet then holds (see
 [Tables a sheet holds](#tables-a-sheet-holds)), so importing is the owner's alone.
@@ -911,6 +1164,7 @@ A share to view can keep things back:
 
 **Several shares combine to the widest.** Someone can have shares to themselves and to groups they
 are in:
+
 - an editor share wins;
 - a sheet is left out only if every share leaves it out;
 - a row is kept if any share keeps it.
@@ -937,6 +1191,7 @@ you would ask a colleague who knows Excel: "total units for West", "add a revenu
 summary sheet by region with a chart", "why is H2 #N/A?".
 
 The model starts from a short description of the workbook:
+
 - each sheet's name, header row, size and a few sample rows;
 - a table sheet's columns;
 - the active cell.
@@ -944,12 +1199,12 @@ The model starts from a short description of the workbook:
 It does not see the values. To answer, it asks the workbook for them, and the browser works out
 each request from the workbook as you see it:
 
-| It asks to         | What it gets back                                                          |
-| ------------------ | -------------------------------------------------------------------------- |
-| Read a range       | The values as shown (at most 2,000 cells at a time)                        |
-| Evaluate a formula | Any Excel formula, computed by the workbook, including totals over tables  |
-| Describe a sheet   | Its columns, their types, its size and a sample                            |
-| Find a text        | The cells whose shown text contains it                                     |
+| It asks to         | What it gets back                                                         |
+| ------------------ | ------------------------------------------------------------------------- |
+| Read a range       | The values as shown (at most 2,000 cells at a time)                       |
+| Evaluate a formula | Any Excel formula, computed by the workbook, including totals over tables |
+| Describe a sheet   | Its columns, their types, its size and a sample                           |
+| Find a text        | The cells whose shown text contains it                                    |
 
 Each request shows as a step under the answer, such as `Computed =SUMIFS(BiDemoSales[revenue],
 BiDemoSales[region], "EMEA")`, so you can see where a number came from. The model is told never to
@@ -969,6 +1224,7 @@ Each proposal says in plain words what it will do. **Apply** carries it out as o
 
 **Before the proposals are shown, the panel checks each one against the workbook, without changing
 anything.** A proposal is sent back when:
+
 - it can't be carried out (a sheet that isn't there, a table sheet, two blocks of cells where one is
   needed);
 - it would leave every cell as it is;
@@ -1013,6 +1269,7 @@ into it.
 **The model.** The assistant's **Model** row picks it, as the platform's other AI tools do. It
 lists the model providers connected for you (Integrations, or the instance's OpenRouter key) and
 their models, leaving out any an IAM model rule refuses you.
+
 - **Default · …** is the admin's model: `SHEETS_ASSIST_MODEL` under **Admin → Developer runtime →
   Data platform**.
 - **Remembered.** Your pick is remembered in this browser, and Fill with AI runs on it too; its
@@ -1047,18 +1304,18 @@ Sharing is audited as `sheet.share` and `sheet.unshare` ([Sharing](#sharing)).
 
 ## Limits
 
-| Setting                           | Default | What it bounds                                                |
-| --------------------------------- | ------- | ------------------------------------------------------------- |
-| `SHEETS_MAX_CELLS`                | 200,000 | Non-empty cells one grid sheet may hold                       |
-| `SHEETS_PAGE_ROWS`                | 500     | Rows a table sheet fetches per page while scrolling           |
-| `SHEETS_UPLOAD_MAX_MB`            | 50      | The largest CSV an upload brings into the lakehouse           |
-| `SHEETS_IMPORT_MAX_SHEETS`        | 100     | Sheets one Excel or CSV import may bring into a workbook      |
-| `SHEETS_EXPORT_MAX_ROWS`          | 100,000 | Rows of a table sheet written into a downloaded .xlsx or .csv |
-| `SHEETS_VERSION_INTERVAL_MINUTES` | 30      | The least time between two automatic versions of a workbook   |
-| `SHEETS_VERSIONS_MAX`             | 50      | Automatic versions kept per workbook (named ones are kept)    |
+| Setting                           | Default                       | What it bounds                                                          |
+| --------------------------------- | ----------------------------- | ----------------------------------------------------------------------- |
+| `SHEETS_MAX_CELLS`                | 200,000                       | Non-empty cells one grid sheet may hold                                 |
+| `SHEETS_PAGE_ROWS`                | 500                           | Rows a table sheet fetches per page while scrolling                     |
+| `SHEETS_UPLOAD_MAX_MB`            | 50                            | The largest CSV an upload brings into the lakehouse                     |
+| `SHEETS_IMPORT_MAX_SHEETS`        | 100                           | Sheets one Excel or CSV import may bring into a workbook                |
+| `SHEETS_EXPORT_MAX_ROWS`          | 100,000                       | Rows of a table sheet written into a downloaded .xlsx or .csv           |
+| `SHEETS_VERSION_INTERVAL_MINUTES` | 30                            | The least time between two automatic versions of a workbook             |
+| `SHEETS_VERSIONS_MAX`             | 50                            | Automatic versions kept per workbook (named ones are kept)              |
 | `SHEETS_ASSIST_MODEL`             | Gemini 3 Flash via OpenRouter | The model the assistant and Fill with AI call ([AI](#ai-in-a-workbook)) |
-| `SHEETS_ASSIST_PER_MINUTE`        | 30      | Model calls one person's assistant and Fill with AI may make a minute |
-| `SHEETS_AI_FILL_MAX_ROWS`         | 2,000   | Rows one Fill with AI works through                            |
+| `SHEETS_ASSIST_PER_MINUTE`        | 30                            | Model calls one person's assistant and Fill with AI may make a minute   |
+| `SHEETS_AI_FILL_MAX_ROWS`         | 2,000                         | Rows one Fill with AI works through                                     |
 
 All ten are editable under **Admin → Developer runtime**. A direct import from a connection is
 also bounded by `WAREHOUSE_ABS_MAX_ROWS`. A larger result is refused, never truncated; land it with

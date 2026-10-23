@@ -17,10 +17,11 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { describeBlockedShare, groupAllowsModel, groupsBlocked } from "@/lib/analystSharing";
 import { isModelAllowed } from "@/utils/iam.server";
 import { parseModelChoice } from "@/utils/providers/modelChoice";
+import { callerFailure } from "@/utils/callerLookup.server";
 
 async function requireUserId(accessToken: string): Promise<string> {
   const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
-  if (error || !data.user) throw new Error("Unauthorized");
+  if (error || !data?.user) throw new Error(callerFailure(error, "Unauthorized"));
   return data.user.id;
 }
 
@@ -77,7 +78,7 @@ async function blockedGroupNames(groupIds: string[], model: string): Promise<str
 }
 
 export const analystGetShares = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), analyst_id: z.string().uuid() }).parse(input),
   )
   .handler(
@@ -104,7 +105,7 @@ export const analystGetShares = createServerFn({ method: "POST" })
 
 /** Replace the set of groups this analyst is shared with (owner only). */
 export const analystSetShares = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -172,7 +173,7 @@ export const analystSetShares = createServerFn({ method: "POST" })
  * that does not.
  */
 export const analystRunNow = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), thread_id: z.string().uuid() }).parse(input),
   )
   .handler(

@@ -1,7 +1,7 @@
 // Semantic Layer — define governed metrics + dimensions over a dataset, then
 // query them (the same definitions the metric_query agent tool consumes).
 import { confirmAsk } from "@/components/ui/confirm-dialog";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useBlocker } from "@tanstack/react-router";
 import { z } from "zod";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
@@ -32,7 +32,8 @@ import type { LucideIcon } from "lucide-react";
 
 import { llmJson } from "@/lib/biAgent";
 import { clickable } from "@/lib/clickable";
-import { BiModelSelect, useBiModelPref } from "@/components/bi/BiModelSelect";
+import { BiModelSelect } from "@/components/bi/BiModelSelect";
+import { useBiModelPref } from "@/components/bi/biModelPref";
 import { AddMetricToDashboardDialog } from "@/components/bi/AddMetricToDashboardDialog";
 import { useAuth } from "@/hooks/use-auth";
 import { Badge } from "@/components/ui/badge";
@@ -102,6 +103,7 @@ import { diffSemanticDefinitions, type SemanticDefinitionDiff } from "@/lib/sema
 import { DbtImportDialog } from "@/components/semantics/DbtImportDialog";
 import type { Json } from "@/integrations/supabase/types";
 import { listWarehouseConnections, saveWarehouseConnection } from "@/utils/warehouse.functions";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 /**
  * Arriving from a lakehouse table with "Define metrics on this".
@@ -343,6 +345,20 @@ function SemanticsPage() {
   const [whConns, setWhConns] = useState<WhConn[]>([]);
   const [whTables, setWhTables] = useState<Record<string, WhTable[] | "loading" | "error">>({});
   const [draft, setDraft] = useState<Draft | null>(null);
+  // The draft as it was opened or last saved, so the page can tell what is
+  // unsaved (R277, sweep 8). Values a validation samples into the draft count:
+  // they are kept only by the next Save.
+  const [savedDraft, setSavedDraft] = useState<string | null>(null);
+  const unsaved = draft !== null && savedDraft !== JSON.stringify(draft);
+  // Set when Save was refused because the model was saved elsewhere since this
+  // page read it (R286, sweep 9). The fingerprint it sends is draftRow's.
+  const [stale, setStale] = useState(false);
+  /** Open a draft in the editor as the saved state. */
+  const openDraft = useCallback((d: Draft | null) => {
+    setDraft(d);
+    setSavedDraft(d ? JSON.stringify(d) : null);
+    setStale(false);
+  }, []);
   // The raw DB row being edited — the "last saved" state History diffs against.
   const [draftRow, setDraftRow] = useState<Record<string, unknown> | null>(null);
   // A grantee's enforced share restrictions, when this model is shared TO the
@@ -466,8 +482,7 @@ function SemanticsPage() {
       // because a connector call failed.
       try {
         const conns = (await listWarehouseConnections({ data: { access_token: token } })) as
-          | { ok: true; connections: WhConn[] }
-          | { ok: false };
+          { ok: true; connections: WhConn[] } | { ok: false };
         setWhConns(conns.ok ? conns.connections : []);
       } catch {
         setWhConns([]);
@@ -514,7 +529,7 @@ function SemanticsPage() {
   const openOnLakehouseTable = useCallback(
     (connId: string, schema: string, table: string) => {
       ensureWhTables(connId);
-      setDraft({
+      openDraft({
         ...emptyDraft(),
         name: slug(table),
         label: table,
@@ -528,7 +543,7 @@ function SemanticsPage() {
       // work this page exists for.
       setEditorTab("fields");
     },
-    [ensureWhTables],
+    [ensureWhTables, openDraft],
   );
 
   useEffect(() => {
@@ -567,14 +582,15 @@ function SemanticsPage() {
       });
       if (!res.ok) return toast.error(res.error);
       const conns = (await listWarehouseConnections({ data: { access_token: token } })) as
-        | { ok: true; connections: WhConn[] }
-        | { ok: false };
+        { ok: true; connections: WhConn[] } | { ok: false };
       const lake = conns.ok ? conns.connections.find((c) => c.provider === "lakehouse") : undefined;
       if (!lake) return toast.error("The lakehouse connected but did not come back in the list");
       setWhConns(conns.ok ? conns.connections : []);
       openOnLakehouseTable(lake.id, pendingLakehouse.schema, pendingLakehouse.table);
       setPendingLakehouse(null);
       toast.success("Lakehouse connected");
+    } catch (e) {
+      reportFailure("connect the lakehouse", e);
     } finally {
       setConnecting(false);
     }
@@ -590,7 +606,7 @@ function SemanticsPage() {
         masked_fields: string[];
       } | null) ?? null;
     const masked = new Set((policy?.masked_fields ?? []).map((f) => f.toLowerCase()));
-    setDraft({
+    openDraft({
       id: m.id as string,
       user_id: (m.user_id as string) ?? undefined,
       name: (m.name as string) ?? "",
@@ -748,7 +764,31 @@ function SemanticsPage() {
 
   const patch = (p: Partial<Draft>) => setDraft((d) => (d ? { ...d, ...p } : d));
 
-  const save = async () => {
+  /**
+   * Ask before unsaved edits are replaced or left; true when it may go ahead.
+   * FOUND IN R277: another model, New model, a link and a closed tab all
+   * dropped the draft without a word.
+   */
+  async function mayDiscard(what: string): Promise<boolean> {
+    if (!unsaved) return true;
+    const savedName = models.find((m) => m.id === draft?.id)?.name as string | undefined;
+    return Boolean(
+      await confirmAsk({
+        title: savedName ? `Discard the changes to "${savedName}"?` : "Discard the new model?",
+        // A model's changes are "them"; a new model is "it".
+        body: savedName ? `They are not saved. ${what} them.` : `It is not saved. ${what} it.`,
+        actionLabel: "Discard changes",
+      }),
+    );
+  }
+
+  useBlocker({
+    shouldBlockFn: async () => !(await mayDiscard("Leaving the page drops")),
+    enableBeforeUnload: unsaved,
+    disabled: !unsaved,
+  });
+
+  const save = async (overwrite = false) => {
     if (!draft) return;
     if (isShared)
       return toast.error("This model is shared read-only — only its owner can edit it.");
@@ -761,6 +801,9 @@ function SemanticsPage() {
       const res = (await upsertFn({
         data: {
           accessToken: token,
+          expectedFingerprint: overwrite
+            ? undefined
+            : ((draftRow?.fingerprint as string | undefined) ?? undefined),
           model: {
             id: draft.id,
             name: draft.name.trim(),
@@ -782,9 +825,17 @@ function SemanticsPage() {
             rollups: rollupsToPayload(draft.rollups),
           },
         },
-      })) as { id: string };
+      })) as { id: string; fingerprint: string } | { stale: true; error: string };
+      if ("stale" in res) {
+        setStale(true);
+        toast.error(res.error);
+        return;
+      }
+      setStale(false);
+      setDraftRow((r) => (r ? { ...r, fingerprint: res.fingerprint } : r));
       toast.success("Saved");
       setDraft((d) => (d ? { ...d, id: res.id } : d));
+      setSavedDraft(JSON.stringify({ ...draft, id: res.id }));
       await load();
       // Refresh the raw row: a definition change may have DECERTIFIED the
       // model (DB trigger) and has certainly written a new history version —
@@ -1198,8 +1249,9 @@ function SemanticsPage() {
           <Button
             size="sm"
             className="w-full"
-            onClick={() => {
-              setDraft(emptyDraft());
+            onClick={async () => {
+              if (!(await mayDiscard("Starting a new model replaces"))) return;
+              openDraft(emptyDraft());
               setEditorTab("source");
               setResult(null);
             }}
@@ -1237,7 +1289,12 @@ function SemanticsPage() {
                       ? "border-primary bg-primary/[0.03]"
                       : "hover:border-primary/40"
                   }`}
-                  {...clickable(() => editModel(m), `Semantic model ${m.name}`)}
+                  {...clickable(() => {
+                    if (m.id === draft?.id) return;
+                    void mayDiscard("Opening another model replaces").then((go) => {
+                      if (go) editModel(m);
+                    });
+                  }, `Semantic model ${m.name}`)}
                 >
                   <CardContent className="flex items-center justify-between gap-2 p-3">
                     <div
@@ -1408,11 +1465,45 @@ function SemanticsPage() {
                 {validating ? "Validating…" : "Validate"}
               </Button>
               {!isShared && (
-                <Button size="sm" onClick={save} disabled={saving}>
+                <Button size="sm" onClick={() => void save()} disabled={saving}>
                   <Save className="mr-1 h-4 w-4" /> {saving ? "Saving…" : "Save model"}
                 </Button>
               )}
             </div>
+            {stale && (
+              <div
+                className="flex flex-wrap items-center gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm"
+                data-testid="semantic-stale"
+              >
+                <span className="min-w-0 flex-1">
+                  This model was changed in another tab or session, so Save did not write over it.
+                  Reload to see that version, dropping your edits here, or overwrite it with yours.
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={saving}
+                  onClick={() =>
+                    void listFn({ data: { accessToken: token } }).then((rows) => {
+                      const all = rows as Array<Record<string, unknown>>;
+                      setModels(all);
+                      const fresh = all.find((r) => r.id === draft.id);
+                      if (fresh) editModel(fresh);
+                    })
+                  }
+                >
+                  Reload
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={saving}
+                  onClick={() => void save(true)}
+                >
+                  Overwrite with mine
+                </Button>
+              </div>
+            )}
 
             {Array.isArray(issues) && issues.length > 0 && (
               <div

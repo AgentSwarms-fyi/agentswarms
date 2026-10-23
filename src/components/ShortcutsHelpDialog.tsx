@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Keyboard } from "lucide-react";
 import {
   Dialog,
@@ -8,9 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { SHORTCUT_CATEGORIES, SHORTCUTS } from "@/lib/shortcuts";
 
 function KeyCap({ children }: { children: string }) {
@@ -37,29 +34,20 @@ function KeyCombo({ keys, sequential }: { keys: string[]; sequential?: boolean }
 }
 
 /**
- * Auto-shown once per login (unless dismissed) and reachable anytime via
- * "?" or the header's help button (see useGlobalShortcuts). Content is
- * entirely driven by src/lib/shortcuts.ts — add a shortcut there and it
- * appears here with no further changes.
+ * Shown by itself once, on the first visit, and reachable anytime via "?" or
+ * the header's help button (see useGlobalShortcuts). Content is entirely
+ * driven by src/lib/shortcuts.ts — add a shortcut there and it appears here
+ * with no further changes.
  */
 export function ShortcutsHelpDialog({
   open,
   onOpenChange,
-  onNeverShowAgain,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onNeverShowAgain: () => void;
 }) {
-  const [neverShowChecked, setNeverShowChecked] = useState(false);
-
-  const handleClose = () => {
-    if (neverShowChecked) onNeverShowAgain();
-    else onOpenChange(false);
-  };
-
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg gap-0 overflow-hidden p-0">
         <DialogHeader className="border-b border-border px-6 py-5">
           <DialogTitle className="flex items-center gap-2 text-lg">
@@ -99,21 +87,8 @@ export function ShortcutsHelpDialog({
           })}
         </div>
 
-        <DialogFooter className="flex-row items-center justify-between gap-3 border-t border-border bg-muted/30 px-6 py-4 sm:justify-between">
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="shortcuts-never-show"
-              checked={neverShowChecked}
-              onCheckedChange={(v) => setNeverShowChecked(v === true)}
-            />
-            <Label
-              htmlFor="shortcuts-never-show"
-              className="text-xs font-normal text-muted-foreground"
-            >
-              Don't show this again
-            </Label>
-          </div>
-          <Button type="button" size="sm" onClick={handleClose}>
+        <DialogFooter className="flex-row items-center justify-end gap-3 border-t border-border bg-muted/30 px-6 py-4">
+          <Button type="button" size="sm" onClick={() => onOpenChange(false)}>
             Got it
           </Button>
         </DialogFooter>

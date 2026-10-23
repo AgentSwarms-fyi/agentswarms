@@ -41,6 +41,7 @@ export const Route = createFileRoute("/api/python-chat")({
         // stay server-side either way.
         const caller = await resolvePythonCaller(request);
         if (!caller) return json(401, { error: "Sign in to run notebook model calls" });
+        if ("checkFailed" in caller) return json(503, { error: caller.checkFailed });
         const { userId, sb } = caller;
 
         let body: {

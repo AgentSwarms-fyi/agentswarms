@@ -61,7 +61,7 @@ describe("deleting a chat", () => {
   it("uses the shared host, not a native dialog", () => {
     // window.confirm returns false with nothing shown once a browser offers
     // "prevent this page from creating additional dialogs" — see the header of
-    // src/components/ui/confirm-dialog.tsx.
+    // src/components/ui/confirm-dialog.ts.
     expect(PLAYGROUND).toContain('from "@/components/ui/confirm-dialog"');
     expect(body).not.toMatch(/window\.confirm\(|[^a-zA-Z.]confirm\(/);
   });

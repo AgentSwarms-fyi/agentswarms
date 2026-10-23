@@ -484,9 +484,7 @@ export function fmtCount(n: number | null | undefined): string {
  *     rather than to manufacture one.
  */
 export type AssetFreshness =
-  | { kind: "loaded"; at: string }
-  | { kind: "crawled"; at: string }
-  | { kind: "live" };
+  { kind: "loaded"; at: string } | { kind: "crawled"; at: string } | { kind: "live" };
 
 export function assetFreshness(asset: {
   last_crawled_at: string | null;

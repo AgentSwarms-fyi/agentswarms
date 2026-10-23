@@ -98,6 +98,7 @@ services:
       # gateway reads the server-generated one from the database.
       NOTEBOOK_RUNTIME_SECRET: ${NOTEBOOK_RUNTIME_SECRET:-}
       NOTEBOOK_CELL_TIMEOUT_SECONDS: ${NOTEBOOK_CELL_TIMEOUT_SECONDS:-120}
+      KERNEL_CREATE_TIMEOUT_MS: ${KERNEL_CREATE_TIMEOUT_MS:-28000}
     ports:
       - "8090:8090"
     networks: [default, nb-internal, nb-dev]

@@ -26,6 +26,7 @@ import Papa from "papaparse";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
 import {
+  cleanRow,
   coerceRow,
   delimiterFor,
   formatLabel,
@@ -62,6 +63,8 @@ export type IngestResult = {
   format: DatasetFormat;
   /** Rows skipped because they had no usable content. */
   skipped: number;
+  /** Cells a NUL character was removed from, which Postgres cannot store (R300). */
+  nulCellsCleaned: number;
   /**
    * How a merge landed, when one happened.
    *
@@ -88,13 +91,17 @@ class RowSink {
   columns: ColumnDef[] | null = null;
   count = 0;
   skipped = 0;
+  readonly cleaned = { nulCells: 0 };
 
   constructor(
     private readonly stagingId: string,
     private readonly maxRows: number,
   ) {}
 
-  async push(raw: Record<string, unknown>): Promise<void> {
+  async push(input: Record<string, unknown>): Promise<void> {
+    // At the door: the sample, the inferred columns and their distinct values
+    // all read the row after this (R300).
+    const raw = cleanRow(input, this.cleaned);
     if (!isMeaningfulRow(raw)) {
       this.skipped++;
       return;
@@ -421,6 +428,7 @@ export async function ingestUpload(args: {
       columns: sink.columns,
       format: args.format,
       skipped: sink.skipped,
+      nulCellsCleaned: sink.cleaned.nulCells,
     };
   } catch (e) {
     // Deleting the staging parent cascades to its rows. The real dataset was
@@ -515,6 +523,7 @@ export async function ingestRows(args: {
       columns: sink.columns,
       format: "json",
       skipped: sink.skipped,
+      nulCellsCleaned: sink.cleaned.nulCells,
     };
   } catch (e) {
     // Same guarantee as an upload: the live dataset is never touched unless

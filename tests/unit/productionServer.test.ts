@@ -162,8 +162,15 @@ describe("static compression", () => {
   //     gzip (this code)            1,774 ms
   //
   // So the fix is not "add compression", it is "stop srvx compressing" and do
-  // it at a quality meant for per-request work.
-  const server = read("server.mjs");
+  // it at a quality meant for per-request work. The wrapper lives in its own
+  // module since R364 (streamNotCompressed.test.ts runs it).
+  const server = read("serverCompression.mjs");
+
+  it("is what server.mjs serves through", () => {
+    const entry = read("server.mjs");
+    expect(entry).toContain('import { compressStatic } from "./serverCompression.mjs";');
+    expect(entry).toContain("compressStatic(correctContentTypes(serveStatic(");
+  });
 
   it("keeps srvx out of the compression business", () => {
     expect(server).toContain("asIdentityRequest(request)");

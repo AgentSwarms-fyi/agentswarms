@@ -3,6 +3,8 @@ import { createMiddleware } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "./types";
+import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
 export const requireSupabaseAuth = createMiddleware({ type: "function" }).server(
   async ({ next }) => {
@@ -37,22 +39,28 @@ export const requireSupabaseAuth = createMiddleware({ type: "function" }).server
       throw new Response("Unauthorized: No token provided", { status: 401 });
     }
 
-    const supabase = createClient<Database>(SUPABASE_URL!, SUPABASE_PUBLISHABLE_KEY!, {
-      global: {
-        headers: {
-          Authorization: `Bearer ${token}`,
+    const supabase = createClient<Database>(
+      SUPABASE_URL!,
+      SUPABASE_PUBLISHABLE_KEY!,
+      withNulSafeFetch({
+        global: {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
         },
-      },
-      auth: {
-        storage: undefined,
-        persistSession: false,
-        autoRefreshToken: false,
-      },
-    });
+        auth: {
+          storage: undefined,
+          persistSession: false,
+          autoRefreshToken: false,
+        },
+      }),
+    );
 
     const { data, error } = await supabase.auth.getClaims(token);
     if (error || !data?.claims) {
-      throw new Response("Unauthorized: Invalid token", { status: 401 });
+      throw new Response(callerFailure(error, "Unauthorized: Invalid token"), {
+        status: callerFailureStatus(error),
+      });
     }
 
     if (!data.claims.sub) {

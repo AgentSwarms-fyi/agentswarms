@@ -3,6 +3,7 @@
 // (see utils/bi/refresh.server.ts) picks them up with the service role.
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { CalendarClock, Loader2, Plus, Trash2, Mail } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -163,6 +164,15 @@ export function ScheduleDialog({
   // fails is said, and the dialog shows what is actually stored.
   async function removeSchedule() {
     if (!schedule) return;
+    // R242, as above.
+    if (
+      !(await confirmAsk({
+        title: "Remove this schedule?",
+        body: "The dashboard stops refreshing and sending on its own. This cannot be undone.",
+        actionLabel: "Remove schedule",
+      }))
+    )
+      return;
     const { error } = await supabase.from("bi_schedules").delete().eq("id", schedule.id);
     if (error) {
       toast.error("Could not remove the schedule", {
@@ -200,6 +210,17 @@ export function ScheduleDialog({
   }
 
   async function deleteAlert(id: string) {
+    // R242. The failure already says what the stored state will do, which is
+    // R70's rule; the question before it is R72's, and this control did not
+    // ask.
+    if (
+      !(await confirmAsk({
+        title: "Delete this alert?",
+        body: "It stops watching and its threshold and recipients are not kept. This cannot be undone.",
+        actionLabel: "Delete alert",
+      }))
+    )
+      return;
     const { error } = await supabase.from("bi_alerts").delete().eq("id", id);
     if (error) {
       toast.error("Could not delete the alert", {

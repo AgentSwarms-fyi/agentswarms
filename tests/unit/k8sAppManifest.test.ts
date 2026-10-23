@@ -27,7 +27,11 @@ type PodSpec = {
   containers?: Container[];
   automountServiceAccountToken?: boolean;
   terminationGracePeriodSeconds?: number;
-  securityContext?: { runAsNonRoot?: boolean; runAsUser?: number };
+  securityContext?: {
+    runAsNonRoot?: boolean;
+    runAsUser?: number;
+    seccompProfile?: { type?: string };
+  };
   topologySpreadConstraints?: { topologyKey?: string; whenUnsatisfiable?: string }[];
 };
 type Doc = {
@@ -36,6 +40,8 @@ type Doc = {
   spec?: {
     selector?: { matchLabels?: Record<string, string> } & Record<string, string>;
     template?: { spec?: PodSpec };
+    // A CronJob nests its pod one level deeper.
+    jobTemplate?: { spec?: { template?: { spec?: PodSpec } } };
   };
 };
 
@@ -279,7 +285,7 @@ describe("Pod Security Standards", () => {
   const workloads = every
     .map((d) => ({
       name: `${d.kind}/${d.metadata?.name}`,
-      pod: (d.spec as any)?.template?.spec ?? (d.spec as any)?.jobTemplate?.spec?.template?.spec,
+      pod: d.spec?.template?.spec ?? d.spec?.jobTemplate?.spec?.template?.spec,
     }))
     .filter((w) => w.pod);
 

@@ -13,8 +13,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Database } from "@/integrations/supabase/types";
 
 export type SuperadminGuard =
-  | { ok: true; userId: string; email: string }
-  | { ok: false; error: string };
+  { ok: true; userId: string; email: string } | { ok: false; error: string };
 
 function bootstrapAdminEmail(): string {
   return (process.env.ADMIN_EMAIL || import.meta.env.ADMIN_EMAIL || "").toLowerCase();
@@ -64,7 +63,7 @@ export async function requireSuperadmin(accessToken: string | undefined): Promis
     const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
     const user = data.user;
     if (error || !user) {
-      return { ok: false, error: error?.message ?? "Invalid session" };
+      return { ok: false, error: callerFailure(error, error?.message ?? "Invalid session") };
     }
     const email = (user.email ?? "").toLowerCase();
 
@@ -129,13 +128,67 @@ export async function requireSuperadmin(accessToken: string | undefined): Promis
 export async function isBootstrapAdmin(userId: string): Promise<boolean> {
   const bootstrap = bootstrapAdminEmail();
   if (!bootstrap) return false;
-  const { data } = await supabaseAdmin.auth.admin.getUserById(userId);
+  const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId);
+  // R235's lesson, applied to a protection rather than a restriction: a lookup
+  // that failed used to leave `email` empty, which is not the bootstrap
+  // address, so the account came back unprotected and the caller deleted it.
+  if (error) throw new Error(`could not read the account: ${error.message}`);
   return bootstrapClaimAllowed({
     email: data.user?.email ?? "",
     bootstrapEmail: bootstrap,
     emailConfirmedAt: (data.user as { email_confirmed_at?: string | null } | null)
       ?.email_confirmed_at,
   });
+}
+
+/**
+ * Is this account out of reach of ban, deletion and SCIM deactivation?
+ *
+ * FOUND IN R236. Three callers asked this question with their own `const
+ * { data: role } = await …` and dropped the error, so a failed read answered
+ * "not a superadmin" and the destructive act went ahead: SCIM deactivated or
+ * deleted the account its own message says to demote first, and Admin → IAM
+ * banned or DELETED it. `isBootstrapAdmin` had the same hole one level down —
+ * a failed account lookup left the email empty, which is not the bootstrap
+ * address.
+ *
+ * A protection that cannot be verified is not absent. This throws, and every
+ * caller answers the throw by refusing the act; none of them may read it as
+ * "unprotected". Deletion in particular does not come back.
+ */
+export async function isProtectedAccount(userId: string): Promise<boolean> {
+  const { data: role, error } = await supabaseAdmin
+    .from("user_roles")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("role", "superadmin")
+    .maybeSingle();
+  if (error) throw new Error(`could not read roles: ${error.message}`);
+  if (role) return true;
+  return isBootstrapAdmin(userId);
+}
+
+/** A superadmin role row, whole. */
+export type SuperadminRoleRow = Database["public"]["Tables"]["user_roles"]["Row"];
+
+/**
+ * The account's superadmin role row, every column, or null if it has none.
+ *
+ * R246 needs the whole row to put a demotion back (see lastOneGuard). It
+ * lives here, beside isProtectedAccount, because R236 made this file the one
+ * place that reads `user_roles` for the superadmin role, and a ratchet holds
+ * callers to it. Like isProtectedAccount it throws rather than answer "none"
+ * for a read that failed.
+ */
+export async function readSuperadminRoleRow(userId: string): Promise<SuperadminRoleRow | null> {
+  const { data: row, error } = await supabaseAdmin
+    .from("user_roles")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("role", "superadmin")
+    .maybeSingle();
+  if (error) throw new Error(`Could not read the role: ${error.message}`);
+  return row ?? null;
 }
 
 export type ModelRule = { provider: string; model_pattern: string };
@@ -225,6 +278,58 @@ export async function modelAccessRefusal(
   return null;
 }
 import { collapseModelPolicy, isModelAllowed as isModelAllowedShared } from "@/lib/iamRules";
+import { callerFailure } from "@/utils/callerLookup.server";
+
+/**
+ * The grants on `resourceIds` that apply to `userId`, directly or through a
+ * group — with BOTH reads checked.
+ *
+ * FOUND IN R235. Four surfaces did these two reads privately and dropped the
+ * errors, and the file that enforces them says why that matters: "Four private
+ * copies of one access rule is what let the snapshot path fail open for
+ * months." Two of the four still failed open. A grants read that failed left
+ * no grants, and no grants means no row filter and no column mask — so BI
+ * direct query ran a grantee's live warehouse query with neither, and the
+ * semantic layer treated a model shared under a restriction as one carrying
+ * none. The groups read matters just as much on its own: a restriction granted
+ * to a group disappears the moment the membership list cannot be read, and the
+ * viewer keeps the access while losing its limits.
+ *
+ * Access and restriction fail closed together or not at all. Callers answer a
+ * throw with a refusal; none of them may read it as "unrestricted".
+ */
+export async function readApplicableGrants(
+  sb: SupabaseClient<Database>,
+  userId: string,
+  resourceType: "bi_dashboard" | "semantic_model" | "data_table",
+  resourceIds: string[],
+): Promise<
+  {
+    resource_id: string;
+    principal_type: string;
+    principal_id: string;
+    row_filter: Database["public"]["Tables"]["iam_resource_grants"]["Row"]["row_filter"];
+    column_mask: unknown;
+  }[]
+> {
+  if (resourceIds.length === 0) return [];
+  const [membershipsRes, grantsRes] = await Promise.all([
+    sb.from("iam_group_members").select("group_id").eq("user_id", userId),
+    sb
+      .from("iam_resource_grants")
+      .select("resource_id, principal_type, principal_id, row_filter, column_mask")
+      .eq("resource_type", resourceType)
+      .in("resource_id", resourceIds),
+  ]);
+  const failed = membershipsRes.error ?? grantsRes.error;
+  if (failed) throw new Error(`could not read access grants: ${failed.message}`);
+  const groupIds = new Set((membershipsRes.data ?? []).map((m) => m.group_id));
+  return (grantsRes.data ?? []).filter(
+    (g) =>
+      (g.principal_type === "user" && g.principal_id === userId) ||
+      (g.principal_type === "group" && groupIds.has(g.principal_id)),
+  );
+}
 
 // Resource ids of `resourceType` the user may read via an IAM grant — directly
 // or through any group they belong to. Mirrors the `has_resource_access` RLS

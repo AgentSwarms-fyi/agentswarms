@@ -111,4 +111,30 @@ export const GO_TO_SHORTCUTS: { key: string; url: string; label: string; icon: L
   { key: "k", url: "/knowledge", label: "Knowledge Base", icon: BookOpen },
 ];
 
-export const SHORTCUTS_DISMISS_KEY = "agentswarms.shortcuts-help.dismissed";
+/**
+ * Set once the shortcuts list has opened by itself. The name is the old
+ * "Don't show this again" flag's, so whoever ticked that is not shown it again.
+ */
+export const SHORTCUTS_SEEN_KEY = "agentswarms.shortcuts-help.dismissed";
+
+/**
+ * Whether the shortcuts list opens by itself on this load: once, on the first
+ * visit, and never again however it was closed. "?" opens it any time.
+ *
+ * It was shown on every fresh load until "Don't show this again" was ticked,
+ * taking the keyboard from whatever page had just opened. It is marked shown
+ * as it opens, so a tab closed with the list still up does not bring it back.
+ * Storage that cannot be read or written cannot keep "once", so the list
+ * stays closed rather than opening on every load.
+ */
+export function firstVisitShowsShortcuts(
+  storage: Pick<Storage, "getItem" | "setItem"> | null,
+): boolean {
+  try {
+    if (!storage || storage.getItem(SHORTCUTS_SEEN_KEY) === "true") return false;
+    storage.setItem(SHORTCUTS_SEEN_KEY, "true");
+    return true;
+  } catch {
+    return false;
+  }
+}

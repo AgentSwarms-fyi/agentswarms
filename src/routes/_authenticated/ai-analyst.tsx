@@ -44,7 +44,8 @@ import {
   Wrench,
 } from "lucide-react";
 
-import { BiChartRender, fmtBiValue } from "@/components/bi/BiChartRender";
+import { BiChartRender } from "@/components/bi/BiChartRender";
+import { fmtBiValue } from "@/components/bi/biChartData";
 import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import { ShareAnalystDialog } from "@/components/bi/ShareAnalystDialog";
 import { ScheduleAnalysisDialog } from "@/components/bi/ScheduleAnalysisDialog";
@@ -146,6 +147,7 @@ import {
 import { listWarehouseConnections } from "@/utils/warehouse.functions";
 import { WAREHOUSE_LABELS, type WarehouseTable } from "@/utils/warehouse/types";
 import type { WarehouseConnectionSummary } from "@/utils/warehouse/types";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 export const Route = createFileRoute("/_authenticated/ai-analyst")({
   component: AiAnalystPage,
@@ -668,17 +670,11 @@ function AiAnalystPage() {
         toast.error(`The scenario could not be compiled: ${(e as Error).message}`);
       }
     },
-    [
-      thread,
-      resolveScope,
-      persistTurns,
-      runSemanticFn,
-      scoreRowsFn,
-      forecastFn,
-      scorable,
-      allModels,
-      token,
-    ],
+    // FOUND IN R272: `catalog` was missing (and four values it never reads were
+    // listed), so a thread opened before the catalog arrived kept the empty one:
+    // its model had no parameters, and varying an assumption was "Nothing
+    // changed".
+    [thread, resolveScope, persistTurns, runSemanticFn, catalog, token],
   );
 
   /** Record a human verdict on a finished analysis. */
@@ -757,6 +753,8 @@ function AiAnalystPage() {
         await persistTurns(next, turn.question);
         if (rewritten.error) toast.error(rewritten.error);
         else toast.success("Findings rewritten from the current results.");
+      } catch (e) {
+        reportFailure("rewrite the findings", e);
       } finally {
         setBusy(false);
       }

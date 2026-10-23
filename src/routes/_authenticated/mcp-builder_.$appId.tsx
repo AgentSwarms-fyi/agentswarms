@@ -50,6 +50,9 @@ import {
 import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import { useTheme } from "@/hooks/use-theme";
 import { useAuth } from "@/hooks/use-auth";
+import { saveFailureText, useSaveBeforeLeave } from "@/hooks/use-save-before-leave";
+import { fingerprintOf } from "@/lib/definitionFingerprint";
+import { mcpSourceDefinition } from "@/lib/mcpSource";
 import { cn } from "@/lib/utils";
 import { generateMcpServer } from "@/lib/mcpCodegen";
 import { isUnrestrictedKey, toolScopeLabel } from "@/lib/mcpKeyScope";
@@ -74,6 +77,24 @@ import {
   type McpKeyRow,
   type McpVersionRow,
 } from "@/utils/mcpApps.functions";
+import type { JsonValue } from "@/utils/mcpApps/sse";
+
+/**
+ * A server call this page makes, with a failure to answer said on screen
+ * (R361). Its handlers awaited the calls bare, so a rejected one (a dropped
+ * connection, a refused request) went unhandled: Deploy stayed disabled for
+ * good, and Stop, Approve, Restore, Public, Register, Unregister and Revoke
+ * did nothing, with nothing on screen. Save has caught its rejection since
+ * R280. `null` means the call did not answer.
+ */
+async function reported<T>(call: () => Promise<T>, what: string): Promise<T | null> {
+  try {
+    return await call();
+  } catch (e) {
+    toast.error(`${what}: ${e instanceof Error ? e.message : String(e)}`, { duration: 8000 });
+    return null;
+  }
+}
 
 export const Route = createFileRoute("/_authenticated/mcp-builder_/$appId")({
   component: McpAppEditor,
@@ -141,65 +162,135 @@ function McpAppEditor() {
   const [app, setApp] = useState<App | null>(null);
   const [source, setSource] = useState("");
   const [requirements, setRequirements] = useState("");
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const [saveState, setSaveState] = useState<"idle" | "saved">("idle");
   const [deploying, setDeploying] = useState(false);
   const [logs, setLogs] = useState("");
   const [keys, setKeys] = useState<McpKeyRow[]>([]);
   const [versions, setVersions] = useState<McpVersionRow[]>([]);
   const [secrets, setSecrets] = useState<SecretSummary[]>([]);
 
-  const dirtyRef = useRef(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The source as loaded or last saved, so the page can tell what a save still
+  // owes (R280, sweep 8). It was compared with the source as LOADED, so typing
+  // back to that text after a save was never saved, and a bare dirty flag that
+  // any returning save cleared erased an edit typed while the save was out.
+  const [savedAs, setSavedAs] = useState<string | null>(null);
+  const [saving, setSaving] = useState(0);
+  const form = JSON.stringify({ source, requirements });
+  const unsaved = app !== null && savedAs !== null && form !== savedAs;
+  // Read by reload, which keeps the editor's text while anything is unsaved.
+  const unsavedRef = useRef(false);
+  unsavedRef.current = unsaved;
+  // Set when a save was refused because the source was saved elsewhere since
+  // this page read it (R290, sweep 9). Autosave stops; the header says so.
+  const [stale, setStale] = useState(false);
 
-  const reload = useCallback(async () => {
-    const res = await getFn({ data: { id: appId } });
-    if (!res.ok) {
-      toast.error(res.error);
-      return;
-    }
-    setApp(res.app);
-    // Only adopt server text when the user has nothing unsaved, otherwise a
-    // background refresh would silently discard what they are typing.
-    if (!dirtyRef.current) {
-      setSource(res.app.source_code ?? "");
-      setRequirements(res.app.requirements ?? "");
-    }
-  }, [appId, getFn]);
+  const reload = useCallback(
+    async (adopt = false) => {
+      const res = await reported(
+        () => getFn({ data: { id: appId } }),
+        "Could not load this server",
+      );
+      if (!res) return;
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      setApp(res.app);
+      // Only adopt server text when the user has nothing unsaved, otherwise a
+      // background refresh would silently discard what they are typing.
+      if (adopt || !unsavedRef.current) {
+        const adopted = {
+          source: res.app.source_code ?? "",
+          requirements: res.app.requirements ?? "",
+        };
+        setSource(adopted.source);
+        setRequirements(adopted.requirements);
+        setSavedAs(JSON.stringify(adopted));
+        setStale(false);
+      }
+    },
+    [appId, getFn],
+  );
 
   useEffect(() => {
     void reload();
   }, [reload]);
 
-  const flush = useCallback(async () => {
-    if (!dirtyRef.current) return;
-    if (timerRef.current) clearTimeout(timerRef.current);
-    setSaveState("saving");
-    const res = await saveFn({ data: { id: appId, source_code: source, requirements } });
-    dirtyRef.current = false;
-    if (!res.ok) {
-      setSaveState("idle");
-      toast.error(res.error);
-      return;
-    }
-    setSaveState("saved");
-    setTimeout(() => setSaveState("idle"), 1500);
-  }, [appId, requirements, saveFn, source]);
+  // Saves what the editor holds now and records it as saved, once the reply
+  // has no error. An edit typed while it is out stays unsaved.
+  const saveNow = useCallback(
+    async (overwrite = false): Promise<string | null> => {
+      // Overwrite writes even when the editor matches what it opened: the
+      // store holds someone else's version, and that is what is being replaced.
+      if (!unsaved && !overwrite) return null;
+      const sent = form;
+      // The source this page read or last saved, which a save lands only on.
+      const base = savedAs
+        ? (JSON.parse(savedAs) as { source: string; requirements: string })
+        : null;
+      const expected =
+        overwrite || !base
+          ? undefined
+          : await fingerprintOf(
+              mcpSourceDefinition({ source_code: base.source, requirements: base.requirements }),
+            );
+      setSaving((n) => n + 1);
+      // A save the server's input check refuses rejects rather than returning
+      // { ok: false }; before R280 that left "Saving…" on screen for good.
+      let res: Awaited<ReturnType<typeof saveFn>>;
+      try {
+        res = await saveFn({
+          data: {
+            id: appId,
+            source_code: source,
+            requirements,
+            // Overwriting is said in so many words: a save with neither is
+            // refused, as a page opened before R290 would send (R303).
+            ...(overwrite
+              ? { overwrite: true as const }
+              : { expected_source_fingerprint: expected }),
+          },
+        });
+      } catch (e) {
+        return saveFailureText(e);
+      } finally {
+        setSaving((n) => n - 1);
+      }
+      if (!res.ok) {
+        if (res.stale) setStale(true);
+        return res.error;
+      }
+      setStale(false);
+      setSavedAs(sent);
+      setSaveState("saved");
+      setTimeout(() => setSaveState("idle"), 1500);
+      return null;
+    },
+    [unsaved, form, savedAs, appId, requirements, saveFn, source],
+  );
 
   // Debounced autosave. The editor is the primary surface here, so an explicit
   // save button would be one more thing to forget before pressing Deploy.
   useEffect(() => {
-    if (!app) return;
-    if (source === (app.source_code ?? "") && requirements === (app.requirements ?? "")) return;
-    dirtyRef.current = true;
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => void flush(), 1200);
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, [source, requirements, app, flush]);
+    if (!unsaved || stale) return;
+    const t = setTimeout(() => {
+      void saveNow().then((error) => {
+        if (error) toast.error(error);
+      });
+    }, 1200);
+    return () => clearTimeout(t);
+  }, [unsaved, stale, saveNow]);
+
+  // FOUND IN R280: the timer above is cleared when the page unmounts, so a link
+  // taken inside the 1.2 s, or after a failed save, dropped the edit.
+  useSaveBeforeLeave({ unsaved, saveNow, name: app?.name ?? "" });
 
   const patch = async (fields: Record<string, unknown>) => {
-    const res = await saveFn({ data: { id: appId, ...fields } as never });
+    const res = await reported(
+      () => saveFn({ data: { id: appId, ...fields } as never }),
+      "Could not save the change",
+    );
+    if (!res) return;
     if (!res.ok) {
       toast.error(res.error);
       return;
@@ -208,10 +299,25 @@ function McpAppEditor() {
   };
 
   const deploy = async () => {
-    await flush();
+    // Deploy runs the saved source, so a source that cannot be saved is not
+    // deployed: the old one would go live under the new one on screen.
+    const unsavedError = await saveNow();
+    if (unsavedError) {
+      toast.error(`Not deployed: the source could not be saved (${unsavedError}).`);
+      return;
+    }
     setDeploying(true);
-    const res = await deployFn({ data: { id: appId } });
-    setDeploying(false);
+    let res: Awaited<ReturnType<typeof deployFn>> | null;
+    try {
+      res = await reported(() => deployFn({ data: { id: appId } }), "Deploy did not answer");
+    } finally {
+      setDeploying(false);
+    }
+    if (!res) {
+      // The deploy may still have started: read the server's state.
+      void reload();
+      return;
+    }
     if (!res.ok) {
       toast.error(res.error, { duration: 8000 });
       void loadLogs();
@@ -227,25 +333,42 @@ function McpAppEditor() {
   };
 
   const loadLogs = async () => {
-    const res = await logsFn({ data: { id: appId } });
+    const res = await reported(() => logsFn({ data: { id: appId } }), "Could not load the logs");
+    if (!res) return;
     if (res.ok) setLogs(res.logs || "(no output yet)");
+    else toast.error(res.error);
   };
 
   const loadKeys = useCallback(async () => {
-    const res = await keysListFn({ data: { id: appId } });
+    const res = await reported(
+      () => keysListFn({ data: { id: appId } }),
+      "Could not load the keys",
+    );
+    if (!res) return;
     if (res.ok) setKeys(res.keys);
+    else toast.error(res.error);
   }, [appId, keysListFn]);
 
   const loadVersions = async () => {
-    const res = await versionsFn({ data: { id: appId } });
+    const res = await reported(
+      () => versionsFn({ data: { id: appId } }),
+      "Could not load the versions",
+    );
+    if (!res) return;
     if (res.ok) setVersions(res.versions);
+    else toast.error(res.error);
   };
 
   const loadSecrets = async () => {
     const token = session?.access_token;
     if (!token) return;
-    const res = await secretsFn({ data: { access_token: token } });
+    const res = await reported(
+      () => secretsFn({ data: { access_token: token } }),
+      "Could not load the secrets",
+    );
+    if (!res) return;
     if (res.ok) setSecrets(res.secrets);
+    else toast.error(res.error);
   };
 
   const publicUrl = useMemo(
@@ -286,8 +409,45 @@ function McpAppEditor() {
         </div>
         <StatusPill status={app.status} />
         <div className="ml-auto flex items-center gap-2">
+          {stale && (
+            <span
+              className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs"
+              title="This MCP server's source was changed in another tab or session, so it is no longer saved over it."
+              data-testid="mcp-stale"
+            >
+              Changed elsewhere, not saved
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-1.5 text-xs"
+                onClick={() => void reload(true)}
+              >
+                Reload
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-1.5 text-xs"
+                onClick={() =>
+                  void saveNow(true).then((error) => {
+                    if (error) toast.error(error);
+                  })
+                }
+              >
+                Overwrite with mine
+              </Button>
+            </span>
+          )}
           <span className="text-xs text-muted-foreground">
-            {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : ""}
+            {saving > 0 ? (
+              "Saving…"
+            ) : unsaved ? (
+              <span data-testid="mcp-unsaved">Unsaved changes</span>
+            ) : saveState === "saved" ? (
+              "Saved"
+            ) : (
+              ""
+            )}
           </span>
           {app.status === "ready" && (
             <Button
@@ -295,7 +455,15 @@ function McpAppEditor() {
               variant="ghost"
               className="gap-1.5"
               onClick={async () => {
-                await stopFn({ data: { id: appId } });
+                const res = await reported(
+                  () => stopFn({ data: { id: appId } }),
+                  "Stop did not answer",
+                );
+                if (!res) return;
+                if (!res.ok) {
+                  toast.error(res.error);
+                  return;
+                }
                 toast.success("Stopped");
                 void reload();
               }}
@@ -333,9 +501,14 @@ function McpAppEditor() {
               // Send the fingerprint THIS view rendered. If a deploy landed
               // while the diff was open, the server refuses rather than
               // approving a tool list nobody read.
-              const res = await approveFn({
-                data: { id: appId, tools_hash: app?.tools_hash ?? undefined },
-              });
+              const res = await reported(
+                () =>
+                  approveFn({
+                    data: { id: appId, tools_hash: app?.tools_hash ?? undefined },
+                  }),
+                "Approve did not answer",
+              );
+              if (!res) return;
               if (res.ok) {
                 toast.success("Tools approved");
                 void reload();
@@ -392,13 +565,17 @@ function McpAppEditor() {
                 versions={versions}
                 onLoadVersions={loadVersions}
                 onRestore={async (versionId) => {
-                  const res = await restoreFn({ data: { id: appId, version_id: versionId } });
+                  const res = await reported(
+                    () => restoreFn({ data: { id: appId, version_id: versionId } }),
+                    "Restore did not answer",
+                  );
+                  if (!res) return;
                   if (!res.ok) {
                     toast.error(res.error);
                     return;
                   }
-                  dirtyRef.current = false;
-                  await reload();
+                  // The restored source replaces whatever the editor holds.
+                  await reload(true);
                   toast.success("Source restored — deploy to make it live.");
                 }}
               />
@@ -418,7 +595,11 @@ function McpAppEditor() {
                 publicUrl={publicUrl}
                 onReloadKeys={loadKeys}
                 onSetPublic={async (isPublic) => {
-                  const res = await setPublicFn({ data: { id: appId, is_public: isPublic } });
+                  const res = await reported(
+                    () => setPublicFn({ data: { id: appId, is_public: isPublic } }),
+                    "Could not change who can call it",
+                  );
+                  if (!res) return;
                   if (!res.ok) {
                     toast.error(res.error);
                     return;
@@ -426,7 +607,11 @@ function McpAppEditor() {
                   void reload();
                 }}
                 onRegister={async () => {
-                  const res = await registerFn({ data: { id: appId } });
+                  const res = await reported(
+                    () => registerFn({ data: { id: appId } }),
+                    "Register did not answer",
+                  );
+                  if (!res) return;
                   if (!res.ok) {
                     toast.error(res.error);
                     return;
@@ -435,13 +620,25 @@ function McpAppEditor() {
                   void reload();
                 }}
                 onUnregister={async () => {
-                  await unregisterFn({ data: { id: appId } });
+                  const res = await reported(
+                    () => unregisterFn({ data: { id: appId } }),
+                    "Unregister did not answer",
+                  );
+                  if (!res) return;
+                  if (!res.ok) {
+                    toast.error(res.error);
+                    return;
+                  }
                   toast.success("Unregistered");
                   void reload();
                 }}
                 onCreateKey={(input) => keyCreateFn({ data: { id: appId, ...input } })}
                 onRevokeKey={async (keyId) => {
-                  await keyRevokeFn({ data: { id: appId, key_id: keyId } });
+                  const res = await reported(
+                    () => keyRevokeFn({ data: { id: appId, key_id: keyId } }),
+                    "Revoke did not answer",
+                  );
+                  if (res && !res.ok) toast.error(`The key was not revoked: ${res.error}`);
                   void loadKeys();
                 }}
                 onPatch={patch}
@@ -710,7 +907,7 @@ function ToolsTab({
   onTest: (
     tool: string | undefined,
     args: Record<string, unknown> | undefined,
-  ) => Promise<{ ok: true; result: any } | { ok: false; error: string }>;
+  ) => Promise<{ ok: true; result: JsonValue } | { ok: false; error: string }>;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [argsText, setArgsText] = useState("{}");
@@ -759,7 +956,10 @@ function ToolsTab({
               setSelected(t.name);
               // Prefill the argument object from the schema so the first test
               // click is not a guess at the parameter names.
-              const props = (t.inputSchema?.properties ?? {}) as Record<string, any>;
+              const props = (t.inputSchema?.properties ?? {}) as Record<
+                string,
+                { type?: unknown } | undefined
+              >;
               const stub: Record<string, unknown> = {};
               for (const [k, v] of Object.entries(props)) {
                 stub[k] =

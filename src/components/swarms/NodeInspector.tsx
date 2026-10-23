@@ -421,10 +421,10 @@ export function NodeInspector({
       if (mcpErr) noteError("mcp", mcpErr.message);
       // Only a list that was read may prune the node's selection.
       else if (mcp) {
-        setAvailableMcpServers(mcp as any);
+        setAvailableMcpServers(mcp);
         // Only live servers are selectable. Prune anything removed or no
         // longer connected on the inspected node before it can render.
-        const validNames = new Set((mcp as any[]).map((s) => s.name));
+        const validNames = new Set(mcp.map((s) => s.name));
         const current = (data.toolConfigs?.mcp_server_names ?? []) as string[];
         if (Array.isArray(current) && current.some((n) => !validNames.has(n))) {
           onChange({
@@ -437,6 +437,9 @@ export function NodeInspector({
       }
       setMcpServersLoaded(true);
     })();
+    // once per mount: the
+    // canvas keys the inspector by node id (R323), so another node is another mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const currentProvider = data.provider || "openrouter";

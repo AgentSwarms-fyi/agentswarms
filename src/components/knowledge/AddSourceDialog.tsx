@@ -26,6 +26,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { indexNote, type EmbedOutcome } from "@/lib/kbIndexNote";
 import { Globe, GitBranch, UploadCloud, FileText, Loader2, X } from "lucide-react";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 type Props = {
   open: boolean;
@@ -414,6 +415,8 @@ export function AddSourceDialog({
         onAdded();
         onOpenChange(false);
       }
+    } catch (e) {
+      reportFailure("add the source", e);
     } finally {
       setBusy(false);
     }

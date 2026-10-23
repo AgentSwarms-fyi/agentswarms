@@ -16,3 +16,7 @@ src/components/docs/docsIndex.ts
 # which is the first thing anyone evaluating the licence does. `npm run format`
 # rewrote its emphasis markers once; that is once too often.
 LICENSE.md
+
+# The document parsers, copied from node_modules at build start (R321):
+# minified third-party code, not ours to format.
+public/vendor

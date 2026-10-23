@@ -35,7 +35,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
-import { relTime } from "@/components/ml/mlUi";
+import { relTime } from "@/components/ml/mlFormat";
 import { cn } from "@/lib/utils";
 import {
   MONITOR_KINDS,
@@ -58,6 +58,7 @@ import {
   type MonitorView,
 } from "@/utils/dataMonitors.functions";
 import type { DataIncidentRow, DataMonitorRunRow } from "@/utils/dataMonitors/run.server";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 const searchSchema = z.object({
   source: z.enum(["lakehouse", "warehouse"]).optional(),
@@ -216,9 +217,17 @@ function DataMonitorsPage() {
     setBusy(id);
     try {
       const r = await fn();
-      if (!r.ok) return toast.error(String(r.error ?? "Failed"));
+      if (!r.ok) {
+        toast.error(String(r.error ?? "Failed"));
+        // R312: a refusal usually means the monitor changed under the page
+        // (an incident resolved meanwhile), so show where it stands now.
+        await reload();
+        return;
+      }
       done?.(r);
       await reload();
+    } catch (e) {
+      reportFailure("finish that on the monitor", e);
     } finally {
       setBusy(null);
     }
@@ -788,7 +797,26 @@ function NewMonitorDialog({
                 <button
                   key={k}
                   type="button"
-                  onClick={() => setKind(k)}
+                  onClick={() => {
+                    setKind(k);
+                    // R238: a column chosen for one check can be meaningless
+                    // for another — `region` is a fine null-rate column and
+                    // not a timestamp. It used to survive the switch, and the
+                    // freshness picker then rendered BLANK, because a
+                    // controlled select whose value matches no option shows
+                    // nothing. Saving was accepted (the config validator only
+                    // checks the column is named, not what it is) and the
+                    // monitor alerted ever after. Dropped only when it is
+                    // genuinely not on offer for the new kind.
+                    if (
+                      k === "freshness" &&
+                      column &&
+                      timestampColumns.length > 0 &&
+                      !timestampColumns.some((c) => c.name === column)
+                    ) {
+                      setColumn("");
+                    }
+                  }}
                   className={cn(
                     "rounded-md border p-2 text-left text-sm transition-colors hover:bg-muted/60",
                     kind === k && "border-primary bg-primary/5",

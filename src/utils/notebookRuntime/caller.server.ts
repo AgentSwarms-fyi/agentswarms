@@ -20,6 +20,8 @@ import type { Database } from "@/integrations/supabase/types";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { resolveGrantedResourceIds } from "@/utils/iam.server";
 import { verifySessionToken } from "./token.server";
+import { CallerCheckFailed, checkFailed } from "@/utils/callerLookup.server";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
 export type PythonCaller = {
   userId: string;
@@ -39,13 +41,19 @@ function jwtClient(token: string): SupabaseClient<Database> | null {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_PUBLISHABLE_KEY;
   if (!url || !key) return null;
-  return createClient<Database>(url, key, {
-    auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: `Bearer ${token}` } },
-  });
+  return createClient<Database>(
+    url,
+    key,
+    withNulSafeFetch({
+      auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    }),
+  );
 }
 
-export async function resolvePythonCaller(request: Request): Promise<PythonCaller | null> {
+export async function resolvePythonCaller(
+  request: Request,
+): Promise<PythonCaller | null | CallerCheckFailed> {
   const auth = request.headers.get("authorization");
   const token = auth?.startsWith("Bearer ") ? auth.slice(7) : undefined;
   if (!token) return null;
@@ -63,7 +71,9 @@ export async function resolvePythonCaller(request: Request): Promise<PythonCalle
   // Otherwise a Supabase user JWT from the browser runtime.
   const sb = jwtClient(token);
   if (!sb) return null;
-  const { data } = await sb.auth.getClaims(token);
+  const { data, error } = await sb.auth.getClaims(token);
+  const failed = checkFailed(error);
+  if (failed) return failed;
   const userId = data?.claims?.sub;
   if (!userId) return null;
   return { userId, sb };

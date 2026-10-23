@@ -57,8 +57,7 @@ export function pinnedSteps(turn: AnalystTurn): AnalystStep[] {
 
 /** One step's fresh result, as the runner produced it. */
 export type StepResult =
-  | { columns: string[]; rows: Record<string, unknown>[]; rowCount: number }
-  | { error: string };
+  { columns: string[]; rows: Record<string, unknown>[]; rowCount: number } | { error: string };
 
 /**
  * Fold fresh results back into the turn.

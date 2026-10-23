@@ -27,6 +27,7 @@ export const Route = createFileRoute("/api/python-kb")({
       POST: async ({ request }) => {
         const caller = await resolvePythonCaller(request);
         if (!caller) return json(401, { error: "Sign in to use knowledge bases from a notebook" });
+        if ("checkFailed" in caller) return json(503, { error: caller.checkFailed });
 
         let body: { action?: string; query?: string; kb_ids?: unknown; top_k?: number };
         try {

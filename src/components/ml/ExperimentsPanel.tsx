@@ -38,6 +38,7 @@ import {
   type ExperimentRow,
   type RunRow,
 } from "@/utils/mlExperiments.functions";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 function fmt(v: Scalar): string {
   if (v === null || v === undefined) return "—";
@@ -197,6 +198,8 @@ export function ExperimentsPanel({ token }: { token: string }) {
       });
       setSelected(null);
       await load();
+    } catch (e) {
+      reportFailure("delete the experiment", e);
     } finally {
       setBusy(false);
     }
@@ -217,6 +220,8 @@ export function ExperimentsPanel({ token }: { token: string }) {
       if (!res.ok) return toast.error(res.error);
       setRuns((cur) => cur.filter((x) => x.id !== r.id));
       await load();
+    } catch (e) {
+      reportFailure("delete the run", e);
     } finally {
       setBusy(false);
     }
@@ -238,6 +243,8 @@ export function ExperimentsPanel({ token }: { token: string }) {
       });
       const back = await runsFn({ data: { accessToken: token, experimentId: selected! } });
       if (back.ok) setRuns(back.runs);
+    } catch (e) {
+      reportFailure("register the model", e);
     } finally {
       setBusy(false);
     }
@@ -601,9 +608,12 @@ with agentswarms.start_run("churn-v2", params={"lr": 0.01}) as run:
                                           ) : (
                                             <p className="text-xs text-muted-foreground">
                                               No artifact recorded, so there is nothing to register.
-                                              Pass <code className="font-mono">artifact_uri</code>{" "}
-                                              and <code className="font-mono">artifact_sha256</code>{" "}
-                                              to <code className="font-mono">finish()</code>.
+                                              Save one with{" "}
+                                              <code className="font-mono">run.save_model()</code>{" "}
+                                              before the run ends, or pass{" "}
+                                              <code className="font-mono">artifact_uri</code> and{" "}
+                                              <code className="font-mono">artifact_sha256</code> to{" "}
+                                              <code className="font-mono">finish()</code>.
                                             </p>
                                           )}
                                         </div>

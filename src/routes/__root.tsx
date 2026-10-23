@@ -1,8 +1,10 @@
 import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 import { Toaster } from "@/components/ui/sonner";
-import { ConfirmHost } from "@/components/ui/confirm-dialog";
-import { ThemeProvider } from "@/hooks/use-theme";
-import { LayoutPrefsProvider } from "@/hooks/use-layout-prefs";
+import { useEffect } from "react";
+import { installSilentFailureNet } from "@/lib/silentFailureNet";
+import { ConfirmHost } from "@/components/ui/confirm-host";
+import { ThemeProvider } from "@/components/ThemeProvider";
+import { LayoutPrefsProvider } from "@/components/LayoutPrefsProvider";
 import { CookieConsent } from "@/components/CookieConsent";
 import { SchemaHealthGuard } from "@/components/SchemaHealthGuard";
 
@@ -12,7 +14,7 @@ import { SchemaHealthGuard } from "@/components/SchemaHealthGuard";
 // workspace) with no accent override (this app's built-in teal).
 //
 // Kept in sync BY HAND with applyTheme/applyAccent/readInitialTheme in
-// hooks/use-theme.tsx, ACCENTS included: this has to be a string that runs
+// components/ThemeProvider.tsx and ACCENTS in hooks/use-theme.ts: this has to be a string that runs
 // before any bundle loads, so it cannot import them. If either list changes,
 // change it here too.
 const themeBootScript = `
@@ -192,12 +194,22 @@ function RootShell({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * The last resort under every handler that forgot to catch (R245). Mounted
+ * beside the Toaster because it has nothing to say without one.
+ */
+function SilentFailureNet() {
+  useEffect(() => installSilentFailureNet(), []);
+  return null;
+}
+
 function RootComponent() {
   return (
     <ThemeProvider>
       <LayoutPrefsProvider>
         <Outlet />
         <Toaster />
+        <SilentFailureNet />
         {/* Mounted beside the Toaster and for the same reason: asking the user
             something must not depend on a browser dialog they can switch off. */}
         <ConfirmHost />

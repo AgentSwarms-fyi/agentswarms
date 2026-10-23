@@ -85,11 +85,11 @@ function query(table: string) {
         data: failed ? null : list,
         error: failed ? { message: "disk full" } : null,
       };
-      const done: any = Promise.resolve(result);
-      done.select = () => ({
-        single: async () => ({ data: result.data?.[0] ?? null, error: result.error }),
+      return Object.assign(Promise.resolve(result), {
+        select: () => ({
+          single: async () => ({ data: result.data?.[0] ?? null, error: result.error }),
+        }),
       });
-      return done;
     },
   };
   return b;
@@ -117,7 +117,7 @@ vi.mock("@tanstack/react-start", () => ({
   createServerFn: () => {
     let validate: (i: unknown) => unknown = (i) => i;
     const b = {
-      inputValidator: (v: (i: unknown) => unknown) => ((validate = v), b),
+      validator: (v: (i: unknown) => unknown) => ((validate = v), b),
       handler: (h: (a: { data: unknown }) => unknown) => (opts: { data: unknown }) =>
         h({ data: validate(opts.data) }),
     };

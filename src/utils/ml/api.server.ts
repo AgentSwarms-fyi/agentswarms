@@ -106,10 +106,14 @@ export async function createAndTrainVersion(
   if (error || !v) return { ok: false, error: error?.message ?? "Failed to create version" };
   const started = await startTrainingJob({ model, version: v, trigger: opts.trigger });
   if (!started.ok) {
+    // FOUND IN R308 (sweep 10). A version cancelled while its workers were
+    // starting was turned to "failed" here, over the cancel: the version is
+    // failed only while it is still the one in training.
     await supabaseAdmin
       .from("ml_model_versions")
       .update({ status: "failed", warnings: [started.error] as Json })
-      .eq("id", v.id);
+      .eq("id", v.id)
+      .eq("status", "training");
     return started;
   }
   if (opts.apiKeyId) {
@@ -175,23 +179,34 @@ export async function pickVersion(
   productionId: string | null,
 ): Promise<MlVersionRow | null> {
   if (versionId) {
-    const { data } = await supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from("ml_model_versions")
       .select("*")
       .eq("id", versionId)
       .eq("model_id", modelId)
       .maybeSingle();
+    if (error) throw new Error(`Could not read version ${versionId}: ${error.message}`);
     return data ?? null;
   }
   if (productionId) {
-    const { data } = await supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from("ml_model_versions")
       .select("*")
       .eq("id", productionId)
       .maybeSingle();
+    // FOUND IN R251. This dropped its error and fell through to "the newest
+    // ready version" below, so one failed read and production traffic was
+    // answered by a version nobody had promoted. The newest-ready rule is for a
+    // model with NO production version (ML.md); one that has one is answered by
+    // it or not at all. A set id with no row cannot be a deletion - the
+    // pointer is ON DELETE SET NULL - so that is refused too, not guessed at.
+    if (error) throw new Error(`Could not read the production version: ${error.message}`);
     if (data) return data;
+    throw new Error(
+      "The production version could not be found; promote a version to serve this model",
+    );
   }
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("ml_model_versions")
     .select("*")
     .eq("model_id", modelId)
@@ -199,6 +214,8 @@ export async function pickVersion(
     .order("version", { ascending: false })
     .limit(1)
     .maybeSingle();
+  // A failed read is not "No trained version to predict with".
+  if (error) throw new Error(`Could not read the model's versions: ${error.message}`);
   return data ?? null;
 }
 

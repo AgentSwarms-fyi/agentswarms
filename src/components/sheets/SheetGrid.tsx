@@ -14,13 +14,21 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { a1, colLetters, normRange, rangeA1, type RangeAddr } from "@/lib/sheets/a1";
-import { cellView, editText } from "@/lib/sheets/cellView";
+import { cellView, editText, effectiveFormat } from "@/lib/sheets/cellView";
+import { numberToFit } from "@/lib/sheets/format";
 import { inkOn } from "@/lib/sheets/ink";
 import type { CellInput, GridData, WorkbookEngine } from "@/lib/sheets/engine";
 import { AxisGeometry } from "@/lib/sheets/geometry";
 import { autoRowHeights, CELL_PAD_X } from "@/lib/sheets/layout";
 import { expandToMerges, mergeAt, parseMerges } from "@/lib/sheets/merge";
-import { acceptsReference, selRange, startsEdit, type Selection } from "@/lib/sheets/selection";
+import {
+  acceptsReference,
+  pointedReference,
+  selRange,
+  spillExtentIn,
+  startsEdit,
+  type Selection,
+} from "@/lib/sheets/selection";
 import { cssBorder, fontPx, fontStack, INDENT_PX, type Borders } from "@/lib/sheets/style";
 import { cn } from "@/lib/utils";
 import { measureText } from "./measure";
@@ -421,10 +429,7 @@ export function SheetGrid(props: Props) {
           scroll: "none",
         });
       } else if (d.kind === "point") {
-        const ref =
-          hit.row === d.start.row && hit.col === d.start.col
-            ? a1(hit.row, hit.col)
-            : rangeA1(normRange(d.start, hit));
+        const ref = pointedReference(d.start, hit, spillExtentIn(engine, tabId));
         const ins = insertReference(ref, { at: d.at, len: d.len });
         if (ins) drag.current = { ...d, len: ins.len };
       } else if (d.kind === "fill") {
@@ -533,9 +538,15 @@ export function SheetGrid(props: Props) {
     const indent = (st?.ind ?? 0) * INDENT_PX * z;
     const inner = pos.width - pad * 2 - indent;
     let text = view.text;
-    // A number that does not fit shows ####, as in Excel (text runs on instead).
+    // A number that does not fit shows ####, as in Excel (text runs on instead);
+    // a General one is first rounded to fit, as Excel does (R334).
     if (view.kind === "number" && !st?.wrap && measureText(text, font) > inner) {
-      text = "#".repeat(Math.max(1, Math.floor(inner / Math.max(1, measureText("#", font)))));
+      const fitted =
+        typeof value === "number"
+          ? numberToFit(value, effectiveFormat(input), (s) => measureText(s, font) <= inner)
+          : null;
+      text =
+        fitted ?? "#".repeat(Math.max(1, Math.floor(inner / Math.max(1, measureText("#", font)))));
     }
     const isLink = !!input?.l || /^=\s*HYPERLINK\s*\(/i.test(input?.i ?? "");
     // A formula from an Excel file that this engine cannot compute shows the
@@ -833,14 +844,12 @@ export function SheetGrid(props: Props) {
     onContextMenu: (e: React.MouseEvent) => {
       const raw = cellAt(e.clientX, e.clientY);
       if (raw && props.onContextMenu) {
-        if (
-          !(
-            raw.row >= range.r0 &&
-            raw.row <= range.r1 &&
-            raw.col >= range.c0 &&
-            raw.col <= range.c1
-          )
-        ) {
+        if (!(
+          raw.row >= range.r0 &&
+          raw.row <= range.r1 &&
+          raw.col >= range.c0 &&
+          raw.col <= range.c1
+        )) {
           const hit = topLeft(raw);
           onSelect({ anchor: hit, focus: hit });
         }

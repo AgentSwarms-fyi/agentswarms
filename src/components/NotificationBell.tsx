@@ -5,6 +5,7 @@
 // (server.mjs, R95). It used to be the only thing that did.
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { Link } from "@tanstack/react-router";
 import { BellRing, CheckCheck, Trash2 } from "lucide-react";
 
@@ -95,6 +96,20 @@ export function NotificationBell() {
   }
 
   async function clearAll() {
+    // R242 added the question. R244 moved it ABOVE the optimistic clear, where
+    // it belongs: asking after `setItems([])` meant Cancel returned without
+    // restoring, so the panel sat empty — "No notifications" — over thirty
+    // that were still in the database, until a reload. Nothing may be shown as
+    // done before the reader has agreed to it. Found by driving the real image
+    // after a green gate: no test asserted the ORDER of the two.
+    if (
+      !(await confirmAsk({
+        title: "Clear all notifications?",
+        body: "Every notification is deleted, read or not. This cannot be undone.",
+        actionLabel: "Clear all",
+      }))
+    )
+      return;
     const before = items;
     setItems([]);
     const { error } = await supabase.from("notifications").delete().not("id", "is", null);

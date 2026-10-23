@@ -15,7 +15,7 @@
 // replacement keeps that one exception and restores everything else.
 import { describe, expect, it } from "vitest";
 
-import { safeUrl } from "@/components/playground/MarkdownMessage";
+import { safeUrl } from "@/lib/safeUrl";
 
 describe("blocks script-bearing URLs", () => {
   for (const url of [

@@ -2,6 +2,7 @@ import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { sessionUser } from "@/lib/sessionUser";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -89,10 +90,12 @@ function SkillLibraryPage() {
   const handleDuplicateSample = async (sampleId: string) => {
     const sample = SAMPLE_SKILLS.find((s) => s.id === sampleId);
     if (!sample) return;
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return;
+    const user = await sessionUser();
+    // It used to return here in silence: "Duplicate to my skills" did nothing.
+    if (!user) {
+      toast.error("Not signed in");
+      return;
+    }
     const { error } = await supabase.from("agent_skills").insert({
       user_id: user.id,
       name: `${sample.name} (copy)`,

@@ -82,10 +82,7 @@ function serviceName(): string {
 
 // ── OTLP JSON building blocks ──────────────────────────────────────────────
 type AttrVal =
-  | { stringValue: string }
-  | { intValue: string }
-  | { doubleValue: number }
-  | { boolValue: boolean };
+  { stringValue: string } | { intValue: string } | { doubleValue: number } | { boolValue: boolean };
 type Attr = { key: string; value: AttrVal };
 type Span = {
   traceId: string;

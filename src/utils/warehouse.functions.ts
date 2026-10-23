@@ -12,21 +12,27 @@ import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.se
 import { HOST_PORT_PROVIDERS } from "@/utils/warehouse/types";
 import type { WarehouseConfig, WarehouseConnectionSummary } from "@/utils/warehouse/types";
 import { auditEvent } from "@/utils/audit.server";
+import { callerFailure } from "@/utils/callerLookup.server";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
 function userClient(accessToken: string) {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_PUBLISHABLE_KEY;
   if (!url || !key) throw new Error("Server is missing Supabase configuration");
-  return createClient<Database>(url, key, {
-    auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
-  });
+  return createClient<Database>(
+    url,
+    key,
+    withNulSafeFetch({
+      auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: `Bearer ${accessToken}` } },
+    }),
+  );
 }
 
 async function requireUser(accessToken: string) {
   const sb = userClient(accessToken);
   const { data, error } = await sb.auth.getUser(accessToken);
-  if (error || !data.user) throw new Error("Unauthorized");
+  if (error || !data?.user) throw new Error(callerFailure(error, "Unauthorized"));
   return { sb, userId: data.user.id };
 }
 
@@ -158,7 +164,7 @@ const ConfigSchema = z.discriminatedUnion("provider", [
 ]);
 
 export const listWarehouseConnections = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(
     async ({
       data,
@@ -206,7 +212,7 @@ export const listWarehouseConnections = createServerFn({ method: "POST" })
   );
 
 export const saveWarehouseConnection = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -263,7 +269,7 @@ export const saveWarehouseConnection = createServerFn({ method: "POST" })
   });
 
 export const deleteWarehouseConnection = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), connection_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
@@ -287,7 +293,7 @@ export const deleteWarehouseConnection = createServerFn({ method: "POST" })
   });
 
 export const testWarehouseConnectionFn = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), connection_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {

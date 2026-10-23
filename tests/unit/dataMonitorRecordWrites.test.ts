@@ -27,7 +27,7 @@ describe("a monitor's verdict", () => {
 
 describe("a monitor's incident", () => {
   it("says when it could not be extended", () => {
-    expect(reconcile).toContain("const { error: extendErr } = await supabaseAdmin");
+    expect(reconcile).toContain("const { data: extended, error: extendErr } = await supabaseAdmin");
     expect(reconcile).toContain("could not be extended");
   });
 
@@ -38,7 +38,9 @@ describe("a monitor's incident", () => {
   });
 
   it("does not say Recovered over an incident that could not be resolved", () => {
-    expect(reconcile).toContain("const { error: resolveErr } = await supabaseAdmin");
+    expect(reconcile).toContain(
+      "const { data: resolved, error: resolveErr } = await supabaseAdmin",
+    );
     expect(reconcile).toContain("Recovered, incident still open:");
     expect(reconcile).toContain("the incident could not be marked resolved");
     expect(reconcile).toContain("...(resolveErr ? { incident_error: resolveErr.message } : {}),");

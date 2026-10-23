@@ -34,8 +34,7 @@ const DEFAULT_MODEL = "google/gemini-2.5-flash";
 const MAX_ATTEMPTS = 2;
 
 export type LlmJsonServerResult =
-  | { ok: true; result: unknown }
-  | { ok: false; status: number; error: string; raw?: string };
+  { ok: true; result: unknown } | { ok: false; status: number; error: string; raw?: string };
 
 export type LlmJsonServerOpts = {
   /** Whose credentials, IAM rules and spend this call runs under. */

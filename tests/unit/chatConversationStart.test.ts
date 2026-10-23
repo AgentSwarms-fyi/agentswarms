@@ -43,6 +43,42 @@ describe("New Chat", () => {
   });
 });
 
+describe("a message sent while New Chat is starting (R352)", () => {
+  // FOUND FROM THE UI (R350, R352). New Chat awaited its insert before it
+  // switched to the new conversation. A message sent in that moment was saved
+  // to the chat on screen, and answered there with that chat's history, while
+  // the new chat showed only the reply. The R350 check's first turn, the one
+  // that held its codename, landed in another conversation that way.
+  const create = () =>
+    between("async function createConversation()", "async function renameConversation");
+
+  it("leaves the chat on screen before the insert, so the composer is disabled", () => {
+    const fn = create();
+    const insert = fn.indexOf('.from("conversations")');
+    expect(fn.indexOf('setActiveConvo("");')).toBeGreaterThan(0);
+    expect(fn.indexOf('setActiveConvo("");')).toBeLessThan(insert);
+    expect(fn.indexOf("setMessages([]);")).toBeLessThan(insert);
+    expect(fn.indexOf("const previous = activeConvo;")).toBeLessThan(
+      fn.indexOf('setActiveConvo("");'),
+    );
+  });
+
+  it("goes back to that chat if the new one cannot be made", () => {
+    expect(create()).toMatch(
+      /if \(error \|\| !data\) \{[\s\S]*?setActiveConvo\(previous\);\s*return;/,
+    );
+  });
+
+  it("a send with no conversation active cannot happen", () => {
+    expect(SRC).toContain(
+      'disabled={(!activeConvo && !armedDoc) || thinking || docPhase !== "idle"}',
+    );
+    expect(SRC).toContain(
+      "if ((!input.trim() && attachments.length === 0) || !activeConvo || !user) return;",
+    );
+  });
+});
+
 describe("the empty chat", () => {
   it("says why there is nowhere to write, and offers to try again", () => {
     expect(SRC).toContain(

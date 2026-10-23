@@ -174,8 +174,11 @@ export async function registerRunAsVersion(input: RegisterRunInput): Promise<
   // rather than refused: the notebook that trained the model is the one
   // calling, and asking it to say "finish" first would only add a step.
   if (run.status === "running") {
+    // FOUND IN R320. Held to "running": a run its notebook ended as "failed"
+    // a moment earlier keeps that status rather than being rewritten as
+    // "finished", and registers as any ended run does.
     const finishedAt = new Date();
-    await supabaseAdmin
+    const { data: ended } = await supabaseAdmin
       .from("ml_experiment_runs")
       .update({
         status: "finished",
@@ -183,8 +186,19 @@ export async function registerRunAsVersion(input: RegisterRunInput): Promise<
         duration_ms: finishedAt.getTime() - new Date(run.started_at).getTime(),
       })
       .eq("id", run.id)
-      .eq("user_id", input.userId);
-    run.status = "finished";
+      .eq("user_id", input.userId)
+      .eq("status", "running")
+      .select("id");
+    if ((ended ?? []).length > 0) {
+      run.status = "finished";
+    } else {
+      const { data: now } = await supabaseAdmin
+        .from("ml_experiment_runs")
+        .select("status")
+        .eq("id", run.id)
+        .maybeSingle();
+      run.status = now?.status ?? run.status;
+    }
   }
   const registrable = checkRegistrable(run);
   if (!registrable.ok) return { ok: false, error: registrable.error, status: 409 };

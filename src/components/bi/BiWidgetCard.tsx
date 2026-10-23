@@ -12,7 +12,8 @@ import {
   Table2,
   Type,
 } from "lucide-react";
-import { BiChartRender, fmtBiValue, toBiNumber } from "@/components/bi/BiChartRender";
+import { BiChartRender } from "@/components/bi/BiChartRender";
+import { fmtBiValue, toBiNumber } from "@/components/bi/biChartData";
 import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
 import type { BiColumnFormat } from "@/lib/biAgent";
 import type { DrillEntry } from "@/lib/biChartMath";

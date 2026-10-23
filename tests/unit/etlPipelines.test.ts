@@ -20,7 +20,6 @@ import {
   codeTemplate,
   dbFamily,
   envKey,
-  lakehouseAttachFn,
   pyIdent,
   pyStr,
   requirementsFor,
@@ -522,14 +521,6 @@ describe("lakehouse pipeline nodes", () => {
     expect(code).toContain("return _lake_read('s')");
     expect(code).toContain("_ld = _lake_stage('t', _src)");
     expect(code).not.toMatch(/ATTACH|ducklake:|_lakehouse_con|ETL_LAKEHOUSE_|password=/);
-  });
-
-  it("the Spark target's attach still dodges the sandbox's read-only HOME and noexec /tmp", () => {
-    // Both were real failures: ~/.duckdb is read-only, and a .so downloaded
-    // into /tmp cannot be mapped. ~/.local is writable AND executable.
-    const code = lakehouseAttachFn();
-    expect(code).toContain("'.local', 'duckdb'");
-    expect(code).not.toContain("tempfile.mkdtemp(prefix='duckdb-ext");
   });
 
   it("an empty batch is sent only by a replace, which empties the table as it always did", () => {

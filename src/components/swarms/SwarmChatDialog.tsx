@@ -31,6 +31,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { asSentence, openChat, saveChat, type ChatMsg } from "@/lib/swarmChatStore";
 
 type ChatRow = { id: string; title: string; updated_at: string };
@@ -212,8 +213,32 @@ export function SwarmChatDialog({
   };
 
   const deleteChat = async (id: string) => {
+    // FOUND IN R242. Agent Chat's trash icon asks before it deletes a chat,
+    // and the reason is written above it (R72): the icon sits one row from the
+    // chat you are working in, the row carries the whole transcript, and
+    // `swarm_chats` has no undo, no trash and no export on the way out. This
+    // button is the same icon, one row from the same place, over the same
+    // kind of row — and it deleted on the first click. Two paths to one
+    // action, one of them guarded (R67).
+    const title = chats.find((c) => c.id === id)?.title ?? "this chat";
+    if (
+      !(await confirmAsk({
+        title: `Delete "${title}"?`,
+        body: "Every message in this chat, and the state it carried, goes with it. This cannot be undone.",
+        actionLabel: "Delete chat",
+      }))
+    )
+      return;
     const { error: err } = await supabase.from("swarm_chats").delete().eq("id", id);
-    if (err) return toast.error("Could not delete chat");
+    if (err) {
+      // Say what is still true, as every other delete on this product does.
+      // "Could not delete chat" alone leaves the reader to guess whether the
+      // row survived, and the list still showing it is not an answer — that
+      // is exactly what a half-applied delete looks like too.
+      return toast.error("Could not delete the chat", {
+        description: `${err.message}. It is still here.`,
+      });
+    }
     setChats((prev) => prev.filter((c) => c.id !== id));
     if (id === activeChatId) newChat();
   };

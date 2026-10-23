@@ -102,8 +102,7 @@ async function download(
 }
 
 export type OrcResult =
-  | { ok: true; rows: Record<string, unknown>[] }
-  | { ok: false; error: string; crashed: boolean };
+  { ok: true; rows: Record<string, unknown>[] } | { ok: false; error: string; crashed: boolean };
 
 /**
  * The child program.

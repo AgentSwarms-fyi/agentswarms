@@ -339,10 +339,11 @@ describe("the wiring", () => {
       "StorageTargetPicker",
       "SecretPicker",
       "RegionPicker",
-      "useSecretNames",
     ]) {
       expect(pickers, name).toContain(`export function ${name}`);
     }
+    // The secret-name list the pickers share is a hook of its own (R346).
+    expect(rd("src/hooks/use-secret-names.ts")).toContain("export function useSecretNames");
     expect(rd("src/utils/etl.functions.ts")).toContain(
       "export const etlListWarehouseTables = createServerFn",
     );

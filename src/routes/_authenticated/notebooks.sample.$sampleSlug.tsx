@@ -16,12 +16,14 @@ import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import { useAuth } from "@/hooks/use-auth";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import { useTheme } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
 import { ServerRuntime, type CellRunResult } from "@/lib/serverRuntime";
 import { RuntimeRequired } from "@/components/notebooks/RuntimeRequired";
 import { getSampleNotebook } from "@/lib/sampleNotebooks";
 import type { PyCell } from "@/lib/pythonNotebookTemplate";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 export const Route = createFileRoute("/_authenticated/notebooks/sample/$sampleSlug")({
   component: SampleNotebookPage,
@@ -50,6 +52,8 @@ function SampleNotebookPage() {
   const { sampleSlug } = Route.useParams();
   const navigate = useNavigate();
   const { user, session } = useAuth();
+  // The kernel outlives renders, so it reads the token when it calls (R271).
+  const { tokenRef } = useTokenRef(session?.access_token);
   const { theme } = useTheme();
   const isDark = theme === "dark";
 
@@ -82,7 +86,7 @@ function SampleNotebookPage() {
       // is bundled content with no DB row, so it binds to no notebook (its slug
       // is not a uuid) — cells execute inline over the kernel websocket.
       if (!kernelRef.current) {
-        const rt = new ServerRuntime(() => session?.access_token ?? null, null);
+        const rt = new ServerRuntime(() => tokenRef.current || null, null);
         kernelRef.current = rt;
         try {
           await rt.start();
@@ -102,7 +106,7 @@ function SampleNotebookPage() {
       setOutputs((o) => ({ ...o, [cell.id]: res }));
       return res;
     },
-    [session?.access_token, sampleSlug],
+    [tokenRef],
   );
 
   const runAll = async () => {
@@ -136,6 +140,8 @@ function SampleNotebookPage() {
       if (error || !data) return toast.error(error?.message ?? "Failed to fork notebook");
       toast.success("Forked — this copy is yours to edit");
       void navigate({ to: "/notebooks/py/$pyNotebookId", params: { pyNotebookId: data.id } });
+    } catch (e) {
+      reportFailure("fork the sample notebook", e);
     } finally {
       setForking(false);
     }

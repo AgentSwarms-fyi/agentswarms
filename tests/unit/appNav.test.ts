@@ -146,7 +146,7 @@ describe("the rail the docs checker reads", () => {
   });
 
   it("gives the docs rail the same reading order as the app rail", () => {
-    const shell = rd("src/components/docs/DocsShell.tsx");
+    const shell = rd("src/components/docs/docsNav.ts");
     const order = ["/docs/lakehouse", "/docs/sql-models", "/docs/semantics", "/docs/bi"];
     const at = order.map((u) => shell.indexOf(`to: "${u}"`));
     expect(

@@ -2,10 +2,8 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
-import {
-  fetchConnectedIntegrations,
-  type ConnectedIntegration,
-} from "@/components/bi/BiModelSelect";
+import { type ConnectedIntegration } from "@/components/bi/biModelPref";
+import { fetchConnectedIntegrations } from "@/components/bi/biModelPref";
 import { listProviderImageModels, type ProviderModelInfo } from "@/utils/providerModels.functions";
 import { PROVIDER_LABELS, type ProviderId } from "@/utils/providers/types";
 import { Button } from "@/components/ui/button";

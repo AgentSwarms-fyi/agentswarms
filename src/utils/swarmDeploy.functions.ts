@@ -6,6 +6,7 @@ import { z } from "zod";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { auditEvent } from "@/utils/audit.server";
 import { generateWebhookSecret } from "@/utils/swarmWebhook.server";
+import { type CallerCheckFailed, checkFailed } from "@/utils/callerLookup.server";
 
 export async function sha256Hex(input: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
@@ -19,10 +20,10 @@ function generateRawKey(): string {
   return `sk_swarm_${hex}`;
 }
 
-async function userFromToken(accessToken: string): Promise<string | null> {
+async function userFromToken(accessToken: string): Promise<string | null | CallerCheckFailed> {
   const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
-  if (error || !data.user) return null;
-  return data.user.id;
+  // R297: a check that failed is said, not taken for "signed out".
+  return checkFailed(error) ?? data.user?.id ?? null;
 }
 
 /** Scopes a swarm API key can carry. `run` is the only one that grants work. */
@@ -30,7 +31,7 @@ export const SWARM_KEY_SCOPES = ["run", "read_runs"] as const;
 export type SwarmKeyScope = (typeof SWARM_KEY_SCOPES)[number];
 
 export const createSwarmApiKey = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -61,6 +62,7 @@ export const createSwarmApiKey = createServerFn({ method: "POST" })
     > => {
       const userId = await userFromToken(data.access_token);
       if (!userId) return { ok: false, error: "Invalid session" };
+      if (typeof userId !== "string") return { ok: false, error: userId.checkFailed };
 
       // Ownership check — only the swarm owner can mint keys for it.
       const { data: swarm } = await supabaseAdmin
@@ -148,11 +150,11 @@ export const createSwarmApiKey = createServerFn({ method: "POST" })
  * instance rather than a stale assumption baked into the UI.
  */
 export const jsSandboxStatusFn = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }) => {
     // Signed-in callers only: this reports a deployment detail of the instance.
     const userId = await userFromToken(data.access_token);
-    if (!userId) return { configured: false, healthy: false };
+    if (!userId || typeof userId !== "string") return { configured: false, healthy: false };
     const { resolveJsSandboxUrl } = await import("@/utils/jsSandbox.server");
     const url = await resolveJsSandboxUrl();
     if (!url) return { configured: false, healthy: false };
@@ -171,7 +173,7 @@ export const jsSandboxStatusFn = createServerFn({ method: "POST" })
  * THIS snapshot until it is published again. The draft stays editable.
  */
 export const publishSwarm = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), swarm_id: z.string().uuid() }).parse(input),
   )
   .handler(
@@ -180,6 +182,7 @@ export const publishSwarm = createServerFn({ method: "POST" })
     }): Promise<{ ok: false; error: string } | { ok: true; published_at: string }> => {
       const userId = await userFromToken(data.access_token);
       if (!userId) return { ok: false, error: "Not signed in" };
+      if (typeof userId !== "string") return { ok: false, error: userId.checkFailed };
       const { data: swarm } = await supabaseAdmin
         .from("swarms")
         .select("id, user_id, nodes, edges")
@@ -216,12 +219,13 @@ export const publishSwarm = createServerFn({ method: "POST" })
  * able to choose it, rather than discovering the product decided for them.
  */
 export const unpublishSwarm = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), swarm_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: false; error: string } | { ok: true }> => {
     const userId = await userFromToken(data.access_token);
     if (!userId) return { ok: false, error: "Not signed in" };
+    if (typeof userId !== "string") return { ok: false, error: userId.checkFailed };
     const { data: swarm } = await supabaseAdmin
       .from("swarms")
       .select("id, user_id")

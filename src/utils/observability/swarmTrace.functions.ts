@@ -13,7 +13,7 @@ const startRunSchema = z.object({
 
 export const startSwarmRun = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data) => startRunSchema.parse(data))
+  .validator((data) => startRunSchema.parse(data))
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
     const { data: row, error } = await supabase
@@ -44,7 +44,7 @@ const startStepSchema = z.object({
 
 export const startSwarmStep = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data) => startStepSchema.parse(data))
+  .validator((data) => startStepSchema.parse(data))
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
     const { data: row, error } = await supabase
@@ -86,7 +86,7 @@ const finishStepSchema = z.object({
 
 export const finishSwarmStep = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data) => finishStepSchema.parse(data))
+  .validator((data) => finishStepSchema.parse(data))
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
     const { error } = await supabase
@@ -126,7 +126,7 @@ const recordEdgeSchema = z.object({
 
 export const recordSwarmEdge = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data) => recordEdgeSchema.parse(data))
+  .validator((data) => recordEdgeSchema.parse(data))
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
     const { error } = await supabase.from("swarm_run_edges").insert({
@@ -152,7 +152,7 @@ const finishRunSchema = z.object({
 
 export const finishSwarmRun = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data) => finishRunSchema.parse(data))
+  .validator((data) => finishRunSchema.parse(data))
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
 

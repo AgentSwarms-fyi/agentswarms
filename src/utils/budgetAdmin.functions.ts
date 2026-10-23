@@ -45,7 +45,7 @@ export type GroupSpend =
   | { ok: false; error: string };
 
 export const groupSpendTotals = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<Record<string, GroupSpend>> => {
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) throw new Error("Only a superadmin can read group spend");

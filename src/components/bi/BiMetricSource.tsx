@@ -18,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { fmtBiValue } from "@/components/bi/BiChartRender";
+import { fmtBiValue } from "@/components/bi/biChartData";
 import { coerceSemanticChart } from "@/lib/biDashboards";
 import type { MetricModelOption } from "@/components/bi/biDataContext";
 import type { TimeGrain } from "@/lib/semanticLayer";

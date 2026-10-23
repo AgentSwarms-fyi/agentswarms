@@ -331,9 +331,11 @@ describe("the wiring", () => {
     expect(mig).toContain("ADD COLUMN IF NOT EXISTS gateway_metrics_max_rows integer");
     expect(rd("src/utils/gateway/api.server.ts")).toContain("semantic_model_ids: string[];");
     const fns = flat(rd("src/utils/gatewayKeys.functions.ts"));
-    // Named models are filtered against what the owner may read, on create and on update.
-    expect(fns).toContain("const semanticModelIds = await accessibleSemanticModelIds(");
-    expect(fns).toContain("patch.semantic_model_ids = await accessibleSemanticModelIds(");
+    // Named models are checked against what the owner may read, on create and on update.
+    // R247: checked, not filtered. Filtering is what stored a list that lost its
+    // last model as an empty one, and empty means every model.
+    expect(fns).toContain("const semantic = await checkSemanticModelIds(caller.userId,");
+    expect(fns).toContain("patch.semantic_model_ids = semantic.ids;");
     expect(fns).toContain("export const gatewaySemanticModelsList = createServerFn");
     const card = flat(rd("src/components/gateway/GatewayApiCard.tsx"));
     expect(card).toContain(

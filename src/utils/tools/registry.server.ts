@@ -146,7 +146,11 @@ export async function runKbSearch(
     return JSON.stringify({ error: "No knowledge base wired — kb_search unavailable" });
   // Reuse the same retrieval the chat route uses for auto-RAG.
   const { retrieveCitationsReport } = await import("./kb.server");
-  const { citations: cits, degraded } = await retrieveCitationsReport({
+  const {
+    citations: cits,
+    degraded,
+    searched,
+  } = await retrieveCitationsReport({
     sb: ctx.sb,
     agentId: ctx.agentId,
     extraKbIds,
@@ -156,6 +160,11 @@ export async function runKbSearch(
     reranker: ctx.reranker,
     scopeUserId: ctx.scopeUserId,
   });
+  // An agent id is not a knowledge base: an agent with none (or none its owner
+  // may read) searched nothing, and is told so rather than that its knowledge
+  // bases had no match (R348).
+  if (searched === 0)
+    return JSON.stringify({ error: "No knowledge base wired — kb_search unavailable" });
   // A knowledge-base retrieval is a data read, and until now the only one of
   // the agent's data tools that left no audit row at all. Without this an
   // answer grounded in documents showed "no data reads recorded" -- exactly
@@ -1538,6 +1547,12 @@ export async function runMcpCallTool(
 // Registry assembly — checks DB so we only advertise tools that are actually
 // reachable for this user/agent. The model lists fewer hallucinated tools.
 // ============================================================================
+// `args` is the model's JSON arguments, which each handler declares in its own
+// signature (`{ query: string; top_k?: number }`…) and checks as it reads them.
+// `unknown` here would make every one of those signatures a type error
+// (parameters are contravariant), so this is the one place the registry says
+// "whatever the model sent" (R355).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type ToolHandler = (ctx: AgentToolContext, args: any) => Promise<string>;
 
 export type ResolvedTools = {
@@ -1864,6 +1879,8 @@ export async function resolveAgentTools(
   // Memory tools — always advertised when allow-listed. Bound with the
   // conversationId from the tool context so memory_set/memory_get can read
   // and write the per-conversation scratchpad.
+  // The memory handlers take the model's arguments as ToolHandler does.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const memCtxify = (h: (mctx: MemoryToolContext, a: any) => Promise<string>): ToolHandler =>
     ((c, a) => h(c as MemoryToolContext, a)) as ToolHandler;
   if (allows("memory_remember")) {

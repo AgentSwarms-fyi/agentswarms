@@ -188,8 +188,7 @@ describe.skipIf(!hasSupabase)("gateway semantic cache", () => {
       .eq("question", QUESTION)
       .limit(1);
     const row = rows?.[0] as
-      | { target_key: string; prompt_hash: string; embedding: string }
-      | undefined;
+      { target_key: string; prompt_hash: string; embedding: string } | undefined;
     expect(row, "the first call did not store anything").toBeTruthy();
     if (!row) return;
 

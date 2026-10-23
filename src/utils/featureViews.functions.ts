@@ -25,19 +25,20 @@ import {
   type FeatureViewRow,
 } from "@/utils/featureViews/lookup.server";
 import type { TrainingSetResult } from "@/utils/featureViews/trainingSet.server";
+import { callerFailure } from "@/utils/callerLookup.server";
 
 type Fail = { ok: false; error: string };
 
 async function resolveCaller(accessToken: string): Promise<string> {
   const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
-  if (error || !data?.user) throw new Error("Not signed in");
+  if (error || !data?.user) throw new Error(callerFailure(error, "Not signed in"));
   return data.user.id;
 }
 
 const COLUMN = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/);
 
 export const featureViewsList = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ accessToken: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ accessToken: z.string().min(1) }).parse(input))
   .handler(
     async ({
       data,
@@ -89,7 +90,7 @@ export const featureViewsList = createServerFn({ method: "POST" })
  * out; it costs one `LIMIT 0` here to find out at save time instead.
  */
 export const featureViewSave = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         accessToken: z.string().min(1),
@@ -169,7 +170,7 @@ export const featureViewSave = createServerFn({ method: "POST" })
   });
 
 export const featureViewDelete = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ accessToken: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<Fail | { ok: true; detachedFrom: string[] }> => {
@@ -197,7 +198,7 @@ export const featureViewDelete = createServerFn({ method: "POST" })
 
 /** Point a model at a view, or detach it. */
 export const mlModelSetFeatureView = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         accessToken: z.string().min(1),
@@ -225,7 +226,7 @@ export const mlModelSetFeatureView = createServerFn({ method: "POST" })
 
 /** Read the features for one key, so an author can see what serving will see. */
 export const featureViewPreview = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         accessToken: z.string().min(1),
@@ -258,7 +259,7 @@ const NAME = z.string().regex(/^[a-z][a-z0-9_]{0,62}$/);
  * the label it is predicting.
  */
 export const featureViewBuildTrainingSet = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         accessToken: z.string().min(1),
@@ -309,7 +310,7 @@ export const featureViewBuildTrainingSet = createServerFn({ method: "POST" })
  * because the meta records when it was written, not when anybody last meant it.
  */
 export const featureViewSetOnline = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         accessToken: z.string().min(1),
@@ -349,7 +350,7 @@ export const featureViewSetOnline = createServerFn({ method: "POST" })
  * store holds only part of the view.
  */
 export const featureViewRefreshOnline = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ accessToken: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(

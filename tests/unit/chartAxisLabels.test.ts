@@ -12,7 +12,7 @@
 // tooltip.
 import { describe, expect, it } from "vitest";
 
-import { categoryAxis } from "@/components/bi/BiChartRender";
+import { categoryAxis } from "@/components/bi/biChartData";
 
 const TICK = 11;
 

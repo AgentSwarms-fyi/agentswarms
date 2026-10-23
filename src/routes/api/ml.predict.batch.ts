@@ -37,11 +37,17 @@ export const Route = createFileRoute("/api/ml/predict/batch")({
         if (!parsed.success) {
           return mlJson({ error: "Invalid body", issues: parsed.error.issues }, 400);
         }
-        const version = await pickVersion(
-          auth.model.id,
-          parsed.data.version_id,
-          auth.model.production_version_id,
-        );
+        let version: Awaited<ReturnType<typeof pickVersion>>;
+        try {
+          version = await pickVersion(
+            auth.model.id,
+            parsed.data.version_id,
+            auth.model.production_version_id,
+          );
+        } catch (e) {
+          // R251: answered by the version it should be, or not at all.
+          return mlJson({ error: e instanceof Error ? e.message : String(e) }, 503);
+        }
         if (!version) return mlJson({ error: "No trained version to predict with" }, 409);
         const started = await startBatchPrediction({
           userId: auth.key.user_id,

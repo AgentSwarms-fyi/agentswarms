@@ -424,10 +424,19 @@ export async function resolveRunEnv(
     );
   });
   if (incrementalNodes.length) {
-    const { data: state } = await supabaseAdmin
+    const { data: state, error: stateErr } = await supabaseAdmin
       .from("etl_pipeline_state")
       .select("node_id, cursor_value")
       .eq("pipeline_id", pipeline.id);
+    // FOUND IN R253. A cursor that could not be read was a cursor that was
+    // not there, so every incremental source started from the beginning: a
+    // full re-read, appended again to targets that already held it. The run
+    // goes through the retry ladder instead.
+    if (stateErr) {
+      throw new Error(
+        `Could not read the pipeline's incremental cursors, so the run did not start (it would have read every source from the beginning): ${stateErr.message}`,
+      );
+    }
     const cursors = new Map((state ?? []).map((r) => [r.node_id, r.cursor_value]));
     for (const node of incrementalNodes) {
       const value = cursors.get(node.id);
@@ -657,10 +666,14 @@ export async function resolveRunEnv(
   return { env, secretValues, lake };
 }
 
-/** Replace every secret value with *** before logs are persisted or shown. */
+/**
+ * Replace every secret value with *** before logs are persisted or shown.
+ * Longest first: a value scrubbed after a shorter one it contains would be
+ * left in pieces (R292).
+ */
 export function scrubSecrets(text: string, secretValues: string[]): string {
   let out = text;
-  for (const v of secretValues) {
+  for (const v of [...secretValues].sort((a, b) => b.length - a.length)) {
     if (v && v.length >= 4) out = out.split(v).join("***");
   }
   return out;
@@ -740,6 +753,12 @@ export function etlPrelude(): string {
     `_r.raise_for_status()`,
     `_bundle = _r.json()`,
     `_os.environ.update({k: str(v) for k, v in (_bundle.get('env') or {}).items()})`,
+    `# The secret values handed to this run, kept for as long as it runs: the`,
+    `# batch runner scrubs what it posts with them, so a secret replaced or`,
+    `# deleted mid-run is still scrubbed (R292).`,
+    `_sys._agentswarms_scrub = list(getattr(_sys, '_agentswarms_scrub', None) or []) + [`,
+    `    str(v) for v in (_bundle.get('scrub') or [])`,
+    `]`,
     `_reqs = [r for r in (_bundle.get('requirements') or []) if r.strip()]`,
     `if _reqs:`,
     `    print('[etl] installing ' + str(len(_reqs)) + ' package(s)')`,
@@ -823,7 +842,8 @@ export async function etlPreviewEnvFor(
   stash: EtlPreviewStash,
   userId: string,
 ): Promise<
-  { env: Record<string, string>; requirements: string[]; lake?: LakeManifest } | { error: string }
+  | { env: Record<string, string>; requirements: string[]; scrub: string[]; lake?: LakeManifest }
+  | { error: string }
 > {
   const { data: pipeline } = await supabaseAdmin
     .from("etl_pipelines")
@@ -834,7 +854,7 @@ export async function etlPreviewEnvFor(
   if (!pipeline) return { error: "Pipeline not found for this session" };
   const graph = normalizeGraph(pipeline.graph);
   if (!graph) return { error: "This pipeline has no visual graph to preview" };
-  const { env, lake } = await resolveRunEnv(pipeline, { skipTargets: true });
+  const { env, secretValues, lake } = await resolveRunEnv(pipeline, { skipTargets: true });
   env.AGENTSWARMS_ETL_PREVIEW = "1";
   // A preview samples: the app reads no more than the preview shows.
   if (lake) lake.rowLimit = PREVIEW_SAMPLE_ROWS;
@@ -842,7 +862,9 @@ export async function etlPreviewEnvFor(
     .split("\n")
     .map((l) => l.trim())
     .filter(Boolean);
-  return { env, requirements, lake };
+  // A preview's output is shown from its session row, which nothing on this
+  // side scrubs, so the sandbox scrubs it before posting (R292).
+  return { env, requirements, scrub: secretValues, lake };
 }
 
 /** Streamed-rows drain ceiling per run. */
@@ -888,7 +910,7 @@ export async function etlIngestFor(
   const rows: Record<string, unknown>[] = [];
   let maxId: number | null = null;
   let truncated = false;
-  for (let from = 0; ; ) {
+  for (let from = 0; ;) {
     const { data: chunk, error } = await supabaseAdmin
       .from("etl_ingest_events")
       .select("id, payload, received_at")
@@ -959,13 +981,14 @@ export async function etlDatasetFor(
   return { rows, truncated };
 }
 
-/** The "etl_env" part: resolved env + requirements list. */
+/** The "etl_env" part: resolved env, requirements list, and the values to scrub. */
 export async function etlEnvFor(
   etlRunId: string,
   userId: string,
   sessionId?: string,
 ): Promise<
-  { env: Record<string, string>; requirements: string[]; lake?: LakeManifest } | { error: string }
+  | { env: Record<string, string>; requirements: string[]; scrub: string[]; lake?: LakeManifest }
+  | { error: string }
 > {
   const { data: run } = await supabaseAdmin
     .from("etl_runs")
@@ -980,7 +1003,7 @@ export async function etlEnvFor(
     .eq("id", run.pipeline_id)
     .maybeSingle();
   if (!pipeline) return { error: "Pipeline no longer exists" };
-  const { env, lake } = await resolveRunEnv(pipeline, {
+  const { env, secretValues, lake } = await resolveRunEnv(pipeline, {
     sessionId,
     sparkConnectUrl: run.spark_connect_url,
     requireSparkEndpoint: true,
@@ -1004,7 +1027,13 @@ export async function etlEnvFor(
     .split("\n")
     .map((l) => l.trim())
     .filter((l) => l && !l.startsWith("#"));
-  return { env, requirements, lake };
+  // FOUND IN R292. finalizeEtlRun and appendPartialLogs scrub against the
+  // values current when the output arrives: a secret replaced or deleted
+  // mid-run was not on that list, and the value the run printed was stored
+  // in clear. Every value in here is already in env, so the sandbox learns
+  // nothing new; it keeps them for the run's lifetime and scrubs before it
+  // posts.
+  return { env, requirements, scrub: secretValues, lake };
 }
 
 // ── Run lifecycle ───────────────────────────────────────────────────────────
@@ -1274,14 +1303,36 @@ async function startRunSandbox(
       maxMinutes:
         pipeline.schedule === CONTINUOUS_SCHEDULE ? continuousRolloverMinutes() + 10 : undefined,
     });
-    const { error: recErr } = await supabaseAdmin
+    // FOUND IN R307 (sweep 10). Starting a sandbox takes seconds - five to
+    // ten on Docker Desktop - and a Cancel pressed meanwhile found no session
+    // to stop and wrote "cancelled". This write then put "running" over it,
+    // and the run went on to succeed, writing to its targets after the
+    // person had cancelled it. The run takes the sandbox only while it is
+    // still queued.
+    const { data: took, error: recErr } = await supabaseAdmin
       .from("etl_runs")
       .update({
         status: "running",
         session_id: session.id,
         started_at: new Date().toISOString(),
       })
-      .eq("id", runId);
+      .eq("id", runId)
+      .eq("status", "queued")
+      .select("id");
+    if (!recErr && !took?.length) {
+      await stopSession(session).catch((e) =>
+        console.warn("[etl] could not stop a sandbox its run gave up:", (e as Error).message),
+      );
+      const { data: now } = await supabaseAdmin
+        .from("etl_runs")
+        .select("status")
+        .eq("id", runId)
+        .maybeSingle();
+      return {
+        ok: false,
+        error: `The run was ${now?.status ?? "removed"} while its sandbox was starting, so the sandbox was stopped and nothing ran.`,
+      };
+    }
     if (recErr) {
       // FOUND FROM THE SURVEY (R78). The sandbox is running and the run row
       // does not know its session: nothing can cancel it, and the reconciler
@@ -1416,22 +1467,27 @@ export async function appendPartialLogs(etlRunId: string, logs: string): Promise
     .eq("id", etlRunId)
     .maybeSingle();
   if (!run || run.status !== "running") return;
-  const { data: pipeline } = await supabaseAdmin
+  const { data: pipeline, error: pipelineErr } = await supabaseAdmin
     .from("etl_pipelines")
     .select("*")
     .eq("id", run.pipeline_id)
     .maybeSingle();
-  let secretValues: string[] = [];
-  if (pipeline) {
-    try {
-      secretValues = (await resolveRunEnv(pipeline)).secretValues;
-    } catch {
-      /* scrub what we can */
-    }
+  // FOUND IN R253. "Scrub what we can" scrubbed NOTHING whenever the secrets
+  // could not be resolved - the pipeline unreadable, or one secret it uses
+  // deleted mid-run, which makes resolveRunEnv throw - and the live log was
+  // written with every other secret in it, in clear. A partial log is a
+  // convenience; this tick is skipped, and the final log is scrubbed or
+  // withheld in finalizeEtlRun.
+  if (pipelineErr || !pipeline) return;
+  let secretValues: string[];
+  try {
+    secretValues = (await resolveRunEnv(pipeline)).secretValues;
+  } catch {
+    return;
   }
   const { error: logErr } = await supabaseAdmin
     .from("etl_runs")
-    .update({ logs: scrubSecrets(logs.slice(-LOG_CAP), secretValues) })
+    .update({ logs: scrubSecrets(logs, secretValues).slice(-LOG_CAP) })
     .eq("id", etlRunId)
     .eq("status", "running");
   if (logErr) {
@@ -1478,22 +1534,32 @@ async function releaseRunCluster(runId: string): Promise<void> {
 
 export async function reconcileOrphanedEtlRuns(): Promise<number> {
   const graceAgo = new Date(Date.now() - 2 * 60_000).toISOString();
-  const { data: liveRuns } = await supabaseAdmin
+  const { data: liveRuns, error: liveErr } = await supabaseAdmin
     .from("etl_runs")
     .select("id, pipeline_id, session_id, status, created_at, spark_cluster_ref")
     .in("status", ["queued", "running"])
     .lt("created_at", graceAgo)
     .limit(20);
+  if (liveErr) console.warn(`[etl] orphan pass skipped: live runs unreadable: ${liveErr.message}`);
   let reconciled = 0;
   for (const run of liveRuns ?? []) {
     let outcome: { status: string; result?: unknown; logs?: string; error?: string | null } | null =
       null;
     if (run.session_id) {
-      const { data: session } = await supabaseAdmin
+      const { data: session, error: sessionErr } = await supabaseAdmin
         .from("notebook_runtime_sessions")
         .select("status, result, logs, error")
         .eq("id", run.session_id)
         .maybeSingle();
+      // FOUND IN R253. A session that could not be read was "no longer
+      // exists", and a LIVE run was finalized as failed while its sandbox
+      // kept working - then retried, so a second run started beside it.
+      if (sessionErr) {
+        console.warn(
+          `[etl] run ${run.id}: left running, its session could not be read: ${sessionErr.message}`,
+        );
+        continue;
+      }
       if (!session) {
         outcome = { status: "error", error: "The run's sandbox session no longer exists." };
       } else if (session.status === "succeeded") {
@@ -1654,24 +1720,47 @@ export async function finalizeEtlRun(
     .maybeSingle();
   if (!run || run.status === "cancelled") return;
 
-  const { data: pipeline } = await supabaseAdmin
+  const { data: pipeline, error: pipelineErr } = await supabaseAdmin
     .from("etl_pipelines")
     .select("*")
     .eq("id", run.pipeline_id)
     .maybeSingle();
+  // R253: not finalized on a guess. The run stays live, and the orphan
+  // reconciler finalizes it from its session on a later pass.
+  if (pipelineErr) {
+    console.warn(
+      `[etl] run ${etlRunId}: not finalized yet, the pipeline could not be read: ${pipelineErr.message}`,
+    );
+    return;
+  }
 
-  let secretValues: string[] = [];
+  // FOUND IN R253. When the secrets could not be resolved (one the pipeline
+  // uses was deleted while it ran) this "scrubbed what it could", which was
+  // nothing, and stored the logs and the error with every other secret in
+  // clear. What cannot be scrubbed is withheld, and says why.
+  let secretValues: string[] | null = [];
   if (pipeline) {
     try {
       secretValues = (await resolveRunEnv(pipeline)).secretValues;
     } catch {
-      /* pipeline config changed mid-run; scrub what we can */
+      secretValues = null;
     }
   }
+  const WITHHELD =
+    "[withheld: a secret this pipeline uses changed while it ran, so this output could not be checked for secrets]";
 
   const ok = body.status !== "error";
-  const attemptLogs = scrubSecrets((body.logs ?? "").slice(0, LOG_CAP), secretValues);
-  const error = body.error ? scrubSecrets(body.error, secretValues).slice(0, 4000) : null;
+  const attemptLogs =
+    secretValues === null
+      ? body.logs
+        ? WITHHELD
+        : ""
+      : scrubSecrets(body.logs ?? "", secretValues).slice(0, LOG_CAP);
+  const error = body.error
+    ? secretValues === null
+      ? `The run ended with an error. ${WITHHELD}`
+      : scrubSecrets(body.error, secretValues).slice(0, 4000)
+    : null;
   const metrics = body.result && typeof body.result === "object" ? (body.result as Json) : null;
   const now = new Date().toISOString();
 
@@ -2007,7 +2096,7 @@ export async function cancelEtlRun(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const { data: run, error: readErr } = await supabaseAdmin
     .from("etl_runs")
-    .select("id, user_id, status, session_id")
+    .select("id, user_id, status, session_id, pipeline_id")
     .eq("id", runId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -2019,19 +2108,50 @@ export async function cancelEtlRun(
   // true, then stopped the sandbox: a row still "running" over nothing, and
   // the page saying "Stopping". The record is written first, and the
   // sandbox is stopped only once the record says so.
-  const { error: cancelErr } = await supabaseAdmin
+  //
+  // FOUND IN R307 (sweep 10). The write was not held to the status read
+  // above, so a run that finished in between was turned to "cancelled"; and
+  // the session to stop was the one read above, so a sandbox whose start
+  // landed in between was left running. The cancel lands only on a live
+  // run, and stops the session the row holds as it lands.
+  const { data: cancelled, error: cancelErr } = await supabaseAdmin
     .from("etl_runs")
     .update({ status: "cancelled", finished_at: new Date().toISOString() })
-    .eq("id", runId);
+    .eq("id", runId)
+    .in("status", ["queued", "running", "retrying"])
+    .select("session_id");
   if (cancelErr) {
     return {
       ok: false,
       error: `The run could not be marked cancelled: ${cancelErr.message}. It is still running — try again.`,
     };
   }
+  if (!cancelled?.length) return { ok: false, error: "That run is not running." };
+  const sessionId = cancelled[0].session_id ?? run.session_id;
+  // FOUND IN R241. Only the succeeded and failed paths stamped the pipeline,
+  // and both of them return early for a cancelled run — correctly, since a
+  // cancel is not a failure. So nothing wrote the pipeline's last run at all,
+  // and a pipeline whose only runs were cancelled read "last run: —" and
+  // "never ran" on the ETL list. It ran; the operator stopped it. The list's
+  // own RUN_STATUS_STYLE has carried a `cancelled` style the whole time —
+  // the chip was built to show this and was never given it.
+  //
+  // Best effort on purpose: the run IS cancelled by the write above, and
+  // failing to update the summary must not report the cancel as failed.
+  const { error: stampErr } = await supabaseAdmin
+    .from("etl_pipelines")
+    .update({ last_run_at: new Date().toISOString(), last_run_status: "cancelled" })
+    .eq("id", run.pipeline_id);
+  if (stampErr) {
+    // The run is cancelled; the pipeline's badge is not (R78).
+    console.warn(
+      `[etl] pipeline ${run.pipeline_id}: last status could not be stamped cancelled: ${stampErr.message}; the list shows the previous run's until it is`,
+    );
+  }
+
   await releaseRunCluster(runId);
-  if (run.session_id) {
-    const session = await getSession(userId, run.session_id);
+  if (sessionId) {
+    const session = await getSession(userId, sessionId);
     if (session) await stopSession(session).catch(() => {});
   }
   return { ok: true };

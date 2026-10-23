@@ -25,7 +25,7 @@ export function AppearanceSettingsPanel() {
   useEffect(() => setMounted(true), []);
   const activeTheme = mounted ? theme : "native";
   const activeAccent = mounted ? accent : "teal";
-  // Same branch applyAccent() uses in use-theme.tsx: everything except a
+  // Same branch applyAccent() uses in ThemeProvider.tsx: everything except a
   // resolved "dark" gets the light-content variant (native's workspace is
   // light-styled too) — so the swatch always shows the color that will
   // actually apply, not a color picked without knowing the active theme.

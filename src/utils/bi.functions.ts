@@ -23,13 +23,14 @@ import {
   sanitizePublicWidgets,
   type WidgetResultRow,
 } from "@/lib/biDashboards";
-import { isModelAllowed } from "@/utils/iam.server";
+import { isModelAllowed, readApplicableGrants } from "@/utils/iam.server";
 import { parseModelChoice } from "@/utils/providers/modelChoice";
 import type { Json } from "@/integrations/supabase/types";
+import { callerFailure } from "@/utils/callerLookup.server";
 
 async function requireUserId(accessToken: string): Promise<string> {
   const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
-  if (error || !data.user) throw new Error("Unauthorized");
+  if (error || !data?.user) throw new Error(callerFailure(error, "Unauthorized"));
   return data.user.id;
 }
 
@@ -101,7 +102,7 @@ export type PublicDashboard = {
 
 /** Anonymous fetch of a published dashboard by its unguessable slug. */
 export const biGetPublicDashboard = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ slug: z.string().min(8).max(64) }).parse(input))
+  .validator((input: unknown) => z.object({ slug: z.string().min(8).max(64) }).parse(input))
   .handler(
     async ({
       data,
@@ -146,7 +147,7 @@ export const biGetPublicDashboard = createServerFn({ method: "POST" })
 
 /** Groups any signed-in user can share a dashboard with. */
 export const biListShareTargets = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(
     async ({
       data,
@@ -168,7 +169,7 @@ export const biListShareTargets = createServerFn({ method: "POST" })
   );
 
 export const biGetShares = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), dashboard_id: z.string().uuid() }).parse(input),
   )
   .handler(
@@ -198,7 +199,7 @@ export const biGetShares = createServerFn({ method: "POST" })
 
 /** Replace the set of groups this dashboard is shared with (owner only). */
 export const biSetShares = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -271,7 +272,7 @@ export const biSetShares = createServerFn({ method: "POST" })
  * IAM model rules of every group the dashboard is currently shared with.
  */
 export const biSetReaderModel = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -328,7 +329,7 @@ export const biSetReaderModel = createServerFn({ method: "POST" })
  * mistimed client call degrades to correct behaviour, not an error.
  */
 export const biGetSharedWidgetResults = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), dashboard_id: z.string().uuid() }).parse(input),
   )
   .handler(
@@ -352,22 +353,25 @@ export const biGetSharedWidgetResults = createServerFn({ method: "POST" })
         let mask: string[] = [];
         if (dash.user_id !== userId) {
           // Grants that apply to this caller: their own, plus their groups'.
-          const { data: memberships } = await supabaseAdmin
-            .from("iam_group_members")
-            .select("group_id")
-            .eq("user_id", userId);
-          const groupIds = (memberships ?? []).map((m) => m.group_id);
-          const { data: grants, error: gErr } = await supabaseAdmin
-            .from("iam_resource_grants")
-            .select("principal_type, principal_id, row_filter, column_mask")
-            .eq("resource_type", "bi_dashboard")
-            .eq("resource_id", data.dashboard_id);
-          if (gErr) return { ok: false, error: gErr.message };
-          const applicable = (grants ?? []).filter(
-            (g) =>
-              (g.principal_type === "user" && g.principal_id === userId) ||
-              (g.principal_type === "group" && groupIds.includes(g.principal_id)),
-          );
+          //
+          // R239: the grants read here was already guarded, but the membership
+          // read beside it was not, so a failure of THAT one produced no
+          // applicable grant and answered "This dashboard is not shared with
+          // you" — a definite sentence about a question that was never asked.
+          // The reader acts on it by going to ask for access they already have.
+          let applicable;
+          try {
+            applicable = await readApplicableGrants(supabaseAdmin, userId, "bi_dashboard", [
+              data.dashboard_id,
+            ]);
+          } catch (e) {
+            return {
+              ok: false,
+              error: `Could not read your access to this dashboard, so it was not opened: ${
+                e instanceof Error ? e.message : String(e)
+              }`,
+            };
+          }
           if (applicable.length === 0) {
             return { ok: false, error: "This dashboard is not shared with you" };
           }

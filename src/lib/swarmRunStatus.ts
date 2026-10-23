@@ -161,6 +161,21 @@ export function showsDuration(view: RunStatusView, finishedAt: number | null): b
   return view.live || finishedAt !== null;
 }
 
+/**
+ * Start to finish, for a run that has finished; null for one that has not.
+ *
+ * FOUND IN R257. A run parked for twelve hours and then cancelled read
+ * "12h 19m" on Recent runs and "Duration 0ms" on its own Observability page.
+ * Both numbers were true and only one was a duration: the page labelled the
+ * SUM OF ITS STEPS' latencies "Duration". Elapsed time and step time answer
+ * different questions - how long it took, and how long it worked - so each
+ * is named for what it is.
+ */
+export function runElapsedMs(startedAt: string, finishedAt: string | null): number | null {
+  if (!finishedAt) return null;
+  return Math.max(0, new Date(finishedAt).getTime() - new Date(startedAt).getTime());
+}
+
 /** 42s, 7m 5s, 19h 35m. */
 export function formatRunDuration(ms: number): string {
   const s = Math.max(0, Math.round(ms / 1000));

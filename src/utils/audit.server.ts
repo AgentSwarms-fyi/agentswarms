@@ -134,11 +134,23 @@ export async function purgeAuditEvents(force = false): Promise<void> {
   // provenance_retention_days arrives with migration 20260849000000; the
   // generated Database types predate it, hence the cast.
   /* eslint-disable @typescript-eslint/no-explicit-any */
-  const { data: settings } = await (supabaseAdmin.from("iam_settings") as any)
+  const { data: settings, error: settingsErr } = await (supabaseAdmin.from("iam_settings") as any)
     .select("audit_retention_days, provenance_retention_days")
     .limit(1)
     .maybeSingle();
   /* eslint-enable @typescript-eslint/no-explicit-any */
+  // FOUND IN R252. This dropped its error, so a failed read was "no settings"
+  // and both windows fell back to their defaults: an operator who keeps seven
+  // years of audit trail for a regulator had every row past 365 days DELETED,
+  // and every piece of answer provenance past 183. Nothing brings a deleted
+  // audit row back; the stdout archive only helps if something is shipping
+  // it. A purge whose window could not be read waits for the next interval.
+  if (settingsErr) {
+    console.warn(
+      `[audit] purge skipped: the retention settings could not be read: ${settingsErr.message}`,
+    );
+    return;
+  }
   const days = settings?.audit_retention_days ?? 365;
   const cutoffMs = now - days * 86_400_000;
   const cutoff = new Date(cutoffMs).toISOString();

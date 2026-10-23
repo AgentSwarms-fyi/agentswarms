@@ -11,6 +11,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { resolveOpenAICompatTransport } from "@/utils/providers/credentials.server";
 import { isBiCompatProvider, isTextModelId } from "@/utils/providers/modelChoice";
 import type { ProviderId } from "@/utils/providers/types";
+import { callerFailure } from "@/utils/callerLookup.server";
 
 export type ProviderModelInfo = {
   id: string;
@@ -67,7 +68,7 @@ async function fetchProviderModels(
   provider: string,
 ): Promise<{ ok: true; raw: RawModel[] } | { ok: false; error: string }> {
   const { data: auth, error } = await supabaseAdmin.auth.getUser(accessToken);
-  if (error || !auth.user) return { ok: false, error: "Unauthorized" };
+  if (error || !auth?.user) return { ok: false, error: callerFailure(error, "Unauthorized") };
   if (!isBiCompatProvider(provider)) {
     return { ok: false, error: `Unsupported provider "${provider}"` };
   }
@@ -102,7 +103,7 @@ async function fetchProviderModels(
 }
 
 export const listProviderModels = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), provider: z.string().min(1) }).parse(input),
   )
   .handler(
@@ -146,7 +147,7 @@ export const listProviderModels = createServerFn({ method: "POST" })
 
 /** Image-GENERATION models a connected provider can serve. */
 export const listProviderImageModels = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), provider: z.string().min(1) }).parse(input),
   )
   .handler(

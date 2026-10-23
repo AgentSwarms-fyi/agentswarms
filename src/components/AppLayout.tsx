@@ -6,7 +6,8 @@ import { UserMenu } from "@/components/UserMenu";
 import { OnboardingDialog } from "@/components/OnboardingDialog";
 import { MobileLabNotice } from "@/components/MobileLabNotice";
 import { GlobalCreateMenu } from "@/components/GlobalCreateMenu";
-import { CommandPalette, useCommandPalette } from "@/components/CommandPalette";
+import { CommandPalette } from "@/components/CommandPalette";
+import { useCommandPalette } from "@/hooks/use-command-palette";
 import { ShortcutsHelpDialog } from "@/components/ShortcutsHelpDialog";
 import { useGlobalShortcuts } from "@/hooks/use-global-shortcuts";
 import { Button } from "@/components/ui/button";
@@ -120,11 +121,7 @@ export function AppLayout() {
         </div>
       </div>
       <CommandPalette open={palette.open} onOpenChange={palette.setOpen} />
-      <ShortcutsHelpDialog
-        open={shortcuts.helpOpen}
-        onOpenChange={shortcuts.setHelpOpen}
-        onNeverShowAgain={shortcuts.dismissForever}
-      />
+      <ShortcutsHelpDialog open={shortcuts.helpOpen} onOpenChange={shortcuts.setHelpOpen} />
       <OnboardingDialog />
       <MobileLabNotice />
     </SidebarProvider>

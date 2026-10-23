@@ -204,6 +204,48 @@ export function inferColumns(rows: Record<string, unknown>[]): ColumnDef[] {
   });
 }
 
+/**
+ * Postgres cannot store U+0000 in `text` or `jsonb`, and it refuses the whole
+ * statement over one: "unsupported Unicode escape sequence".
+ *
+ * FOUND IN R300. A three-row CSV with one NUL inside a value - the padding
+ * legacy exports and fixed-width dumps are full of - was not imported at all,
+ * and the toast named neither the character nor the row. Rows are stored as
+ * jsonb, so the character is removed from every text value on the way in, the
+ * way loaders in front of Postgres do, and the upload says how many cells it
+ * cleaned. The first version cleaned in coerceRow and the upload still failed:
+ * a text column's distinct values, kept in its column definition, are taken
+ * from the raw rows before coercion, and they are jsonb too.
+ */
+export function withoutNul(s: string): string {
+  return s.includes("\u0000") ? s.replaceAll("\u0000", "") : s;
+}
+
+/**
+ * A raw row with every NUL removed from its column names and text values,
+ * before anything - type inference, distinct values, coercion - reads it.
+ * Counts the cells it changed.
+ */
+export function cleanRow(
+  raw: Record<string, unknown>,
+  cleaned: { nulCells: number },
+): Record<string, unknown> {
+  let touched = false;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    const key = withoutNul(k);
+    if (typeof v === "string" && v.includes("\u0000")) {
+      out[key] = withoutNul(v);
+      cleaned.nulCells++;
+      touched = true;
+    } else {
+      out[key] = v;
+      touched ||= key !== k;
+    }
+  }
+  return touched ? out : raw;
+}
+
 /** Coerce values to their inferred type so SQL can SUM, AVG and ORDER BY. */
 export function coerceRow(
   row: Record<string, unknown>,

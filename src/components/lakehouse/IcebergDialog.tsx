@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { Loader2, Snowflake, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
+import { publishFailureHelp } from "@/lib/icebergPublishHelp";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -37,6 +38,7 @@ import {
   validateIcebergCatalog,
   type IcebergCatalogConfig,
 } from "@/utils/lakehouse/iceberg";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 /** A schema name for a namespace: ice_<namespace>, made safe. */
 function suggestedSchemaName(namespace: string): string {
@@ -57,6 +59,8 @@ function useCatalogs(token: string, open: boolean) {
       const r = await listFn({ data: { access_token: token } });
       if (r.ok) setCatalogs(r.catalogs);
       else toast.error(r.error);
+    } catch (e) {
+      reportFailure("load the catalogs", e);
     } finally {
       setLoading(false);
     }
@@ -313,6 +317,8 @@ export function IcebergCatalogsDialog({ onChanged }: { onChanged: () => void }) 
                         setForm(defaultIcebergCatalog());
                         setAdding(false);
                         await reload();
+                      } catch (e) {
+                        reportFailure("register the catalog", e);
                       } finally {
                         setBusy(false);
                       }
@@ -396,6 +402,8 @@ export function IcebergCatalogsDialog({ onChanged }: { onChanged: () => void }) 
                     setNamespace("");
                     await reload();
                     onChanged();
+                  } catch (e) {
+                    reportFailure("mount the namespace", e);
                   } finally {
                     setMounting(false);
                   }
@@ -530,6 +538,17 @@ export function PublishToIcebergDialog({ schema, table }: { schema: string; tabl
                     `Published ${r.rows.toLocaleString()} row(s) to ${namespace}.${name}`,
                   );
                   setOpen(false);
+                } catch (e) {
+                  // R245. This had a `finally` and no `catch`: a publish the
+                  // catalog rejected stopped the spinner and said NOTHING,
+                  // which is the "No toast" recorded on 2026-10-01 over a
+                  // refused commit. A write to someone else's catalog is
+                  // exactly where silence is least affordable — the reader
+                  // cannot tell "it did not happen" from "it happened and the
+                  // dialog is being slow".
+                  toast.error(`Could not publish ${schema}.${table}`, {
+                    description: publishFailureHelp(e),
+                  });
                 } finally {
                   setBusy(false);
                 }

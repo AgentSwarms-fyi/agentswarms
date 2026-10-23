@@ -16,7 +16,7 @@ export type { DecisionChain } from "@/utils/provenance/decision.server";
 
 export const getDecision = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ decisionId: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => z.object({ decisionId: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }): Promise<DecisionChain | null> => {
     // Owner-scoped inside: a decision id from another tenant yields null, not
     // a 403 that would confirm the id exists.
@@ -32,7 +32,7 @@ export const getDecision = createServerFn({ method: "POST" })
  */
 export const getPassportForDecision = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ decisionId: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => z.object({ decisionId: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }): Promise<Passport | null> => {
     return getPassport(context.userId, data.decisionId);
   });
@@ -47,7 +47,7 @@ export const getPassportForDecision = createServerFn({ method: "POST" })
  */
 export const replayDecision = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ decisionId: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => z.object({ decisionId: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }): Promise<ReplayResult | null> => {
     return runReplay(context.userId, data.decisionId);
   });

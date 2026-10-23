@@ -2,7 +2,8 @@ import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { listCountLabel, listState } from "@/lib/listState";
-import { useDropzone } from "react-dropzone";
+import { useDropzone, type FileRejection } from "react-dropzone";
+import type { Json, TablesInsert } from "@/integrations/supabase/types";
 import { supabase } from "@/integrations/supabase/client";
 import { scanRows } from "@/lib/cursorScan";
 import { useAuth } from "@/hooks/use-auth";
@@ -81,6 +82,7 @@ import {
   type VectorStoreChoice,
   resolveRetrievalSettings,
 } from "@/lib/kbRag";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 // Chunks scanned to build the per-document counts. Well past any real
 // collection — the point of the ceiling is that an unbounded client scan
@@ -109,9 +111,14 @@ type KnowledgeDoc = {
   name: string;
   content: string | null;
   created_at: string;
-  metadata?: any;
+  metadata?: Json;
   source_id?: string | null;
 };
+/** The embedding model a document's metadata names, when it names one. */
+const embeddingModelOf = (m: Json | undefined): string | null =>
+  m && typeof m === "object" && !Array.isArray(m) && typeof m.embedding_model === "string"
+    ? m.embedding_model
+    : null;
 type KbSource = {
   id: string;
   knowledge_base_id: string;
@@ -134,6 +141,9 @@ type KbSource = {
     removed?: number;
     skipped?: { name: string; reason: string }[];
     acl_unavailable?: number;
+    /** Not seen, but kept: the listing could not read everything (R371). */
+    kept?: number;
+    incomplete?: string;
   } | null;
 };
 
@@ -492,6 +502,9 @@ function KnowledgePage() {
       loadDocs(selectedBase.id);
       loadSources(selectedBase.id);
     }
+    // a load per selected
+    // base; the loaders are recreated each render and are not a reason to reload.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedBase]);
 
   async function loadConnectedProviders() {
@@ -502,12 +515,12 @@ function KnowledgePage() {
       .select("provider, type, is_active")
       .eq("type", "llm_provider")
       .eq("is_active", true);
-    integ?.forEach((row: any) => row.provider && connected.add(row.provider));
+    integ?.forEach((row) => row.provider && connected.add(row.provider));
     const { data: creds } = await supabase
       .from("provider_credentials")
       .select("provider, is_active")
       .eq("is_active", true);
-    creds?.forEach((row: any) => row.provider && connected.add(row.provider));
+    creds?.forEach((row) => row.provider && connected.add(row.provider));
     setConnectedProviders(connected);
   }
 
@@ -654,8 +667,8 @@ function KnowledgePage() {
     try {
       const scan = await scanRows<{ id: string; document_id: string }>(
         async (after, pageSize) => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          let q = (supabase.from("kb_chunks" as any) as any)
+          let q = supabase
+            .from("kb_chunks")
             .select("id, document_id")
             .eq("knowledge_base_id", kbId)
             .order("id", { ascending: true })
@@ -730,6 +743,8 @@ function KnowledgePage() {
           loadDocs(selectedBase.id);
           loadSources(selectedBase.id);
         }
+      } catch (e) {
+        reportFailure("sync the source", e);
       } finally {
         setResyncingId(null);
       }
@@ -780,6 +795,8 @@ function KnowledgePage() {
           loadSources(selectedBase.id);
         }
       }
+    } catch (e) {
+      reportFailure("re-sync the source", e);
     } finally {
       setResyncingId(null);
     }
@@ -898,7 +915,7 @@ function KnowledgePage() {
     };
 
     // Combined: paste + uploaded files
-    const rows: any[] = [];
+    const rows: TablesInsert<"knowledge_documents">[] = [];
     if (docName.trim() && docContent.trim()) {
       rows.push({
         user_id: user.id,
@@ -955,10 +972,10 @@ function KnowledgePage() {
     loadDocs(selectedBase.id);
   }
 
-  const onDropFiles = useCallback((accepted: File[], rejected: any[]) => {
+  const onDropFiles = useCallback((accepted: File[], rejected: FileRejection[]) => {
     if (rejected && rejected.length > 0) {
-      rejected.forEach((r: any) => {
-        const reasons = (r.errors || []).map((e: any) => e.message).join(", ");
+      rejected.forEach((r) => {
+        const reasons = (r.errors || []).map((e) => e.message).join(", ");
         toast.error(`${r.file?.name || "file"} rejected: ${reasons || "unsupported"}`);
       });
     }
@@ -974,8 +991,8 @@ function KnowledgePage() {
           return;
         }
         setUploadFiles((prev) => [...prev, { name: file.name, content: text, size: file.size }]);
-      } catch (err: any) {
-        toast.error(`${file.name}: ${err.message || "could not parse"}`);
+      } catch (err) {
+        toast.error(`${file.name}: ${(err instanceof Error && err.message) || "could not parse"}`);
       }
     });
   }, []);
@@ -2068,9 +2085,9 @@ function KnowledgePage() {
                                           </Badge>
                                         );
                                       })()}
-                                      {doc.metadata?.embedding_model && (
+                                      {embeddingModelOf(doc.metadata) && (
                                         <Badge variant="outline" className="text-[10px] px-1 py-0">
-                                          {doc.metadata.embedding_model}
+                                          {embeddingModelOf(doc.metadata)}
                                         </Badge>
                                       )}
                                     </div>
@@ -2301,6 +2318,15 @@ function KnowledgePage() {
                                             : "")
                                         : ""}
                                     </p>
+                                    {isConnector && src.last_sync_stats?.incomplete ? (
+                                      <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">
+                                        Nothing was removed this sync
+                                        {src.last_sync_stats.kept
+                                          ? ` (${src.last_sync_stats.kept} not seen, kept)`
+                                          : ""}
+                                        : {src.last_sync_stats.incomplete}.
+                                      </p>
+                                    ) : null}
                                     {isConnector &&
                                       (src.last_sync_stats?.skipped?.length ?? 0) > 0 && (
                                         <p

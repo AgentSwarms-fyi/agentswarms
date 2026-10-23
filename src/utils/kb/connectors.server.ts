@@ -62,7 +62,17 @@ export type RemoteItem = {
 
 export type SkippedItem = { name: string; reason: string };
 
-export type ListResult = { items: RemoteItem[]; skipped: SkippedItem[] };
+export type ListResult = {
+  items: RemoteItem[];
+  skipped: SkippedItem[];
+  /**
+   * Set when the listing could not read everything it should have, saying
+   * what (R371). A web crawl whose page answered 503 also missed every page
+   * linked only from it, so what is missing from `items` is not known to be
+   * gone, and the sync removes nothing.
+   */
+  incomplete?: string;
+};
 
 export type FetchResult = {
   text: string;
@@ -852,6 +862,7 @@ const web: KbConnector = {
     const items: RemoteItem[] = [];
     const skipped: SkippedItem[] = [];
     const seen = new Set<string>();
+    let incomplete: string | undefined;
 
     // robots.txt first. A missing one allows everything; an unreadable one is
     // treated the same way -- but a present one is obeyed.
@@ -919,11 +930,26 @@ const web: KbConnector = {
         try {
           page = await webGet(url);
         } catch (e) {
-          skipped.push({ name: url, reason: (e as Error).message.slice(0, 120) });
+          // Not read this time (a timeout, a dropped connection): still there
+          // as far as anyone knows, and so is what it links to (R371).
+          const why = (e as Error).message.slice(0, 120);
+          skipped.push({ name: url, reason: `${why} (its last synced copy is kept)` });
+          incomplete ??= `${url} could not be read: ${why}`;
           continue;
         }
         if (page.status !== 200) {
-          skipped.push({ name: url, reason: `HTTP ${page.status}` });
+          // Gone (404, 410), not a page any more (415), or no longer public
+          // (401, 403): removed, as before. Failing for now (429, 5xx): kept,
+          // and nothing else is removed this sync either (R371).
+          if (page.status === 429 || page.status >= 500) {
+            skipped.push({
+              name: url,
+              reason: `HTTP ${page.status} (its last synced copy is kept)`,
+            });
+            incomplete ??= `${url} answered HTTP ${page.status}`;
+          } else {
+            skipped.push({ name: url, reason: `HTTP ${page.status}` });
+          }
           continue;
         }
         // The change marker is the server's own (ETag / Last-Modified) when it
@@ -947,7 +973,7 @@ const web: KbConnector = {
         "Website: no pages could be listed. Check the start URL is reachable, is not blocked by robots.txt, and is server-rendered (a JavaScript-only site has no links in its HTML).",
       );
     }
-    return { items, skipped };
+    return { items, skipped, ...(incomplete ? { incomplete } : {}) };
   },
   async fetchItem(_config, _creds, item) {
     const { nativeScrape } = await import("@/utils/nativeScrape.server");

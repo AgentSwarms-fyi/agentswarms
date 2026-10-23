@@ -34,6 +34,7 @@ import {
   biReportsList,
   type BiReportRow,
 } from "@/utils/biReports.functions";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 export function ReportsTab() {
   const navigate = useNavigate();
@@ -71,6 +72,8 @@ export function ReportsTab() {
       setCreateOpen(false);
       setName("");
       await navigate({ to: "/bi/report/$reportId", params: { reportId: res.id } });
+    } catch (e) {
+      reportFailure("create the report", e);
     } finally {
       setBusy(false);
     }

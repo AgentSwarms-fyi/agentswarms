@@ -4,8 +4,8 @@
 // is built around the two questions that matter and that a list of queries
 // cannot answer: what order does this build in, and what broke downstream when
 // something failed.
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, createFileRoute } from "@tanstack/react-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, createFileRoute, useBlocker } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import {
@@ -30,7 +30,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
-import { relTime } from "@/components/ml/mlUi";
+import { relTime } from "@/components/ml/mlFormat";
 import { cn } from "@/lib/utils";
 import {
   TEST_LABELS,
@@ -53,9 +53,11 @@ import {
   sqlModelToggle,
   sqlModelsBuild,
   sqlModelsList,
+  type SqlModelListed,
   type SqlModelRunRow,
 } from "@/utils/sqlModels.functions";
 import type { ModelResult, SqlModelRow } from "@/utils/sqlModels/run.server";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 export const Route = createFileRoute("/_authenticated/sql-models")({
   head: () => ({
@@ -259,7 +261,7 @@ function SqlModelsPage() {
   const previewFn = useServerFn(sqlModelPreview);
   const toggleFn = useServerFn(sqlModelToggle);
 
-  const [models, setModels] = useState<SqlModelRow[]>([]);
+  const [models, setModels] = useState<SqlModelListed[]>([]);
   const [schemas, setSchemas] = useState<{ name: string; writable: boolean }[]>([]);
   const [deps, setDeps] = useState<Record<string, string[]>>({});
   const [missing, setMissing] = useState<Record<string, string[]>>({});
@@ -268,6 +270,22 @@ function SqlModelsPage() {
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState<"editor" | "graph" | "runs">("editor");
   const [draft, setDraft] = useState<Draft | null>(null);
+  // The draft as it was opened or last saved, so the editor can tell what is
+  // unsaved (R275-R276, sweep 8). A new model's empty draft counts as saved
+  // until something is typed into it.
+  const [savedDraft, setSavedDraft] = useState<string | null>(null);
+  const unsaved = draft !== null && savedDraft !== JSON.stringify(draft);
+  // The fingerprint of the definition the open draft came from (R285, sweep 9).
+  // Save sends it back and is refused when the stored definition has moved on.
+  const fingerprintRef = useRef<string | null>(null);
+  const [stale, setStale] = useState(false);
+  /** Open a draft in the editor as the saved state. */
+  const openDraft = (d: Draft | null, fingerprint: string | null = null) => {
+    setDraft(d);
+    setSavedDraft(d ? JSON.stringify(d) : null);
+    fingerprintRef.current = fingerprint;
+    setStale(false);
+  };
   const [preview, setPreview] = useState<{
     columns: { name: string; type: string }[];
     rows: unknown[][];
@@ -289,6 +307,7 @@ function SqlModelsPage() {
     } else toast.error(l.error);
     if (r.ok) setRuns(r.runs);
     setLoading(false);
+    return l.ok ? l.models : null;
   }, [listFn, runsFn, token]);
 
   useEffect(() => {
@@ -302,7 +321,31 @@ function SqlModelsPage() {
     (r) => !models.some((m) => m.name === r && m.id !== draft?.id),
   );
 
-  async function save() {
+  /**
+   * Ask before unsaved edits are replaced or left; true when it may go ahead.
+   * FOUND IN R276: Close, another model, New model, a link and a closed tab all
+   * dropped the draft without a word.
+   */
+  async function mayDiscard(what: string): Promise<boolean> {
+    if (!unsaved) return true;
+    const savedName = models.find((m) => m.id === draft?.id)?.name;
+    return Boolean(
+      await confirmAsk({
+        title: savedName ? `Discard the changes to "${savedName}"?` : "Discard the new model?",
+        // A model's changes are "them"; a new model is "it".
+        body: savedName ? `They are not saved. ${what} them.` : `It is not saved. ${what} it.`,
+        actionLabel: "Discard changes",
+      }),
+    );
+  }
+
+  useBlocker({
+    shouldBlockFn: async () => !(await mayDiscard("Leaving the page drops")),
+    enableBeforeUnload: unsaved,
+    disabled: !unsaved,
+  });
+
+  async function save(overwrite = false) {
     if (!draft) return;
     const nameError = validateModelName(draft.name);
     if (nameError) return toast.error(nameError);
@@ -323,12 +366,25 @@ function SqlModelsPage() {
           schedule: draft.schedule,
           cron_expr: draft.cron_expr || null,
           timezone: draft.timezone,
+          // Overwriting is said in so many words: a save with neither is
+          // refused, as a page opened before R285 would send (R303).
+          ...(overwrite
+            ? { overwrite: true as const }
+            : { expected_fingerprint: fingerprintRef.current ?? undefined }),
         },
       });
-      if (!res.ok) return toast.error(res.error);
+      if (!res.ok) {
+        if (res.stale) setStale(true);
+        return toast.error(res.error);
+      }
+      fingerprintRef.current = res.fingerprint;
+      setStale(false);
       toast.success(draft.id ? `Saved ${draft.name}` : `Created ${draft.name}`);
       await reload();
       setDraft((d) => (d ? { ...d, id: res.id } : d));
+      setSavedDraft(JSON.stringify({ ...draft, id: res.id }));
+    } catch (e) {
+      reportFailure("save the model", e);
     } finally {
       setBusy(false);
     }
@@ -351,6 +407,8 @@ function SqlModelsPage() {
       }
       setTab("runs");
       await reload();
+    } catch (e) {
+      reportFailure("build the models", e);
     } finally {
       setBusy(false);
     }
@@ -367,6 +425,8 @@ function SqlModelsPage() {
       if (!res.ok) return toast.error(res.error);
       setPreview({ columns: res.columns, rows: res.rows as unknown[][] });
       toast.success(`${res.rows.length} row${res.rows.length === 1 ? "" : "s"}`);
+    } catch (e) {
+      reportFailure("run the preview", e);
     } finally {
       setBusy(false);
     }
@@ -391,6 +451,8 @@ function SqlModelsPage() {
       } else toast.success(`Deleted ${m.name}`);
       setDraft(null);
       await reload();
+    } catch (e) {
+      reportFailure("delete the model", e);
     } finally {
       setBusy(false);
     }
@@ -404,7 +466,20 @@ function SqlModelsPage() {
       });
       if (!res.ok) return toast.error(res.error);
       toast.success(m.is_active ? `Paused ${m.name}` : `Resumed ${m.name}`);
-      await reload();
+      const fresh = await reload();
+      // FOUND IN R285: the open draft kept the old setting, so the next Save
+      // resumed a paused model. The draft, its saved record and its
+      // fingerprint take the new setting; other unsaved edits stay.
+      const row = fresh?.find((x) => x.id === m.id);
+      if (row && draft?.id === m.id) {
+        setDraft((d) => (d ? { ...d, is_active: row.is_active } : d));
+        setSavedDraft((s) =>
+          s ? JSON.stringify({ ...JSON.parse(s), is_active: row.is_active }) : s,
+        );
+        fingerprintRef.current = row.fingerprint;
+      }
+    } catch (e) {
+      reportFailure("pause or resume the model", e);
     } finally {
       setBusy(false);
     }
@@ -463,9 +538,10 @@ function SqlModelsPage() {
           <Button
             size="sm"
             disabled={writable.length === 0}
-            onClick={() => {
+            onClick={async () => {
+              if (!(await mayDiscard("Starting a new model replaces"))) return;
               setPreview(null);
-              setDraft(emptyDraft(writable[0]?.name ?? ""));
+              openDraft(emptyDraft(writable[0]?.name ?? ""));
               setTab("editor");
             }}
           >
@@ -511,9 +587,11 @@ function SqlModelsPage() {
                 <button
                   key={m.id}
                   type="button"
-                  onClick={() => {
+                  onClick={async () => {
+                    if (m.id === draft?.id) return;
+                    if (!(await mayDiscard("Opening another model replaces"))) return;
                     setPreview(null);
-                    setDraft(draftOf(m));
+                    openDraft(draftOf(m), m.fingerprint);
                     setTab("editor");
                   }}
                   className={cn(
@@ -949,6 +1027,39 @@ function SqlModelsPage() {
                     </div>
                   ) : null}
 
+                  {stale && (
+                    <div
+                      className="flex flex-wrap items-center gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm"
+                      data-testid="model-stale"
+                    >
+                      <span className="min-w-0 flex-1">
+                        This model was changed in another tab or session, so Save did not write over
+                        it. Reload to see that version, dropping your edits here, or overwrite it
+                        with yours.
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy}
+                        onClick={() =>
+                          void reload().then((fresh) => {
+                            const row = fresh?.find((x) => x.id === draft.id);
+                            if (row) openDraft(draftOf(row), row.fingerprint);
+                          })
+                        }
+                      >
+                        Reload
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy}
+                        onClick={() => void save(true)}
+                      >
+                        Overwrite with mine
+                      </Button>
+                    </div>
+                  )}
                   <div className="flex flex-wrap items-center gap-2">
                     <Button onClick={() => void save()} disabled={busy}>
                       {busy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
@@ -993,7 +1104,13 @@ function SqlModelsPage() {
                         </Button>
                       </>
                     ) : null}
-                    <Button variant="ghost" onClick={() => setDraft(null)} disabled={busy}>
+                    <Button
+                      variant="ghost"
+                      onClick={async () => {
+                        if (await mayDiscard("Closing the editor drops")) openDraft(null);
+                      }}
+                      disabled={busy}
+                    >
                       Close
                     </Button>
                   </div>

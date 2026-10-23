@@ -17,8 +17,9 @@ describe("build-graph authorises before it writes with the service role", () => 
 
   it("resolves the caller from their own token", () => {
     expect(src).toMatch(/userClient\.auth\.getUser\(\)/);
+    // R297: refused with its message and 401; a lookup that failed says so, 503.
     expect(src).toMatch(
-      /if \(!user\) return Response\.json\(\{ error: "Not signed in" \}, \{ status: 401 \}\)/,
+      /if \(!user\) \{\s*return Response\.json\(\s*\{ error: callerFailure\(authError, "Not signed in"\) \},\s*\{ status: callerFailureStatus\(authError\) \},/,
     );
   });
 
@@ -67,7 +68,10 @@ describe("skills.generate bounds what a caller can ask for", () => {
 
   it("requires a signed-in user", () => {
     expect(src).toMatch(/if \(!token\) return json\(\{ error: "Unauthorized" \}, 401\)/);
-    expect(src).toMatch(/if \(!user\) return json\(\{ error: "Unauthorized" \}, 401\)/);
+    // R297: refused with its message and 401; a lookup that failed says so, 503.
+    expect(src).toMatch(
+      /if \(!user\) \{\s*return json\(\s*\{ error: callerFailure\(authError, "Unauthorized"\) \},\s*callerFailureStatus\(authError\),/,
+    );
   });
 
   it("caps the brief and rate-limits the endpoint", () => {

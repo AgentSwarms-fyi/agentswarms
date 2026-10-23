@@ -14,6 +14,8 @@ import {
   Terminal,
   Globe,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import type { Json } from "@/integrations/supabase/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -37,7 +39,7 @@ type Approval = {
   action_type: string;
   action_title: string;
   description: string | null;
-  payload: any;
+  payload: Json;
   risk_level: string;
   status: string;
   created_at: string;
@@ -47,7 +49,7 @@ type Approval = {
   swarm_run_id: string | null;
 };
 
-const ACTION_ICON: Record<string, any> = {
+const ACTION_ICON: Record<string, LucideIcon> = {
   n8n_webhook: Webhook,
   mcp_tool: Database,
   shell_command: Terminal,
@@ -171,16 +173,32 @@ export function ApprovalInbox() {
       mounted = false;
       supabase.removeChannel(channel);
     };
+    // amIApprover reads the user this effect was set up for and the group ref;
+    // re-subscribing on every render would drop events.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const decide = async (id: string, status: "approved" | "rejected") => {
     const item = approvals.find((a) => a.id === id);
-    const { error } = await supabase
+    // FOUND IN R317. The decision was written over whatever the approval
+    // held, and every decision then resumed the run: two tabs (or two
+    // approvers) pressing Approve ran everything after the approval twice.
+    // Only a pending approval is decided now, and only by the first.
+    const { data: decided, error } = await supabase
       .from("approvals")
       .update({ status, decided_at: new Date().toISOString(), decided_by: user?.id ?? null })
-      .eq("id", id);
+      .eq("id", id)
+      .eq("status", "pending")
+      .select("id");
     if (error) {
       toast.error("Failed to update approval");
+      return;
+    }
+    if ((decided ?? []).length === 0) {
+      setApprovals((list) => list.filter((a) => a.id !== id));
+      toast.info(`Already decided: ${item?.action_title ?? "this approval"}`, {
+        description: "It was decided elsewhere first. Your decision was not recorded.",
+      });
       return;
     }
     // A model promotion is not an agent resuming, and saying so would be the

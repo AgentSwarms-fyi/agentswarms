@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { z } from "zod";
 import { ArrowRight, Loader2, Mail, MessageSquare, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -71,6 +71,23 @@ export const Route = createFileRoute("/contact")({
 function ContactPage() {
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
+  // Whether this instance can send the form at all (R358). Asked once, before
+  // anyone types: an instance with no contact address used to take the whole
+  // message and then answer 500 "Contact form is not configured.". null while
+  // asking; a failed ask leaves the form as it was.
+  const [available, setAvailable] = useState<boolean | null>(null);
+  useEffect(() => {
+    let live = true;
+    fetch("/api/contact")
+      .then((r) => (r.ok ? (r.json() as Promise<{ available?: unknown }>) : null))
+      .then((j) => {
+        if (live && j && typeof j.available === "boolean") setAvailable(j.available);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -170,6 +187,21 @@ function ContactPage() {
             className="mt-12 space-y-5 rounded-xl border border-border/60 bg-card/40 p-6 backdrop-blur-sm sm:p-8"
             noValidate
           >
+            {available === false && (
+              <div
+                role="status"
+                className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm"
+              >
+                The contact form is not set up on this instance, so it cannot send messages. Email{" "}
+                <a
+                  href="mailto:hello@agentswarms.fyi"
+                  className="font-medium text-primary underline"
+                >
+                  hello@agentswarms.fyi
+                </a>{" "}
+                instead.
+              </div>
+            )}
             {/* Honeypot — hidden from humans, bots fill it in */}
             <div className="hidden" aria-hidden="true">
               <label>
@@ -232,7 +264,12 @@ function ContactPage() {
                 </Link>
                 .
               </p>
-              <Button type="submit" size="lg" disabled={submitting} className="gap-2">
+              <Button
+                type="submit"
+                size="lg"
+                disabled={submitting || available === false}
+                className="gap-2"
+              >
                 {submitting ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" /> Sending…

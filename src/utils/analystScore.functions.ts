@@ -18,6 +18,7 @@ import {
   scoreRowsForAnalyst,
 } from "@/utils/ml/scoreRows.server";
 import { userScopedClient } from "@/utils/swarmNodes.server";
+import { callerFailure } from "@/utils/callerLookup.server";
 
 export type Cell = string | number | boolean | null;
 
@@ -66,13 +67,13 @@ async function requireUserId(accessToken: string): Promise<string> {
   const sb = userScopedClient(accessToken);
   if (!sb) throw new Error("Server is missing Supabase configuration");
   const { data, error } = await sb.auth.getUser(accessToken);
-  if (error || !data.user) throw new Error("Unauthorized");
+  if (error || !data?.user) throw new Error(callerFailure(error, "Unauthorized"));
   return data.user.id;
 }
 
 /** The trained models this user may score rows with — every one, or the named analyst's choice. */
 export const analystScorableModels = createServerFn({ method: "POST" })
-  .inputValidator((d: { accessToken: string; analystId?: string }) => d)
+  .validator((d: { accessToken: string; analystId?: string }) => d)
   .handler(async ({ data }) =>
     scorableModelsForUser(
       await requireUserId(data.accessToken),
@@ -82,7 +83,7 @@ export const analystScorableModels = createServerFn({ method: "POST" })
 
 /** Score one step's rows with a named model, as this user. */
 export const analystScoreRows = createServerFn({ method: "POST" })
-  .inputValidator(
+  .validator(
     (d: { accessToken: string; analystId?: string; model: string; rows: Record<string, Cell>[] }) =>
       d,
   )
@@ -99,7 +100,7 @@ export const analystScoreRows = createServerFn({ method: "POST" })
 
 /** A forecast model's projected periods, as this user — the forecast step's one call. */
 export const analystForecast = createServerFn({ method: "POST" })
-  .inputValidator((d: { accessToken: string; analystId?: string; model: string }) => d)
+  .validator((d: { accessToken: string; analystId?: string; model: string }) => d)
   .handler(async ({ data }): Promise<WireScoreResult> => {
     const res = await forecastForAnalyst({
       userId: await requireUserId(data.accessToken),

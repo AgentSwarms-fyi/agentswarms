@@ -41,10 +41,8 @@ describe("the frame a real server actually sends", () => {
     // survive here only because JSON.parse tolerates trailing whitespace. The
     // names must come back clean.
     const parsed = parseJsonOrSse(REAL_CRLF_BODY, SSE);
-    expect(parsed?.result?.tools?.map((t: any) => t.name)).toEqual([
-      "get_customer",
-      "search_customers",
-    ]);
+    const tools = parsed?.result?.tools as { name: string }[] | undefined;
+    expect(tools?.map((t) => t.name)).toEqual(["get_customer", "search_customers"]);
   });
 
   it("still parses LF-only frames", () => {

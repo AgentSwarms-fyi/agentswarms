@@ -18,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { ChartType } from "@/components/bi/BiVizPicker";
+import type { ChartType } from "@/components/bi/vizTypes";
 
 /** Category drill-down levels, top to detail. */
 export function BiDrillHierarchy({

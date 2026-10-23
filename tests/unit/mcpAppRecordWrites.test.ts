@@ -28,7 +28,9 @@ const snapshot = src.slice(src.indexOf("async function snapshotVersion("));
 
 describe("an MCP app's status", () => {
   it("reads the answer of the write MCP Builder shows", () => {
-    expect(setAppStatus).toContain("const { error } = await supabaseAdmin");
+    // R320 holds a deploy's writes to its own start, so the write is built,
+    // then read: did it land.
+    expect(setAppStatus).toContain('const { data, error } = await q.select("id");');
     expect(setAppStatus).toContain("MCP Builder will show what it showed before");
   });
 });

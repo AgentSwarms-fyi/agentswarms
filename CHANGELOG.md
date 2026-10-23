@@ -14,6 +14,575 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
+### Upgrading
+
+- **Run the migrations** (`npx supabase db push`). One adds
+  `ml_experiment_run_write`, which experiment logging now calls; until it
+  exists, logging to a run answers 400. One adds `approvals.resumed_at`, which
+  resuming a swarm run after its approval now claims. One widens the cost
+  columns to unconstrained `numeric`, without rewriting the tables.
+
+### Added
+
+- **Remove a saved LLM gateway or n8n connection** (R357). Both tabs on
+  Integrations could save and disable one but never take it away. Each now has
+  a Remove button once something is saved; it asks first, then deletes the
+  stored URL and key, as a provider disconnect does.
+- **Sheets: ASC and JIS** (R341): full-width and half-width ASCII and
+  katakana, both ways. Sheets now computes 491 of Excel's 510 functions.
+- **Sheets: ECMA.CEILING, and SINGLE and ANCHORARRAY typed** (R340).
+  ECMA.CEILING is ISO.CEILING's name from Excel 2010's beta. `SINGLE(x)` and
+  `ANCHORARRAY(A2)`, the forms an Excel file holds for `@x` and `A2#`, now work
+  typed or pasted too. Sheets now computes 489 of Excel's 510 functions.
+- **Sheets: CELL and INFO** (R339). CELL gives a cell's address, row, column,
+  contents, type, number format code, alignment prefix, width and the
+  workbook's file name, so `=MID(CELL("filename",A1),FIND("]",…)+1,255)` gives a
+  sheet its own name. INFO gives what a browser can know. Sheets now computes
+  486 of Excel's 510 functions.
+- **Sheets: LINEST and LOGEST** (R337), with TREND and GROWTH now computed from
+  the same least-squares fit: several x variables, `const`, the statistics
+  rows, and collinear columns left out as Excel leaves them out. Sheets now
+  computes 484 of Excel's 510 functions.
+- **Sheets: eleven bond functions** (R336): PRICE, YIELD, DURATION, MDURATION,
+  ACCRINT, the four ODD functions, AMORDEGRC and AMORLINC. Sheets now computes
+  482 of Excel's 510 functions; the rest are listed in the adversarial queue.
+- **Sheets: nineteen securities functions** (R335): the six COUP functions,
+  DISC, INTRATE, PRICEDISC, RECEIVED, YIELDDISC, ACCRINTM, PRICEMAT, YIELDMAT,
+  the three Treasury-bill functions, DOLLARDE and DOLLARFR, on Excel's five
+  day-count bases, each checked against its page's example.
+- **Sheets: twenty statistics functions** (R333): the t, F, z and chi-squared
+  tests under their new names and old, COVAR, PEARSON, STEYX, SKEW.P, STDEVPA,
+  VARPA, MODE.MULT, PROB, the three SUMX2 sums and BINOM.DIST.RANGE. formula.js's
+  T.TEST ignored its tails and type and its F.TEST was wrong, so these are
+  written here and checked against the pages and an independent oracle.
+- **Sheets: CONVERT** (R332), with every unit on Excel's page, the SI prefixes
+  on the metric units (squared or cubed on an area or a volume) and the binary
+  prefixes on bits and bytes. formula.js's own CONVERT lacked units on that
+  page, such as "F", "C" and "ft2".
+- **Sheets: eighteen array, text and sheet functions** (R331): WRAPROWS,
+  WRAPCOLS, EXPAND, ARRAYTOTEXT, VALUETOTEXT, SHEET, SHEETS, AREAS, NORMINV,
+  NORMSINV, NORMSDIST and the seven byte functions (LENB, LEFTB…). SHEET follows
+  the tabs as they are moved: the engine is now told their order.
+- **Sheets: 31 math and engineering functions** (R330), from the 128 of Excel's
+  510 that were `#NAME?`: the inverse hyperbolic and reciprocal trigonometric
+  functions, FACTDOUBLE, MULTINOMIAL, SERIESSUM, SQRTPI, the .PRECISE
+  roundings and ISO.CEILING, DELTA, GESTEP, ERF, ERFC and their .PRECISE forms,
+  the four Bessel functions, MUNIT, MDETERM and MINVERSE. Each was checked
+  against the examples on its page in Excel's documentation. formula.js was not
+  used where it was wrong: ISO.CEILING, ERF between two limits, ERFC far out,
+  and a Bessel order below 0.
+- **Sheets: LAMBDA** (R328). LAMBDA was #NAME?, so a workbook that defined its
+  own functions showed the values Excel last saved and never recomputed. Now
+  a LAMBDA is called where it is written (`=LAMBDA(x, x*2)(3)`), by a LET name,
+  or by a workbook name (`=DOUBLE(B2)`), recursion included, which stops at
+  #NUM! at Excel's own depth. MAP, REDUCE, SCAN, BYROW, BYCOL, MAKEARRAY and
+  ISOMITTED take one; a parameter in brackets may be left out. Downloads write
+  LET's names and a LAMBDA's parameters as `_xlpm.x`: before, Excel read a
+  downloaded `=LET(x,1,x+1)` as a workbook name it lacked.
+- **Browser checks in CI** (R324). A second CI job builds the app, starts it,
+  and loads the public pages in Chromium with Playwright: an uncaught page
+  error, a console error, an error boundary, or a client-side navigation that
+  does not happen fails it. The unit suite and the server-side route smoke
+  never ran a page in a browser. `npm run test:e2e` runs them locally after a
+  build (`E2E_CHANNEL=chrome` uses the Chrome you have). Signed-in pages are
+  not covered yet.
+
+### Security: guardrails
+
+- **Server functions refuse calls from other sites** (R359). TanStack Start
+  applies its CSRF check to server functions only when there is no start
+  instance; this app's `src/start.ts` set none, and the warning about that
+  prints only in development, so production had no check. A call with
+  `Sec-Fetch-Site: cross-site` reached the function. The start instance now
+  registers TanStack's `createCsrfMiddleware` for server functions: a call
+  from another site, or one with no `Sec-Fetch-Site`, `Origin` or `Referer`,
+  gets 403. API routes are not affected.
+- **An agent's PII redaction now covers the whole conversation** (R351). The
+  input guardrail rewrote only the newest user message, so a value it redacted
+  on the turn it was typed went to the model unredacted in the history of
+  every later turn. The conversation summary, folded from the stored messages,
+  kept it too ("User's email address is …"), and that summary was sent in the
+  system prompt. The raw prompt also went on to the knowledge-base search (its
+  embedding, and the audit row) and to the long-term memory recall and
+  extraction. Now every earlier user message is redacted under the input
+  policy and every assistant message under the output policy. The search,
+  recall and memory read the redacted prompt, the summary and recalled
+  memories are redacted when they are put into the prompt (which covers those
+  stored before), and new folds are made from redacted turns. The embed widget
+  redacts the visitor's whole conversation the same way. The stored trace is
+  redacted with it.
+
+### Security: dependencies
+
+`npm audit` went from **44 advisories (4 critical, 24 high)** to **2 moderate**,
+and both of those are one advisory that cannot be triggered here (see
+[SECURITY.md → Dependencies](./SECURITY.md#dependencies)).
+
+- **Updates.** The 80 minor and patch updates of Dependabot's group (#78) are
+  in, along with every fix `npm audit` could make within the existing version
+  ranges, including the critical one in `seroval`, which serialises server
+  function calls. TanStack Router now types a thrown error as `unknown`, and the
+  default error page reads it that way.
+- **Vitest 3 → 4.1.11**, which clears the critical `tinypool` and `@vitest/mocker`
+  advisories. Not 5: Vitest 5 needs Node 22.12, and this project supports Node
+  20.19. Vitest 4's `maxWorkers` replaces `poolOptions.forks.maxForks`.
+- **Nodemailer 6 → 10.** The SMTP path is now tested end to end against a
+  server on loopback.
+- **Overrides** force fixed versions that four libraries pin: `axios`,
+  `image-size`, `katex` and `argparse`. Each is explained in SECURITY.md.
+- **The doc generator's `cairosvg` 2.7.1 → 2.9.0,** and CI's
+  `actions/checkout` v4 → v7.
+- **The PDF and DOCX readers are served by the app** (R321). They were imported
+  from esm.sh and jsdelivr at upload time: offline installs could not read an
+  upload, and the versions fetched (pdf.js 4.7.76, mammoth 1.8.0) were not the
+  audited ones in the lockfile (4.10.38, 1.13.0). The build now copies them into
+  `public/vendor`.
+- **Lint has no warnings, and a new `any` is an error** (R356). The last ten
+  were test doubles: fake query chains now have a `Chain` type, fake promises
+  with a `select` are built with `Object.assign`, and the Kubernetes tests type
+  the manifest fields they read (the CronJob's nested pod included).
+  `@typescript-eslint/no-explicit-any` is now an error, so `npm run lint` fails
+  on a new one. Where `any` is the honest type, a disable comment beside it
+  says why; about 93 such comments remain.
+- **No `any` left in the application code** (R355). Bedrock's stream events
+  and the stored-credential read are typed; a stored credential that is not
+  `{ ciphertext, iv }` now says to save it again, instead of failing inside
+  the decryption. The credential save is checked against the schema. The chart
+  tooltip has shadcn's own recharts typing back. The tool registry's handler
+  arguments stay "whatever the model sent", with the reason beside them. Lint
+  warnings 22 to 10, all in test files.
+- **Trace, approval and dataset code reads JSON as JSON, not `any`** (R353).
+  The trace log's payloads and tool calls, an approval's payload, the trace
+  seeder's rows, the node inspector's MCP list and the uploaded rows are typed.
+  The Traces page reads each tool call as an object, and no longer renders a
+  tool name that is not text. Lint warnings 36 to 22.
+- **Server functions declare their input with `validator()`** (R349), the name
+  TanStack Start 1.168 gave `inputValidator()`, which it deprecated. The 396
+  calls used the old name, so each build printed 1,173 deprecation lines: more
+  than half its log, burying any new warning. The build log goes from 2,150
+  lines to 977. A test keeps the old name out.
+- **JSON columns are read as the objects they hold, not `any`** (R347). The
+  integrations page's config, an agent's tools in its export, and an imported
+  agent file go through `recordOf` and `textOf` (`lib/jsonRecord.ts`). A tools
+  value that is not an object no longer exports tools named after its indices,
+  and a file holding a JSON array is refused rather than imported with every
+  field defaulted. Lint warnings 55 to 37.
+- **Component files export only components** (R346). React Fast Refresh
+  reloads the whole page when a component file also exports a helper, a
+  constant or a hook; the linter flagged 51 such exports. Helpers, constants and
+  hooks moved to modules of their own (chart and number formatting, the world
+  atlas, the docs navigation, the BI model preference); two became private and
+  two dead exports went. The theme and layout providers moved out of their hooks, and the
+  confirm dialog's host moved out of `confirm-dialog.ts`, which the 57 call
+  sites import. The host now connects through `connectConfirmHost`, and a new
+  test drives it. Lint warnings 117 to 55, all `no-explicit-any`.
+- **The docs check fails when it cannot read the sidebar** (R346). It read the
+  rail's groups out of `DocsShell.tsx`. After the rail moved, it found none and
+  still reported no problems. It reads `docsNav.ts` now, and an empty read is an
+  error.
+- **Email templates are checked against their own props** (R345).
+  `defineTemplate` keeps a template's component, subject and preview in step.
+  The contact route's database client is typed with the schema. A new test
+  renders every registered template as its callers do. Lint warnings 127 to 117.
+- **The MCP code reads JSON-RPC as JSON, not `any`** (R344). One `RpcMessage`
+  type for every message the MCP code reads. The tool-list normaliser is one
+  copy, shared by the probe and the server; the probe had kept a second. 24
+  `any`s gone; lint warnings 151 to 127.
+- **The browser checks load each page once before they start** (R343). The
+  server answers its health check before it has rendered a page. With four
+  checks starting at once on a cold, loaded machine, the first page loads took
+  24 to 55 s, and one ran past its 60 s budget in three local gates.
+- **69 `any` types replaced by the types the values have** (R342), in the agent
+  form, analytics, quality trends, the dashboard's activity chart, knowledge,
+  the playground and the swarm tracer. Recharts is imported as it is: the casts
+  written for React 19's typing were no longer needed. Lint warnings go from
+  220 to 151.
+- **Prettier 3.9's** formatting is applied, in 46 files. `react-refresh` 0.5
+  flagged every route file's page component; route files are hot-reloaded by
+  TanStack's router plugin, so the rule is now off under `src/routes/` only.
+
+### Fixed
+
+- **A failed read of the Iceberg catalog list no longer detaches every
+  catalog** (R372). Each engine connection syncs its attached Iceberg catalogs
+  against their list every 15 seconds, and a read of that list that failed was
+  taken for an empty list: every catalog was detached, and queries on mounted
+  Iceberg schemas failed until a later sync attached them again. A list that
+  cannot be read now changes nothing.
+- **A website source no longer deletes a page that failed to load once**
+  (R371). A page answering 503, 429 or timing out during a sync was taken for
+  removed from the site: its document, chunks and access list were deleted,
+  to be fetched and embedded again on the next good sync. Now a sync that
+  could not read every page removes nothing, keeps the documents it did not
+  see, and the source card says so. A page that is gone (404, 410) or no
+  longer public (401, 403) is still removed.
+- **A catalog source whose last crawl failed says so on the page** (R370). It
+  showed a red dot 6 px wide and the reason only in a hover title, so a
+  scheduled crawl that failed overnight told nobody. The source's row now
+  reads "failed", and a bar above the assets says which source failed and why,
+  with a Re-crawl button for its owner.
+- **A catalog crawl that cannot read an Iceberg catalog no longer empties it**
+  (R369). Every failure in the crawl was passed over, so a catalog that was
+  down read as one with no tables: the crawl said "0 assets · 2 removed",
+  marked the source ready, and deleted every asset it had catalogued, with
+  their owners, descriptions and tags. Now the crawl fails with the reason and
+  removes nothing; a namespace or table it could not read keeps what was
+  catalogued from it, and the crawl says how many parts it could not read.
+- **An Iceberg catalog that cannot be reached says where and why** (R368).
+  Adding one to the Data Catalog at an address that did not resolve showed
+  only a toast reading "fetch failed", and the dialog then showed nothing. It
+  now says "https://… could not be reached: its host name does not resolve"
+  (or that the connection was refused, timed out, or its certificate was not
+  accepted), and keeps that in the dialog. A catalog request now gives up
+  after 30 s instead of waiting as long as Node does, and the wizard's last
+  step describes an Iceberg catalog rather than an S3 bucket with no path.
+- **Calls to a running Builder MCP server take half the time** (R367). Each
+  request through `/api/mcp/s/<slug>` spent 1.2 to 1.5 s before the server saw
+  it, mostly database round trips made one after another and a re-probe of a
+  sandbox the request before had just proved serving. The independent reads now
+  run together, a sandbox seen serving in the last 30 s is not re-probed, and
+  its activity is written every 30 s rather than on every call: a warm request
+  now takes about 0.5 s, and a session's three about 2 s instead of 3.8 s.
+- **A Builder deploy that fails its handshake stops its sandbox** (R366). A
+  server that started but did not answer as an MCP server left its sandbox
+  running under an app marked Error, holding its CPU and memory until the idle
+  reaper took it, and listed nowhere an owner could see. It is now stopped, as
+  a failed start already was, and its output is kept for the Logs tab.
+- **A gateway key's model calls carry the key's name** (R365). A call
+  through a key to a bare model was listed on Traces and in the audit log as
+  "Playground", like a turn typed in Agent Chat, so a key's traffic could not
+  be told from the owner's own. It now reads `Gateway: <key name>`; a call to
+  an agent still carries the agent's name.
+- **Streamed answers stream again in the production server** (R364). Its
+  compression matched `text/event-stream`, and gzip holds its output until the
+  stream ends, so Agent Chat's answer appeared all at once when it was done,
+  and an AI-gateway call with `stream: true` sent its first byte when its
+  answer was complete. Event streams are no longer compressed; pages, JSON and
+  static files still are.
+- **A caller who hangs up is recorded as stopped, once, not as a failure**
+  (R363). An AI-gateway call cut before its answer started tried the next
+  model in the fallback chain for nobody and was audited as an error; one cut
+  mid-answer was not audited at all. Behind both, the chat turn's trace was
+  rewritten as "error: Invalid state: Controller is already closed", even over
+  an answer that had finished. Each is now one `gateway.chat` row and one
+  trace, both reading stopped, with what was spent counted. The audit log says
+  STOPPED, and a gateway answer that did not finish is never cached.
+- **A browser that leaves mid-request is no longer logged as a server fault**
+  (R362). Reloading a page while its requests were in flight printed an
+  "Error: aborted" or `AbortError` stack marked `status: 500, unhandled: true`
+  in the app's log, one per request cut. The server now knows which errors are
+  its own client leaving and does not print them; every other error is printed
+  as before.
+- **The MCP Builder page says when a server call fails** (R361). A call that
+  did not answer (a dropped connection, a refused request) left Deploy
+  disabled for good with no message, and Stop, Approve, Restore, Public,
+  Register, Unregister and Revoke silent. Each now says what failed, and
+  Deploy is enabled again. Stop and Unregister also no longer say "Stopped" or
+  "Unregistered" over a refusal, Revoke says when a key was not revoked, and
+  the logs, keys, versions and secrets say when they could not be read.
+- **Test connection and Refresh end the MCP session they open** (R360). The
+  probe opened a session, listed the tools, and left it open; for a Builder
+  server, each press left a session row behind. It now ends the session on
+  every way out, as the agents' MCP client already did.
+- **The contact page says when this instance cannot send it** (R358). With no
+  `CONTACT_ADMIN_EMAIL`, the page took a whole message and then answered 500
+  "Contact form is not configured." It now says so above the form before anyone
+  types, offers the email address instead, and holds the Send button; the API
+  answers 503 with the same sentence. `GET /api/contact` reports whether the
+  form can send, without revealing the address.
+- **A chat turn's trace shows the tools it called** (R354). Every trace row
+  `/api/chat` wrote said `tool_calls: []`; the calls were only in the raw
+  request payload, so the Traces page's Tool Calls section never appeared for
+  a chat turn. The row now records each call and its result.
+- **A message sent right after New Chat stays out of the previous chat**
+  (R352). New Chat switched to the new conversation only once its insert came
+  back. A message sent in that moment was saved to, and answered in, the chat
+  that had been on screen, with its history, while the new chat showed only
+  the reply. New Chat now leaves the old chat first, so the message box is
+  disabled until the new one exists. If the new chat cannot be made, it
+  returns to the old one.
+- **An agent's conversation summary keeps up past 500 messages** (R350). With
+  short-term memory, an agent is sent the last messages (20 by default) and a
+  summary of everything older. The summary was folded from the conversation's
+  first 500 messages, so past 500 it stopped at message 480 for good, and
+  everything after 480 and before the window dropped out of what the agent was
+  given. It now folds forward from where it stopped, at most 100 messages a
+  turn. A failed read no longer looks like "no summary yet", which made the
+  next fold replace the stored summary; a failed save is reported.
+- **An agent with no knowledge base is no longer told one was searched** (R348).
+  Every agent turn ran the knowledge-base search, and an agent with none was
+  told "A knowledge base is attached to this assistant and was searched … It
+  returned no matching passages", and to say it could not find the answer in
+  the documents. Asked to repeat a message back, such an agent answered "I could
+  not find the information you are looking for in the available documents."
+  Each such turn also logged a `kb.search` in the audit log. The search now
+  reports how many knowledge bases it covered; an agent with none gets its own
+  system prompt, no audit row, and, from the `kb_search` tool, "No knowledge
+  base wired" rather than "No matching documents in any connected knowledge
+  base".
+- **SQL Chat shows the SQL it ran** (R347). On the Data Catalog's Workbench, a
+  question answered by running SQL showed the answer and no tool chip. The page
+  read the chat stream with a reader of its own that never saw the tool events;
+  it now uses the shared one, and each call shows its SQL, its result and
+  whether it succeeded (Running, Success, Error, or No result once the answer
+  has ended without one).
+- **The agents list says "Guarded" when the guardrails are enforced** (R347).
+  The badge checked four settings of its own. An imported agent whose only
+  guardrail was PII redaction had its prompts redacted and showed no badge; a
+  guardrails object with nothing set showed one. It now asks the enforcer's own
+  question of the enforcer's own reading.
+- **Sheets: an older Excel file's formula whose function answers with several
+  values** (R338). Typed in one cell in Excel 2019 or older, `=LINEST(B2:B7,A2:A7)`
+  showed the slope, `=ROW(A2:A4)` showed 2 and `=INDEX(A2:B7,0,2)` showed the cell
+  in its own row. Imported here, they spilled, mostly into `#SPILL!`. They now
+  take Excel 365's `@` (`=@LINEST(…)`) and show what older Excel showed. A range
+  that INDEX, OFFSET or INDIRECT answers with is read in the formula's own row
+  by `@`, as Excel's `@` reads it. A download gives the formula back without the
+  `@`.
+- **Sheets: TREND and GROWTH with several x columns** (R337). They fitted one
+  x, from formula.js. A TREND over two x columns was #NUM! where its answer is 34. GROWTH over the collinear columns in Microsoft's GROWTH article gave
+  29558.23 where Excel gives 472.432432563203.
+- **Sheets: SLOPE, INTERCEPT, FORECAST, CORREL, PEARSON and RSQ on data that do
+  not vary** (R337) were #NUM!. Their pages give #DIV/0!, or #N/A where there
+  are no pairs at all.
+- **Sheets: ROW and COLUMN of a range gave its first row or column** (R337).
+  They now give every one, as Excel's do, so
+  `=SUMPRODUCT((A1:A9="x")*ROW(A1:A9))` sums the matching rows, and LINEST's
+  page's polynomial form `x^COLUMN($A:$C)` works.
+- **Sheets: YEARFRAC's European 30/360 and its leap years** (R335).
+  YEARFRAC(2009-01-01, 2009-12-31, 4) was 1, where a 31st counts as the 30th
+  and Excel gives 359/360. Any span ending on January 29th was counted over a
+  366-day year: 2009-01-01 to 2009-01-29 was 28/366, not 28/365. YEARFRAC now
+  uses the securities functions' day counts.
+- **Sheets: a General number wider than its column showed ####** (R334). Excel
+  rounds such a number to fit, with fewer decimals and then in scientific
+  notation, and shows #### only when nothing fits. CHISQ.TEST's 0.000308192017
+  was `##########` in a default-width column where Excel shows `0.000308192`. A
+  number with a format of its own still shows ####, as in Excel.
+- **Sheets: functions of one value given a range** (R329). Only a first list of
+  functions worked element by element, so `=SIN(A1:A3)`, `=SUM(SIN(A1:A3))`,
+  `=PMT(r,n,-B2:B9)` and about 160 others were `#VALUE!`. `=GAMMA(A1:A3)`,
+  `=CEILING.MATH(A1:A3)` and the complex-number functions answered for the
+  first cell alone. Every function whose arguments take one value now answers
+  for each cell, as in Excel. Values Excel's documentation refuses now get the
+  error it names, where they had a number (`NORM.INV(0,0,1)` was -141.4,
+  `ROMAN(4000)` "MMMM") or another error (`FACT(-1)` was `#VALUE!`). And
+  NETWORKDAYS and WORKDAY take holidays across a row: `{46301,46302}` and
+  `B1:C1` were `#VALUE!`.
+- **Sheets: four answers that differed from Excel** (R327). The comparison
+  operators now compare numbers to 15 significant digits (`=0.1+0.2=0.3` is
+  TRUE); UPPER and LOWER change case one character for one (`=UPPER("straße")`
+  is `STRAßE`); `INDIRECT(text, FALSE)` reads R1C1; and AGGREGATE, which was
+  `#NAME?`, takes Excel's 19 functions and 8 options.
+- **Provider logos came from three third parties, and four never loaded**
+  (R326): Integrations and Model Registry fetched them from jsdelivr,
+  huggingface.co and groq.com, and the Cohere, DeepSeek, ElevenLabs and
+  Mistral URLs had never existed. The logos (Simple Icons, CC0) are now served
+  by the app; Cohere and Groq, which have no mark there, show their icon.
+- **A stream closed twice inside Node's fetch ended the server** (R325): undici
+  can throw "ReadableStream is already closed" from a microtask when a response
+  body is cancelled mid-read, which killed a worker, with every request and
+  swarm run it held (or the whole server with `WEB_CONCURRENCY=1`). That one
+  error is now logged and survived; every other uncaught exception still ends
+  the process. Found by the new browser checks.
+- **The swarm canvas's node inspector pruned only the first node it showed**
+  (R323): its mount effect removes MCP servers that no longer exist from the
+  node's selection, and selecting another node kept the same mount. It is
+  keyed by node id now. Found reading the fourteen react-hooks lint warnings,
+  which are now none (235 warnings to 220).
+- **A notebook's first run on a slow host failed over a running kernel** (R322).
+  The gateway gave a kernel create 20 s; a slow first boot finished after
+  that, started the kernel anyway, and every retry was refused ("Resource
+  Limit"). A slow create is now waited for, within one budget
+  (`KERNEL_CREATE_TIMEOUT_MS`, 28 s, inside the browser's 30), and never
+  asked for twice. Rebuild the `agentswarms/notebook-gateway` image.
+- **One approval, approved in two tabs (or by two approvers), ran the rest of
+  the swarm twice** (R317): staged, the step after the approval made two model
+  calls and the run recorded two results. The inbox now decides only a pending
+  approval, and a decision resumes its run once. A resume whose run was
+  cancelled meanwhile runs nothing, where it used to run as a new run.
+- **A model saved inside `with start_run(...)` was erased by the block's own
+  `finish()`** (R316), so the run could not be registered, and metrics logged
+  from several threads at once kept only some keys (5 of 20, staged). Log and
+  finish are now one locked statement each, and `finish` writes only what it
+  is sent.
+- **Costs below a millionth of a dollar lost their digits** (R318): a $0.0000046
+  call was stored as $0.000005. The five cost columns are now unconstrained
+  `numeric` (a migration), and Agent Chat's turn total keeps twelve significant
+  digits.
+- **An edit kept the result of what it replaced** (R319): a data monitor's
+  changed rule kept the old rule's "ok", and an app source saved with new
+  credentials kept the old ones' test result. Both reachable only through the
+  API.
+- **Three late status writes** (R320): a finished runtime session read
+  "stopped" once its sandbox was cleaned up; an MCP deploy could write "ready"
+  over a Stop pressed as the server came up; registering an open run could
+  rewrite "failed" as "finished".
+- **Re-crawl pressed twice at once crawled the catalog source twice** (R315):
+  two crawls, two audit entries, and any schema change announced twice. A crawl
+  now claims its source, and a second press is told one is already running. A
+  crawl that died leaves its claim; another may take it after
+  `CATALOG_CRAWL_LEASE_MINUTES` (60 by default).
+
+## 1.6.0 — 2026-10-06
+
+**Spreadsheets under Data & BI, a Settings page, and the product doing what it
+says.** Over three hundred commits since 1.5.0. Sheets is new: a spreadsheet
+with Excel's formulas over lakehouse tables. Most of the rest was found by
+using the product the way people do: edits that are no longer lost, failures
+that say so, runs that end the way they report, and sandboxes that no longer
+hold the lakehouse's credentials. **Nine migrations** — run
+`npx supabase db push` after pulling.
+
+### Upgrading
+
+- **Run the migrations.** Eight are for Sheets; one lets a SQL model say it
+  was edited since its last build.
+- **Reload open tabs after upgrading.** An editor's save now carries the
+  version it was editing. A save from a page opened before the upgrade carries
+  none, so it is refused with a message to reload, rather than written over
+  whatever was saved since.
+- **New settings,** all optional, with defaults that need no change:
+  - Sheets: `SHEETS_MAX_CELLS`, `SHEETS_PAGE_ROWS`, `SHEETS_UPLOAD_MAX_MB`,
+    `SHEETS_IMPORT_MAX_SHEETS`, `SHEETS_EXPORT_MAX_ROWS`,
+    `SHEETS_VERSIONS_MAX`, `SHEETS_VERSION_INTERVAL_MINUTES`, and for its
+    assistant `SHEETS_ASSIST_MODEL`, `SHEETS_ASSIST_PER_MINUTE` and
+    `SHEETS_AI_FILL_MAX_ROWS`.
+  - Sandboxes and the lakehouse: `LAKEHOUSE_SANDBOX_IO_TIMEOUT_MS`, and for
+    the Spark cluster's per-run credential `LAKEHOUSE_STS_REQUIRED`,
+    `LAKEHOUSE_STS_DURATION_SECONDS`, `LAKEHOUSE_STS_ENDPOINT` and
+    `LAKEHOUSE_STS_ROLE_ARN`.
+  - `SWARM_CANCEL_POLL_MS` and `KB_SYNC_LEASE_MINUTES`.
+
+### Sheets
+
+A spreadsheet under Data & BI, with its own grid and formula engine.
+
+- **Excel's formulas,** including dynamic arrays and spill references,
+  named ranges, array formulas element by element, and the financial,
+  statistical, engineering, complex-number and database families. Results
+  match Excel's at its edges: 15-digit numbers, its rounding, and dates
+  before 1900-03-01.
+- **Sheets over the lakehouse:** a grid, a table sheet backed by a lakehouse
+  table, and a query sheet — a SELECT whose variables a cell can steer.
+- **Excel and CSV in and out,** keeping formulas, what Excel computed,
+  formats, notes and dynamic arrays.
+- **The working tools:** formatting and number formats, charts redrawn from
+  the cells, conditional formatting, data validation, filter and sort, Find
+  and Replace, freeze panes, Paste special, Text to columns, Remove
+  duplicates, the fill handle's series, inserting and deleting cells, hidden
+  sheets, cell notes, and a workbook's version history.
+- **Sharing** to view or edit, with chosen sheets and rows kept back; a
+  gallery with thumbnails; sample workbooks; and an assistant in the
+  workbook, with Fill with AI.
+
+### Settings, themes and keyboard shortcuts
+
+Contributed by @theniteshdev in #77.
+
+- **A Settings page,** reached from the profile menu or Ctrl/⌘ + comma, with
+  Account, Layout, API Keys and Theme tabs. API Keys lists and creates the
+  real swarm API keys; Account shows the month's spend against the budget
+  cap.
+- **Themes** can follow the system, and take an accent colour.
+- **Layout preferences:** workspace density and the default swarm view.
+- **Keyboard shortcuts** from one registry: a question mark lists them, and
+  G followed by a letter goes to a page. The list opens by itself once, on a
+  first visit.
+- **One profile editor,** shared by the Account page and Settings, which
+  keeps its earlier fixes: unsaved edits are named and kept, and a profile
+  that could not be read is not offered as a blank form.
+
+### Security and isolation
+
+- **Sandboxes hold no lakehouse credential.** A pipeline's lakehouse reads
+  and loads go through the app (R227). ML training and scoring fetch their
+  artifacts through signed URLs (R231). The shared Spark cluster is served
+  each call's own credentials, which the object store limits to one run's
+  files where it supports STS (R229, R230).
+- **Access checks fail closed** when they cannot be read. That covers
+  lakehouse row and column policies, through Iceberg publish and a reader's
+  SUMMARIZE too (R223, R224). A failed read no longer opens kernels to
+  everyone or stops every MCP server (R249). It no longer lets the budget cap
+  slip (R250), or deletes the audit trail (R252).
+- **The lakehouse's statement checks reach further.** A write statement may
+  not call a table function (R226), and a pipeline's lakehouse nodes get the
+  SQL editor's checks (R225).
+- **Identity and keys.** A SCIM deprovisioning that removed no one no longer
+  answers 200 (R248). An API key restricted to one agent is saved that way
+  (R247). A grantee keeps the restrictions along with the access (R235).
+- **Secrets.** A secret replaced mid-run is no longer stored in clear, and a
+  node preview's output is scrubbed (R292). A pipeline's log no longer carries
+  secrets (R253). Leaving a secret field blank keeps the stored key (R254).
+- **Budgets.** Per-agent spend limits are enforced (R294). A cap typed as 2500
+  is stored as $2,500 (R293). An unpriced call no longer counts as free.
+
+### Work that is no longer lost
+
+- **A session refresh no longer puts the saved copy back over unsaved
+  work.** That was true in twenty-one places (R125), and in the dialogs and
+  forms a refresh refilled or emptied (R215, R217–R221).
+- **Editors know what is unsaved,** and ask before a link or a closed tab
+  drops it. This covers pipelines, workflows, swarms, SQL and semantic models,
+  BI reports, dashboards, notebooks, MCP servers and the profile
+  (R268–R282).
+- **Two tabs on one object no longer undo each other.** A save carries the
+  version it edited, and a stale one is refused, with an explicit "Overwrite
+  with mine". This covers notebooks, BI reports, SQL and semantic models,
+  pipelines, swarms, workflows and MCP server source (R283–R290, R303).
+- **One press is one action:** a double Enter creates, runs or mints once
+  (R207, R211–R214, R216).
+
+### Runs, jobs and endpoints that end the way they say
+
+- **A cancel holds.** Each of these ran on and recorded success; each now
+  stops:
+  - an ETL run cancelled while its sandbox started (R307);
+  - a training job cancelled while its workers started (R308);
+  - a swarm run cancelled while the server was executing it (R309).
+- **Warm ML endpoints.** A Stop pressed while one starts now holds (R311).
+  Neither the idle reaper nor a redeploy undoes another's start (R314).
+  Production traffic is answered only by a version someone promoted (R251).
+- **Two writers, one record:**
+  - a data incident acknowledged as its monitor resolved it stays resolved,
+    and a failure that lands as you resolve one opens a new incident (R312);
+  - two syncs of one knowledge-base source no longer run together, and the
+    second no longer reports a sync that worked as failed (R313);
+  - a poll no longer writes over a stored result (R295).
+- **Nothing stays "running" for ever.** Runs, builds and crawls that finished
+  but stayed "running" now finish. Schedulers that reported success over their
+  own failures report the failures.
+
+### Failures that say so
+
+- **A button that fails says so.** Sixty-eight could fail in complete
+  silence; each now says what went wrong (R245, R263).
+- **A failed read is not an empty list.** "No agents yet" was shown over nine
+  agents the page could not read. "Upload data first" and "Everything is
+  running" were shown over reads that had failed. Each page now says the read
+  failed.
+- **A capped list is not a total.** Pagers, counts and charts that presented a
+  first page as the whole now read the rest, or say where they stopped.
+- **"Not signed in" only when you are not.** It was also shown when the check
+  itself failed (R297, R298), and "Report not found" when a report could not
+  be loaded (R296).
+
+### Data that stays what it was
+
+- A CSV with a NUL character imports, and editor text with one saves (R300,
+  R301).
+- The browser's and the server's SQL engines agree on time zones and dates
+  (R195–R197). A chart reads a timestamp with no offset as UTC (R196).
+- Publishing to Iceberg works without CREATE TABLE AS, and a replace never
+  leaves the name empty (R181, R182). A SQL model's build replaces only what
+  it built (R178).
+- A freshness monitor on a text column says the column is not a timestamp,
+  instead of blaming the data (R238).
+- Cost reads the same on every page, so a priced call never reads as free
+  (R202).
+
+### Earlier in this release
+
 **A pass over the lakehouse, ETL and ML halves, looking for the places where a
 control was offered and did not do what it said.** Seven of them; each was
 found by running the thing rather than reading it, and each is described in

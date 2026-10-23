@@ -82,7 +82,7 @@ describe("retrieveCitationsReport", () => {
 
   it("exists, and the old name delegates to it", () => {
     expect(KB).toMatch(
-      /export type RetrievalReport = \{ citations: Citation\[\]; degraded: string\[\] \};/,
+      /export type RetrievalReport = \{ citations: Citation\[\]; degraded: string\[\]; searched: number \};/,
     );
     expect(KB).toMatch(
       /export async function retrieveCitationsServer\(opts: RetrievalOpts\): Promise<Citation\[\]> \{\s*return \(await retrieveCitationsReport\(opts\)\)\.citations;/,
@@ -120,11 +120,12 @@ describe("retrieveCitationsReport", () => {
   });
 
   it("returns the degraded list with the citations on both paths", () => {
+    // R348 added `searched`, the knowledge bases the search covered.
     expect(fn).toMatch(
-      /if \(ranked\) return \{ citations: applyGroundingBudget\(ranked, groundingMaxChars\(\)\), degraded \};/,
+      /if \(ranked\)\s*return \{\s*citations: applyGroundingBudget\(ranked, groundingMaxChars\(\)\),\s*degraded,\s*searched: kbIds\.length,\s*\};/,
     );
     expect(fn).toMatch(
-      /return \{\s*citations: applyGroundingBudget\([\s\S]{0,200}?\),\s*degraded,\s*\};/,
+      /return \{\s*citations: applyGroundingBudget\([\s\S]{0,200}?\),\s*degraded,\s*searched: kbIds\.length,\s*\};/,
     );
   });
 });
@@ -132,7 +133,7 @@ describe("retrieveCitationsReport", () => {
 describe("the kb_search tool and the chat route", () => {
   it("the tool says the search could not be completed instead of 'no matching documents'", () => {
     expect(REG).toMatch(
-      /const \{ citations: cits, degraded \} = await retrieveCitationsReport\(\{/,
+      /const \{\s*citations: cits,\s*degraded,\s*searched,\s*\} = await retrieveCitationsReport\(\{/,
     );
     expect(REG).toMatch(
       /note: degraded\.length\s*\?\s*`The search could not be completed — \$\{degraded\.join\("; "\)\}\./,
@@ -143,7 +144,7 @@ describe("the kb_search tool and the chat route", () => {
   it("the route passes the report to the grounding prompt, and its own catch tells the model too", () => {
     expect(CHAT).toMatch(/const report = await retrieveCitationsReport\(\{/);
     expect(CHAT).toMatch(/citations = report\.citations;/);
-    expect(CHAT).toMatch(/searched: true,\s*degraded: report\.degraded,/);
+    expect(CHAT).toMatch(/searched: report\.searched > 0,\s*degraded: report\.degraded,/);
     expect(CHAT).toMatch(
       /console\.error\("RAG retrieval failed:", err\);[\s\S]{0,600}?buildGroundingPrompt\(\[\], body\.systemPrompt, \{\s*searched: true,\s*degraded: \[\s*`retrieval failed: /,
     );

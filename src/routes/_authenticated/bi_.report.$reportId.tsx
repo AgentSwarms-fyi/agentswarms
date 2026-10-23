@@ -3,8 +3,8 @@
 // Three columns: the blocks in order, the pages as they will print, and the
 // page setup. The middle one is the point — it paginates with the same
 // function the PDF renderer uses, so a break you see is a break you get.
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createFileRoute, Link, useBlocker } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import {
@@ -71,6 +71,7 @@ import {
   type ReportBlock,
 } from "@/lib/biReports";
 import { biReportGet, biReportSave } from "@/utils/biReports.functions";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 export const Route = createFileRoute("/_authenticated/bi_/report/$reportId")({
   component: ReportDesigner,
@@ -85,12 +86,27 @@ function ReportDesigner() {
   const saveFn = useServerFn(biReportSave);
 
   const [report, setReport] = useState<BiReport | null>(null);
+  // The report as it was loaded or last saved, and the name it is saved
+  // under, so the page can tell what is unsaved (R278, sweep 8).
+  const [savedAs, setSavedAs] = useState<string | null>(null);
+  const [savedName, setSavedName] = useState("");
+  const unsaved = report !== null && savedAs !== null && JSON.stringify(report) !== savedAs;
+  // The version (`updated_at`) this page read or last saved. Save lands only on
+  // it (R284, sweep 9); refused, the page says so and offers Reload or
+  // Overwrite with mine.
+  const versionRef = useRef<string | null>(null);
+  const [stale, setStale] = useState(false);
+  const reloadingRef = useRef(false);
   const [warehouses, setWarehouses] = useState<WarehouseConnectionSummary[]>([]);
   const [whTables, setWhTables] = useState<Record<string, WarehouseTable[] | "loading" | "error">>(
     {},
   );
   const listWarehousesFn = useServerFn(listWarehouseConnections);
   const [loading, setLoading] = useState(true);
+  // Why the report could not be loaded, as opposed to its not existing (R296),
+  // and a count Try again bumps to load it again.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadNonce, setLoadNonce] = useState(0);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [generateOpen, setGenerateOpen] = useState(false);
@@ -111,10 +127,23 @@ function ReportDesigner() {
     const token = tokenRef.current;
     if (!token) return;
     void (async () => {
-      const res = await getFn({ data: { accessToken: token, id: reportId } });
-      if (!res.ok) toast.error(res.error);
-      else {
-        setReport({
+      // FOUND IN R296. A call that failed outright (the network, a restart)
+      // was never caught: the page stayed a skeleton for good. A read that
+      // failed on the server said "Report not found". Both now say the report
+      // could not be loaded, with Try again; only a missing report says so.
+      let res: Awaited<ReturnType<typeof getFn>>;
+      try {
+        res = await getFn({ data: { accessToken: token, id: reportId } });
+      } catch (e) {
+        setLoadError(`This report could not be loaded: ${(e as Error).message}`);
+        setLoading(false);
+        return;
+      }
+      if (!res.ok) {
+        if (!("missing" in res && res.missing)) setLoadError(res.error);
+      } else {
+        setLoadError(null);
+        const loaded: BiReport = {
           id: res.report.id,
           name: res.report.name,
           description: res.report.description,
@@ -122,12 +151,16 @@ function ReportDesigner() {
           header: res.report.header,
           footer: res.report.footer,
           blocks: (res.report.blocks ?? []) as unknown as ReportBlock[],
-        });
+        };
+        versionRef.current = res.report.updated_at || null;
+        setReport(loaded);
+        setSavedAs(JSON.stringify(loaded));
+        setSavedName(loaded.name);
       }
       setLoading(false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [getFn, signedIn, reportId]);
+  }, [getFn, signedIn, reportId, loadNonce]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -241,10 +274,12 @@ function ReportDesigner() {
     setReport((r) => (r ? { ...r, blocks: fn(r.blocks) } : r));
   }, []);
 
-  async function save() {
+  async function save(overwrite = false) {
     if (!report) return;
     const invalid = validateReport(report);
     if (invalid) return toast.error(invalid);
+    // What this save sends: an edit made while it is in flight stays unsaved.
+    const sent = JSON.stringify(report);
     setSaving(true);
     try {
       const res = await saveFn({
@@ -257,10 +292,25 @@ function ReportDesigner() {
           header: report.header,
           footer: report.footer,
           blocks: report.blocks as unknown as Record<string, unknown>[],
+          // Overwriting is said in so many words: a save with neither is
+          // refused, as a page opened before R284 would send (R303).
+          ...(overwrite
+            ? { overwrite: true as const }
+            : { expectedUpdatedAt: versionRef.current ?? undefined }),
         },
       });
-      if (!res.ok) toast.error(res.error);
-      else toast.success("Saved");
+      if (!res.ok) {
+        if (res.stale) setStale(true);
+        toast.error(res.error);
+      } else {
+        versionRef.current = res.updatedAt;
+        setStale(false);
+        setSavedAs(sent);
+        setSavedName(report.name);
+        toast.success("Saved");
+      }
+    } catch (e) {
+      reportFailure("save the report", e);
     } finally {
       setSaving(false);
     }
@@ -314,7 +364,45 @@ function ReportDesigner() {
     }
   }
 
+  // FOUND IN R278: the report kept no record of what was saved, so "← BI", a
+  // link and a closed tab left unsaved blocks behind without a word.
+  useBlocker({
+    shouldBlockFn: async () =>
+      !(await confirmAsk({
+        title: `Discard the changes to "${savedName}"?`,
+        body: "They are not saved. Leaving the report drops them.",
+        actionLabel: "Discard changes",
+      })),
+    enableBeforeUnload: () => unsaved && !reloadingRef.current,
+    disabled: !unsaved,
+  });
+
   if (loading) return <Skeleton className="m-4 h-96" />;
+  if (!report && loadError) {
+    return (
+      <div className="p-6">
+        <div
+          role="alert"
+          className="rounded-lg border border-dashed border-warning/40 p-8 text-center text-sm"
+        >
+          <p className="text-warning">{loadError}</p>
+          <p className="mt-1 text-muted-foreground">The report itself is unchanged.</p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-3"
+            onClick={() => {
+              setLoadError(null);
+              setLoading(true);
+              setLoadNonce((n) => n + 1);
+            }}
+          >
+            Try again
+          </Button>
+        </div>
+      </div>
+    );
+  }
   if (!report) return <p className="p-6 text-sm text-muted-foreground">Report not found.</p>;
 
   const add = (block: ReportBlock) => {
@@ -327,6 +415,30 @@ function ReportDesigner() {
   // scrolling inside themselves. FOUND FROM THE UI — the page scrolled away.
   return (
     <div className="flex h-canvas w-full min-h-0 flex-col gap-3 overflow-hidden p-4">
+      {stale && (
+        <div
+          className="flex flex-wrap items-center gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm"
+          data-testid="report-stale"
+        >
+          <span className="min-w-0 flex-1">
+            This report was changed in another tab or session, so Save did not write over it. Reload
+            to see that version, dropping your edits here, or overwrite it with yours.
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              reloadingRef.current = true;
+              window.location.reload();
+            }}
+          >
+            Reload
+          </Button>
+          <Button size="sm" variant="outline" disabled={saving} onClick={() => void save(true)}>
+            Overwrite with mine
+          </Button>
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         <Button asChild size="sm" variant="ghost">
           <Link to="/bi">
@@ -353,6 +465,14 @@ function ReportDesigner() {
             )}
             Export PDF
           </Button>
+          {unsaved && (
+            <span
+              className="text-xs text-amber-600 dark:text-amber-400"
+              data-testid="report-unsaved"
+            >
+              Unsaved changes
+            </span>
+          )}
           <Button size="sm" disabled={saving} onClick={() => void save()}>
             {saving ? (
               <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />

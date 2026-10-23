@@ -26,12 +26,14 @@ import {
   type DataMonitorRunRow,
 } from "@/utils/dataMonitors/run.server";
 import { listLakehouseTablesForUser } from "@/utils/lakehouse/tables.server";
+import { callerFailure } from "@/utils/callerLookup.server";
+import { canonicalJson } from "@/lib/definitionFingerprint";
 
 type Fail = { ok: false; error: string };
 
 async function resolveCaller(accessToken: string): Promise<{ ok: true; userId: string } | Fail> {
   const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
-  if (error || !data?.user) return { ok: false, error: "Not signed in" };
+  if (error || !data?.user) return { ok: false, error: callerFailure(error, "Not signed in") };
   return { ok: true, userId: data.user.id };
 }
 
@@ -64,7 +66,7 @@ const configSchema = z.object({
 
 /** What the wizard may watch: lakehouse tables with their columns, and the caller's warehouses. */
 export const dataMonitorSources = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(
     async ({
       data,
@@ -112,7 +114,7 @@ export const dataMonitorSources = createServerFn({ method: "POST" })
   );
 
 export const dataMonitorsList = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(
     async ({
       data,
@@ -196,7 +198,7 @@ const createSchema = z.object({
 });
 
 export const dataMonitorCreate = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => createSchema.parse(input))
+  .validator((input: unknown) => createSchema.parse(input))
   .handler(
     async ({
       data,
@@ -267,7 +269,7 @@ export const dataMonitorCreate = createServerFn({ method: "POST" })
   );
 
 export const dataMonitorUpdate = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -320,6 +322,19 @@ export const dataMonitorUpdate = createServerFn({ method: "POST" })
       patch.timezone = tz;
       patch.next_run_at = nextMonitorRunAt(schedule, cron, tz);
     }
+    // FOUND IN R319. A changed rule kept the old rule's result: "ok" and its
+    // value stayed on the card for a threshold or column that had never been
+    // checked, until the next scheduled run. The result is cleared, and the
+    // monitor is due on the scheduler's next pass. Compared canonically: jsonb
+    // reorders keys, and the same rule sent back is not a change.
+    if (data.config !== undefined && canonicalJson(data.config) !== canonicalJson(current.config)) {
+      patch.last_status = null;
+      patch.last_value = null;
+      patch.last_message = null;
+      patch.last_run_at = null;
+      patch.consecutive_alerts = 0;
+      if (patch.is_active ?? current.is_active) patch.next_run_at = new Date().toISOString();
+    }
     const { error } = await supabaseAdmin
       .from("data_monitors")
       .update(patch as never)
@@ -330,7 +345,7 @@ export const dataMonitorUpdate = createServerFn({ method: "POST" })
   });
 
 export const dataMonitorDelete = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<Fail | { ok: true }> => {
@@ -347,7 +362,7 @@ export const dataMonitorDelete = createServerFn({ method: "POST" })
   });
 
 export const dataMonitorRunNow = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<Fail | { ok: true; status: string; message: string }> => {
@@ -365,7 +380,7 @@ export const dataMonitorRunNow = createServerFn({ method: "POST" })
   });
 
 export const dataMonitorRuns = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -389,7 +404,7 @@ export const dataMonitorRuns = createServerFn({ method: "POST" })
   });
 
 export const dataIncidentUpdate = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -421,8 +436,30 @@ export const dataIncidentUpdate = createServerFn({ method: "POST" })
             resolved_at: new Date().toISOString(),
             resolved_by: "user" as const,
           };
-    const { error } = await supabaseAdmin.from("data_incidents").update(patch).eq("id", inc.id);
+    const { data: landed, error } = await supabaseAdmin
+      .from("data_incidents")
+      .update(patch)
+      .eq("id", inc.id)
+      // FOUND IN R312: held to "not resolved". The monitor's run resolves an
+      // incident once its check passes, and an Acknowledge read before that
+      // and written after it opened the incident again.
+      .neq("status", "resolved")
+      .select("id");
     if (error) return { ok: false, error: error.message };
+    if ((landed ?? []).length === 0) {
+      const { data: now } = await supabaseAdmin
+        .from("data_incidents")
+        .select("resolved_by")
+        .eq("id", inc.id)
+        .maybeSingle();
+      return {
+        ok: false,
+        error:
+          now?.resolved_by === "run"
+            ? "The monitor's run found the table healthy and resolved this incident a moment ago, so nothing was changed."
+            : "Someone resolved this incident a moment ago, so nothing was changed.",
+      };
+    }
     auditEvent({
       userId: caller.userId,
       action:

@@ -28,6 +28,7 @@ import { embedAndStoreDocuments } from "@/utils/tools/embedding.server";
 import { resolveEmbedArgs } from "@/utils/tools/embedTarget.server";
 import { KB_CONNECTORS, isConnectorKind } from "./connectors.server";
 import { diffRemoteItems, sha256Hex } from "./dedup";
+import { KB_SYNC_RUNNING, claimKbSync } from "./syncClaim.server";
 
 export { nextSyncAt, diffRemoteItems, sha256Hex };
 
@@ -41,11 +42,18 @@ export type KbSyncStats = {
   skipped: Array<{ name: string; reason: string }>;
   /** Items whose provider exposes no ACL while the source wants source_acl. */
   acl_unavailable: number;
+  /**
+   * Documents not seen this sync but kept, because the listing could not read
+   * everything (R371), and why. Removed only by a sync that read it all.
+   */
+  kept?: number;
+  incomplete?: string;
 };
 
 export type KbSyncOutcome = {
   ok: boolean;
-  status: "ok" | "error" | "embedding_failed";
+  /** "running": another sync holds the source, so this one did not start (R313). */
+  status: "ok" | "error" | "embedding_failed" | "running";
   error: string | null;
   stats: KbSyncStats;
 };
@@ -114,10 +122,17 @@ export async function syncKbSource(
   const invalid = connector.validate(config, creds);
   if (invalid) return fail(invalid);
 
-  await sb.from("kb_sources").update({ status: "syncing", error: null }).eq("id", source.id);
+  const claim = await claimKbSync(sb, source.id);
+  if (claim.error) return fail(`The sync could not start: ${claim.error}`);
+  if (claim.outcome === "running") {
+    return { ok: false, status: "running", error: KB_SYNC_RUNNING, stats };
+  }
+  if (claim.outcome === "missing") {
+    return { ok: false, status: "error", error: "This source no longer exists.", stats };
+  }
 
   try {
-    const { items, skipped } = await connector.listItems(config, creds);
+    const { items, skipped, incomplete } = await connector.listItems(config, creds);
     stats.listed = items.length;
     stats.skipped = skipped;
 
@@ -138,14 +153,22 @@ export async function syncKbSource(
     stats.unchanged = unchanged.length;
 
     // Remote deletions → document deletions (kb_chunks cascade on the FK).
-    if (toRemoveExternalIds.length > 0) {
+    // A listing that could not read everything cannot say what was removed
+    // (R371): a page that answered 503 deleted its document, its chunks and
+    // its access list as "removed from the site". Nothing is removed then.
+    const toRemove = incomplete ? [] : toRemoveExternalIds;
+    if (incomplete) {
+      stats.incomplete = incomplete;
+      if (toRemoveExternalIds.length > 0) stats.kept = toRemoveExternalIds.length;
+    }
+    if (toRemove.length > 0) {
       const { error: delErr } = await sb
         .from("knowledge_documents")
         .delete()
         .eq("source_id", source.id)
-        .in("external_id", toRemoveExternalIds);
+        .in("external_id", toRemove);
       if (delErr) throw new Error(`removing deleted items: ${delErr.message}`);
-      stats.removed = toRemoveExternalIds.length;
+      stats.removed = toRemove.length;
     }
 
     const wantAcl = source.access_scope === "source_acl" && connector.supportsAcl;

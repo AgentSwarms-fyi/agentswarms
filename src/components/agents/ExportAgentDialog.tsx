@@ -17,6 +17,7 @@ import {
   Workflow,
   Braces,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { exportAgent, type ExportFormat } from "@/lib/agentExport";
 import type { Agent } from "@/components/agents/AgentForm";
@@ -24,7 +25,7 @@ import { toast } from "sonner";
 
 type OptionGroup = {
   heading: string;
-  items: { id: ExportFormat; title: string; description: string; icon: any; tag: string }[];
+  items: { id: ExportFormat; title: string; description: string; icon: LucideIcon; tag: string }[];
 };
 
 const GROUPS: OptionGroup[] = [

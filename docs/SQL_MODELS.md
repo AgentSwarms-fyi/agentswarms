@@ -77,6 +77,20 @@ imposed a build order would refuse projects that are actually fine.
 while the project still builds, rather than at the next scheduled build when
 nothing runs.
 
+**Unsaved edits are asked about.** Opening another model, starting a new one,
+**Close**, a link or closing the tab with something unsaved asks first —
+"Discard the changes to "stg_orders"?", or "Discard the new model?" for one not
+yet saved — and Cancel keeps it (R276). A new model nothing has been typed into
+leaves without a question.
+
+Save writes only over the definition the editor opened. If the model was saved
+from another tab or session since, Save is refused — "This model was changed in
+another tab or session after this page read it" — and the editor offers
+**Reload** (that version, dropping the edits here) or **Overwrite with mine**.
+Builds write the same row, so the check compares a fingerprint of the definition
+(`src/lib/definitionFingerprint.ts`), not the row's `updated_at`. **Pause** and
+**Resume** carry into an open draft, so the next Save keeps the setting (R285).
+
 ### Table or view
 
 | Materialization | What happens                                         | Use it when                                         |

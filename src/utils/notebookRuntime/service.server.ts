@@ -329,10 +329,29 @@ export async function refreshSession(row: SessionRow): Promise<SessionRow> {
       );
     }
   }
-  const { error: patchErr } = await supabaseAdmin
+  // FOUND IN R292, FIXED IN R295. This wrote over whatever the row said by
+  // now. A preview's poller read the session as "running"; the sandbox then
+  // posted its result, the callback stored it and removed the container; and
+  // this refresh, still holding the row it read, heard "gone" from the
+  // orchestrator and wrote "stopped", with no error, over the stored result.
+  // The preview read only "Preview failed". The update now lands only on the
+  // status it was decided from, and when the row has moved on, the caller
+  // gets what is stored rather than this guess.
+  const { data: written, error: patchErr } = await supabaseAdmin
     .from("notebook_runtime_sessions")
     .update(patch)
-    .eq("id", row.id);
+    .eq("id", row.id)
+    .eq("status", row.status)
+    .select("*")
+    .maybeSingle();
+  if (!patchErr && !written) {
+    const { data: stored } = await supabaseAdmin
+      .from("notebook_runtime_sessions")
+      .select("*")
+      .eq("id", row.id)
+      .maybeSingle();
+    if (stored) return stored as SessionRow;
+  }
   if (patchErr) {
     // The caller is handed the reconciled row; the table keeps the old one,
     // and the caps and the reaper read the table (R80).
@@ -368,10 +387,14 @@ export async function stopSession(row: SessionRow): Promise<void> {
       console.warn(`[runtime] session ${row.id}: staging not deleted: ${(e as Error).message}`),
     );
   }
+  // FOUND IN R320. Held to a live status: a session the callback already
+  // ended ("succeeded", "failed") keeps the result it ended with, rather than
+  // reading "stopped" because its sandbox was cleaned up afterwards.
   const { error: stopErr } = await supabaseAdmin
     .from("notebook_runtime_sessions")
     .update({ status: "stopped", stopped_at: new Date().toISOString() })
-    .eq("id", row.id);
+    .eq("id", row.id)
+    .in("status", [...LIVE]);
   if (stopErr) {
     // FOUND FROM THE SURVEY (R80). The container is gone; a row still live
     // is counted against the caps, listed as running, and reaped again.
@@ -452,7 +475,7 @@ export async function reapSessions(): Promise<number> {
   const nowIso = new Date().toISOString();
   const idleCutoff = new Date(Date.now() - settings.idleTtlMinutes * 60_000).toISOString();
 
-  const [{ data: idle }, { data: expired }] = await Promise.all([
+  const [{ data: idle, error: idleErr }, { data: expired, error: expiredErr }] = await Promise.all([
     supabaseAdmin
       .from("notebook_runtime_sessions")
       .select("*")
@@ -466,6 +489,9 @@ export async function reapSessions(): Promise<number> {
       .lt("expires_at", nowIso),
   ]);
 
+  // A list that could not be read reaps nothing from it; the next pass will.
+  if (idleErr) console.warn(`[runtime] idle kernels not reaped: ${idleErr.message}`);
+  if (expiredErr) console.warn(`[runtime] expired sessions not reaped: ${expiredErr.message}`);
   const byId = new Map<string, SessionRow>();
   for (const r of [...(idle ?? []), ...(expired ?? [])]) byId.set(r.id, r);
   for (const r of await idleServiceSessions()) byId.set(r.id, r);
@@ -526,18 +552,30 @@ async function sweepLakeStaging(): Promise<void> {
  * reuse the single cutoff the notebook query above uses.
  */
 async function idleServiceSessions(): Promise<SessionRow[]> {
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("notebook_runtime_sessions")
     .select("*")
     .eq("kind", "service")
     .in("status", [...LIVE]);
+  if (error) {
+    console.warn(`[runtime] idle MCP servers not reaped: sessions unreadable: ${error.message}`);
+    return [];
+  }
   const rows = (data ?? []).filter((r) => r.mcp_app_id);
   if (rows.length === 0) return [];
 
-  const { data: apps } = await supabaseAdmin
+  const { data: apps, error: appsErr } = await supabaseAdmin
     .from("mcp_apps")
     .select("id, keep_warm, idle_ttl_minutes")
     .in("id", Array.from(new Set(rows.map((r) => r.mcp_app_id as string))));
+  // FOUND IN R249. "No app row means the app was deleted" is the rule below,
+  // and a failed read of mcp_apps made it true of EVERY app at once: each
+  // published MCP server was taken for an orphan and stopped, keep_warm ones
+  // included. Unreadable is not deleted; this pass reaps none of them.
+  if (appsErr) {
+    console.warn(`[runtime] idle MCP servers not reaped: apps unreadable: ${appsErr.message}`);
+    return [];
+  }
   const byApp = new Map((apps ?? []).map((a) => [a.id, a]));
 
   const now = Date.now();

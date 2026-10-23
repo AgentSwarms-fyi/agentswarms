@@ -47,7 +47,8 @@ import {
   type MlTask,
   type MlTuning,
 } from "@/utils/ml/types";
-import { TaskBadge, fmtInt } from "@/components/ml/mlUi";
+import { TaskBadge } from "@/components/ml/mlUi";
+import { fmtInt } from "@/components/ml/mlFormat";
 import { PrepOptions } from "@/components/ml/PrepOptions";
 
 type Goal = "predict" | "cluster" | "anomaly" | "recommend";

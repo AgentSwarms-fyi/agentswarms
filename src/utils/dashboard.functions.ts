@@ -31,6 +31,7 @@ import {
   resolveRange,
   type DashboardScope,
 } from "@/utils/dashboard/scope";
+import { callerFailure } from "@/utils/callerLookup.server";
 
 /**
  * Bucket key for spend whose owning account no longer exists.
@@ -105,7 +106,7 @@ export type DashboardOverview = {
 
 async function requireUser(accessToken: string) {
   const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
-  if (error || !data.user) throw new Error("Unauthorized");
+  if (error || !data?.user) throw new Error(callerFailure(error, "Unauthorized"));
   return data.user.id;
 }
 
@@ -150,7 +151,7 @@ const cost = (r: TraceRow) => Number(r.cost_usd ?? 0);
 const tokens = (r: TraceRow) => Number(r.tokens_in ?? 0) + Number(r.tokens_out ?? 0);
 
 export const dashboardOverview = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),

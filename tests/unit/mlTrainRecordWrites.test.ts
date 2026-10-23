@@ -28,7 +28,7 @@ const cancel = src.slice(src.indexOf("export async function cancelMlJob("));
 
 describe("starting a job", () => {
   it("stops the workers again when the job row could not take them", () => {
-    expect(startJob).toContain("const { error: recErr } = await supabaseAdmin");
+    expect(startJob).toContain("const { data: took, error: recErr } = await supabaseAdmin");
     const i = startJob.indexOf("if (recErr) {");
     expect(i).toBeGreaterThan(-1);
     const block = startJob.slice(i, startJob.indexOf("if (started.length < plan.shards) {"));

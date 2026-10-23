@@ -7,6 +7,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { syncKbSource } from "@/utils/kb/sync.server";
+import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
 const Body = z.object({ source_id: z.string().uuid() });
 
@@ -33,13 +35,22 @@ export const Route = createFileRoute("/api/kb/sources/sync")({
         if (!supabaseUrl || !serviceKey) {
           return Response.json({ error: "Backend misconfigured" }, { status: 500 });
         }
-        const userClient = createClient(supabaseUrl, process.env.SUPABASE_PUBLISHABLE_KEY || "", {
-          global: { headers: { Authorization: `Bearer ${token}` } },
-        });
-        const { data: userRes } = await userClient.auth.getUser();
-        if (!userRes?.user) return Response.json({ error: "Not signed in" }, { status: 401 });
+        const userClient = createClient(
+          supabaseUrl,
+          process.env.SUPABASE_PUBLISHABLE_KEY || "",
+          withNulSafeFetch({
+            global: { headers: { Authorization: `Bearer ${token}` } },
+          }),
+        );
+        const { data: userRes, error: authError } = await userClient.auth.getUser();
+        if (!userRes?.user) {
+          return Response.json(
+            { error: callerFailure(authError, "Not signed in") },
+            { status: callerFailureStatus(authError) },
+          );
+        }
 
-        const admin = createClient(supabaseUrl, serviceKey);
+        const admin = createClient(supabaseUrl, serviceKey, withNulSafeFetch());
         const { data: source } = await admin
           .from("kb_sources")
           .select("id, user_id, knowledge_base_id, kind, label, config, credentials, access_scope")
@@ -50,7 +61,14 @@ export const Route = createFileRoute("/api/kb/sources/sync")({
         }
 
         const outcome = await syncKbSource(admin, source);
-        const status = outcome.status === "ok" ? 200 : outcome.status === "error" ? 502 : 207;
+        const status =
+          outcome.status === "ok"
+            ? 200
+            : outcome.status === "error"
+              ? 502
+              : outcome.status === "running"
+                ? 409
+                : 207;
         return Response.json(
           { ok: outcome.ok, status: outcome.status, error: outcome.error, stats: outcome.stats },
           { status },

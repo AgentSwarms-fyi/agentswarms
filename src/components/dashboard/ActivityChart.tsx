@@ -11,17 +11,17 @@
 // The class components are cast through `any` for the same reason the
 // analytics page does it: React 19's stricter JSX typing rejects them.
 
-import * as Recharts from "recharts";
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+} from "recharts";
 
 import { bucketHour } from "@/lib/dashboardActivity";
-
-const ResponsiveContainer = Recharts.ResponsiveContainer as any;
-const AreaChart = Recharts.AreaChart as any;
-const Area = Recharts.Area as any;
-const XAxis = Recharts.XAxis as any;
-const YAxis = Recharts.YAxis as any;
-const Tooltip = Recharts.Tooltip as any;
-const CartesianGrid = Recharts.CartesianGrid as any;
 
 export function ActivityChart({
   buckets,

@@ -14,21 +14,27 @@ import { z } from "zod";
 
 import type { Database } from "@/integrations/supabase/types";
 import type { QualityRollup, QualityStatus } from "@/lib/dataQualityCore";
+import { callerFailure } from "@/utils/callerLookup.server";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
 function userClient(accessToken: string) {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_PUBLISHABLE_KEY;
   if (!url || !key) throw new Error("Server is missing Supabase configuration");
-  return createClient<Database>(url, key, {
-    auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
-  });
+  return createClient<Database>(
+    url,
+    key,
+    withNulSafeFetch({
+      auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: `Bearer ${accessToken}` } },
+    }),
+  );
 }
 
 async function requireUser(accessToken: string) {
   const sb = userClient(accessToken);
   const { data, error } = await sb.auth.getUser(accessToken);
-  if (error || !data.user) throw new Error("Unauthorized");
+  if (error || !data?.user) throw new Error(callerFailure(error, "Unauthorized"));
   return { sb, userId: data.user.id };
 }
 
@@ -51,7 +57,7 @@ export type QualityRunOutcome =
   | { ok: false; error: string };
 
 export const runQualityTests = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ accessToken: z.string().min(1), tableId: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<QualityRunOutcome> => {
@@ -92,7 +98,7 @@ export type DatasetVersionRow = {
 };
 
 export const listDatasetVersionsFn = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ accessToken: z.string().min(1), tableId: z.string().uuid() }).parse(input),
   )
   .handler(
@@ -125,7 +131,7 @@ export const listDatasetVersionsFn = createServerFn({ method: "POST" })
   );
 
 export const restoreDatasetVersionFn = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ accessToken: z.string().min(1), versionId: z.string().uuid() }).parse(input),
   )
   .handler(
@@ -155,7 +161,7 @@ export const restoreDatasetVersionFn = createServerFn({ method: "POST" })
  * treat a failure here as non-fatal — see saveDataset.
  */
 export const snapshotDatasetFn = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         accessToken: z.string().min(1),

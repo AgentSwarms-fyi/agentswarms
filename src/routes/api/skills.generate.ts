@@ -10,6 +10,8 @@ import {
 } from "@/utils/providers/credentials.server";
 import { isBiCompatProvider } from "@/utils/providers/modelChoice";
 import type { ProviderId } from "@/utils/providers/types";
+import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
 // Last-resort model when the caller picked a provider but no model and the
 // integration carries no default. Only meaningful for OpenRouter.
@@ -60,12 +62,18 @@ export const Route = createFileRoute("/api/skills/generate")({
           const userClient = createClient(
             (process.env.SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL)!,
             import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY!,
-            { global: { headers: { Authorization: `Bearer ${token}` } } },
+            withNulSafeFetch({ global: { headers: { Authorization: `Bearer ${token}` } } }),
           );
           const {
             data: { user },
+            error: authError,
           } = await userClient.auth.getUser();
-          if (!user) return json({ error: "Unauthorized" }, 401);
+          if (!user) {
+            return json(
+              { error: callerFailure(authError, "Unauthorized") },
+              callerFailureStatus(authError),
+            );
+          }
 
           const body = (await request.json().catch(() => ({}))) as {
             brief?: unknown;

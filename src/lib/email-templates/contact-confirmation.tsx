@@ -2,7 +2,7 @@
 // form. 1:1 transactional — the recipient explicitly triggered it by hitting
 // "Send" on /contact, so they expect this email.
 import { Body, Container, Head, Heading, Html, Preview, Text, Hr } from "@react-email/components";
-import type { TemplateEntry } from "./registry";
+import { defineTemplate } from "./registry";
 
 const SITE_NAME = "AgentSwarms";
 
@@ -35,7 +35,7 @@ const ContactConfirmationEmail = ({ name, message }: ContactConfirmationProps) =
   </Html>
 );
 
-export const template = {
+export const template = defineTemplate<ContactConfirmationProps>({
   component: ContactConfirmationEmail,
   subject: `Thanks for contacting ${SITE_NAME}`,
   displayName: "Visitor: contact form confirmation",
@@ -43,7 +43,7 @@ export const template = {
     name: "Jane",
     message: "How do I export a swarm to JSON?",
   },
-} satisfies TemplateEntry;
+});
 
 const main = {
   backgroundColor: "#ffffff",

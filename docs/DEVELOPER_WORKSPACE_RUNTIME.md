@@ -232,6 +232,14 @@ The kernel pods have **no direct internet route**. Their only egress is an **HTT
   Exceeding the budget is reported as _still starting_, not as a crash — the
   two are distinguished, because a container that exited needs its traceback
   read while a slow one just needs another attempt.
+- **MCP warm requests** (`SERVING_FOR_MS` and `TOUCH_EVERY_MS`, 30 s each —
+  source constants in `src/utils/mcpApps/warmPath.ts`): a server process that
+  saw an MCP sandbox serving within the last 30 s forwards to it without
+  re-probing it, and writes its activity for the reaper at most every 30 s.
+  Each process keeps its own record, so a cluster re-probes once per worker. A
+  forward that fails clears the record, and the next request probes again and
+  starts a fresh sandbox if the old one died. The owner's runtime grant and the
+  runtime switch are still read on every request.
 
 ### 5.4 Filesystem
 
@@ -271,9 +279,18 @@ Some operator defaults are also settable via env: `NOTEBOOK_RUNTIME_ENABLED`, `N
 
 **Env takes precedence over the settings row, not the other way round** (`process.env.NOTEBOOK_RUNTIME_BACKEND || data?.backend || "docker"`). An operator who sets the env var and then edits the admin UI will see the edit ignored, so pick one place per value.
 
+**An unreadable settings row is not a missing one.** The defaults above are
+for a fresh install with no row. If the row exists but cannot be read, the
+runtime refuses to start sessions and the reaper skips its pass, rather than
+falling back: before R249 a failed read turned `require_grant` off (so, with
+`NOTEBOOK_RUNTIME_ENABLED` keeping the runtime on, any user could start a
+kernel) and put the default idle TTL in front of the reaper.
+
 `egress_allowlist` and the session/CPU/memory limits are **database-only**: set those in **Admin → Developer runtime**. In particular there is no `NOTEBOOK_EGRESS_ALLOWLIST` env var. Several other columns on `notebook_runtime_settings` _do_ take an environment fallback — the lakehouse, ML, gateway and document-vision knobs — as the resolution table further down sets out. (`NOTEBOOK_EGRESS_ALLOWLIST_PATH` is a different thing: the path the allowlist is written to _inside_ the egress sidecar.)
 
 `cell_timeout_seconds` is the one exception, and it is easy to trip over: the app reads it from the settings row, but the **websocket gateway enforces it from its own `NOTEBOOK_CELL_TIMEOUT_SECONDS`** (`services/notebook-gateway`, default `120`). They are separate values — change one in the admin UI and the gateway keeps using its own until you set the env var too.
+
+The gateway waits up to `KERNEL_CREATE_TIMEOUT_MS` (default `28000`, inside the browser's 30 s) for a session's kernel to be created. A session's container runs one kernel and refuses a second, and its Kernel Gateway does not list its kernels, so a slow first boot is waited for and never asked for twice: a second create would only be refused by the kernel the first is starting (R322). A create that fails outright, such as a refusal while the previous connection's kernel is still being deleted after a reload, is asked again until the time is spent.
 
 ---
 
@@ -285,7 +302,10 @@ What shipped is **one** route, `POST /api/notebook/runtime`, dispatching on an `
 
 - `{ action: "start" | "run" }` — checks `server_runtime_enabled`, the user's `notebook_runtime` IAM capability and the per-user session cap; asks the orchestrator to create a pod; inserts a `notebook_runtime_sessions` row; returns the session, its gateway URL and a session token.
 - `{ action: "list" }`, `{ action: "status" }` — poll while `starting`.
-- `{ action: "stop" }` — teardown.
+- `{ action: "stop" }` — teardown. Two teardowns of one sandbox can overlap: Stop pressed twice,
+  or a batch's result arriving while a refresh tears it down. Docker answers the second "removal ...
+  already in progress" (409). That teardown waits for the first to finish, up to
+  `NOTEBOOK_TEARDOWN_WAIT_MS` (10 s), and reports the container still there only if it is (R302).
 - `{ action: "token" }` — refresh the short-TTL session token.
 
 Its siblings are `/api/notebook/runtime/{result,source,reap}`.
@@ -301,7 +321,12 @@ Reuse the existing pieces: `getEffectiveModelRules`/`isModelAllowed` (IAM gate),
 - **Session controls** in the notebook editor header — there is no runtime
   _switcher_, because there is nothing to switch between: a session status pill
   (`starting → ready`), a **Restart kernel** and **Stop** button, and current
-  limits (mem/CPU/timeout).
+  limits (mem/CPU/timeout). A **Stop** the server did not carry out says so —
+  the pill reads "Kernel error" and the page "Could not stop the kernel (…)",
+  since the container is still running until the reaper's idle TTL — rather
+  than "Kernel stopped" (R271). The kernel, a sample's kernel and a Spark
+  query's poll read the session token when they call, so a refresh while they
+  live is used at once.
 - Cell execution goes over the gateway websocket to a server kernel. It is the
   only execution path; the Pyodide one this plan compared it against is gone.
 - **Shift+Enter** is bound in the cell editor's own keymap, at the highest
@@ -316,6 +341,17 @@ Reuse the existing pieces: `getEffectiveModelRules`/`isModelAllowed` (IAM gate),
   there is nowhere else for them to run.)
 - If `server_runtime_enabled` is false the editor renders a **Runtime required**
   panel in place of the cells, rather than a disabled switch.
+- A notebook **saves as you go**, 1.2 s after the last edit; the header says
+  "Unsaved changes", "Saving…" or "Saved" by comparing the editor with what was
+  last saved. A link taken before that save first saves, and asks only when the
+  save fails — "Leave without saving "…"?", with the reason — and closing the tab
+  with anything unsaved gets the browser's question (R279,
+  `useSaveBeforeLeave`).
+- **Two tabs on one notebook** do not undo each other. A save lands only on the
+  version (`updated_at`) the tab read or last wrote; once another tab or session
+  has saved, this tab's next save is refused — "this notebook was changed in
+  another tab or session after this page read it" — autosave stops, and a banner
+  offers **Reload** (R283, `src/lib/guardedSave.ts`).
 
 ---
 
@@ -352,9 +388,14 @@ Kernel containers are **Linux containers** (the frameworks are Linux-first). On 
 ## 10. Scaling & lifecycle
 
 - **Cold start**: container ~1–3 s with a warmed base image; keep a small **warm pool** of idle kernels (optional) for instant attach.
-- **Reaper**: a cron (reuse the existing scheduled-job mechanism) sweeps `notebook_runtime_sessions` for idle/expired sessions and calls `orchestrator.stop`.
+- **Reaper**: a cron (reuse the existing scheduled-job mechanism) sweeps `notebook_runtime_sessions` for idle/expired sessions and calls `orchestrator.stop`. A list it cannot read reaps nothing from that list on that pass. In particular an MCP server with no `mcp_apps` row is treated as orphaned and stopped, so an `mcp_apps` read that fails stops **none** of them (R249: it used to stop every one, `keep_warm` included).
 - **Backpressure**: per-user and per-instance session caps; when at capacity, `start` returns a clear "runtime at capacity" error.
 - **Crash recovery**: orphaned containers (app restarted) are reconciled by matching `container_ref` labels on startup and reaping unknowns.
+- **Who writes a session's ending**: two writers can finish a batch session. The sandbox's result callback stores the outcome
+  with the sandbox's own error and logs. `refreshSession` stores what the orchestrator reports, when a poll finds the container
+  exited or gone. The refresh writes only onto the status it read, and when the row has moved on it returns the row as stored.
+  Before R295, a poll that had read "running" a moment before the callback wrote "stopped", with no error, over the stored result,
+  and the preview read only "Preview failed".
 
 ---
 

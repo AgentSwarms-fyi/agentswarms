@@ -22,6 +22,8 @@ import {
   type SqlDialect,
 } from "@/lib/semanticLayer";
 import { runSemanticQuery } from "@/utils/semantic/query.server";
+import { fingerprintOf } from "@/lib/definitionFingerprint";
+import { semanticModelDefinition } from "@/lib/semanticLayer";
 import {
   checkAssertions,
   measureCalendarHealth,
@@ -33,21 +35,27 @@ import {
   type ModelIssue,
   type ModelWarning,
 } from "@/lib/semanticMeasure";
+import { callerFailure } from "@/utils/callerLookup.server";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
 function userClient(accessToken: string) {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_PUBLISHABLE_KEY;
   if (!url || !key) throw new Error("Server is missing Supabase configuration");
-  return createClient<Database>(url, key, {
-    auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
-  });
+  return createClient<Database>(
+    url,
+    key,
+    withNulSafeFetch({
+      auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: `Bearer ${accessToken}` } },
+    }),
+  );
 }
 
 async function requireUser(accessToken: string) {
   const sb = userClient(accessToken);
   const { data, error } = await sb.auth.getUser(accessToken);
-  if (error || !data.user) throw new Error("Unauthorized");
+  if (error || !data?.user) throw new Error(callerFailure(error, "Unauthorized"));
   return { sb, userId: data.user.id };
 }
 
@@ -375,12 +383,18 @@ export function validateHierarchies(
 }
 
 export const semanticListModels = createServerFn({ method: "GET" })
-  .inputValidator((d: { accessToken: string }) => d)
+  .validator((d: { accessToken: string }) => d)
   .handler(async ({ data }) => {
     const { sb, userId } = await requireUser(data.accessToken);
     const { data: rows, error } = await sb.from("semantic_models").select("*").order("name");
     if (error) throw new Error(error.message);
-    const models = rows ?? [];
+    // Each with its definition's fingerprint, which a save sends back (R286).
+    const models = await Promise.all(
+      (rows ?? []).map(async (r) => ({
+        ...r,
+        fingerprint: await fingerprintOf(semanticModelDefinition(r)),
+      })),
+    );
 
     // For SHARED models, attach the viewer's enforced share policy so the UI
     // can say so out loud — a grantee looking at scoped numbers should never
@@ -405,60 +419,99 @@ export const semanticListModels = createServerFn({ method: "GET" })
   });
 
 export const semanticUpsertModel = createServerFn({ method: "POST" })
-  .inputValidator((d: { accessToken: string; model: z.input<typeof modelSchema> }) => d)
-  .handler(async ({ data }) => {
-    const { sb, userId } = await requireUser(data.accessToken);
-    const m = modelSchema.parse(data.model);
-    if (!isValidFieldName(m.name)) {
-      throw new Error(`Model name "${m.name}" must be letters/digits/underscore, no spaces.`);
-    }
-    validateNames(m.dimensions, m.metrics);
-    validateHierarchies(m.hierarchies, m.dimensions);
-    validateRollups(m.rollups, m.dimensions, m.metrics, m.calendar);
-    if (m.source_kind === "warehouse" && !m.connection_id) {
-      throw new Error("Warehouse models need a connection.");
-    }
-    const row = {
-      user_id: userId,
-      name: m.name,
-      label: m.label ?? null,
-      description: m.description ?? null,
-      source_kind: m.source_kind,
-      table_id: m.table_id ?? null,
-      connection_id: m.connection_id ?? null,
-      source_table: m.source_table,
-      primary_key: m.primary_key?.trim() ? m.primary_key.trim() : null,
-      fiscal_year_start_month: m.fiscal_year_start_month ?? null,
-      calendar: (m.calendar ?? null) as never,
-      rollups: (m.rollups ?? []) as never,
-      parameters: (m.parameters ?? []) as never,
-      hierarchies: (m.hierarchies ?? []) as never,
-      joins: (m.joins ?? []) as never,
-      dimensions: m.dimensions as never,
-      metrics: m.metrics as never,
-      assertions: (m.assertions ?? []) as never,
-    };
-    if (m.id) {
-      const { data: up, error } = await sb
+  .validator(
+    (d: {
+      accessToken: string;
+      model: z.input<typeof modelSchema>;
+      // The fingerprint of the definition the page opened or last saved. Left
+      // out, the save overwrites: "Overwrite with mine" (R286).
+      expectedFingerprint?: string;
+    }) => d,
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<{ id: string; fingerprint: string } | { stale: true; error: string }> => {
+      const { sb, userId } = await requireUser(data.accessToken);
+      const m = modelSchema.parse(data.model);
+      if (!isValidFieldName(m.name)) {
+        throw new Error(`Model name "${m.name}" must be letters/digits/underscore, no spaces.`);
+      }
+      validateNames(m.dimensions, m.metrics);
+      validateHierarchies(m.hierarchies, m.dimensions);
+      validateRollups(m.rollups, m.dimensions, m.metrics, m.calendar);
+      if (m.source_kind === "warehouse" && !m.connection_id) {
+        throw new Error("Warehouse models need a connection.");
+      }
+      const row = {
+        user_id: userId,
+        name: m.name,
+        label: m.label ?? null,
+        description: m.description ?? null,
+        source_kind: m.source_kind,
+        table_id: m.table_id ?? null,
+        connection_id: m.connection_id ?? null,
+        source_table: m.source_table,
+        primary_key: m.primary_key?.trim() ? m.primary_key.trim() : null,
+        fiscal_year_start_month: m.fiscal_year_start_month ?? null,
+        calendar: (m.calendar ?? null) as never,
+        rollups: (m.rollups ?? []) as never,
+        parameters: (m.parameters ?? []) as never,
+        hierarchies: (m.hierarchies ?? []) as never,
+        joins: (m.joins ?? []) as never,
+        dimensions: m.dimensions as never,
+        metrics: m.metrics as never,
+        assertions: (m.assertions ?? []) as never,
+      };
+      const fingerprint = await fingerprintOf(semanticModelDefinition(row));
+      if (m.id) {
+        // FOUND IN R286: the save wrote over whatever was stored, so a save from
+        // another tab undid this one's. Certification writes this row too, so
+        // its updated_at cannot say who changed it; the definition's
+        // fingerprint can, and the update then lands only on the row it read.
+        const { data: stored, error: readErr } = await sb
+          .from("semantic_models")
+          .select("*")
+          .eq("id", m.id)
+          .maybeSingle();
+        if (readErr) throw new Error(readErr.message);
+        if (stored && data.expectedFingerprint) {
+          const storedPrint = await fingerprintOf(semanticModelDefinition(stored));
+          if (storedPrint !== data.expectedFingerprint) {
+            return {
+              stale: true,
+              error: "This model was changed in another tab or session after this page read it",
+            };
+          }
+        }
+        let q = sb
+          .from("semantic_models")
+          .update(row as never)
+          .eq("id", m.id);
+        if (stored) q = q.eq("updated_at", stored.updated_at);
+        const { data: up, error } = await q.select("id").maybeSingle();
+        if (error) throw new Error(error.message);
+        if (!up) {
+          throw new Error(
+            stored
+              ? "The model was written to while this save was in progress. Nothing was saved; save again."
+              : "Model not found",
+          );
+        }
+        return { id: up.id, fingerprint };
+      }
+      const { data: ins, error } = await sb
         .from("semantic_models")
-        .update(row as never)
-        .eq("id", m.id)
+        .insert(row as never)
         .select("id")
         .single();
       if (error) throw new Error(error.message);
-      return { id: up.id };
-    }
-    const { data: ins, error } = await sb
-      .from("semantic_models")
-      .insert(row as never)
-      .select("id")
-      .single();
-    if (error) throw new Error(error.message);
-    return { id: ins.id };
-  });
+      return { id: ins.id, fingerprint };
+    },
+  );
 
 export const semanticDeleteModel = createServerFn({ method: "POST" })
-  .inputValidator((d: { accessToken: string; id: string }) => d)
+  .validator((d: { accessToken: string; id: string }) => d)
   .handler(async ({ data }) => {
     const { sb } = await requireUser(data.accessToken);
     const { error } = await sb.from("semantic_models").delete().eq("id", data.id);
@@ -469,7 +522,7 @@ export const semanticDeleteModel = createServerFn({ method: "POST" })
 type Cell = string | number | boolean | null;
 
 export const semanticRunQuery = createServerFn({ method: "POST" })
-  .inputValidator((d: { accessToken: string; query: SemanticQuery }) => d)
+  .validator((d: { accessToken: string; query: SemanticQuery }) => d)
   .handler(async ({ data }) => {
     const { sb, userId } = await requireUser(data.accessToken);
     const res = await runSemanticQuery({ sb, userId, query: data.query, maxRows: 1000 });
@@ -525,7 +578,7 @@ export type ModelValidationReport = {
 };
 
 export const semanticValidateModel = createServerFn({ method: "POST" })
-  .inputValidator((d: { accessToken: string; model: z.input<typeof modelSchema> }) => d)
+  .validator((d: { accessToken: string; model: z.input<typeof modelSchema> }) => d)
   .handler(async ({ data }): Promise<ModelValidationReport> => {
     const { sb, userId } = await requireUser(data.accessToken);
     return validateModelPayload(sb, userId, data.model);
@@ -696,8 +749,7 @@ function rowToModelPayload(row: Record<string, unknown>): z.input<typeof modelSc
     label: (row.label as string) ?? undefined,
     description: (row.description as string) ?? undefined,
     source_kind: (row.source_kind === "warehouse" ? "warehouse" : "data_table") as
-      | "warehouse"
-      | "data_table",
+      "warehouse" | "data_table",
     table_id: (row.table_id as string) ?? null,
     connection_id: (row.connection_id as string) ?? null,
     source_table: String(row.source_table ?? ""),
@@ -732,7 +784,7 @@ function rowToModelPayload(row: Record<string, unknown>): z.input<typeof modelSc
  * the stamp always refers to the definition that was actually validated.
  */
 export const semanticSetModelStatus = createServerFn({ method: "POST" })
-  .inputValidator((d: { accessToken: string; id: string; status: string }) => d)
+  .validator((d: { accessToken: string; id: string; status: string }) => d)
   .handler(
     async ({
       data,
@@ -784,7 +836,7 @@ export const semanticSetModelStatus = createServerFn({ method: "POST" })
 
 /** Version history for a model (newest first). Owner-only via RLS. */
 export const semanticListVersions = createServerFn({ method: "GET" })
-  .inputValidator((d: { accessToken: string; modelId: string }) => d)
+  .validator((d: { accessToken: string; modelId: string }) => d)
   .handler(async ({ data }) => {
     const { sb } = await requireUser(data.accessToken);
     const { data: rows, error } = await sb
@@ -808,7 +860,7 @@ export const semanticListVersions = createServerFn({ method: "GET" })
  * restore.
  */
 export const semanticRestoreVersion = createServerFn({ method: "POST" })
-  .inputValidator((d: { accessToken: string; versionId: string }) => d)
+  .validator((d: { accessToken: string; versionId: string }) => d)
   .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
     const { sb, userId } = await requireUser(data.accessToken);
     const { data: version, error } = await sb
@@ -868,7 +920,7 @@ export const semanticRestoreVersion = createServerFn({ method: "POST" })
  * them the caller's visible rows.
  */
 export const semanticModelDependents = createServerFn({ method: "GET" })
-  .inputValidator((d: { accessToken: string; modelId: string }) => d)
+  .validator((d: { accessToken: string; modelId: string }) => d)
   .handler(async ({ data }) => {
     const { sb, userId } = await requireUser(data.accessToken);
     const { data: row, error } = await sb
@@ -910,7 +962,7 @@ export const semanticModelDependents = createServerFn({ method: "GET" })
 
 /** Local datasets (with columns) to author models against. */
 export const semanticListLocalSources = createServerFn({ method: "GET" })
-  .inputValidator((d: { accessToken: string }) => d)
+  .validator((d: { accessToken: string }) => d)
   .handler(async ({ data }) => {
     const { sb } = await requireUser(data.accessToken);
     const { data: rows, error } = await sb

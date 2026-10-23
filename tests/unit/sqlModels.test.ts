@@ -424,7 +424,7 @@ describe("the wiring", () => {
 
   it("is on the rail, in both the app and the docs, and documented in each", () => {
     expect(rd("src/lib/appNav.ts")).toContain('{ title: "SQL Models", url: "/sql-models"');
-    expect(rd("src/components/docs/DocsShell.tsx")).toContain('to: "/docs/sql-models"');
+    expect(rd("src/components/docs/docsNav.ts")).toContain('to: "/docs/sql-models"');
     const page = rd("src/routes/docs.sql-models.tsx");
     expect(page).toContain("ref(");
     expect(page).toContain("skipped");

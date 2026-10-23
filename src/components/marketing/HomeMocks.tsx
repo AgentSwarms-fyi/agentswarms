@@ -3,7 +3,7 @@
 // and fall back to a static frame.
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { AlertTriangle, ChevronRight, ChevronDown } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 
 /* ────────────────────────────────────────────────────────────────────────── */
 /* Shared: marching dashed connector with a travelling packet dot.            */
@@ -512,6 +512,3 @@ export function VramMock() {
     </div>
   );
 }
-
-/* Unused helper exports kept to silence tree-shake warnings on icons. */
-export const _icons = { ChevronRight, ChevronDown };

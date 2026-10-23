@@ -144,6 +144,7 @@ import {
   reEncryptCredentials,
   type KeyStatusPayload,
 } from "@/utils/providers/keyRotation.functions";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 export const Route = createFileRoute("/_authenticated/admin/iam")({
   component: AdminIamPage,
@@ -455,6 +456,8 @@ function UsersTab({
       setDisplayName("");
       setPassword("");
       reload();
+    } catch (e) {
+      reportFailure("create the user", e);
     } finally {
       setBusy(false);
     }
@@ -1877,6 +1880,8 @@ function CredentialKeyCard({ token }: { token: string }) {
         { id: t, duration: 8000 },
       );
       await load();
+    } catch (e) {
+      reportFailure("create the data key", e, { id: t });
     } finally {
       setCreating(false);
     }
@@ -2040,23 +2045,31 @@ function CredentialKeyCard({ token }: { token: string }) {
                 onClick={async () => {
                   setBusy(true);
                   const t = toast.loading("Re-encrypting stored credentials…");
-                  const res = await rotateFn({ data: { access_token: token } });
-                  setBusy(false);
-                  if (!res.ok) {
-                    toast.error(res.error, { id: t });
-                    return;
+                  // R263: this had no try at all. A rejection left the loading
+                  // toast spinning and `busy` set, so the button stayed disabled
+                  // under a spinner until the page was reloaded.
+                  try {
+                    const res = await rotateFn({ data: { access_token: token } });
+                    if (!res.ok) {
+                      toast.error(res.error, { id: t });
+                      return;
+                    }
+                    if (res.totalFailed > 0) {
+                      toast.error(
+                        `Re-encrypted ${res.totalMigrated}; ${res.totalFailed} could not be read with any configured key — they were left untouched.`,
+                        { id: t },
+                      );
+                    } else if (res.totalMigrated === 0) {
+                      toast.success("Everything is already on the current key.", { id: t });
+                    } else {
+                      toast.success(`Re-encrypted ${res.totalMigrated} value(s).`, { id: t });
+                    }
+                    await load();
+                  } catch (e) {
+                    reportFailure("re-encrypt the stored credentials", e, { id: t });
+                  } finally {
+                    setBusy(false);
                   }
-                  if (res.totalFailed > 0) {
-                    toast.error(
-                      `Re-encrypted ${res.totalMigrated}; ${res.totalFailed} could not be read with any configured key — they were left untouched.`,
-                      { id: t },
-                    );
-                  } else if (res.totalMigrated === 0) {
-                    toast.success("Everything is already on the current key.", { id: t });
-                  } else {
-                    toast.success(`Re-encrypted ${res.totalMigrated} value(s).`, { id: t });
-                  }
-                  await load();
                 }}
               >
                 {busy ? (
@@ -2171,6 +2184,8 @@ function SsoTab({
       setMetadataXml("");
       setDomainsInput("");
       reload();
+    } catch (e) {
+      reportFailure("add the identity provider", e);
     } finally {
       setBusy(false);
     }
@@ -2490,6 +2505,8 @@ function AttributesTab({
       setKey("");
       setValues("");
       await load();
+    } catch (e) {
+      reportFailure("set the attribute", e);
     } finally {
       setBusy(false);
     }
@@ -2632,6 +2649,8 @@ function ScimCard({ token }: { token: string }) {
       setMinted({ label: name, token: res.token });
       setLabel("");
       void load();
+    } catch (e) {
+      reportFailure("create the provisioning token", e);
     } finally {
       setBusy(false);
     }

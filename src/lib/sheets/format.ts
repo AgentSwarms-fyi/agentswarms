@@ -429,6 +429,61 @@ function formatFraction(n: number, s: string): string | null {
   return pre + wholeText + (intPat ? gap : "") + `${numText}/${denText}` + post;
 }
 
+/**
+ * A number in Excel's scientific form with k digits after the point,
+ * 3.08E-04, rounded as Excel rounds: from its 15-digit decimal, so 1.5E-07
+ * is 2E-07 where the double, a hair under it, would give 1E-07.
+ */
+function scientific(n: number, k: number): string {
+  const [m, e] = Math.abs(n).toExponential(14).split("e");
+  let mantissa = excelRound(Number(m), k, "half");
+  let exp = Number(e);
+  if (mantissa >= 10) {
+    mantissa /= 10;
+    exp += 1;
+  }
+  const body = k > 0 ? mantissa.toFixed(k).replace(/\.?0+$/, "") : String(mantissa);
+  return `${n < 0 ? "-" : ""}${body}E${exp < 0 ? "-" : "+"}${String(Math.abs(exp)).padStart(2, "0")}`;
+}
+
+/**
+ * A General number in a column too narrow for it, as Excel shows one: with
+ * fewer decimals while a digit that is not 0 is left, then in scientific
+ * form with fewer digits, and null (####) only when nothing fits (R334).
+ * FOUND IN R333: such a number showed #### at once, so CHISQ.TEST's
+ * 0.000308192017 was ########## in a default-width column where Excel
+ * shows 0.000308192. A number with a format of its own keeps ####, as in
+ * Excel.
+ */
+export function generalToFit(n: number, fits: (text: string) => boolean): string | null {
+  const full = formatGeneral(n);
+  if (fits(full)) return full;
+  if (!Number.isFinite(n)) return null;
+  for (let d = 10; d >= 0; d--) {
+    const r = excelRound(n, d, "half");
+    if (r === 0) break;
+    const s = formatGeneral(r);
+    if (s.length < full.length && fits(s)) return s;
+  }
+  for (let k = 5; k >= 0; k--) {
+    const s = scientific(n, k);
+    if (fits(s)) return s;
+  }
+  return null;
+}
+
+/**
+ * What a number cell too narrow for its text shows instead: a General one
+ * rounded to fit, as above; one with a format of its own null, for ####.
+ */
+export function numberToFit(
+  n: number,
+  format: string | undefined,
+  fits: (text: string) => boolean,
+): string | null {
+  return !format || format.trim().toLowerCase() === "general" ? generalToFit(n, fits) : null;
+}
+
 /** Format a value with an Excel format code. */
 export function formatValue(v: Scalar, code?: string | null): string {
   if (v === null) return "";

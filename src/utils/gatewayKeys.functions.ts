@@ -8,6 +8,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { honorAllowList, type AllowListCheck } from "@/utils/gateway/allowList";
 import { auditEvent } from "@/utils/audit.server";
 import {
   GATEWAY_KEY_SCOPES,
@@ -18,6 +19,7 @@ import {
   type GatewayKeyScope,
 } from "@/utils/gateway/keys";
 import { GATEWAY_PROVIDERS } from "@/utils/gateway/api.server";
+import { callerFailure } from "@/utils/callerLookup.server";
 
 export type GatewayKeyListRow = {
   id: string;
@@ -45,7 +47,7 @@ type Fail = { ok: false; error: string };
 
 async function resolveCaller(accessToken: string): Promise<{ ok: true; userId: string } | Fail> {
   const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
-  if (error || !data?.user) return { ok: false, error: "Not signed in" };
+  if (error || !data?.user) return { ok: false, error: callerFailure(error, "Not signed in") };
   return { ok: true, userId: data.user.id };
 }
 
@@ -83,7 +85,7 @@ async function capsFor(userId: string, keyIds: string[]): Promise<Map<string, nu
 }
 
 export const gatewayKeysList = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<Fail | { ok: true; keys: GatewayKeyListRow[] }> => {
     const caller = await resolveCaller(data.access_token);
     if (!caller.ok) return caller;
@@ -106,7 +108,7 @@ export const gatewayKeysList = createServerFn({ method: "POST" })
 
 /** The owner's agents, for the create dialog's allow-list. */
 export const gatewayAgentsList = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(
     async ({
       data,
@@ -133,21 +135,60 @@ export const gatewayAgentsList = createServerFn({ method: "POST" })
 
 /**
  * Semantic models named on a key must be ones the owner may read - their own
- * or IAM-granted; anything else is dropped, never stored, so a key can never
- * point at a model its owner could not query by hand.
+ * or IAM-granted - so a key can never point at a model its owner could not
+ * query by hand.
+ *
+ * R247: these used to be FILTERED to the readable ones and the rest dropped.
+ * An empty list means every model, so a list that filtered down to nothing (a
+ * share withdrawn while the form was open) was stored as "all". It is refused
+ * now; see honorAllowList.
  */
-async function accessibleSemanticModelIds(userId: string, ids: string[]): Promise<string[]> {
+async function checkSemanticModelIds(userId: string, ids: string[]): Promise<AllowListCheck> {
+  if (ids.length === 0) return { ok: true, ids: [] };
+  try {
+    const { accessibleSemanticModels } = await import("@/utils/gateway/metrics.server");
+    const { models } = await accessibleSemanticModels(userId);
+    const readable = new Set(models.map((m) => m.id).filter((id): id is string => Boolean(id)));
+    return honorAllowList(ids, readable, "semantic model");
+  } catch (e) {
+    return {
+      ok: false,
+      error: `Could not check the semantic models for this key, so nothing was saved: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    };
+  }
+}
+
+/**
+ * Agents named on a key must be the owner's, so a key can never point at
+ * another user's agent.
+ *
+ * R247: this read dropped its error, and a failed read filtered every agent
+ * out — which stored the key as able to call ALL of them. And an agent deleted
+ * while the form was open did the same with no failure at all; that one was
+ * driven in the UI.
+ */
+async function checkAgentIds(userId: string, ids: string[]): Promise<AllowListCheck> {
   const wanted = [...new Set(ids)];
-  if (wanted.length === 0) return [];
-  const { accessibleSemanticModels } = await import("@/utils/gateway/metrics.server");
-  const { models } = await accessibleSemanticModels(userId);
-  const ok = new Set(models.map((m) => m.id).filter(Boolean));
-  return wanted.filter((id) => ok.has(id));
+  if (wanted.length === 0) return { ok: true, ids: [] };
+  const { data: own, error } = await supabaseAdmin
+    .from("agents")
+    .select("id")
+    .eq("user_id", userId)
+    .in("id", wanted);
+  if (error) {
+    return {
+      ok: false,
+      error: `Could not check the agents for this key, so nothing was saved: ${error.message}`,
+    };
+  }
+  return honorAllowList(wanted, new Set((own ?? []).map((a) => a.id)), "agent");
 }
 
 /** The semantic models the caller may read, for the key form's allow-list. */
 export const gatewaySemanticModelsList = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(
     async ({
       data,
@@ -188,7 +229,7 @@ const createSchema = z.object({
 });
 
 export const gatewayKeyCreate = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => createSchema.parse(input))
+  .validator((input: unknown) => createSchema.parse(input))
   .handler(
     async ({
       data,
@@ -196,22 +237,10 @@ export const gatewayKeyCreate = createServerFn({ method: "POST" })
       const caller = await resolveCaller(data.access_token);
       if (!caller.ok) return caller;
       const chain = validChain(data.fallback_models ?? []);
-      // Agents named on the key must be the owner's; anything else is dropped,
-      // not stored, so a key can never point at another user's agent.
-      let agentIds = [...new Set(data.agent_ids ?? [])];
-      if (agentIds.length > 0) {
-        const { data: own } = await supabaseAdmin
-          .from("agents")
-          .select("id")
-          .eq("user_id", caller.userId)
-          .in("id", agentIds);
-        const ownSet = new Set((own ?? []).map((a) => a.id));
-        agentIds = agentIds.filter((id) => ownSet.has(id));
-      }
-      const semanticModelIds = await accessibleSemanticModelIds(
-        caller.userId,
-        data.semantic_model_ids ?? [],
-      );
+      const agents = await checkAgentIds(caller.userId, data.agent_ids ?? []);
+      if (!agents.ok) return agents;
+      const semantic = await checkSemanticModelIds(caller.userId, data.semantic_model_ids ?? []);
+      if (!semantic.ok) return semantic;
       const plaintext = generateGatewayKey();
       const { data: row, error } = await supabaseAdmin
         .from("gateway_keys")
@@ -221,9 +250,9 @@ export const gatewayKeyCreate = createServerFn({ method: "POST" })
           key_hash: await hashGatewayKey(plaintext),
           key_prefix: gatewayKeyPrefix(plaintext),
           scopes: [...new Set(data.scopes)],
-          agent_ids: agentIds,
+          agent_ids: agents.ids,
           model_allow: (data.model_allow ?? []).map((p) => p.trim()).filter(Boolean),
-          semantic_model_ids: semanticModelIds,
+          semantic_model_ids: semantic.ids,
           fallback_models: chain.ok,
           semantic_cache: data.semantic_cache === true,
           rate_limit_per_min: data.rate_limit_per_min ?? null,
@@ -259,7 +288,7 @@ export const gatewayKeyCreate = createServerFn({ method: "POST" })
   );
 
 export const gatewayKeyUpdate = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -299,10 +328,9 @@ export const gatewayKeyUpdate = createServerFn({ method: "POST" })
       patch.model_allow = data.model_allow.map((p) => p.trim()).filter(Boolean);
     }
     if (data.semantic_model_ids !== undefined) {
-      patch.semantic_model_ids = await accessibleSemanticModelIds(
-        caller.userId,
-        data.semantic_model_ids,
-      );
+      const semantic = await checkSemanticModelIds(caller.userId, data.semantic_model_ids);
+      if (!semantic.ok) return semantic;
+      patch.semantic_model_ids = semantic.ids;
     }
     if (data.semantic_cache !== undefined) patch.semantic_cache = data.semantic_cache;
     if (data.rate_limit_per_min !== undefined) patch.rate_limit_per_min = data.rate_limit_per_min;
@@ -355,7 +383,7 @@ export const gatewayKeyUpdate = createServerFn({ method: "POST" })
  * answer is one API call away for anyone entitled to it.
  */
 export const gatewayCacheList = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(
     async ({
       data,
@@ -389,7 +417,7 @@ export const gatewayCacheList = createServerFn({ method: "POST" })
  * callers get back, and because the next question after it costs money again.
  */
 export const gatewayCacheClear = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<Fail | { ok: true; cleared: number }> => {
     const caller = await resolveCaller(data.access_token);
     if (!caller.ok) return caller;
@@ -411,7 +439,7 @@ export const gatewayCacheClear = createServerFn({ method: "POST" })
   });
 
 export const gatewayKeyRevoke = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<Fail | { ok: true }> => {

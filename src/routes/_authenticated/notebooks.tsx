@@ -18,6 +18,7 @@ import { newPythonNotebookCells } from "@/lib/pythonNotebookTemplate";
 import { SAMPLE_NOTEBOOKS } from "@/lib/sampleNotebooks";
 import { RunningKernels } from "@/components/notebooks/RunningKernels";
 import { listClaim, type ListClaim } from "@/lib/listClaim";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 export const Route = createFileRoute("/_authenticated/notebooks")({
   head: () => ({
@@ -91,6 +92,8 @@ function usePyNotebooks(pathname: string) {
         .single();
       if (error || !data) return toast.error(error?.message ?? "Failed to create notebook");
       void navigate({ to: "/notebooks/py/$pyNotebookId", params: { pyNotebookId: data.id } });
+    } catch (e) {
+      reportFailure("create the notebook", e);
     } finally {
       setCreating(false);
     }

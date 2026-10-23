@@ -222,7 +222,7 @@ describe("the trust pages describe the software that exists", () => {
     // README said 19, the BI document 18, the landing page 19 and the about
     // page 27 — while the picker offered 26. A count nobody pins is a count
     // that drifts once per feature, so parse it out of each claim.
-    const { VIZ_TYPES } = await import("@/components/bi/BiVizPicker");
+    const { VIZ_TYPES } = await import("@/components/bi/vizTypes");
     const n = VIZ_TYPES.length;
     expect(n).toBe(26);
     for (const [page, claim] of [

@@ -11,7 +11,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import Papa from "papaparse";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import { coerceRow, inferColumns } from "@/lib/datasetParse";
 import { runLocalSelect, type LocalEngineTable } from "@/utils/data/localEngine.server";
@@ -38,6 +38,15 @@ function loadTable(name: string): LocalEngineTable {
   cache.set(name, table);
   return table;
 }
+
+// The first query pays for parsing its sample CSVs and starting the native
+// engine: under a second alone, and past a test's 20 s in a full parallel run,
+// which failed three gates on "count-rows" (R271, R282, R290). Paid here, once,
+// with its own allowance, so each case below times only its own query.
+beforeAll(async () => {
+  const first = QUESTIONS[0];
+  await runLocalSelect(first.referenceSql, first.tables.map(loadTable));
+}, 120_000);
 
 describe("every reference query is answerable", () => {
   it.each(QUESTIONS.map((q) => [q.id, q] as const))("%s", async (_id, q) => {

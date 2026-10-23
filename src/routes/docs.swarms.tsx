@@ -261,7 +261,8 @@ function SwarmsPage() {
       <Callout kind="info">
         With both approver lists empty, only the person who started the run can decide it. The
         runner is emailed only if they explicitly appear in the lists — picked individually, or via
-        a group they belong to.
+        a group they belong to. An approval is decided once: the first decision resumes the run, and
+        a second, from another tab or another approver, is told it was already decided.
       </Callout>
 
       <H3 id="n-evaluate">evaluate</H3>
@@ -692,6 +693,16 @@ input ──▶ split ┼──▶ legal analysis ─────┼──▶ me
           },
         ]}
       />
+
+      {/* ── SAVING ── */}
+      <H2 id="saving">Saving</H2>
+      <P>
+        <strong>Save</strong> writes the canvas — its name, nodes and edges — and the toolbar says
+        Unsaved changes until it has. Save writes only over the swarm the canvas opened: if it was
+        saved from another tab or session since, Save is refused, the toolbar reads Changed
+        elsewhere, not saved, and offers <strong>Reload</strong> or{" "}
+        <strong>Overwrite with mine</strong>.
+      </P>
 
       {/* ── RUNNING ── */}
       <H2 id="running">Running and observing</H2>

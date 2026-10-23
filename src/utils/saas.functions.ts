@@ -20,21 +20,27 @@ import type {
   SaasStream,
   StreamState,
 } from "@/utils/saas/types";
+import { callerFailure } from "@/utils/callerLookup.server";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
 function userClient(accessToken: string) {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_PUBLISHABLE_KEY;
   if (!url || !key) throw new Error("Server is missing Supabase configuration");
-  return createClient<Database>(url, key, {
-    auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
-  });
+  return createClient<Database>(
+    url,
+    key,
+    withNulSafeFetch({
+      auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: `Bearer ${accessToken}` } },
+    }),
+  );
 }
 
 async function requireUser(accessToken: string) {
   const sb = userClient(accessToken);
   const { data, error } = await sb.auth.getUser(accessToken);
-  if (error || !data.user) throw new Error("Unauthorized");
+  if (error || !data?.user) throw new Error(callerFailure(error, "Unauthorized"));
   return { sb, userId: data.user.id };
 }
 
@@ -93,7 +99,7 @@ async function loadConnection(
 }
 
 export const listSaasConnections = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<SaasConnectionSummary[]> => {
     const { sb, userId } = await requireUser(data.access_token);
     // `config` is deliberately NOT selected — a summary must not be able to
@@ -175,7 +181,7 @@ async function withDatasetCounts(
  * nothing.
  */
 export const setSaasSchedule = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -215,7 +221,7 @@ export const setSaasSchedule = createServerFn({ method: "POST" })
   });
 
 export const saveSaasConnection = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -244,6 +250,11 @@ export const saveSaasConnection = createServerFn({ method: "POST" })
       // and the sync writer both touch the row, and the trigger would keep
       // reporting every credential as freshly rotated.
       credentials_rotated_at: new Date().toISOString(),
+      // FOUND IN R319. A re-save replaces the credentials, so a test result
+      // vouches for credentials this source no longer has. The warehouse and
+      // provider saves already clear theirs.
+      last_test_status: null,
+      last_test_error: null,
       // Due immediately on save for a scheduled source, so the first run does
       // not wait a whole interval — and null for manual, which is what keeps
       // it out of the scheduler's index entirely.
@@ -268,7 +279,7 @@ export const saveSaasConnection = createServerFn({ method: "POST" })
   });
 
 export const deleteSaasConnection = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: true }> => {
@@ -307,7 +318,7 @@ export const deleteSaasConnection = createServerFn({ method: "POST" })
  * connector's own message rather than at sync time.
  */
 export const discoverSaasStreams = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -326,7 +337,7 @@ export const discoverSaasStreams = createServerFn({ method: "POST" })
   });
 
 export const syncSaasConnection = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -390,7 +401,7 @@ export const syncSaasConnection = createServerFn({ method: "POST" })
  * "this synced 40 rows because it is broken".
  */
 export const saasStreamStates = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ states: StreamState[] }> => {
@@ -433,7 +444,7 @@ export const saasStreamStates = createServerFn({ method: "POST" })
  * ask for a refresh should not be able to spend that on their behalf.
  */
 export const resetSaasCursor = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),

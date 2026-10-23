@@ -11,7 +11,9 @@ import { z } from "zod";
 
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import type { Database } from "@/integrations/supabase/types";
+import type { Database, Tables } from "@/integrations/supabase/types";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { toolsFromArray, type JsonValue, type McpTool } from "@/utils/mcpApps/sse";
 import { auditEvent } from "@/utils/audit.server";
 import {
   generateMcpApiKey,
@@ -21,6 +23,9 @@ import {
 } from "@/utils/mcpApps/keys";
 import { MCP_PROTOCOL_VERSION, readRpcBody, rpcFailure } from "@/utils/mcpApps/protocol";
 import { templateById } from "@/lib/mcpTemplates";
+import { fingerprintOf } from "@/lib/definitionFingerprint";
+import { mcpSourceDefinition } from "@/lib/mcpSource";
+import { unversionedSave } from "@/lib/saveVersion";
 
 type Fail = { ok: false; error: string };
 
@@ -38,9 +43,9 @@ export type McpAppSummary = {
   secret_refs: string[];
   requested_egress_hosts: string[];
   requirements: string;
-  // `any` rather than `unknown`: an MCP input schema is arbitrary JSON, and the
-  // server-fn serialisation check rejects `unknown` index signatures outright.
-  tools: { name: string; description?: string; inputSchema?: Record<string, any> }[];
+  // An MCP input schema is arbitrary JSON: JsonObject, which the server-fn
+  // serialisation check accepts where it rejects `unknown` index signatures.
+  tools: McpTool[];
   tools_changed_at: string | null;
   tools_approved_at: string | null;
   /**
@@ -63,10 +68,15 @@ const LIST_COLUMNS =
 
 /** Fetch one app under the caller's own RLS, so a foreign id simply isn't found. */
 async function ownedApp(
-  supabase: { from: (t: string) => any },
+  supabase: SupabaseClient<Database>,
   appId: string,
-): Promise<{ ok: true; app: any } | Fail> {
-  const { data } = await supabase.from("mcp_apps").select("*").eq("id", appId).maybeSingle();
+): Promise<{ ok: true; app: Tables<"mcp_apps"> } | Fail> {
+  const { data, error } = await supabase.from("mcp_apps").select("*").eq("id", appId).maybeSingle();
+  // R256: twelve actions start here - deploy, stop, delete, save, approve
+  // tools - and a failed read answered every one of them "MCP server not
+  // found", about a server that was there. It refused, which was right; it
+  // said why wrongly, which sends the reader looking for a deletion.
+  if (error) return { ok: false, error: `Could not read the MCP server: ${error.message}` };
   if (!data) return { ok: false, error: "MCP server not found" };
   return { ok: true, app: data };
 }
@@ -86,7 +96,7 @@ export const mcpAppList = createServerFn({ method: "POST" })
 
 export const mcpAppGet = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(
     async ({
       data,
@@ -94,13 +104,15 @@ export const mcpAppGet = createServerFn({ method: "POST" })
     }): Promise<Fail | { ok: true; app: McpAppSummary & { source_code: string } }> => {
       const owned = await ownedApp(context.supabase, data.id);
       if (!owned.ok) return owned;
-      return { ok: true, app: owned.app };
+      // The stored list is what the deploy's handshake read, in this shape;
+      // read back through the same normaliser, it is checked rather than assumed.
+      return { ok: true, app: { ...owned.app, tools: toolsFromArray(owned.app.tools) } };
     },
   );
 
 export const mcpAppCreate = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         name: z.string().min(1).max(120),
@@ -135,6 +147,14 @@ const SaveSchema = z.object({
   description: z.string().max(2000).optional(),
   source_code: z.string().max(500_000).optional(),
   requirements: z.string().max(20_000).optional(),
+  /**
+   * The fingerprint of the source and packages the editor read or last saved.
+   * A save carrying it lands only if the stored source still matches (R290).
+   * "Overwrite with mine" sends `overwrite` instead; a source save with
+   * neither is refused (R303).
+   */
+  expected_source_fingerprint: z.string().length(64).optional(),
+  overwrite: z.literal(true).optional(),
   keep_warm: z.boolean().optional(),
   idle_ttl_minutes: z.number().int().min(1).max(1440).optional(),
   allowed_origins: z.array(z.string().max(200)).max(50).optional(),
@@ -149,17 +169,55 @@ const SaveSchema = z.object({
 
 export const mcpAppSave = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => SaveSchema.parse(input))
-  .handler(async ({ data, context }): Promise<Fail | { ok: true }> => {
-    const { id, ...patch } = data;
-    const { error } = await context.supabase.from("mcp_apps").update(patch).eq("id", id);
+  .validator((input: unknown) => SaveSchema.parse(input))
+  .handler(async ({ data, context }): Promise<(Fail & { stale?: boolean }) | { ok: true }> => {
+    const { id, expected_source_fingerprint: expected, overwrite, ...patch } = data;
+    if (!expected) {
+      // The settings write without a fingerprint; the source and packages,
+      // which another tab may have saved, only with one or with `overwrite`.
+      if (patch.source_code !== undefined || patch.requirements !== undefined) {
+        const refused = unversionedSave("MCP server's source", { version: expected, overwrite });
+        if (refused) return { ok: false, error: refused };
+      }
+      const { error } = await context.supabase.from("mcp_apps").update(patch).eq("id", id);
+      if (error) return { ok: false, error: error.message };
+      return { ok: true };
+    }
+    // FOUND IN R290: the editor's autosave wrote the source over whatever was
+    // stored, so another tab's saved lines were undone. The stored source is
+    // compared with what the editor read, and the update lands only on the
+    // row read here.
+    const owned = await ownedApp(context.supabase, id);
+    if (!owned.ok) return owned;
+    if ((await fingerprintOf(mcpSourceDefinition(owned.app))) !== expected) {
+      return {
+        ok: false,
+        stale: true,
+        error:
+          "This MCP server's source was changed in another tab or session after this page read it",
+      };
+    }
+    const { data: row, error } = await context.supabase
+      .from("mcp_apps")
+      .update(patch)
+      .eq("id", id)
+      .eq("updated_at", owned.app.updated_at)
+      .select("id")
+      .maybeSingle();
     if (error) return { ok: false, error: error.message };
+    if (!row) {
+      return {
+        ok: false,
+        error:
+          "The MCP server was written to while this save was in progress (a deploy, or another tab). Nothing was saved; it saves again on the next edit.",
+      };
+    }
     return { ok: true };
   });
 
 export const mcpAppDelete = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }): Promise<Fail | { ok: true }> => {
     const owned = await ownedApp(context.supabase, data.id);
     if (!owned.ok) return owned;
@@ -186,7 +244,7 @@ export const mcpAppDelete = createServerFn({ method: "POST" })
 
 export const mcpAppDeploy = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(
     async ({
       data,
@@ -235,7 +293,7 @@ export const mcpAppDeploy = createServerFn({ method: "POST" })
 
 export const mcpAppStop = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }): Promise<Fail | { ok: true }> => {
     const owned = await ownedApp(context.supabase, data.id);
     if (!owned.ok) return owned;
@@ -253,7 +311,7 @@ export const mcpAppStop = createServerFn({ method: "POST" })
 
 export const mcpAppLogs = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }): Promise<Fail | { ok: true; logs: string }> => {
     const owned = await ownedApp(context.supabase, data.id);
     if (!owned.ok) return owned;
@@ -286,7 +344,7 @@ export const mcpAppLogs = createServerFn({ method: "POST" })
  */
 export const mcpAppApproveTools = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ id: z.string().uuid(), tools_hash: z.string().max(200).optional() }).parse(input),
   )
   .handler(async ({ data, context }): Promise<Fail | { ok: true }> => {
@@ -328,7 +386,7 @@ export const mcpAppApproveTools = createServerFn({ method: "POST" })
  */
 export const mcpAppTest = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         id: z.string().uuid(),
@@ -337,7 +395,7 @@ export const mcpAppTest = createServerFn({ method: "POST" })
       })
       .parse(input),
   )
-  .handler(async ({ data, context }): Promise<Fail | { ok: true; result: any }> => {
+  .handler(async ({ data, context }): Promise<Fail | { ok: true; result: JsonValue }> => {
     const owned = await ownedApp(context.supabase, data.id);
     if (!owned.ok) return owned;
 
@@ -432,7 +490,7 @@ export type McpKeyRow = {
 
 export const mcpAppKeysList = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }): Promise<Fail | { ok: true; keys: McpKeyRow[] }> => {
     const { data: rows, error } = await context.supabase
       .from("mcp_app_keys")
@@ -451,7 +509,7 @@ export const mcpAppKeysList = createServerFn({ method: "POST" })
 
 export const mcpAppKeyCreate = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         id: z.string().uuid(),
@@ -497,7 +555,7 @@ export const mcpAppKeyCreate = createServerFn({ method: "POST" })
 
 export const mcpAppKeyRevoke = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ id: z.string().uuid(), key_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data, context }): Promise<Fail | { ok: true }> => {
@@ -521,7 +579,7 @@ export const mcpAppKeyRevoke = createServerFn({ method: "POST" })
 
 export const mcpAppSetPublic = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ id: z.string().uuid(), is_public: z.boolean() }).parse(input),
   )
   .handler(async ({ data, context }): Promise<Fail | { ok: true; url: string | null }> => {
@@ -561,7 +619,7 @@ export const mcpAppSetPublic = createServerFn({ method: "POST" })
  */
 export const mcpAppRegisterInternal = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }): Promise<Fail | { ok: true; server_id: string }> => {
     const owned = await ownedApp(context.supabase, data.id);
     if (!owned.ok) return owned;
@@ -661,7 +719,7 @@ export const mcpAppRegisterInternal = createServerFn({ method: "POST" })
 
 export const mcpAppUnregisterInternal = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }): Promise<Fail | { ok: true }> => {
     const owned = await ownedApp(context.supabase, data.id);
     if (!owned.ok) return owned;
@@ -705,7 +763,7 @@ export type McpVersionRow = {
 
 export const mcpAppVersions = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }): Promise<Fail | { ok: true; versions: McpVersionRow[] }> => {
     const { data: rows, error } = await context.supabase
       .from("mcp_app_versions")
@@ -719,16 +777,19 @@ export const mcpAppVersions = createServerFn({ method: "POST" })
 
 export const mcpAppRestoreVersion = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ id: z.string().uuid(), version_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data, context }): Promise<Fail | { ok: true }> => {
-    const { data: version } = await context.supabase
+    const { data: version, error: versionErr } = await context.supabase
       .from("mcp_app_versions")
       .select("source_code, requirements")
       .eq("id", data.version_id)
       .eq("app_id", data.id)
       .maybeSingle();
+    if (versionErr) {
+      return { ok: false, error: `Could not read that version: ${versionErr.message}` };
+    }
     if (!version) return { ok: false, error: "Version not found" };
 
     // Restores the SOURCE only; the running container keeps serving the old

@@ -13,10 +13,8 @@ import {
   credentialMaxAgeDays,
   isCredentialStale,
 } from "@/utils/integrations/connectionHealth.server";
-import {
-  CREDENTIAL_STALE_DAYS,
-  credentialAgeDays as clientAgeDays,
-} from "@/components/integrations/ConnectionHealthBadges";
+import { CREDENTIAL_STALE_DAYS } from "@/components/integrations/ConnectionHealthBadges";
+import { credentialAgeDays as clientAgeDays } from "@/lib/credentialAge";
 
 const healthSrc = readFileSync("src/utils/integrations/connectionHealth.server.ts", "utf8");
 const migration = readFileSync("supabase/migrations/20260779000000_connection_health.sql", "utf8");

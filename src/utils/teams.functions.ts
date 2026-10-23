@@ -13,10 +13,11 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Database, Json } from "@/integrations/supabase/types";
 import { auditEvent } from "@/utils/audit.server";
 import { encryptJson } from "@/utils/providers/crypto.server";
+import { callerFailure } from "@/utils/callerLookup.server";
 
 async function requireUser(accessToken: string): Promise<{ userId: string }> {
   const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
-  if (error || !data?.user) throw new Error("Not signed in");
+  if (error || !data?.user) throw new Error(callerFailure(error, "Not signed in"));
   return { userId: data.user.id };
 }
 
@@ -36,7 +37,7 @@ export type TeamsBotSummary = {
 };
 
 export const listTeamsBots = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<TeamsBotSummary[]> => {
     const { userId } = await requireUser(data.access_token);
     const { data: rows, error } = await supabaseAdmin
@@ -63,7 +64,7 @@ export const listTeamsBots = createServerFn({ method: "POST" })
   });
 
 export const saveTeamsBot = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -145,7 +146,7 @@ export const saveTeamsBot = createServerFn({ method: "POST" })
   });
 
 export const deleteTeamsBot = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: true }> => {

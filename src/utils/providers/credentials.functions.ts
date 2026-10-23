@@ -5,6 +5,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import type { Json } from "@/integrations/supabase/types";
 import type {
   AnthropicCreds,
   AzureConfig,
@@ -80,13 +81,14 @@ const SaveSchema = z.object({
 
 export const saveProviderCredential = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => SaveSchema.parse(input))
+  .validator((input: unknown) => SaveSchema.parse(input))
   .handler(async ({ data, context }) => {
     const { encryptJson } = await import("./crypto.server");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { userId } = context;
     let credsPayload: unknown = {};
-    let configPayload: Record<string, unknown> = {};
+    // Plain settings (URLs, regions, names): JSON, as the config column holds it.
+    let configPayload: { [key: string]: Json | undefined } = {};
 
     switch (data.provider) {
       case "bedrock": {
@@ -159,13 +161,13 @@ export const saveProviderCredential = createServerFn({ method: "POST" })
 
     const enc = await encryptJson(credsPayload);
 
-    const { error } = await (supabaseAdmin.from("provider_credentials") as any).upsert(
+    const { error } = await supabaseAdmin.from("provider_credentials").upsert(
       {
         user_id: userId,
         provider: data.provider,
         label: data.label || "",
         default_model: data.defaultModel || null,
-        credentials: enc as unknown as Record<string, unknown>,
+        credentials: enc,
         config: configPayload,
         last_test_status: null,
         last_test_error: null,
@@ -189,7 +191,7 @@ export const saveProviderCredential = createServerFn({ method: "POST" })
 
 export const listProviderCredentials = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator(() => ({}))
+  .validator(() => ({}))
   .handler(async ({ context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { userId } = context;
@@ -206,7 +208,7 @@ export const listProviderCredentials = createServerFn({ method: "POST" })
 const DeleteSchema = z.object({ provider: providerEnum });
 export const deleteProviderCredential = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => DeleteSchema.parse(input))
+  .validator((input: unknown) => DeleteSchema.parse(input))
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { userId } = context;

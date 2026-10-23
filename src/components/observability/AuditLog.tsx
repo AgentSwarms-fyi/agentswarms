@@ -52,6 +52,7 @@ import {
   auditSetRetention,
   type AuditRow,
 } from "@/utils/audit.functions";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 const ACTION_META: Record<string, { label: string; className: string }> = {
   "model.call": { label: "model call", className: "bg-primary/10 text-primary" },
@@ -175,6 +176,9 @@ function describeDetail(r: AuditRow): string {
   if (typeof d.schedule === "string") bits.push(String(d.schedule));
   if (Array.isArray(d.kinds) && d.kinds.length > 0) bits.push(d.kinds.join(", "));
   if (d.status === "error") bits.push("ERROR");
+  // A call whose caller left before its answer ended (R363), in the Traces
+  // page's word for it. It read like a success.
+  if (d.status === "cancelled") bits.push("STOPPED");
   return bits.join(" · ");
 }
 
@@ -355,6 +359,8 @@ export function AuditLog() {
                         : `Chain BROKEN at sequence ${res.firstBrokenSeq} — an event was altered or removed`,
                       { duration: Infinity },
                     );
+                } catch (e) {
+                  reportFailure("verify the audit chain", e);
                 } finally {
                   setVerifying(false);
                 }

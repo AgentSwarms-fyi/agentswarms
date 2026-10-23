@@ -15,6 +15,7 @@ import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.se
 import {
   loadStorageConfig,
   runCrawl,
+  CrawlAlreadyRunning,
   testIcebergCatalog,
   type CrawlStats,
   type IcebergRestConfig,
@@ -22,21 +23,27 @@ import {
 import { nextCrawlAt } from "@/utils/catalog/schedule.server";
 import { testObjectStore, type ObjectStoreConfig } from "@/utils/catalog/objectStore.server";
 import type { ObjectStoreTable } from "@/utils/catalog/objectStoreQuery.server";
+import { callerFailure } from "@/utils/callerLookup.server";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
 function userClient(accessToken: string) {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_PUBLISHABLE_KEY;
   if (!url || !key) throw new Error("Server is missing Supabase configuration");
-  return createClient<Database>(url, key, {
-    auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
-  });
+  return createClient<Database>(
+    url,
+    key,
+    withNulSafeFetch({
+      auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: `Bearer ${accessToken}` } },
+    }),
+  );
 }
 
 async function requireUser(accessToken: string) {
   const sb = userClient(accessToken);
   const { data, error } = await sb.auth.getUser(accessToken);
-  if (error || !data.user) throw new Error("Unauthorized");
+  if (error || !data?.user) throw new Error(callerFailure(error, "Unauthorized"));
   return { sb, userId: data.user.id };
 }
 
@@ -76,7 +83,7 @@ type CatalogError = { ok: false; error: string };
 
 /** Set a source's crawl cadence (manual disables scheduled crawls). */
 export const catalogSetSchedule = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -109,7 +116,7 @@ export const catalogSetSchedule = createServerFn({ method: "POST" })
   });
 
 export const catalogCreateSource = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -196,7 +203,7 @@ export const catalogCreateSource = createServerFn({ method: "POST" })
   });
 
 export const catalogCrawlSource = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), source_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<CatalogError | { ok: true; stats: CrawlStats }> => {
@@ -215,7 +222,9 @@ export const catalogCrawlSource = createServerFn({ method: "POST" })
       if (source.user_id !== userId) {
         return { ok: false, error: "Only the owner can re-crawl a shared source" };
       }
-      if (source.status === "crawling") return { ok: false, error: "A crawl is already running" };
+      // A fast answer from what was read; runCrawl's claim is what holds (R315).
+      if (source.status === "crawling")
+        return { ok: false, error: new CrawlAlreadyRunning().message };
 
       const stats = await runCrawl(
         userId,
@@ -231,7 +240,7 @@ export const catalogCrawlSource = createServerFn({ method: "POST" })
   });
 
 export const catalogDeleteSource = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), source_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<CatalogError | { ok: true }> => {
@@ -259,7 +268,7 @@ export const catalogDeleteSource = createServerFn({ method: "POST" })
  * populate its explorer, so it must not cost an S3 round trip per keystroke.
  */
 export const catalogListStorageTables = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), source_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<CatalogError | { ok: true; tables: ObjectStoreTable[] }> => {

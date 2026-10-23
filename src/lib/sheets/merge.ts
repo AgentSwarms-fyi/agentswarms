@@ -37,7 +37,7 @@ export function mergeAt(
  */
 export function expandToMerges(range: RangeAddr, merges: readonly RangeAddr[]): RangeAddr {
   const r = { ...range };
-  for (let changed = true; changed; ) {
+  for (let changed = true; changed;) {
     changed = false;
     for (const m of merges) {
       if (!intersects(r, m)) continue;

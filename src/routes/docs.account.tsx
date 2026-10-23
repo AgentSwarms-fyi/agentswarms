@@ -60,7 +60,9 @@ function AccountDoc() {
                 Display name, avatar, bio, role, designation, and organization. The name is how the
                 app addresses you: the dashboard greeting, the sidebar, the admin user list, the
                 audit log&rsquo;s actor column and the per-person spend breakdown all read it.
-                Without one, each of those falls back to the local part of your email address.
+                Without one, each of those falls back to the local part of your email address. The
+                avatar saves as soon as you pick it; the other fields save with{" "}
+                <strong>Save profile</strong>, and leaving with them unsaved asks first.
               </>
             ),
           },

@@ -23,6 +23,20 @@ import { parseMerges } from "./merge";
 
 export type ShiftDir = "right" | "down" | "left" | "up";
 
+/**
+ * Which way Insert cells / Delete cells starts: sideways for a selection
+ * taller than it is wide, up or down otherwise, so one cell starts on Shift
+ * cells down. Microsoft's page for Range.Insert says that without a direction
+ * Excel "decides based on the shape of the range"; which way a tall one goes is
+ * not stated there. FOUND IN R267: the dialog always started on down (or up),
+ * so a column of cells inserted with Enter pushed the whole column below.
+ */
+export function defaultShift(mode: "insert" | "delete", r: RangeAddr): ShiftDir {
+  const tall = r.r1 - r.r0 > r.c1 - r.c0;
+  if (mode === "insert") return tall ? "right" : "down";
+  return tall ? "left" : "up";
+}
+
 /** The axis cells move along, and by how much (negative: they close up). */
 function motion(r: RangeAddr, dir: ShiftDir) {
   const sideways = dir === "right" || dir === "left";

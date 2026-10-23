@@ -16,6 +16,7 @@ import {
   mlKeyPrefix,
   type MlKeyScope,
 } from "@/utils/mlApiKeys";
+import { callerFailure } from "@/utils/callerLookup.server";
 
 export type MlApiKeyRow = {
   id: string;
@@ -34,7 +35,7 @@ type Fail = { ok: false; error: string };
 
 async function resolveCaller(accessToken: string): Promise<string> {
   const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
-  if (error || !data?.user) throw new Error("Not signed in");
+  if (error || !data?.user) throw new Error(callerFailure(error, "Not signed in"));
   return data.user.id;
 }
 
@@ -56,7 +57,7 @@ const KEY_COLUMNS =
   "id, name, key_prefix, scopes, is_active, expires_at, revoked_at, last_used_at, use_count, created_at";
 
 export const mlApiKeysList = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), model_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<Fail | { ok: true; keys: MlApiKeyRow[] }> => {
@@ -73,7 +74,7 @@ export const mlApiKeysList = createServerFn({ method: "POST" })
   });
 
 export const mlApiKeyCreate = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -109,7 +110,7 @@ export const mlApiKeyCreate = createServerFn({ method: "POST" })
   });
 
 export const mlApiKeyRevoke = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),

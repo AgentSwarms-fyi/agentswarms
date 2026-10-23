@@ -134,8 +134,9 @@ describe("and no other path hands out its address either", () => {
     );
     // ...and clears the candidate with them. SEEN LIVE: after stopping an
     // endpoint mid-shadow the row still named a candidate with no copy behind
-    // it. The totals stay — they are what the run measured.
-    const body = un.slice(0, un.indexOf("await markStopped(dep.id);"));
+    // it. The totals stay — they are what the run measured. Read up to the
+    // audit: R311 moved the stopped status ahead of the copies.
+    const body = un.slice(0, un.indexOf("auditEvent({"));
     expect(body).toContain('.update({ candidate_mode: "off", candidate_version_id: null })');
     expect(body).not.toContain("shadow_requests: 0");
   });

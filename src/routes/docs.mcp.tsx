@@ -472,6 +472,14 @@ def get_customer(customer_id: str) -> dict:
             body: "Read the Logs tab — it is the container's stdout and stderr, with bound secret values scrubbed. A missing package and a syntax error both surface there.",
           },
           {
+            name: "Changed elsewhere, not saved",
+            body: "The source was saved from another tab or session after this editor read it, so the editor stopped saving over it. Reload takes that version; Overwrite with mine writes yours over it.",
+          },
+          {
+            name: "Not deployed: the source could not be saved",
+            body: "Deploy runs the saved source, so it stops when the editor's cannot be saved, and says why — for example a packages list over 20,000 characters. The editor saves as you go and shows Unsaved changes until a save succeeds; leaving before then asks first.",
+          },
+          {
             name: "No MCP server found",
             body: "The runner could not find a module-level FastMCP instance. Name it `mcp`, and make sure it is created at import time rather than inside a function.",
           },

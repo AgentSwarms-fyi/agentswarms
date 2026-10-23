@@ -105,14 +105,25 @@ describe("enforcement stays opt-in, and off means off", () => {
     // enough — mutation testing showed that survives renaming the function,
     // because the orphaned call sites keep the text alive. Each scope's
     // unknown-spend BRANCH is what has to be pinned.
-    expect(GUARD, "the personal scope no longer honours fail-closed").toMatch(
-      /return budgetFailsClosed\(\) \? \{ over: true, spend: 0, cap \} : miss;/,
+    //
+    // R250 routed every unknown through two helpers, so what is pinned now is
+    // (a) each scope's unknown branch calling one, and (b) each helper reading
+    // the switch. R250 also found that the switch had covered only the SPEND
+    // read: the cap reads, the membership reads and both catch-alls ignored it.
+    expect(GUARD, "the unknown-status helper no longer reads the switch").toMatch(
+      /function unknownStatus\(cap: number\): BudgetStatus \{\s*return budgetFailsClosed\(\)/,
+    );
+    expect(GUARD, "the decision's unknown helper no longer reads the switch").toMatch(
+      /sawUnknown = true;\s*if \(!budgetFailsClosed\(\)\) return false;/,
+    );
+    expect(GUARD, "the personal scope's unknown spend no longer goes through the helper").toMatch(
+      /spend lookup failed for \$\{userId\}: \$\{result\.error\}`\);\s*return unknownStatus\(cap\);/,
     );
     expect(GUARD, "the credential scope no longer honours fail-closed").toMatch(
-      /if \(spend === null\) \{\s*if \(budgetFailsClosed\(\)\) decision = \{ over: true, scope: "credential"/,
+      /if \(spend === null\) \{\s*unknownAt\("credential", cap\);/,
     );
     expect(GUARD, "the group scope no longer honours fail-closed").toMatch(
-      /if \(budgetFailsClosed\(\)\) \{\s*decision = \{ over: true, scope: "group"/,
+      /if \(spend === null\) \{\s*if \(unknownAt\("group", cap\)\) break;/,
     );
     expect(GUARD, "a null spend is being read as zero again").not.toMatch(
       /spend\s*\?\?\s*0\s*\)\s*>=\s*cap/,

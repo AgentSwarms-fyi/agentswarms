@@ -74,13 +74,13 @@ describe("native browser dialogs", () => {
     // the host is mounted once at the root beside the Toaster.
     const root = readFileSync("src/routes/__root.tsx", "utf8");
     expect(root).toContain("<ConfirmHost />");
-    expect(root).toContain('from "@/components/ui/confirm-dialog"');
+    expect(root).toContain('from "@/components/ui/confirm-host"');
   });
 
   it("refuses rather than resolving false when unmounted", () => {
     // The tempting default — resolve false — silently recreates the original
     // bug. A rejection at least reaches a catch and a toast.
-    const host = readFileSync("src/components/ui/confirm-dialog.tsx", "utf8");
+    const host = readFileSync("src/components/ui/confirm-dialog.ts", "utf8");
     expect(host).toMatch(/if \(!deliver\) return reject\(/);
   });
 

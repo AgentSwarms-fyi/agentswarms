@@ -46,6 +46,9 @@ import {
   type NbRuntimeState,
   type PreflightCheck,
 } from "@/utils/notebookRuntimeAdmin.functions";
+import { reportFailure } from "@/lib/silentFailureNet";
+import { RUNTIME_TABS } from "./runtimeTabs";
+import { RuntimeTabId } from "./runtimeTabs";
 
 /**
  * What to say when the schema refuses a save.
@@ -123,24 +126,6 @@ function memoryLimitGb(raw: string): number | null {
   if (!Number.isFinite(n) || n <= 0) return null;
   const perUnit: Record<string, number> = { k: 1 / 1024 ** 2, m: 1 / 1024, g: 1, t: 1024 };
   return n * (perUnit[(m[2] ?? "g").toLowerCase()] ?? 1);
-}
-
-/**
- * The page's tabs, in the order an operator meets them: turn it on, size the
- * sandboxes, size the data platform, size ML, configure AI services, decide
- * who may use it. Exported so the route can validate `?tab=` against them.
- */
-export const RUNTIME_TABS = [
-  { id: "runtime", label: "Runtime", icon: Power },
-  { id: "sandboxes", label: "Sandboxes", icon: Boxes },
-  { id: "data", label: "Data platform", icon: Database },
-  { id: "ml", label: "Machine learning", icon: Cpu },
-  { id: "ai", label: "AI services", icon: Sparkles },
-  { id: "access", label: "Access", icon: KeyRound },
-] as const;
-export type RuntimeTabId = (typeof RUNTIME_TABS)[number]["id"];
-export function isRuntimeTabId(v: unknown): v is RuntimeTabId {
-  return RUNTIME_TABS.some((t) => t.id === v);
 }
 
 export function RuntimeTab({
@@ -325,6 +310,8 @@ export function RuntimeTab({
       });
       if (!res.ok) return toast.error(res.error);
       setChecks(res.checks);
+    } catch (e) {
+      reportFailure("run the preflight check", e);
     } finally {
       setChecking(false);
     }
@@ -340,6 +327,8 @@ export function RuntimeTab({
       if (!res.ok) return toast.error(res.error);
       setGrantId("");
       load();
+    } catch (e) {
+      reportFailure("add the grant", e);
     } finally {
       setBusyGrant(false);
     }

@@ -117,7 +117,7 @@ type Agent = {
   llm_provider: string;
   llm_model: string;
   system_prompt: string | null;
-  tools?: any;
+  tools?: Json;
 };
 type Conversation = { id: string; title: string; agent_id: string; created_at: string };
 type Citation = {
@@ -141,12 +141,21 @@ type Source = {
   snippet?: string;
   tool?: string;
 };
+/** A message's metadata column, as this page reads it; each part is checked where it is read. */
+type MessageMeta = {
+  attachments?: unknown;
+  sources?: unknown;
+  citations?: unknown;
+  widgets?: Json;
+  doc?: unknown;
+  [key: string]: unknown;
+};
 type Message = {
   id: string;
   role: string;
   content: string;
   created_at: string;
-  metadata?: any;
+  metadata?: MessageMeta | null;
   /** Why this message could not be saved to the conversation, when it could not. */
   unsaved?: string;
 };
@@ -423,6 +432,9 @@ function PlaygroundPage() {
     setConversations([]);
     setConvosLoaded(false);
     loadConversations();
+    // a load per agent; the
+    // request counter, not the dependency list, keeps an older load from landing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAgent]);
 
   useEffect(() => {
@@ -432,6 +444,9 @@ function PlaygroundPage() {
     setMessages([]);
     setMessagesLoaded(false);
     loadMessages();
+    // a load per conversation;
+    // the request counter keeps an older load from landing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeConvo]);
 
   useEffect(() => {
@@ -530,6 +545,14 @@ function PlaygroundPage() {
 
   async function createConversation() {
     if (!user || !selectedAgent) return;
+    // Leave the chat on screen before the new one exists (R352). The insert
+    // takes a moment, and a message sent in it went to the chat that was on
+    // screen: saved there, answered there, with that chat's history, while
+    // the new chat showed only the reply. With no conversation active the
+    // composer is disabled until the new one is ready.
+    const previous = activeConvo;
+    setActiveConvo("");
+    setMessages([]);
     const { data, error } = await supabase
       .from("conversations")
       .insert({
@@ -545,6 +568,8 @@ function PlaygroundPage() {
       const why = error?.message ?? "no conversation came back";
       setConvoError(why);
       toast.error("Could not start a new chat", { description: why });
+      // Back to the chat that was on screen, which reloads its messages.
+      setActiveConvo(previous);
       return;
     }
     setConvoError(null);
@@ -1510,7 +1535,9 @@ function PlaygroundPage() {
   // tools.templateId; fall back to the value the templates page wrote into
   // sessionStorage at provision time.
   const templateId: string | null = (() => {
-    const fromAgent = (currentAgent?.tools as any)?.templateId;
+    const tools = currentAgent?.tools;
+    const fromAgent =
+      tools && typeof tools === "object" && !Array.isArray(tools) ? tools.templateId : undefined;
     if (typeof fromAgent === "string") return fromAgent;
     if (!selectedAgent) return null;
     try {
@@ -2544,9 +2571,9 @@ type TraceRow = {
   tokens_out: number;
   cost_usd: number;
   error_message: string | null;
-  request_payload: any;
-  response_payload: any;
-  tool_calls: any;
+  request_payload: Json;
+  response_payload: Json;
+  tool_calls: Json;
   created_at: string;
 };
 
@@ -2658,7 +2685,12 @@ function RealExecutionTrace({ traceId, thinking }: { traceId: string | null; thi
   }
 
   const isError = trace.status !== "success";
-  const toolCalls: any[] = Array.isArray(trace.tool_calls) ? trace.tool_calls : [];
+  // Each recorded call, in the shapes the providers write: a name, or a function's name.
+  const toolCalls = (Array.isArray(trace.tool_calls) ? trace.tool_calls : []) as {
+    name?: string;
+    function?: { name?: string };
+    arguments?: unknown;
+  }[];
 
   return (
     <div className="h-full rounded-lg border border-border bg-background/60 flex flex-col overflow-hidden">

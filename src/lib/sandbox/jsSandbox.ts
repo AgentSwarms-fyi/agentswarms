@@ -53,8 +53,7 @@ export type SandboxContext = {
 };
 
 export type SandboxResult =
-  | { ok: true; value: unknown; logs: string[] }
-  | { ok: false; error: string; logs: string[] };
+  { ok: true; value: unknown; logs: string[] } | { ok: false; error: string; logs: string[] };
 
 // Globals removed from the worker scope before user code runs. Anything that
 // could reach the network, persist data, or spawn more execution contexts.
@@ -236,8 +235,7 @@ export async function runSandboxed(
 
     worker.onmessage = (ev: MessageEvent) => {
       const d = ev.data as
-        | { ok: true; value: unknown; logs: string[] }
-        | { ok: false; error: string; logs: string[] };
+        { ok: true; value: unknown; logs: string[] } | { ok: false; error: string; logs: string[] };
       finish(d.ok ? { ok: true, value: d.value, logs: d.logs ?? [] } : d);
     };
     worker.onerror = (ev: ErrorEvent) => {

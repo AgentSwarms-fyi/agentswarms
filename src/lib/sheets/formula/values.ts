@@ -6,7 +6,12 @@
 
 import type { ErrorCode } from "./lexer";
 
-export type SheetError = { err: ErrorCode; detail?: string };
+/**
+ * `fn` is set on the #CALC! a LAMBDA evaluates to (R328): Excel shows #CALC!
+ * for a cell holding an uncalled function, and everything that does not call
+ * one treats it as that error. LET, a call and the LAMBDA helpers look inside.
+ */
+export type SheetError = { err: ErrorCode; detail?: string; fn?: unknown };
 export type Scalar = number | string | boolean | null | SheetError;
 export type Matrix = Scalar[][];
 export type Value = Scalar | Matrix;

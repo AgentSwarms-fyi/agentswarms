@@ -555,6 +555,13 @@ GROUP BY region`}</Code>
           ],
         ]}
       />
+      <P>
+        A bar race starts playing when it is drawn and can be paused. Pausing it, and where it has
+        got to, survive whatever the dashboard does around it — a filter changed on another widget,
+        a refresh after a write, a session renewed in the background. It restarts only when the
+        periods it is animating actually change.
+      </P>
+
       <Callout kind="why">
         Pick the chart from the question, not the other way round. "Which region is biggest" is a
         bar; "is it growing" is a line; "what share" is a pie with few slices. If you cannot state

@@ -35,8 +35,7 @@ export interface KeyProvider {
 }
 
 export type KmsConfig =
-  | { provider: "env" }
-  | { provider: Exclude<KmsProviderId, "env">; keyRef: string };
+  { provider: "env" } | { provider: Exclude<KmsProviderId, "env">; keyRef: string };
 
 export class KmsConfigError extends Error {}
 

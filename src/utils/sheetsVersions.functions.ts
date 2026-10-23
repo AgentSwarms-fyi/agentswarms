@@ -13,6 +13,7 @@ import {
 } from "@/utils/sheets/versions.server";
 import { requireAccess } from "@/utils/sheets/access.server";
 import { beforeRestoreLabel, copyName, utcShown, type VersionRef } from "@/lib/sheets/versionNames";
+import { callerFailure } from "@/utils/callerLookup.server";
 
 type Fail = { ok: false; error: string };
 
@@ -27,7 +28,7 @@ export type VersionSummary = {
 
 async function caller(token: string): Promise<{ ok: true; userId: string } | Fail> {
   const { data, error } = await supabaseAdmin.auth.getUser(token);
-  if (error || !data?.user) return { ok: false, error: "Not signed in" };
+  if (error || !data?.user) return { ok: false, error: callerFailure(error, "Not signed in") };
   return { ok: true, userId: data.user.id };
 }
 
@@ -51,7 +52,7 @@ const pick = base.extend({
 });
 
 export const sheetsVersionsList = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => base.parse(input))
+  .validator((input: unknown) => base.parse(input))
   .handler(async ({ data }): Promise<{ ok: true; versions: VersionSummary[] } | Fail> => {
     const who = await caller(data.access_token);
     if (!who.ok) return who;
@@ -68,7 +69,7 @@ export const sheetsVersionsList = createServerFn({ method: "POST" })
   });
 
 export const sheetsVersionSave = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     base.extend({ label: z.string().trim().min(1).max(200) }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: true } | Fail> => {
@@ -100,7 +101,7 @@ async function versionOf(workbookId: string, versionId: string) {
  * are replaced by the version's (new ids; the page reloads the workbook).
  */
 export const sheetsVersionRestore = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => pick.parse(input))
+  .validator((input: unknown) => pick.parse(input))
   .handler(async ({ data }): Promise<{ ok: true } | Fail> => {
     const who = await caller(data.access_token);
     if (!who.ok) return who;
@@ -161,7 +162,7 @@ export const sheetsVersionRestore = createServerFn({ method: "POST" })
 
 /** Open a version as a new workbook, leaving this one as it is. */
 export const sheetsVersionOpenCopy = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => pick.parse(input))
+  .validator((input: unknown) => pick.parse(input))
   .handler(async ({ data }): Promise<{ ok: true; workbook_id: string } | Fail> => {
     const who = await caller(data.access_token);
     if (!who.ok) return who;

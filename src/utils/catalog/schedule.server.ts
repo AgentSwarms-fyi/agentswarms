@@ -9,6 +9,7 @@ import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.se
 import {
   loadStorageConfig,
   runCrawl,
+  CrawlAlreadyRunning,
   type CatalogSourceRow,
   type CrawlChanges,
 } from "./crawler.server";
@@ -78,6 +79,8 @@ export async function processDueCatalogCrawls(force = false): Promise<number> {
           });
         }
       } catch (e) {
+        // A crawl someone started by hand is running; it will report itself.
+        if (e instanceof CrawlAlreadyRunning) continue;
         await supabaseAdmin.from("notifications").insert({
           user_id: source.user_id,
           kind: "error",

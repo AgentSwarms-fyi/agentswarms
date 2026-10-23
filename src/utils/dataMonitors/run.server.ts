@@ -296,7 +296,7 @@ async function reconcileIncident(
   const where = `${m.schema_name}.${m.table_name}`;
   if (status === "alert") {
     if (open) {
-      const { error: extendErr } = await supabaseAdmin
+      const { data: extended, error: extendErr } = await supabaseAdmin
         .from("data_incidents")
         .update({
           last_seen_at: new Date().toISOString(),
@@ -307,13 +307,20 @@ async function reconcileIncident(
             last_run_id: runId,
           },
         })
-        .eq("id", open.id);
+        .eq("id", open.id)
+        // FOUND IN R312: held to "not resolved". An incident its owner
+        // resolved after it was read above was extended, and this failure
+        // then opened no incident and told nobody until the next run.
+        .neq("status", "resolved")
+        .select("id");
       if (extendErr) {
         console.warn(
           `[data-monitor] incident ${open.id} for "${m.name}" could not be extended: ${extendErr.message}; it shows its previous occurrence`,
         );
+        return;
       }
-      return;
+      if ((extended ?? []).length > 0) return;
+      // Resolved since it was read: this failure is news, and opens its own.
     }
     // FOUND FROM THE SURVEY (R84). The insert's answer went unread: an alert
     // with no incident row, and the owner told of one. The alert is real
@@ -368,10 +375,16 @@ async function reconcileIncident(
     // FOUND FROM THE SURVEY (R84). This dropped its error and said
     // "Recovered": the incident stayed open on the page, repeating, while
     // the owner had been told it was over.
-    const { error: resolveErr } = await supabaseAdmin
+    const { data: resolved, error: resolveErr } = await supabaseAdmin
       .from("data_incidents")
       .update({ status: "resolved", resolved_at: new Date().toISOString(), resolved_by: "run" })
-      .eq("id", open.id);
+      .eq("id", open.id)
+      // FOUND IN R312: held to "not resolved". Its owner's resolve a moment
+      // earlier was taken over ("by run"), audited twice, and announced as
+      // "Recovered" about an incident they had already closed.
+      .neq("status", "resolved")
+      .select("id");
+    if (!resolveErr && (resolved ?? []).length === 0) return;
     if (resolveErr) {
       console.warn(
         `[data-monitor] incident ${open.id} for "${m.name}" could not be marked resolved: ${resolveErr.message}; it will show as open until it is`,

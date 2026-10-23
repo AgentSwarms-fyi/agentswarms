@@ -5,7 +5,7 @@
 import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { fetchConnectedIntegrations } from "@/components/bi/BiModelSelect";
+import { fetchConnectedIntegrations } from "@/components/bi/biModelPref";
 import { isModelAllowedByRules, useMyModelRules } from "@/hooks/use-iam";
 import { parseModelChoice } from "@/utils/providers/modelChoice";
 import { sheetsAssistDefaults } from "@/utils/sheetsAssist.functions";

@@ -111,7 +111,10 @@ describe("the guard acts on the difference", () => {
     const fn = guard.slice(guard.indexOf("export function budgetFailsClosed"));
     const body = fn.slice(0, fn.indexOf("\n}"));
     expect(body, "the setting is not actually read").toContain("process.env.BUDGET_FAIL_CLOSED");
-    expect(guard).toMatch(/budgetFailsClosed\(\) \? \{ over: true/);
+    // R250: one place answers every unknown figure, and it reads the switch.
+    expect(guard).toMatch(
+      /return budgetFailsClosed\(\)\s*\?\s*\{ over: true, spend: 0, cap, unknown: true \}/,
+    );
   });
 
   it("applies the same rule to credential caps", () => {

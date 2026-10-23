@@ -65,7 +65,8 @@ describe("both callers establish that identity from something verified", () => {
     // to the same line — which is precisely the bug this test exists to catch,
     // and it survived the first version of the mutation.
     expect(route, "userId has a fallback source").toMatch(/const userId = auth\.user\?\.id;\s*$/m);
-    expect(route).toMatch(/if \(!userId\) return json\(401/);
+    // R297: refused with 401; a lookup that failed says so, with 503.
+    expect(route).toMatch(/if \(!userId\) \{\s*return json\(callerFailureStatus\(authError\), \{/);
     // The body must never be a source of identity here.
     const body = route.slice(route.indexOf("ingestUpload({"));
     expect(body.slice(0, 200), "userId comes from request input").not.toMatch(

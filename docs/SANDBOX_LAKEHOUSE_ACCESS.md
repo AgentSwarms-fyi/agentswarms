@@ -10,7 +10,9 @@ Until October 2026 a sandbox that touched the lakehouse was handed the
 engine's own credentials: the DuckLake catalog's Postgres connection string
 (`ETL_LAKEHOUSE_CATALOG`) and the object store's access key and secret
 (`ETL_LAKEHOUSE_S3_KEY_ID`, `ETL_LAKEHOUSE_S3_SECRET`). Generated code
-attached DuckLake with them and read and wrote tables directly.
+attached DuckLake with them and read and wrote tables directly. That attach helper was
+deleted in R232, once nothing called it: there is no code path left that builds a lakehouse
+connection inside a sandbox.
 
 Every check the server made before a run (the owner's schemas, R225's query
 and policy checks) bounded what the generated code asked for. None of it

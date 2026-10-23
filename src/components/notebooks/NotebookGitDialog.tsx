@@ -34,6 +34,7 @@ import {
   nbGitRestore,
   type NbGitVersion,
 } from "@/utils/notebookGit.functions";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 export function NotebookGitDialog({
   open,
@@ -104,6 +105,8 @@ export function NotebookGitDialog({
       setPat("");
       toast.success("Repository connected");
       load();
+    } catch (e) {
+      reportFailure("connect the repository", e);
     } finally {
       setBusy(false);
     }
@@ -125,6 +128,8 @@ export function NotebookGitDialog({
         action: { label: "View", onClick: () => window.open(res.commit_url, "_blank") },
       });
       load();
+    } catch (e) {
+      reportFailure("commit", e);
     } finally {
       setBusy(false);
     }
@@ -147,6 +152,8 @@ export function NotebookGitDialog({
       toast.success(`Restored ${res.cells} cell${res.cells === 1 ? "" : "s"}`);
       onRestored();
       onOpenChange(false);
+    } catch (e) {
+      reportFailure("restore from the repository", e);
     } finally {
       setBusy(false);
     }

@@ -15,6 +15,7 @@ import { z } from "zod";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { sendMail } from "@/lib/email/mailer.server";
+import { callerFailure } from "@/utils/callerLookup.server";
 
 export type ApproverDirectoryUser = {
   user_id: string;
@@ -34,7 +35,7 @@ async function validateUser(accessToken: string | undefined) {
   if (!accessToken) return { ok: false as const, error: "Missing access token" };
   const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
   if (error || !data.user)
-    return { ok: false as const, error: error?.message ?? "Invalid session" };
+    return { ok: false as const, error: callerFailure(error, error?.message ?? "Invalid session") };
   return { ok: true as const, userId: data.user.id };
 }
 
@@ -50,7 +51,7 @@ async function listAllAuthUsers(): Promise<AdminUser[]> {
 }
 
 export const listApproverDirectory = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(
     async ({
       data,
@@ -142,7 +143,7 @@ function approvalEmailHtml(args: {
 }
 
 export const notifySwarmApprovers = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),

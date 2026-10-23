@@ -35,8 +35,11 @@ vi.mock("@/utils/lakehouse/core.server", () => ({
     return { rows: [[20]], columns: [] };
   },
 }));
+/** A stand-in for a Supabase query chain: each call returns the chain or a result. */
+type Chain = Record<string, (...args: never[]) => unknown>;
+
 vi.mock("@/integrations/supabase/client.server", () => {
-  const b: any = {
+  const b: Chain = {
     select: () => b,
     eq: (col: string, v: unknown) => {
       state.filters.push([col, v]);

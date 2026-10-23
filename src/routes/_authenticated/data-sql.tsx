@@ -78,6 +78,9 @@ import { CsvUploadDialog } from "@/components/data-sql/CsvUploadDialog";
 import { QueryHistoryPanel } from "@/components/data-sql/QueryHistoryPanel";
 import { recordQuery } from "@/lib/queryHistory";
 import { useSingleFlight } from "@/lib/singleFlight";
+import { readChatStream } from "@/lib/chatStream";
+import { settledToolCalls, withToolEvent, type ChatToolCall } from "@/lib/chatToolCalls";
+import { losesUnrunQuery } from "@/lib/sqlDraft";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -102,7 +105,8 @@ import {
 } from "@/lib/biAgent";
 import { BiChatMessage } from "@/components/data-sql/BiChatMessage";
 import { AddToDashboardDialog } from "@/components/bi/AddToDashboardDialog";
-import { BiModelSelect, useBiModelPref } from "@/components/bi/BiModelSelect";
+import { BiModelSelect } from "@/components/bi/BiModelSelect";
+import { useBiModelPref } from "@/components/bi/biModelPref";
 import type { BiWidgetSource } from "@/lib/biDashboards";
 import { SuggestedQuestions } from "@/components/data-sql/SuggestedQuestions";
 import { SemanticLayerEditor } from "@/components/data-sql/SemanticLayerEditor";
@@ -190,9 +194,17 @@ function DataCatalogRoute() {
   );
 }
 
+/** What a SQL Chat tool chip says about its call. */
+const TOOL_CALL_STATUS: Record<ChatToolCall["status"], string> = {
+  running: "Running",
+  ok: "Success",
+  error: "Error",
+  none: "No result",
+};
+
 type ChatMessage =
   | { role: "user"; content: string }
-  | { role: "assistant"; content: string; toolCalls?: { name: string; args: any; result: any }[] };
+  | { role: "assistant"; content: string; toolCalls?: ChatToolCall[] };
 
 // ────────────────────────────────────────────────────────────────────────────
 // Lightweight SQL syntax highlighter — overlay rendered behind a transparent
@@ -300,6 +312,28 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
   const [tablesError, setTablesError] = useState<string | null>(null);
   const [activeTable, setActiveTable] = useState<string | null>(null);
   const [sql, setSql] = useState("");
+  const sqlRef = useRef(sql);
+  sqlRef.current = sql;
+  // FOUND IN R304. The text that is kept somewhere: the last query run, which
+  // is in Recent queries, or the last text this page put in the editor.
+  const keptSqlRef = useRef("");
+  /**
+   * Put a table's query, a pick from Recent queries or the Catalog's query in
+   * the editor. A query typed there and never run is replaced with a way back:
+   * the editor is a controlled textarea, so Ctrl+Z cannot restore it.
+   */
+  const replaceSql = (next: string) => {
+    const previous = sqlRef.current;
+    const lost = losesUnrunQuery(previous, keptSqlRef.current, next);
+    keptSqlRef.current = next;
+    setSql(next);
+    if (!lost) return;
+    toast("The query you had not run was replaced", {
+      description: "It never ran, so it is not in Recent queries.",
+      action: { label: "Undo", onClick: () => setSql(previous) },
+      duration: 15_000,
+    });
+  };
   const [result, setResult] = useState<QueryResult | null>(null);
   const [queryError, setQueryError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
@@ -515,7 +549,7 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
   useEffect(() => {
     if (!seed) return;
     setDataSource(seed.dataSource);
-    setSql(seed.sql);
+    replaceSql(seed.sql);
     if (seed.dataSource !== "local" && !bucketIdOf(seed.dataSource)) {
       void loadWarehouseSchema(seed.dataSource);
     }
@@ -692,6 +726,8 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
   // covers the button and the key.
   const handleRun = useSingleFlight(async () => {
     if (!sql.trim()) return;
+    // Run or refused, it goes into Recent queries below.
+    keptSqlRef.current = sql;
     setRunning(true);
     setQueryError(null);
     const started = Date.now();
@@ -816,94 +852,27 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
       if (!resp.ok || !resp.body) {
         throw new Error(`Chat failed (${resp.status})`);
       }
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
+      // The shared reader (chatStream.ts): the tool calls arrive as `event:
+      // tool` blocks, which a reader of this page's own never saw (R347).
       let assistantText = "";
-      const toolCalls: { name: string; args: any; result: any }[] = [];
-      const toolBuf = new Map<string, { name: string; args: string }>();
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (!value) continue;
-        buffer += decoder.decode(value, { stream: true });
-        let idx: number;
-        while ((idx = buffer.indexOf("\n")) !== -1) {
-          let line = buffer.slice(0, idx);
-          buffer = buffer.slice(idx + 1);
-          if (line.endsWith("\r")) line = line.slice(0, -1);
-          if (!line.startsWith("data: ")) continue;
-          const payload = line.slice(6).trim();
-          if (!payload || payload === "[DONE]") continue;
-          try {
-            const parsed = JSON.parse(payload);
-            const delta = parsed.choices?.[0]?.delta;
-            if (delta?.content) {
-              assistantText += delta.content;
-              setChat((prev) => {
-                const copy = [...prev];
-                copy[copy.length - 1] = {
-                  role: "assistant",
-                  content: assistantText,
-                  toolCalls: [...toolCalls],
-                };
-                return copy;
-              });
-            }
-            if (Array.isArray(delta?.tool_calls)) {
-              for (const tc of delta.tool_calls) {
-                const id = tc.id || String(tc.index ?? 0);
-                const cur = toolBuf.get(id) || { name: "", args: "" };
-                if (tc.function?.name) cur.name = tc.function.name;
-                if (tc.function?.arguments) cur.args += tc.function.arguments;
-                toolBuf.set(id, cur);
-              }
-            }
-            if (parsed.tool_result) {
-              try {
-                const r = JSON.parse(parsed.tool_result.content || "{}");
-                toolCalls.push({
-                  name: parsed.tool_result.name,
-                  args: parsed.tool_result.args || {},
-                  result: r,
-                });
-                setChat((prev) => {
-                  const copy = [...prev];
-                  copy[copy.length - 1] = {
-                    role: "assistant",
-                    content: assistantText,
-                    toolCalls: [...toolCalls],
-                  };
-                  return copy;
-                });
-              } catch {
-                /* ignore */
-              }
-            }
-          } catch {
-            /* ignore */
-          }
-        }
-      }
-      for (const [, v] of toolBuf) {
-        if (v.name && !toolCalls.find((t) => t.name === v.name)) {
-          try {
-            toolCalls.push({ name: v.name, args: JSON.parse(v.args || "{}"), result: null });
-          } catch {
-            /* ignore */
-          }
-        }
-      }
-      setChat((prev) => {
-        const copy = [...prev];
-        copy[copy.length - 1] = {
-          role: "assistant",
-          content: assistantText || "(no response)",
-          toolCalls,
-        };
-        return copy;
+      let toolCalls: ChatToolCall[] = [];
+      const show = (content: string, calls: ChatToolCall[]) =>
+        setChat((prev) => {
+          const copy = [...prev];
+          copy[copy.length - 1] = { role: "assistant", content, toolCalls: calls };
+          return copy;
+        });
+      await readChatStream(resp.body, {
+        delta: (d) => {
+          assistantText += d;
+          show(assistantText, toolCalls);
+        },
+        tool: (e) => {
+          toolCalls = withToolEvent(toolCalls, e);
+          show(assistantText, toolCalls);
+        },
       });
+      show(assistantText || "(no response)", settledToolCalls(toolCalls));
     } catch (e) {
       toast.error((e as Error).message);
       setChat((prev) => prev.slice(0, -1));
@@ -973,7 +942,6 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
     } finally {
       setSuggestionsLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestionDatasets, semantics, savedMetrics, biModel]);
 
   // Switching source invalidates the chips immediately, rather than leaving
@@ -1288,7 +1256,7 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
                                 className="flex w-full items-center gap-1 py-0.5 text-left"
                                 title={t.columns.map((c) => `${c.name} ${c.type}`).join(", ")}
                                 onClick={() =>
-                                  setSql(`SELECT * FROM ${t.schema}.${t.name} LIMIT 50;`)
+                                  replaceSql(`SELECT * FROM ${t.schema}.${t.name} LIMIT 50;`)
                                 }
                               >
                                 <TableIcon className="h-2.5 w-2.5 shrink-0 text-slate-400 dark:text-muted-foreground" />
@@ -1313,7 +1281,7 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
             userId={user?.id}
             nonce={historyNonce}
             onPick={(e) => {
-              setSql(e.sql);
+              replaceSql(e.sql);
               // Put the source back too — replaying a warehouse query against
               // the local engine would just fail confusingly.
               if (e.source === "warehouse" && e.connection_id) {
@@ -1779,24 +1747,26 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
                                 <span className="font-mono">{tc.name}</span>
                                 <Badge
                                   variant="outline"
-                                  className="text-[8px] h-3.5 px-1 border-teal-300 text-teal-700 dark:border-teal-700/50 dark:text-teal-400 ml-auto"
+                                  className={`text-[8px] h-3.5 px-1 ml-auto ${
+                                    tc.status === "error"
+                                      ? "border-red-300 text-red-700 dark:border-red-700/50 dark:text-red-400"
+                                      : "border-teal-300 text-teal-700 dark:border-teal-700/50 dark:text-teal-400"
+                                  }`}
                                 >
-                                  {tc.result ? "Success" : "Pending"}
+                                  {TOOL_CALL_STATUS[tc.status]}
                                 </Badge>
                                 <ChevronDown className="h-2.5 w-2.5" />
                               </div>
                             </CollapsibleTrigger>
                             <CollapsibleContent>
                               <div className="mt-1 rounded border border-slate-200 bg-slate-50 dark:border-border dark:bg-background/60 p-2 text-[10px] font-mono text-slate-600 dark:text-muted-foreground max-h-32 overflow-auto">
-                                {tc.args?.sql && (
+                                {typeof tc.args.sql === "string" && (
                                   <div className="text-teal-700 dark:text-teal-400 mb-1 whitespace-pre-wrap break-all">
                                     {tc.args.sql}
                                   </div>
                                 )}
                                 <div className="whitespace-pre-wrap break-all">
-                                  {typeof tc.result === "string"
-                                    ? tc.result
-                                    : JSON.stringify(tc.result, null, 2).slice(0, 500)}
+                                  {tc.preview || (tc.status === "running" ? "Running…" : "")}
                                 </div>
                               </div>
                             </CollapsibleContent>

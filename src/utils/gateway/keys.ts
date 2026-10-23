@@ -60,8 +60,7 @@ export function looksLikeGatewayKey(key: string): boolean {
  * answer with a plausible face.
  */
 export type GatewayTarget =
-  | { kind: "agent"; ref: string }
-  | { kind: "model"; provider: string; model: string };
+  { kind: "agent"; ref: string } | { kind: "model"; provider: string; model: string };
 
 export function parseGatewayModel(
   model: unknown,

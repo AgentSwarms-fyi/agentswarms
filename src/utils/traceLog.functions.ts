@@ -1,5 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { callerFailure } from "@/utils/callerLookup.server";
+import type { Json } from "@/integrations/supabase/types";
 
 const TraceLogInput = z.object({
   accessToken: z.string().min(1),
@@ -22,9 +24,9 @@ export type ExecutionTraceRow = {
   cost_usd: number;
   status: string;
   prompt: string | null;
-  request_payload?: any;
-  response_payload?: any;
-  tool_calls?: any;
+  request_payload?: Json;
+  response_payload?: Json;
+  tool_calls?: Json;
   error_message: string | null;
   created_at: string;
   /** The decision this turn belongs to (its own id, or the swarm run's). */
@@ -43,7 +45,7 @@ const TRACE_LIST_COLUMNS =
   "id, agent_name, llm_provider, llm_model, latency_ms, tokens_in, tokens_out, cost_usd, status, prompt, error_message, created_at, parent_trace_id, decision_id, pricing_missing:request_payload->>pricing_missing";
 
 export const getExecutionTraces = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => TraceLogInput.parse(input))
+  .validator((input: unknown) => TraceLogInput.parse(input))
   .handler(
     async ({
       data,
@@ -57,7 +59,10 @@ export const getExecutionTraces = createServerFn({ method: "POST" })
       );
       const userId = authData.user?.id;
       if (authError || !userId) {
-        return { ok: false, error: authError?.message ?? "Invalid session" };
+        return {
+          ok: false,
+          error: callerFailure(authError, authError?.message ?? "Invalid session"),
+        };
       }
 
       const since = new Date(Date.now() - data.days * 86400000).toISOString();
@@ -88,7 +93,7 @@ export const getExecutionTraces = createServerFn({ method: "POST" })
   );
 
 export const getExecutionTraceDetail = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => TraceDetailInput.parse(input))
+  .validator((input: unknown) => TraceDetailInput.parse(input))
   .handler(
     async ({
       data,
@@ -100,7 +105,10 @@ export const getExecutionTraceDetail = createServerFn({ method: "POST" })
       );
       const userId = authData.user?.id;
       if (authError || !userId) {
-        return { ok: false, error: authError?.message ?? "Invalid session" };
+        return {
+          ok: false,
+          error: callerFailure(authError, authError?.message ?? "Invalid session"),
+        };
       }
 
       const { data: row, error } = await supabaseAdmin

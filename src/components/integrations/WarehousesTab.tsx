@@ -8,6 +8,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { Check, Loader2, Plug2, Trash2, Unplug, X } from "lucide-react";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 // Official provider marks, used nominatively to identify each integration.
 // Sources: Simple Icons (CC0) for Snowflake / Databricks / BigQuery;
@@ -75,6 +76,7 @@ import {
   saveWarehouseConnection,
   testWarehouseConnectionFn,
 } from "@/utils/warehouse.functions";
+import { providerInitials } from "./providerInitials";
 
 type Field = {
   key: string;
@@ -124,26 +126,6 @@ function logoFor(provider: WarehouseProvider): string | null {
   if (explicit) return explicit;
   const hit = Object.entries(LOGO_FILES).find(([path]) => path.endsWith(`/${provider}.svg`));
   return hit ? hit[1].default : null;
-}
-
-/**
- * Initials for a provider with no bundled logo.
- *
- * A single-word label takes its first TWO letters, not one: ClickHouse and
- * CockroachDB would otherwise render as two identical "C" tiles in the same
- * grid.
- */
-export function providerInitials(label: string): string {
-  const words = label
-    .replace(/[^A-Za-z ]/g, " ")
-    .split(/\s+/)
-    .filter(Boolean);
-  if (words.length === 0) return "?";
-  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
-  return words
-    .slice(0, 2)
-    .map((w) => w[0]!.toUpperCase())
-    .join("");
 }
 
 /** The logo tile, or the provider's initials when no logo is bundled. */
@@ -611,6 +593,8 @@ export function WarehousesTab() {
       if (res.ok) toast.success("Connection verified");
       else toast.error(res.error);
       reload();
+    } catch (e) {
+      reportFailure("test the connection", e);
     } finally {
       setTestingId(null);
     }
@@ -639,6 +623,8 @@ export function WarehousesTab() {
           : "Connection removed",
       );
       reload();
+    } catch (e) {
+      reportFailure("remove the connection", e);
     } finally {
       setRemoving(false);
       setConfirmRemove(null);

@@ -94,6 +94,16 @@ function BudgetsPage() {
         ]}
       />
 
+      <P>
+        The Budgets page saves the cap as you type, one write at a time, so the figure stored is the
+        last one typed. An emptied field writes nothing; leaving it puts the stored figure back.
+      </P>
+      <Callout kind="warn" title="Agent-specific limits are stored, not enforced">
+        The page&apos;s per-agent daily limit and its auto-disable switch are saved, but nothing in
+        the platform reads them yet: an agent past its daily figure keeps running. Rely on the
+        monthly cap: it is the one that can refuse calls (see Enforcement is opt-in, below).
+      </Callout>
+
       <H3 id="cap-scoped">Scoped caps</H3>
       <P>
         Set in <strong>Observability → AI Budgets</strong>, and per group in{" "}

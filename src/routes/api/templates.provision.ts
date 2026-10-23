@@ -11,6 +11,8 @@ import type { Database } from "@/integrations/supabase/types";
 import { getRealTemplate, type RealTemplate } from "@/lib/realTemplates";
 import { embedAndStoreDocuments } from "@/utils/tools/embedding.server";
 import { resolveEmbedArgs } from "@/utils/tools/embedTarget.server";
+import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -28,10 +30,14 @@ function getUserSupabase(authToken: string) {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_PUBLISHABLE_KEY;
   if (!url || !key) return null;
-  return createClient<Database>(url, key, {
-    auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: `Bearer ${authToken}` } },
-  });
+  return createClient<Database>(
+    url,
+    key,
+    withNulSafeFetch({
+      auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: `Bearer ${authToken}` } },
+    }),
+  );
 }
 
 // Stable description tag we put in agents.description so we can detect an
@@ -154,7 +160,9 @@ export const Route = createFileRoute("/api/templates/provision")({
 
           const { data: claimsData, error: claimsErr } = await sb.auth.getClaims(token);
           if (claimsErr || !claimsData?.claims?.sub) {
-            return json(401, { error: "Invalid auth token" });
+            return json(callerFailureStatus(claimsErr), {
+              error: callerFailure(claimsErr, "Invalid auth token"),
+            });
           }
           const userId = claimsData.claims.sub;
 

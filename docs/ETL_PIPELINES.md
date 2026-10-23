@@ -111,6 +111,28 @@ The run sequence:
    replaced wholesale per pipeline so renamed targets never strand old edges);
    notifies the owner on failure.
 
+**Secrets in the output.** Every value the environment hands a run (destination keys, connection URLs,
+`{{secret:NAME}}` bindings, the Spark Connect token) is replaced with `***` in what the run prints, and
+it is done twice. The sandbox does it first. The `etl_env` reply carries the values as `scrub`, the
+prelude keeps them for as long as the run lasts, and the batch runner scrubs the live logs, the final
+logs, the error and the traceback it writes on the way out before it posts any of them. Then the platform
+scrubs again, against the values that are current when the output arrives.
+
+The sandbox's pass is the one that matters in two cases:
+
+- **A secret is replaced or deleted mid-run.** The platform's list no longer has the value the run
+  printed (R292).
+- **A node preview.** Its output is shown from its session row, and nothing else scrubs it.
+
+Both passes take the longest value first, and both scrub a log before cutting it, so neither leaves part
+of a value behind. A runtime image older than R292 ignores `scrub`, so rebuild
+`agentswarms/notebook-runtime` along with the app.
+
+**What the logs hold.** The logs hold everything the run writes to stdout and stderr, in order and
+scrubbed. That includes `print`, the `logging` module's default handler, warnings, and libraries that
+report through them. Before R299 only stdout was kept. A run's `logging.info` lines went to the container's
+log, which is removed with the container, and the Logs dialog showed `print` alone.
+
 **The runtime must be enabled** (Admin → Developer runtime; its containers start with every install; on
 Compose). Without it, runs fail immediately with a message saying exactly that.
 
@@ -374,7 +396,10 @@ for _stop after quiet_, and reports the new positions - Kafka offsets per
 partition, Kinesis sequence numbers per shard - as its engine-managed
 watermark, the same `etl_pipeline_state` cursor the CDC source uses. The
 cursor is persisted only when the run's load committed, so a run that fails
-after reading re-reads the same messages: **at-least-once, never lost**. No
+after reading re-reads the same messages: **at-least-once, never lost**. A
+cursor that cannot be read is not a missing one: the run does not start, and
+the retry ladder tries again, rather than reading every source from the
+beginning (R253). No
 consumer-group offsets are committed to the broker; the platform is the
 record, and a preview reads without moving anything. Pub/Sub is the
 exception, because it has no replayable position: a message is acknowledged
@@ -773,6 +798,18 @@ content back and records the restore as the newest version, so history only
 moves forward and a regretted restore has its own undo. Rows are
 service-role-written and owner-read-only, and deleting a pipeline cascades its
 history away.
+
+Edits stay in the editor until **Save** (which turns on when there is something
+to save; **Run now** saves first). Going back to the list, following a link, or
+closing the tab with unsaved edits asks first — "Discard the changes to
+"orders"?" — and Cancel keeps them (R275).
+
+Save writes only over the pipeline the editor opened. If it was saved from
+another tab or session since, Save is refused — "This pipeline was changed in
+another tab or session after this page read it" — and a banner offers **Reload**
+or **Overwrite with mine**; **Run now**, which saves first, does not run then.
+Runs write the same row, so the check compares a fingerprint of the definition
+(`src/lib/etlDefinition.ts`), not the row's `updated_at` (R287).
 
 ## Schema drift
 

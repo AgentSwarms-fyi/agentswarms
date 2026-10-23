@@ -303,7 +303,7 @@ describe("the page keeps names with the workbook", () => {
     return src.slice(a, src.indexOf(to, a));
   };
   it("the engine is built with them, not given them after", () => {
-    expect(src).toMatch(/new WorkbookEngine\(defs, resolver, \{ names: namesArgRef\.current/);
+    expect(src).toMatch(/new WorkbookEngine\(defs, resolver, \{\s*names: namesArgRef\.current/);
   });
   it("undoing an insert brings the names back as they were", () => {
     const s = between("const structural = useCallback", "const setNames = useCallback");

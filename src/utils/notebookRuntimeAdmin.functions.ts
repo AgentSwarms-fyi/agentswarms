@@ -197,7 +197,7 @@ const DEFAULTS: NbRuntimeSettings = {
 };
 
 export const nbRuntimeGetState = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<NbRuntimeError | NbRuntimeState> => {
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) return guard;
@@ -313,7 +313,7 @@ export const nbRuntimeGetState = createServerFn({ method: "POST" })
   });
 
 export const nbRuntimeUpdateSettings = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -445,7 +445,7 @@ export type PreflightCheck = { name: string; status: "pass" | "fail" | "warn"; d
  * letting a session fail later with an opaque error.
  */
 export const nbRuntimePreflight = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -612,7 +612,7 @@ export const nbRuntimePreflight = createServerFn({ method: "POST" })
   });
 
 export const nbRuntimeAddGrant = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -637,7 +637,7 @@ export const nbRuntimeAddGrant = createServerFn({ method: "POST" })
   });
 
 export const nbRuntimeRemoveGrant = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<NbRuntimeError | { ok: true }> => {

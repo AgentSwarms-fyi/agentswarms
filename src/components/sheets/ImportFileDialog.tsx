@@ -44,7 +44,7 @@ const ACCEPT =
   ".xlsx,.xlsm,.csv,.tsv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv";
 
 /** A sheet name this workbook accepts: Excel's apostrophes and brackets dropped, made unique. */
-export function importSheetName(raw: string, taken: Set<string>): string {
+function importSheetName(raw: string, taken: Set<string>): string {
   let n =
     raw
       .replace(/[\\/?*[\]:']/g, "")

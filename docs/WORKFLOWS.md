@@ -64,7 +64,8 @@ because it is about the graph rather than about any one system.
 ### Three shapes of work, and why the difference matters
 
 - **Polled** — the subsystem records its own run row, so the step stores that
-  id and reads it back.
+  id and reads it back. A read of it that fails is "not settled yet", and the
+  next poll asks again; only a row that is really gone fails the step (R255).
 - **Immediate** — the work is over before the call returns (a condition, a
   notification, an HTTP request).
 - **Detached** — the call resolves only when the whole job is done, which can
@@ -185,6 +186,24 @@ ticked and flagged, rather than vanishing from the step that depends on it.
 
 What stays free text is text that really is text: a SQL statement, a
 notification, a question for a person, a JSON body.
+
+### Unsaved changes
+
+Edits stay in the editor until **Save**, and the editor says so: **Unsaved
+changes** shows beside Save whenever the steps, arrows, parameters or settings
+differ from what was saved, and goes when they match again — undoing an edit by
+hand counts. **Run now** runs the saved version, as its note says. Picking
+another workflow, or creating one, asks first — "Discard the changes to
+"Nightly load"?" — and Cancel keeps them. Deleting a different workflow from the
+list leaves the open one alone (R268); before, it emptied the editor, unsaved
+edits and all. Leaving the page by a link asks the same question, and closing or
+reloading the tab gets the browser's own "Leave site?" (R269).
+
+Save writes only over the version the editor opened. If the workflow was saved
+from another tab or session since, Save is refused — "This workflow was changed
+in another tab or session after this page read it" — and beside Save the editor
+reads "Changed elsewhere, not saved", with **Reload** and **Overwrite with mine**
+(R289). Runs and the scheduler do not count: only a save moves the version.
 
 ## Retries and timeouts
 

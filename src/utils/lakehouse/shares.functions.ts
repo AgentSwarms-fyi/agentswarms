@@ -17,10 +17,11 @@ import { auditEvent } from "@/utils/audit.server";
 import { lakehouseConnection } from "./core.server";
 import { bindFilterPlaceholders } from "./policies.server";
 import { dropShareTableSnapshots } from "./shares.server";
+import { callerFailure } from "@/utils/callerLookup.server";
 
 async function resolveCaller(accessToken: string): Promise<string> {
   const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
-  if (error || !data.user) throw new Error("Not signed in");
+  if (error || !data?.user) throw new Error(callerFailure(error, "Not signed in"));
   return data.user.id;
 }
 
@@ -81,7 +82,7 @@ export type LakehouseShare = {
 };
 
 export const listLakehouseShares = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<LakehouseShare[]> => {
     const userId = await resolveCaller(data.access_token);
     const { data: shares } = await supabaseAdmin
@@ -157,7 +158,7 @@ export const listLakehouseShares = createServerFn({ method: "POST" })
   });
 
 export const createLakehouseShare = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -189,7 +190,7 @@ export const createLakehouseShare = createServerFn({ method: "POST" })
   });
 
 export const deleteLakehouseShare = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), share_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: true }> => {
@@ -213,7 +214,7 @@ export const deleteLakehouseShare = createServerFn({ method: "POST" })
   });
 
 export const addLakehouseShareTable = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -296,7 +297,7 @@ export const addLakehouseShareTable = createServerFn({ method: "POST" })
   });
 
 export const removeLakehouseShareTable = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), share_table_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: true }> => {
@@ -323,7 +324,7 @@ export const removeLakehouseShareTable = createServerFn({ method: "POST" })
   });
 
 export const createLakehouseShareToken = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -367,7 +368,7 @@ export const createLakehouseShareToken = createServerFn({ method: "POST" })
   });
 
 export const revokeLakehouseShareToken = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), token_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<{ ok: true }> => {

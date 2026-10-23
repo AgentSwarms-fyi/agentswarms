@@ -13,6 +13,8 @@ import {
   hashNotebookApiKey,
   notebookKeyPrefix,
 } from "@/utils/notebookApiKeys";
+import { callerFailure } from "@/utils/callerLookup.server";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
 export type NbApiKeyRow = {
   id: string;
@@ -37,13 +39,18 @@ async function ownerOf(
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_PUBLISHABLE_KEY;
   if (!url || !key) return { ok: false, error: "Server is not configured" };
-  const sb = createClient(url, key, {
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
-  });
+  const sb = createClient(
+    url,
+    key,
+    withNulSafeFetch({
+      global: { headers: { Authorization: `Bearer ${accessToken}` } },
+    }),
+  );
   const {
     data: { user },
+    error: authError,
   } = await sb.auth.getUser();
-  if (!user) return { ok: false, error: "Not signed in" };
+  if (!user) return { ok: false, error: callerFailure(authError, "Not signed in") };
 
   const { data } = await sb
     .from("user_python_notebooks")
@@ -56,7 +63,7 @@ async function ownerOf(
 }
 
 export const nbApiKeysList = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), notebook_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data }): Promise<Fail | { ok: true; keys: NbApiKeyRow[] }> => {
@@ -76,7 +83,7 @@ export const nbApiKeysList = createServerFn({ method: "POST" })
   });
 
 export const nbApiKeyCreate = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),
@@ -119,7 +126,7 @@ export const nbApiKeyCreate = createServerFn({ method: "POST" })
   });
 
 export const nbApiKeyRevoke = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z
       .object({
         access_token: z.string().min(1),

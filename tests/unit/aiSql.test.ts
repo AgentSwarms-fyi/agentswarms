@@ -236,6 +236,6 @@ describe("the runner and its governance wiring", () => {
     expect(cfg).toContain("process.env.AI_SQL_DEFAULT_MODEL");
     expect(cfg).toContain('envInt("AI_SQL_CACHE_TTL_DAYS") ??');
     expect(rd("src/routes/api/lakehouse.generate.ts")).toContain("ai_filter(text, 'condition')");
-    expect(rd("src/components/docs/DocsShell.tsx")).toContain('to: "/docs/ai-sql"');
+    expect(rd("src/components/docs/docsNav.ts")).toContain('to: "/docs/ai-sql"');
   });
 });

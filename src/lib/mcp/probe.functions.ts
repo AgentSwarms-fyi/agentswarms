@@ -13,13 +13,9 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 // against a real server. The shared implementation has no imports of its own
 // precisely so this file can share it.
 import { MCP_CONNECT_BUDGET_MS } from "@/utils/mcpApps/budgets";
-import { readRpcBody } from "@/utils/mcpApps/sse";
+import { readRpcBody, toolsFromListResult, type McpTool } from "@/utils/mcpApps/sse";
 
-type ProbeTool = {
-  name: string;
-  description?: string;
-  inputSchema?: Record<string, any>;
-};
+type ProbeTool = McpTool;
 type ProbeResult = {
   ok: boolean;
   toolsCount: number;
@@ -47,7 +43,7 @@ async function guardedFetch(
 
 export const probeMcpServer = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator(z.object({ id: z.string().uuid() }))
+  .validator(z.object({ id: z.string().uuid() }))
   .handler(async ({ data, context }): Promise<ProbeResult> => {
     const { supabase } = context;
     const { data: row, error } = await supabase
@@ -110,6 +106,8 @@ export const probeMcpServer = createServerFn({ method: "POST" })
       );
     };
 
+    // The session this probe opens, ended in `finally` (R360).
+    let sessionId: string | null = null;
     try {
       // 1) initialize
       // initialize is what finds a scaled-to-zero server asleep, so it gets a
@@ -144,7 +142,7 @@ export const probeMcpServer = createServerFn({ method: "POST" })
         };
       }
 
-      const sessionId = initRes.headers.get("Mcp-Session-Id");
+      sessionId = initRes.headers.get("Mcp-Session-Id");
       // Drain the initialize response (some servers require it), up to the
       // answer only: a server may keep the stream open after replying (R98).
       await readRpcBody(initRes).catch(() => null);
@@ -169,14 +167,7 @@ export const probeMcpServer = createServerFn({ method: "POST" })
         const arr = parsed?.result?.tools;
         if (Array.isArray(arr)) {
           toolsCount = arr.length;
-          tools = arr
-            .filter((t: any) => t && typeof t.name === "string")
-            .map((t: any) => ({
-              name: t.name as string,
-              description: typeof t.description === "string" ? t.description : undefined,
-              inputSchema:
-                t.inputSchema && typeof t.inputSchema === "object" ? t.inputSchema : undefined,
-            }));
+          tools = toolsFromListResult(parsed);
         } else if (parsed?.error?.message) {
           listMsg = `tools/list → ${parsed.error.message}`;
         }
@@ -214,5 +205,19 @@ export const probeMcpServer = createServerFn({ method: "POST" })
         status: "error",
         message: err instanceof Error ? err.message : "Probe failed",
       };
+    } finally {
+      // End the session it opened (R360). Ending one is a SHOULD in the spec,
+      // and a server keeps each session until then: this instance's own MCP
+      // endpoint keeps a row per session, so every Test connection or Refresh
+      // of a Builder server left one behind. The agents' client already ends
+      // its sessions (mcpApps/session.ts); this was the other client.
+      if (sessionId) {
+        void guardedFetch(probeUrl, {
+          method: "DELETE",
+          headers: { ...baseHeaders, "Mcp-Session-Id": sessionId },
+        })
+          .then((r) => r.body?.cancel())
+          .catch(() => {});
+      }
     }
   });

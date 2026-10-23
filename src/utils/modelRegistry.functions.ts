@@ -9,6 +9,7 @@ import { syncModelRegistryFromAimlapi } from "@/utils/modelRegistry.server";
 import { envInt } from "@/utils/rateLimit.server";
 import { pageTraces } from "@/lib/traceWindow";
 import { z } from "zod";
+import { callerFailure } from "@/utils/callerLookup.server";
 
 // --- Public types --------------------------------------------------------
 
@@ -39,7 +40,7 @@ export type RegistryMeta = {
 // --- Read RPC (browse) ---------------------------------------------------
 
 export const getModelRegistry = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => {
+  .validator((input: unknown) => {
     const Schema = z.object({ access_token: z.string().min(1) });
     return Schema.parse(input);
   })
@@ -51,12 +52,17 @@ export const getModelRegistry = createServerFn({ method: "POST" })
       const key = process.env.SUPABASE_PUBLISHABLE_KEY;
       if (!url || !key) throw new Error("Server not configured");
       const { createClient } = await import("@supabase/supabase-js");
-      const sb = createClient(url, key, {
-        global: { headers: { Authorization: `Bearer ${data.access_token}` } },
-        auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
-      });
+      const { withNulSafeFetch } = await import("@/integrations/supabase/nulSafeFetch");
+      const sb = createClient(
+        url,
+        key,
+        withNulSafeFetch({
+          global: { headers: { Authorization: `Bearer ${data.access_token}` } },
+          auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
+        }),
+      );
       const { data: userData, error: authErr } = await sb.auth.getUser();
-      if (authErr || !userData?.user) throw new Error("Unauthorized");
+      if (authErr || !userData?.user) throw new Error(callerFailure(authErr, "Unauthorized"));
 
       // The count BEFORE the rows, so the page can tell a complete catalogue
       // from a prefix of one. The read used to be a single `.limit(2000)`,
@@ -109,7 +115,7 @@ export const getModelRegistry = createServerFn({ method: "POST" })
 
 // Server function so an admin can trigger a sync from the UI.
 export const triggerModelRegistrySync = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => {
+  .validator((input: unknown) => {
     const Schema = z.object({ access_token: z.string().min(1) });
     return Schema.parse(input);
   })

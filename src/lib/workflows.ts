@@ -173,6 +173,41 @@ export type WorkflowGraph = {
 
 export const EMPTY_GRAPH: WorkflowGraph = { nodes: [], edges: [], params: [] };
 
+/** A workflow's settings as the editor holds them. */
+export type WorkflowEditorSettings = {
+  name: string;
+  schedule: string;
+  cronExpr: string;
+  timezone: string;
+  overlap: string;
+  notifyOn: string;
+  timeoutMinutes: number;
+  isActive: boolean;
+};
+
+/**
+ * What Save writes, as one string, so the editor can tell whether anything is
+ * unsaved: the same string means Save would change nothing. The trigger token
+ * is left out, because rotating or revoking it saves itself. FOUND IN R268:
+ * the editor kept no such record, so picking another workflow loaded it over
+ * unsaved steps without a word.
+ */
+export function savedForm(settings: WorkflowEditorSettings, graph: WorkflowGraph): string {
+  return JSON.stringify({
+    name: settings.name,
+    schedule: settings.schedule,
+    cronExpr: settings.cronExpr || null,
+    timezone: settings.timezone || null,
+    overlap: settings.overlap,
+    notifyOn: settings.notifyOn,
+    timeoutMinutes: settings.timeoutMinutes,
+    isActive: settings.isActive,
+    nodes: graph.nodes,
+    edges: graph.edges,
+    params: graph.params ?? [],
+  });
+}
+
 export const MAX_RETRIES = 10;
 export const MAX_WAIT_SECONDS = 86_400;
 

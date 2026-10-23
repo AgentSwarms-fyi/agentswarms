@@ -241,6 +241,7 @@ describe("the server functions and the pinned program", () => {
 describe("the wizard and the pages", () => {
   const wizard = rd("src/routes/_authenticated/ml_.new.tsx");
   const ui = rd("src/components/ml/mlUi.tsx");
+  const fmt = rd("src/components/ml/mlFormat.ts");
 
   it("offers the four goals and sends what each needs", () => {
     for (const label of ["Predict a column", "Find groups", "Find anomalies", "Recommend items"]) {
@@ -261,8 +262,8 @@ describe("the wizard and the pages", () => {
 
   it("styles and formats every task and its metrics", () => {
     for (const t of NEW_TASKS) expect(ui).toContain(`  ${t}: "border-`);
-    for (const m of ["hit_rate_10", "coverage", "anomaly_rate"]) expect(ui).toContain(`"${m}"`);
-    expect(ui).toContain('if (name === "silhouette") return value >= 0.5 ? "good"');
+    for (const m of ["hit_rate_10", "coverage", "anomaly_rate"]) expect(fmt).toContain(`"${m}"`);
+    expect(fmt).toContain('if (name === "silhouette") return value >= 0.5 ? "good"');
   });
 
   it("shows group profiles and recommendation lists", () => {

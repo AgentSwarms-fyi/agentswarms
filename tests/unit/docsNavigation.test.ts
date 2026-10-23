@@ -11,7 +11,8 @@ import { docsFamily, docsFamilyFiles } from "./docsPages";
 const REPO = path.resolve(__dirname, "../..");
 const rd = (p: string) => readFileSync(path.join(REPO, p), "utf8");
 const SHELL = rd("src/components/docs/DocsShell.tsx");
-const shell = () => import("@/components/docs/DocsShell");
+// The rail and the contents logic live in docsNav.ts (R346); the shell renders them.
+const shell = () => import("@/components/docs/docsNav");
 
 describe("activeSectionOf — the rail lists the subsections of the section being read", () => {
   const headings = [

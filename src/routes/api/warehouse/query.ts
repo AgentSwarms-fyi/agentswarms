@@ -8,15 +8,21 @@ import { executeWarehouseQuery, MAX_WAREHOUSE_ROWS } from "@/utils/warehouse/dri
 import { auditEvent } from "@/utils/audit.server";
 import { extractTableRefs } from "@/lib/sqlRefs";
 import { loadWarehouseConnection } from "@/utils/warehouse/connections.server";
+import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
 function getServerSupabase(authToken: string) {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_PUBLISHABLE_KEY;
   if (!url || !key) return null;
-  return createClient<Database>(url, key, {
-    auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: `Bearer ${authToken}` } },
-  });
+  return createClient<Database>(
+    url,
+    key,
+    withNulSafeFetch({
+      auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: `Bearer ${authToken}` } },
+    }),
+  );
 }
 
 function json(status: number, body: unknown): Response {
@@ -34,9 +40,13 @@ export const Route = createFileRoute("/api/warehouse/query")({
         const token = auth?.startsWith("Bearer ") ? auth.slice(7) : undefined;
         const sb = token ? getServerSupabase(token) : null;
         if (!token || !sb) return json(401, { error: "Sign in to query warehouses" });
-        const { data: claims } = await sb.auth.getClaims(token);
+        const { data: claims, error: claimsErr } = await sb.auth.getClaims(token);
         const userId = claims?.claims?.sub;
-        if (!userId) return json(401, { error: "Invalid session" });
+        if (!userId) {
+          return json(callerFailureStatus(claimsErr), {
+            error: callerFailure(claimsErr, "Invalid session"),
+          });
+        }
 
         let body: { connection_id?: string; sql?: string; max_rows?: number };
         try {

@@ -23,7 +23,12 @@ It manages:
 - **Users** — invite by email (Supabase sends the invitation) or create
   accounts with a temporary password; ban/unban; delete; promote additional
   superadmins. The bootstrap superadmin can never be demoted, and the last
-  superadmin is protected.
+  superadmin is protected — including against two demotions arriving at the
+  same moment, which both used to pass a count taken before the delete. The
+  count that decides is taken after it now, and a demotion that turns out to
+  have removed the last superadmin is put back (R246). This matters more here
+  than anywhere else: granting the role is itself superadmin-gated, so a
+  deployment with none has nobody left who can make one.
 - **Groups** — organize users; model rules and resource shares can target a
   whole group at once.
 - **Provisioning** — with SCIM 2.0 the identity provider creates users before
@@ -98,6 +103,28 @@ It manages:
   > feature; self-hosted GoTrue → set `GOTRUE_SAML_ENABLED=true` with a
   > `GOTRUE_SAML_PRIVATE_KEY`. The SSO tab detects and explains this if it's
   > not enabled yet.
+
+### Who is asking: a refusal versus a check that failed
+
+Every server function and API route first asks whose token it was handed, through
+`src/utils/callerLookup.server.ts`. The answer is one of two kinds:
+
+| What happened | What the caller gets |
+| --- | --- |
+| **The token was refused.** It was malformed or wrongly signed, its session is gone, or its user is unknown (a 4xx from the auth server, or `AuthInvalidJwtError` from reading the JWT) | 401, with the message that route has always given ("Unauthorized", "Not signed in", "Invalid session") |
+| **The check itself failed.** A network error, a 429, a 5xx, or a reply that would not parse | 503, "Could not check who you are just now (…). Nothing was done; try again in a moment." |
+
+Before R297 the second case was reported as the first, so a signed-in person was told they were not.
+Agent Chat had the sharper version. A user it could not identify skips the IAM model rules and the
+budget cap, so a failed check ran that turn ungoverned on a good token. Now it answers 503 instead.
+`callerLookupFailure.test.ts` holds every `auth.getUser` and `auth.getClaims` in `src` to the helper,
+or to a `// caller-lookup:` comment at the site that says why it need not.
+
+In the browser, the signed-in user is read from the session the browser already holds
+(`src/lib/sessionUser.ts`), not asked of the auth server. The server checks the token on every request
+anyway. Before R298, one failed request to the auth server had three effects: the skill editor said "Not
+signed in" on Save, "Duplicate to my skills" did nothing, and the SQL engine could read a dataset shared
+with you as empty.
 
 ## Use cases
 
@@ -206,12 +233,16 @@ minute.
 | `POST /Groups`, `PATCH` members                 | An IAM group is created or its members changed — grants and model rules on the group apply at once         |
 | `GET /Users?filter=userName eq "…"`             | The lookup IdPs do before creating, so a user who already exists is matched, not duplicated                |
 
-Two rules hold whatever the IdP says. **A superadmin cannot be deactivated
+Three rules hold whatever the IdP says. **A superadmin cannot be deactivated
 or deleted over SCIM** — the request is refused with a 403 the IdP shows its
 admin, so a misconfigured push or a leaked token cannot take the last way in;
-demote the account in IAM first. And every SCIM write is an audit event under
+demote the account in IAM first. Every SCIM write is an audit event under
 the token's label (`scim:<label>`), so the trail says the IdP did it, not a
-person.
+person. And **a read that fails is a 503, never an answer**: the IdP acts on
+"no members", "no such group", "no such user", "not a user" and "invalid
+token", so none of them is ever said about a read that did not happen. Okta
+and Entra retry a 503. Before R248 a failed member read made a group look
+empty, and a push removing someone from it removed no one and returned 200.
 
 The endpoint supports filtering by `userName`, `externalId`, `emails.value`,
 `displayName` and `id` with `eq`, PATCH in both the Okta (path-less) and

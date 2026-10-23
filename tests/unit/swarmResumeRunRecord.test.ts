@@ -33,9 +33,10 @@ describe("resuming a parked run", () => {
     expect(flat(head)).toContain('.eq("user_id", opts.userId)');
   });
 
-  it("says so when the run cannot be reopened, and what that leaves", () => {
+  it("says so when the run cannot be reopened, and runs nothing (R317)", () => {
+    // It used to record the resume as a new run and run it anyway.
     expect(flat(head)).toContain("could not be reopened");
-    expect(flat(head)).toContain("the parked one stays open");
+    expect(flat(head)).toContain("nothing of this resume runs`, ); return null; }");
   });
 
   it("carries the first half's steps, numbers and edges into the same run", () => {

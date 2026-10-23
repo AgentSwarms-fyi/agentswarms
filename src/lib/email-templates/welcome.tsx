@@ -13,6 +13,7 @@ import {
   Section,
   Text,
 } from "@react-email/components";
+import { defineTemplate } from "./registry";
 
 interface WelcomeEmailProps {
   siteName?: string;
@@ -140,7 +141,7 @@ export const WelcomeEmail = ({
 
 export default WelcomeEmail;
 
-export const template = {
+export const template = defineTemplate<WelcomeEmailProps>({
   component: WelcomeEmail,
   subject: "Welcome to AgentSwarms — your agentic AI and data workspace is ready 🚀",
   displayName: "Welcome email",
@@ -149,7 +150,7 @@ export const template = {
     siteUrl: "http://localhost:8080",
     recipient: "Alex",
   },
-};
+});
 
 // ============ Styles (white body — required) ============
 const main = {

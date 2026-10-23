@@ -174,6 +174,12 @@ comfortably serves a lot of users.
    equally well — point them at `:8080` and use `/api/health` as the health
    check.)
 
+   Chat answers arrive as a stream of server-sent events, so the proxy must
+   pass a response on as it is written. Caddy does. With nginx, set
+   `proxy_buffering off;` for the app, and leave `text/event-stream` out of
+   `gzip_types`: either one holds an answer back until it is complete. The app
+   does not compress event streams itself.
+
 The in-process scheduler runs automatically on a single VM — **no cron setup
 needed.** To update: `git pull && docker compose up -d --build`.
 
@@ -203,6 +209,10 @@ default deliberately:
 
 The count is logged at startup (`primary … forking N workers`), so check the
 container's first log line if the number surprises you.
+
+A browser that leaves mid-request (a reload, a closed tab, a cancelled call) is
+not logged: the request's work stops and nothing is printed. A stack in the log
+is a real error.
 
 **Two things behave differently under clustering.** The **scheduler** does not
 multiply — it holds a fleet-wide lease, so exactly one sweep runs however many
@@ -539,7 +549,7 @@ the repository root:
 
 ```bash
 export REGISTRY=<your registry host and path>   # set per cloud, below
-export TAG=1.5.0
+export TAG=1.6.0
 docker build -t "$REGISTRY/agentswarms:$TAG" .
 docker build -t "$REGISTRY/docgen:$TAG" ./docgen-service
 docker build -t "$REGISTRY/js-sandbox:$TAG" ./services/js-sandbox
@@ -572,7 +582,7 @@ export AWS_REGION=us-east-1
 export CLUSTER=agentswarms
 export ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 export REGISTRY="$ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com"
-export TAG=1.5.0
+export TAG=1.6.0
 ```
 
 **1. Create the cluster.** Three 4-vCPU nodes clear the roughly 4.5 CPU and
@@ -871,7 +881,7 @@ export PROJECT=$(gcloud config get-value project)
 export REGION=us-central1
 export CLUSTER=agentswarms
 export REGISTRY="$REGION-docker.pkg.dev/$PROJECT/agentswarms"
-export TAG=1.5.0
+export TAG=1.6.0
 gcloud services enable container.googleapis.com artifactregistry.googleapis.com sqladmin.googleapis.com storage.googleapis.com
 ```
 
@@ -1063,7 +1073,7 @@ export LOCATION=eastus
 export CLUSTER=agentswarms
 export ACR=agentswarmsacr          # must be globally unique
 export REGISTRY="$ACR.azurecr.io"
-export TAG=1.5.0
+export TAG=1.6.0
 az group create --name "$RG" --location "$LOCATION"
 ```
 
@@ -1227,7 +1237,7 @@ export OCI_REGION=us-ashburn-1
 export REGION_KEY=iad                     # the registry prefix for that region
 export NAMESPACE=$(oci os ns get --query data --raw-output)
 export REGISTRY="$REGION_KEY.ocir.io/$NAMESPACE/agentswarms"
-export TAG=1.5.0
+export TAG=1.6.0
 ```
 
 **1. Create the cluster and a node pool.** Size the pool for the roughly
@@ -1639,8 +1649,10 @@ by default, and each has a local answer:
 | **Container images** | Mirror `agentswarms/*`, `supabase/*` and any model image into your internal registry.                                                                    |
 
 Nothing else phones home: there is no telemetry, no licence check and no usage
-reporting, fonts and the SQL engine (DuckDB-Wasm) are served from the app
-itself, and analytics exist only if you set `VITE_GA_ID`. See
+reporting. Fonts, the SQL engine (DuckDB-Wasm) and the PDF and DOCX readers
+(pdf.js, mammoth: copied from the installed packages at build, R321) are served
+from the app itself, and so are the provider logos (Simple Icons, R326).
+Analytics exist only if you set `VITE_GA_ID`. See
 [/architecture](./ARCHITECTURE.md) and [/security](../src/routes/security.tsx).
 
 ## Production checklist (cross-cutting)
@@ -2607,6 +2619,15 @@ Monitoring; the fix is a restart:
 
 ```bash
 docker compose restart notebook-docker-proxy
+```
+
+**If the log says a sandbox "was not removed".** The line names the container and Docker's answer.
+Since R302 it is not written when two teardowns of one sandbox overlap: the second waits for the
+first (`NOTEBOOK_TEARDOWN_WAIT_MS`, 10 s). So the container is really there. List it, then remove it
+with `docker rm -f` and the name shown:
+
+```bash
+docker ps -a --filter name=nb-
 ```
 
 ### Upgrades

@@ -28,6 +28,7 @@ import {
 } from "@/utils/featureViews.functions";
 import type { FeatureViewRow } from "@/utils/featureViews/lookup.server";
 import type { TrainingSetResult } from "@/utils/featureViews/trainingSet.server";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 type SourceTable = { schema: string; table: string; columns: { name: string; type: string }[] };
 
@@ -249,6 +250,8 @@ export function FeatureViewsPanel({ token }: { token: string }) {
       toast.success(draft.id ? `Saved ${draft.name}` : `Created ${draft.name}`);
       setDraft(null);
       await load();
+    } catch (e) {
+      reportFailure("save the feature view", e);
     } finally {
       setBusy(false);
     }
@@ -267,6 +270,8 @@ export function FeatureViewsPanel({ token }: { token: string }) {
           : `${v.name} reads the lakehouse again`,
       );
       await load();
+    } catch (e) {
+      reportFailure("change online serving", e);
     } finally {
       setBusy(false);
     }
@@ -282,6 +287,8 @@ export function FeatureViewsPanel({ token }: { token: string }) {
           (res.note ? ` — ${res.note}` : ""),
       );
       await load();
+    } catch (e) {
+      reportFailure("refresh the online store", e);
     } finally {
       setBusy(false);
     }
@@ -305,6 +312,8 @@ export function FeatureViewsPanel({ token }: { token: string }) {
         });
       } else toast.success(`Deleted ${v.name}`);
       await load();
+    } catch (e) {
+      reportFailure("delete the feature view", e);
     } finally {
       setBusy(false);
     }
@@ -320,6 +329,8 @@ export function FeatureViewsPanel({ token }: { token: string }) {
       if (!res.ok) return toast.error(res.error);
       if (!res.row) return toast.error("No row for that key");
       setProbed(res.row);
+    } catch (e) {
+      reportFailure("look up that key", e);
     } finally {
       setBusy(false);
     }
@@ -358,6 +369,8 @@ export function FeatureViewsPanel({ token }: { token: string }) {
         `Built ${res.result.schema}.${res.result.table} — ${res.result.rows.toLocaleString()} row(s)`,
       );
       await load();
+    } catch (e) {
+      reportFailure("build the training set", e);
     } finally {
       setBusy(false);
     }
@@ -846,6 +859,8 @@ export function ModelFeatureView({
       setCurrent(id);
       toast.success(id ? "Scored by key from now on" : "Back to scoring by row");
       onChange?.();
+    } catch (e) {
+      reportFailure("change how this model is scored", e);
     } finally {
       setBusy(false);
     }

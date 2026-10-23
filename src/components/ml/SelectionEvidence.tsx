@@ -28,7 +28,7 @@ import {
   strategyLabel,
   type MlCrossValidation,
 } from "@/lib/mlCrossValidation";
-import { fmtMetric, metricLabel } from "@/components/ml/mlUi";
+import { fmtMetric, metricLabel } from "@/components/ml/mlFormat";
 
 const BAND_COPY: Record<string, string> = {
   tight: "The folds agreed closely, so this score is a firm number.",

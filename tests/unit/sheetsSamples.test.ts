@@ -33,8 +33,11 @@ async function open(file: string) {
 const near = (a: unknown, b: number) => expect(a as number).toBeCloseTo(b, 6);
 
 // Each test reads a real .xlsx and computes a whole workbook: about two
-// seconds alone, and far more while the full suite runs beside it.
-const HEAVY = 60_000;
+// seconds alone, and far more while the full suite runs beside it. 60 s was
+// not enough: the sales workbook took 83.7 s in a full gate on 2026-10-06
+// (R305), and failed two gates that day while passing alone. The work is
+// computation, not a start-up cost a hook could take, so the allowance moved.
+const HEAVY = 180_000;
 
 describe("the sample workbooks", () => {
   it("every one offered is in the repository", () => {

@@ -3,7 +3,7 @@
 // - Click a node → NodeInspector lets you edit name, prompt, model, temperature, I/O vars
 // - Run button executes the graph in-browser via swarmRuntime, calling /api/chat
 // - Load template loads a real, runnable example into the canvas
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useBlocker, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   ReactFlow,
@@ -137,7 +137,8 @@ import { SwarmDeployDialog } from "@/components/swarms/SwarmDeployDialog";
 import { graphFingerprint } from "@/lib/swarmPublish";
 import { SwarmChatDialog } from "@/components/swarms/SwarmChatDialog";
 import { SwarmVersionsDialog } from "@/components/swarms/SwarmVersionsDialog";
-import { snapshotSwarmVersion, graphHash } from "@/lib/swarmVersions";
+import { canvasForm, snapshotSwarmVersion, graphHash, swarmStoredForm } from "@/lib/swarmVersions";
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { clickable } from "@/lib/clickable";
 
 export const Route = createFileRoute("/_authenticated/swarms")({
@@ -878,6 +879,11 @@ function SwarmsCanvas({
   const [historyOpen, setHistoryOpen] = useState(false);
   // Fingerprint of the graph last snapshotted, so an unchanged Save doesn't
   // create a duplicate autosave version.
+  // The swarm's definition as this page read or last saved it (R288, sweep 9).
+  // Save compares the stored row with it and is refused when someone else has
+  // saved since; then the toolbar says so.
+  const storedFormRef = useRef<string | null>(null);
+  const [stale, setStale] = useState(false);
   const lastVersionHashRef = useRef<string | null>(null);
   // Values for the typed input form (when the input node declares inputFields).
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
@@ -894,18 +900,23 @@ function SwarmsCanvas({
   const events = activeRun?.events ?? EMPTY_EVENTS;
   const finalOutput = activeRun?.finalOutput ?? null;
   const traceRunId = activeRun?.dbRunId ?? null;
-  const runningNodeIds = useMemo(
-    () => new Set(activeRun?.runningNodeIds ?? []),
-    [activeRun?.runId, (activeRun?.runningNodeIds ?? []).join("|")],
-  );
+  // Keyed on the ids' content, so a run that re-reports the same nodes keeps
+  // the same Set and nothing downstream re-renders for it.
+  const runningKey = JSON.stringify(activeRun?.runningNodeIds ?? []);
+  const runningNodeIds = useMemo(() => new Set<string>(JSON.parse(runningKey)), [runningKey]);
   // Typed input form fields declared on the input node (empty = single textarea).
   const inputFields = useMemo(
     () => nodes.find((n) => n.data.kind === "input")?.data.inputFields ?? [],
     [nodes],
   );
 
-  // Track unsaved edits so we can warn on tab/window close.
-  const dirtyRef = useRef(false);
+  // What the open swarm is saved as (canvasForm), set when it loads and when a
+  // save lands; null until something is open.
+  const [savedAs, setSavedAs] = useState<string | null>(null);
+  const unsaved = useMemo(
+    () => savedAs !== null && savedAs !== canvasForm(swarmName, nodes, edges),
+    [savedAs, swarmName, nodes, edges],
+  );
 
   // The published snapshot of the OPEN swarm, for the drift badge below.
   const [published, setPublished] = useState<{
@@ -927,6 +938,8 @@ function SwarmsCanvas({
       published_at?: string | null;
     }) => {
       setSwarmId(row.id);
+      storedFormRef.current = swarmStoredForm(row);
+      setStale(false);
       // Kept so the toolbar can say "not live yet" without opening a dialog.
       setPublishedError(null);
       setPublished(
@@ -946,8 +959,8 @@ function SwarmsCanvas({
       idCounter.current = loadedNodes.length + 1;
       setSelectedNodeId(null);
       setActiveRunId(null);
-      // Freshly loaded from DB → not dirty.
-      dirtyRef.current = false;
+      // Freshly loaded: what is on the canvas is what is saved.
+      setSavedAs(canvasForm(row.name, loadedNodes, loadedEdges));
       // …and not a new version either. This ref was only ever seeded on SAVE
       // and on restore, never on load, so it was null for a swarm you had just
       // opened — and `hash !== null` is true for every graph. The first Save of
@@ -958,11 +971,6 @@ function SwarmsCanvas({
     },
     [setNodes, setEdges],
   );
-
-  useEffect(() => {
-    if (loading) return;
-    dirtyRef.current = true;
-  }, [nodes, edges, swarmName, loading]);
 
   // Compared against the LIVE canvas rather than the saved row, because the
   // question the badge answers is "is what I am looking at what my callers
@@ -993,15 +1001,29 @@ function SwarmsCanvas({
         graphFingerprint(published.published_nodes, published.published_edges),
     [published, nodes, edges],
   );
-  useEffect(() => {
-    const handler = (e: BeforeUnloadEvent) => {
-      if (!dirtyRef.current) return;
-      e.preventDefault();
-      e.returnValue = "";
-    };
-    window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
-  }, []);
+  /** Ask before something replaces unsaved edits on the canvas; true when it may go ahead. */
+  async function mayDiscard(what: string): Promise<boolean> {
+    if (!unsaved) return true;
+    // By the name it is saved under: the name on the canvas may be one of the changes.
+    const savedName = swarmList.find((s) => s.id === swarmId)?.name ?? swarmName;
+    return Boolean(
+      await confirmAsk({
+        title: `Discard the changes to "${savedName}"?`,
+        body: `They are not saved. ${what}`,
+        actionLabel: "Discard changes",
+      }),
+    );
+  }
+
+  // Leaving the canvas — the Gallery button, a link, closing or reloading the
+  // tab — asks while something is unsaved. FOUND IN R270: a hand-written
+  // beforeunload guarded only the tab, on a flag every render of the nodes set,
+  // so it asked when a swarm nobody had touched was closed and never on a link.
+  useBlocker({
+    shouldBlockFn: async () => !(await mayDiscard("Leaving the canvas drops them.")),
+    enableBeforeUnload: unsaved,
+    disabled: !unsaved,
+  });
 
   // Load existing swarms + knowledge bases.
   // IMPORTANT: depend on `user?.id` (a stable string), NOT the `user` object
@@ -1065,6 +1087,7 @@ function SwarmsCanvas({
           setSwarmName(tpl.title);
           setNodes(tpl.nodes);
           setEdges(tpl.edges.map(withDefaultEdgeStyle));
+          setSavedAs(canvasForm(tpl.title, tpl.nodes, tpl.edges));
           setRunInput(tpl.exampleInput);
           setTourSteps(tpl.tour);
           setTourTitle(tpl.title);
@@ -1106,7 +1129,9 @@ function SwarmsCanvas({
           });
         } else {
           setSwarmId(created.id);
+          storedFormRef.current = swarmStoredForm(created);
           setSwarmList([{ id: created.id, name: created.name }]);
+          setSavedAs(canvasForm(created.name, [], []));
         }
       }
       setLoading(false);
@@ -1150,6 +1175,8 @@ function SwarmsCanvas({
     if (created) {
       setSwarmList((prev) => [...prev, { id: created.id, name: created.name }]);
       setSwarmId(created.id);
+      storedFormRef.current = swarmStoredForm(created);
+      setStale(false);
       setSwarmName(created.name);
       setNodes([]);
       setEdges([]);
@@ -1192,9 +1219,12 @@ function SwarmsCanvas({
       if (created) {
         setSwarmList([{ id: created.id, name: created.name }]);
         setSwarmId(created.id);
+        storedFormRef.current = swarmStoredForm(created);
+        setStale(false);
         setSwarmName(created.name);
         setNodes([]);
         setEdges([]);
+        setSavedAs(canvasForm(created.name, [], []));
       }
     }
     toast.success("Swarm deleted");
@@ -1370,7 +1400,7 @@ function SwarmsCanvas({
     });
   }, [selectedNodeId, setNodes]);
 
-  const handleSave = async () => {
+  const handleSave = async (overwrite = false) => {
     if (!user) return;
     setSaving(true);
     // `label` IS NOT DECORATION — it is how the runtime picks a branch.
@@ -1395,6 +1425,8 @@ function SwarmsCanvas({
       targetHandle,
       label,
     }));
+    // What this save sends: an edit made while it is in flight stays unsaved.
+    const sent = canvasForm(swarmName, nodes, edges);
     // Strip transient runtime fields before persisting
     const cleanNodes = nodes.map((n) => ({
       ...n,
@@ -1419,8 +1451,9 @@ function SwarmsCanvas({
         return;
       }
       setSwarmId(created.id);
+      storedFormRef.current = swarmStoredForm(created);
       setSwarmList((prev) => [...prev, { id: created.id, name: created.name }]);
-      dirtyRef.current = false;
+      setSavedAs(sent);
       // Seed version history with the initial snapshot.
       void snapshotSwarmVersion({
         swarmId: created.id,
@@ -1435,16 +1468,52 @@ function SwarmsCanvas({
       return;
     }
 
-    const { error } = await supabase
+    // FOUND IN R288: the save wrote over whatever was stored, so a save from
+    // another tab undid this one's. Runs, deploys and publishing write the row
+    // too, so its updated_at cannot say who changed it: the stored definition
+    // is compared with what this page read, and the update lands only on that
+    // read.
+    const { data: stored, error: readError } = await supabase
+      .from("swarms")
+      .select("name, nodes, edges, updated_at")
+      .eq("id", swarmId)
+      .maybeSingle();
+    if (readError || !stored) {
+      setSaving(false);
+      toast.error("Failed to save", {
+        description: readError?.message ?? "The swarm is no longer there.",
+      });
+      return;
+    }
+    if (
+      !overwrite &&
+      storedFormRef.current !== null &&
+      swarmStoredForm(stored) !== storedFormRef.current
+    ) {
+      setSaving(false);
+      setStale(true);
+      toast.error("This swarm was changed in another tab or session after this page read it");
+      return;
+    }
+    const { data: written, error } = await supabase
       .from("swarms")
       .update({ name: swarmName, nodes: cleanNodes as never, edges: cleanEdges as never })
-      .eq("id", swarmId);
+      .eq("id", swarmId)
+      .eq("updated_at", stored.updated_at)
+      .select("name, nodes, edges")
+      .maybeSingle();
     setSaving(false);
-    if (error) {
-      toast.error("Failed to save");
+    if (error || !written) {
+      toast.error("Failed to save", {
+        description:
+          error?.message ??
+          "The swarm was written to while this save was in progress. Nothing was saved; save again.",
+      });
     } else {
+      storedFormRef.current = swarmStoredForm(written);
+      setStale(false);
       setSwarmList((prev) => prev.map((s) => (s.id === swarmId ? { ...s, name: swarmName } : s)));
-      dirtyRef.current = false;
+      setSavedAs(sent);
       // Auto-snapshot into history, but skip if the graph is unchanged since the
       // last snapshot so repeated saves don't pile up identical versions.
       const hash = graphHash(nodes, edges);
@@ -1490,7 +1559,6 @@ function SwarmsCanvas({
     setEdges(vEdges.map(withDefaultEdgeStyle));
     setSelectedNodeId(null);
     setActiveRunId(null);
-    dirtyRef.current = true;
     idCounter.current = vNodes.length + 1;
     lastVersionHashRef.current = null; // force the next Save to snapshot the restored graph
     toast.success("Version restored — hit Save to keep it.");
@@ -1519,7 +1587,6 @@ function SwarmsCanvas({
     setNodes((nds: Node<SwarmNodeData>[]) =>
       nds.map((n) => (pos.has(n.id) ? { ...n, position: pos.get(n.id)! } : n)),
     );
-    dirtyRef.current = true;
     setTimeout(() => {
       try {
         reactFlow.fitView({ padding: 0.2, duration: 300 });
@@ -2154,9 +2221,59 @@ function SwarmsCanvas({
                   <LayoutGrid className="h-3.5 w-3.5" />
                 </Button>
 
+                {unsaved && (
+                  <span
+                    className="text-xs text-amber-600 dark:text-amber-400"
+                    title="Save to keep them."
+                    data-testid="swarm-unsaved"
+                  >
+                    Unsaved changes
+                  </span>
+                )}
+                {stale && (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs"
+                    title="This swarm was changed in another tab or session, so Save did not write over it."
+                    data-testid="swarm-stale"
+                  >
+                    Changed elsewhere, not saved
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 px-1.5 text-xs"
+                      disabled={saving}
+                      onClick={async () => {
+                        if (!swarmId) return;
+                        const { data, error } = await supabase
+                          .from("swarms")
+                          .select("*")
+                          .eq("id", swarmId)
+                          .maybeSingle();
+                        if (error || !data) {
+                          toast.error("Could not reload the swarm", {
+                            description: error?.message ?? "It is no longer there.",
+                          });
+                          return;
+                        }
+                        applySwarmRow(data);
+                      }}
+                    >
+                      Reload
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 px-1.5 text-xs"
+                      disabled={saving}
+                      onClick={() => void handleSave(true)}
+                    >
+                      Overwrite with mine
+                    </Button>
+                  </span>
+                )}
                 {/* ── Save ── */}
                 <Button
-                  onClick={handleSave}
+                  onClick={() => void handleSave()}
                   variant="outline"
                   size="sm"
                   className="h-8"
@@ -2322,6 +2439,9 @@ function SwarmsCanvas({
         {/* Right side: inspector when a node is selected */}
         {selectedNode && (
           <NodeInspector
+            // One inspector per node: its mount effect prunes MCP servers that
+            // no longer exist from THIS node's selection (R323).
+            key={selectedNode.id}
             node={selectedNode}
             knowledgeBases={knowledgeBases}
             agentLibrary={agentLibrary}
@@ -2422,31 +2542,18 @@ function SwarmsPage() {
     return <SwarmGallery />;
   }
 
-  if (isFullscreen) {
-    return (
-      <div className="fixed inset-0 z-50 bg-background">
-        <ReactFlowProvider>
-          <SwarmsCanvas
-            initialTemplate={template}
-            initialSwarmId={swarm}
-            isFullscreen
-            onToggleFullscreen={() => setIsFullscreen(false)}
-            onBackToGallery={goToGallery}
-          />
-        </ReactFlowProvider>
-      </div>
-    );
-  }
-
+  // One tree for both sizes. FOUND IN R270: fullscreen was a second tree, so
+  // switching to it or back unmounted the canvas and opened the swarm afresh
+  // from the database, and every unsaved edit went with it, without a word.
   return (
-    <div className="flex">
+    <div className={isFullscreen ? "fixed inset-0 z-50 flex bg-background" : "flex"}>
       <div className="flex-1 min-w-0">
         <ReactFlowProvider>
           <SwarmsCanvas
             initialTemplate={template}
             initialSwarmId={swarm}
-            isFullscreen={false}
-            onToggleFullscreen={() => setIsFullscreen(true)}
+            isFullscreen={isFullscreen}
+            onToggleFullscreen={() => setIsFullscreen((f) => !f)}
             onBackToGallery={goToGallery}
           />
         </ReactFlowProvider>

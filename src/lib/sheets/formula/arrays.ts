@@ -30,6 +30,24 @@ export function withTail(m: Matrix, t: Tail | undefined): Matrix {
   return m;
 }
 
+/** A range of cells, as a function that answers with one names it (R338). */
+export type Area = { sheet: string; r0: number; c0: number; r1: number; c1: number };
+
+const AREAS = new WeakMap<Matrix, Area>();
+
+/**
+ * The range INDEX, OFFSET or INDIRECT answered with, kept with the values
+ * read from it. FOUND IN R338: @ took the top-left value of such an answer,
+ * where Excel's @ takes the cell in the formula's own row or column, as it
+ * does for a range written out: in row 5, =@INDEX(A2:B7,0,2) is B5.
+ */
+export function withArea(v: Value, area: Area): Value {
+  if (isMatrix(v)) AREAS.set(v, area);
+  return v;
+}
+
+export const areaOf = (v: Value): Area | undefined => (isMatrix(v) ? AREAS.get(v) : undefined);
+
 /** A whole column or row as read: the used part, and the blank rest as its tail. */
 export function wholeRange(m: Matrix, whole: "cols" | "rows"): Matrix {
   const width = m[0]?.length ?? 0;

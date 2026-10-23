@@ -406,6 +406,29 @@ consume each table. Crawls can run on a daily/weekly schedule with
 schema-drift notifications. Object-storage and Iceberg credentials are
 encrypted with the same `PROVIDER_CREDS_SECRET` key.
 
+An Iceberg catalog is tested before it is saved. One that cannot be reached is
+not saved, and the dialog says which address and why: its host name does not
+resolve, nothing is listening there, the connection timed out, or its TLS
+certificate was not accepted. Each request to a catalog, in the test and in a
+crawl, gives up after 30 seconds.
+
+A crawl removes an asset only when the source said it is gone. An Iceberg
+catalog that cannot be read fails the crawl, with the reason, and every asset
+stays as it was. A namespace or table that cannot be read keeps what was
+catalogued from it (its owner, description and tags included), and the crawl
+says how many parts it could not read.
+
+A source whose last crawl failed reads **failed** in the Sources list, and a
+bar above the assets names it with the reason, for every failed source when
+**All assets** is selected or for the one picked. Its owner can **Re-crawl**
+from the bar; the bar goes once a crawl succeeds.
+
+One crawl of a source runs at a time. A crawl claims its source by moving it to
+"crawling", so a second **Re-crawl** says one is already running, and a
+scheduled pass leaves the source alone (R315). A crawl that died leaves its
+claim; another may take it once the source has not changed for
+`CATALOG_CRAWL_LEASE_MINUTES` (60 by default).
+
 ## Staying connected
 
 Three things run underneath every connection. All are tuned by the operator —

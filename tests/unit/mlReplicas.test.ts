@@ -111,7 +111,7 @@ describe("scoring spreads across the copies", () => {
 
   it("and taking the endpoint down stops all of them", () => {
     const un = SERVE.slice(SERVE.indexOf("export async function undeploy"));
-    expect(un.slice(0, 600)).toContain('await retireReplica(replica, "undeployed");');
+    expect(un.slice(0, 1200)).toContain('await retireReplica(replica, "undeployed");');
   });
 });
 
@@ -194,7 +194,11 @@ describe("the reaper understands copies", () => {
     // endpoint's own timestamps say.
     const reap = SERVE.slice(SERVE.indexOf("export async function reapIdleDeployments"));
     expect(reap).toContain("...replicas.flatMap((r) => [r.last_used_at, r.last_started_at])");
-    expect(reap).toContain('for (const replica of replicas) await retireReplica(replica, "idle");');
+    // Every copy is retired, listed again after the endpoint is marked (R314),
+    // so a copy recorded meanwhile is not left behind.
+    expect(reap).toContain(
+      'for (const replica of await listReplicas(raw.id)) await retireReplica(replica, "idle");',
+    );
   });
 });
 

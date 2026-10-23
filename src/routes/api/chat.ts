@@ -20,9 +20,16 @@ import {
   parseGuardrails,
   isAnyGuardrailActive,
   evaluateInputGuardrails,
+  piiRedactorFor,
+  redactHistoryPII,
   applyOutputGuardrails,
   type OutputDecision,
 } from "@/utils/guardrails";
+import {
+  agentConfigRefusal,
+  failedRead,
+  type AgentConfigRead,
+} from "@/utils/agents/agentConfigGate";
 import { budgetMessage, getBudgetDecision } from "@/utils/budgetGuard.server";
 import { internalSecretMatches } from "@/utils/internalOrigin.server";
 import {
@@ -111,19 +118,28 @@ function getServerSupabase(authToken?: string) {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_PUBLISHABLE_KEY;
   if (!url || !key) return null;
-  return createClient<Database>(url, key, {
-    auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
-    global: authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : undefined,
-  });
+  return createClient<Database>(
+    url,
+    key,
+    withNulSafeFetch({
+      auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
+      global: authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : undefined,
+    }),
+  );
 }
 
-async function getUserIdFromRequest(request: Request): Promise<string | null> {
+async function getUserIdFromRequest(request: Request): Promise<string | null | CallerCheckFailed> {
   const auth = request.headers.get("authorization");
   if (!auth?.startsWith("Bearer ")) return null;
   const token = auth.slice(7);
   const sb = getServerSupabase();
   if (!sb) return null;
-  const { data } = await sb.auth.getClaims(token);
+  const { data, error } = await sb.auth.getClaims(token);
+  // R297: a check that failed is not "nobody". A null user skips the IAM
+  // model rules and the budget cap below, so this turn would have run
+  // ungoverned on a token that is good.
+  const failed = checkFailed(error);
+  if (failed) return failed;
   return data?.claims?.sub ?? null;
 }
 
@@ -334,6 +350,8 @@ function withPostTurnMemory(
     config: import("@/utils/memory/types").MemoryConfig;
     userMessage: string;
     apiKey: string;
+    /** The agent's PII policy, applied to what memory stores (R351). */
+    redact: (text: string, side: "input" | "output") => string;
   },
 ): ReadableStream<Uint8Array> | null {
   if (!upstream) return upstream;
@@ -396,6 +414,7 @@ function withPostTurnMemory(
                 windowMessages: ctx.config.stm_window_messages,
                 summaryModel: ctx.config.stm_summary_model,
                 apiKey: ctx.apiKey,
+                redact: ctx.redact,
               });
             } catch (e) {
               console.warn("[memory.post] summarize failed:", (e as Error).message);
@@ -408,8 +427,8 @@ function withPostTurnMemory(
                 userId: ctx.userId,
                 agentId: ctx.agentId,
                 conversationId: ctx.conversationId ?? null,
-                userMessage: ctx.userMessage,
-                assistantMessage: assistantText,
+                userMessage: ctx.redact(ctx.userMessage, "input"),
+                assistantMessage: ctx.redact(assistantText, "output"),
                 apiKey: ctx.apiKey,
                 maxItems: ctx.config.ltm_max_items,
               });
@@ -469,6 +488,8 @@ type TraceContext = {
 // runtime, BI Agent, KB ingestion, memory work, etc. all price the same
 // model the same way.
 import { bodyJson, bodyText } from "@/utils/observability/redaction.server";
+import { traceToolCalls } from "@/lib/traceToolCalls";
+import { tapStream } from "@/lib/tapStream";
 import {
   MAX_BODY_CHARS,
   MAX_MESSAGES,
@@ -479,6 +500,8 @@ import {
 import { approxTokens, estimateImageCost, isImageModel } from "@/utils/observability/pricing";
 import { priceCall } from "@/utils/observability/priceResolver";
 import { providerReportedCost } from "@/utils/observability/providerCost";
+import { CallerCheckFailed, checkFailed } from "@/utils/callerLookup.server";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
 const DECISION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -626,8 +649,10 @@ async function recordTrace(opts: {
   if (loopIn > 0 || loopOut > 0) {
     safePayload.turn_tokens_in = tokensIn + loopIn;
     safePayload.turn_tokens_out = tokensOut + loopOut;
+    // Twelve significant digits, not six places: a turn of sub-millionth
+    // calls would otherwise round to a figure no call cost (R318).
     safePayload.turn_cost_usd = Number(
-      (costUsd + estimateCost(trace.provider, trace.model, loopIn, loopOut)).toFixed(6),
+      (costUsd + estimateCost(trace.provider, trace.model, loopIn, loopOut)).toPrecision(12),
     );
   }
   if (Array.isArray(safePayload.messages)) {
@@ -677,7 +702,8 @@ async function recordTrace(opts: {
       response_payload: bodyJson(
         skipResponsePayload ? null : { preview: sanitizeTraceValue(assistantText.slice(0, 2000)) },
       ),
-      tool_calls: [],
+      // The turn's tool calls, where the Traces page reads them (R354).
+      tool_calls: bodyJson(traceToolCalls(safePayload.toolEvents)),
     };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error } = await (sb.from("execution_traces") as any).upsert(insertRow);
@@ -737,13 +763,17 @@ async function recordTrace(opts: {
 function withTraceTap(
   upstream: ReadableStream<Uint8Array> | null,
   trace: TraceContext,
-  opts?: { replayedFinal?: boolean; loopUsage?: { tokensIn: number; tokensOut: number } },
+  opts?: {
+    replayedFinal?: boolean;
+    loopUsage?: { tokensIn: number; tokensOut: number };
+    /** The turn's request: its caller leaving is not the turn failing (R363). */
+    signal?: AbortSignal;
+  },
 ): ReadableStream<Uint8Array> | null {
   if (!upstream) {
     void recordTrace({ trace, status: "error", errorMessage: "Empty upstream", assistantText: "" });
     return upstream;
   }
-  const reader = upstream.getReader();
   const decoder = new TextDecoder();
   let textBuffer = "";
   let assistantText = "";
@@ -798,123 +828,118 @@ function withTraceTap(
     }
   };
 
-  return new ReadableStream<Uint8Array>({
-    async start(controller) {
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (!value) continue;
-          controller.enqueue(value);
-          textBuffer += decoder.decode(value, { stream: true });
-          let idx: number;
-          while ((idx = textBuffer.indexOf("\n")) !== -1) {
-            let line = textBuffer.slice(0, idx);
-            textBuffer = textBuffer.slice(idx + 1);
-            if (line.endsWith("\r")) line = line.slice(0, -1);
-            consumeLine(line);
-          }
-        }
-        if (textBuffer.trim()) consumeLine(textBuffer.trim());
-        // Count generated images in the assembled assistant payload.
-        const imgMatches = assistantText.match(IMAGE_MD_RE);
-        if (imgMatches) imageCount = imgMatches.length;
-        // Emit a final cost event so observability tracers (which don't know
-        // the per-model price table or the resolved agent model) can record
-        // accurate per-node cost without a second DB lookup.
-        //
-        // This event reports the WHOLE TURN: the tool rounds' aggregate usage
-        // (loopUsage, from the loop's headers) plus the final call — or, when
-        // the final was replayed from the last tool round, the loop aggregate
-        // alone (which already includes that round). Without the loop part,
-        // agent turns showed latency but zero tokens/cost in the chat UI: the
-        // parent's billing columns are deliberately zero for replayed finals
-        // (children carry the cost), and this event used to mirror that.
-        try {
-          const isImg = isImageModel(trace.model) || imageCount > 0;
-          const loopIn = opts?.loopUsage?.tokensIn ?? 0;
-          const loopOut = opts?.loopUsage?.tokensOut ?? 0;
-          const finalIn = opts?.replayedFinal ? 0 : (upstreamTokensIn ?? trace.promptTokensApprox);
-          const finalOut =
-            isImg || opts?.replayedFinal ? 0 : (upstreamTokensOut ?? approxTokens(assistantText));
-          const tIn = loopIn + finalIn;
-          const tOut = loopOut + finalOut;
-          // The provider's own figure covers the FINAL call only; the tool
-          // rounds are separate upstream calls whose costs live on the child
-          // traces, so their share is still estimated here.
-          const cUsd =
-            upstreamCostUsd !== null
-              ? upstreamCostUsd + estimateCost(trace.provider, trace.model, loopIn, loopOut)
-              : isImg
-                ? estimateImageCost(trace.model, Math.max(1, imageCount)) +
-                  estimateCost(trace.provider, trace.model, loopIn, loopOut)
-                : estimateCost(trace.provider, trace.model, tIn, tOut);
-          controller.enqueue(
-            new TextEncoder().encode(
-              `event: cost\ndata: ${JSON.stringify({ model: trace.model, costUsd: cUsd, tokensIn: tIn, tokensOut: tOut })}\n\n`,
-            ),
-          );
-        } catch {
-          /* never break the stream over telemetry */
-        }
-        // CRITICAL: await the trace insert BEFORE closing the controller.
-        // In Cloudflare Workers / serverless runtimes, fire-and-forget promises
-        // after the response stream closes are killed when the request ends —
-        // which silently drops every trace. Awaiting here keeps the insert
-        // inside the request lifetime so it actually persists.
-        await recordTrace({
-          trace,
-          status: "success",
-          assistantText,
-          upstreamCostUsd: upstreamCostUsd ?? undefined,
-          upstreamTokensIn: upstreamTokensIn ?? undefined,
-          upstreamTokensOut: upstreamTokensOut ?? undefined,
-          imageCount,
-          replayedFinal: opts?.replayedFinal,
-          loopUsage: opts?.loopUsage,
-        });
-        // Fire post-turn n8n notification (also inside request lifetime).
-        if (trace.n8nNotify?.webhookUrl) {
-          const result = await notifyN8nWebhook({
-            webhookUrl: trace.n8nNotify.webhookUrl,
-            authHeader: trace.n8nNotify.authHeader,
-            payload: {
-              event: "agent.turn.completed",
-              traceId: trace.traceId,
-              agentId: trace.agentId ?? null,
-              agentName: trace.agentName,
-              provider: trace.provider,
-              model: trace.model,
-              userId: trace.userId,
-              prompt: trace.promptText.slice(0, 4000),
-              response: assistantText.slice(0, 8000),
-              latencyMs: Date.now() - trace.startedAt,
-              timestamp: new Date().toISOString(),
-            },
-          });
-          if (!result.ok) {
-            console.warn("[n8n notify] failed:", result.detail || result.status);
-          }
-        }
-        controller.close();
-      } catch (err) {
-        await recordTrace({
-          trace,
-          status: "error",
-          errorMessage: err instanceof Error ? err.message : "Stream error",
-          assistantText,
-        });
-        controller.error(err);
+  // One record per turn, however the stream ends (R363). Its status, and the
+  // spend it carries, are decided once: see tapStream.
+  const record = (status: "success" | "error" | "cancelled", errorMessage?: string) => {
+    imageCount = assistantText.match(IMAGE_MD_RE)?.length ?? 0;
+    return recordTrace({
+      trace,
+      status,
+      errorMessage,
+      assistantText,
+      upstreamCostUsd: upstreamCostUsd ?? undefined,
+      upstreamTokensIn: upstreamTokensIn ?? undefined,
+      upstreamTokensOut: upstreamTokensOut ?? undefined,
+      imageCount,
+      replayedFinal: opts?.replayedFinal,
+      loopUsage: opts?.loopUsage,
+    });
+  };
+
+  return tapStream(upstream, {
+    signal: opts?.signal,
+    onChunk(value) {
+      textBuffer += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = textBuffer.indexOf("\n")) !== -1) {
+        let line = textBuffer.slice(0, idx);
+        textBuffer = textBuffer.slice(idx + 1);
+        if (line.endsWith("\r")) line = line.slice(0, -1);
+        consumeLine(line);
       }
     },
-    async cancel(reason) {
-      reader.cancel(reason).catch(() => {});
-      await recordTrace({
-        trace,
-        status: "error",
-        errorMessage: typeof reason === "string" ? reason : "Stream cancelled",
-        assistantText,
-      });
+    async onEnd(end, send) {
+      if (end.how === "left") {
+        // Stop, a closed tab, an API caller that hung up: the turn was
+        // stopped, not failed, and what it spent until then still counts.
+        await record("cancelled", "The caller left before the answer ended");
+        return;
+      }
+      if (end.how === "failed") {
+        await record("error", end.error instanceof Error ? end.error.message : "Stream error");
+        return;
+      }
+      if (textBuffer.trim()) consumeLine(textBuffer.trim());
+      // Count generated images in the assembled assistant payload.
+      const imgMatches = assistantText.match(IMAGE_MD_RE);
+      if (imgMatches) imageCount = imgMatches.length;
+      // Emit a final cost event so observability tracers (which don't know
+      // the per-model price table or the resolved agent model) can record
+      // accurate per-node cost without a second DB lookup.
+      //
+      // This event reports the WHOLE TURN: the tool rounds' aggregate usage
+      // (loopUsage, from the loop's headers) plus the final call — or, when
+      // the final was replayed from the last tool round, the loop aggregate
+      // alone (which already includes that round). Without the loop part,
+      // agent turns showed latency but zero tokens/cost in the chat UI: the
+      // parent's billing columns are deliberately zero for replayed finals
+      // (children carry the cost), and this event used to mirror that.
+      try {
+        const isImg = isImageModel(trace.model) || imageCount > 0;
+        const loopIn = opts?.loopUsage?.tokensIn ?? 0;
+        const loopOut = opts?.loopUsage?.tokensOut ?? 0;
+        const finalIn = opts?.replayedFinal ? 0 : (upstreamTokensIn ?? trace.promptTokensApprox);
+        const finalOut =
+          isImg || opts?.replayedFinal ? 0 : (upstreamTokensOut ?? approxTokens(assistantText));
+        const tIn = loopIn + finalIn;
+        const tOut = loopOut + finalOut;
+        // The provider's own figure covers the FINAL call only; the tool
+        // rounds are separate upstream calls whose costs live on the child
+        // traces, so their share is still estimated here.
+        const cUsd =
+          upstreamCostUsd !== null
+            ? upstreamCostUsd + estimateCost(trace.provider, trace.model, loopIn, loopOut)
+            : isImg
+              ? estimateImageCost(trace.model, Math.max(1, imageCount)) +
+                estimateCost(trace.provider, trace.model, loopIn, loopOut)
+              : estimateCost(trace.provider, trace.model, tIn, tOut);
+        send(
+          new TextEncoder().encode(
+            `event: cost\ndata: ${JSON.stringify({ model: trace.model, costUsd: cUsd, tokensIn: tIn, tokensOut: tOut })}\n\n`,
+          ),
+        );
+      } catch {
+        /* never break the stream over telemetry */
+      }
+      // CRITICAL: await the trace insert BEFORE closing the controller.
+      // In Cloudflare Workers / serverless runtimes, fire-and-forget promises
+      // after the response stream closes are killed when the request ends —
+      // which silently drops every trace. Awaiting here keeps the insert
+      // inside the request lifetime so it actually persists.
+      await record("success");
+      // Fire post-turn n8n notification (also inside request lifetime).
+      if (trace.n8nNotify?.webhookUrl) {
+        const result = await notifyN8nWebhook({
+          webhookUrl: trace.n8nNotify.webhookUrl,
+          authHeader: trace.n8nNotify.authHeader,
+          payload: {
+            event: "agent.turn.completed",
+            traceId: trace.traceId,
+            agentId: trace.agentId ?? null,
+            agentName: trace.agentName,
+            provider: trace.provider,
+            model: trace.model,
+            userId: trace.userId,
+            prompt: trace.promptText.slice(0, 4000),
+            response: assistantText.slice(0, 8000),
+            latencyMs: Date.now() - trace.startedAt,
+            timestamp: new Date().toISOString(),
+          },
+        });
+        if (!result.ok) {
+          console.warn("[n8n notify] failed:", result.detail || result.status);
+        }
+      }
     },
   });
 }
@@ -1146,9 +1171,16 @@ export const Route = createFileRoute("/api/chat")({
           // Constant-time compare against INTERNAL_RUN_SECRET (falling back to
           // the service-role key) so the secret can't be probed by timing.
           const isInternalRun = internalSecretMatches(request.headers.get("x-internal-run-secret"));
-          const userId = isInternalRun
+          const caller = isInternalRun
             ? (body.internalUserId ?? null)
             : await getUserIdFromRequest(request);
+          if (caller !== null && typeof caller === "object") {
+            return new Response(JSON.stringify({ error: caller.checkFailed }), {
+              status: 503,
+              headers: { "Content-Type": "application/json", ...corsHeaders },
+            });
+          }
+          const userId = caller;
 
           // IAM model governance: a user subject to model rules (their own or
           // any of their groups') may only call allowed provider/model
@@ -1192,7 +1224,25 @@ export const Route = createFileRoute("/api/chat")({
 
           // Look up the agent for trace label, gateway flag, n8n webhook,
           // saved built-in tool toggles, AND saved tool-configs (per-tool
-          // alt-provider keys, n8n workflow allow-list, MCP server allow-list).
+          // alt-provider keys, n8n workflow allow-list, MCP server allow-list)
+          // — and the guardrails.
+          //
+          // R234: this read used to drop its error, under a comment saying the
+          // trace label is non-critical. That was true when the label was all
+          // it fetched. It has not been true since the allow-lists and the
+          // guardrails moved here, and nothing updated the handling: a read
+          // that failed left every default in place, which is the registry's
+          // default tool set (enabledToolsFromToggles returns undefined for an
+          // empty toggle record, and callers read that as "the default set")
+          // and DEFAULT_GUARDRAILS, where every filter is off. An agent whose
+          // owner had set a PII policy, a blocked-pattern list and a narrow
+          // tool allow-list ran as an unguarded assistant, and the turn looked
+          // entirely normal.
+          //
+          // So the configuration is established or the turn does not run. A
+          // missing row refuses too: the delete dialog promises that "API calls
+          // that reference it will stop working", and before this it kept
+          // answering, minus the guardrails it was deleted with.
           let agentName = "Playground";
           if (isInternalRun && typeof body.agentName === "string" && body.agentName.trim()) {
             agentName = body.agentName.trim().slice(0, 120);
@@ -1212,114 +1262,130 @@ export const Route = createFileRoute("/api/chat")({
           let agentSkillIds: string[] = [];
           let agentGuardrails: Guardrails = parseGuardrails(undefined);
           if (body.agentId && authToken) {
-            try {
-              const sb = getServerSupabase(authToken);
-              if (sb) {
-                const { data: a } = await sb
+            const sb = getServerSupabase(authToken);
+            let read: AgentConfigRead = null;
+            if (sb) {
+              try {
+                read = await sb
                   .from("agents")
                   .select("name, tools, n8n_webhook_url")
                   .eq("id", body.agentId)
                   .maybeSingle();
-                if (a?.name) agentName = a.name;
-                const tools = (a?.tools ?? {}) as {
-                  routeThroughGateway?: unknown;
-                  builtInTools?: Record<string, unknown>;
-                  toolConfigs?: Record<string, Record<string, unknown>>;
-                  workflows?: Record<string, Record<string, unknown>>;
-                  activeWorkflows?: Record<string, unknown>;
-                  mcpServerNames?: unknown;
-                  guardrails?: unknown;
-                  skillIds?: unknown;
-                };
-                if (Array.isArray(tools.skillIds)) {
-                  agentSkillIds = tools.skillIds.filter(
-                    (s): s is string => typeof s === "string" && s.length > 0,
-                  );
-                }
-                agentGuardrails = parseGuardrails(tools.guardrails);
-                agentRouteThroughGateway = tools.routeThroughGateway === true;
-                agentN8nWebhookUrl = a?.n8n_webhook_url ?? null;
-                if (tools.builtInTools && typeof tools.builtInTools === "object") {
-                  for (const [k, v] of Object.entries(tools.builtInTools)) {
-                    if (typeof v === "boolean") agentBuiltInToggles[k] = v;
-                  }
-                }
-                // toolConfigs.web_search / web_browse — provider + api_key
-                const ws = tools.toolConfigs?.web_search;
-                if (ws && typeof ws === "object") {
-                  agentToolConfigs.web_search = {
-                    provider: typeof ws.provider === "string" ? ws.provider : undefined,
-                    api_key: typeof ws.api_key === "string" ? ws.api_key : undefined,
-                  };
-                }
-                const wb = tools.toolConfigs?.web_browse;
-                if (wb && typeof wb === "object") {
-                  agentToolConfigs.web_browse = {
-                    provider: typeof wb.provider === "string" ? wb.provider : undefined,
-                    api_key: typeof wb.api_key === "string" ? wb.api_key : undefined,
-                  };
-                }
-                // n8n workflow allow-list — comma-separated string in the
-                // form's workflow config OR an array under the new field.
-                const n8nWf = tools.workflows?.n8n;
-                if (n8nWf && typeof n8nWf === "object") {
-                  const raw = (n8nWf as { workflow_ids?: unknown }).workflow_ids;
-                  if (typeof raw === "string") {
-                    agentToolConfigs.n8n_workflow_ids = raw
-                      .split(",")
-                      .map((s) => s.trim())
-                      .filter(Boolean);
-                  } else if (Array.isArray(raw)) {
-                    agentToolConfigs.n8n_workflow_ids = raw.filter(
-                      (s): s is string => typeof s === "string",
-                    );
-                  }
-                }
-                // MCP server allow-list
-                if (Array.isArray(tools.mcpServerNames)) {
-                  agentToolConfigs.mcp_server_names = tools.mcpServerNames.filter(
-                    (s): s is string => typeof s === "string" && s.trim().length > 0,
-                  );
-                }
-                // SQL table allow-list — saved on the agent under
-                // tools.toolConfigs.sql_query.table_names as a string array.
-                const sqlCfg = tools.toolConfigs?.sql_query;
-                if (sqlCfg && typeof sqlCfg === "object") {
-                  const raw = (sqlCfg as { table_names?: unknown }).table_names;
-                  if (Array.isArray(raw)) {
-                    agentToolConfigs.sql_table_names = raw.filter(
-                      (s): s is string => typeof s === "string" && s.trim().length > 0,
-                    );
-                  }
-                }
-                // Semantic model allow-list — saved under
-                // tools.toolConfigs.metric_query.model_names. Unlike the SQL
-                // list this is deny-by-default, so an absent config correctly
-                // leaves the tool with nothing and it is not registered.
-                const metricCfg = tools.toolConfigs?.metric_query;
-                if (metricCfg && typeof metricCfg === "object") {
-                  const raw = (metricCfg as { model_names?: unknown }).model_names;
-                  if (Array.isArray(raw)) {
-                    agentToolConfigs.metric_model_names = raw.filter(
-                      (s): s is string => typeof s === "string" && s.trim().length > 0,
-                    );
-                  }
-                }
-                // ML models. An ABSENT list means every model (the pre-list
-                // behaviour every existing agent relies on); a present one,
-                // even empty, means exactly what it says.
-                const mlCfg = tools.toolConfigs?.ml_predict;
-                if (mlCfg && typeof mlCfg === "object") {
-                  const raw = (mlCfg as { model_names?: unknown }).model_names;
-                  if (Array.isArray(raw)) {
-                    agentToolConfigs.ml_model_names = raw.filter(
-                      (s): s is string => typeof s === "string" && s.trim().length > 0,
-                    );
-                  }
-                }
+              } catch (e) {
+                read = failedRead(e);
               }
-            } catch {
-              /* ignore — trace label is non-critical */
+            }
+            const refusal = agentConfigRefusal(read);
+            if (refusal) {
+              return new Response(
+                JSON.stringify({ error: refusal.code, message: refusal.message }),
+                {
+                  status: refusal.status,
+                  headers: { "Content-Type": "application/json", ...corsHeaders },
+                },
+              );
+            }
+            const a = read!.data as {
+              name?: string | null;
+              tools?: unknown;
+              n8n_webhook_url?: string | null;
+            };
+            if (a?.name) agentName = a.name;
+            const tools = (a?.tools ?? {}) as {
+              routeThroughGateway?: unknown;
+              builtInTools?: Record<string, unknown>;
+              toolConfigs?: Record<string, Record<string, unknown>>;
+              workflows?: Record<string, Record<string, unknown>>;
+              activeWorkflows?: Record<string, unknown>;
+              mcpServerNames?: unknown;
+              guardrails?: unknown;
+              skillIds?: unknown;
+            };
+            if (Array.isArray(tools.skillIds)) {
+              agentSkillIds = tools.skillIds.filter(
+                (s): s is string => typeof s === "string" && s.length > 0,
+              );
+            }
+            agentGuardrails = parseGuardrails(tools.guardrails);
+            agentRouteThroughGateway = tools.routeThroughGateway === true;
+            agentN8nWebhookUrl = a?.n8n_webhook_url ?? null;
+            if (tools.builtInTools && typeof tools.builtInTools === "object") {
+              for (const [k, v] of Object.entries(tools.builtInTools)) {
+                if (typeof v === "boolean") agentBuiltInToggles[k] = v;
+              }
+            }
+            // toolConfigs.web_search / web_browse — provider + api_key
+            const ws = tools.toolConfigs?.web_search;
+            if (ws && typeof ws === "object") {
+              agentToolConfigs.web_search = {
+                provider: typeof ws.provider === "string" ? ws.provider : undefined,
+                api_key: typeof ws.api_key === "string" ? ws.api_key : undefined,
+              };
+            }
+            const wb = tools.toolConfigs?.web_browse;
+            if (wb && typeof wb === "object") {
+              agentToolConfigs.web_browse = {
+                provider: typeof wb.provider === "string" ? wb.provider : undefined,
+                api_key: typeof wb.api_key === "string" ? wb.api_key : undefined,
+              };
+            }
+            // n8n workflow allow-list — comma-separated string in the
+            // form's workflow config OR an array under the new field.
+            const n8nWf = tools.workflows?.n8n;
+            if (n8nWf && typeof n8nWf === "object") {
+              const raw = (n8nWf as { workflow_ids?: unknown }).workflow_ids;
+              if (typeof raw === "string") {
+                agentToolConfigs.n8n_workflow_ids = raw
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean);
+              } else if (Array.isArray(raw)) {
+                agentToolConfigs.n8n_workflow_ids = raw.filter(
+                  (s): s is string => typeof s === "string",
+                );
+              }
+            }
+            // MCP server allow-list
+            if (Array.isArray(tools.mcpServerNames)) {
+              agentToolConfigs.mcp_server_names = tools.mcpServerNames.filter(
+                (s): s is string => typeof s === "string" && s.trim().length > 0,
+              );
+            }
+            // SQL table allow-list — saved on the agent under
+            // tools.toolConfigs.sql_query.table_names as a string array.
+            const sqlCfg = tools.toolConfigs?.sql_query;
+            if (sqlCfg && typeof sqlCfg === "object") {
+              const raw = (sqlCfg as { table_names?: unknown }).table_names;
+              if (Array.isArray(raw)) {
+                agentToolConfigs.sql_table_names = raw.filter(
+                  (s): s is string => typeof s === "string" && s.trim().length > 0,
+                );
+              }
+            }
+            // Semantic model allow-list — saved under
+            // tools.toolConfigs.metric_query.model_names. Unlike the SQL
+            // list this is deny-by-default, so an absent config correctly
+            // leaves the tool with nothing and it is not registered.
+            const metricCfg = tools.toolConfigs?.metric_query;
+            if (metricCfg && typeof metricCfg === "object") {
+              const raw = (metricCfg as { model_names?: unknown }).model_names;
+              if (Array.isArray(raw)) {
+                agentToolConfigs.metric_model_names = raw.filter(
+                  (s): s is string => typeof s === "string" && s.trim().length > 0,
+                );
+              }
+            }
+            // ML models. An ABSENT list means every model (the pre-list
+            // behaviour every existing agent relies on); a present one,
+            // even empty, means exactly what it says.
+            const mlCfg = tools.toolConfigs?.ml_predict;
+            if (mlCfg && typeof mlCfg === "object") {
+              const raw = (mlCfg as { model_names?: unknown }).model_names;
+              if (Array.isArray(raw)) {
+                agentToolConfigs.ml_model_names = raw.filter(
+                  (s): s is string => typeof s === "string" && s.trim().length > 0,
+                );
+              }
             }
           }
 
@@ -1494,6 +1560,10 @@ export const Route = createFileRoute("/api/chat")({
             ? parseGuardrails({ ...agentGuardrails, ...body.guardrails })
             : agentGuardrails;
 
+          // The prompt as the guardrail lets it leave this server: the
+          // knowledge-base search, the memory recall and the memory written
+          // after the turn all read this, not the raw text (R351).
+          let guardedPrompt = promptText;
           if (isAnyGuardrailActive(effectiveGuardrails) && promptText) {
             const decision = evaluateInputGuardrails(promptText, effectiveGuardrails);
             // THE TRACE IS STORAGE, AND STORAGE IS TRANSIT.
@@ -1536,6 +1606,7 @@ export const Route = createFileRoute("/api/chat")({
             // PII redaction in input — rewrite the last user message in
             // place so the upstream LLM never sees the raw values.
             if (Object.keys(decision.redactions).length > 0) {
+              guardedPrompt = decision.outboundText;
               const last = [...body.messages].reverse().find((m) => m.role === "user");
               if (last) {
                 if (typeof last.content === "string") {
@@ -1550,6 +1621,20 @@ export const Route = createFileRoute("/api/chat")({
               if (trace.requestPayload) {
                 trace.requestPayload.guardrailRedactions = decision.redactions;
               }
+            }
+          }
+          // The rest of the conversation is held to the same PII policy (R351).
+          // The check above rewrites only the newest user message, so a value
+          // it redacted on the turn it was typed went to the model, raw, in
+          // the history of every turn after. In place: the trace holds this
+          // same array, and the trace is storage too.
+          if (isAnyGuardrailActive(effectiveGuardrails)) {
+            const history = redactHistoryPII(body.messages, effectiveGuardrails);
+            history.messages.forEach((m, i) => {
+              body.messages[i].content = m.content;
+            });
+            if (Object.keys(history.counts).length > 0 && trace.requestPayload) {
+              trace.requestPayload.historyRedactions = history.counts;
             }
           }
           // Record the resolved guardrails on the trace for transparency.
@@ -1660,7 +1745,7 @@ export const Route = createFileRoute("/api/chat")({
           const autoRagAllowed = !explicitAllowList || explicitAllowList.includes("kb_search");
 
           if (autoRagAllowed && (body.agentId || extraKbIds.length > 0) && authToken) {
-            const query = promptText;
+            const query = guardedPrompt;
             if (query) {
               try {
                 const sbAuto = getServerSupabase(authToken);
@@ -1672,6 +1757,8 @@ export const Route = createFileRoute("/api/chat")({
                   // restricted docs stay owner-only, which is the safe side.
                   let principalEmail: string | null = null;
                   try {
+                    // caller-lookup: a failed check leaves the email unknown, and
+                    // restricted documents owner-only - the safe side (above).
                     const { data: claimsRes } = await sbAuto.auth.getClaims(authToken);
                     principalEmail =
                       (claimsRes?.claims as { email?: string } | undefined)?.email ?? null;
@@ -1690,14 +1777,15 @@ export const Route = createFileRoute("/api/chat")({
                     minSimilarity: autoRagMinSimilarity(),
                   });
                   citations = report.citations;
-                  // Audited for the same reason it is called unconditionally:
-                  // the search happened, and a provenance record that omits it
-                  // would say the answer consulted nothing. This is the path a
-                  // grounded agent actually takes -- retrieval here is
-                  // automatic, so the kb_search TOOL (and its audit) never runs.
+                  // Audited when a search happened: a provenance record that
+                  // omits it would say the answer consulted nothing. This is
+                  // the path a grounded agent actually takes -- retrieval here
+                  // is automatic, so the kb_search TOOL (and its audit) never
+                  // runs. An agent with no knowledge base searched nothing
+                  // (R348), and its turn records no search.
                   // userId is nullable on this branch; an audit row with no
                   // actor is not worth writing, and RLS would refuse it anyway.
-                  if (userId)
+                  if (userId && report.searched > 0)
                     auditEvent({
                       userId,
                       action: "kb.search",
@@ -1717,9 +1805,13 @@ export const Route = createFileRoute("/api/chat")({
                     });
                   // Called even when nothing came back: an empty result is a
                   // fact about the knowledge base, and the model has to be told
-                  // it searched rather than left to answer from memory.
+                  // it searched rather than left to answer from memory. But only
+                  // when there was one to search. Every agent turn comes through
+                  // here, and an agent with no knowledge base was told "A
+                  // knowledge base is attached ... It returned no matching
+                  // passages", and declined to answer from what it knew (R348).
                   effectiveSystemPrompt = buildGroundingPrompt(citations, body.systemPrompt, {
-                    searched: true,
+                    searched: report.searched > 0,
                     degraded: report.degraded,
                   });
                 }
@@ -1767,15 +1859,19 @@ export const Route = createFileRoute("/api/chat")({
                   userId,
                   agentId: body.agentId,
                   conversationId: body.conversationId ?? null,
-                  userPrompt: promptText,
+                  userPrompt: guardedPrompt,
                   config: memoryConfig,
                 });
                 recalledItems = loaded.recalled;
                 memorySummaryUsed = !!loaded.summaryBlock;
+                // The summary and the recalled memories were written from what
+                // the person typed, and may hold what this policy redacts: a
+                // summary folded before R351 read "User's email address is …".
+                const redactMemory = piiRedactorFor(effectiveGuardrails);
                 effectiveSystemPrompt = composeSystemPrompt({
                   basePrompt: effectiveSystemPrompt,
-                  ltmBlock: loaded.ltmBlock,
-                  summaryBlock: loaded.summaryBlock,
+                  ltmBlock: redactMemory(loaded.ltmBlock, "input").text,
+                  summaryBlock: redactMemory(loaded.summaryBlock, "input").text,
                 });
               }
             } catch (e) {
@@ -2230,6 +2326,7 @@ export const Route = createFileRoute("/api/chat")({
                 const loopOut =
                   Number(upstreamWithTools.headers.get("x-agentswarms-loop-usage-out") ?? 0) || 0;
                 const tapped = withTraceTap(upstreamWithTools.body, trace, {
+                  signal: request.signal,
                   replayedFinal: upstreamWithTools.headers.get("x-agentswarms-replayed") === "1",
                   loopUsage:
                     loopIn > 0 || loopOut > 0
@@ -2255,8 +2352,9 @@ export const Route = createFileRoute("/api/chat")({
                       conversationId: body.conversationId,
                       authToken,
                       config: memoryConfig,
-                      userMessage: promptText,
+                      userMessage: guardedPrompt,
                       apiKey: memoryApiKey,
+                      redact: (text, side) => piiRedactorFor(effectiveGuardrails)(text, side).text,
                     })
                   : withMem;
                 const guarded = withOutputGuardrails(
@@ -2287,7 +2385,7 @@ export const Route = createFileRoute("/api/chat")({
               maxTokens: body.maxTokens,
               gateway: gatewayOverride,
             });
-            const tapped = withTraceTap(upstream.body, trace);
+            const tapped = withTraceTap(upstream.body, trace, { signal: request.signal });
             const withCits = withCitationsPreamble(tapped, citations);
             const withSrc = withSourcesTrailer(withCits, citationSources(citations), []);
             const withMem = withMemoryUsedPreamble(withSrc, recalledItems, memorySummaryUsed);
@@ -2299,8 +2397,9 @@ export const Route = createFileRoute("/api/chat")({
                   conversationId: body.conversationId,
                   authToken,
                   config: memoryConfig,
-                  userMessage: promptText,
+                  userMessage: guardedPrompt,
                   apiKey: memoryApiKey,
+                  redact: (text, side) => piiRedactorFor(effectiveGuardrails)(text, side).text,
                 })
               : withMem;
             const guarded = withOutputGuardrails(

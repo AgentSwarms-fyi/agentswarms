@@ -83,19 +83,28 @@ describe("the sandbox image bakes what lakehouse pipeline nodes load", () => {
     expect(df).toContain("chmod -R a+rX /opt/agentswarms/duckdb-ext");
   });
 
-  it("the generated lakehouse code prefers the baked directory and only LOADs from it", () => {
-    const codegen = rd("src/utils/etl/codegen.ts");
-    const fn = codegen.slice(codegen.indexOf("export function lakehouseAttachFn"));
-    expect(fn).toContain("_baked = '/opt/agentswarms/duckdb-ext'");
-    expect(fn).toContain("if os.path.isdir(_baked):");
-    expect(fn).toContain("duckdb.connect(config={'extension_directory': _baked})");
-    // The INSTALL stays, in the fallback only, for an image built without them.
-    const install = fn.indexOf("INSTALL ducklake; INSTALL postgres; INSTALL httpfs;");
-    const elseAt = fn.indexOf("else:");
-    expect(install).toBeGreaterThan(elseAt);
-    // What the sandbox loads is exactly what its image bakes.
-    const loaded = [...fn.matchAll(/LOAD ([a-z_]+);/g)].map((m) => m[1]);
-    const baked = installs(rd("docker/notebook-runtime/Dockerfile"));
-    expect(loaded.sort()).toEqual(baked.sort());
+  it("but no generated program attaches the catalog any more", () => {
+    // R232. The bake stays because a NOTEBOOK may use duckdb with httpfs or
+    // postgres, and that is the user's own code. What no longer exists is the
+    // helper that attached DuckLake from engine credentials: ETL lost it in
+    // R227, the Spark lakehouse target in R230 and ML in R231, after which
+    // nothing in src called it and the bundler dropped it from dist — found by
+    // checking a real image rather than by any test, because the tests that
+    // named it called it themselves.
+    //
+    // Pinned as an absence, over every generated program, so that reaching for
+    // an attach again is a failure here rather than a credential back in a
+    // sandbox.
+    for (const f of [
+      "src/utils/etl/codegen.ts",
+      "src/utils/etl/sparkCodegen.ts",
+      "src/utils/ml/pyTrain.ts",
+      "src/utils/lakehouse/sparkQueryCodegen.ts",
+    ]) {
+      expect(rd(f), f).not.toMatch(/ATTACH 'ducklake:|_lakehouse_con|lakehouseAttachFn/);
+    }
+    // The sandbox still uses duckdb — to read the Parquet the app stages and
+    // to write what it loads — and neither needs an extension.
+    expect(rd("src/utils/etl/codegen.ts")).toContain("con = duckdb.connect()");
   });
 });

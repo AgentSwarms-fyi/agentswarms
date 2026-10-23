@@ -5,6 +5,7 @@
 // rather than growing a second copy of all of it. What lives here is only what
 // is genuinely different: scale-to-zero cold starts, the start lease, and the
 // deploy handshake that records what tools the server actually exposes.
+import { recentlyServing, sawServing, touchDue } from "./warmPath";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Database } from "@/integrations/supabase/types";
 import {
@@ -107,26 +108,39 @@ async function acquireStartLease(appId: string): Promise<boolean> {
   return Array.isArray(data) && data.length > 0;
 }
 
+/** What a deploy answers when the app was stopped while it started (R320). */
+export const STOPPED_WHILE_DEPLOYING =
+  "The MCP server was stopped while it was starting, so it is not running. Deploy it again to start it.";
+
+/**
+ * Write the status MCP Builder shows. With `heldTo`, only over that status,
+ * and the answer says whether it landed.
+ */
 async function setAppStatus(
   appId: string,
   status: McpAppRow["status"],
   deployError?: string | null,
-): Promise<void> {
+  heldTo?: McpAppRow["status"],
+): Promise<boolean> {
   // FOUND FROM THE SURVEY (R89). This column is what MCP Builder shows, and
   // every path that ends a start writes it here. Dropped, the two failures
   // are opposite and both bad: a server that DIED left the app on "ready",
   // so the page said Running over nothing; a server that came up left it on
   // the previous status, so the page said Error over a server answering
   // requests.
-  const { error } = await supabaseAdmin
+  let q = supabaseAdmin
     .from("mcp_apps")
     .update({ status, deploy_error: deployError ?? null })
     .eq("id", appId);
+  if (heldTo) q = q.eq("status", heldTo);
+  const { data, error } = await q.select("id");
   if (error) {
     console.warn(
       `[mcp] app ${appId} is ${status} but its record could not be marked so: ${error.message}; MCP Builder will show what it showed before`,
     );
+    return false;
   }
+  return (data ?? []).length > 0;
 }
 
 /**
@@ -160,11 +174,18 @@ async function waitReady(session: SessionRow, deadline: number): Promise<WaitOut
 /**
  * Return a live endpoint for this app, cold-starting the sandbox if needed.
  *
- * Scale-to-zero means the first call after an idle period pays the start cost;
- * every later call finds the session already ready and does one DB read.
+ * Scale-to-zero means the first call after an idle period pays the start cost.
+ * A later call reads the settings, the owner's grant and the live session at
+ * once, and takes a sandbox this process saw serving moments ago as serving
+ * (R367, see warmPath.ts).
  */
 export async function ensureRunning(app: McpAppRow): Promise<EnsureResult> {
-  const settings = await getRuntimeSettings();
+  // Three round trips at once, not one after another (R367).
+  const [settings, permitted, existing] = await Promise.all([
+    getRuntimeSettings(),
+    canUseRuntime(app.user_id),
+    liveSession(app.id),
+  ]);
   if (!settings.enabled) {
     return fail(
       503,
@@ -172,11 +193,11 @@ export async function ensureRunning(app: McpAppRow): Promise<EnsureResult> {
       "The server runtime is not enabled on this instance, so MCP servers cannot run.",
     );
   }
-  // Re-checked on every cold start, not only at deploy time: revoking an
-  // owner's runtime grant has to actually stop their published servers, and
-  // this is the one place every path (edge request, test console, deploy)
-  // funnels through.
-  if (!(await canUseRuntime(app.user_id))) {
+  // Re-checked on every request, not only at deploy time: revoking an owner's
+  // runtime grant has to actually stop their published servers, and this is
+  // the one place every path (edge request, test console, deploy) funnels
+  // through.
+  if (!permitted) {
     return fail(
       403,
       "not_permitted",
@@ -184,12 +205,19 @@ export async function ensureRunning(app: McpAppRow): Promise<EnsureResult> {
     );
   }
 
+  // Seen serving moments ago: no re-probe, and its activity written only as
+  // often as the idle reaper could need it.
+  if (existing?.status === "ready" && existing.endpoint && recentlyServing(existing.id)) {
+    if (touchDue(existing.last_active_at)) await touch(existing.id);
+    return { ok: true, endpoint: existing.endpoint, session: existing };
+  }
+
   const deadline = Date.now() + COLD_START_MS;
 
-  const existing = await liveSession(app.id);
   if (existing) {
     const outcome = await waitReady(existing, deadline);
     if (outcome.ready && outcome.row.endpoint) {
+      sawServing(outcome.row.id);
       await touch(outcome.row.id);
       return { ok: true, endpoint: outcome.row.endpoint, session: outcome.row };
     }
@@ -206,6 +234,7 @@ export async function ensureRunning(app: McpAppRow): Promise<EnsureResult> {
       if (!s) continue;
       const outcome = await waitReady(s, deadline);
       if (outcome.ready && outcome.row.endpoint) {
+        sawServing(outcome.row.id);
         await touch(outcome.row.id);
         return { ok: true, endpoint: outcome.row.endpoint, session: outcome.row };
       }
@@ -260,7 +289,10 @@ export async function ensureRunning(app: McpAppRow): Promise<EnsureResult> {
           (logs
             ? "the process exited without an error message"
             : "the process exited before writing any output");
-        await setAppStatus(app.id, "error", reason.slice(0, 300));
+        // FOUND IN R320: held to the deploy, so a Stop meanwhile stays "stopped".
+        if (!(await setAppStatus(app.id, "error", reason.slice(0, 300), "deploying"))) {
+          return fail(409, "stopped", STOPPED_WHILE_DEPLOYING);
+        }
         return fail(503, "start_failed", `The MCP server started and then stopped: ${reason}`);
       }
 
@@ -273,7 +305,9 @@ export async function ensureRunning(app: McpAppRow): Promise<EnsureResult> {
       const reason = detail
         ? `Still starting after ${waited}s. Last error in its log: ${detail}`
         : `Still starting after ${waited}s, with no error in its output.`;
-      await setAppStatus(app.id, "error", reason.slice(0, 300));
+      if (!(await setAppStatus(app.id, "error", reason.slice(0, 300), "deploying"))) {
+        return fail(409, "stopped", STOPPED_WHILE_DEPLOYING);
+      }
       return fail(
         503,
         "start_timeout",
@@ -283,11 +317,21 @@ export async function ensureRunning(app: McpAppRow): Promise<EnsureResult> {
       );
     }
 
-    await setAppStatus(app.id, "ready");
+    // FOUND IN R320. "Ready" was written over whatever the app held, so a
+    // Stop that landed after the server answered and before this write was
+    // undone: MCP Builder read Running over a server the Stop had removed.
+    // Held to the deploy; one that lost to a Stop stops what it started.
+    if (!(await setAppStatus(app.id, "ready", null, "deploying"))) {
+      await stopSession(outcome.row).catch(() => {});
+      return fail(409, "stopped", STOPPED_WHILE_DEPLOYING);
+    }
+    sawServing(outcome.row.id);
     return { ok: true, endpoint: outcome.row.endpoint!, session: outcome.row };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    await setAppStatus(app.id, "error", message);
+    if (!(await setAppStatus(app.id, "error", message, "deploying"))) {
+      return fail(409, "stopped", STOPPED_WHILE_DEPLOYING);
+    }
     return fail(503, "start_failed", message);
   }
 }
@@ -487,8 +531,17 @@ export async function deploy(app: McpAppRow): Promise<DeployResult> {
 
   const shook = await handshake(started.endpoint);
   if (!shook.ok) {
+    // FOUND FROM THE UI (R366). The server came up but did not answer as an
+    // MCP server, and its sandbox was left running under an app marked Error:
+    // still holding its CPU and memory until the idle reaper came for it, and
+    // listed nowhere an owner could see. Nothing can use it. As a failed start
+    // does: its logs first, kept on the session row for the Logs tab, then
+    // the sandbox.
+    const logs = await logsOf(app.id).catch(() => "");
+    if (logs) await persistLogs(started.session.id, logs);
+    await stopSession(started.session).catch(() => {});
     await setAppStatus(app.id, "error", shook.message);
-    return { ok: false, error: shook.message, logs: await logsOf(app.id).catch(() => "") };
+    return { ok: false, error: shook.message, logs };
   }
 
   const hash = toolsFingerprint(shook.tools);

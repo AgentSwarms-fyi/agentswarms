@@ -75,8 +75,7 @@ export type BiCondRule = {
 
 /** Conditional cell colouring for the pivot (matrix) widget. */
 export type BiCondFormat =
-  | { mode: "scale"; color?: string }
-  | { mode: "rules"; rules: BiCondRule[] };
+  { mode: "scale"; color?: string } | { mode: "rules"; rules: BiCondRule[] };
 
 /** Horizontal reference line on cartesian charts. */
 export type BiRefLine = { mode: "avg" | "value"; value?: number; label?: string };
