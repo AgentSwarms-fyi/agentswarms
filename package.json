@@ -119,7 +119,7 @@
     "mysql2": "^3.24.5",
     "nitro": "3.0.260603-beta",
     "node-sql-parser": "^5.4.0",
-    "nodemailer": "^10.0.15",
+    "nodemailer": "^10.1.4",
     "papaparse": "^5.7.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "4.10.38",
