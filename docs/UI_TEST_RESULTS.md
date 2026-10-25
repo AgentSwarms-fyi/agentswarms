@@ -15,6 +15,38 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-25 — R374: the read-only SQL check and a second statement hidden by `--` in a literal
+
+Security assessment finding VA-2026-10-25-02. The second statement used is harmless (`SELECT 2`) on
+purpose: the row it returns shows the check let it through without changing anything.
+
+| Page                                       | What was driven                                                                      | Result                                                                                                      |
+| ------------------------------------------ | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| /data-sql → Workbench, in-browser (R373)   | `SELECT '--' ; SELECT 2 AS second`, **Run Query**                                    | **Accepted**: one row (`--`), 31 ms, listed as a successful query — the defect                              |
+| /data-sql → Workbench, in-browser (R374)   | the same query, **Run Query**                                                        | Refused: "Only read-only SELECT (or WITH … SELECT) queries are allowed in the playground"; listed as failed |
+| /data-sql → Workbench, MinIO engine (R374) | the same query, **Run Query** (the object-store engine runs the check on the server) | Refused: "Only a single SQL statement is allowed per query"                                                 |
+| /data-sql → Workbench, in-browser (R374)   | `SELECT 'a; b' AS pair, '-- not a comment' AS note`, **Run Query**                   | One row: `a; b`, `-- not a comment`, 77 ms — a literal holding `;` or `--` is not mistaken for structure    |
+
+## 2026-10-25 — R373: the dependency updates in the running app
+
+The image rebuild's `npm ci` took the WSL engine down on this machine, so the build was hot-deployed:
+the gate-built `dist` and the five updated runtime packages copied into the app container (zod 4.6.7,
+undici 7.30.1, nodemailer 10.2.1, handlebars 4.7.10, fast-uri 3.1.9, read back from inside it) and the
+container restarted. Healthy in about 20 s; `/api/health/ready` `{"db":true,"keys":true}`.
+
+| Page                   | What was driven                                                                           | Result                                                                                                                |
+| ---------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| /                      | load                                                                                      | Landing page renders                                                                                                  |
+| /dashboard (signed in) | load                                                                                      | Live counts, spend ($0.14 of $20.00), runs and model mix — the server functions answer (their input checks are zod's) |
+| /playground            | Demo · Friendly Assistant, New Chat, asked for a fenced mermaid block with a trailing `.` | Reply rendered; mermaid reported "Parse error on line 1" for the `.` — the block reached mermaid                      |
+| /playground            | the same chat, asked again without the `.`                                                | A `flowchart-v2` diagram, Scan → Fix → Verify, 16 s; no script or event-handler nodes in its SVG (DOMPurify 3.4.17)   |
+
+Not reachable from this deployment's UI, and covered by the gate instead: nodemailer (email goes through
+Resend here; `SMTP_HOST` is empty) and undici (loaded only for an outbound connector proxy, and none
+is set). The console's "An unknown error occurred when fetching the script" is the service worker,
+which the desktop app's embedded browser will not register although `/sw.js` answers 200; `sw.js` is
+unchanged since long before this work.
+
 ## 2026-10-09 — R372: a mounted Iceberg schema after the catalog-sync fix
 
 The defect (every Iceberg catalog detached after one failed read of their list) cannot be made to

@@ -109,6 +109,39 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-25 — R374: the read-only SQL check missed a second statement after a `--` inside a literal
+
+**Severity: high (a read-only control that let a second statement through, on every local engine and
+every warehouse driver; a shared warehouse connection runs as its owner).** Found by the 2026-10-25
+security assessment (VA-2026-10-25-02, [docs/security/assessments/2026-10-25.md](./security/assessments/2026-10-25.md)),
+then shown in the UI.
+
+**What it did.** `structureOnly` in `src/lib/sqlSafety.ts` removed comments first and string
+literals second, so a `--` or `/*` written inside a literal was taken for a comment. Everything from
+it to the end of the line went from the text the check inspected — a `;` and a second statement
+included — while the engine was handed the original. The single-statement check then saw one
+statement.
+
+**Shown in the UI** on the R373 build: Data Catalog → Workbench, in-browser engine,
+`SELECT '--' ; SELECT 2 AS second` → **Run**: one row (`--`), 31 ms, logged as a successful query. A
+harmless second statement was used on purpose.
+
+**What was written.** `structureOnly` is one left-to-right pass: a quote opens a literal and a `--`
+or `/*` inside it is text; a `--` outside a literal opens a comment and a quote inside it is text.
+Untagged `$$…$$` bodies are data too. The same approach as the lakehouse's `stripComments`.
+
+**Tests:** `sqlSafety.test.ts`, four bypass cases refused by both guards, and five single statements
+whose literals contain `;`, `--`, `/*` or `$$` still accepted; 58 pass. Mutation run: the control
+survives and 4 of 4 mutants are caught (a single quote not opening a literal — the bug's own class; a
+literal's body not blanked; a line comment not consumed; a `$$` body read as structure). A fifth, the
+doubled-quote escape removed, survived as an equivalent mutant: `'it''s'` then scans as the adjacent
+literals `'it'` and `'s'`, which blank the same characters, and no check counts quotes.
+
+**The UI** (R374 build): the same query is refused on the in-browser engine ("Only read-only SELECT
+… allowed in the playground") and on the MinIO engine, which runs the check on the server ("Only a
+single SQL statement is allowed per query"). `SELECT 'a; b' AS pair, '-- not a comment' AS note`
+returns its row.
+
 ### 2026-10-09 — R372: a failed read of the Iceberg catalog list detached every catalog
 
 **Severity: low to medium (queries on mounted Iceberg schemas failing for a while, after any blip in

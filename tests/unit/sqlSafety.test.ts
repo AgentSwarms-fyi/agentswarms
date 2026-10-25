@@ -73,6 +73,39 @@ describe("rejects statement stacking", () => {
   }
 });
 
+describe("a comment marker inside a string literal cannot hide a stacked statement", () => {
+  // VA-2026-10-25-02 (security assessment 2026-10-25). structureOnly stripped
+  // comments BEFORE string literals, so a `--` or `/*` written INSIDE a literal
+  // ate the rest of the line — the real `;` and the statement after it
+  // included. `SELECT '--' ; DROP TABLE t` reduced to `SELECT '`, passed the
+  // single-statement check, and the database ran both statements. A shared
+  // warehouse connection runs as its owner, so this was a write through a
+  // control that claims to be read-only.
+  for (const sql of [
+    "SELECT '--' ; DROP TABLE users",
+    "SELECT '/*' ; DROP TABLE users; SELECT '*/'",
+    "SELECT 1 WHERE note = 'a--'; DELETE FROM users",
+    "SELECT '$$' ; DROP TABLE users",
+  ]) {
+    it(`rejects: ${sql}`, () => {
+      expect(isLocalReadOnlySql(sql), "local").toBe(false);
+      expect(checkWarehouseReadOnlySql(sql).ok, "warehouse").toBe(false);
+    });
+  }
+
+  it("still accepts a literal that merely contains comment or separator characters", () => {
+    for (const sql of [
+      "SELECT '-- not a comment' AS note",
+      "SELECT 'a; b' AS pair",
+      "SELECT '/* inline */' AS s",
+      "SELECT 'end$$start' AS dollars",
+      "SELECT $$a; b -- c$$ AS body",
+    ]) {
+      expect(isLocalReadOnlySql(sql), sql).toBe(true);
+    }
+  });
+});
+
 describe("rejects a mutating verb hidden behind a read-only prefix", () => {
   for (const sql of [
     "WITH x AS (SELECT 1) DELETE FROM orders",

@@ -14,8 +14,8 @@ so the next one can be run the same way and compared against the last. It holds:
 The point of keeping this in the repo is that "we scanned it once" is not a
 security posture. An assessment is a snapshot; threats and dependencies move, so
 the assessment is repeated on a cadence and every run leaves a dated record next
-to the last one. SECURITY.md describes the controls the application *has*; this
-directory is the evidence they were *checked*, and when.
+to the last one. SECURITY.md describes the controls the application _has_; this
+directory is the evidence they were _checked_, and when.
 
 - [When to run one](#when-to-run-one)
 - [Scope](#scope)
@@ -67,14 +67,14 @@ All are standard, open-source, and run as pinned container images so nothing new
 is installed on the host and the version is recorded. Pull them by the digest a
 previous run recorded, or by the tag below and record the digest you got.
 
-| Tool | Image | Covers |
-| --- | --- | --- |
-| **npm audit** | (the toolchain already present) | npm dependencies |
-| **osv-scanner** | `ghcr.io/google/osv-scanner` | lockfiles across ecosystems (npm, PyPI, GitHub Actions) |
-| **Trivy** or **Grype** | `aquasec/trivy`, `anchore/grype` | image OS + language CVEs |
-| **gitleaks** | `zricethezav/gitleaks` | committed secrets |
-| **hadolint** | `hadolint/hadolint` | Dockerfile hardening lint |
-| **Semgrep** | `semgrep/semgrep` | code-pattern SAST (optional, high-signal rulesets) |
+| Tool                   | Image                            | Covers                                                  |
+| ---------------------- | -------------------------------- | ------------------------------------------------------- |
+| **npm audit**          | (the toolchain already present)  | npm dependencies                                        |
+| **osv-scanner**        | `ghcr.io/google/osv-scanner`     | lockfiles across ecosystems (npm, PyPI, GitHub Actions) |
+| **Trivy** or **Grype** | `aquasec/trivy`, `anchore/grype` | image OS + language CVEs                                |
+| **gitleaks**           | `zricethezav/gitleaks`           | committed secrets                                       |
+| **hadolint**           | `hadolint/hadolint`              | Dockerfile hardening lint                               |
+| **Semgrep**            | `semgrep/semgrep`                | code-pattern SAST (optional, high-signal rulesets)      |
 
 The code and RLS review is done by reading the code, not only by a scanner — the
 findings that have mattered here (a read-only SQL guard bypassed by a comment

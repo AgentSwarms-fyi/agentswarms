@@ -26,29 +26,76 @@ const MUTATION_RE =
   /\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|ATTACH|DETACH|PRAGMA|TRUNCATE|REPLACE|GRANT|REVOKE|MERGE|CALL|EXEC|EXECUTE)\b/i;
 
 /**
- * Remove comments, string literals and quoted identifiers.
+ * Remove comments and blank the insides of string literals and quoted
+ * identifiers, in ONE left-to-right pass.
  *
- * Literals are stripped so the denylist inspects only SQL structure — without
+ * The single pass is the security property. This used to run the comment
+ * regexes first and the literal regexes second, so a comment marker written
+ * INSIDE a string literal was treated as a comment: `SELECT '--' ; DROP TABLE t`
+ * lost everything from `--` to the end of the line, the `;` and the second
+ * statement with it, and the check below saw one statement while the database
+ * ran two (VA-2026-10-25-02, docs/security/assessments/2026-10-25.md). Here a
+ * quote opens a literal and a `--` or `/*` inside it is text; a `--` outside a
+ * literal opens a comment and a quote inside it is text — the same approach as
+ * the lakehouse's stripComments.
+ *
+ * Literals are blanked so the denylist inspects only SQL structure — without
  * this, `SELECT note FROM t WHERE note = 'please update me'` is rejected for
  * containing the word UPDATE, which is both wrong and the kind of false
  * positive that leads someone to weaken the check.
  *
- * Quoted IDENTIFIERS are stripped for the same reason: `SELECT "update" FROM t`
+ * Quoted IDENTIFIERS are blanked for the same reason: `SELECT "update" FROM t`
  * and ``SELECT `delete` FROM t`` are ordinary read-only queries against columns
  * that happen to be named after keywords, and both were refused.
  *
- * T-SQL's `[bracketed]` identifiers are deliberately NOT stripped. Brackets are
- * array subscripting in the Postgres family, so treating them as quoting would
- * mean stripping different things on different targets — and the failure
- * direction of leaving them is a rejected query, not an accepted one.
+ * T-SQL's `[bracketed]` identifiers are deliberately NOT treated as quoting.
+ * Brackets are array subscripting in the Postgres family, so treating them as
+ * quoting would mean reading different things on different targets — and the
+ * failure direction of leaving them is a rejected query, not an accepted one.
  */
 function structureOnly(sql: string): string {
-  let out = sql.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/--[^\n]*/g, " ");
-  // Single-quoted literals, honouring '' as an escaped quote.
-  out = out.replace(/'(?:[^']|'')*'/g, "''");
-  // Double-quoted and backtick identifiers, honouring the doubled form.
-  out = out.replace(/"(?:[^"]|"")*"/g, '""');
-  out = out.replace(/`(?:[^`]|``)*`/g, "``");
+  let out = "";
+  let i = 0;
+  const n = sql.length;
+  /** Skip a quoted run that started at `i`, honouring a doubled `quote`. */
+  const skipQuoted = (quote: string) => {
+    i++;
+    while (i < n) {
+      if (sql[i] === quote && sql[i + 1] === quote) {
+        i += 2;
+        continue;
+      }
+      if (sql[i] === quote) {
+        i++;
+        return;
+      }
+      i++;
+    }
+  };
+  while (i < n) {
+    const ch = sql[i]!;
+    const next = sql[i + 1];
+    if (ch === "-" && next === "-") {
+      while (i < n && sql[i] !== "\n") i++;
+      out += " ";
+    } else if (ch === "/" && next === "*") {
+      const end = sql.indexOf("*/", i + 2);
+      i = end === -1 ? n : end + 2;
+      out += " ";
+    } else if (ch === "'" || ch === '"' || ch === "`") {
+      skipQuoted(ch);
+      out += ch + ch;
+    } else if (ch === "$" && next === "$") {
+      // An untagged dollar-quoted string (Postgres, DuckDB): its contents are
+      // data, so a `;` or a comment marker inside one is not structure.
+      const end = sql.indexOf("$$", i + 2);
+      i = end === -1 ? n : end + 2;
+      out += "''";
+    } else {
+      out += ch;
+      i++;
+    }
+  }
   return out;
 }
 

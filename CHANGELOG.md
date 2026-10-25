@@ -105,6 +105,14 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
 - **The code/RLS findings** from this assessment (one critical and a cluster of
   `SECURITY DEFINER`/RLS authorization gaps) are recorded in the dated report
   and fixed in the commits that follow, each validated from the UI.
+- **The read-only SQL check no longer misses a second statement** (R374,
+  VA-2026-10-25-02). It removed comments before string literals, so a `--` or
+  `/*` inside a literal hid everything after it on the line — a `;` and a
+  second statement included — from the check, while the engine ran it. The
+  Workbench accepted `SELECT '--' ; SELECT 2`; it now refuses it, as it refuses
+  any second statement. One check guards every local engine and every
+  warehouse driver, so all of them are fixed. A literal that merely contains
+  `;`, `--` or `/*` is still accepted.
 
 ### Security: guardrails
 
