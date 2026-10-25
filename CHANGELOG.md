@@ -87,6 +87,25 @@ development branch and may be ahead of the latest tag.
   build (`E2E_CHANNEL=chrome` uses the Chrome you have). Signed-in pages are
   not covered yet.
 
+### Security: 2026-10-25 assessment
+
+A full vulnerability assessment now lives in the repository and is repeatable:
+the process, the pinned open-source scanners (osv-scanner, Grype, gitleaks,
+hadolint, Semgrep) and a runnable `docs/security/scripts/scan.sh` are in
+[docs/security/README.md](./docs/security/README.md), and each run leaves a
+dated report under `docs/security/assessments/`. SECURITY.md links it.
+
+- **Dependencies: `npm audit` 13 → 2 advisories.** `dompurify`, `handlebars`,
+  `undici`, `zod`, `nodemailer` and `fast-uri` updated to their fixed versions;
+  dev `vite`/`vitest` to the ones clearing the launch-editor and mocker
+  advisories. `@mendable/firecrawl-js` is **removed** — no first-party code
+  imported it, and it was the only `zod@3` and `axios` tree, so the now-dead
+  `axios` override is gone too. The 2 remaining advisories are one unreachable
+  `@azure/msal-node` finding, documented as accepted in SECURITY.md.
+- **The code/RLS findings** from this assessment (one critical and a cluster of
+  `SECURITY DEFINER`/RLS authorization gaps) are recorded in the dated report
+  and fixed in the commits that follow, each validated from the UI.
+
 ### Security: guardrails
 
 - **Server functions refuse calls from other sites** (R359). TanStack Start

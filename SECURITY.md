@@ -14,6 +14,7 @@ implements it, so a claim here can be checked rather than trusted.
 - [Code execution](#code-execution)
 - [Auditing](#auditing)
 - [Deployment responsibilities](#deployment-responsibilities)
+- [Security assessments](#security-assessments)
 - [What this project does not claim](#what-this-project-does-not-claim)
 
 ---
@@ -295,7 +296,6 @@ forces the fixed one; each entry is listed below with the reason it is safe.
 
 | Override                                  | Why it is safe                                                                                           |
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `axios` `^1.20.0`                         | firecrawl pins 1.18.0; the API it uses is unchanged within 1.x.                                          |
 | `image-size` `^2.0.4`                     | pptxgenjs lists it, but its built code never loads it.                                                   |
 | `katex` `^0.18.2`                         | mermaid asks for 0.16, which has the advisories. A diagram with math is rendered and checked in the app. |
 | `argparse` `^2.0.1`, under `mammoth` only | Only mammoth's command-line tool uses it, and the app never runs that tool.                              |
@@ -306,12 +306,35 @@ not pin. They are now copied from the installed packages at build and served
 from the app's own origin (R321), so `npm audit` covers what runs, and a test
 fails if code is loaded from a public CDN again.
 
-**Accepted, with the reason.** Two moderate findings remain, and both are one
-advisory. `sprintf-js` can be stalled by a format string with unbounded
-precision, and every version is affected, so there is nothing to update to. The
-SQL Server driver `tedious` uses it, but only with format strings written in the
-driver itself, for debug text and error messages. No value from a user or a
-database reaches a format position, so the advisory cannot be triggered here.
+**Accepted, with the reason.** `npm audit` reports two high advisories, and both
+are the same one: `@azure/msal-node`'s authorization-code flow
+(GHSA-xcx6-jx8p-x3h5) can disclose parameters to an attacker-controlled
+endpoint. `@azure/msal-node` reaches the tree only through `@azure/identity`,
+which the SQL Server driver `tedious` and `unstorage` pull in; the latest
+`@azure/identity` still pins `msal-node ^6.0.0`, below the fixed `7.1.0`, so
+there is no non-breaking upgrade to take. The app never uses the Azure AD
+authorization-code or interactive flow — it authenticates SQL Server with a
+username and password (`type: "default"` in `warehouse/drivers.server.ts`) and
+uses HashiCorp Vault, not Azure Key Vault, for key management — so the
+vulnerable code path is not reached.
+
+Separately, `sprintf-js` (also via `tedious`) has a format-string DoS with no
+fixed version. `npm audit` no longer flags it, but it remains in the tree; it is
+used only for the driver's own debug and error text, where no value from a user
+or a database reaches a format position, so it could not be triggered here
+either.
+
+## Security assessments
+
+The controls above are checked on a cadence by a repeatable vulnerability
+assessment, and every run leaves a dated record in the repository. The process —
+what is scanned (dependencies, images, secrets, code and configuration), the
+tools, and how a finding moves from open to fixed or accepted — is in
+[docs/security/README.md](./docs/security/README.md); the runnable scanners are
+in [docs/security/scripts/scan.sh](./docs/security/scripts/scan.sh); and each
+assessment's report is under `docs/security/assessments/`. "We scanned it once"
+is not a posture, so the assessment is repeated and the reports accumulate next
+to one another.
 
 ## What this project does not claim
 

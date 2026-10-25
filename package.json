@@ -54,7 +54,6 @@
     "@langchain/langgraph": "^1.4.18",
     "@langchain/openai": "^1.6.2",
     "@langchain/textsplitters": "^1.0.2",
-    "@mendable/firecrawl-js": "^4.42.1",
     "@radix-ui/react-accordion": "^1.2.20",
     "@radix-ui/react-alert-dialog": "^1.1.23",
     "@radix-ui/react-aspect-ratio": "^1.1.15",
@@ -119,7 +118,7 @@
     "mysql2": "^3.24.5",
     "nitro": "3.0.260603-beta",
     "node-sql-parser": "^5.4.0",
-    "nodemailer": "^10.0.15",
+    "nodemailer": "^10.2.1",
     "papaparse": "^5.7.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "4.10.38",
@@ -144,12 +143,12 @@
     "topojson-client": "^3.1.0",
     "turndown": "^7.2.4",
     "tw-animate-css": "^1.3.4",
-    "undici": "^7.30.0",
+    "undici": "^7.30.1",
     "vaul": "^1.1.2",
     "vite-tsconfig-paths": "^6.0.2",
     "world-atlas": "^2.0.2",
     "write-excel-file": "^4.1.1",
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
@@ -171,15 +170,14 @@
     "prettier": "^3.7.3",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.71.0",
-    "vite": "^7.3.6",
-    "vitest": "^4.1.11"
+    "vite": "^7.3.7",
+    "vitest": "^4.1.12"
   },
   "overrides": {
     "entities": "4.5.0",
     "exceljs": {
       "uuid": "^11.1.1"
     },
-    "axios": "^1.20.0",
     "image-size": "^2.0.4",
     "katex": "^0.18.2",
     "mammoth": {
