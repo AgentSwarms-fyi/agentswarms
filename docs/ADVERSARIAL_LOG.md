@@ -109,6 +109,29 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-26 — R376: a lakehouse row filter is limited to its own table's columns
+
+**Severity: critical.** VA-2026-10-25-01, the 2026-10-25 security assessment's one critical finding
+([docs/security/assessments/2026-10-25.md](./security/assessments/2026-10-25.md)).
+
+**The fix.** Row filters (table policies, tag policies and Delta Share tables) were checked only by
+running them, so a filter could contain more than a condition over the table's own columns. A new
+`assertSafeRowFilter` in `src/utils/lakehouse/policies.server.ts` parses the filter with DuckDB's own
+serializer and refuses it if its WHERE subtree holds a subquery, a table reference or a table
+function. It runs at all three save sites and again in `applyTablePolicies` before a filter is used,
+so a filter stored before this change is refused too, and the query is refused rather than run
+unfiltered.
+
+**Tests:** `lakehouseRowFilterCrossRead.test.ts`, 19, on the real engine: refused shapes, ordinary
+filters still accepted (comparisons, `IN` lists, functions, `CASE`, `@user_id`), the enforcement path,
+and the call at each of the four sites pinned. Mutation run: control survives, 7 of 7 caught. An
+earlier run let one through, because every refused case also named a table; table-less subqueries
+were added.
+
+**The UI** (R376 build): Lakehouse → `analytics.authz_probe` → Security, and Shares → a test share:
+a filter containing a subquery is refused at both with the new message and nothing is saved; an
+ordinary filter applies; the policy was then removed and the test share deleted.
+
 ### 2026-10-25 — R375: server-only database functions callable by any account, and API keys naming someone else's model or app
 
 **Severity: high (a cross-tenant read of cached AI answers; cross-tenant writes to ML jobs and

@@ -217,6 +217,72 @@ export function bindFilterPlaceholders(
   return filter.replace(/@me\b/g, sq(reader.email ?? "")).replace(/@user_id\b/g, sq(reader.id));
 }
 
+/**
+ * Refuse a row filter that reads anything other than the table it filters.
+ *
+ * A row filter is pasted into `WHERE (…)` of a subquery that stands in for a
+ * policed or shared table, and that subquery runs on the one engine every
+ * tenant's schema is attached to. So a filter like
+ * `n IN (SELECT salary FROM victim.payroll)` — valid SQL over the sharer's own
+ * table — makes the shared output depend on another tenant's rows, and a
+ * recipient reads them back through which rows survive the filter (or through an
+ * error-based variant); `IN (SELECT * FROM read_csv('…'))` reaches the
+ * filesystem the same way (VA-2026-10-25-01).
+ *
+ * A legitimate filter is a boolean expression over the table's own columns: it
+ * never contains a subquery, a table reference or a table function. Those are
+ * exactly the parser node `type`s refused here — the same field `walkAst` uses
+ * elsewhere — found by walking ONLY the WHERE subtree of the parse, so the
+ * FROM's own BASE_TABLE is not in it and the table being filtered is never
+ * mistaken for a cross-read. A subquery carries both a `SUBQUERY` expression
+ * node and a `SELECT_NODE` inside it; either is enough, and both are listed so
+ * the intent is legible. The filter arrives with its `@me`/`@user_id`
+ * placeholders already bound to literals, so the parse is of what will run.
+ */
+const FILTER_FORBIDDEN_TYPE = new Set(["SUBQUERY", "SELECT_NODE", "BASE_TABLE", "TABLE_FUNCTION"]);
+
+export async function assertSafeRowFilter(
+  c: DuckDBConnection,
+  schema: string,
+  table: string,
+  boundFilter: string,
+): Promise<void> {
+  const probe = `SELECT 1 FROM ${qi(schema)}.${qi(table)} WHERE (${boundFilter})`;
+  const rows = await (await c.run(`SELECT json_serialize_sql(${sq(probe)})`)).getRows();
+  const tree = JSON.parse(String(rows[0][0])) as {
+    error?: boolean;
+    error_message?: string;
+    statements?: { node?: { where_clause?: unknown } }[];
+  };
+  if (tree.error) {
+    throw new Error(`That row filter is not valid SQL: ${tree.error_message ?? "parse error"}`);
+  }
+  const where = tree.statements?.[0]?.node?.where_clause;
+  if (where === undefined) {
+    // No WHERE survived the parse — the filter was not a boolean expression.
+    throw new Error("That row filter is not a boolean condition over the table's own columns");
+  }
+  let hit: string | null = null;
+  const walk = (node: unknown): void => {
+    if (hit) return;
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+      return;
+    }
+    if (!node || typeof node !== "object") return;
+    const rec = node as Record<string, unknown>;
+    if (typeof rec.type === "string" && FILTER_FORBIDDEN_TYPE.has(rec.type)) hit = rec.type;
+    for (const v of Object.values(rec)) walk(v);
+  };
+  walk(where);
+  if (hit) {
+    throw new Error(
+      "A row filter may only test the table's own columns — it cannot contain a subquery, " +
+        "another table, or a table function. Reference a column and a value, not another table.",
+    );
+  }
+}
+
 type Column = { name: string; type: string };
 
 async function tableColumns(c: DuckDBConnection, schema: string, table: string): Promise<Column[]> {
@@ -340,6 +406,19 @@ export async function applyTablePolicies(
     if (!columns.length) {
       throw new Error(
         `A security policy covers ${policy.schema_name}.${policy.table_name}, but its columns could not be read — refusing to run unfiltered`,
+      );
+    }
+    // The row filter runs on the engine every tenant's schema is attached to,
+    // so it is checked here too, not only where it was saved: a filter stored
+    // before this check existed, or written straight to the table, must not
+    // read another schema at serve time (VA-2026-10-25-01). Refusing fails
+    // closed — the SELECT does not run unfiltered.
+    if (policy.row_filter?.trim()) {
+      await assertSafeRowFilter(
+        c,
+        policy.schema_name,
+        policy.table_name,
+        bindFilterPlaceholders(policy.row_filter.trim(), reader),
       );
     }
     const inner = securedSubquery(columns, policy, reader);

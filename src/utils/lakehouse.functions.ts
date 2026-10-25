@@ -1116,10 +1116,15 @@ export const setLakehousePolicy = createServerFn({ method: "POST" })
     if (filter) {
       // Validate against the real table, with the placeholders bound to a
       // sample identity so the expression is complete.
-      const { bindFilterPlaceholders } = await import("@/utils/lakehouse/policies.server");
+      const { assertSafeRowFilter, bindFilterPlaceholders } =
+        await import("@/utils/lakehouse/policies.server");
       const bound = bindFilterPlaceholders(filter, { id: userId, email: "probe@example.com" });
       const c = await lakehouseConnection();
       try {
+        // Only the table's own columns — a subquery, another table or a table
+        // function would read another tenant's schema on the shared engine
+        // (VA-2026-10-25-01).
+        await assertSafeRowFilter(c, data.schema, data.table, bound);
         await c.run(`SELECT 1 FROM ${qi(data.schema)}.${qi(data.table)} WHERE (${bound}) LIMIT 0`);
       } catch (e) {
         throw new Error(`That row filter is not valid on this table: ${(e as Error).message}`);
@@ -1240,7 +1245,7 @@ export const setLakehouseTagPolicy = createServerFn({ method: "POST" })
       );
     }
     if (filter) {
-      const { bindFilterPlaceholders, lakehouseAssetTags } =
+      const { assertSafeRowFilter, bindFilterPlaceholders, lakehouseAssetTags } =
         await import("@/utils/lakehouse/policies.server");
       const { normalizeTag } = await import("@/lib/tagPolicies");
       // Every lakehouse table of this owner that carries the tag today —
@@ -1260,22 +1265,25 @@ export const setLakehouseTagPolicy = createServerFn({ method: "POST" })
         )
         .map((a) => ({ schema: String(a.schema_name), table: String(a.name) }));
       const tagged = await lakehouseAssetTags([userId], candidates);
-      if (tagged.size) {
-        const bound = bindFilterPlaceholders(filter, { id: userId, email: "probe@example.com" });
-        const c = await lakehouseConnection();
-        try {
-          for (const t of tagged.values()) {
-            try {
-              await c.run(`SELECT 1 FROM ${qi(t.schema)}.${qi(t.table)} WHERE (${bound}) LIMIT 0`);
-            } catch (e) {
-              throw new Error(
-                `That row filter is not valid on ${t.schema}.${t.table}, which carries "${tag}": ${(e as Error).message}`,
-              );
-            }
+      const bound = bindFilterPlaceholders(filter, { id: userId, email: "probe@example.com" });
+      const c = await lakehouseConnection();
+      try {
+        // The shape check parses the filter and needs no real table, so it runs
+        // even when nothing carries the tag yet — a filter cannot reference a
+        // subquery, another table or a table function, which on the shared
+        // engine would read another tenant's schema (VA-2026-10-25-01).
+        await assertSafeRowFilter(c, "lake_probe", "t", bound);
+        for (const t of tagged.values()) {
+          try {
+            await c.run(`SELECT 1 FROM ${qi(t.schema)}.${qi(t.table)} WHERE (${bound}) LIMIT 0`);
+          } catch (e) {
+            throw new Error(
+              `That row filter is not valid on ${t.schema}.${t.table}, which carries "${tag}": ${(e as Error).message}`,
+            );
           }
-        } finally {
-          c.closeSync();
         }
+      } finally {
+        c.closeSync();
       }
     }
     const { data: row, error } = await supabaseAdmin

@@ -125,6 +125,12 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   jobs and deployment counters, or seeded sample content into their account.
   They are revoked from client roles; the app calls them as the service role,
   as it always did.
+- **A lakehouse row filter can only test its own table's columns** (R376,
+  VA-2026-10-25-01, the assessment's one critical finding). Row filters on a
+  table, a tag or a Delta Share were checked only by running them. They are now
+  parsed and refused if they contain a subquery, another table or a table
+  function: at save time with a clear message, and again before a filter is
+  used, so one stored before this release is refused too.
 - **An ML or MCP API key must name a model or app you own** (R375,
   VA-2026-10-25-05 and -06). The rows' access rules checked only that the key
   was yours, so a key naming someone else's model or private MCP server could

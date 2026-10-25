@@ -15,6 +15,19 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-26 — R376: lakehouse row filters limited to the table's own columns
+
+Security assessment finding VA-2026-10-25-01. The refused filter is a harmless table-less subquery
+on purpose: the check is about the filter's shape, not about what a subquery reads.
+
+| Page                                          | What was driven                                                                   | Result                                                                                                   |
+| --------------------------------------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| /lakehouse → analytics.authz_probe → Security | Rows they can see: `net_usd IN (SELECT 1)`, **Apply security**                    | Refused: "A row filter may only test the table's own columns — it cannot contain a subquery…"; not saved |
+| (same)                                        | `net_usd > 500`, **Apply security**                                               | "Security applied"; reopening shows `net_usd > 500`                                                      |
+| (same)                                        | filter cleared, **Remove security**                                               | "Security removed"; reopening shows no filter — the table is as it was                                   |
+| /lakehouse → Shares                           | new share `r376-smoke`; add `analytics.authz_probe` with the same subquery filter | Refused with the same message; the share still has no tables                                             |
+| /lakehouse → Shares                           | **Delete share** → confirm                                                        | "Share "r376-smoke" deleted"                                                                             |
+
 ## 2026-10-25 — R375: the service-only database functions and the API-key ownership rules
 
 Security assessment findings VA-2026-10-25-03, -05, -06 and -09, after the migration was pushed. That

@@ -15,7 +15,7 @@ import {
 } from "@/lib/deltaSharing";
 import { auditEvent } from "@/utils/audit.server";
 import { lakehouseConnection } from "./core.server";
-import { bindFilterPlaceholders } from "./policies.server";
+import { assertSafeRowFilter, bindFilterPlaceholders } from "./policies.server";
 import { dropShareTableSnapshots } from "./shares.server";
 import { callerFailure } from "@/utils/callerLookup.server";
 
@@ -247,6 +247,10 @@ export const addLakehouseShareTable = createServerFn({ method: "POST" })
       if (unknown.length) throw new Error(`No such column to mask: ${unknown.join(", ")}`);
       if (filter) {
         const bound = bindFilterPlaceholders(filter, { id: userId, email: "probe@example.com" });
+        // It may only test this table's own columns — never a subquery, another
+        // table or a table function, which on the shared engine would read
+        // another tenant's schema (VA-2026-10-25-01).
+        await assertSafeRowFilter(c, data.schema, data.table, bound);
         try {
           await c.run(
             `SELECT 1 FROM ${qi(data.schema)}.${qi(data.table)} WHERE (${bound}) LIMIT 0`,
