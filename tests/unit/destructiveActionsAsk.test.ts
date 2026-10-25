@@ -187,9 +187,11 @@ describe("the questions name what is lost", () => {
   it.each([
     ["knowledge.tsx", /Every document synced from it goes too/],
     ["knowledge.tsx", /chunks and embeddings go with it/],
-    ["mcp.tsx", /Agents using its tools lose them/],
+    // Moved into McpServersPanel/ProviderCredentialsPanel when those tabs
+    // were extracted so Settings → API Keys could host them inline too.
+    ["src/components/settings/McpServersPanel.tsx", /Agents using its tools lose them/],
     ["evaluations.tsx", /future runs no longer test it/],
-    ["integrations.tsx", /deleted, not disabled/],
+    ["src/components/integrations/ProviderCredentialsPanel.tsx", /deleted, not disabled/],
     ["playground.tsx", /Every message in this chat goes with it/],
   ])("%s says what goes", (page, phrase) => {
     expect(rd(page)).toMatch(phrase);
@@ -198,6 +200,8 @@ describe("the questions name what is lost", () => {
   it("warns that a disconnected provider's key cannot be read back", () => {
     // The one with no undo at all: the key is stored encrypted and never
     // shown again, so "disconnect" is not a toggle.
-    expect(rd("integrations.tsx")).toMatch(/the old one cannot be read back/);
+    expect(rd("src/components/integrations/ProviderCredentialsPanel.tsx")).toMatch(
+      /the old one cannot be read back/,
+    );
   });
 });
