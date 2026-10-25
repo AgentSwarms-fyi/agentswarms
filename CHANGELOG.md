@@ -126,6 +126,15 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   jobs and deployment counters, or seeded sample content into their account.
   They are revoked from client roles; the app calls them as the service role,
   as it always did.
+- **Materializing or importing shared data carries its row filters and column
+  masks** (R378, VA-2026-10-25-08). A materialized view built into a schema you
+  own, or a dataset imported into the lakehouse, could read a table or dataset
+  shared with you and write the whole thing — past the owner's row filter and
+  column mask — because both ran with the service role, which turns row-level
+  security off. The matview body now goes through the same governance a read
+  does, and a granted dataset's rows are restricted before they are written, so
+  a materialize or an import holds only the rows and columns you could read
+  directly.
 - **An approval cannot be forged or acted on past its routing** (R377,
   VA-2026-10-25-04 and -07). The approvals table let a client write any row it
   owned, including an already-"approved" one naming someone else's model or

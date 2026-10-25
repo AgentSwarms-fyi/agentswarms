@@ -15,6 +15,18 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-26 — R378: a materialized view over an owned table still builds (no regression)
+
+Security assessment finding VA-2026-10-25-08. The fix governs a matview's body and restricts an
+imported granted dataset; showing the cross-tenant enforcement needs a second account, so the
+real-engine test carries that proof. What the UI confirms is that the owner's own path is unchanged.
+
+| Page                                       | What was driven                                                                                                                                       | Result                                     |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| /lakehouse → Query                         | `SELECT region, count(*) AS n FROM analytics.authz_probe GROUP BY region`, **Save as view** → analytics / r378_mv_probe / Manual → **Save and build** | "Built analytics.r378_mv_probe — 3 row(s)" |
+| /lakehouse → the view → **Rebuild**        | (re-runs `refreshMaterializedView`, the changed function)                                                                                             | "Rebuilt — 3 row(s) in 3834 ms"            |
+| /lakehouse → the view → **Drop** → confirm | cleanup                                                                                                                                               | "Table dropped"                            |
+
 ## 2026-10-26 — R377: the approval lifecycle under the tightened policies
 
 Security assessment findings VA-2026-10-25-04 and -07. The forged-row exploit is a direct database

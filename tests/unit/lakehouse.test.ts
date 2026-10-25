@@ -644,8 +644,13 @@ describe("materialized views", () => {
     // definition edited into a write must never execute as one.
     expect(mv).toContain('if (classified.kind !== "select")');
     expect(mv).toContain("A materialized view must be defined by a SELECT");
+    // The body is governed for its owner at every refresh: governSelect does
+    // the schema-access check AND rewrites a reference to a table shared with
+    // the owner into its filtered, masked form (VA-2026-10-25-08), so a grant
+    // revoked since the view was saved stops the refresh and a shared table is
+    // never materialized whole.
     expect(mv).toContain(
-      "assertSchemasAllowed(await selectReferencedSchemas(c, view.sql), allowed)",
+      "const { sql: governed } = await governSelect(c, view.user_id, view.sql, allowed)",
     );
   });
 

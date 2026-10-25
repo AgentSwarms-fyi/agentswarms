@@ -70,6 +70,9 @@ vi.mock("@/utils/lakehouse/core.server", () => ({
   ],
   assertSchemasAllowed: () => {},
   classifyStatement: () => ({ kind: "select" }),
+  // The refresh governs the body for its owner; here the owner reads their own
+  // table, so governance is a no-op and the SQL passes through unchanged.
+  governSelect: async (_c: unknown, _uid: string, sql: string) => ({ sql, policyTables: [] }),
   lakehouseEnabled: () => true,
   // Since R102 the check lives in core.server, shared with the dataset
   // import; the fake answers from the test's state and records the ask.

@@ -109,6 +109,33 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-26 — R378: materializing or importing shared data stripped its row filters and column masks
+
+**Severity: high.** VA-2026-10-25-08 from the 2026-10-25 security assessment
+([docs/security/assessments/2026-10-25.md](./security/assessments/2026-10-25.md)), its last high.
+
+**The fix.** A materialized view (`CREATE OR REPLACE TABLE mine.x AS <body>`) and a dataset import
+both ran with the service role, which turns row-level security off, and neither re-applied the
+governance the owner set — so a matview whose body read a table shared with its owner, or an import
+of a granted dataset, wrote the whole thing past the owner's row filter and column mask into a place
+the owner could read freely. `refreshMaterializedView` now runs its body through `governSelect` — the
+same rewrite a read of that SELECT goes through, which keeps the schema-access check, replaces a
+reference to a policed foreign table with its governed subquery, and refuses rather than
+materializing unfiltered when a policy covers a table but cannot be applied. For the owner's own
+tables it is a no-op. `importDatasetToLakehouse` applies `restrictSharedDataset` to a granted
+dataset's rows before writing them.
+
+**Tests:** `lakehouseSharedMaterializeGovern.test.ts`, on the real engine — the raw body materialized
+all three rows with the email unmasked (the gap), the governed body only the two the filter admits
+with the email blanked — and both call sites pinned. `lakehouse.test.ts` and `matviewOverwrite.test.ts`
+updated to the governed build. Mutation run: control survives, 4 of 4 caught, including dropping the
+mask and dropping the filter from the rewrite.
+
+**The UI** (R378 build): Lakehouse → a SELECT over an owned table → **Save as view** into the owner's
+own schema → "Built … 3 row(s)"; **Rebuild** → "Rebuilt — 3 row(s)" (the changed refresh path); then
+**Drop** → "Table dropped". The owner path is unchanged; the cross-tenant case is proved by the
+real-engine test, since it needs a second account to be the grantee.
+
 ### 2026-10-26 — R377: an approval cannot be forged, nor acted on past its routing
 
 **Severity: high.** VA-2026-10-25-04 and -07 from the 2026-10-25 security assessment

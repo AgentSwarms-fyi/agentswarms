@@ -583,7 +583,8 @@ export const importDatasetToLakehouse = createServerFn({ method: "POST" })
       .maybeSingle();
     if (!table) throw new Error("Dataset not found");
     // Samples are ownerless and readable by everyone; otherwise owner or grant.
-    if (!table.is_sample && table.user_id !== userId) {
+    const sharedGrant = !table.is_sample && table.user_id !== userId;
+    if (sharedGrant) {
       const { data: granted } = await supabaseAdmin.rpc("has_resource_access", {
         rtype: "data_table",
         rid: data.table_id,
@@ -615,7 +616,23 @@ export const importDatasetToLakehouse = createServerFn({ method: "POST" })
     // Refusing beats importing a prefix: the caller can raise the ceiling, but
     // nothing downstream can tell a short table from a small one.
     if (imported.truncated) throw new Error("Dataset too large to import (500k row cap)");
-    const rows = imported.rows.map((r) => r.row as Record<string, unknown>);
+    let rows = imported.rows.map((r) => r.row as Record<string, unknown>);
+    // A dataset shared BY A GRANT is imported through the same row filters and
+    // column masks its owner set, not whole: reading with the service role
+    // turns RLS off, so the restriction the database would apply to the
+    // grantee's own JWT is re-applied here (VA-2026-10-25-08). Owned and sample
+    // datasets carry no such restriction and are imported as-is.
+    if (sharedGrant) {
+      const { restrictSharedDataset } = await import("@/utils/data/sharedDatasets.server");
+      const restricted = await restrictSharedDataset(
+        supabaseAdmin,
+        data.table_id,
+        userId,
+        [],
+        rows,
+      );
+      rows = restricted.rows as Record<string, unknown>[];
+    }
     if (!rows.length) throw new Error("Dataset has no rows");
 
     // Stage as a server-local temp file and let DuckDB's JSON reader infer

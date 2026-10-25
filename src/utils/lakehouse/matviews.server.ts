@@ -14,12 +14,11 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { auditEvent } from "@/utils/audit.server";
 import {
   accessibleSchemas,
-  assertSchemasAllowed,
   classifyStatement,
+  governSelect,
   lakehouseConnection,
   lakehouseEnabled,
   lakehouseTableExists,
-  selectReferencedSchemas,
   stripSqlComments,
 } from "@/utils/lakehouse/core.server";
 
@@ -91,9 +90,15 @@ export async function refreshMaterializedView(
     if (held) throw new Error(held);
 
     c = await lakehouseConnection();
-    assertSchemasAllowed(await selectReferencedSchemas(c, view.sql), allowed);
-
-    const body = stripSqlComments(view.sql).replace(/;\s*$/, "");
+    // Govern the body for its owner, exactly as a read of the same SELECT would
+    // be: a materialized view over a table shared with the owner must hold only
+    // the rows and columns the owner may see, not the whole table
+    // (VA-2026-10-25-08). governSelect runs the same schema-access check and
+    // rewrites every reference to a policed foreign table into its governed
+    // subquery, and refuses rather than materializing unfiltered when a policy
+    // covers a referenced table but cannot be applied.
+    const { sql: governed } = await governSelect(c, view.user_id, view.sql, allowed);
+    const body = stripSqlComments(governed).replace(/;\s*$/, "");
     // One commit: readers see the previous table until this lands.
     await c.run(
       `CREATE OR REPLACE TABLE ${qi(view.schema_name)}.${qi(view.table_name)} AS ${body}`,
