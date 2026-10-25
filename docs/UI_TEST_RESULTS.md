@@ -15,6 +15,20 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-26 — R377: the approval lifecycle under the tightened policies
+
+Security assessment findings VA-2026-10-25-04 and -07. The forged-row exploit is a direct database
+write, not a UI action; what the UI confirms is that the legitimate create → decide → resume path still
+works under the new INSERT/UPDATE policies and the immutability trigger, and that the inbox still reads.
+The forgery block itself is proved by the migration's self-check passing on push.
+
+| Page                                      | What was driven         | Result                                                                                                                                            |
+| ----------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| /swarms → Approval durability check → Run | example input, **Run**  | Ran to the approval node, which parked "awaiting approval"; the bell went **77 → 78** (INSERT policy allows a pending approval for one's own run) |
+| Approvals inbox (bell)                    | opened                  | Loaded the pending list, the new one at top "paused · just now" (SELECT policy)                                                                   |
+| Approvals inbox                           | **Approve** the new one | "Approved … Human approval is resuming" (owner decides an un-routed gate; the immutability trigger allows a status-only change); bell back to 77  |
+| /swarms run dock                          | (resume)                | The run resumed and finished: input → summarise → approval ✓ → condition YES → output → FINAL OUTPUT                                              |
+
 ## 2026-10-26 — R376: lakehouse row filters limited to the table's own columns
 
 Security assessment finding VA-2026-10-25-01. The refused filter is a harmless table-less subquery

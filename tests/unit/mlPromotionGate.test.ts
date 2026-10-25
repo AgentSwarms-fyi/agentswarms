@@ -65,16 +65,22 @@ describe("the requester is never the approver", () => {
 });
 
 describe("the server decides, not the client", () => {
-  it("re-checks every condition when applying", () => {
+  it("re-checks every condition when applying, against the model not the row", () => {
+    // VA-2026-10-25-04: the approvals table lets a client write a row, so the
+    // authority on who may approve is the MODEL's configured approvers, and the
+    // version must belong to the model — not whatever the row claims.
     const at = PROMOTE.indexOf("export async function applyApprovedPromotion");
     const body = PROMOTE.slice(at);
     for (const check of [
       /action_type !== ML_PROMOTE_ACTION/,
       /approval\.status !== "approved"/,
-      /approver_user_ids \?\? \[\]\)\.includes\(callerId\)/,
+      /model\.promotion_approvers \?\? \[\]\)\.includes\(callerId\)/,
+      /version\.model_id !== model\.id/,
     ]) {
       expect(body, String(check)).toMatch(check);
     }
+    // The forgeable row field is no longer trusted for authorization.
+    expect(body).not.toMatch(/approval\.approver_user_ids \?\? \[\]\)\.includes\(callerId\)/);
   });
 
   it("is what the inbox calls after recording a decision", () => {

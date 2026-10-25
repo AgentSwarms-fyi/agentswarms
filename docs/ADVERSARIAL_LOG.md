@@ -109,6 +109,36 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-26 — R377: an approval cannot be forged, nor acted on past its routing
+
+**Severity: high.** VA-2026-10-25-04 and -07 from the 2026-10-25 security assessment
+([docs/security/assessments/2026-10-25.md](./security/assessments/2026-10-25.md)).
+
+**The fix.** The approvals table's `"Users manage own approvals" FOR ALL` policy let a client write any
+row it owned, which the code that promotes a model or resumes a swarm run then trusted. Migration
+`20261026000000_approval_forge_hardening.sql` replaces it: an owner reads their own approvals, a client
+may create only a **pending** approval and only for a swarm run it owns, the owner may decide only a gate
+routed to nobody in particular, and an owner may delete their own. A `BEFORE UPDATE` trigger makes an
+approval's identity and routing (`user_id`, `action_type`, `agent_id`, `swarm_run_id`, the approver lists,
+`payload`) immutable, so neither a forged insert nor a later edit can aim an approval at a resource its
+author does not own. Model promotions are created by the service role and bypass RLS, so
+`applyApprovedPromotion` is the authority there — it now authorizes against the model's own configured
+`promotion_approvers`, checks the version belongs to the model, and keeps the requester from approving.
+The migration proves itself as it applies.
+
+**Tests:** `approvalForgeHardening.test.ts`, 9, driving `applyApprovedPromotion` against a forged,
+already-approved row — a caller who is not one of the model's configured approvers is refused, so is the
+requester, so is a version from another model — and pinning the migration's policies, the trigger and its
+self-check. `mlPromotionGate` now pins the model-config authorization. Mutation run: control survives,
+7 of 7 caught.
+
+**Pushed**, and the push succeeding is the self-check passing live.
+
+**The UI** (R377 build): the "Approval durability check" swarm was run — the approval node created a
+pending approval (the bell went 77 → 78, so the owner-pending INSERT policy allows the legitimate path),
+the inbox loaded, the approval was approved (the owner-decides-an-un-routed-gate UPDATE policy and the
+immutability trigger allow a real decision), the run resumed and finished with its FINAL OUTPUT.
+
 ### 2026-10-26 — R376: a lakehouse row filter is limited to its own table's columns
 
 **Severity: critical.** VA-2026-10-25-01, the 2026-10-25 security assessment's one critical finding

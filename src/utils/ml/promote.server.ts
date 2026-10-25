@@ -227,10 +227,13 @@ export async function requestPromotion(
 /**
  * Carry out a promotion somebody approved.
  *
- * Everything is re-checked HERE rather than trusted from the row the inbox
- * just wrote: that the approval is a promotion, that it was approved, that the
- * caller is a named approver, and — the one that matters — that the caller is
- * not the person who asked.
+ * Authorization is AGAINST THE MODEL, not the approval row. The approvals table
+ * lets a client write a row — its status, its approver_user_ids and its payload
+ * — so trusting those would let a forged "approved" row promote a model to the
+ * forger (VA-2026-10-25-04). The model's own `promotion_approvers` are the only
+ * authority on who may say yes, and the version named must belong to the model
+ * named, so a foreign version cannot be attached to someone else's model. The
+ * requester still cannot be the approver.
  */
 export async function applyApprovedPromotion(
   approvalId: string,
@@ -248,21 +251,12 @@ export async function applyApprovedPromotion(
   if (approval.status !== "approved") {
     return { ok: false, error: `That promotion was ${approval.status}` };
   }
-  if (!(approval.approver_user_ids ?? []).includes(callerId)) {
-    return { ok: false, error: "You are not a named approver for this model" };
-  }
 
   const payload = (approval.payload ?? {}) as {
     model_id?: string;
     version_id?: string;
     requested_by?: string;
   };
-  if (payload.requested_by === callerId) {
-    // Belt to the braces: requesters are filtered out of approver_user_ids
-    // when the request is raised, so reaching this line means the row was
-    // edited. A self-signed approval is an audit trail that lies.
-    return { ok: false, error: "The person who asked for a promotion cannot approve it" };
-  }
   if (!payload.model_id || !payload.version_id) {
     return { ok: false, error: "That approval does not name a version" };
   }
@@ -278,6 +272,20 @@ export async function applyApprovedPromotion(
     .eq("id", payload.version_id)
     .maybeSingle();
   if (!model || !version) return { ok: false, error: "The model or version is gone" };
+
+  // The caller must be one of the MODEL's configured approvers — not merely
+  // listed on the (forgeable) approval row.
+  if (!(model.promotion_approvers ?? []).includes(callerId)) {
+    return { ok: false, error: "You are not a named approver for this model" };
+  }
+  if (payload.requested_by === callerId) {
+    return { ok: false, error: "The person who asked for a promotion cannot approve it" };
+  }
+  // The version must belong to the model being promoted; otherwise a version
+  // the caller trained could be attached to another user's model.
+  if (version.model_id !== model.id) {
+    return { ok: false, error: "That version does not belong to that model" };
+  }
 
   return await applyPromotion(
     model,

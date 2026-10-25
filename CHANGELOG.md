@@ -24,7 +24,8 @@ development branch and may be ahead of the latest tag.
   closes nine service-only database functions to signed-in clients and
   requires an ML or MCP API key to name a model or app its owner owns; it
   removes any existing key that does not, and fails rather than half-applies
-  if any of it does not take.
+  if any of it does not take. One (R377) narrows who may write an approval and
+  makes an approval's routing immutable; it also proves itself on apply.
 
 ### Added
 
@@ -125,6 +126,16 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   jobs and deployment counters, or seeded sample content into their account.
   They are revoked from client roles; the app calls them as the service role,
   as it always did.
+- **An approval cannot be forged or acted on past its routing** (R377,
+  VA-2026-10-25-04 and -07). The approvals table let a client write any row it
+  owned, including an already-"approved" one naming someone else's model or
+  parked swarm run, which could then promote a model or resume a run. A client
+  may now create only a pending approval, and only for a swarm run it owns; an
+  approval's identity and routing (who it is for, what it points at) are fixed
+  once created; the owner may decide only a gate routed to nobody in
+  particular, never one with designated approvers. Applying a model promotion
+  additionally re-authorizes against the model's own configured approvers and
+  checks the version belongs to the model.
 - **A lakehouse row filter can only test its own table's columns** (R376,
   VA-2026-10-25-01, the assessment's one critical finding). Row filters on a
   table, a tag or a Delta Share were checked only by running them. They are now
