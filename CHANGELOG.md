@@ -110,6 +110,16 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
 - **The code/RLS findings** from this assessment (one critical and a cluster of
   `SECURITY DEFINER`/RLS authorization gaps) are recorded in the dated report
   and fixed in the commits that follow, each validated from the UI.
+- **A public embed chat reads only its owner's knowledge bases** (R379,
+  VA-2026-10-25-10). An embed answers as the key owner over the service role,
+  with row-level security off, so the knowledge bases wired into its agent are
+  bounded only by code. The retrieval passed the owner's id for resolving
+  embedding credentials but not as the tenant scope, so an owner could wire in a
+  knowledge base id they had merely learned — an ex-grantee's, say — and the
+  embed would search it; marking the visitor anonymous drops a document's
+  private content, not a whole foreign collection. Retrieval is now scoped to
+  the owner, so it covers only their own knowledge bases, public samples, and
+  ones shared to them by an access grant.
 - **The read-only SQL check no longer misses a second statement** (R374,
   VA-2026-10-25-02). It removed comments before string literals, so a `--` or
   `/*` inside a literal hid everything after it on the line — a `;` and a

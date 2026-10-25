@@ -359,7 +359,7 @@ export const Route = createFileRoute("/api/embed/chat")({
         const guardedHistory = redactHistoryPII(history, cfg.guardrails).messages;
         guardedHistory.forEach((m, i) => (history[i] = m));
 
-        // RAG over the resource's wired knowledge bases (owner-scoped ids).
+        // RAG over the resource's wired knowledge bases.
         let citations: Citation[] = [];
         if (cfg.kbIds.length > 0 && userText) {
           try {
@@ -369,6 +369,13 @@ export const Route = createFileRoute("/api/embed/chat")({
               query: inputDecision.outboundText,
               topK: 5,
               userId: keyRow.user_id,
+              // scopeUserId bounds the KBs this call will read to the embed
+              // owner's own, their IAM-granted ones, and samples — so a wired
+              // id for a knowledge base the owner does not own (one they merely
+              // learned) is dropped, not retrieved (VA-2026-10-25-10). The
+              // chunk RPCs run as the service role with RLS off, so this scope
+              // is the boundary; without it a configured foreign KB was read.
+              scopeUserId: keyRow.user_id,
               reranker: cfg.reranker,
               minSimilarity: autoRagMinSimilarity(),
               // userId above is the KEY OWNER (it resolves embedding

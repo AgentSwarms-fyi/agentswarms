@@ -15,6 +15,18 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-26 — R379: a public embed still answers from its owner's own knowledge base
+
+Security assessment finding VA-2026-10-25-10. The fix adds `scopeUserId` to the embed retrieval, so a
+knowledge base the embed owner does not own is dropped before any search. Wiring another tenant's KB id
+needs a second account, so the behavioral test (`embedKbOwnerScope.test.ts`) carries that proof; what
+the UI confirms is that the owner's own KB is still retrieved — the filter admits it and retrieval is
+unregressed. No fixture was created (the embed was already published).
+
+| Page                                                            | What was driven                                                                                                              | Result                                                                                                                                                                                                |
+| --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| /embeds → "E2E agent" (Demo · Friendly Assistant) → **Preview** | opened `/embed/agent/emk_…` the way a visitor sees it (no session), asked "How do I create a knowledge base in AgentSwarms?" | `POST /api/embed/chat` → 200; the answer was grounded in the owner's own KB — Sources [1]–[5] are the How-To Guide docs (`03_How_to_Create_a_Knowledge_Base.md`, `01_Getting_Started_Overview.md`, …) |
+
 ## 2026-10-26 — R378: a materialized view over an owned table still builds (no regression)
 
 Security assessment finding VA-2026-10-25-08. The fix governs a matview's body and restricts an

@@ -109,6 +109,40 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-26 — R379: a public embed could search a knowledge base its owner did not own
+
+**Severity: medium.** VA-2026-10-25-10 from the 2026-10-25 security assessment
+([docs/security/assessments/2026-10-25.md](./security/assessments/2026-10-25.md)).
+
+**The gap.** A public embed chat answers over the service-role client with row-level security off, so
+the only tenant boundary on which knowledge bases it retrieves is `scopeUserId`. The owner-scope
+filter in `tools/kb.server.ts` — own KBs + public samples + IAM-granted — runs only when `scopeUserId`
+is set, and `api/embed.chat.ts` passed `userId: keyRow.user_id` (which resolves embedding credentials)
+but not `scopeUserId`. An embed owner could therefore wire a knowledge base id they had merely learned
+(an ex-grantee's, say) into their agent's `knowledgeBaseIds` and the embed would search it. Marking the
+visitor `anonymous` only drops per-document `private` / `source_acl` content; it does not drop a whole
+foreign collection.
+
+**The fix.** The embed retrieval call now passes `scopeUserId: keyRow.user_id`, so
+`retrieveCitationsReport` bounds the resolved `kbIds` to the owner's own, public samples, and ones
+shared to them by an access grant — a wired foreign id is dropped before any search runs.
+
+**Tests:** `embedKbOwnerScope.test.ts`, behavioral against a spy Supabase client that records how far
+past the guard execution reaches: a foreign KB short-circuits (searched 0, no retrieval-settings read);
+own / sample / IAM-granted proceed; a mixed list keeps the owned id and drops the foreign one; and a
+contrast case pins the gap itself — WITHOUT `scopeUserId` the anonymous visitor still reaches the
+foreign KB. Plus two source pins on the embed route. Mutation run: control survives, 7 of 7 caught
+(guard disabled, ownership check inverted, sample/grant allowance removed, filter inverted,
+empty-after-filter return removed, embed wire removed).
+
+**The UI** (R379 build, hot-deployed): the published embed for **Demo · Friendly Assistant** was opened
+the way a visitor sees it (`/embed/agent/emk_…`, no session) and asked "How do I create a knowledge
+base in AgentSwarms?". `POST /api/embed/chat` answered 200 and the reply was grounded in the owner's
+own knowledge base — citations [1]–[5] are the How-To Guide documents
+(`03_How_to_Create_a_Knowledge_Base.md` among them). So the owner-scope filter admits the owner's own
+KB and retrieval is unregressed. The cross-tenant drop is proved by the behavioral test, since a
+single-user UI cannot wire another tenant's KB id into an embed.
+
 ### 2026-10-26 — R378: materializing or importing shared data stripped its row filters and column masks
 
 **Severity: high.** VA-2026-10-25-08 from the 2026-10-25 security assessment
