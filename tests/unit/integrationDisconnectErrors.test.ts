@@ -9,24 +9,34 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const page = readFileSync("src/routes/_authenticated/integrations.tsx", "utf8");
+// Provider disconnect moved into ProviderCredentialsPanel when the LLM
+// Providers tab was extracted so Settings → API Keys could host it inline
+// too — the error handling this describes now lives there.
+const providerPanel = readFileSync(
+  "src/components/integrations/ProviderCredentialsPanel.tsx",
+  "utf8",
+);
 
 describe("disconnecting a provider", () => {
   it("keeps the delete's error and says the key is still stored", () => {
-    expect(page).toContain(
+    expect(providerPanel).toContain(
       'const { error } = await supabase.from("provider_credentials").delete().eq("provider", encId);',
     );
-    expect(page).toContain('toast.error("Could not disconnect the provider"');
-    expect(page).toContain("The key is still stored and the provider is still connected.");
-    const block = page.slice(page.indexOf('from("provider_credentials").delete()'));
+    expect(providerPanel).toContain('toast.error("Could not disconnect the provider"');
+    expect(providerPanel).toContain("The key is still stored and the provider is still connected.");
+    const block = providerPanel.slice(
+      providerPanel.indexOf('from("provider_credentials").delete()'),
+    );
     expect(block.indexOf("return;")).toBeLessThan(
       block.indexOf('toast.success("Provider disconnected")'),
     );
   });
 
   it("on the integrations-row path too, which is the one OpenRouter takes", () => {
-    const branch = page.slice(
-      page.indexOf("const existing = integrations.find((i) => i.provider === providerId);"),
-      page.indexOf("async function saveGateway()"),
+    const branch = providerPanel.slice(
+      providerPanel.indexOf(
+        "const existing = integrations.find((i) => i.provider === providerId);",
+      ),
     );
     expect(branch).toContain("const { error } = await supabase");
     expect(branch).toContain(".update({ is_active: false, config: {} })");
@@ -35,8 +45,10 @@ describe("disconnecting a provider", () => {
       branch.indexOf('toast.success("Provider disconnected")'),
     );
     // Both provider paths say it; the multi-line bare await is gone.
-    expect((page.match(/toast\.error\("Could not disconnect the provider"/g) ?? []).length).toBe(2);
-    expect(page).not.toMatch(
+    expect(
+      (providerPanel.match(/toast\.error\("Could not disconnect the provider"/g) ?? []).length,
+    ).toBe(2);
+    expect(providerPanel).not.toMatch(
       /^\s*await supabase\s*\n\s*\.from\("integrations"\)\s*\n\s*\.update\(/m,
     );
   });
@@ -46,7 +58,7 @@ describe("disconnecting a notification channel", () => {
   it("keeps the update's error and says the channel is still connected", () => {
     const fn = page.slice(
       page.indexOf("async function disconnectNotifChannel"),
-      page.indexOf("const sharedFor ="),
+      page.indexOf("const healthErrorFor ="),
     );
     expect(fn).toContain("const { error } = await supabase");
     expect(fn).toContain('toast.error("Could not disconnect the channel"');
