@@ -212,6 +212,15 @@ least twice, not a hypothetical.
   sync was the class: **R372**, a failed read of the catalog list detached
   every catalog.
 
+- **A list that does not re-read after its own action — to confirm** (seen in
+  R375). Integrations → LLM Gateway: after a confirmed **Revoke**, the key's
+  row still read "active" (and its usage "0 · never") until the page was
+  reloaded, though the key already answered 401. ML → model → **Refresh**
+  left the warm endpoint's "24 requests served" in place until a reload
+  showed 25. Each was seen once, a few seconds after the action; confirm
+  with a longer wait and a second try before calling either a bug, then read
+  the other key and endpoint lists for the same shape.
+
 3.  **A cause named that the evidence cannot support.** R31's freshness test, and
     Prompt Compare crowning the model that failed fastest. R63's dashboard
     chip is the degenerate case: a count of `last_status = 'error'` on a

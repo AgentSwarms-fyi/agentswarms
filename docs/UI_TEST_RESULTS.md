@@ -15,6 +15,27 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-25 — R375: the service-only database functions and the API-key ownership rules
+
+Security assessment findings VA-2026-10-25-03, -05, -06 and -09, after the migration was pushed. That
+a client role can no longer call the nine functions is proved by the migration itself as it applies;
+these rows show every path that legitimately uses them still works.
+
+| Page                                                 | What was driven                                                        | Result                                                                                     |
+| ---------------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| /ml → revenue_facts plan classifier → Publish as API | key "R375 smoke" (predict, read) **Create key**                        | Listed: `mlk_e0rm3r…`, predict, read, 0 calls                                              |
+| (same, from the page)                                | `POST /api/ml/predict` with the key, one row                           | 200, v7 `logistic_regression`, `(unknown)` at 0.80; 82 s, a cold sandbox                   |
+| /ml → … → Automation                                 | Warm endpoint **Deploy**, then the same predict                        | "serving v7"; 200 in 6 s (scored in 0.13 s); after a reload "25 requests served", was 24   |
+| /ml → … → Automation; Publish as API                 | **Stop**; **Revoke** the key; the predict again                        | Endpoint "off"; key "Revoked"; 401 `Invalid API key`                                       |
+| /mcp-builder → R99 hello → Access                    | key "R375 smoke" **Create**, then **Revoke**                           | Listed `mcps_kv4kmm…`, all tools; then "Revoked"                                           |
+| /integrations → LLM Gateway → Create key             | "R375 cache", Models: `openrouter/openai/gpt-4o-mini`, cache on, $1/mo | Listed, cache on, active                                                                   |
+| (same, from the page)                                | `POST /api/v1/chat/completions` twice, one question, temperature 0     | `X-Gateway-Cache: miss` ("Blue.", 26 tokens), then **`hit`**, similarity 1, usage all zero |
+| /integrations → LLM Gateway                          | **Revoke** → confirm; then a call with the key                         | 401 "This API key has been revoked"; after a reload the row reads revoked, 2 calls         |
+
+The keys' plaintext stayed in the page; the calls were made from it, to this instance only. Two lists
+did not show a change until the page was reloaded — the gateway key read "active" after the confirmed
+revoke, and the ML model's **Refresh** left the endpoint's counter at 24 — queued to confirm.
+
 ## 2026-10-25 — R374: the read-only SQL check and a second statement hidden by `--` in a literal
 
 Security assessment finding VA-2026-10-25-02. The second statement used is harmless (`SELECT 2`) on

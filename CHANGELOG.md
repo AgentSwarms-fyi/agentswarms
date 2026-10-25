@@ -20,7 +20,11 @@ development branch and may be ahead of the latest tag.
   `ml_experiment_run_write`, which experiment logging now calls; until it
   exists, logging to a run answers 400. One adds `approvals.resumed_at`, which
   resuming a swarm run after its approval now claims. One widens the cost
-  columns to unconstrained `numeric`, without rewriting the tables.
+  columns to unconstrained `numeric`, without rewriting the tables. One (R375)
+  closes nine service-only database functions to signed-in clients and
+  requires an ML or MCP API key to name a model or app its owner owns; it
+  removes any existing key that does not, and fails rather than half-applies
+  if any of it does not take.
 
 ### Added
 
@@ -113,6 +117,21 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   any second statement. One check guards every local engine and every
   warehouse driver, so all of them are fixed. A literal that merely contains
   `;`, `--` or `/*` is still accepted.
+- **Database functions meant for the server alone are closed to signed-in
+  clients** (R375, VA-2026-10-25-03 and -09). Nine `SECURITY DEFINER`
+  functions took a user or record id as an argument and were callable by any
+  account over the database API: one returned another user's cached AI
+  Gateway questions and answers, others wrote to another user's ML training
+  jobs and deployment counters, or seeded sample content into their account.
+  They are revoked from client roles; the app calls them as the service role,
+  as it always did.
+- **An ML or MCP API key must name a model or app you own** (R375,
+  VA-2026-10-25-05 and -06). The rows' access rules checked only that the key
+  was yours, so a key naming someone else's model or private MCP server could
+  be added through the database API; an MCP key could also be marked internal
+  by its creator. Both now require ownership of what the key names, and a
+  client can no longer mark an MCP key internal. Existing keys that named
+  something their owner does not own are removed by the migration.
 
 ### Security: guardrails
 

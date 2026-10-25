@@ -109,6 +109,48 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-25 — R375: server-only database functions callable by any account, and API keys naming someone else's model or app
+
+**Severity: high (a cross-tenant read of cached AI answers; cross-tenant writes to ML jobs and
+counters; a key that reaches another user's model or private MCP server).** Found by the 2026-10-25
+security assessment (VA-2026-10-25-03, -05, -06, -09,
+[docs/security/assessments/2026-10-25.md](./security/assessments/2026-10-25.md)).
+
+**What it did.** Nine `SECURITY DEFINER` functions take a user or record id as an argument and act on
+that id's rows, with no `auth.uid()` check, because only the server calls them. None was revoked from
+the client roles, so the public anon key and any session could call them over the database API:
+`match_gateway_cache` with another user's id returned that user's cached questions and answers; the
+ML job, deployment and canary writers changed another user's training jobs and rollback counters; the
+seed functions wrote sample content into another account. A migration that re-creates a function under
+a new signature gives EXECUTE back to everyone, which is how two of them regressed after an earlier
+revoke. Separately, `ml_api_keys` and `mcp_app_keys` checked only that a key row was the caller's,
+never that the model or app it named was — the hole `swarm_api_keys` had and lost in
+`20260813000000` — and an MCP key's `is_internal` was the creator's to set.
+
+**What was written.** One migration: the nine are revoked from `public`, `anon` and `authenticated`
+by name (every overload) and granted to `service_role`; both key tables' policies require ownership
+of what the key names, and an MCP key a client creates cannot be internal; keys already naming
+something their owner does not own are deleted. Every app caller was checked first: all use
+`supabaseAdmin`, and the two seed functions are also called by a `SECURITY DEFINER` sign-up trigger,
+which runs as their owner. **The migration proves itself**: it fails unless every name exists, no
+client role can execute any of them, `service_role` can, and each policy has its ownership check,
+contains no `OR`, and is the only policy on its table (permissive policies are OR'd together).
+
+**Tests:** `securityRpcRlsHardening.test.ts`, 15, pinning the revoke set, the grant, the self-checks
+and each policy's exact text. Mutation run: the control survives and 9 of 9 are caught. An earlier
+version of the test survived `AND EXISTS` turned into `OR EXISTS` — which reopens the hole — because
+it looked only for the subquery; it now pins the whole policy, and the migration refuses a deployed
+policy containing `OR`.
+
+**Pushed**, and the push succeeding is the self-check passing in the live database.
+
+**The UI** (every service-role path still works): ML → revenue_facts plan classifier → Publish as
+API, key created, three predicts authenticated (200); through a warm endpoint the counter went from
+"24 requests served" to "25" (`increment_ml_deployment_use`); key revoked, a fourth call 401. MCP
+Builder → R99 hello → Access, key created and revoked. Integrations → LLM Gateway, a key with the
+cache on: the same question twice, `X-Gateway-Cache: miss` then `hit`, similarity 1, usage zero
+(`match_gateway_cache`); key revoked, then 401. The endpoint was stopped again.
+
 ### 2026-10-25 — R374: the read-only SQL check missed a second statement after a `--` inside a literal
 
 **Severity: high (a read-only control that let a second statement through, on every local engine and
