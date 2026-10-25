@@ -143,7 +143,7 @@ function SecretsPage() {
             <>
               Swarm <strong>A2A remote-agent node</strong>
             </>,
-            "The auth header value. The endpoint URL is not templated.",
+            "The auth header value — but only a secret you own (see below; you also supply the endpoint). The endpoint URL is not templated.",
           ],
           [
             <>
@@ -204,6 +204,16 @@ function SecretsPage() {
         entries in different people's vaults. It also means a colleague can override a shared secret
         for themselves simply by owning one of the same name, which is useful deliberately and
         surprising accidentally.
+      </Callout>
+      <Callout kind="warn" title="Where you choose the endpoint, only a secret you own resolves">
+        Three paths send the resolved value to a destination you supply at call time: the{" "}
+        <strong>A2A node</strong>'s auth header, and the live <strong>Test</strong> buttons for an{" "}
+        <strong>LLM gateway</strong> and a <strong>notification channel</strong>. On those a{" "}
+        <C>{"{{secret:NAME}}"}</C> resolves only when you <em>own</em> the secret — one merely
+        shared with you is refused, so sharing a secret can never become a way to read its value by
+        aiming the call at your own server. Using that same shared secret the ordinary way — a chat
+        or swarm that routes through the gateway, a saved connection, a notification that actually
+        fires — is unchanged.
       </Callout>
 
       <H3 id="rotating">Worked example — rotating a warehouse password</H3>

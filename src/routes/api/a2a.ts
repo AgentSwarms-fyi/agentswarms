@@ -249,9 +249,14 @@ async function handleInvoke(payload: InvokePayload, userId: string): Promise<Res
     //
     // Resolution failures are loud and name the secret — the same contract the
     // HTTP node has, and the reason this is not a silent empty string.
+    //
+    // ownedOnly: the caller also supplies `endpoint`, so a merely-shared secret
+    // resolved here could be forwarded to a server the caller controls and read
+    // back — sharing is meant to let a grantee USE a secret, never see it. Only
+    // secrets the caller owns may go to a caller-chosen endpoint (VA-2026-10-25-11).
     let authValue: string;
     try {
-      authValue = await resolveSecretRefs(userId, payload.remoteAuthHeader);
+      authValue = await resolveSecretRefs(userId, payload.remoteAuthHeader, { ownedOnly: true });
     } catch (e) {
       return jsonResponse({ error: e instanceof Error ? e.message : "Secret lookup failed" }, 400);
     }

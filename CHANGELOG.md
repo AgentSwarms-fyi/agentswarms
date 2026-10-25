@@ -120,6 +120,18 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   private content, not a whole foreign collection. Retrieval is now scoped to
   the owner, so it covers only their own knowledge bases, public samples, and
   ones shared to them by an access grant.
+- **A secret shared with you can be used but not extracted** (R380,
+  VA-2026-10-25-11). Sharing a secret through access control is meant to let
+  someone use it without ever seeing its value — the substitution happens on the
+  server. But three paths let the person also choose where the value is sent:
+  the agent-to-agent call (you supply the endpoint and the auth header), and the
+  live "test" buttons for an LLM gateway and a notification channel (you supply
+  the URL, and the key or webhook comes from your own saved config, which may
+  point at a shared secret). On those paths a grantee could aim the endpoint at
+  their own server and read the secret back. Secret resolution on exactly those
+  three paths now resolves only secrets you own; a merely-shared one is refused
+  with a clear message. Using a shared secret on the normal send paths (chat,
+  swarms, warehouses) is unchanged.
 - **The read-only SQL check no longer misses a second statement** (R374,
   VA-2026-10-25-02). It removed comments before string literals, so a `--` or
   `/*` inside a literal hid everything after it on the line — a `;` and a

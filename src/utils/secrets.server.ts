@@ -15,7 +15,7 @@ export function containsSecretRef(value: string): boolean {
   return SECRET_REF_RE.test(value);
 }
 
-async function lookupSecretValue(userId: string, name: string): Promise<string> {
+async function lookupSecretValue(userId: string, name: string, ownedOnly = false): Promise<string> {
   const { data: rows, error } = await supabaseAdmin
     .from("user_secrets")
     .select("id, user_id, value")
@@ -23,8 +23,14 @@ async function lookupSecretValue(userId: string, name: string): Promise<string> 
   if (error) throw new Error(`Secret lookup failed: ${error.message}`);
 
   // Own secret wins; otherwise any single IAM-granted secret with this name.
+  // ownedOnly SKIPS the grant fallback entirely: on a path where the caller
+  // also chooses the destination (an a2a invoke, a live gateway/webhook test
+  // against a caller-supplied URL), resolving a merely-shared secret would let
+  // a grantee forward it to their own server and read a value sharing is meant
+  // to let them use but never see (VA-2026-10-25-11). Only secrets they own
+  // may travel to an endpoint they pick.
   let match = (rows ?? []).find((r) => r.user_id === userId) ?? null;
-  if (!match) {
+  if (!match && !ownedOnly) {
     const granted: typeof rows = [];
     for (const row of rows ?? []) {
       const { data: allowed } = await supabaseAdmin.rpc("has_resource_access", {
@@ -43,8 +49,11 @@ async function lookupSecretValue(userId: string, name: string): Promise<string> 
   }
   if (!match) {
     throw new Error(
-      `Secret "${name}" not found or you don't have access to it. ` +
-        `Create it under /secrets or ask an administrator to share it with you.`,
+      ownedOnly
+        ? `Secret "${name}" must be one you own to use it here: a secret merely ` +
+            `shared with you cannot be sent to an endpoint you choose.`
+        : `Secret "${name}" not found or you don't have access to it. ` +
+            `Create it under /secrets or ask an administrator to share it with you.`,
     );
   }
 
@@ -53,15 +62,24 @@ async function lookupSecretValue(userId: string, name: string): Promise<string> 
   return decryptJson<string>(enc.ciphertext, enc.iv);
 }
 
-/** Replace every {{secret:NAME}} in a string, enforcing per-user access. */
-export async function resolveSecretRefs(userId: string, input: string): Promise<string> {
+/**
+ * Replace every {{secret:NAME}} in a string, enforcing per-user access.
+ * `ownedOnly` restricts resolution to secrets the caller owns — pass it on any
+ * path where the caller also chooses where the resolved value is sent.
+ */
+export async function resolveSecretRefs(
+  userId: string,
+  input: string,
+  opts?: { ownedOnly?: boolean },
+): Promise<string> {
   SECRET_REF_RE.lastIndex = 0;
   const names = new Set<string>();
   for (const m of input.matchAll(SECRET_REF_RE)) names.add(m[1]);
   if (names.size === 0) return input;
 
   const values = new Map<string, string>();
-  for (const name of names) values.set(name, await lookupSecretValue(userId, name));
+  for (const name of names)
+    values.set(name, await lookupSecretValue(userId, name, opts?.ownedOnly));
 
   SECRET_REF_RE.lastIndex = 0;
   return input.replace(SECRET_REF_RE, (_all, name: string) => values.get(name) ?? "");
@@ -71,11 +89,12 @@ export async function resolveSecretRefs(userId: string, input: string): Promise<
 export async function resolveSecretRefsInObject<T extends Record<string, unknown>>(
   userId: string,
   obj: T,
+  opts?: { ownedOnly?: boolean },
 ): Promise<T> {
   const out: Record<string, unknown> = { ...obj };
   for (const [k, v] of Object.entries(out)) {
     if (typeof v === "string" && containsSecretRef(v)) {
-      out[k] = await resolveSecretRefs(userId, v);
+      out[k] = await resolveSecretRefs(userId, v, opts);
     }
   }
   return out as T;

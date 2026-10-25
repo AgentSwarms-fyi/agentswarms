@@ -229,12 +229,24 @@ export const testLlmGateway = createServerFn({ method: "POST" })
         .eq("type", "llm_gateway")
         .maybeSingle();
       if (row?.config) {
-        const cfg = (await resolveIntegrationConfig(
-          auth.userId,
-          "llm_gateway",
-          row.config as Record<string, unknown>,
-        )) as { api_key?: string };
-        apiKey = (cfg.api_key ?? "").trim();
+        try {
+          // ownedOnly: the test sends this key to data.base_url, which the
+          // caller supplies, so a {{secret:NAME}} the caller only has shared
+          // access to must be refused here rather than resolved and forwarded
+          // to a server they could control (VA-2026-10-25-11).
+          const cfg = (await resolveIntegrationConfig(
+            auth.userId,
+            "llm_gateway",
+            row.config as Record<string, unknown>,
+            { ownedOnly: true },
+          )) as { api_key?: string };
+          apiKey = (cfg.api_key ?? "").trim();
+        } catch (e) {
+          return {
+            ok: false,
+            detail: e instanceof Error ? e.message : "Could not resolve the saved gateway key.",
+          };
+        }
       }
       if (!apiKey) return { ok: false, detail: "No gateway API key entered or saved yet." };
     }
@@ -274,12 +286,24 @@ export const testNotificationChannel = createServerFn({ method: "POST" })
         .eq("provider", data.provider)
         .maybeSingle();
       if (row?.config) {
-        const cfg = (await resolveIntegrationConfig(
-          auth.userId,
-          "notification",
-          row.config as Record<string, unknown>,
-        )) as { webhook_url?: string };
-        url = (cfg.webhook_url ?? "").trim();
+        try {
+          // ownedOnly: the test posts to data.webhook_url, which the caller
+          // supplies, so a saved webhook_url built from a {{secret:NAME}} the
+          // caller only has shared access to must not resolve here — that would
+          // send the secret to an endpoint they choose (VA-2026-10-25-11).
+          const cfg = (await resolveIntegrationConfig(
+            auth.userId,
+            "notification",
+            row.config as Record<string, unknown>,
+            { ownedOnly: true },
+          )) as { webhook_url?: string };
+          url = (cfg.webhook_url ?? "").trim();
+        } catch (e) {
+          return {
+            ok: false,
+            detail: e instanceof Error ? e.message : "Could not resolve the saved webhook URL.",
+          };
+        }
       }
       if (!url) return { ok: false, detail: "No webhook URL entered or saved yet." };
     }

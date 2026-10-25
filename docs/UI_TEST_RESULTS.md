@@ -15,6 +15,23 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-26 — R380: a secret you own still resolves on the hardened endpoint-test path
+
+Security assessment finding VA-2026-10-25-11. The fix makes the a2a invoke and the live gateway /
+notification tests resolve secrets `ownedOnly`, so a merely-shared secret is refused. Showing the
+refusal needs a second account to hold the grant, so the behavioral test (`secretsOwnedOnly.test.ts`)
+carries that; what the UI confirms is that a secret you OWN still resolves on the changed path — no
+regression.
+
+| Page                                  | What was driven                                                                                                                                         | Result                                                                                                                                                                      |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| /secrets                              | Created an owned secret `R380_OWNED_HOOK` = a webhook URL to a dead host                                                                                | Saved (own secret)                                                                                                                                                          |
+| /integrations → Notifications → Slack | Saved `webhook_url = {{secret:R380_OWNED_HOOK}}`, then **Send test & Save** with the field left **blank** — the fallback the fix changed to `ownedOnly` | Server: `Could not reach the slack webhook: fetch failed`. The owned secret resolved through the `ownedOnly` path and the POST was attempted; **not** "must be one you own" |
+
+Cleanup: the secret was deleted. The Notifications tab has no control to remove a saved channel, so the
+test Slack channel was overwritten to a literal dead URL (no secret reference) and left behind — worth
+a remove button.
+
 ## 2026-10-26 — R379: a public embed still answers from its owner's own knowledge base
 
 Security assessment finding VA-2026-10-25-10. The fix adds `scopeUserId` to the embed retrieval, so a

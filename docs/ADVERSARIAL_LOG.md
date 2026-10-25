@@ -109,6 +109,49 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-26 — R380: a shared secret could be forwarded to a caller-chosen endpoint and read
+
+**Severity: medium.** VA-2026-10-25-11 from the 2026-10-25 security assessment
+([docs/security/assessments/2026-10-25.md](./security/assessments/2026-10-25.md)).
+
+**The gap.** Sharing a secret by IAM grant is meant to let a grantee USE it without seeing its value:
+`resolveSecretRefs` runs server-side and `has_resource_access` lets a shared `{{secret:NAME}}` resolve.
+That invariant holds only while the grantee cannot also choose where the resolved value goes. Three
+paths break that: the a2a invoke (`api/a2a.ts` — caller supplies both `endpoint` and the auth header
+that carries `{{secret:NAME}}`), and the live gateway / notification tests (`testLlmGateway`,
+`testNotificationChannel` — caller supplies the URL, and the blank-key fallback resolves the caller's
+own saved config, which can embed `{{secret:NAME}}` pointing at a shared secret). A grantee aims the
+endpoint at a server they control and reads the secret from the request. The a2a SSRF guard does not
+help — the attacker's server is a public host.
+
+**The fix.** `resolveSecretRefs`, `resolveSecretRefsInObject` and `resolveIntegrationConfig` gained an
+`ownedOnly` option that skips the IAM-grant fallback in `lookupSecretValue` — a name with no secret the
+caller OWNS is refused with a message saying so, before anything is sent. The a2a invoke and the two
+live tests pass `ownedOnly: true`; the test fallbacks wrap the resolve so a refusal returns a clear
+`TestResult` rather than a 500. Every other caller (the real chat, swarm HTTP node, warehouse and ETL
+send paths) keeps the default, so legitimate USE of a shared secret is unchanged.
+
+**Tests:** `secretsOwnedOnly.test.ts`, behavioral against a spy Supabase client — by default a
+grant-shared secret resolves (and `has_resource_access` is consulted); under `ownedOnly` the same
+shared secret is refused and the grant is NEVER consulted (`rpcCalls === 0`), while an owned secret
+still resolves; and `resolveIntegrationConfig` forwards the flag. Three source pins confirm the a2a
+invoke and the two tests pass `ownedOnly`. Mutation run: control survives, 8 of 8 caught (guard
+ignores the flag, refusal message swapped, flag dropped at each of three forwarding hops, and the flag
+removed at each of the three sinks). Full gate green. (The first gate run caught a real break — the
+new message ternary moved the "not found" throw past a source pin in `inAppDocsAccuracy.test.ts`; that
+pin was corrected and the user-facing Secrets doc, which had claimed a shared secret resolves on the
+A2A node, was updated to say those three paths are owner-only.)
+
+**The UI** (R380 build, hot-deployed): on Integrations → Notifications, a Slack channel was saved with
+its webhook URL set to `{{secret:R380_OWNED_HOOK}}` — an OWNED secret resolving to a dead host — then
+**Send test & Save** was pressed with the field left BLANK, the path that hits the changed fallback.
+The server answered `Could not reach the slack webhook: fetch failed`: the owned secret resolved
+through the `ownedOnly` path and the POST was attempted against the resolved host. It did NOT answer
+"must be one you own", so the hardening does not break resolution of a secret you own. The
+shared-secret refusal needs a second account to hold the grant and is carried by the behavioral test.
+(Cleanup: the secret was deleted; the Notifications tab has no control to remove a saved channel, so
+the test channel was overwritten to a literal dead URL and left — a small UX gap worth a remove button.)
+
 ### 2026-10-26 — R379: a public embed could search a knowledge base its owner did not own
 
 **Severity: medium.** VA-2026-10-25-10 from the 2026-10-25 security assessment

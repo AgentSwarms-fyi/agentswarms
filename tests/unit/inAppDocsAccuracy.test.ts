@@ -951,8 +951,12 @@ describe("the secrets page describes the resolver that exists", () => {
       /environment bindings are the exception/i,
     );
 
+    // Still throws on a missing/forbidden secret rather than returning empty —
+    // the loud behaviour the page documents. The message is now a ternary (the
+    // owned-only paths say so instead; VA-2026-10-25-11), so the not-found
+    // branch no longer sits immediately after `throw new Error(`.
     expect(resolver, "resolveSecretRefs no longer throws on a missing secret").toMatch(
-      /throw new Error\(\s*`Secret "\$\{name\}" not found/,
+      /throw new Error\([\s\S]{0,260}`Secret "\$\{name\}" not found/,
     );
   });
 

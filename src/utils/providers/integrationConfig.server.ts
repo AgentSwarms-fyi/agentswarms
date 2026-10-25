@@ -88,6 +88,7 @@ export async function resolveIntegrationConfig(
   userId: string,
   type: string,
   config: Record<string, unknown>,
+  opts?: { ownedOnly?: boolean },
 ): Promise<Record<string, unknown>> {
   let out: Record<string, unknown> = { ...config };
   for (const f of integrationSecretFields(type)) {
@@ -102,7 +103,10 @@ export async function resolveIntegrationConfig(
     }
   }
   if (Object.values(out).some((v) => typeof v === "string" && containsSecretRef(v))) {
-    out = await resolveSecretRefsInObject(userId, out);
+    // ownedOnly is passed through on caller-chooses-the-endpoint paths (a live
+    // test against a caller-supplied URL), so a {{secret:NAME}} the caller only
+    // has shared access to is refused rather than resolved and sent out.
+    out = await resolveSecretRefsInObject(userId, out, opts);
   }
   return out;
 }
