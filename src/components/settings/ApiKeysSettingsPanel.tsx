@@ -42,8 +42,130 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { KeyRound, Copy, Check, Plus, Trash2, ArrowRight, Cloud } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { KeyRound, Copy, Check, Plus, Trash2, ArrowRight, Settings2 } from "lucide-react";
 import { toast } from "sonner";
+import { API_KEY_CATEGORIES, type ApiKeyCategoryId } from "@/lib/apiKeyCategories";
+import { ProviderCredentialsPanel } from "@/components/integrations/ProviderCredentialsPanel";
+import { GatewayApiCard } from "@/components/gateway/GatewayApiCard";
+import { MlModelApiKeysPanel } from "@/components/settings/MlModelApiKeysPanel";
+import { SecretsManagerPanel } from "@/components/settings/SecretsManagerPanel";
+import { EmbedSection } from "@/components/embed/EmbedSection";
+import { McpServersPanel } from "@/components/settings/McpServersPanel";
+
+/**
+ * What each category's "Manage" button actually opens, inline, in a Dialog —
+ * the real controls (connect/test/disconnect, create/edit/delete, etc.),
+ * never a navigation. Every one of these is the exact same component its
+ * dedicated page renders, not a second copy of that page's logic.
+ */
+function CategoryPanel({ id }: { id: ApiKeyCategoryId }) {
+  const { session } = useAuth();
+  switch (id) {
+    case "providers":
+      return <ProviderCredentialsPanel />;
+    case "gateway":
+      return session?.access_token ? (
+        <GatewayApiCard token={session.access_token} />
+      ) : (
+        <p className="text-sm text-muted-foreground">Sign in again to manage gateway keys.</p>
+      );
+    case "ml":
+      return <MlModelApiKeysPanel />;
+    case "secrets":
+      return <SecretsManagerPanel />;
+    case "embeds":
+      return <EmbedSection />;
+    case "mcp":
+      return <McpServersPanel />;
+  }
+}
+
+/**
+ * One category card: label/description from the static registry, count
+ * fetched live and independently — a failed or slow count on one category
+ * (e.g. a table an older self-hosted deployment hasn't migrated yet) never
+ * blocks or blanks out the others, it just shows "—" for that one card.
+ */
+function CategoryCard({
+  category,
+  onManage,
+}: {
+  category: (typeof API_KEY_CATEGORIES)[number];
+  onManage: () => void;
+}) {
+  const [count, setCount] = useState<number | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      // category.table is a plain string (the registry lists tables the
+      // generated Database type may not even know about on every
+      // deployment) — bypass the strict literal-union overload the same
+      // way the rest of this codebase does for a dynamic table name.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let query: any = supabase
+        .from(category.table as never)
+        .select("id", { count: "exact", head: true });
+      if (category.filter)
+        query = query[category.filter.op](category.filter.column, category.filter.value);
+      const { count: n, error } = await query;
+      if (cancelled) return;
+      // `head: true` means a failed request (e.g. this table doesn't exist
+      // on an older self-hosted deployment that hasn't run every migration)
+      // comes back with NO body — HTTP HEAD responses never have one — so
+      // PostgREST's error details never reach `error`, and `count` is left
+      // null rather than populated from the (absent) Content-Range header.
+      // Treating null the same as a thrown error, instead of defaulting it
+      // to 0, is the difference between "unavailable" and a false "you have
+      // none of these".
+      if (error || n === null) setFailed(true);
+      else setCount(n);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [category]);
+
+  const Icon = category.icon;
+  return (
+    <button
+      type="button"
+      onClick={onManage}
+      className="group flex flex-col gap-2 rounded-lg border border-border p-4 text-left transition-colors hover:border-primary/40 hover:bg-muted/40"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <Icon className="h-4 w-4 text-primary" />
+        {failed ? (
+          <span
+            className="text-xs text-muted-foreground"
+            title="Count unavailable — this deployment may not have run the migration this feature needs yet"
+          >
+            —
+          </span>
+        ) : (
+          <Badge variant="outline" className="text-[10px] tabular-nums">
+            {count === null ? "…" : count}
+          </Badge>
+        )}
+      </div>
+      <div>
+        <p className="text-sm font-medium text-foreground">{category.label}</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">{category.description}</p>
+      </div>
+      <span className="mt-auto flex items-center gap-1 pt-1 text-xs text-primary opacity-0 transition-opacity group-hover:opacity-100">
+        <Settings2 className="h-3 w-3" /> Manage
+      </span>
+    </button>
+  );
+}
 
 type ApiKeyRow = {
   id: string;
@@ -110,6 +232,9 @@ export function ApiKeysSettingsPanel() {
   const [swarms, setSwarms] = useState<SwarmOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  const [openCategory, setOpenCategory] = useState<ApiKeyCategoryId | null>(null);
+  const activeCategory = API_KEY_CATEGORIES.find((c) => c.id === openCategory) ?? null;
 
   const [createOpen, setCreateOpen] = useState(false);
   const [targetSwarmId, setTargetSwarmId] = useState<string>("");
@@ -407,21 +532,40 @@ export function ApiKeysSettingsPanel() {
 
       <Separator />
 
-      <div className="rounded-lg border border-border bg-muted/30 p-4">
-        <h3 className="flex items-center gap-2 text-sm font-medium text-foreground">
-          <Cloud className="h-4 w-4 text-primary" /> LLM provider keys
-        </h3>
-        <p className="mt-1 text-xs text-muted-foreground">
-          OpenAI, Anthropic, Gemini and other model provider credentials are managed separately,
-          with per-provider connection status and testing.
-        </p>
-        <Link
-          to="/integrations"
-          className="mt-2 inline-flex items-center gap-1 text-xs text-primary hover:underline"
-        >
-          Manage provider connections <ArrowRight className="h-3 w-3" />
-        </Link>
+      <div className="space-y-3">
+        <div>
+          <h3 className="text-sm font-medium text-foreground">Everywhere else in AgentSwarms</h3>
+          <p className="text-xs text-muted-foreground">
+            Every other credential store in the app, with a live count — click a category to
+            connect, test or revoke its keys right here.
+          </p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {API_KEY_CATEGORIES.map((category) => (
+            <CategoryCard
+              key={category.id}
+              category={category}
+              onManage={() => setOpenCategory(category.id)}
+            />
+          ))}
+        </div>
       </div>
+
+      <Dialog open={openCategory !== null} onOpenChange={(v) => !v && setOpenCategory(null)}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+          {activeCategory && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <activeCategory.icon className="h-4 w-4 text-primary" /> {activeCategory.label}
+                </DialogTitle>
+                <DialogDescription>{activeCategory.description}</DialogDescription>
+              </DialogHeader>
+              <CategoryPanel id={activeCategory.id} />
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

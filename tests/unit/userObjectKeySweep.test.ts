@@ -61,8 +61,9 @@ const REVIEWED: Record<string, number> = {
   // Re-reads the budget; every field saves as it is typed, so nothing unsaved
   // is on screen to lose.
   "src/routes/_authenticated/budgets.tsx": 1,
-  // Re-reads the server list and resubscribes to its changes.
-  "src/routes/_authenticated/mcp.tsx": 1,
+  // Re-reads the server list and resubscribes to its changes. Extracted into
+  // McpServersPanel when Settings → API Keys needed the same controls inline.
+  "src/components/settings/McpServersPanel.tsx": 1,
   "src/routes/_authenticated/notebooks.tsx": 1,
   // Also keyed on the token; reviewed in R125's sweep.
   "src/routes/_authenticated/traces.tsx": 1,

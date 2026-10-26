@@ -271,6 +271,16 @@ const REVIEWED: Record<string, number> = {
   "src/components/notebooks/NotebookGitDialog.tsx": 1,
   "src/components/notebooks/RunningKernels.tsx": 1,
   "src/components/observability/TeamSpend.tsx": 1,
+  // Extracted from /ml/$modelId's model picker when Settings → API Keys
+  // needed the same "pick a model, manage its keys" flow — re-fetches the
+  // read-only model list, same shape as every other reviewed picker here.
+  "src/components/settings/MlModelApiKeysPanel.tsx": 1,
+  // Extracted from /secrets (see the now-removed entry below) when Settings
+  // → API Keys needed the same create/edit/delete controls inline — the
+  // token-keyed reload only re-fetches the secrets list; it never touches
+  // the separate create/edit draft state, so a mid-refresh re-run cannot
+  // replace what the reader is typing.
+  "src/components/settings/SecretsManagerPanel.tsx": 1,
   "src/components/sheets/OpenTableDialog.tsx": 3,
   "src/components/sheets/SaveToLakehouseDialog.tsx": 1,
   // R158: reads the admin's model name once, for the picker's default; edits nothing.
@@ -290,7 +300,6 @@ const REVIEWED: Record<string, number> = {
   "src/routes/_authenticated/monitoring.tsx": 2,
   "src/routes/_authenticated/notebooks.py.$pyNotebookId.tsx": 1,
   "src/routes/_authenticated/notebooks.sample.$sampleSlug.tsx": 1,
-  "src/routes/_authenticated/secrets.tsx": 1,
   "src/routes/_authenticated/semantics.tsx": 3,
   "src/routes/_authenticated/sheets.tsx": 2,
   "src/routes/_authenticated/sql-models.tsx": 1,

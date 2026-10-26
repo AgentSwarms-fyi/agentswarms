@@ -62,19 +62,24 @@ const CONVERTED: {
     what: "the notebook's API keys: 'Loading…' for ever after a failed read",
   },
   {
-    file: "src/routes/_authenticated/integrations.tsx",
+    // Moved out of the route into ProviderCredentialsPanel so Settings → API
+    // Keys can host the identical controls inline — the claim-routing logic
+    // (and the defect it guards) now lives there, not in the thin route shell.
+    file: "src/components/integrations/ProviderCredentialsPanel.tsx",
     module: "16 — Integrations",
     what: "connected providers rendering as never-configured, with no error at all",
     claim: "providerBadge",
   },
   {
-    file: "src/routes/_authenticated/secrets.tsx",
+    // Moved out of the route into SecretsManagerPanel — same reason as above.
+    file: "src/components/settings/SecretsManagerPanel.tsx",
     module: "18 — Secrets",
     what: "'No secrets yet. Create one…' for an account holding two, after the toast expired",
     viaServerFn: true,
   },
   {
-    file: "src/routes/_authenticated/mcp.tsx",
+    // Moved out of the route into McpServersPanel — same reason as above.
+    file: "src/components/settings/McpServersPanel.tsx",
     module: "19 — MCP Servers",
     what: "'0 connected' and '0 tools available' for an account with a server exposing seven",
     claim: ["countLabels", "listClaim"],

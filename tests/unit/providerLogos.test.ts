@@ -11,7 +11,12 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const PAGES = {
-  integrations: { file: "src/routes/_authenticated/integrations.tsx", map: "const PROVIDER_LOGO" },
+  // PROVIDER_LOGO moved into ProviderCredentialsPanel when the LLM Providers
+  // tab was extracted so Settings → API Keys could host it inline too.
+  integrations: {
+    file: "src/components/integrations/ProviderCredentialsPanel.tsx",
+    map: "const PROVIDER_LOGO",
+  },
   registry: { file: "src/routes/_authenticated/model-registry.tsx", map: "const LOGO" },
 };
 
