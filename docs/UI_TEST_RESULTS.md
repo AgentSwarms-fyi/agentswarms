@@ -39,12 +39,15 @@ stopped as a production deploy and awaits the operator. So this round confirms t
 the moved writer still records cost rows. The lockdown itself is proven when the migration is applied
 (its `DO` block raises if a client write policy survives).
 
-| Page        | What was driven                                                                | Result                                                                                                                    |
-| ----------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| /traces     | read the newest row before the test                                            | 367 traces; top row `Oct 26 15:47:49 · Playground`                                                                        |
-| /playground | "R293 budget probe" agent: "R383 trace check: reply with just OK." → **Enter** | Answered "OK"                                                                                                             |
-| /traces     | reloaded                                                                       | **368** traces; new top row `Oct 26 22:43:39 · R293 budget probe · google/gemini-3-flash-preview · 12/1 · ok · $0.000009` |
-| CLI         | `supabase db push --dry-run` against the linked project                        | Would apply exactly one migration: `20261027000000_execution_trace_write_lockdown.sql`. The real push was not run.        |
+| Page        | What was driven                                                                       | Result                                                                                                                                          |
+| ----------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| /traces     | read the newest row before the test                                                   | 367 traces; top row `Oct 26 15:47:49 · Playground`                                                                                              |
+| /playground | "R293 budget probe" agent: "R383 trace check: reply with just OK." → **Enter**        | Answered "OK"                                                                                                                                   |
+| /traces     | reloaded                                                                              | **368** traces; new top row `Oct 26 22:43:39 · R293 budget probe · google/gemini-3-flash-preview · 12/1 · ok · $0.000009`                       |
+| CLI         | `supabase db push --dry-run` against the linked project                               | Would apply exactly one migration: `20261027000000_execution_trace_write_lockdown.sql`. The real push was not run.                              |
+| CLI         | after the operator's `supabase db push`: `supabase migration list --linked`           | `20261027000000` present locally and remotely; nothing pending                                                                                  |
+| /traces     | reloaded on the live policy                                                           | 368 traces readable — the owner `SELECT` policy took                                                                                            |
+| /playground | same agent: "R383 post-lockdown check: reply with just OK." → **Enter**; then /traces | **369** traces; new top row `Oct 26 23:13:29 · R293 budget probe · 28/1 · ok · $0.000017` — the cost row still lands with client writes refused |
 
 ## 2026-10-26 — R382: a shared secret no longer reaches an MCP app's sandbox env
 

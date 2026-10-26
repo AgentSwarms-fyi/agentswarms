@@ -190,6 +190,13 @@ waiting on the operator. Until it runs, `execution_traces` is still `FOR ALL` an
 Once applied, its `DO` block is the proof (it raises if any client write policy survives), and the
 Traces page still reading the user's rows confirms the owner `SELECT` policy took.
 
+**Applied, later the same day.** The operator ran `supabase db push`. `supabase migration list --linked`
+showed `20261027000000` local and remote with nothing pending (so the self-check passed). Then, on the live
+policy: `/traces` read the user's 368 rows (owner `SELECT` took), and a second Playground turn — "R383
+post-lockdown check" — added row 369, `Oct 26 23:13:29 · R293 budget probe · 28/1 · ok · $0.000017`. That
+last one is the check that matters after a write lockdown: with client writes refused, the cost row still
+landed, so nothing was left writing as the user. VA-2026-10-25-13's `execution_traces` half is closed.
+
 ### 2026-10-26 — R382: a shared secret could be read out of an MCP-app sandbox env
 
 **Severity: medium.** VA-2026-10-25-28 — the endpoint-less sibling R380 flagged as tracked separately
