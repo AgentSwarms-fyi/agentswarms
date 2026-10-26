@@ -109,6 +109,43 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-26 — R384: the Data Catalog looked empty while a third of it was still loading
+
+**Reported by the user:** "the local tables and tables connected via apps take some time to load … initially
+it might seem there's no local tables or any connected apps table during first few seconds."
+
+**Measured** on a fresh load of `/data-sql`, sampling the DOM every 250 ms: for ~6.9 s the rail read `All
+assets 71+ · Local tables … · MinIO local etl demo 12 · Lakehouse catalog 59`, the list held 71 of 106
+assets, and the connector source `sftest` was **absent** — then at once `All assets 106 · Local tables 28 ·
+sftest 7`. The component already knew the local half was unread (`localLoading`), but said so only as a bare
+`…` and a `+`. Three places in that window read as "you have none": the Local tables
+count, the missing connector row (connector sources come from the same read, so they had nothing to render),
+and the empty state — filtering to Local tables said "No assets match the current filters", and a
+local-only workspace was told "Nothing cataloged yet — add a data source".
+
+**The fix** (`CatalogView.tsx`): the Local tables count shows a spinner labelled "Loading local tables"; a
+"Checking connected apps" row (worded as a check, so with no connections it disappears without having
+claimed any) stands in for the connector sources; a status banner over the list says the local and app
+tables are on their way once the crawled list is up; the count reads "71 of 71+ assets so far"; and an empty
+result under All, Local tables or an app source — where the read could still add rows — shows "Loading
+local tables and connected-app tables…" instead of "no match" (`awaitingLocal`). A crawled source's own
+view is not held back: its empty result does not depend on the local read.
+
+**Tests:** `catalogLocalLoading.test.ts` re-pins the Local tables count as a spinner (not the old bare
+ellipsis) and adds pins for the apps row, the banner, "so far", the loading branch ordered before the
+generic empty state, and `awaitingLocal` sparing crawled sources; `catalogLocalFailure.test.ts`'s pin on
+the unknown branch ("—", never a count) is re-anchored to the new shape. All 12 catalog files green (96
+tests). Mutation run: control survives, 6 of 6 caught. Full gate green (707/707 files).
+
+**The UI** (R384 build, hot-deployed): DOM sampled every 250 ms from load — at t = 2 ms the Local tables
+spinner, the "Checking connected apps" row and the banner were all present with the count "71 of 71+ assets
+so far"; at t = 7.98 s they cleared together and the rail read `All assets 106 · Local tables 28 · sftest 7`.
+Then, waiting for the crawled list to be up while the local half was still loading (t ≈ 2.9 s) and
+pressing **Local tables**: the pane read "Loading local tables and connected-app tables…", not "No assets
+match"; nine seconds later the same filter showed 28 rows, "28 of 106 assets". (Two earlier attempts at
+that click missed the window — one landed before hydration, one used the wrong coordinate frame and opened
+an asset drawer — which is why the final run waits for the exact state before clicking.)
+
 ### 2026-10-26 — R383: a user could erase or zero their own cost records to beat a budget cap
 
 **Severity: medium.** VA-2026-10-25-13 (the `execution_traces` half) from the 2026-10-25 security

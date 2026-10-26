@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-26 — R384: the Data Catalog says it is loading instead of looking empty
+
+From the user: local and connected-app tables take a few seconds to load and the catalog looked as if
+there were none. Every row below is the hot-deployed R384 build; the DOM was read with an inspection
+script every 250 ms, and the filter was pressed with a real click.
+
+| Moment                                         | What was driven / read   | Result                                                                                                                                                                                            |
+| ---------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| /data-sql, t = 2 ms after load                 | rail, banner and count   | Local tables shows a spinner; "Checking connected apps" row present; banner "Loading local tables and connected-app tables — they'll appear in this list in a moment."; "71 of 71+ assets so far" |
+| t = 7.98 s                                     | same                     | All indicators gone together; rail `All assets 106 · Local tables 28 · sftest 7 · MinIO local etl demo 12 · Lakehouse catalog 59`; "106 of 106 assets"                                            |
+| crawled list up, local still loading (t≈2.9 s) | **Local tables** pressed | Pane: "Loading local tables and connected-app tables…" with a spinner — not "No assets match"; count "0 of 71+ assets so far"                                                                     |
+| nine seconds later                             | same filter              | 28 rows; "28 of 106 assets"; `sftest 7` in the rail                                                                                                                                               |
+
+No fixtures were created.
+
 ## 2026-10-26 — R383: a signed-in chat turn still records its cost through the service role
 
 Security assessment finding VA-2026-10-25-13 (`execution_traces` half). The code moved the three

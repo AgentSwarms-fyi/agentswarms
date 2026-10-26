@@ -423,6 +423,15 @@ export function CatalogView({
     });
   }, [allAssets, search, sourceFilter, typeFilter, piiOnly, certOnly]);
 
+  // An empty list is only "no match" once every half that could hold a match
+  // has been read. MEASURED on a fresh load: for ~7 s the list held only the
+  // crawled assets (71 of 106) — 28 local tables and a connector's 7 missing —
+  // so filtering to Local tables said "No assets match", and a workspace with
+  // only local tables was told "Nothing cataloged yet". Under All, Local tables
+  // or an app source an empty result may just be unread; a crawled source's own
+  // view does not depend on the local read.
+  const awaitingLocal = localLoading && !sourceById.has(sourceFilter);
+
   // Sources whose last crawl failed, said in words (R370): a scheduled crawl
   // fails with nobody watching, and a red dot with a hover title said it to
   // nobody else.
@@ -731,11 +740,19 @@ export function CatalogView({
             >
               <HardDrive className="h-3.5 w-3.5" /> Local tables
               <span className="ml-auto text-[10px] text-muted-foreground">
-                {localUnknown
-                  ? "—"
-                  : localLoading
-                    ? "…"
-                    : localAssets.filter((a) => a.source_id === LOCAL_SOURCE_ID).length}
+                {/* A bare "…" here read as a value, not as work in progress —
+                    it sat there for seven seconds looking like "none". */}
+                {localUnknown ? (
+                  "—"
+                ) : localLoading ? (
+                  <Loader2
+                    className="h-3 w-3 animate-spin"
+                    aria-label="Loading local tables"
+                    data-testid="catalog-local-count-loading"
+                  />
+                ) : (
+                  localAssets.filter((a) => a.source_id === LOCAL_SOURCE_ID).length
+                )}
               </span>
             </button>
 
@@ -870,6 +887,26 @@ export function CatalogView({
                 </div>
               );
             })}
+
+            {/* Connector sources are only known once the local read lands — it
+                asks for the connections in the same pass — so until then they
+                were simply ABSENT, which reads as "you have no connected apps".
+                Say they are being checked instead. Worded as a check, not a
+                source: with no connections this disappears without ever having
+                claimed there were some. */}
+            {localLoading ? (
+              <div
+                className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground"
+                role="status"
+                data-testid="catalog-apps-loading"
+              >
+                <Cloud className="h-3.5 w-3.5 shrink-0" /> Checking connected apps
+                <Loader2
+                  className="ml-auto h-3 w-3 animate-spin"
+                  aria-label="Loading connected apps"
+                />
+              </div>
+            ) : null}
 
             {sources.map((s) => (
               <div
@@ -1037,9 +1074,13 @@ export function CatalogView({
           >
             <BookMarked className="h-3.5 w-3.5" /> Glossary
           </Button>
-          <span className="ml-auto text-[11px] text-muted-foreground">
-            {filtered.length} of {allAssets.length}
-            {localUnknown || localLoading ? "+" : ""} assets
+          <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            {localLoading ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /> : null}
+            <span data-testid="catalog-asset-count">
+              {filtered.length} of {allAssets.length}
+              {localUnknown || localLoading ? "+" : ""} assets
+              {localLoading ? " so far" : ""}
+            </span>
           </span>
         </div>
 
@@ -1071,6 +1112,22 @@ export function CatalogView({
               );
             })}
             {failures.length > 3 ? <div>…and {failures.length - 3} more.</div> : null}
+          </div>
+        ) : null}
+        {/* The crawled assets usually land first, and the list then looked
+            complete while a third of it was still on its way. Only shown once
+            the crawled list is up — before that the whole table is skeletons. */}
+        {localLoading && !loading ? (
+          <div
+            className="flex items-center gap-2 border-b border-border/60 bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground"
+            role="status"
+            data-testid="catalog-local-loading"
+          >
+            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+            <span className="min-w-0 flex-1">
+              Loading local tables and connected-app tables — they&apos;ll appear in this list in a
+              moment.
+            </span>
           </div>
         ) : null}
         {localError ? (
@@ -1120,6 +1177,17 @@ export function CatalogView({
                   <Skeleton className="ml-auto h-6 w-24 rounded-md" />
                 </div>
               ))}
+            </div>
+          ) : filtered.length === 0 && awaitingLocal ? (
+            <div
+              className="flex flex-col items-center gap-3 p-16 text-center"
+              role="status"
+              data-testid="catalog-empty-while-loading"
+            >
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">
+                Loading local tables and connected-app tables…
+              </p>
             </div>
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center gap-3 p-16 text-center">

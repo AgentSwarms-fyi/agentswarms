@@ -48,9 +48,14 @@ describe("the catalog, when its local tables cannot be read", () => {
   });
 
   it("shows no count for local tables while they are unknown", () => {
-    // "0" is a count. "—" is the absence of one.
-    expect(CAT).toMatch(
-      /Local tables\s*<span[^>]*>\s*\{localUnknown\s*\?\s*"—"\s*:\s*localLoading\s*\?\s*"…"\s*:\s*localAssets\.filter\(\(a\) => a\.source_id === LOCAL_SOURCE_ID\)\.length\}/,
+    // "0" is a count. "—" is the absence of one. R384 turned the LOADING
+    // branch's "…" into a spinner (catalogLocalLoading.test.ts); the unknown
+    // branch is unchanged, and the count is still only the last answer.
+    const i = CAT.indexOf('<HardDrive className="h-3.5 w-3.5" /> Local tables');
+    expect(i, "Local tables row anchor gone").toBeGreaterThan(0);
+    const row = CAT.slice(i, CAT.indexOf("</button>", i));
+    expect(row).toMatch(
+      /\{localUnknown \? \(\s*"—"\s*\) : localLoading \? \([\s\S]*?\) : \(\s*localAssets\.filter\(\(a\) => a\.source_id === LOCAL_SOURCE_ID\)\.length\s*\)\}/,
     );
   });
 

@@ -333,6 +333,18 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **The Data Catalog says it is still loading your local and connected-app
+  tables, instead of looking empty** (R384). Those tables arrive a few seconds
+  after the crawled ones — about seven on a fresh load here, a third of the
+  catalog — and until then the page read as if you had none: the Local tables
+  count was a bare "…", a connected app's source wasn't in the list at all, the
+  table looked complete, and choosing Local tables said "No assets match" (an
+  account with only local tables was even told "Nothing cataloged yet — add a
+  data source"). Now the Local tables count shows a spinner, a "Checking
+  connected apps" row stands in until the apps are known, a banner over the
+  list says the rest is on its way, the count reads "… so far", and an empty
+  result that could still fill in says it is loading rather than that there is
+  nothing.
 - **A failed read of the Iceberg catalog list no longer detaches every
   catalog** (R372). Each engine connection syncs its attached Iceberg catalogs
   against their list every 15 seconds, and a read of that list that failed was
