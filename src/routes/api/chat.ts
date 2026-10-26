@@ -1,4 +1,5 @@
 import { auditEvent } from "@/utils/audit.server";
+import { providerFetch } from "@/utils/ssrfGuard.server";
 import { beginDecision } from "@/utils/provenance/decision.server";
 import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
@@ -2055,7 +2056,7 @@ export const Route = createFileRoute("/api/chat")({
                   ? [{ role: "system" as const, content: effectiveSystemPrompt }]
                   : [];
 
-                const upstream = await fetch(transport.endpointUrl, {
+                const upstream = await providerFetch(transport.endpointUrl, {
                   method: "POST",
                   headers: {
                     Authorization: `Bearer ${transport.apiKey}`,
@@ -2139,7 +2140,7 @@ export const Route = createFileRoute("/api/chat")({
                   for (const img of imageInputs) {
                     retryUserParts.push({ type: "image_url", image_url: { url: img.url } });
                   }
-                  const retry = await fetch(transport.endpointUrl, {
+                  const retry = await providerFetch(transport.endpointUrl, {
                     method: "POST",
                     headers: {
                       Authorization: `Bearer ${transport.apiKey}`,

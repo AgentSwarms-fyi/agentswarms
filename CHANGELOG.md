@@ -184,6 +184,22 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   so nothing stops being recorded. The matching lockdown of the swarm-run table —
   which doesn't feed the budget and is written from the browser — is tracked
   separately (VA-2026-10-25-31).
+- **A provider base URL can no longer reach the cloud metadata address** (R386,
+  VA-2026-10-25-14, the model-provider half). Every signed-in user sets their
+  own provider base URL, and about twenty places — the provider adapters, the
+  chat tool loop, embeds, the SQL/ETL/skill generators, embeddings, rerank,
+  model listing and Ollama detection — fetched it with plain `fetch`, which
+  follows redirects. A server that passes the connection test and then answers
+  the real call with a redirect to `169.254.169.254` was followed there. They
+  now go through `providerFetch`, which refuses metadata and link-local
+  addresses whether given directly, reached through a name that resolves to
+  one, or reached by a redirect, and a refused target is not retried. Bedrock,
+  OCI and Vertex built their host from the region you typed, so a region like
+  `169.254.169.254.nip.io#` pointed the signed request at a name resolving to
+  metadata; a region must now be a region name. A model server on a private
+  address keeps working, with or without `BLOCK_PRIVATE_NETWORK_FETCH`, as the
+  models page says — and that page no longer calls base URLs operator
+  configuration.
 - **The read-only SQL check no longer misses a second statement** (R374,
   VA-2026-10-25-02). It removed comments before string literals, so a `--` or
   `/*` inside a literal hid everything after it on the line — a `;` and a

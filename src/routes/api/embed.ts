@@ -19,6 +19,7 @@
 // would leak the whole dashboard in prose. See src/utils/embedViewer.server.ts.
 
 import { createFileRoute } from "@tanstack/react-router";
+import { providerFetch } from "@/utils/ssrfGuard.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { sanitizePublicPages, sanitizePublicWidgets } from "@/lib/biDashboards";
 import {
@@ -331,7 +332,7 @@ export const Route = createFileRoute("/api/embed")({
         const timer = setTimeout(() => upstreamCtrl.abort(), 90_000);
         let r: Response;
         try {
-          r = await fetch(transport.endpointUrl, {
+          r = await providerFetch(transport.endpointUrl, {
             method: "POST",
             signal: upstreamCtrl.signal,
             headers: {

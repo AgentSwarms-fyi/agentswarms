@@ -15,6 +15,26 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-27 — R386: a provider that redirects to the metadata address is refused, and real providers still answer
+
+Fixture: a throwaway `python:3.12-slim` server, `r386-relay`, on the app's Docker network. It answers
+`GET /v1/models` with one model and every other request with `302 → http://169.254.169.254/latest/meta-data/iam/security-credentials/`,
+and logs each request. vLLM (not otherwise configured in this account) was pointed at it.
+
+| Build | What was pressed                                                            | Result                                                                                                                                                                                                                     |
+| ----- | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R385  | Integrations → vLLM → **Test & Connect**                                    | "Connected — Reached vLLM (1 model(s): r386-relay-model)" — the test is guarded, and the relay answers it honestly                                                                                                         |
+| R385  | Lakehouse → **Draft SQL**, vLLM / `r386-relay-model`                        | "fetch failed" after 5.2 s; relay log `POST /v1/chat/completions -> 302 metadata`; the same raw fetch replayed in the app container: `ECONNREFUSED 169.254.169.254:80` — the redirect was followed to the metadata address |
+| R386  | model picker for vLLM                                                       | lists `r386-relay-model` — model listing to a private address still works                                                                                                                                                  |
+| R386  | Lakehouse → **Draft SQL**, vLLM / `r386-relay-model`                        | "Refusing to fetch link-local/metadata address: 169.254.169.254" after 6.1 s; relay log shows the same POST answered with the 302 and nothing after it                                                                     |
+| R386  | Lakehouse → **Draft SQL**, OpenRouter / server default                      | "SQL drafted — review, then run" in 23 s, a `SELECT COUNT(*) …` over the `analytics` tables                                                                                                                                |
+| R386  | Playground, "R293 budget probe": "R386 provider check: reply with just OK." | "OK"                                                                                                                                                                                                                       |
+
+Before the R386 deploy Docker Desktop's engine stopped (it showed its own error dialog); `docker desktop
+restart` brought the stack back, the catalog Postgres ran crash recovery, and the lakehouse page needed one
+**Try again** to re-attach. Cleanup: vLLM disconnected from Integrations (its config emptied), the relay
+container removed; OpenRouter and Gemini still connected.
+
 ## 2026-10-27 — R385: every key on the API keys hub, revoked from the hub against its real endpoint
 
 For each issued kind a test key was minted on its own page, counted on Settings → API Keys, revoked from the

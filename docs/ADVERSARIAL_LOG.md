@@ -109,6 +109,54 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-27 — R386: any user's provider base URL could be steered to the cloud metadata address
+
+**Assessment finding** VA-2026-10-25-14, model-provider half. A provider base URL (and the LLM gateway URL)
+is a per-user setting, yet the code treated it as operator configuration: the adapters and every consumer
+of a resolved transport called it with plain `fetch`, which follows redirects and never checks what a name
+resolves to. The connection test already went through `safeFetch`, so a metadata URL could not be saved as
+connected — but a server that answers the test honestly and redirects the real call could.
+
+**Reproduced from the UI on the R385 build:** a throwaway server on the app's Docker network answered
+`GET /v1/models` with one model and every other request with `302 → http://169.254.169.254/latest/meta-data/iam/security-credentials/`.
+vLLM pointed at it passed **Test & Connect** ("Connected — Reached vLLM (1 model(s): r386-relay-model)").
+**Draft SQL** with that model then failed "fetch failed"; the server log showed the `POST /v1/chat/completions`
+answered with the 302, and the same raw `fetch` replayed inside the app container failed with
+`ECONNREFUSED 169.254.169.254:80` — it had followed the redirect to the metadata address (refused only
+because this machine is not a cloud VM).
+
+**A second way in, found while fixing it:** Bedrock, OCI and Vertex interpolate the user's region into the
+host (`bedrock-runtime.${region}.amazonaws.com`). The userinfo spelling `x@169.254.169.254/` is refused by
+`fetch` itself, but `169.254.169.254.nip.io#` makes the host `bedrock-runtime.169.254.169.254.nip.io` — a
+name that wildcard DNS resolves to the metadata address — with the rest of the template in the fragment.
+
+**The fix:** `providerFetch` in `ssrfGuard.server.ts` is `safeFetch` with the always-blocked tier only: the
+name, every address it resolves to and every redirect hop are checked against metadata/link-local, and
+`BLOCK_PRIVATE_NETWORK_FETCH` is deliberately not applied, because a model server on a private address is
+what these settings are for (the models page promised that, and a test pins it). Every provider call site
+uses it; a refusal is a typed `SsrfRefusedError` the tool loop does not retry. `cloudRegion()` accepts only a
+lowercase dash-separated token before a region reaches a hostname. The models page now says which block
+applies and that every signed-in user sets their own base URL.
+
+**Tests:** `providerFetchGuard.test.ts` (15) — metadata refused as a literal, through a name that resolves
+there and through a redirect (with the metadata hop never requested); a private model server reached under
+`BLOCK_PRIVATE_NETWORK_FETCH` while plain `safeFetch` refuses the same URL; the adapters refuse before any
+fetch; region names; and a source sweep that fails on any raw `fetch` of a resolved transport or in a
+configured adapter. `inAppDocsAccuracy` and `modelRulesEveryDoor` updated to the new call. Mutation run: 14
+of 14 caught. Full gate: the first run lost three unrelated suites to timeouts while Docker was failing
+(`nl2sqlEval` setup, `etlTemplates`, `semanticMeasure`; 130 of 130 passed alone), the re-run was green
+(709/709 files).
+
+**The UI after the fix:** see UI_TEST_RESULTS — the same Draft SQL is refused at the redirect hop, a private
+model server still lists its models, and a real provider still answers.
+
+**Recorded, not fixed here:** with `BLOCK_PRIVATE_NETWORK_FETCH` set, a user's base URL can still reach
+other private addresses — by design and documented, so it is a product decision rather than a bug. The
+rest of VA-14 (object stores, catalogs, warehouses, git export, connectors) is the next round. Two smaller
+things seen on the way: the SQL/ETL/skill generators treat a vLLM server without an API key as not
+configured, though vLLM's key is optional; and a disconnected vLLM/Ollama card reads "Saved — last test
+failed". A security finding seen on the way is filed separately as VA-2026-10-25-33.
+
 ### 2026-10-27 — R385: the API keys hub missed half the keys, and miscounted what it showed
 
 **Asked by the user** after PR #95 landed: is the API key management good, and are any key types missing.

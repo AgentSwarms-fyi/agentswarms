@@ -3,6 +3,7 @@
 // with RSA-SHA256. Targets the Generative AI Inference `chat` action.
 
 import type { ChatMessage, OCIConfig, OCICreds } from "../types";
+import { cloudRegion } from "../cloudRegion";
 
 function toOpenAIChunk(content: string): string {
   return `data: ${JSON.stringify({
@@ -117,7 +118,10 @@ export async function ociChatStream(args: {
   if (!region) throw new Error("OCI region is required");
   if (!compartmentId) throw new Error("OCI compartmentId is required");
 
-  const url = new URL(`${endpointForRegion(region)}/20231130/actions/chat`);
+  // The region becomes part of the host; see cloudRegion().
+  const url = new URL(
+    `${endpointForRegion(cloudRegion(region, "OCI region"))}/20231130/actions/chat`,
+  );
 
   // Build a generic Cohere/Llama-style chat payload. OCI auto-routes based on
   // the servingMode model. Users can pick GENERIC vs COHERE in config.style.

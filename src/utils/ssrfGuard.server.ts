@@ -124,7 +124,7 @@ function blockPrivateNetworks(): boolean {
  */
 export async function assertPublicUrl(
   rawUrl: string,
-  opts: { blockPrivate?: boolean } = {},
+  opts: { blockPrivate?: boolean; allowPrivate?: boolean } = {},
 ): Promise<{ ok: true; url: URL } | { ok: false; error: string }> {
   let u: URL;
   try {
@@ -147,7 +147,10 @@ export async function assertPublicUrl(
   // environment variable was enabled when it was not set anywhere. The advice
   // that message implies (go unset it) does nothing, and the real reason is
   // invisible.
-  const strictFromEnv = blockPrivateNetworks();
+  // `allowPrivate` is for the one kind of call site the deployment's block was
+  // never meant to cover: a model provider's base URL (see providerFetch). It
+  // drops the private-network tier only; the always-blocked tier still applies.
+  const strictFromEnv = opts.allowPrivate === true ? false : blockPrivateNetworks();
   const strict = opts.blockPrivate === true || strictFromEnv;
   const whyStrict = strictFromEnv
     ? "BLOCK_PRIVATE_NETWORK_FETCH is enabled"
@@ -177,24 +180,55 @@ export async function assertPublicUrl(
 }
 
 /**
+ * The guard refused the target. Distinct from a network failure: retrying it
+ * cannot succeed, and its message is safe to show the caller.
+ */
+export class SsrfRefusedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SsrfRefusedError";
+  }
+}
+
+/**
  * fetch() that validates the target and every redirect hop, so a public URL
  * cannot bounce the request into a blocked range.
  */
 export async function safeFetch(
   rawUrl: string,
-  init: RequestInit & { maxRedirects?: number; blockPrivate?: boolean } = {},
+  init: RequestInit & {
+    maxRedirects?: number;
+    blockPrivate?: boolean;
+    allowPrivate?: boolean;
+  } = {},
 ): Promise<Response> {
-  const { maxRedirects = 5, blockPrivate, ...rest } = init;
+  const { maxRedirects = 5, blockPrivate, allowPrivate, ...rest } = init;
   let current = rawUrl;
   for (let hop = 0; hop <= maxRedirects; hop++) {
     // EVERY hop is re-validated, including the first. A public URL that 302s
     // to 169.254.169.254 is the whole reason this loop exists.
-    const check = await assertPublicUrl(current, { blockPrivate });
-    if (!check.ok) throw new Error(check.error);
+    const check = await assertPublicUrl(current, { blockPrivate, allowPrivate });
+    if (!check.ok) throw new SsrfRefusedError(check.error);
     const res = await fetch(check.url, { ...rest, redirect: "manual" });
     const isRedirect = res.status >= 300 && res.status < 400 && res.headers.has("location");
     if (!isRedirect) return res;
     current = new URL(res.headers.get("location")!, check.url).toString();
   }
   throw new Error("Too many redirects");
+}
+
+/**
+ * safeFetch for a model provider's endpoint — a base URL, gateway or token URI
+ * that a signed-in user configured (R386). Those are per-user settings, not
+ * operator configuration, so any user could aim one at the cloud metadata
+ * address: the always-blocked tier applies here, to the name, every address it
+ * resolves to and every redirect hop. BLOCK_PRIVATE_NETWORK_FETCH does not: a
+ * model server on a private address (Ollama, vLLM, LiteLLM) is what these
+ * settings exist for, and the models docs say the block does not cover them.
+ */
+export function providerFetch(
+  rawUrl: string,
+  init: RequestInit & { maxRedirects?: number } = {},
+): Promise<Response> {
+  return safeFetch(rawUrl, { ...init, allowPrivate: true });
 }

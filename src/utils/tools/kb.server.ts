@@ -4,6 +4,7 @@
 // — so existing knowledge bases, agents, and swarms keep returning results
 // while embeddings are being back-filled.
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { providerFetch } from "@/utils/ssrfGuard.server";
 import type { Database } from "@/integrations/supabase/types";
 import { embedTexts } from "./embedding.server";
 import { storeFor, storeKindForChoice } from "@/utils/vector/store.server";
@@ -940,7 +941,7 @@ async function rerankCandidates(opts: {
     const endpoint = t.endpointUrl.replace(/\/chat\/completions\/?$/, "/rerank");
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 20_000);
-    const res = await fetch(endpoint, {
+    const res = await providerFetch(endpoint, {
       method: "POST",
       signal: ctrl.signal,
       headers: {

@@ -14,6 +14,7 @@
 // the swarm runtime parse it with their existing code.
 
 import { createFileRoute } from "@tanstack/react-router";
+import { providerFetch } from "@/utils/ssrfGuard.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { touchEmbedKey, validateEmbedKey } from "@/utils/embed.server";
 import { rateLimitedGlobal } from "@/utils/rateLimit.server";
@@ -418,7 +419,7 @@ export const Route = createFileRoute("/api/embed/chat")({
         const timer = setTimeout(() => upstreamCtrl.abort(), 180_000);
         let upstream: Response;
         try {
-          upstream = await fetch(transport.endpointUrl, {
+          upstream = await providerFetch(transport.endpointUrl, {
             method: "POST",
             signal: upstreamCtrl.signal,
             headers: {

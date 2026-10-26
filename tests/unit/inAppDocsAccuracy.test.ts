@@ -806,17 +806,22 @@ describe("the models page matches the provider schema", () => {
     expect(page, "the quoted Azure API version is stale").toContain(version!);
   });
 
-  it("does not claim the private-network block covers provider calls", () => {
-    // It does not: the ollama/vllm adapters call fetch directly, deliberately,
-    // because a model server on a private address is the point of them. Saying
-    // otherwise sends someone to change a setting that will not help.
+  it("says which block covers provider calls, and which does not", () => {
+    // The adapters call providerFetch: the metadata/link-local block applies
+    // (R386), the private-network block deliberately does not, because a model
+    // server on a private address is the point of them. The page must say both
+    // — claiming the private block applies sends someone to change a setting
+    // that will not help; claiming nothing applies understates the guard.
     for (const f of [
       "src/utils/providers/adapters/vllm.server.ts",
       "src/utils/providers/adapters/openai-compat.server.ts",
     ]) {
-      expect(readFileSync(f, "utf8"), `${f} now guards its fetch`).not.toContain("safeFetch");
+      const src = readFileSync(f, "utf8");
+      expect(src, `${f} no longer guards its fetch`).toContain("await providerFetch(");
+      expect(src, `${f} would apply the private-network block`).not.toContain("safeFetch");
     }
     expect(page).toMatch(/private-network block does not apply/i);
+    expect(page).toMatch(/cloud\s+metadata\s+or\s+link-local\s+address/i);
   });
 });
 

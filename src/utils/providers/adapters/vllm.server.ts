@@ -2,6 +2,7 @@
 // SSE stream can be forwarded untouched.
 // Docs: https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html
 import type { ChatMessage, VLLMConfig, VLLMCreds } from "../types";
+import { providerFetch } from "@/utils/ssrfGuard.server";
 
 export async function vllmChatStream(args: {
   creds: VLLMCreds;
@@ -28,7 +29,7 @@ export async function vllmChatStream(args: {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (creds.apiKey?.trim()) headers.Authorization = `Bearer ${creds.apiKey.trim()}`;
 
-  const upstream = await fetch(`${baseUrl}/chat/completions`, {
+  const upstream = await providerFetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers,
     body: JSON.stringify({

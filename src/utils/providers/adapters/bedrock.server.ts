@@ -1,6 +1,7 @@
 // AWS Bedrock SigV4 + Converse Stream adapter.
 // Re-emits responses as OpenAI-style SSE chunks for client compatibility.
 import type { BedrockConfig, BedrockCreds, ChatMessage } from "../types";
+import { cloudRegion } from "../cloudRegion";
 import { recordOf } from "@/lib/jsonRecord";
 
 const SERVICE = "bedrock";
@@ -139,7 +140,8 @@ export async function bedrockChatStream(args: {
   maxTokens?: number;
 }): Promise<Response> {
   const { creds, config, modelId, systemPrompt, messages, temperature, maxTokens } = args;
-  const region = config.region || "us-east-1";
+  // The region becomes part of the host; see cloudRegion().
+  const region = cloudRegion(config.region || "us-east-1", "Bedrock region");
   const host = `bedrock-runtime.${region}.amazonaws.com`;
   const path = `/model/${encodeURIComponent(modelId)}/converse-stream`;
 

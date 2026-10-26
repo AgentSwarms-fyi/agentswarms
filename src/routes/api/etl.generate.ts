@@ -7,6 +7,7 @@
 // prose. Two modes in one endpoint: a fresh draft from a brief, or a refine
 // pass over the pipeline's current code.
 import { createFileRoute } from "@tanstack/react-router";
+import { providerFetch } from "@/utils/ssrfGuard.server";
 import { createClient } from "@supabase/supabase-js";
 
 import {
@@ -146,7 +147,7 @@ export const Route = createFileRoute("/api/etl/generate")({
             ? `Refine this pipeline. Instruction:\n${brief}\n\nCurrent code:\n\`\`\`python\n${currentCode}\n\`\`\``
             : `Write a new pipeline. Brief:\n${brief}`;
 
-          const resp = await fetch(transport.endpointUrl, {
+          const resp = await providerFetch(transport.endpointUrl, {
             method: "POST",
             headers: {
               ...(transport.apiKey ? { Authorization: `Bearer ${transport.apiKey}` } : {}),

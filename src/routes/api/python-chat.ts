@@ -8,6 +8,7 @@
 // OpenAI-compatible providers only (openrouter, openai, gemini, groq, grok,
 // qwen, ollama, vllm, nvidia).
 import { createFileRoute } from "@tanstack/react-router";
+import { providerFetch } from "@/utils/ssrfGuard.server";
 import { resolveOpenAICompatTransport } from "@/utils/providers/credentials.server";
 import type { ProviderId } from "@/utils/providers/types";
 import { getEffectiveModelRules, isModelAllowed } from "@/utils/iam.server";
@@ -109,7 +110,7 @@ export const Route = createFileRoute("/api/python-chat")({
         let usage: { prompt_tokens?: number; completion_tokens?: number } | undefined;
         let errorMessage: string | null = null;
         try {
-          const res = await fetch(transport.endpointUrl, {
+          const res = await providerFetch(transport.endpointUrl, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",

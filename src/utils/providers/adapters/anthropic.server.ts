@@ -1,5 +1,6 @@
 // Anthropic API (direct) streaming adapter -> OpenAI-style SSE.
 import type { AnthropicCreds, ChatMessage } from "../types";
+import { providerFetch } from "@/utils/ssrfGuard.server";
 
 function toOpenAIChunk(content: string): string {
   const obj = {
@@ -32,7 +33,7 @@ export async function anthropicChatStream(args: {
   } = args;
   const base = (baseUrl || "https://api.anthropic.com/v1").replace(/\/+$/, "");
   const url = base.endsWith("/v1") ? `${base}/messages` : `${base}/v1/messages`;
-  const upstream = await fetch(url, {
+  const upstream = await providerFetch(url, {
     method: "POST",
     headers: {
       "x-api-key": creds.apiKey,

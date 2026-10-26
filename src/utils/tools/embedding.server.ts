@@ -13,6 +13,7 @@
 //   any existing kb_chunks rows for those documents, then inserts the fresh
 //   rows.
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { providerFetch } from "@/utils/ssrfGuard.server";
 import type { Database } from "@/integrations/supabase/types";
 import {
   CHARS_PER_TOKEN,
@@ -106,7 +107,7 @@ export async function embedTexts(
   for (let i = 0; i < texts.length; i += EMBED_BATCH) {
     const batch = texts.slice(i, i + EMBED_BATCH);
     const tStart = Date.now();
-    const res = await fetch(endpoint, {
+    const res = await providerFetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

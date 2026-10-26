@@ -12,6 +12,7 @@
 // so the playground inspector can show what's happening in real time.
 
 import type { ToolDef, ToolHandler, AgentToolContext } from "./registry.server";
+import { SsrfRefusedError, providerFetch } from "@/utils/ssrfGuard.server";
 import { extractToolSources, type RawSource } from "./sources";
 import { mlToolData, type MlToolData } from "@/lib/mlToolResult";
 import { providerReportedCost, usageReportingBody } from "@/utils/observability/providerCost";
@@ -192,7 +193,7 @@ async function fetchWithRetry(
   for (let attempt = 0; attempt <= RETRY_ATTEMPTS; attempt++) {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     try {
-      const res = await fetch(url, { ...init, signal });
+      const res = await providerFetch(url, { ...init, signal });
       if (!isRetryable(res.status) || attempt === RETRY_ATTEMPTS) return res;
       const retryAfter = Number(res.headers.get("retry-after"));
       const waitMs =
@@ -203,6 +204,8 @@ async function fetchWithRetry(
       await new Promise((r) => setTimeout(r, waitMs));
     } catch (e) {
       if ((e as Error).name === "AbortError") throw e;
+      // A refused target stays refused; retrying only delays the answer.
+      if (e instanceof SsrfRefusedError) throw e;
       lastError = e;
       if (attempt === RETRY_ATTEMPTS) throw e;
       await new Promise((r) => setTimeout(r, 500 * 2 ** attempt + Math.random() * 250));

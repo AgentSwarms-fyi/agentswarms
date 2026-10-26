@@ -3,6 +3,7 @@
 // from a short user brief. Returns { name, description, body, tags } so the
 // SkillEditorDialog can pre-fill the manual form.
 import { createFileRoute } from "@tanstack/react-router";
+import { providerFetch } from "@/utils/ssrfGuard.server";
 import { createClient } from "@supabase/supabase-js";
 import {
   resolveOpenAICompatTransport,
@@ -139,7 +140,7 @@ export const Route = createFileRoute("/api/skills/generate")({
           }
           if (refused) return json({ error: refused }, 403);
 
-          const resp = await fetch(transport.endpointUrl, {
+          const resp = await providerFetch(transport.endpointUrl, {
             method: "POST",
             headers: {
               ...(transport.apiKey ? { Authorization: `Bearer ${transport.apiKey}` } : {}),

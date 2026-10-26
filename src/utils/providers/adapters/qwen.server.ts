@@ -2,6 +2,7 @@
 // Uses the OpenAI-compatible endpoint so we can forward the SSE stream untouched.
 // Docs: https://help.aliyun.com/zh/model-studio/developer-reference/compatibility-of-openai-with-dashscope
 import type { ChatMessage, QwenConfig, QwenCreds } from "../types";
+import { providerFetch } from "@/utils/ssrfGuard.server";
 
 const DEFAULT_BASE_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
 
@@ -23,7 +24,7 @@ export async function qwenChatStream(args: {
   if (systemPrompt?.trim()) fullMessages.push({ role: "system", content: systemPrompt });
   fullMessages.push(...messages);
 
-  const upstream = await fetch(url, {
+  const upstream = await providerFetch(url, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${creds.apiKey}`,

@@ -10,6 +10,7 @@
 // where every rule (single statement, schema access, no table functions)
 // applies to AI SQL exactly as it does to typed SQL.
 import { createFileRoute } from "@tanstack/react-router";
+import { providerFetch } from "@/utils/ssrfGuard.server";
 import { createClient } from "@supabase/supabase-js";
 
 import {
@@ -157,7 +158,7 @@ export const Route = createFileRoute("/api/lakehouse/generate")({
           }
           if (refused) return json({ error: refused }, 403);
 
-          const resp = await fetch(transport.endpointUrl, {
+          const resp = await providerFetch(transport.endpointUrl, {
             method: "POST",
             headers: {
               ...(transport.apiKey ? { Authorization: `Bearer ${transport.apiKey}` } : {}),

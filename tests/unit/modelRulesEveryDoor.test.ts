@@ -33,7 +33,7 @@ describe("the code generators", () => {
       const src = read(path);
       const fallback = src.indexOf("model = FALLBACK_MODEL;");
       const ask = src.indexOf("refused = await modelAccessRefusal(user.id, provider, model);");
-      const call = src.indexOf("await fetch(transport.endpointUrl");
+      const call = src.indexOf("await providerFetch(transport.endpointUrl");
       expect(fallback).toBeGreaterThan(-1);
       expect(ask).toBeGreaterThan(fallback);
       expect(ask).toBeLessThan(call);
@@ -70,7 +70,7 @@ describe("embedded BI", () => {
     const fn = src.slice(src.indexOf("async function llmJsonServer("));
     const ask = fn.indexOf("const refused = await modelAccessRefusal(ownerId, provider, model)");
     expect(ask).toBeGreaterThan(-1);
-    expect(ask).toBeLessThan(fn.indexOf("await fetch(transport.endpointUrl"));
+    expect(ask).toBeLessThan(fn.indexOf("await providerFetch(transport.endpointUrl"));
     expect(fn).toContain("could not check model access:");
     expect(fn).toContain("if (refused) {");
     expect(fn.slice(fn.indexOf("if (refused) {"), fn.indexOf("if (refused) {") + 160)).toContain(

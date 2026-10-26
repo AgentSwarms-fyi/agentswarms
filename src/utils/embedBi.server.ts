@@ -5,6 +5,7 @@
 // read-only SELECT + a chart spec, the query runs through the same worker-safe
 // SQL executor the agent SQL tool uses, and the result becomes a chart widget.
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { providerFetch } from "@/utils/ssrfGuard.server";
 import { extractUsage, recordGatewayCall } from "@/utils/observability/recordGatewayUsage.server";
 import { resolveOpenAICompatTransport } from "@/utils/providers/credentials.server";
 import type { ProviderId } from "@/utils/providers/types";
@@ -54,7 +55,7 @@ async function llmJsonServer(
   const timer = setTimeout(() => ctrl.abort(), 60_000);
   const startedAt = Date.now();
   try {
-    const res = await fetch(transport.endpointUrl, {
+    const res = await providerFetch(transport.endpointUrl, {
       method: "POST",
       signal: ctrl.signal,
       headers: {

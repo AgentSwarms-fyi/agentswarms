@@ -2,6 +2,7 @@
 // Used by providers that expose an OpenAI-shaped /v1/chat/completions endpoint
 // (OpenAI itself, Google Gemini OpenAI-compat layer, Grok, Ollama, etc.).
 import { usageReportingBody } from "@/utils/observability/providerCost";
+import { providerFetch } from "@/utils/ssrfGuard.server";
 import type { ChatMessage } from "../types";
 
 export async function openAICompatChatStream(args: {
@@ -52,7 +53,7 @@ export async function openAICompatChatStream(args: {
   }
   if (organizationId) headers["OpenAI-Organization"] = organizationId;
 
-  const upstream = await fetch(url, {
+  const upstream = await providerFetch(url, {
     method: "POST",
     headers,
     body: JSON.stringify({

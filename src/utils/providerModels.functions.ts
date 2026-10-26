@@ -5,6 +5,7 @@
 // list what the integration can actually serve — refreshed per app session,
 // no registry sync required.
 import { createServerFn } from "@tanstack/react-start";
+import { providerFetch } from "@/utils/ssrfGuard.server";
 import { z } from "zod";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
@@ -86,7 +87,7 @@ async function fetchProviderModels(
   let r: Response;
   let payload: string;
   try {
-    r = await fetch(url, {
+    r = await providerFetch(url, {
       headers: {
         ...(transport.apiKey ? { Authorization: `Bearer ${transport.apiKey}` } : {}),
         ...(transport.extraHeaders ?? {}),

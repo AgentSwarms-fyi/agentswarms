@@ -9,6 +9,7 @@
 // model picker can offer real tags instead of static guesses.
 
 import { createServerFn } from "@tanstack/react-start";
+import { providerFetch } from "@/utils/ssrfGuard.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { CallerCheckFailed, checkFailed } from "@/utils/callerLookup.server";
 
@@ -26,7 +27,7 @@ async function probeOllama(endpointRaw: string): Promise<OllamaProbe> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 3000);
   try {
-    const r = await fetch(`${endpoint}/api/tags`, { signal: ctrl.signal });
+    const r = await providerFetch(`${endpoint}/api/tags`, { signal: ctrl.signal });
     if (!r.ok) {
       return {
         running: false,

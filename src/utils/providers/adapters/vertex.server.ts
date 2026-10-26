@@ -1,5 +1,7 @@
 // Google Vertex AI streaming adapter using a service account JSON to mint OAuth tokens.
 import type { ChatMessage, VertexConfig, VertexCreds } from "../types";
+import { cloudRegion } from "../cloudRegion";
+import { providerFetch } from "@/utils/ssrfGuard.server";
 
 type ServiceAccount = {
   client_email: string;
@@ -47,7 +49,9 @@ async function getAccessToken(sa: ServiceAccount): Promise<string> {
     await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(toSign)),
   );
   const jwt = `${toSign}.${base64UrlEncode(sig)}`;
-  const resp = await fetch(sa.token_uri || "https://oauth2.googleapis.com/token", {
+  // token_uri comes from the pasted service-account JSON, so it is a URL the
+  // user chose: fetched through the guard like any other.
+  const resp = await providerFetch(sa.token_uri || "https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${encodeURIComponent(jwt)}`,
@@ -91,7 +95,8 @@ export async function vertexChatStream(args: {
   }
   const token = await getAccessToken(sa);
   const projectId = config.projectId;
-  const location = config.location || "us-central1";
+  // The location becomes part of the host; see cloudRegion().
+  const location = cloudRegion(config.location || "us-central1", "Vertex location");
 
   // Use Vertex Gemini streamGenerateContent endpoint.
   // For Anthropic-on-Vertex (claude-* models), endpoint differs; we surface a clear error.
@@ -117,7 +122,7 @@ export async function vertexChatStream(args: {
     },
   };
 
-  const upstream = await fetch(url, {
+  const upstream = await providerFetch(url, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify(body),

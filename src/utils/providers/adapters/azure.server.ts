@@ -1,5 +1,6 @@
 // Azure OpenAI streaming adapter. Azure is OpenAI-compatible — passthrough SSE.
 import type { AzureConfig, AzureCreds, ChatMessage } from "../types";
+import { providerFetch } from "@/utils/ssrfGuard.server";
 
 export async function azureOpenAIChatStream(args: {
   creds: AzureCreds;
@@ -27,7 +28,7 @@ export async function azureOpenAIChatStream(args: {
     stream: true,
   };
 
-  const upstream = await fetch(url, {
+  const upstream = await providerFetch(url, {
     method: "POST",
     headers: {
       "api-key": creds.apiKey,

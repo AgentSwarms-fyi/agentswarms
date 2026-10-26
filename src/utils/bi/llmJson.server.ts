@@ -17,6 +17,7 @@
 // The caller supplies the userId and the supabase client used to read IAM
 // rules; nothing here reads a session.
 import { extractUsage, recordGatewayCall } from "@/utils/observability/recordGatewayUsage.server";
+import { providerFetch } from "@/utils/ssrfGuard.server";
 import { usageReportingBody } from "@/utils/observability/providerCost";
 import { getEffectiveModelRules, isModelAllowed } from "@/utils/iam.server";
 import {
@@ -145,7 +146,7 @@ export async function llmJsonServer(opts: LlmJsonServerOpts): Promise<LlmJsonSer
     // Read inside the same try as the fetch: see the note on clearTimeout below.
     let payload = "";
     try {
-      r = await fetch(transport.endpointUrl, {
+      r = await providerFetch(transport.endpointUrl, {
         method: "POST",
         signal: upstreamCtrl.signal,
         headers: {

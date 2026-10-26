@@ -200,11 +200,13 @@ vllm      http://vllm.internal:8000/v1`}</Code>
         most common reason a local model "isn't found" when it is running perfectly well.
       </Callout>
       <Callout kind="info" title="The private-network block does not apply here">
-        <C>BLOCK_PRIVATE_NETWORK_FETCH</C> guards the places a URL can arrive from a{" "}
-        <em>user or a model</em> — MCP endpoints, swarm HTTP nodes, page fetching. Provider base
-        URLs are operator configuration and are called directly, because a model server on a private
-        address is the entire point of these two. Treat the base URL as trusted input: whoever can
-        set it can make the app call it.
+        <C>BLOCK_PRIVATE_NETWORK_FETCH</C> does not cover provider base URLs, because a model server
+        on a private address is the entire point of these two — with it set, an Ollama or vLLM on
+        your network still works. What does apply is the block nothing can lift: a base URL, or a
+        name that resolves to one, or a redirect that leads to one, is refused if it is a cloud
+        metadata or link-local address. Every signed-in user sets their own base URL, so whoever can
+        sign in can make the app call any other address on its network — keep model servers and
+        anything sensitive apart if your users are not all trusted.
       </Callout>
 
       <H2 id="registry">Model registry</H2>

@@ -1,6 +1,7 @@
 // xAI Grok streaming adapter. Grok exposes an OpenAI-compatible Chat
 // Completions endpoint, so we can pass the SSE stream straight through.
 import type { ChatMessage, GrokConfig, GrokCreds } from "../types";
+import { providerFetch } from "@/utils/ssrfGuard.server";
 
 export async function grokChatStream(args: {
   creds: GrokCreds;
@@ -18,7 +19,7 @@ export async function grokChatStream(args: {
   if (systemPrompt?.trim()) fullMessages.push({ role: "system", content: systemPrompt });
   fullMessages.push(...messages);
 
-  const upstream = await fetch(`${baseUrl}/chat/completions`, {
+  const upstream = await providerFetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${creds.apiKey}`,
