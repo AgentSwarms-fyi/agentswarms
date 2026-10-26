@@ -51,6 +51,44 @@ function rateLimitOk(ip: string): boolean {
   return true;
 }
 
+// A second cap, on the CONFIRMATION email only, keyed by the recipient address
+// rather than the (spoofable) IP header above. It bounds how many branded
+// confirmations a single address can be made to receive, which is the spam /
+// branded-phishing surface of a public form (VA-2026-10-25-12). The admin
+// notification and the stored message are not gated by it.
+const confirmBucket = new Map<string, { count: number; resetAt: number }>();
+const CONFIRM_WINDOW_MS = 10 * 60_000;
+const CONFIRM_MAX = 3;
+
+function confirmSendOk(email: string): boolean {
+  const now = Date.now();
+  const key = email.toLowerCase();
+  const cur = confirmBucket.get(key);
+  if (!cur || cur.resetAt < now) {
+    confirmBucket.set(key, { count: 1, resetAt: now + CONFIRM_WINDOW_MS });
+    return true;
+  }
+  if (cur.count >= CONFIRM_MAX) return false;
+  cur.count++;
+  return true;
+}
+
+// The confirmation goes to an address the visitor typed, so it honours the
+// suppression list the authenticated mailer does. Fail closed: if the check
+// cannot run, the confirmation is skipped (the admin notification still sends).
+async function confirmationSuppressed(supabase: AppSupabase, email: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("suppressed_emails")
+    .select("id")
+    .eq("email", email.toLowerCase())
+    .maybeSingle();
+  if (error) {
+    console.warn("Contact suppression check failed — skipping confirmation", error);
+    return true;
+  }
+  return !!data;
+}
+
 function newMessageId(): string {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
@@ -200,9 +238,12 @@ export const Route = createFileRoute("/api/contact")({
 
         const submittedAt = new Date(inserted.created_at).toUTCString();
 
-        // Fire both emails in parallel; don't fail the whole request if one
-        // send fails — the message is already persisted.
-        const results = await Promise.allSettled([
+        // The admin notification always goes to the configured, trusted
+        // address. The confirmation goes to the address the visitor typed, so
+        // it is gated on the suppression list and a per-recipient cap — a
+        // spoofed IP header cannot turn this form into a way to send branded
+        // mail to an arbitrary address at volume (VA-2026-10-25-12).
+        const sends: Promise<unknown>[] = [
           sendTemplateEmail({
             supabase,
             templateName: "contact-admin-notification",
@@ -217,15 +258,29 @@ export const Route = createFileRoute("/api/contact")({
             },
             label: "contact-admin-notification",
           }),
-          sendTemplateEmail({
-            supabase,
-            templateName: "contact-confirmation",
-            recipient: email,
-            templateData: { name, message },
-            label: "contact-confirmation",
-          }),
-        ]);
+        ];
 
+        let confirmationSkipped: string | null = null;
+        if (await confirmationSuppressed(supabase, email)) {
+          confirmationSkipped = "suppressed";
+        } else if (!confirmSendOk(email)) {
+          confirmationSkipped = "rate_limited";
+        } else {
+          sends.push(
+            sendTemplateEmail({
+              supabase,
+              templateName: "contact-confirmation",
+              recipient: email,
+              templateData: { name, message },
+              label: "contact-confirmation",
+            }),
+          );
+        }
+        if (confirmationSkipped) {
+          console.warn(`Contact confirmation not sent (${confirmationSkipped})`);
+        }
+
+        const results = await Promise.allSettled(sends);
         for (const r of results) {
           if (r.status === "rejected") {
             console.error("Contact email send failed", r.reason);

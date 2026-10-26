@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-26 — R381: the email-endpoint guards shipped; the logic is test-carried
+
+Security assessment finding VA-2026-10-25-12. Neither endpoint is drivable through the browser on this
+instance: the email-send endpoint (`src/routes/api/email/send.ts`) has no user-facing surface (it is
+called server-side on signup), and the
+public `/contact` form is disabled here (`CONTACT_ADMIN_EMAIL` unset), while enabling it and submitting
+would send real mail via the live Resend mailer — an outward-facing action not taken for a test. So the
+behavioral tests (`emailPhishingGuard.test.ts`, 6 tests driving the real handlers, mutation 4/4) carry
+both parts; the UI confirms the guards shipped and the page still renders.
+
+| Page / surface         | What was driven                     | Result                                                                                                                            |
+| ---------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| deployed server bundle | grep for the two guards             | `router-*.js` contains the own-address refusal string and `confirmationSuppressed` / `CONFIRM_MAX`                                |
+| /contact               | loaded the public form after deploy | Renders "The contact form is not set up on this instance" (`CONTACT_ADMIN_EMAIL` unset); Send disabled. No crash from the change. |
+
 ## 2026-10-26 — R380: a secret you own still resolves on the hardened endpoint-test path
 
 Security assessment finding VA-2026-10-25-11. The fix makes the a2a invoke and the live gateway /

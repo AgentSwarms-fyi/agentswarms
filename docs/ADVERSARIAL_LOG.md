@@ -109,6 +109,44 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-26 — R381: two email endpoints could be aimed at a third party
+
+**Severity: medium.** VA-2026-10-25-12 from the 2026-10-25 security assessment
+([docs/security/assessments/2026-10-25.md](./security/assessments/2026-10-25.md)).
+
+**The gap.** Two surfaces, two shapes. `/api/email/send` (authenticated) renders a BRANDED template
+whose links are built from caller-supplied `templateData` (a `siteUrl`), and let any signed-in user
+name anyone as `recipientEmail` — so an attacker could send a genuine-looking AgentSwarms email, with
+every link pointing at their own server, to any victim. Every real caller already sends to its own
+account (the welcome email goes to the user who just signed up). `/api/contact` (public) emails a
+branded confirmation to the address the visitor typed; it skipped the unsubscribe/suppression list and
+rate-limited only on `x-forwarded-for`, which a client sets freely — so the public form could be made
+to send branded mail to a chosen address at volume.
+
+**The fix.** `/api/email/send`: when a template has no fixed `to`, the recipient must equal the
+caller's own account email (case-insensitive); otherwise 403, before anything is rendered or sent.
+`/api/contact`: the confirmation (the one addressed to a visitor-supplied address) is now gated on the
+suppression list and a per-recipient cap keyed by the recipient address rather than the spoofable IP
+header; the admin notification and the persisted message are untouched.
+
+**Tests:** `emailPhishingGuard.test.ts` drives both route handlers against a fake Supabase + mailer —
+the welcome template to a foreign address is refused with nothing sent, to the caller's own address it
+goes, and a caller whose account has no email is refused; the contact form sends to both admin and
+visitor normally, drops the confirmation to a suppressed address (admin still notified), and caps
+confirmations to one address at three per window while every submission still reaches the admin.
+Mutation run: control survives, 4 of 4 caught (own-address guard disabled, recipient comparison
+inverted, suppression gate defeated, per-recipient cap defeated). Full gate green.
+
+**The UI** (R381 build, hot-deployed): both guards were confirmed in the deployed server bundle
+(`router-*.js` carries the own-address refusal string and `confirmationSuppressed` / `CONFIRM_MAX`).
+Neither endpoint is drivable through the browser on this instance: `/api/email/send` has no user-facing
+surface (it is called server-side on signup), and the public `/contact` form is disabled here
+(`CONTACT_ADMIN_EMAIL` unset — the page correctly shows "The contact form is not set up on this
+instance", no crash from the change), while enabling it and submitting would send real mail through the
+configured Resend mailer, an outward-facing action not taken for a test. The two guards are therefore
+carried by the behavioral tests, which import the real route handlers and read their actual Response
+objects — "press submit" at the handler level — rather than through the browser chrome.
+
 ### 2026-10-26 — R380: a shared secret could be forwarded to a caller-chosen endpoint and read
 
 **Severity: medium.** VA-2026-10-25-11 from the 2026-10-25 security assessment

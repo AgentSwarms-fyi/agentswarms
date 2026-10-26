@@ -102,6 +102,24 @@ export const Route = createFileRoute("/api/email/send")({
           );
         }
 
+        // Branded-phishing guard (VA-2026-10-25-12): a template with no fixed
+        // recipient may only be sent to the CALLER'S OWN address. Every real
+        // caller already does this — the welcome email goes to the user who
+        // just signed up. Without it, any signed-in user could send a branded
+        // template, with caller-controlled links in templateData, to anyone.
+        if (!template.to) {
+          const ownEmail = (user.email ?? "").trim().toLowerCase();
+          if (!ownEmail || effectiveRecipient.trim().toLowerCase() !== ownEmail) {
+            return Response.json(
+              {
+                error:
+                  "A template without a fixed recipient can only be sent to your own account's email address.",
+              },
+              { status: 403 },
+            );
+          }
+        }
+
         // 2. Suppression check (fail-closed)
         const { data: suppressed, error: suppressionError } = await supabase
           .from("suppressed_emails")

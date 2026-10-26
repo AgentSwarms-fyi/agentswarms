@@ -132,6 +132,18 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   three paths now resolves only secrets you own; a merely-shared one is refused
   with a clear message. Using a shared secret on the normal send paths (chat,
   swarms, warehouses) is unchanged.
+- **Email endpoints can't be turned into branded-phishing cannons** (R381,
+  VA-2026-10-25-12). The transactional email endpoint rendered a branded
+  template with caller-supplied data — including the links in it — and let any
+  signed-in user name anyone as the recipient; it now refuses a template that
+  has no fixed recipient unless you are sending to your own account's address
+  (the only real use is the welcome email to the person who just signed up). The
+  public contact form emailed a branded confirmation to whatever address a
+  visitor typed, skipping the unsubscribe/suppression list and rate-limiting only
+  on a forgeable IP header; the confirmation now honours the suppression list and
+  a per-recipient cap, so a spoofed header can't make the form send branded mail
+  to a chosen victim at volume. The admin notification and the saved message are
+  unchanged.
 - **The read-only SQL check no longer misses a second statement** (R374,
   VA-2026-10-25-02). It removed comments before string literals, so a `--` or
   `/*` inside a literal hid everything after it on the line — a `;` and a
