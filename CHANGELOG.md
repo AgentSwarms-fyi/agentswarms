@@ -144,6 +144,15 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   a per-recipient cap, so a spoofed header can't make the form send branded mail
   to a chosen victim at volume. The admin notification and the saved message are
   unchanged.
+- **A secret shared with you can't be read out of an MCP app's sandbox** (R382,
+  VA-2026-10-25-28). The endpoint-less sibling of the R380 finding. An MCP server
+  you build runs your own code, and the secrets it names were substituted into
+  its environment on the server — including ones merely _shared_ with you, so
+  your own code could print the environment and read a value sharing is meant to
+  let you use but never see. Resolution for an MCP app's secrets now covers only
+  secrets you own; a merely-shared one is left unset and the tool that needed it
+  reports a missing variable. Using a shared secret on the normal send paths is
+  unchanged.
 - **The read-only SQL check no longer misses a second statement** (R374,
   VA-2026-10-25-02). It removed comments before string literals, so a `--` or
   `/*` inside a literal hid everything after it on the line — a `;` and a

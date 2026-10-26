@@ -190,13 +190,15 @@ function SecretsPage() {
         container starts with that variable simply absent — and code written the idiomatic way,{" "}
         <C>os.environ.get("API_TOKEN", "")</C>, then sends an empty token. The failure surfaces as
         the remote API rejecting the call, one layer away from the cause. If a built server starts
-        failing to authenticate after a rotation, check that the binding still names a secret you
-        own or have been granted.
+        failing to authenticate after a rotation, check that the binding still names a secret you{" "}
+        <em>own</em> — a binding resolves only your own secrets, never one merely shared with you
+        (see below), because your server's own code can read its environment.
       </Callout>
       <Callout kind="warn" title="Your own secret wins, and two shared ones collide">
         Names are resolved per user, in this order: a secret you own with that name is used first;
-        otherwise a secret shared with you. If <em>two different</em> shared secrets both carry the
-        name, the call fails as ambiguous rather than picking one.
+        otherwise a secret shared with you — except on the owner-only paths below, where a merely
+        shared secret does not resolve at all. If <em>two different</em> shared secrets both carry
+        the name, the call fails as ambiguous rather than picking one.
         <br />
         <br />
         This is the practical argument for qualifying names in a shared workspace —{" "}
@@ -205,15 +207,21 @@ function SecretsPage() {
         for themselves simply by owning one of the same name, which is useful deliberately and
         surprising accidentally.
       </Callout>
-      <Callout kind="warn" title="Where you choose the endpoint, only a secret you own resolves">
-        Three paths send the resolved value to a destination you supply at call time: the{" "}
-        <strong>A2A node</strong>'s auth header, and the live <strong>Test</strong> buttons for an{" "}
-        <strong>LLM gateway</strong> and a <strong>notification channel</strong>. On those a{" "}
-        <C>{"{{secret:NAME}}"}</C> resolves only when you <em>own</em> the secret — one merely
-        shared with you is refused, so sharing a secret can never become a way to read its value by
-        aiming the call at your own server. Using that same shared secret the ordinary way — a chat
-        or swarm that routes through the gateway, a saved connection, a notification that actually
-        fires — is unchanged.
+      <Callout
+        kind="warn"
+        title="Where you choose the endpoint — or run the code — only a secret you own resolves"
+      >
+        Sharing is meant to let you <em>use</em> a secret, not <em>see</em> it, and that holds only
+        where you control neither the destination nor the code the value reaches. Two shapes do, and
+        there a <C>{"{{secret:NAME}}"}</C> resolves only when you <em>own</em> the secret; one
+        merely shared with you is refused or skipped. First, you supply the destination at call
+        time: the <strong>A2A node</strong>'s auth header, and the live <strong>Test</strong>{" "}
+        buttons for an <strong>LLM gateway</strong> and a <strong>notification channel</strong> —
+        aim one at your own server and the value comes back. Second, you supply the code that runs
+        with the value in scope: an <strong>MCP server</strong>'s environment bindings start a
+        container running source you wrote, where <C>os.environ</C> would reveal the plaintext.
+        Using that same shared secret the ordinary way — a chat or swarm that routes through the
+        gateway, a saved connection, a notification that actually fires — is unchanged.
       </Callout>
 
       <H3 id="rotating">Worked example — rotating a warehouse password</H3>

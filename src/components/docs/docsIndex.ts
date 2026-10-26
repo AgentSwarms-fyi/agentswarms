@@ -3369,6 +3369,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "^[A-Za-z][A-Za-z0-9_]*$",
       "jiraToken",
       "key2",
+      "os.environ",
       "snowflake-analytics-ro",
       "snowflake_analytics_ro",
       "stripe_live_key"

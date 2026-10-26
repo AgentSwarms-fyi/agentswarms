@@ -15,6 +15,26 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-26 — R382: a shared secret no longer reaches an MCP app's sandbox env
+
+Security assessment finding VA-2026-10-25-28. The exploit surface is the MCP runtime source endpoint
+(`/api/notebook/runtime/source`), not a browser control: an MCP app's `secret_refs` are resolved into
+the sandbox `env` there, and the leak is a grantee reading a secret merely shared with them. Showing
+that needs a second account to hold the IAM grant, so — as with R380 — a single-account browser click
+cannot express it. Instead the real round-trip was driven against the running build with a genuine
+cross-user grant seeded through the service role (two throwaway users, deleted afterwards): the
+grantee's own session token, the real endpoint, the response `env` read as the sandbox would receive
+it. Before and after the hot-deploy:
+
+| Build                        | Setup                                                                                                               | What was driven                                            | Result                                                                                                           |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| pre-fix (R381 image)         | user B owns secret `SHARED`; user A is granted access (not ownership); A's MCP app binds `LEAK={{secret:SHARED}}`    | POST `/api/notebook/runtime/source` with A's session token | `env.LEAK` = `SHARED`'s plaintext — **the grantee read the shared secret**                                        |
+| post-fix (R382, hot-deployed) | same, plus A owns secret `OWNED`; app also binds `OK={{secret:OWNED}}`                                               | same                                                       | `env.LEAK` **absent** (shared binding dropped); `env.OK` = `OWNED`'s plaintext (a secret the grantee owns resolves) |
+
+Cleanup: both throwaway users and all their secrets / grant / app / session were deleted in a finally
+after each run (each reported "ok"). The shared-secret refusal is also carried by
+`secretsOwnedOnly.test.ts`'s behavioral MCP block, independent of any live account.
+
 ## 2026-10-26 — R381: the email-endpoint guards shipped; the logic is test-carried
 
 Security assessment finding VA-2026-10-25-12. Neither endpoint is drivable through the browser on this

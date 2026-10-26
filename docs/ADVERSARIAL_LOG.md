@@ -109,6 +109,52 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-26 — R382: a shared secret could be read out of an MCP-app sandbox env
+
+**Severity: medium.** VA-2026-10-25-28 — the endpoint-less sibling R380 flagged as tracked separately
+([docs/security/assessments/2026-10-25.md](./security/assessments/2026-10-25.md)).
+
+**The gap.** An IAM grant lets a grantee USE a secret without seeing it, because `resolveSecretRefs`
+runs server-side. R380 closed the paths where the grantee also chose the endpoint the value was sent
+to. This one has no endpoint: the MCP bundle (`api/notebook.runtime.source.ts` `mcpAppBundle`) resolved
+every `KEY={{secret:NAME}}` in an app's `secret_refs` with the default, shared-allowed resolution and
+handed the values to the sandbox as `env`. The app's owner writes its `source_code`, so they author
+`print(os.environ)`, reference a secret shared with them, start the runtime and read the plaintext. The
+file's own comment — "a sandbox cannot reach a secret its owner could not" — was true for owned secrets
+and false for shared ones.
+
+**Reproduced first (pre-fix, live).** A throwaway owner held a secret; a throwaway grantee got an IAM
+grant to it (never ownership), authored an MCP app whose `secret_refs` referenced it, and called
+`/api/notebook/runtime/source` with the grantee's session token: the response `env` carried the
+secret's plaintext verbatim. All fixtures were deleted in a finally.
+
+**The fix.** `mcpAppBundle` resolves `secret_refs` with `{ ownedOnly: true }` — the option R380 added to
+`lookupSecretValue` that skips the IAM-grant fallback. Only a secret the owner OWNS resolves into the
+sandbox; a shared binding is dropped and the tool that needed it reports a missing variable (the
+existing drop-on-failure behavior). Because "use without seeing" cannot be enforced in a sandbox the
+caller controls, no legitimate use is lost. The misleading comment was rewritten, and the user-facing
+Secrets doc now states MCP bindings resolve owner-only, alongside the endpoint paths. Sibling
+sandbox-env injections were audited: swarm Function nodes, notebook kernels and the ML/Spark env carry
+no shared secret; ETL's python-node env does (**VA-2026-10-25-29**), and two caller-chooses-endpoint
+paths R380 did not reach — the swarm HTTP node and the catalog connectivity test — are
+**VA-2026-10-25-30**. Both recorded open.
+
+**Tests:** `secretsOwnedOnly.test.ts` gains a behavioral MCP block that mirrors the bundle loop — a
+shared binding is dropped and the grant is never consulted (`rpcCalls === 0`), an owned binding
+resolves, a malformed one is skipped — plus a source pin that the real `mcpAppBundle` resolves each
+`secret_refs` binding `ownedOnly`. Mutation run: baseline green; 2 of 2 caught (drop the sink flag → the
+source pin fails; `ownedOnly` stops skipping the grant → the behavioral drop fails); a control (reword
+an unrelated 404 string) survived. Full gate green (one unrelated contention timeout, `analystScore`,
+re-ran 23/23 in isolation; a clean full `npm run check` then passed end to end).
+
+**The UI** (R382 build, hot-deployed): the exploit surface is the MCP runtime source endpoint, which no
+single-account browser click can express (the leak is a grantee reading a secret shared by another
+user), so — as with R380 — the real round-trip was driven with a genuine cross-user grant seeded via
+the service role, before and after the hot-deploy. On the pre-fix image the grantee's
+`/api/notebook/runtime/source` response carried the shared secret's plaintext in `env`; on the
+hot-deployed R382 image the shared binding was dropped (`env.LEAK` absent) while a secret the grantee
+OWNS still resolved (`env.OK`). Two throwaway accounts, deleted after each run. See UI_TEST_RESULTS.
+
 ### 2026-10-26 — R381: two email endpoints could be aimed at a third party
 
 **Severity: medium.** VA-2026-10-25-12 from the 2026-10-25 security assessment
