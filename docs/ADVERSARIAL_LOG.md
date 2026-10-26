@@ -155,7 +155,9 @@ other private addresses — by design and documented, so it is a product decisio
 rest of VA-14 (object stores, catalogs, warehouses, git export, connectors) is the next round. Two smaller
 things seen on the way: the SQL/ETL/skill generators treat a vLLM server without an API key as not
 configured, though vLLM's key is optional; and a disconnected vLLM/Ollama card reads "Saved — last test
-failed". A security finding seen on the way is filed separately as VA-2026-10-25-33.
+failed". A suspected leak of the catalog password in the lakehouse error, filed as
+VA-2026-10-25-33, was withdrawn the same day: the page's text had been masked by the reading script, and
+the error is already redacted (`lakehouseErrorRedaction.test.ts`).
 
 ### 2026-10-27 — R385: the API keys hub missed half the keys, and miscounted what it showed
 
