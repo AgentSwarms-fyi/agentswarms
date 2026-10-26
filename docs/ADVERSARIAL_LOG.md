@@ -109,6 +109,47 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-27 — R385: the API keys hub missed half the keys, and miscounted what it showed
+
+**Asked by the user** after PR #95 landed: is the API key management good, and are any key types missing.
+
+**Measured** on the PR #95 build: the hub covered six kinds (LLM gateway, ML and embed keys; provider keys,
+secrets and MCP server credentials). A scan of every migration for credential-bearing columns (`*_hash`,
+`*token*`, `*secret*`, `credentials`, `password` and similar) found six more kinds the instance issues — MCP
+app keys, notebook API keys, lakehouse share tokens, workflow and ETL trigger tokens, SCIM tokens — and eight
+places it stores credentials you connect, none of them on the hub. Of what it did show: the provider card
+read **0 while its panel listed 2** (provider keys live in `provider_credentials` and in `integrations` rows
+of type `llm_provider`; the card counted one table); expired gateway and ML keys counted as live; a card whose
+count query failed showed 0; and the counts never refreshed after a revoke in a panel. An ETL trigger token
+had no revoke anywhere — only rotate.
+
+**The fix:** `apiKeyCategories.ts` is a registry of 19 categories as data — each names its tables and
+filters (`CountFilter`), and `countOps()` turns them into the PostgREST calls, so a card and the panel behind
+it read the same rows and cannot disagree. Issued keys get `IssuedKeysPanel` (display columns only, never a
+hash; revoke through each type's own server function; the internal MCP key is never listed). Stored
+credentials get `StoredCredentialsPanel` (names only, linking to the page that manages them). New
+`revokeEtlTriggerToken` (owner-scoped, audited). The SCIM card is superadmin-only.
+
+**Found during the UI round, also fixed:** (1) the revoke toast fired before the list was re-read — measured
+at 2.80 s with the key still listed until 3.20 s, which reads as a revoke that did not take; the re-read now
+comes first. (2) The Knowledge Base card counted two website sources as credentials: the save path encrypts
+an empty `{}` for every `credentialless` connector, so `credentials IS NOT NULL` holds for them too; the kind
+is excluded, and a test reads `connectors.server.ts` so a second credentialless connector fails the build
+instead of being counted. (3) An agent with the n8n switch on and the box empty stores `''`; it is no longer
+counted, and the agent source is scoped to your own rows.
+
+**Not changed, recorded:** `embed_keys` keeps the key in plaintext — by design, it is the public capability
+string an iframe `src` carries — and its policy checks only `user_id`, not that the embedded agent, swarm or
+dashboard is yours. Every loader re-checks that, so it is not reachable today; filed as low
+VA-2026-10-25-32 for a policy-level check.
+
+**Tests:** `apiKeyCategories.test.ts` (43): the migration scan and a completeness guard (every
+credential-bearing table is on the hub or in a reasoned exclusion list, and each exclusion must itself be
+flagged by the scan), every table and column the registry names exists, `countOps` behaviour, and panel
+pins. Mutation run: control green, 16 of 16 caught. Full gate green (708/708 files).
+
+**The UI:** every issued kind round-tripped against the endpoint that accepts it — see UI_TEST_RESULTS.
+
 ### 2026-10-26 — R384: the Data Catalog looked empty while a third of it was still loading
 
 **Reported by the user:** "the local tables and tables connected via apps take some time to load … initially

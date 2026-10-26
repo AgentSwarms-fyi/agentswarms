@@ -867,6 +867,36 @@ export const rotateEtlTriggerToken = createServerFn({ method: "POST" })
     return { token };
   });
 
+/**
+ * Remove the webhook trigger token, so no token starts or feeds this pipeline
+ * until a new one is minted. Rotating replaced the token but never took it
+ * away (R385): the API keys hub needs a revoke, as workflows already had.
+ * /api/etl/run and /api/etl/ingest both refuse a pipeline whose hash is null.
+ */
+export const revokeEtlTriggerToken = createServerFn({ method: "POST" })
+  .validator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
+  )
+  .handler(async ({ data }): Promise<{ ok: true }> => {
+    const userId = await resolveCaller(data.access_token);
+    const { data: updated, error } = await supabaseAdmin
+      .from("etl_pipelines")
+      .update({ trigger_token_hash: null })
+      .eq("id", data.id)
+      .eq("user_id", userId)
+      .select("id, name")
+      .maybeSingle();
+    if (error || !updated) throw new Error(error?.message ?? "Pipeline not found");
+    auditEvent({
+      userId,
+      action: "etl.trigger_token.revoke",
+      resourceType: "etl_pipeline",
+      resourceId: data.id,
+      resourceName: updated.name,
+    });
+    return { ok: true };
+  });
+
 export type EtlVersionSummary = {
   version_no: number;
   name: string;

@@ -33,6 +33,22 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Settings → API Keys covers every key this instance issues and every
+  credential you've connected** (PR #95, completed in R385). The hub showed six
+  kinds. It now also lists MCP app keys, notebook API keys, lakehouse share
+  tokens, workflow and ETL trigger tokens and, for a superadmin, SCIM tokens —
+  each listed and revoked in place through the same server function its own
+  page uses — and the credentials kept for warehouses, catalog and storage
+  sources, Iceberg catalogs, app connectors, Slack and Teams apps, Knowledge
+  Base connectors, service integrations and an agent's n8n webhook. An ETL
+  trigger token can now be revoked outright, not only rotated. The counts are
+  honest: an expired key is not counted as live; provider keys are counted from
+  both tables they can be stored in (the card said 0 with two connected); a
+  website Knowledge Base source, or an agent whose n8n box is empty, is not
+  counted as a credential; a count that cannot be read says so instead of 0;
+  closing a panel refreshes the cards; and a revoke's confirmation appears once
+  the list no longer shows the key. The credential panels read names only —
+  never a credential column — into the browser.
 - **Remove a saved LLM gateway or n8n connection** (R357). Both tabs on
   Integrations could save and disable one but never take it away. Each now has
   a Remove button once something is saved; it asks first, then deletes the

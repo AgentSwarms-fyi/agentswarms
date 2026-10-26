@@ -15,6 +15,33 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-27 — R385: every key on the API keys hub, revoked from the hub against its real endpoint
+
+For each issued kind a test key was minted on its own page, counted on Settings → API Keys, revoked from the
+hub, and the endpoint that accepts it was called with that key before and after. Where a live key would have
+started a run, the pipeline or workflow was paused first and set back to Active afterwards. The user's own
+keys were not touched.
+
+| Kind                    | Fixture                                  | Before the revoke                                          | After revoking from the hub                | Also checked                                                   |
+| ----------------------- | ---------------------------------------- | ---------------------------------------------------------- | ------------------------------------------ | -------------------------------------------------------------- |
+| MCP app key             | test key on an MCP app                   | endpoint 404 (past auth)                                   | 401                                        | the app's page shows the key Revoked                           |
+| ETL trigger token       | `r292_preview`, paused                   | 409 "paused"; card 3                                       | 404; card 2                                | pipeline back to Active; the user's other two tokens untouched |
+| SCIM token (superadmin) | test token                               | 200; card 1                                                | 401; card 0                                | Admin IAM: no active token, "4 revoked tokens"                 |
+| Lakehouse share token   | share `r385-hub`, token "r385 hub probe" | 200; card 1                                                | 401 "This share token was revoked"; card 0 | the share's own page lists no recipient tokens                 |
+| Notebook API key        | `R301 probe`, key "r385 hub probe"       | `/api/notebook/run/status` 400 "runId is required"; card 1 | 401 "Invalid or disabled API key"          | panel: "You have no active notebook API keys"                  |
+| Workflow trigger token  | `r309_swarm_cancel`, paused              | 409 "This workflow is paused"; card 1                      | 404                                        | the workflow's settings offer "Create token"; back to Active   |
+
+| What                             | How it was read                    | Result                                                                                                                         |
+| -------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Overview                         | the hub's cards                    | all 19 numeric; LLM provider keys 2 (the PR #95 build said 0)                                                                  |
+| Revoke toast vs list, before fix | DOM sampled every 100 ms           | "Revoked" toast at 2.80 s while the key was still listed; the row went at 3.20 s                                               |
+| Same, final R385 build           | token "r385 order check", same way | toast and the row's removal in the same sample (2.31 s); no sample shows both; the token then answered 401                     |
+| Catalog & Storage Sources panel  | dialog text and the request URL    | "MinIO local etl demo · object_storage", "Lakehouse catalog · warehouse"; request `select=id,name,kind`; no secret in the HTML |
+| Knowledge Base Connectors        | card and panel                     | before: 2, both website sources (the overcount); final build: 0 and "None connected.", request carries `kind=neq.web`          |
+
+The `r385-hub` share was deleted from the UI afterwards, with its tokens. The other revoked keys remain as
+revoked records; the paused pipeline and workflow are Active again.
+
 ## 2026-10-26 — R384: the Data Catalog says it is loading instead of looking empty
 
 From the user: local and connected-app tables take a few seconds to load and the catalog looked as if

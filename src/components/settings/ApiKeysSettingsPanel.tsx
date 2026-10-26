@@ -51,7 +51,15 @@ import {
 } from "@/components/ui/dialog";
 import { KeyRound, Copy, Check, Plus, Trash2, ArrowRight, Settings2 } from "lucide-react";
 import { toast } from "sonner";
-import { API_KEY_CATEGORIES, type ApiKeyCategoryId } from "@/lib/apiKeyCategories";
+import {
+  API_KEY_CATEGORIES,
+  countOps,
+  needsUserId,
+  type ApiKeyCategoryId,
+} from "@/lib/apiKeyCategories";
+import { useIsSuperadmin } from "@/hooks/use-iam";
+import { IssuedKeysPanel } from "@/components/settings/IssuedKeysPanel";
+import { StoredCredentialsPanel } from "@/components/settings/StoredCredentialsPanel";
 import { ProviderCredentialsPanel } from "@/components/integrations/ProviderCredentialsPanel";
 import { GatewayApiCard } from "@/components/gateway/GatewayApiCard";
 import { MlModelApiKeysPanel } from "@/components/settings/MlModelApiKeysPanel";
@@ -84,6 +92,25 @@ function CategoryPanel({ id }: { id: ApiKeyCategoryId }) {
       return <EmbedSection />;
     case "mcp":
       return <McpServersPanel />;
+    // R385: issued keys that lived only on their own resource's page.
+    case "mcp_app_keys":
+    case "notebook_keys":
+    case "share_tokens":
+    case "workflow_triggers":
+    case "etl_triggers":
+    case "scim_tokens":
+      return <IssuedKeysPanel kind={id} />;
+    // R385: other services' credentials, managed on their own pages.
+    case "warehouses":
+    case "catalog_sources":
+    case "iceberg":
+    case "saas":
+    case "chat_apps":
+    case "kb_connectors":
+    case "integrations": {
+      const category = API_KEY_CATEGORIES.find((c) => c.id === id);
+      return category ? <StoredCredentialsPanel category={category} /> : null;
+    }
   }
 }
 
@@ -96,43 +123,62 @@ function CategoryPanel({ id }: { id: ApiKeyCategoryId }) {
 function CategoryCard({
   category,
   onManage,
+  userId,
+  refreshKey,
 }: {
   category: (typeof API_KEY_CATEGORIES)[number];
   onManage: () => void;
+  /** The signed-in user's id, for sources that count only rows they own. */
+  userId: string;
+  /** Bumped when a category dialog closes, so a revoke there shows up here. */
+  refreshKey: number;
 }) {
   const [count, setCount] = useState<number | null>(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
+    // An is_self filter compares with the user's id; counting before it is
+    // known would compare with "" and answer a confident, wrong 0.
+    if (needsUserId(category) && !userId) return;
     let cancelled = false;
+    setFailed(false);
     void (async () => {
-      // category.table is a plain string (the registry lists tables the
-      // generated Database type may not even know about on every
-      // deployment) — bypass the strict literal-union overload the same
-      // way the rest of this codebase does for a dynamic table name.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let query: any = supabase
-        .from(category.table as never)
-        .select("id", { count: "exact", head: true });
-      if (category.filter)
-        query = query[category.filter.op](category.filter.column, category.filter.value);
-      const { count: n, error } = await query;
-      if (cancelled) return;
-      // `head: true` means a failed request (e.g. this table doesn't exist
-      // on an older self-hosted deployment that hasn't run every migration)
-      // comes back with NO body — HTTP HEAD responses never have one — so
-      // PostgREST's error details never reach `error`, and `count` is left
-      // null rather than populated from the (absent) Content-Range header.
-      // Treating null the same as a thrown error, instead of defaulting it
-      // to 0, is the difference between "unavailable" and a false "you have
-      // none of these".
-      if (error || n === null) setFailed(true);
-      else setCount(n);
+      const now = new Date();
+      let total = 0;
+      // A category's count is the sum of its sources (R385: provider keys live
+      // in two tables, and counting one of them showed "0" over two connected).
+      for (const source of category.sources) {
+        // source.table is a plain string (the registry lists tables the
+        // generated Database type may not even know about on every
+        // deployment) — bypass the strict literal-union overload the same
+        // way the rest of this codebase does for a dynamic table name.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let query: any = supabase
+          .from(source.table as never)
+          .select("id", { count: "exact", head: true });
+        for (const op of countOps(source, { userId, now })) query = query[op.method](...op.args);
+        const { count: n, error } = await query;
+        if (cancelled) return;
+        // `head: true` means a failed request (e.g. this table doesn't exist
+        // on an older self-hosted deployment that hasn't run every migration)
+        // comes back with NO body — HTTP HEAD responses never have one — so
+        // PostgREST's error details never reach `error`, and `count` is left
+        // null rather than populated from the (absent) Content-Range header.
+        // Treating null the same as a thrown error, instead of defaulting it
+        // to 0, is the difference between "unavailable" and a false "you have
+        // none of these". One unreadable source makes the whole sum unknown.
+        if (error || n === null) {
+          setFailed(true);
+          return;
+        }
+        total += n;
+      }
+      setCount(total);
     })();
     return () => {
       cancelled = true;
     };
-  }, [category]);
+  }, [category, userId, refreshKey]);
 
   const Icon = category.icon;
   return (
@@ -235,6 +281,14 @@ export function ApiKeysSettingsPanel() {
 
   const [openCategory, setOpenCategory] = useState<ApiKeyCategoryId | null>(null);
   const activeCategory = API_KEY_CATEGORIES.find((c) => c.id === openCategory) ?? null;
+  // Re-count every card when a category dialog closes: a key revoked inside it
+  // must not leave its card showing the old number.
+  const [countsVersion, setCountsVersion] = useState(0);
+  const isSuperadmin = useIsSuperadmin();
+  const userId = user?.id ?? "";
+  // SCIM tokens' RLS shows rows to superadmins only; anyone else would see a
+  // card that could only ever read 0, about tokens they cannot hold.
+  const visibleCategories = API_KEY_CATEGORIES.filter((c) => !c.superadminOnly || isSuperadmin);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [targetSwarmId, setTargetSwarmId] = useState<string>("");
@@ -534,24 +588,59 @@ export function ApiKeysSettingsPanel() {
 
       <div className="space-y-3">
         <div>
-          <h3 className="text-sm font-medium text-foreground">Everywhere else in AgentSwarms</h3>
+          <h3 className="text-sm font-medium text-foreground">Other keys this instance issues</h3>
           <p className="text-xs text-muted-foreground">
-            Every other credential store in the app, with a live count — click a category to
-            connect, test or revoke its keys right here.
+            Whoever holds one of these can reach your data or start your work. Each count is live
+            keys only — an expired or revoked key is not counted. Open a card to see every key and
+            revoke it here.
           </p>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {API_KEY_CATEGORIES.map((category) => (
-            <CategoryCard
-              key={category.id}
-              category={category}
-              onManage={() => setOpenCategory(category.id)}
-            />
-          ))}
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" data-testid="api-keys-issued">
+          {visibleCategories
+            .filter((c) => c.group === "issued")
+            .map((category) => (
+              <CategoryCard
+                key={category.id}
+                category={category}
+                userId={userId}
+                refreshKey={countsVersion}
+                onManage={() => setOpenCategory(category.id)}
+              />
+            ))}
         </div>
       </div>
 
-      <Dialog open={openCategory !== null} onOpenChange={(v) => !v && setOpenCategory(null)}>
+      <div className="space-y-3">
+        <div>
+          <h3 className="text-sm font-medium text-foreground">Credentials you&apos;ve connected</h3>
+          <p className="text-xs text-muted-foreground">
+            Keys and logins for other services that you have given this instance.
+          </p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" data-testid="api-keys-stored">
+          {visibleCategories
+            .filter((c) => c.group === "stored")
+            .map((category) => (
+              <CategoryCard
+                key={category.id}
+                category={category}
+                userId={userId}
+                refreshKey={countsVersion}
+                onManage={() => setOpenCategory(category.id)}
+              />
+            ))}
+        </div>
+      </div>
+
+      <Dialog
+        open={openCategory !== null}
+        onOpenChange={(v) => {
+          if (!v) {
+            setOpenCategory(null);
+            setCountsVersion((n) => n + 1);
+          }
+        }}
+      >
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
           {activeCategory && (
             <>
