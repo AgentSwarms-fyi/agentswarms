@@ -109,6 +109,50 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-26 — R383: a user could erase or zero their own cost records to beat a budget cap
+
+**Severity: medium.** VA-2026-10-25-13 (the `execution_traces` half) from the 2026-10-25 security
+assessment ([docs/security/assessments/2026-10-25.md](./security/assessments/2026-10-25.md)).
+
+**The gap.** `execution_traces` is where every LLM call's cost lands, and a superadmin's monthly budget
+cap is `SUM(cost_usd)` over it (`budgetSpend.server.ts`). Its RLS was a single "Users manage own traces"
+`FOR ALL` policy, so a signed-in user could `DELETE FROM execution_traces WHERE user_id = me` or
+`UPDATE … SET cost_usd = 0` straight over PostgREST with their own JWT — erasing the spend the cap is
+measured on. The app already records almost every trace as the service role; only three write sites
+still used the caller's client (and so needed that client to be able to write).
+
+**The fix.** A migration drops the `FOR ALL` policy and replaces it with owner-only `SELECT` — no client
+`INSERT/UPDATE/DELETE` policy at all, so only the service role (which bypasses RLS) can write. Reads are
+unchanged: the Traces page and the per-user budget read both read own rows. The three caller-client
+writers move to `supabaseAdmin`: the chat route's trace upsert (`chat.ts`), the notebook trace insert
+(`python-chat.ts`), and the dev `seedTraces` insert (`observability.functions.ts`) — each already
+carries `user_id`, so attribution is unchanged. The `swarm_runs` half is split out (VA-2026-10-25-31):
+it doesn't feed the budget cap and is written from the browser bundle, so it needs a server-function
+refactor, not a policy change.
+
+**Tests:** `executionTraceWriteLockdown.test.ts` pins the migration (drops the `FOR ALL` policy, creates
+exactly one owner `SELECT` policy and no write policy, and its `DO` block checks no write policy
+survives) and that every `execution_traces` write — the three migrated sites plus the gateway-usage /
+reprice / retention writers — runs as `supabaseAdmin`, never a user client. The policy itself is Postgres
+RLS, proven on apply by the migration's self-check (the push is the live proof). Mutation run: control
+survives, 6 of 6 caught (drop the policy drop; make the new policy `FOR ALL`; weaken the self-check; and
+revert each of the three writers to the caller's client). Full gate green — on the second run: the first
+lost one unrelated test (`semanticMeasure`) to a 20 s timeout while I was loading the app in the browser
+beside it; it passed alone (22/22) and a quiet re-run was green (707/707 files).
+
+**The UI** (R383 build, hot-deployed BEFORE the migration, because the old build wrote three of these
+traces as the signed-in user and the new policy refuses that): in the Playground, the "R293 budget
+probe" agent was sent "R383 trace check: reply with just OK." and answered "OK"; `/traces` went from 367
+to 368 traces, the new top row reading `Oct 26 22:43:39 · R293 budget probe ·
+google/gemini-3-flash-preview · 12/1 · ok · $0.000009`. That is the signed-in chat path whose trace
+write moved from the caller's client to `supabaseAdmin`, recording its cost row — no regression.
+
+**Not yet live: the migration.** `supabase db push --dry-run` showed it would apply exactly one
+migration, this one, to the linked project; the real push was stopped as a production deploy and is
+waiting on the operator. Until it runs, `execution_traces` is still `FOR ALL` and the finding is open.
+Once applied, its `DO` block is the proof (it raises if any client write policy survives), and the
+Traces page still reading the user's rows confirms the owner `SELECT` policy took.
+
 ### 2026-10-26 — R382: a shared secret could be read out of an MCP-app sandbox env
 
 **Severity: medium.** VA-2026-10-25-28 — the endpoint-less sibling R380 flagged as tracked separately

@@ -12,6 +12,7 @@ import { resolveOpenAICompatTransport } from "@/utils/providers/credentials.serv
 import type { ProviderId } from "@/utils/providers/types";
 import { getEffectiveModelRules, isModelAllowed } from "@/utils/iam.server";
 import { resolvePythonCaller } from "@/utils/notebookRuntime/caller.server";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 const COMPAT_PROVIDERS = new Set<string>([
   "openai",
@@ -152,10 +153,13 @@ export const Route = createFileRoute("/api/python-chat")({
           errorMessage = e instanceof Error ? e.message : "Request failed";
         }
 
-        // Best-effort execution trace so notebook calls show up in /traces
-        // and count toward budgets (RLS scopes the insert to this user).
+        // Best-effort execution trace so notebook calls show up in /traces and
+        // count toward budgets. Written as the service role: execution_traces is
+        // owner-SELECT with no client write policy (VA-2026-10-25-13), and the
+        // row carries user_id, so the trace is attributed correctly without a
+        // client ever being able to erase or zero it.
         try {
-          await sb.from("execution_traces").insert({
+          await supabaseAdmin.from("execution_traces").insert({
             user_id: userId,
             agent_name: "Python Notebook",
             llm_provider: provider,

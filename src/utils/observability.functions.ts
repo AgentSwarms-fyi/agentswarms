@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { TablesInsert } from "@/integrations/supabase/types";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 const MODELS = [
   { provider: "openai", model: "openai/gpt-5", inCost: 1.25e-6, outCost: 1.0e-5 },
@@ -120,9 +121,12 @@ export const seedTraces = createServerFn({ method: "POST" })
       }
     }
 
-    // Insert in batches
+    // Insert in batches, as the service role: execution_traces is owner-SELECT
+    // with no client write policy (VA-2026-10-25-13). Each row carries
+    // user_id = the authenticated caller, so the seeded traces are theirs; the
+    // count check above still runs under the caller's client (owner SELECT).
     for (let i = 0; i < rows.length; i += 200) {
-      await supabase.from("execution_traces").insert(rows.slice(i, i + 200));
+      await supabaseAdmin.from("execution_traces").insert(rows.slice(i, i + 200));
     }
 
     return { seeded: true, count: rows.length };

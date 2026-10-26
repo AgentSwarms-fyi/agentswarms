@@ -25,7 +25,11 @@ development branch and may be ahead of the latest tag.
   requires an ML or MCP API key to name a model or app its owner owns; it
   removes any existing key that does not, and fails rather than half-applies
   if any of it does not take. One (R377) narrows who may write an approval and
-  makes an approval's routing immutable; it also proves itself on apply.
+  makes an approval's routing immutable; it also proves itself on apply. One
+  (R383) makes `execution_traces` read-only to signed-in clients — **start this
+  release's build before applying it**: the previous build recorded chat and
+  notebook traces as the signed-in user, which the new policy refuses, so those
+  traces would go unrecorded in between. It proves itself on apply.
 
 ### Added
 
@@ -153,6 +157,17 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   secrets you own; a merely-shared one is left unset and the tool that needed it
   reports a missing variable. Using a shared secret on the normal send paths is
   unchanged.
+- **You can't erase or zero your own usage records to beat a budget cap** (R383,
+  VA-2026-10-25-13, execution_traces portion). The table that records every LLM
+  call's cost — the one a spend cap is measured against — let a signed-in user
+  delete their own rows or set the cost to zero directly through the data API.
+  That table is now read-only to clients (you can still see your own usage); it
+  is written only by the server, which is how the app already recorded almost all
+  of it. The three remaining places that wrote it as the signed-in user (a chat
+  turn, a notebook call, and the sample-data seeder) now write as the server too,
+  so nothing stops being recorded. The matching lockdown of the swarm-run table —
+  which doesn't feed the budget and is written from the browser — is tracked
+  separately (VA-2026-10-25-31).
 - **The read-only SQL check no longer misses a second statement** (R374,
   VA-2026-10-25-02). It removed comments before string literals, so a `--` or
   `/*` inside a literal hid everything after it on the line — a `;` and a

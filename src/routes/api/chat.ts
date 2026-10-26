@@ -705,8 +705,12 @@ async function recordTrace(opts: {
       // The turn's tool calls, where the Traces page reads them (R354).
       tool_calls: bodyJson(traceToolCalls(safePayload.toolEvents)),
     };
+    // VA-2026-10-25-13: the cost record is written as the service role, never
+    // the caller's client. execution_traces is now owner-SELECT with no client
+    // write policy, so a user cannot DELETE or zero their own rows to defeat the
+    // budget cap; `sb` above is kept only to decide whether to trace at all.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error } = await (sb.from("execution_traces") as any).upsert(insertRow);
+    const { error } = await (supabaseAdmin.from("execution_traces") as any).upsert(insertRow);
     if (error) {
       console.error("[trace] insert failed:", error.message, error.details);
     } else {

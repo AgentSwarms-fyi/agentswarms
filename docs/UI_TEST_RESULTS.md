@@ -15,6 +15,22 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-26 — R383: a signed-in chat turn still records its cost through the service role
+
+Security assessment finding VA-2026-10-25-13 (`execution_traces` half). The code moved the three
+caller-client trace writes onto the service role and was deployed first; the migration that makes the
+table read-only to clients is committed but **not yet applied** — the push to the linked project was
+stopped as a production deploy and awaits the operator. So this round confirms the half that is live:
+the moved writer still records cost rows. The lockdown itself is proven when the migration is applied
+(its `DO` block raises if a client write policy survives).
+
+| Page        | What was driven                                                                | Result                                                                                                                    |
+| ----------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| /traces     | read the newest row before the test                                            | 367 traces; top row `Oct 26 15:47:49 · Playground`                                                                        |
+| /playground | "R293 budget probe" agent: "R383 trace check: reply with just OK." → **Enter** | Answered "OK"                                                                                                             |
+| /traces     | reloaded                                                                       | **368** traces; new top row `Oct 26 22:43:39 · R293 budget probe · google/gemini-3-flash-preview · 12/1 · ok · $0.000009` |
+| CLI         | `supabase db push --dry-run` against the linked project                        | Would apply exactly one migration: `20261027000000_execution_trace_write_lockdown.sql`. The real push was not run.        |
+
 ## 2026-10-26 — R382: a shared secret no longer reaches an MCP app's sandbox env
 
 Security assessment finding VA-2026-10-25-28. The exploit surface is the MCP runtime source endpoint
@@ -26,10 +42,10 @@ cross-user grant seeded through the service role (two throwaway users, deleted a
 grantee's own session token, the real endpoint, the response `env` read as the sandbox would receive
 it. Before and after the hot-deploy:
 
-| Build                        | Setup                                                                                                               | What was driven                                            | Result                                                                                                           |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| pre-fix (R381 image)         | user B owns secret `SHARED`; user A is granted access (not ownership); A's MCP app binds `LEAK={{secret:SHARED}}`    | POST `/api/notebook/runtime/source` with A's session token | `env.LEAK` = `SHARED`'s plaintext — **the grantee read the shared secret**                                        |
-| post-fix (R382, hot-deployed) | same, plus A owns secret `OWNED`; app also binds `OK={{secret:OWNED}}`                                               | same                                                       | `env.LEAK` **absent** (shared binding dropped); `env.OK` = `OWNED`'s plaintext (a secret the grantee owns resolves) |
+| Build                         | Setup                                                                                                             | What was driven                                            | Result                                                                                                              |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| pre-fix (R381 image)          | user B owns secret `SHARED`; user A is granted access (not ownership); A's MCP app binds `LEAK={{secret:SHARED}}` | POST `/api/notebook/runtime/source` with A's session token | `env.LEAK` = `SHARED`'s plaintext — **the grantee read the shared secret**                                          |
+| post-fix (R382, hot-deployed) | same, plus A owns secret `OWNED`; app also binds `OK={{secret:OWNED}}`                                            | same                                                       | `env.LEAK` **absent** (shared binding dropped); `env.OK` = `OWNED`'s plaintext (a secret the grantee owns resolves) |
 
 Cleanup: both throwaway users and all their secrets / grant / app / session were deleted in a finally
 after each run (each reported "ok"). The shared-secret refusal is also carried by
