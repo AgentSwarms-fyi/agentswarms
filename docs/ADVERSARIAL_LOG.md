@@ -109,6 +109,42 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-27 — R389: any signed-in user could read every profile
+
+**Assessment finding** VA-2026-10-25-16. `public.profiles` had a SELECT policy `USING (true)` for
+`authenticated` (20260504100311, itself narrowing an anon-readable one added for community author cards),
+so any user could read every profile's name, avatar, role, designation, organization, bio and first/last
+name, and enumerate every `user_id`, straight from PostgREST.
+
+**Verified before deciding:** every `from("profiles")` in the app was traced. Through a user's session the
+app reads only the signed-in user's own row (Account settings, user menu, dashboard greeting, onboarding).
+Every read of other people's names — the approver picker, IAM's user list, a sheet's sharing labels, budget
+alerts, SCIM — is a server function on the service role, which RLS does not touch. Community cards carry an
+author snapshot taken at publish time. No view or invoker function reads the table. So the policy served
+no feature.
+
+**The fix:** migration `20261029000000_profiles_own_row_only.sql` drops the instance-wide policy (and the
+older anon one, should it have survived) and re-asserts the owner-only policy. It proves itself on apply:
+no permissive SELECT/ALL policy may read more than `auth.uid() = user_id`, and — switching to
+`authenticated` with a JWT — a stranger reads none of a real profile and its owner reads it.
+
+**Run for real** in a throwaway `supabase/postgres:17.6.1.136` container as `postgres`, with a production-
+shaped table holding both policies and two users: before, the signed-in user read `Alice,Bob`; after,
+`Bob`; a second apply is harmless; and the migration's self-check refused each broken variant — the
+directory policy kept, the owner's policy dropped, `authenticated` given BYPASSRLS, RLS turned off. The
+container was removed.
+
+**Accepted:** the approver picker's directory (`listApproverDirectory`: id, email and display name of
+every account, and groups) stays open to signed-in users — routing an approval to a person or group needs
+it, an instance has no tenant boundary to scope it to, and it carries nothing beyond what picking a person
+needs.
+
+**Tests:** `profilesOwnRowOnly.test.ts` (7) — the migration's shape and proofs, and that every browser read
+of `profiles` is the signed-in user's own row while the server routes that list names use the service
+role. Mutation run: 7 of 7 caught.
+
+**The UI:** after the migration is pushed — see UI_TEST_RESULTS.
+
 ### 2026-10-27 — R388: a local-engine query could reach other datasets' mirrors in the shared cache
 
 **Assessment finding** VA-2026-10-25-15 (was "likely, needs the glob-inside-allowed-dir check"). The server's

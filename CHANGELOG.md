@@ -33,7 +33,9 @@ development branch and may be ahead of the latest tag.
   (`20261028000000`) lets the encrypted provider store hold every provider the
   save form offers — its check admitted only Bedrock, Vertex, Anthropic and
   Azure, so OCI Generative AI and Qwen keys could not be saved there — and
-  Claude Platform on AWS; it also proves itself on apply.
+  Claude Platform on AWS; it also proves itself on apply. One (R389,
+  `20261029000000`) limits reading a profile to its owner; it proves itself on
+  apply, reading a real profile as another user and as its owner.
 
 ### Added
 
@@ -220,6 +222,14 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   so nothing stops being recorded. The matching lockdown of the swarm-run table —
   which doesn't feed the budget and is written from the browser — is tracked
   separately (VA-2026-10-25-31).
+- **You read your own profile, not everyone's** (R389, VA-2026-10-25-16).
+  Any signed-in user could read every other user's name, avatar, role,
+  designation, organization and bio — and list every account id — straight
+  from the database API. Nothing in the app needed it: pages read only your
+  own profile, and the places that show other people's names (the approver
+  picker, IAM's user list, a sheet's sharing, budget alerts) look them up on
+  the server and return only what they show. The approver picker's list of
+  people and groups is kept, by design.
 - **A query on the server's local SQL engine reads only its own datasets**
   (R388, VA-2026-10-25-15). The engine behind the agent's SQL tool, dashboard
   widget refresh, prep flows, semantic queries and object-store queries keeps
