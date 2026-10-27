@@ -109,6 +109,32 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-28 — R391: spend the budget could not see — AI drafts, graph builds, ingestion embeddings
+
+**Assessment finding** VA-2026-10-25-34, found in R390: the R390 "before" skills draft was a real model call
+and left month-to-date spend at $0.15, and no trace for it existed. `/api/etl/generate`,
+`/api/lakehouse/generate`, `/api/skills/generate` and `/api/kb/build-graph` never called `recordGatewayCall`
+— the surface labels `Skills: Generate` and `KB: Graph Build` were in its type from the initial commit and never
+used. Ingestion embeddings were recorded, but `embedAndStoreDocuments` never asked the budget.
+
+**The fix:** each generator records its call on the caller's spend — the provider's reported usage and cost
+(`extractUsage`), else an estimate from the text — and a failed upstream call as an error. A graph build keeps a
+`SpendTally` (`src/utils/observability/spendTally.ts`) across its chunk calls and records one trace for the
+build, right after the chunk loop and before any early return. `embedAndStoreDocuments` asks `budgetRefusal`
+first and throws the sentence; every ingest path already keeps the documents when embedding throws.
+
+**Found while validating:** the Knowledge page's Add Document path caught that throw, logged it and said
+"1 document added", so the only sign was "Pending embedding" — R208 had fixed the same thing in the Add
+Source dialog only. It now uses `indexNote` and shows "… not fully indexed" with the reason, and
+`indexNote` no longer doubles the full stop after a reason that ends its own sentence.
+
+**Tests:** `spendTheCapSees.test.ts` (11) — the skills, ETL and lakehouse routes driven end to end (recorded
+with the provider's tokens and cost, failures as errors, nothing recorded for a refused call), the tally,
+build-graph's wiring, the embedding refusal before any call, and the page's note; `kbSourceAndIndex.test.ts`
+gains the stop rule. Mutation: 19 of 19 caught (15 + 4).
+
+**The UI:** see UI_TEST_RESULTS. `.env`, the cap and the probe knowledge base were restored/removed.
+
 ### 2026-10-28 — R390: the monthly AI budget did not stop half the places that call a model
 
 **Assessment finding** VA-2026-10-25-17. The cap (`getBudgetDecision`) was asked by `/api/chat`, the embeds,

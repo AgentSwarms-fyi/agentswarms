@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { indexNote, type EmbedOutcome } from "@/lib/kbIndexNote";
 import {
   BookOpen,
   Plus,
@@ -951,20 +952,31 @@ function KnowledgePage() {
       return;
     }
     const insertedIds = (inserted ?? []).map((r) => r.id);
+    // Say why a document was saved but not indexed — a budget refusal, a
+    // provider error, no embedding key — as the Add Source dialog does (R208).
+    // This path only logged it, so the page said "added" over "Pending
+    // embedding" and nothing explained the difference.
+    let note: string | null = null;
     if (insertedIds.length > 0) {
+      let outcome: EmbedOutcome;
       try {
-        await embedFn({
-          data: {
-            documentIds: insertedIds,
-            provider: embedProvider,
-            model: effectiveEmbedModel,
-          },
-        });
+        outcome = {
+          ok: await embedFn({
+            data: {
+              documentIds: insertedIds,
+              provider: embedProvider,
+              model: effectiveEmbedModel,
+            },
+          }),
+        };
       } catch (err) {
-        console.warn("[knowledge] embedding failed:", err);
+        outcome = { error: err };
       }
+      note = indexNote(outcome);
     }
-    toast.success(`${rows.length} document${rows.length === 1 ? "" : "s"} added`);
+    const added = `${rows.length} document${rows.length === 1 ? "" : "s"} added`;
+    if (note) toast.warning(`${added}, not fully indexed`, { description: note });
+    else toast.success(added);
     setDocOpen(false);
     setDocName("");
     setDocContent("");

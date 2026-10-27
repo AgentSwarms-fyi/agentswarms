@@ -15,6 +15,23 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-28 — R391: AI drafts, graph builds and ingestion count toward the budget
+
+Before (seen in R390, and still visible after): the R390 "before" skills draft was a real model call and Traces
+held nothing for it — the newest trace was 00:10's Claude-on-AWS probe, and month-to-date spend stayed $0.15.
+
+| What was pressed (R391 build)                                                                   | Result                                                                                                                                                                                                          |
+| ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Skills, New skill, Generate with AI (cancelled, not saved)                                      | Traces: "Skills: Generate · openai/gpt-4o-mini · 345/220 · ok · $0.00018"                                                                                                                                       |
+| Lakehouse, "how many schemas are there", **Draft SQL**                                          | "SQL drafted"; Traces: "Lakehouse: Generate SQL · openai/gpt-4o-mini · 2171/43 · ok · $0.00035"                                                                                                                 |
+| a new knowledge base "R391 graph probe", one pasted document, then Graph, **Build Graph**       | "Graph built — 4 entities, 4 relations"; Traces: "KB: Graph Build · google/gemini-2.5-flash · 253/288 · ok · $0.0008" — one entry for the build — beside the document's "KB: Embedding"                         |
+| with `ENFORCE_BUDGET_CAP` on and the cap at $0.10 (under $0.15 spent), a second pasted document | before the page fix: "1 document added", the document "Pending embedding" and no reason given                                                                                                                   |
+| the same with the page fix, a third document                                                    | toast "1 document added, not fully indexed — Not indexed yet: You have reached your monthly AI budget ($0.10). (spent $0.15 of $0.10 this month.). Re-index retries; …"; the document kept, "Pending embedding" |
+
+The doubled stop in that last toast ("this month.).") was fixed afterwards in `indexNote` and is covered by
+`kbSourceAndIndex.test.ts`. `ENFORCE_BUDGET_CAP` was added to `.env` for the over-cap rows and removed again,
+the cap returned to $20.00, and the probe knowledge base deleted ("Deleted"), its documents and graph with it.
+
 ## 2026-10-28 — R390: the monthly AI budget stops every model call, not just chat
 
 `ENFORCE_BUDGET_CAP=true` was added to `.env` for this round (the container recreated, the build hot-deployed

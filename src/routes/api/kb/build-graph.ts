@@ -28,6 +28,14 @@ import {
   getOpenRouterApiKey,
 } from "@/utils/providers/openrouterDefault.server";
 import { budgetRefusal } from "@/utils/budgetGuard.server";
+import { extractUsage, recordGatewayCall } from "@/utils/observability/recordGatewayUsage.server";
+import {
+  addCallUsage,
+  addFailedCall,
+  newSpendTally,
+  reportedCost,
+  type SpendTally,
+} from "@/utils/observability/spendTally";
 import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
 import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
@@ -89,7 +97,11 @@ function snippetFor(text: string, term: string, radius = 140): string {
   );
 }
 
-async function extractFromChunk(chunk: string, apiKey: string): Promise<ExtractionResult> {
+async function extractFromChunk(
+  chunk: string,
+  apiKey: string,
+  spend: SpendTally,
+): Promise<ExtractionResult> {
   const prompt = `Extract entities and relations from the text below.
 
 Rules:
@@ -128,12 +140,14 @@ ${chunk}`;
   });
 
   if (!res.ok) {
+    addFailedCall(spend);
     const txt = await res.text().catch(() => "");
     throw new Error(`Gemini extraction failed [${res.status}]: ${txt.slice(0, 200)}`);
   }
 
   const json = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
   const content = json.choices?.[0]?.message?.content?.trim() || "{}";
+  addCallUsage(spend, extractUsage(json), { prompt, reply: content });
 
   let parsed: ExtractionResult;
   try {
@@ -315,6 +329,8 @@ export const Route = createFileRoute("/api/kb/build-graph")({
 
         let chunksProcessed = 0;
         let chunksFailed = 0;
+        const spend = newSpendTally();
+        const startedAt = Date.now();
 
         for (const doc of docs) {
           const text = (doc.content || "").trim();
@@ -323,7 +339,7 @@ export const Route = createFileRoute("/api/kb/build-graph")({
 
           for (const chunk of chunks) {
             try {
-              const { entities, relations } = await extractFromChunk(chunk, openRouterKey);
+              const { entities, relations } = await extractFromChunk(chunk, openRouterKey, spend);
               chunksProcessed += 1;
 
               const localKey = new Map<string, string>(); // raw name -> entity key
@@ -375,6 +391,26 @@ export const Route = createFileRoute("/api/kb/build-graph")({
               console.warn(`[build-graph] chunk failed: ${(err as Error).message}`);
             }
           }
+        }
+
+        // The build's cost goes on the caller's spend as one trace, so a budget
+        // can see it (VA-2026-10-25-34). It runs on the operator's OpenRouter
+        // key, but the spend is this user's — as for every other surface.
+        if (spend.calls > 0) {
+          void recordGatewayCall({
+            userId: user.id,
+            surface: "KB: Graph Build",
+            provider: "openrouter",
+            model: EXTRACTION_MODEL,
+            tokensIn: spend.tokensIn,
+            tokensOut: spend.tokensOut,
+            providerCostUsd: reportedCost(spend),
+            latencyMs: Date.now() - startedAt,
+            status: chunksProcessed > 0 ? "success" : "error",
+            errorMessage: chunksFailed
+              ? `${chunksFailed} of ${spend.calls} extraction calls failed`
+              : null,
+          });
         }
 
         if (entityMap.size === 0) {

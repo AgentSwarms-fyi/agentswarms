@@ -44,6 +44,16 @@ describe("indexNote", () => {
     expect(indexNote({ error: new TypeError("Failed to fetch") })).toBe(
       "Not indexed yet: Failed to fetch. Re-index retries; until then it is found by keyword only.",
     );
+    // a reason that already ends a sentence keeps its own stop (a budget refusal)
+    expect(
+      indexNote({
+        error: new Error(
+          "You have reached your monthly AI budget ($0.10). (spent $0.15 of $0.10 this month.)",
+        ),
+      }),
+    ).toBe(
+      "Not indexed yet: You have reached your monthly AI budget ($0.10). (spent $0.15 of $0.10 this month.) Re-index retries; until then it is found by keyword only.",
+    );
     expect(indexNote({ ok: { skipped: true, reason: "no_api_key" } })).toMatch(
       /^Not indexed: no embedding key is set/,
     );

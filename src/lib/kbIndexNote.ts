@@ -16,7 +16,9 @@ export function indexNote(outcome: EmbedOutcome): string | null {
   if ("error" in outcome) {
     const e = outcome.error;
     const why = e instanceof Error ? e.message : String(e);
-    return `Not indexed yet: ${why}. Re-index retries; until then it is found by keyword only.`;
+    // A reason that already ends a sentence ("… this month.)") takes no second stop.
+    const stop = /[.!?)]$/.test(why) ? "" : ".";
+    return `Not indexed yet: ${why}${stop} Re-index retries; until then it is found by keyword only.`;
   }
   const r = outcome.ok;
   if (r?.skipped) {

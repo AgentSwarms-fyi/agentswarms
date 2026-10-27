@@ -133,8 +133,8 @@ describe("no route spends without asking the budget", () => {
     .filter((r) => MODEL_CALL.test(r.text));
 
   // Not covered here: embeddings at ingestion (they go through resolveEmbedArgs,
-  // which this pattern does not match) and the routes whose spend is never
-  // recorded — the assessment's VA-2026-10-25-34, fixed in its own round.
+  // which this pattern does not match) ask inside embedAndStoreDocuments, and
+  // recording each call's spend is VA-2026-10-25-34 — spendTheCapSees.test.ts.
 
   it("finds the model-calling routes", () => {
     expect(routes.map((r) => r.file)).toEqual(

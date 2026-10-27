@@ -11,6 +11,7 @@ import {
 } from "@/utils/providers/credentials.server";
 import { isBiCompatProvider } from "@/utils/providers/modelChoice";
 import { budgetRefusal } from "@/utils/budgetGuard.server";
+import { extractUsage, recordGatewayCall } from "@/utils/observability/recordGatewayUsage.server";
 import type { ProviderId } from "@/utils/providers/types";
 import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
 import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
@@ -144,6 +145,7 @@ export const Route = createFileRoute("/api/skills/generate")({
           }
           if (refused) return json({ error: refused }, 403);
 
+          const startedAt = Date.now();
           const resp = await providerFetch(transport.endpointUrl, {
             method: "POST",
             headers: {
@@ -195,6 +197,23 @@ export const Route = createFileRoute("/api/skills/generate")({
             }),
           });
 
+          // What this call cost goes on the caller's spend, so a budget can see
+          // it (VA-2026-10-25-34).
+          const spend = {
+            userId: user.id,
+            surface: "Skills: Generate",
+            provider,
+            model,
+            promptText: brief,
+          };
+          if (!resp.ok) {
+            void recordGatewayCall({
+              ...spend,
+              latencyMs: Date.now() - startedAt,
+              status: "error",
+              errorMessage: `HTTP ${resp.status}`,
+            });
+          }
           if (resp.status === 429) {
             return json({ error: "Rate limited — please try again in a minute." }, 429);
           }
@@ -220,6 +239,16 @@ export const Route = createFileRoute("/api/skills/generate")({
             }>;
           };
 
+          const usage = extractUsage(data);
+          void recordGatewayCall({
+            ...spend,
+            responseText: data.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments,
+            tokensIn: usage?.tokensIn,
+            tokensOut: usage?.tokensOut,
+            providerCostUsd: usage?.costUsd,
+            latencyMs: Date.now() - startedAt,
+            status: "success",
+          });
           const call = data.choices?.[0]?.message?.tool_calls?.[0];
           if (!call?.function?.arguments) {
             return json({ error: "No skill returned" }, 502);

@@ -222,6 +222,15 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   so nothing stops being recorded. The matching lockdown of the swarm-run table —
   which doesn't feed the budget and is written from the browser — is tracked
   separately (VA-2026-10-25-31).
+- **The cost of every AI draft and graph build counts toward your budget**
+  (R391, VA-2026-10-25-34). The ETL, lakehouse and skills generators and a
+  knowledge-graph build recorded nothing, so they never appeared in Traces and
+  their spend never reached month-to-date spend — a cap could not see them.
+  Each is now recorded, with the provider's own usage and cost (a graph build
+  as one entry for the whole build). Adding documents while over the budget
+  keeps them, unembedded, and says why; the Knowledge page's Add Document now
+  says why a document was not indexed instead of only showing "Pending
+  embedding".
 - **The monthly AI budget holds everywhere a model is called for you** (R390,
   VA-2026-10-25-17). With `ENFORCE_BUDGET_CAP` on, a cap stopped Agent Chat, the
   embeds, swarm runs and the gateway — but not notebook model calls, the BI

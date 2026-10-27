@@ -19,6 +19,7 @@ import {
 } from "@/utils/providers/credentials.server";
 import { isBiCompatProvider } from "@/utils/providers/modelChoice";
 import { budgetRefusal } from "@/utils/budgetGuard.server";
+import { extractUsage, recordGatewayCall } from "@/utils/observability/recordGatewayUsage.server";
 import type { ProviderId } from "@/utils/providers/types";
 import { auditEvent } from "@/utils/audit.server";
 import { accessibleSchemas, lakehouseConnection } from "@/utils/lakehouse/core.server";
@@ -162,6 +163,7 @@ export const Route = createFileRoute("/api/lakehouse/generate")({
           }
           if (refused) return json({ error: refused }, 403);
 
+          const startedAt = Date.now();
           const resp = await providerFetch(transport.endpointUrl, {
             method: "POST",
             headers: {
@@ -206,8 +208,23 @@ export const Route = createFileRoute("/api/lakehouse/generate")({
               max_tokens: 1500,
             }),
           });
+          // What this call cost goes on the caller's spend, so a budget can see
+          // it (VA-2026-10-25-34).
+          const spend = {
+            userId: user.id,
+            surface: "Lakehouse: Generate SQL",
+            provider,
+            model,
+            promptText: question,
+          };
           if (!resp.ok) {
             const detail = (await resp.text()).slice(0, 300);
+            void recordGatewayCall({
+              ...spend,
+              latencyMs: Date.now() - startedAt,
+              status: "error",
+              errorMessage: `${resp.status}: ${detail}`,
+            });
             return json({ error: `Model call failed (${resp.status}): ${detail}` }, 502);
           }
           const out = (await resp.json()) as {
@@ -215,6 +232,16 @@ export const Route = createFileRoute("/api/lakehouse/generate")({
               message?: { tool_calls?: { function?: { name?: string; arguments?: string } }[] };
             }[];
           };
+          const usage = extractUsage(out);
+          void recordGatewayCall({
+            ...spend,
+            responseText: out.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments,
+            tokensIn: usage?.tokensIn,
+            tokensOut: usage?.tokensOut,
+            providerCostUsd: usage?.costUsd,
+            latencyMs: Date.now() - startedAt,
+            status: "success",
+          });
           const call = out.choices?.[0]?.message?.tool_calls?.find(
             (t) => t.function?.name === "emit_sql",
           );

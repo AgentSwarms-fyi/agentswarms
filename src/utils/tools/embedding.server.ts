@@ -245,6 +245,15 @@ export async function embedAndStoreDocuments(opts: {
   const { sb, docs, openaiKey } = opts;
   if (docs.length === 0) return { documentsProcessed: 0, chunksInserted: 0, warnings: [] };
 
+  // Embedding is spend. An owner over their monthly AI budget keeps the
+  // documents, unembedded, and is told why — every caller treats a throw here
+  // as "saved, not embedded" (VA-2026-10-25-34).
+  if (opts.userId) {
+    const { budgetRefusal } = await import("@/utils/budgetGuard.server");
+    const overBudget = await budgetRefusal(opts.userId);
+    if (overBudget) throw new Error(overBudget);
+  }
+
   type Row = {
     document_id: string;
     knowledge_base_id: string;
