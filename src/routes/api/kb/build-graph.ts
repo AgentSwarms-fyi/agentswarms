@@ -27,6 +27,7 @@ import {
   OPENROUTER_CHAT_URL,
   getOpenRouterApiKey,
 } from "@/utils/providers/openrouterDefault.server";
+import { budgetRefusal } from "@/utils/budgetGuard.server";
 import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
 import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
@@ -252,6 +253,11 @@ export const Route = createFileRoute("/api/kb/build-graph")({
           );
         }
         if (refused) return Response.json({ error: refused }, { status: 403 });
+
+        // The monthly AI budget (VA-2026-10-25-17), asked for the same reason and
+        // at the same point: a refused build leaves the existing graph intact.
+        const overBudget = await budgetRefusal(user.id);
+        if (overBudget) return Response.json({ error: overBudget }, { status: 402 });
 
         // Mark building.
         await admin

@@ -20,6 +20,7 @@ import { extractUsage, recordGatewayCall } from "@/utils/observability/recordGat
 import { providerFetch } from "@/utils/ssrfGuard.server";
 import { usageReportingBody } from "@/utils/observability/providerCost";
 import { getEffectiveModelRules, isModelAllowed } from "@/utils/iam.server";
+import { budgetRefusal } from "@/utils/budgetGuard.server";
 import {
   getProviderDefaultModel,
   resolveOpenAICompatTransport,
@@ -111,6 +112,12 @@ export async function llmJsonServer(opts: LlmJsonServerOpts): Promise<LlmJsonSer
       error: `Your administrator has not allowed the model ${provider}/${model}.`,
     };
   }
+  // The monthly AI budget — the caller's, their teams', and the credential's
+  // when the call came through one (VA-2026-10-25-17). Asked here so every
+  // surface built on this is held to it: the BI builder, the AI Analyst and
+  // embedded analysts.
+  const overBudget = await budgetRefusal(userId, costScope);
+  if (overBudget) return { ok: false, status: 402, error: overBudget };
   const gatewayModelLabel = provider === "openrouter" ? model : `${provider}/${model}`;
 
   // Deadline on the upstream call — a hung provider must surface as a clear

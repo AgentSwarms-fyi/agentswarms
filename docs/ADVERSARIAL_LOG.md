@@ -109,6 +109,36 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-28 — R390: the monthly AI budget did not stop half the places that call a model
+
+**Assessment finding** VA-2026-10-25-17. The cap (`getBudgetDecision`) was asked by `/api/chat`, the embeds,
+`/api/swarm/run` and the gateway. `/api/python-chat`, `/api/bi`, the ETL / lakehouse / skills generators and
+`/api/kb/build-graph` never asked, so a user over the cap kept spending through any of them.
+
+**Verified before fixing**, by tracing every API route that reaches a model (a resolved transport, a provider
+stream, the operator's OpenRouter endpoint, `llmJsonServer`): the six above, plus the in-app **AI Analyst**,
+which calls `/api/bi` and was not listed. **Before, live:** with `ENFORCE_BUDGET_CAP=true` and a $0.10 cap
+under $0.15 of month-to-date spend, the skills dialog generated a draft (`/api/skills/generate` → 200).
+
+**The fix:** `budgetRefusal(userId, scope?)` in `budgetGuard.server.ts` — the guard's own decision, as the
+sentence `/api/chat` answers ("You have reached your monthly AI budget ($X). (spent $Y of $X this month.)";
+no figures when a spend could not be read). Each route asks it before the model and answers 402 in its own
+error shape; `llmJsonServer` asks it after the model-access gate, with the call's cost scope, so BI, the AI
+Analyst and embedded analysts are held by one check. The graph build asks before it marks the graph
+"building" and clears it. The skills dialog now shows a failure's `error` sentence instead of the raw JSON.
+
+**Found alongside, filed as VA-2026-10-25-34:** the generators and the graph build record no trace at all —
+the "before" draft left the spend at $0.15 — so the cap cannot see them; and ingestion embeddings are recorded
+but never ask. The sweep test names them as tracked there.
+
+**Tests:** `budgetEveryModelRoute.test.ts` (12) — the helper's verdicts (over, under, no cap, off, fail-closed
+without made-up figures, a credential's own cap) and a sweep that every model-calling route asks before its
+first model call (following calls into the route file's own helpers), answers 402, and shows the sentence;
+`llmJsonBudget.test.ts` (3) — refused with no provider call, asked under the cost scope, allowed under the
+cap. Mutation run: 12 of 12 caught.
+
+**The UI:** see UI_TEST_RESULTS. `.env` and the cap were restored afterwards.
+
 ### 2026-10-27 — R389: any signed-in user could read every profile
 
 **Assessment finding** VA-2026-10-25-16. `public.profiles` had a SELECT policy `USING (true)` for

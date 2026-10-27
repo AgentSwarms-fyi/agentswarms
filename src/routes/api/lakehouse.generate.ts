@@ -18,6 +18,7 @@ import {
   getProviderDefaultModel,
 } from "@/utils/providers/credentials.server";
 import { isBiCompatProvider } from "@/utils/providers/modelChoice";
+import { budgetRefusal } from "@/utils/budgetGuard.server";
 import type { ProviderId } from "@/utils/providers/types";
 import { auditEvent } from "@/utils/audit.server";
 import { accessibleSchemas, lakehouseConnection } from "@/utils/lakehouse/core.server";
@@ -124,6 +125,9 @@ export const Route = createFileRoute("/api/lakehouse/generate")({
           if (!isBiCompatProvider(provider)) {
             return json({ error: `Provider "${provider}" can't be used here.` }, 400);
           }
+          // The monthly AI budget, asked before the model is (VA-2026-10-25-17).
+          const overBudget = await budgetRefusal(user.id);
+          if (overBudget) return json({ error: overBudget }, 402);
           const transport = await resolveOpenAICompatTransport({
             userId: user.id,
             provider: provider as ProviderId,

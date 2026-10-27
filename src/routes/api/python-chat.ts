@@ -12,6 +12,7 @@ import { providerFetch } from "@/utils/ssrfGuard.server";
 import { resolveOpenAICompatTransport } from "@/utils/providers/credentials.server";
 import type { ProviderId } from "@/utils/providers/types";
 import { getEffectiveModelRules, isModelAllowed } from "@/utils/iam.server";
+import { budgetRefusal } from "@/utils/budgetGuard.server";
 import { resolvePythonCaller } from "@/utils/notebookRuntime/caller.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
@@ -86,6 +87,10 @@ export const Route = createFileRoute("/api/python-chat")({
             message: `Your administrator has not allowed ${provider}/${model} for your account.`,
           });
         }
+
+        // The monthly AI budget — same check and same 402 as /api/chat.
+        const overBudget = await budgetRefusal(userId);
+        if (overBudget) return json(402, { error: "budget_exceeded", message: overBudget });
 
         const transport = await resolveOpenAICompatTransport({
           userId,

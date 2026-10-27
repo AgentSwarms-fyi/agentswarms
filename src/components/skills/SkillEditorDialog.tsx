@@ -81,8 +81,17 @@ export function SkillEditorDialog({ open, onOpenChange, onSaved, initial }: Prop
         }),
       });
       if (!resp.ok) {
+        // The route answers { error: "<sentence>" } — a budget refusal, an
+        // unconnected provider. Show the sentence, not the JSON around it.
         const txt = await resp.text();
-        throw new Error(txt || `Generation failed (${resp.status})`);
+        let message = txt;
+        try {
+          const parsed = JSON.parse(txt) as { error?: unknown };
+          if (typeof parsed.error === "string" && parsed.error) message = parsed.error;
+        } catch {
+          /* not JSON: the text is the message */
+        }
+        throw new Error(message || `Generation failed (${resp.status})`);
       }
       const data = (await resp.json()) as {
         name?: string;

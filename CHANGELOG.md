@@ -222,6 +222,15 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   so nothing stops being recorded. The matching lockdown of the swarm-run table —
   which doesn't feed the budget and is written from the browser — is tracked
   separately (VA-2026-10-25-31).
+- **The monthly AI budget holds everywhere a model is called for you** (R390,
+  VA-2026-10-25-17). With `ENFORCE_BUDGET_CAP` on, a cap stopped Agent Chat, the
+  embeds, swarm runs and the gateway — but not notebook model calls, the BI
+  builder and AI Analyst, the ETL, lakehouse and skills generators, or a
+  knowledge graph build, which kept spending past it. Each now refuses with the
+  same sentence ("You have reached your monthly AI budget …") before the model
+  is called, and a graph build is refused before the existing graph is cleared.
+  The skills dialog shows that sentence rather than the raw JSON it showed for
+  any failure.
 - **You read your own profile, not everyone's** (R389, VA-2026-10-25-16).
   Any signed-in user could read every other user's name, avatar, role,
   designation, organization and bio — and list every account id — straight

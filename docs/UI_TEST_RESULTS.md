@@ -15,6 +15,27 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-28 — R390: the monthly AI budget stops every model call, not just chat
+
+`ENFORCE_BUDGET_CAP=true` was added to `.env` for this round (the container recreated, the build hot-deployed
+again) and the monthly cap lowered from $20.00 to **$0.10**, under month-to-date spend of $0.15 — the Budgets
+page then read "Agents will refuse new requests once this cap is reached" and "$0.15 / $0.10". Both were put
+back afterwards ($20.00; the `.env` line removed, the container recreated, enforcement off again).
+
+| Build  | What was pressed                                                                      | Result                                                                                                                                         |
+| ------ | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| before | Skills, New skill, Generate with AI ("Reply to a greeting with one short …")          | `/api/skills/generate` → 200, "Skill draft generated. Review and save." (not saved) — spend stayed $0.15 (VA-34)                               |
+| R390   | the same                                                                              | → 402, toast "You have reached your monthly AI budget ($0.10). (spent $0.15 of $0.10 this month.)" — the sentence, not JSON                    |
+| R390   | ETL pipeline `r299_stderr`, code builder, **Generate**                                | `/api/etl/generate` → 402, the same toast; the pipeline's code unchanged                                                                       |
+| R390   | Lakehouse, "how many schemas are there", **Draft SQL**                                | `/api/lakehouse/generate` → 402, the same toast                                                                                                |
+| R390   | Knowledge base `Test`, Graph, **Build Graph**                                         | the graph-build call (`kb/build-graph`) → 402, the same toast; the graph still "Not built" (never marked building)                             |
+| R390   | AI Analyst, New analysis, "how many schemas are there", **Ask**                       | one `/api/bi` call → 402; the analyst answers with the sentence, and stops                                                                     |
+| R390   | a new Python notebook, the template's `chat_model` cell, **Run cell** (server kernel) | `RuntimeError: You have reached your monthly AI budget ($0.10). (spent $0.15 of $0.10 this month.)` — `/api/python-chat`, called by the kernel |
+
+Fixtures: the notebook was deleted after its kernel was stopped (the `nb-` container gone). The AI Analyst
+thread "how many schemas are there" is **kept** — the page has no way to delete an analysis — and holds only
+the refused question and the sentence.
+
 ## 2026-10-28 — R389: your own profile still loads and saves; other people's names still show where the server lists them
 
 After `20261029000000_profiles_own_row_only.sql` was pushed (the CLI lists it applied; its self-check

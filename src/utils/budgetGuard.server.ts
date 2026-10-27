@@ -345,3 +345,27 @@ export function budgetMessage(d: BudgetDecision): string {
   }
   return `You have reached your monthly AI budget (${cap}).`;
 }
+
+/**
+ * The sentence a refused call answers with: the reason, and the month's figures
+ * when they are known. A figure that could not be read has none to show.
+ */
+export function budgetRefusalText(d: BudgetDecision): string {
+  if (d.unknown) return budgetMessage(d);
+  return `${budgetMessage(d)} (spent $${d.spend.toFixed(2)} of $${d.cap.toFixed(2)} this month.)`;
+}
+
+/**
+ * Why this model call must not go ahead — the caller, a team of theirs or the
+ * credential it came through is over its monthly AI budget — or null when it
+ * may. Every route that spends on a user's behalf asks before calling the
+ * model (VA-2026-10-25-17), and answers 402 with this sentence in its own
+ * error shape.
+ */
+export async function budgetRefusal(
+  userId: string,
+  scope?: CostScope | null,
+): Promise<string | null> {
+  const d = await getBudgetDecision(userId, scope);
+  return d.over ? budgetRefusalText(d) : null;
+}
