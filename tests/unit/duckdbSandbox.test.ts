@@ -81,7 +81,8 @@ describe("the local engine cannot read the server's filesystem", () => {
   it("refuses read_text on a file outside the cache", async () => {
     const r = await attempt(`SELECT content FROM read_text('${secret}')`);
     expect(r.ok, "read_text returned a file it should not have").toBe(false);
-    expect(r.err).toMatch(/permission|not allowed|cannot access/i);
+    // Since R388 the statement is refused before the sandbox is reached.
+    expect(r.err).toMatch(/permission|not allowed|cannot access|not available here/i);
   });
 
   it("refuses read_csv on the same file", async () => {
@@ -122,8 +123,12 @@ describe("and still does everything it is supposed to", () => {
   it("reads the Parquet mirror, which lives inside the allowed directory", async () => {
     // The guard on the guard. A blanket ban would pass every test above and
     // cost a 250x slowdown by disabling the mirror — so this asserts the
-    // sandbox is narrow, not merely closed.
-    const res = await runLocalSqlDuckDB(`SELECT id, label FROM read_parquet('${mirror}')`, []);
+    // sandbox is narrow, not merely closed. Loaded the way production loads a
+    // mirror — as a dataset with a parquetPath — since user SQL may no longer
+    // name a file itself (R388).
+    const res = await runLocalSqlDuckDB("SELECT id, label FROM m ORDER BY id", [
+      { name: "m", columns: [], rows: [], parquetPath: mirror },
+    ]);
     expect(res.rows).toHaveLength(2);
     expect(res.rows[0]).toMatchObject({ id: 1, label: "a" });
   });

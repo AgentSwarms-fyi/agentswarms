@@ -227,6 +227,70 @@ function sqlLiteral(v: string): string {
   return `'${v.replace(/'/g, "''")}'`;
 }
 
+/** Table functions that generate rows and read nothing. */
+const SAFE_TABLE_FUNCTIONS = new Set(["range", "generate_series", "unnest"]);
+/** Catalog views only describe this connection's own objects. */
+const CATALOG_SCHEMAS = new Set(["information_schema", "pg_catalog"]);
+
+type ParsedRefs = { tables: { schema: string; table: string }[]; fns: string[]; ctes: Set<string> };
+
+function collectRefs(nodeIn: unknown, out: ParsedRefs): void {
+  if (Array.isArray(nodeIn)) {
+    for (const item of nodeIn) collectRefs(item, out);
+    return;
+  }
+  if (!nodeIn || typeof nodeIn !== "object") return;
+  const node = nodeIn as Record<string, unknown>;
+  const cteMap = (node.cte_map as { map?: { key?: string }[] } | undefined)?.map;
+  if (Array.isArray(cteMap)) {
+    for (const entry of cteMap) if (entry.key) out.ctes.add(String(entry.key).toLowerCase());
+  }
+  if (node.type === "BASE_TABLE") {
+    out.tables.push({
+      schema: String(node.schema_name ?? "").toLowerCase(),
+      table: String(node.table_name ?? "").toLowerCase(),
+    });
+  }
+  if (node.type === "TABLE_FUNCTION") {
+    const fn = (node.function as { function_name?: string } | undefined)?.function_name;
+    out.fns.push(String(fn ?? "table function").toLowerCase());
+  }
+  for (const value of Object.values(node)) collectRefs(value, out);
+}
+
+/**
+ * A statement may read only the datasets loaded for it (R388).
+ *
+ * Every mirror shares the one directory the sandbox allows, so the sandbox
+ * alone cannot keep a query to its own datasets. The query's datasets are
+ * already views; a statement has no reason to name a file or a table function
+ * that reads one. DuckDB parses the statement, and anything else is refused.
+ */
+async function assertReadsOnlyLoadedTables(
+  connection: { run: (sql: string) => Promise<{ getRows: () => Promise<unknown[][]> }> },
+  sql: string,
+  loaded: string[],
+): Promise<void> {
+  const res = await connection.run(`SELECT json_serialize_sql(${sqlLiteral(sql)})`);
+  const rows = await res.getRows();
+  const parsed = JSON.parse(String(rows[0]?.[0] ?? "{}")) as {
+    error?: boolean;
+    error_message?: string;
+  };
+  if (parsed.error) throw new Error(`SQL parse error: ${parsed.error_message ?? "invalid SQL"}`);
+  const refs: ParsedRefs = { tables: [], fns: [], ctes: new Set() };
+  collectRefs(parsed, refs);
+  const fn = refs.fns.find((f) => !SAFE_TABLE_FUNCTIONS.has(f));
+  if (fn) throw new Error(`${fn}() is not available here — query your datasets by name`);
+  const names = new Set(loaded.map((n) => n.toLowerCase()));
+  for (const t of refs.tables) {
+    if (CATALOG_SCHEMAS.has(t.schema)) continue;
+    if (!t.schema && refs.ctes.has(t.table)) continue;
+    if ((!t.schema || t.schema === "main" || t.schema === "temp") && names.has(t.table)) continue;
+    throw new Error(`"${t.table}" is not one of the datasets this query can read`);
+  }
+}
+
 /** SQL type for a declared column type. */
 function sqlTypeFor(type: ColumnDef["type"]): string {
   // `date` maps to VARCHAR deliberately. Every date in this app is stored and
@@ -319,6 +383,12 @@ export async function runLocalSqlDuckDB(
   try {
     // memory_limit and threads are set once, in configureSandbox — they are
     // instance-wide anyway, and lock_configuration refuses them here.
+
+    await assertReadsOnlyLoadedTables(
+      connection,
+      safeSql,
+      tables.map((t) => t.name),
+    );
 
     let coercionFailures = 0;
     for (const table of tables) {
