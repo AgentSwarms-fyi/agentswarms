@@ -8,6 +8,7 @@
 // an attached catalog directly (the guard refuses every catalog but `lake`).
 // Publishing and importing run here, as the caller, after ownership checks.
 import type { DuckDBConnection } from "@duckdb/node-api";
+import { assertPublicUrl } from "@/utils/ssrfGuard.server";
 import { randomBytes } from "node:crypto";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
@@ -75,6 +76,25 @@ async function catalogSecrets(
   return out;
 }
 
+/**
+ * The catalog's endpoint and token URL are user-supplied, and DuckDB's iceberg
+ * extension calls them itself, from the shared engine — nothing on that path
+ * goes through safeFetch. Every attach (the save's probe, the sync, a remount)
+ * checks both first: metadata and link-local are refused by name and by every
+ * address the name resolves to. Private addresses stay allowed, as for the
+ * crawler: a self-hosted REST catalog on the deployment's network is normal (R387).
+ */
+export async function assertIcebergUrlsAllowed(cfg: IcebergCatalogConfig): Promise<void> {
+  for (const [label, raw] of [
+    ["endpoint", cfg.endpoint],
+    ["OAuth2 server URI", cfg.oauth2_server_uri],
+  ] as const) {
+    if (!raw) continue;
+    const r = await assertPublicUrl(raw, { allowPrivate: true });
+    if (!r.ok) throw new Error(`Iceberg catalog ${label}: ${r.error}`);
+  }
+}
+
 /** CREATE SECRET (when the auth needs one) then ATTACH, under the given alias. */
 export async function attachIcebergCatalog(
   c: DuckDBConnection,
@@ -82,6 +102,7 @@ export async function attachIcebergCatalog(
   cfg: IcebergCatalogConfig,
   alias: string,
 ): Promise<void> {
+  await assertIcebergUrlsAllowed(cfg);
   const secretSql = icebergSecretSql(alias, cfg, await catalogSecrets(userId, cfg));
   if (secretSql) await c.run(secretSql);
   await c.run(icebergAttachSql(alias, cfg));

@@ -15,6 +15,29 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-27 — R387: data sources and Iceberg catalogs refuse the metadata address; private ones keep working
+
+Fixture: the same throwaway redirecting server as R386, as `r387-relay` on the app's network (every
+request except a model list answers `302 → http://169.254.169.254/latest/meta-data/iam/security-credentials/`).
+Test keys were made-up values, not real credentials; no source or catalog was saved by any probe.
+
+| Build | What was pressed                                                                                    | Result                                                                                                                                                                             |
+| ----- | --------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R386  | Lakehouse → Iceberg → Add catalog, endpoint `http://169.254.169.254/api/catalog`, **Test and save** | "The catalog did not answer: IO Error: Could not connect to server error for HTTP GET to 'http://169.254.169.254/api/catalog/v1/config?warehouse=…'" — the engine made the request |
+| R386  | Data Catalog → Add → Object storage, Amazon S3, region `r387.attacker.test#`, **Connect & crawl**   | "Not saved: fetch failed"; the URL that code builds targets host `lake.s3.r387.attacker.test`                                                                                      |
+| R386  | same, MinIO, endpoint `http://r387-relay:8000`, **Connect & crawl**                                 | "Not saved: fetch failed"; relay log `GET /lake/?list-type=2&max-keys=1 -> 302 metadata` — followed                                                                                |
+| R387  | the Iceberg catalog again                                                                           | "… Iceberg catalog endpoint: Refusing to fetch link-local/metadata address: 169.254.169.254"; not added to the list                                                                |
+| R387  | the S3 region again                                                                                 | "Not saved: Region "r387.attacker.test#" is not a region name — expected something like us-east-1."                                                                                |
+| R387  | the MinIO redirect again                                                                            | "Not saved: Refusing to fetch link-local/metadata address: 169.254.169.254"; relay log shows the one GET answered with the 302 and nothing after it                                |
+| R387  | Iceberg mount picker, catalog `local_rest` (`http://192.168.1.85:8181`, private)                    | namespaces `r107`, `r181`, `sales` listed                                                                                                                                          |
+| R387  | Lakehouse query `SELECT count(*) AS n FROM ice_sales.revenue_facts` (mounted Iceberg)               | `836`                                                                                                                                                                              |
+| R387  | Data Catalog → "MinIO local etl demo" → **Re-crawl** (private MinIO)                                | "Crawled "MinIO local etl demo" — 12 assets, 85 columns"                                                                                                                           |
+
+A name that resolves to the metadata address could not be shown from the UI here: this network's resolver
+refuses to return link-local answers for public names (`169.254.169.254.nip.io` and `sslip.io` both
+`ENOTFOUND` in the container), so that case is carried by the mocked-DNS tests. The relay container was
+removed afterwards.
+
 ## 2026-10-27 — R386: a provider that redirects to the metadata address is refused, and real providers still answer
 
 Fixture: a throwaway `python:3.12-slim` server, `r386-relay`, on the app's Docker network. It answers

@@ -6,7 +6,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "@/integrations/supabase/types";
-import { isBlockedAlways } from "@/utils/ssrfGuard.server";
+import { isBlockedAlways, safeFetch } from "@/utils/ssrfGuard.server";
 import { notebookFilePath, notebookToScript, type NotebookCell } from "@/utils/git/notebookSource";
 
 export type GitProvider = "github" | "gitlab";
@@ -34,6 +34,15 @@ function gitlabBase(cfg: GitExportConfig): string {
     throw new Error("GitLab: invalid host URL");
   }
   return base;
+}
+
+/**
+ * Every GitLab call: the host is the user's, so its name is resolved and every
+ * redirect hop re-checked. A self-hosted GitLab on a private network is normal,
+ * so only the always-blocked tier applies (R387).
+ */
+function gitlabFetch(url: string, init: RequestInit): Promise<Response> {
+  return safeFetch(url, { ...init, allowPrivate: true });
 }
 
 function gitlabProjectId(cfg: GitExportConfig): string {
@@ -332,7 +341,7 @@ async function commitToGitLab(
   // Determine create vs update per file (GitLab has no upsert action).
   const actions = [];
   for (const f of files) {
-    const check = await fetch(
+    const check = await gitlabFetch(
       `${base}/api/v4/projects/${projectId}/repository/files/${encodeURIComponent(f.path)}?ref=${encodeURIComponent(cfg.branch)}`,
       { method: "HEAD", headers: { "PRIVATE-TOKEN": token } },
     );
@@ -343,7 +352,7 @@ async function commitToGitLab(
     });
   }
 
-  const res = await fetch(`${base}/api/v4/projects/${projectId}/repository/commits`, {
+  const res = await gitlabFetch(`${base}/api/v4/projects/${projectId}/repository/commits`, {
     method: "POST",
     headers,
     body: JSON.stringify({ branch: cfg.branch, commit_message: message, actions }),
@@ -401,7 +410,7 @@ export async function readFileAtRef(
   }
 
   const base = gitlabBase(cfg);
-  const res = await fetch(
+  const res = await gitlabFetch(
     `${base}/api/v4/projects/${gitlabProjectId(cfg)}/repository/files/${encodeURIComponent(
       path,
     )}/raw?ref=${encodeURIComponent(ref)}`,

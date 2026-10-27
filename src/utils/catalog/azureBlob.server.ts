@@ -19,6 +19,7 @@
 //   secret_access_key = account key or SAS token
 //   endpoint          = optional override (Azurite, sovereign clouds)
 import { createHmac } from "node:crypto";
+import { safeFetch } from "@/utils/ssrfGuard.server";
 
 import type { ObjectStoreConfig, StoredObject } from "./objectStore.server";
 
@@ -37,6 +38,10 @@ export function azureOrigin(cfg: Pick<ObjectStoreConfig, "endpoint" | "access_ke
       throw new Error("Azure endpoint must be an http(s) URL");
     }
     return u.origin;
+  }
+  // The account becomes the host; see assertStorageNames (R387).
+  if (!/^[a-z0-9]{3,24}$/.test(cfg.access_key_id ?? "")) {
+    throw new Error(`"${cfg.access_key_id}" is not a valid storage account name`);
   }
   return `https://${cfg.access_key_id}.blob.core.windows.net`;
 }
@@ -152,7 +157,7 @@ async function azureGet(
   }
 
   const url = `${origin}${encodePath(resourcePath)}${q.toString() ? `?${q}` : ""}`;
-  return fetch(url, { method: "GET", headers, signal: AbortSignal.timeout(30_000) });
+  return safeFetch(url, { method: "GET", headers, signal: AbortSignal.timeout(30_000) });
 }
 
 function tag(block: string, name: string): string | null {

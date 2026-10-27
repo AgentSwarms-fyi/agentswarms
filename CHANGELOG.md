@@ -184,6 +184,19 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   so nothing stops being recorded. The matching lockdown of the swarm-run table —
   which doesn't feed the budget and is written from the browser — is tracked
   separately (VA-2026-10-25-31).
+- **Data sources, Iceberg catalogs and connectors can't be aimed at the cloud
+  metadata address either** (R387, VA-2026-10-25-14, the data side). The
+  lakehouse's Iceberg catalogs had no check at all — DuckDB called whatever
+  endpoint was saved. Object-store reads, warehouse and SaaS connectors,
+  Confluence, the catalog's Iceberg crawler and GitLab export checked only the
+  hostname as typed and followed redirects, and the bucket, region and Azure
+  account went straight into the host, so a region like `x.attacker.test#`
+  sent the signed request to a name the user chose. Each now resolves the name
+  and, where the app makes the request, re-checks every redirect hop; the
+  names that become hostnames must be real names. Private addresses keep the
+  rule each path already had: object-store reads still honour
+  `BLOCK_PRIVATE_NETWORK_FETCH`, and a self-hosted catalog, warehouse or
+  GitLab on your network keeps working.
 - **A provider base URL can no longer reach the cloud metadata address** (R386,
   VA-2026-10-25-14, the model-provider half). Every signed-in user sets their
   own provider base URL, and about twenty places — the provider adapters, the

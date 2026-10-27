@@ -109,6 +109,52 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-27 — R387: data sources, Iceberg catalogs and connectors could reach the cloud metadata address
+
+**Assessment finding** VA-2026-10-25-14, data side. Three shapes, all reproduced from the UI on the R386
+build before anything changed:
+
+- **No check at all.** The lakehouse's Iceberg catalogs hand the saved endpoint (and OAuth2 token URL) to
+  DuckDB's iceberg extension, which calls it from the shared engine. Lakehouse → Iceberg → **Test and save**
+  with `http://169.254.169.254/api/catalog` answered "IO Error: Could not connect to server error for HTTP
+  GET to 'http://169.254.169.254/api/catalog/v1/config?…'" — the engine had made the request.
+- **A name that becomes the host.** The object store builds `${bucket}.s3.${region}.amazonaws.com` (and
+  `${account}.blob.core.windows.net` for Azure) from fields the user types. Data Catalog → Add → Object
+  storage, Amazon S3, region `r387.attacker.test#` → **Connect & crawl**: "Not saved: fetch failed"; the
+  URL that code builds, replayed in the app container, targets host `lake.s3.r387.attacker.test`.
+- **Redirects followed.** The signed S3 GET, `connectorFetch` (every warehouse HTTP driver, the SaaS
+  connectors, Confluence), the crawler's Iceberg reads and GitLab export used plain `fetch` after a
+  literal-hostname check. A MinIO endpoint pointed at a throwaway server that answers every request with
+  `302 → 169.254.169.254`: the server logged `GET /lake/?list-type=2&max-keys=1 -> 302 metadata` and the
+  save failed "fetch failed" — the R386 replay showed what that is: a connection to `169.254.169.254:80`.
+
+**The fix:** every one of those sites now resolves the name and checks every address, and where the app
+makes the request it goes through `safeFetch`, which re-checks each redirect hop. Each keeps the
+private-network rule it had: object-store reads and the signed GET honour `BLOCK_PRIVATE_NETWORK_FETCH`
+(as `assertEndpointAllowed` always did); Iceberg, connectors and GitLab allow private addresses, because a
+self-hosted catalog, warehouse or GitLab is normal. `assertEndpointAllowed` (the check DuckDB's reads rely
+on) is now async and resolves the name. `assertIcebergUrlsAllowed` runs inside `attachIcebergCatalog`, so
+the save's probe, the periodic sync and a remount are all covered. `assertStorageNames` admits only real
+bucket, region and account names before they reach a host; `connectorFetch` no longer retries a refusal.
+
+**Not covered, recorded:** DuckDB's own HTTP stack (httpfs, iceberg) follows redirects and resolves names
+itself, so a redirect from an allowed endpoint, or a DNS answer that changes between the check and
+DuckDB's lookup, is out of the app's reach — the same residual `ssrfGuard` documents. Postgres/MySQL
+drivers connect over their own protocols, which cannot read the HTTP metadata service. The remaining
+VA-14 list is the Knowledge Base connectors' fixed-host helpers (Google, Microsoft Graph, Dropbox — no user
+URL).
+
+**Tests:** `dataSideSsrfGuard.test.ts` (19, mocked DNS) — names resolving to metadata refused at the
+DuckDB endpoint check, the signed listing (before sending), Iceberg endpoint and token URL and
+`connectorFetch`; redirects into metadata refused with the metadata hop never requested, and not retried;
+private catalogs, warehouses and MinIO still allowed; bucket/region/account names; source sweeps for raw
+fetches. `objectStoreParquet.test.ts`'s endpoint tests now await — the old synchronous form passed a promise
+to `not.toThrow()`, which could never see a rejection. Mutation run: 14 of 14 caught. Full gate: the
+first run lost `nl2sqlEval` (its tsx child killed) and `semanticMeasure` to timeouts, both green alone; the
+re-run was green (710/710 files).
+
+**The UI after the fix:** see UI_TEST_RESULTS.
+
 ### 2026-10-27 — R386: any user's provider base URL could be steered to the cloud metadata address
 
 **Assessment finding** VA-2026-10-25-14, model-provider half. A provider base URL (and the LLM gateway URL)

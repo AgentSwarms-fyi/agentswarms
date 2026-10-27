@@ -18,7 +18,7 @@ import type { Database, Json } from "@/integrations/supabase/types";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { auditEvent } from "@/utils/audit.server";
 import { decryptJson } from "@/utils/providers/crypto.server";
-import { isBlockedAlways } from "@/utils/ssrfGuard.server";
+import { isBlockedAlways, safeFetch, SsrfRefusedError } from "@/utils/ssrfGuard.server";
 import { resolveSecretRefsInObject } from "@/utils/secrets.server";
 import { executeWarehouseQuery, listWarehouseTables } from "@/utils/warehouse/drivers.server";
 import type { WarehouseConfig } from "@/utils/warehouse/types";
@@ -936,13 +936,17 @@ const ICEBERG_TIMEOUT_MS = 30_000;
 async function icebergGet<T>(base: string, path: string, token?: string): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(`${base}${path}`, {
+    // Resolved and re-checked at every redirect hop; private catalogs allowed,
+    // as the literal check above always did (R387).
+    res = await safeFetch(`${base}${path}`, {
+      allowPrivate: true,
       headers: token
         ? { Accept: "application/json", Authorization: `Bearer ${token}` }
         : { Accept: "application/json" },
       signal: AbortSignal.timeout(ICEBERG_TIMEOUT_MS),
     });
   } catch (e) {
+    if (e instanceof SsrfRefusedError) throw new Error(`Iceberg: ${e.message}`);
     // "fetch failed" alone, as the save's toast and the crawl's error used to
     // read, says neither where nor why (R368).
     throw new Error(`Iceberg: ${describeFetchFailure(e, base, { timeoutMs: ICEBERG_TIMEOUT_MS })}`);

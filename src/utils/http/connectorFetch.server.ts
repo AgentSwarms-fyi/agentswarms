@@ -29,7 +29,7 @@
 // retried by default: unlike 429 and 503 it often means the query did run and
 // then failed.
 
-import { isBlockedAlways } from "@/utils/ssrfGuard.server";
+import { isBlockedAlways, safeFetch } from "@/utils/ssrfGuard.server";
 
 function envInt(name: string, fallback: number): number {
   const n = Number(process.env[name]);
@@ -75,6 +75,8 @@ export function isRetryableStatus(status: number): boolean {
 export function isRetryableError(err: unknown): boolean {
   const e = err as { name?: string; message?: string };
   if (e?.name === "AbortError" || e?.name === "TimeoutError") return false;
+  // A refused target stays refused.
+  if (e?.name === "SsrfRefusedError") return false;
   return true;
 }
 
@@ -216,9 +218,14 @@ export async function connectorFetch(
       await doSleep(backoffMs(attempt - 1, opts.rand));
     }
     try {
-      const res = await fetch(url, {
+      // The literal check above sees the name as typed; safeFetch also resolves
+      // it and re-checks every redirect hop (R387). Private addresses stay
+      // allowed — a self-hosted warehouse on the deployment's network is normal —
+      // so only the always-blocked tier applies, as it always did here.
+      const res = await safeFetch(url.toString(), {
         ...init,
         ...(dispatcher ? ({ dispatcher } as Record<string, unknown>) : {}),
+        allowPrivate: true,
       });
       if (attempt < attempts - 1 && isRetryableStatus(res.status)) {
         // Prefer the server's own advice over our backoff when it gives any.

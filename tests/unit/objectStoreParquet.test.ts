@@ -311,24 +311,25 @@ describe("rows come back with their values and types intact", () => {
 });
 
 describe("the endpoint is checked before DuckDB is pointed at it", () => {
-  // httpfs makes its own HTTP calls and never goes through safeFetch, so none
-  // of the redirect/DNS revalidation in ssrfGuard applies. This is the only
-  // chance to refuse.
-  it("refuses cloud instance metadata outright", () => {
-    expect(() => assertEndpointAllowed("http://169.254.169.254")).toThrow(/never allowed/i);
-    expect(() => assertEndpointAllowed("http://[fd00:ec2::254]")).toThrow(/never allowed/i);
+  // httpfs makes its own HTTP calls and never goes through safeFetch, so
+  // redirects inside it stay out of reach. This is the chance to refuse: the
+  // name as typed, and since R387 every address it resolves to.
+  it("refuses cloud instance metadata outright", async () => {
+    await expect(assertEndpointAllowed("http://169.254.169.254")).rejects.toThrow(/never allowed/i);
+    await expect(assertEndpointAllowed("http://[fd00:ec2::254]")).rejects.toThrow(/never allowed/i);
   });
 
-  it("refuses a non-http scheme", () => {
-    expect(() => assertEndpointAllowed("file:///etc")).toThrow(/http or https/i);
-    expect(() => assertEndpointAllowed("not a url")).toThrow(/valid URL/i);
+  it("refuses a non-http scheme", async () => {
+    await expect(assertEndpointAllowed("file:///etc")).rejects.toThrow(/http or https/i);
+    await expect(assertEndpointAllowed("not a url")).rejects.toThrow(/valid URL/i);
   });
 
-  it("allows an ordinary private address by default, because self-hosted MinIO is one", () => {
+  it("allows an ordinary private address by default, because self-hosted MinIO is one", async () => {
     // The counterpart that keeps the check from being "refuse everything".
-    expect(() => assertEndpointAllowed("http://127.0.0.1:9010")).not.toThrow();
-    expect(() => assertEndpointAllowed("https://s3.eu-west-1.amazonaws.com")).not.toThrow();
-    expect(() => assertEndpointAllowed(undefined)).not.toThrow();
+    // Awaited: the old sync form passed `() => promise` to not.toThrow(), which
+    // could never see a rejection.
+    await expect(assertEndpointAllowed("http://127.0.0.1:9010")).resolves.toBeUndefined();
+    await expect(assertEndpointAllowed(undefined)).resolves.toBeUndefined();
   });
 
   withMinio("and the readers actually call it, not just export it", async () => {
@@ -347,11 +348,11 @@ describe("the endpoint is checked before DuckDB is pointed at it", () => {
     expect(await countObjectRows(evil, "data/orders.parquet", "parquet")).toBeNull();
   });
 
-  it("refuses private addresses when the operator has switched that on", () => {
+  it("refuses private addresses when the operator has switched that on", async () => {
     const prev = process.env.BLOCK_PRIVATE_NETWORK_FETCH;
     process.env.BLOCK_PRIVATE_NETWORK_FETCH = "true";
     try {
-      expect(() => assertEndpointAllowed("http://127.0.0.1:9010")).toThrow(/BLOCK_PRIVATE/);
+      await expect(assertEndpointAllowed("http://127.0.0.1:9010")).rejects.toThrow(/BLOCK_PRIVATE/);
     } finally {
       if (prev === undefined) delete process.env.BLOCK_PRIVATE_NETWORK_FETCH;
       else process.env.BLOCK_PRIVATE_NETWORK_FETCH = prev;

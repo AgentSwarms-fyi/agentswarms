@@ -21,9 +21,9 @@
 // no predicate push-down into Parquet; the same bounded-materialisation shape
 // the warehouse and prep paths already use.
 import { azureConnectionString } from "./azureBlob.server";
-import type { ObjectStoreConfig } from "./objectStore.server";
+import { assertStorageNames, type ObjectStoreConfig } from "./objectStore.server";
 import { toJsValue } from "@/lib/duckdbValues";
-import { isBlockedAlways, isPrivateNetwork } from "@/utils/ssrfGuard.server";
+import { assertPublicUrl, isBlockedAlways, isPrivateNetwork } from "@/utils/ssrfGuard.server";
 
 /** Rows pulled per object when materialising for a query. */
 export const OBJECT_ROWS_CAP = 50_000;
@@ -93,7 +93,7 @@ function readerFor(format: ReadableFormat): string {
  * ranges follow the same BLOCK_PRIVATE_NETWORK_FETCH switch as everything else
  * (a self-hosted MinIO on a private address is a normal deployment).
  */
-export function assertEndpointAllowed(endpoint: string | undefined): void {
+export async function assertEndpointAllowed(endpoint: string | undefined): Promise<void> {
   if (!endpoint) return; // no endpoint = AWS, derived from the region
   let url: URL;
   try {
@@ -114,6 +114,11 @@ export function assertEndpointAllowed(endpoint: string | undefined): void {
       throw new Error(`Refusing to read from ${url.hostname}: BLOCK_PRIVATE_NETWORK_FETCH is set`);
     }
   }
+  // The checks above see the name as typed. DuckDB resolves it itself, so
+  // resolve it here too: a public-looking name whose address is the metadata
+  // endpoint used to pass (R387). Same policy, applied to every address.
+  const resolved = await assertPublicUrl(url.toString());
+  if (!resolved.ok) throw new Error(resolved.error);
 }
 
 /** Single-quoted SQL literal. */
@@ -149,7 +154,8 @@ async function configure(
   conn: { run: (sql: string) => Promise<unknown> },
   cfg: ObjectStoreConfig,
 ): Promise<void> {
-  assertEndpointAllowed(cfg.endpoint);
+  await assertEndpointAllowed(cfg.endpoint);
+  assertStorageNames(cfg);
   if (cfg.provider === "azure") {
     // Azure is read through DuckDB's azure extension, not httpfs. The secret
     // is per connection for the same reason the s3_* settings below are: two

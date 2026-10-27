@@ -153,7 +153,7 @@ export async function runOrcIsolated(
   key: string,
   sqlFor: (localPath: string) => string,
 ): Promise<OrcResult> {
-  assertEndpointAllowed(cfg.endpoint);
+  await assertEndpointAllowed(cfg.endpoint);
 
   let tmp: { dir: string; file: string } | null = null;
   try {

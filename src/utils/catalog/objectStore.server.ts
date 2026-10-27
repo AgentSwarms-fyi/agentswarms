@@ -5,6 +5,8 @@
 // Only the two read operations the crawler needs: ListObjectsV2 and
 // ranged GetObject (for schema sampling).
 import { azureListObjects, azureSampleObject, azureTestObjectStore } from "./azureBlob.server";
+import { safeFetch } from "@/utils/ssrfGuard.server";
+import { cloudRegion } from "@/utils/providers/cloudRegion";
 import { createHash, createHmac } from "node:crypto";
 import zlib from "node:zlib";
 
@@ -55,7 +57,32 @@ function awsUriEncode(path: string, encodeSlash: boolean): string {
   return encodeSlash ? enc(path) : path.split("/").map(enc).join("/");
 }
 
+/**
+ * Bucket, container, account and region names become part of a HOSTNAME —
+ * `${bucket}.s3.${region}.amazonaws.com`, `${account}.blob.core.windows.net` —
+ * here and inside DuckDB. Outside their naming alphabets they rewrite that
+ * host: a region of `x.attacker.test#` makes it a name the user chose, which
+ * can resolve to the cloud metadata address (R387). With an endpoint the host
+ * comes from that URL instead, which the endpoint checks cover.
+ */
+export function assertStorageNames(
+  cfg: Pick<ObjectStoreConfig, "provider" | "endpoint" | "region" | "bucket" | "access_key_id">,
+): void {
+  if (cfg.bucket && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/.test(cfg.bucket)) {
+    throw new Error(`"${cfg.bucket}" is not a valid bucket or container name`);
+  }
+  if (cfg.endpoint) return;
+  if (cfg.provider === "azure") {
+    if (!/^[a-z0-9]{3,24}$/.test(cfg.access_key_id ?? "")) {
+      throw new Error(`"${cfg.access_key_id}" is not a valid storage account name`);
+    }
+  } else {
+    cloudRegion(cfg.region || "us-east-1", "Region");
+  }
+}
+
 function resolveTarget(cfg: ObjectStoreConfig): { origin: string; host: string; basePath: string } {
+  assertStorageNames(cfg);
   const pathStyle = cfg.path_style ?? Boolean(cfg.endpoint);
   if (cfg.endpoint) {
     const url = new URL(cfg.endpoint);
@@ -168,7 +195,10 @@ async function s3Get(
 
   const url = `${origin}${canonicalUri}${canonicalQuery ? `?${canonicalQuery}` : ""}`;
   const { host: _h, ...sendHeaders } = headers; // fetch sets Host itself
-  return fetch(url, {
+  // Guarded like every other read of a user's endpoint: the name is resolved
+  // and every redirect hop re-checked, under the same private-network policy
+  // as the DuckDB reads (assertEndpointAllowed).
+  return safeFetch(url, {
     method: "GET",
     headers: { ...sendHeaders, Authorization: authorization },
     signal: AbortSignal.timeout(30_000),
