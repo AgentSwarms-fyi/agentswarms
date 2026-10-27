@@ -109,6 +109,31 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-27 — R388: a local-engine query could reach other datasets' mirrors in the shared cache
+
+**Assessment finding** VA-2026-10-25-15 (was "likely, needs the glob-inside-allowed-dir check"). The server's
+local DuckDB engine is sandboxed to one directory, the Parquet mirror cache, and every dataset's mirror lives
+there. **Verified** against the engine with two throwaway files and the production sandbox settings: inside
+the allowed directory, wildcards and listings are permitted, so the sandbox keeps the engine off the rest of
+the disk but cannot keep a statement to its own datasets. The SQL guard in front of it checks statement
+type, not table functions.
+
+**The fix:** before any dataset is loaded, `runLocalSqlDuckDB` has DuckDB parse the statement
+(`json_serialize_sql`) and refuses any table function other than `range`, `generate_series` and `unnest`,
+and any table that is not one of the query's loaded datasets, a CTE, or an `information_schema` /
+`pg_catalog` view. A query's datasets are already views over their mirrors, so no legitimate statement names
+a file — the same rule the lakehouse applies through its own parse. One function covers the agent's
+`sql_query` tool, dashboard widget refresh, prep flows, semantic queries and object-store queries.
+
+**Tests:** `localEngineReadScope.test.ts` (12) — with two real mirrors in the cache and one loaded: file
+functions, wildcards, listings, a path as a table name, `query()`, an unloaded table and a file read inside a
+CTE are refused; the query's own data, CTEs, joins, `main.`-qualified names, the generators and
+`information_schema` still work, and the check runs before any load. `duckdbSandbox.test.ts` now reads its
+mirror the way production does. Mutation run: 5 of 5 caught. Full gate: 710 of 711 files; the one failure was
+`semanticMeasure`'s recurring 20 s timeout, green alone; the build step was run separately and passed.
+
+**The UI:** see UI_TEST_RESULTS.
+
 ### 2026-10-27 — R387: data sources, Iceberg catalogs and connectors could reach the cloud metadata address
 
 **Assessment finding** VA-2026-10-25-14, data side. Three shapes, all reproduced from the UI on the R386

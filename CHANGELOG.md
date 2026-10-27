@@ -184,6 +184,15 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   so nothing stops being recorded. The matching lockdown of the swarm-run table —
   which doesn't feed the budget and is written from the browser — is tracked
   separately (VA-2026-10-25-31).
+- **A query on the server's local SQL engine reads only its own datasets**
+  (R388, VA-2026-10-25-15). The engine behind the agent's SQL tool, dashboard
+  widget refresh, prep flows, semantic queries and object-store queries keeps
+  every dataset's Parquet mirror in one directory, and its sandbox could not
+  tell one mirror from another. A statement is now checked by DuckDB's own
+  parser before anything loads: it may read the datasets loaded for it, CTEs
+  and catalog views, and the row generators (`range`, `generate_series`,
+  `unnest`) — not file functions such as `read_parquet` or `glob`, and not a
+  file path written as a table. Ordinary SQL is unchanged.
 - **Data sources, Iceberg catalogs and connectors can't be aimed at the cloud
   metadata address either** (R387, VA-2026-10-25-14, the data side). The
   lakehouse's Iceberg catalogs had no check at all — DuckDB called whatever

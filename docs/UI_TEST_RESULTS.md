@@ -15,6 +15,19 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-27 — R388: the server engine refuses file functions; ordinary queries still run
+
+Data Catalog → Workbench, engine **MinIO local etl demo · minio** (the server's local DuckDB engine, through
+the object-store query path). The check query counts entries in the mirror directory — a count only.
+
+| Build | Statement                                                                                         | Result                                                                      |
+| ----- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| R387  | `SELECT (SELECT count(*) FROM glob('/tmp/agentswarms-parquet/*')) AS entries FROM orders LIMIT 1` | ran: `ENTRIES 0` (the cache was empty after a restart) — nothing refused it |
+| R388  | the same statement                                                                                | "glob() is not available here — query your datasets by name"                |
+| R388  | `WITH o AS (SELECT * FROM orders) SELECT count(*) AS n FROM o`                                    | `N 900`                                                                     |
+
+No fixtures were created.
+
 ## 2026-10-27 — R387: data sources and Iceberg catalogs refuse the metadata address; private ones keep working
 
 Fixture: the same throwaway redirecting server as R386, as `r387-relay` on the app's network (every
