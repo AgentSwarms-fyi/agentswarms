@@ -1,6 +1,8 @@
 // AWS Bedrock SigV4 + Converse Stream adapter.
 // Re-emits responses as OpenAI-style SSE chunks for client compatibility.
 import type { BedrockConfig, BedrockCreds, ChatMessage } from "../types";
+import { providerFetch } from "@/utils/ssrfGuard.server";
+import { providerEndpoint } from "../privateEndpoint";
 import { cloudRegion } from "../cloudRegion";
 import { recordOf } from "@/lib/jsonRecord";
 
@@ -142,7 +144,10 @@ export async function bedrockChatStream(args: {
   const { creds, config, modelId, systemPrompt, messages, temperature, maxTokens } = args;
   // The region becomes part of the host; see cloudRegion().
   const region = cloudRegion(config.region || "us-east-1", "Bedrock region");
-  const host = `bedrock-runtime.${region}.amazonaws.com`;
+  // An endpoint override (e.g. a PrivateLink vpce name) replaces the host; the
+  // request is signed for whichever host it is sent to.
+  const override = providerEndpoint("bedrock", config.endpoint);
+  const host = override ? new URL(override).host : `bedrock-runtime.${region}.amazonaws.com`;
   const path = `/model/${encodeURIComponent(modelId)}/converse-stream`;
 
   const body = JSON.stringify({
@@ -168,7 +173,11 @@ export async function bedrockChatStream(args: {
     body,
   });
 
-  const upstream = await fetch(`https://${host}${path}`, { method: "POST", headers, body });
+  const upstream = await providerFetch(`https://${host}${path}`, {
+    method: "POST",
+    headers,
+    body,
+  });
   if (!upstream.ok || !upstream.body) {
     const t = await upstream.text();
     throw new Error(`Bedrock error [${upstream.status}]: ${t.slice(0, 300)}`);

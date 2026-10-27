@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-27 — Private GenAI connectivity: the endpoint-override guards, from the UI
+
+On the deployed feature build, on the Integrations page, opening a provider's Configure dialog. The save-time
+validation of a provider's private endpoint override runs server-side before anything is stored; made-up
+credentials, since only the endpoint is being exercised.
+
+| Provider | Endpoint entered                             | Result                                                                                                                                                         |
+| -------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bedrock  | `https://bedrock-runtime.attacker.test`      | "Could not save: Bedrock endpoint must be a _.vpce.amazonaws.com or _.amazonaws.com or \*.api.aws address — expected something like https://vpce-0abc123.…"    |
+| Azure    | `https://myres.privatelink.openai.azure.com` | "Could not save: Use the resource's own endpoint (https://<name>.openai.azure.com), not the privatelink name — … private DNS resolves the resource's hostname" |
+
+Neither was saved — Bedrock and Azure stayed "not connected", and the account's existing OpenRouter and Gemini
+were untouched. The accepting cases (a valid `vpce`/PSC/`pe.*` host, the proxy tunnelling, the signed-for host)
+are covered by the unit and adapter tests.
+
 ## 2026-10-27 — R388: the server engine refuses file functions; ordinary queries still run
 
 Data Catalog → Workbench, engine **MinIO local etl demo · minio** (the server's local DuckDB engine, through

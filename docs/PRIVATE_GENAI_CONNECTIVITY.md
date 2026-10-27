@@ -119,55 +119,60 @@ service name _unconfirmed_).
 
 ## What the app supports today
 
-| Provider (Integrations)                                                   | How it is reached                         | Private endpoint today                                                                      |
-| ------------------------------------------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------- |
-| OpenAI and OpenAI-compatible (Groq, Grok, Qwen, NVIDIA, OpenRouter, vLLM) | `base_url` override                       | **Works** — including OpenAI's `*.privatelink.api.openai.com` base URL                      |
-| Ollama                                                                    | `endpoint`                                | **Works**                                                                                   |
-| Azure OpenAI                                                              | full endpoint URL                         | **Works** with private DNS resolving from the container                                     |
-| Anthropic                                                                 | `base_url` (Integrations page path)       | Works for a private gateway; no first-party private link exists                             |
-| AWS Bedrock                                                               | host built from region                    | **Only with PrivateLink private DNS on** — no endpoint override                             |
-| Google Vertex AI                                                          | host built from location                  | **No** — the UI's "Custom Endpoint" field is dropped on save                                |
-| OCI Generative AI                                                         | host built from region                    | **No** — the UI's "Service Endpoint" field is dropped on save; private endpoints require it |
-| Gemini (AI Studio)                                                        | fixed `generativelanguage.googleapis.com` | No override; use Vertex for private Gemini                                                  |
-| LLM gateway (route all traffic)                                           | OpenAI-compatible `base_url`              | **Works** for an in-VPC LiteLLM/Portkey — but silently skipped for Bedrock/Vertex/Azure/OCI |
+| Provider (Integrations)                                                   | How it is reached                            | Private endpoint today                                                                            |
+| ------------------------------------------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| OpenAI and OpenAI-compatible (Groq, Grok, Qwen, NVIDIA, OpenRouter, vLLM) | `base_url` override                          | **Works** — including OpenAI's `*.privatelink.api.openai.com` base URL                            |
+| Ollama                                                                    | `endpoint`                                   | **Works**                                                                                         |
+| Azure OpenAI                                                              | full endpoint URL                            | **Works** with private DNS resolving from the container                                           |
+| Anthropic                                                                 | `base_url` (Integrations page path)          | Works for a private gateway; no first-party private link exists                                   |
+| AWS Bedrock                                                               | host from region, **or endpoint override**   | **Works** with PrivateLink private DNS, or a `vpce`/`amazonaws.com`/`api.aws` endpoint URL        |
+| Google Vertex AI                                                          | host from location, **or endpoint override** | **Works** — a `*.googleapis.com` (incl. PSC `*.p.googleapis.com`) endpoint URL; the token follows |
+| OCI Generative AI                                                         | host from region, **or endpoint override**   | **Works** — a `*.oci.oraclecloud.com` (incl. `*.pe.*`) endpoint URL                               |
+| Gemini (AI Studio)                                                        | fixed `generativelanguage.googleapis.com`    | No override; use Vertex for private Gemini                                                        |
+| LLM gateway (route all traffic)                                           | OpenAI-compatible `base_url`                 | **Works** for an in-VPC LiteLLM/Portkey — but silently skipped for Bedrock/Vertex/Azure/OCI       |
 
 Cross-cutting:
 
-- **Proxy:** `HTTPS_PROXY` / `NO_PROXY` are honoured by warehouse and SaaS
-  connectors (one shared client), **not** by model calls. A network whose only
-  egress is a proxy cannot reach any hosted model today.
+- **Proxy:** `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` are honoured by warehouse
+  and SaaS connectors **and, since this work, by every model call** (one shared
+  dispatcher). A proxy-only network can now reach hosted models.
 - **Custom CA:** Node reads `NODE_EXTRA_CA_CERTS` at startup, so it already works
-  for TLS-inspecting proxies and private CAs — but it is documented only for the
-  Kubernetes runtime.
+  for TLS-inspecting proxies and private CAs — now documented for Compose too.
 - **SSRF guard (R386/R387):** model calls allow private addresses (a VPC endpoint
   is one) and refuse only metadata/link-local, so private endpoints pass.
   Object-store reads honour `BLOCK_PRIVATE_NETWORK_FETCH`, which would also
-  refuse an S3/Blob private endpoint — there is no way to exempt one.
+  refuse an S3/Blob private endpoint — that is a data-source concern, not GenAI,
+  tracked separately.
 
 ## Gaps
 
-1. **Model calls ignore the corporate proxy.**
-2. **Vertex and OCI endpoint overrides are not wired** (shown, dropped on save,
-   absent from the adapter config types); Bedrock has no override at all.
-3. **No proof of path.** Nothing tells an admin whether a call resolved to a
+**Closed (this work):** model calls now honour the corporate proxy; Bedrock,
+Vertex and OCI take a validated endpoint override; Azure refuses a `privatelink`
+hostname with guidance. Remaining:
+
+1. **No proof of path.** Nothing tells an admin whether a call resolved to a
    private or a public address, so a mis-set DNS zone silently sends traffic
    over the internet.
-4. **No policy to require private paths** for GenAI traffic.
-5. **`BLOCK_PRIVATE_NETWORK_FETCH` cannot exempt a named private endpoint**, so
-   operators must choose between SSRF strictness and private object storage.
-6. **The route-all gateway does not cover Bedrock/Vertex/Azure/OCI** — and does
+2. **No policy to require private paths** for GenAI traffic.
+3. **The route-all gateway does not cover Bedrock/Vertex/Azure/OCI** — and does
    not say so in the UI.
+4. **Gemini (AI Studio)** has no endpoint override (use Vertex for private
+   Gemini).
 
 ## Plan
 
-### Phase 1 — make private endpoints usable (small, low-risk)
+### Phase 1 — make private endpoints usable — **DONE (2026-10-27)**
 
-1. **Proxy for model calls.** `providerFetch` takes the same proxy dispatcher
-   `connectorFetch` already builds from `HTTPS_PROXY` / `NO_PROXY` (portable to
-   every supported Node version, unlike `NODE_USE_ENV_PROXY`). The SSRF check
-   still runs on the target before the proxy is chosen.
-2. **Endpoint overrides, validated per provider.** Each override is optional,
-   and its host must match the provider's documented private names, so a signed
+1. **Proxy for model calls.** `providerFetch` now routes through the same proxy
+   dispatcher `connectorFetch` builds from `HTTPS_PROXY` / `HTTP_PROXY` /
+   `NO_PROXY`, chosen per redirect hop; the SSRF check still runs on the target
+   first, so metadata/link-local stay refused before any proxy is used. Provider
+   connection tests use the same path (`providerTestFetch`), so a test can never
+   pass a route the real call refuses, or fail one it would take.
+2. **Endpoint overrides, validated per provider** (`providers/privateEndpoint.ts`).
+   Each override is optional; empty keeps the public hostname (which also covers
+   private DNS and VPN setups). An override must be an https origin, with no path
+   or credentials, whose host is on the provider's own domain — so a signed
    request cannot be re-aimed elsewhere (the R386 principle):
 
    | Provider     | New / wired field                                         | Accepted host                                                   |
@@ -179,18 +184,28 @@ Cross-cutting:
 
    SigV4/OCI signing uses the override's host; region stays the signing region.
 
-3. **Azure guard rail.** Refuse an endpoint whose host is a `*.privatelink.*`
-   name, with a message saying to use the resource's own hostname and private
-   DNS — the configuration Microsoft documents as unsupported.
-4. **Exempt named private endpoints from the private-network block.** A new
-   `PRIVATE_ENDPOINT_HOSTS` list (host suffixes) lets an operator keep
-   `BLOCK_PRIVATE_NETWORK_FETCH` on and still reach their S3/Blob/Bedrock
-   private endpoints. Metadata and link-local stay refused regardless.
-5. **Document** private DNS per cloud (Route 53 Resolver, Azure privatelink
-   zones and 168.63.129.16 forwarding, Cloud DNS `googleapis.com` /
-   `p.googleapis.com`, CoreDNS forwarding on Kubernetes), `NODE_EXTRA_CA_CERTS`
-   for Compose, and that the route-all gateway does not cover signed-auth
-   providers.
+   SigV4 / OCI signing uses the override's host; the region stays the signing
+   region. The Vertex OAuth token request follows the API endpoint over PSC
+   (`oauth2-<endpoint>.p.googleapis.com`) while the JWT audience stays the public
+   token URL, as Google's design requires.
+
+3. **Azure guard rail.** A save whose endpoint host is a `*.privatelink.*` name
+   is refused with a message to use the resource's own hostname and private DNS
+   — the configuration Microsoft documents as unsupported.
+
+Deferred out of this phase: `NODE_EXTRA_CA_CERTS` for Compose and the per-cloud
+private-DNS write-up go with the Phase 2 docs; the object-store private-endpoint
+exemption from `BLOCK_PRIVATE_NETWORK_FETCH` is a data-source item, tracked with
+VA-14's residual rather than here (GenAI calls already allow private addresses).
+
+**Tested, code side** (`providerProxy.test.ts`, `privateEndpoint.test.ts`,
+`providerPrivateEndpoints.test.ts`): an in-process forward proxy proves model
+calls and connection tests tunnel through it, a `NO_PROXY` host goes direct, and
+the metadata address is still refused before the proxy; the validator accepts
+each provider's documented hosts and refuses other domains, paths, credentials,
+http and look-alikes; and the adapters, driven end to end, call (and sign for)
+the override host while keeping the region scope, with the Vertex token routed
+through the PSC name.
 
 ### Phase 2 — make the path visible and enforceable
 

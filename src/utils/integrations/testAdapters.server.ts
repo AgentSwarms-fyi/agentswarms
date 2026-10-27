@@ -13,7 +13,7 @@
 // it already used for the SSRF guard).
 
 import { formatUsd } from "@/lib/usd";
-import { safeFetch } from "@/utils/ssrfGuard.server";
+import { providerFetch, safeFetch } from "@/utils/ssrfGuard.server";
 
 export type TestResult =
   { ok: true; detail: string } | { ok: false; detail: string; status?: number };
@@ -53,6 +53,20 @@ export async function guardedFetch(
   timeoutMs: number = OUTBOUND_TIMEOUT_MS,
 ): Promise<Response> {
   return safeFetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+}
+
+/**
+ * A model provider's connection test: the same rules as the calls it vouches
+ * for (providerFetch) — private model servers allowed, metadata refused, the
+ * corporate proxy honoured. A test stricter than the real call would fail a
+ * vLLM that chat reaches fine; a laxer one would pass a path chat refuses.
+ */
+export async function providerTestFetch(
+  url: string,
+  init: RequestInit = {},
+  timeoutMs: number = OUTBOUND_TIMEOUT_MS,
+): Promise<Response> {
+  return providerFetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
 }
 
 function normalizeAnthropicBaseUrl(v: unknown): string {
@@ -109,7 +123,7 @@ async function testOpenAI(cfg: Record<string, string>): Promise<TestResult> {
     "Content-Type": "application/json",
   };
   if (cfg.organization_id) headers["OpenAI-Organization"] = cfg.organization_id;
-  const r = await guardedFetch(`${baseUrl}/models`, { method: "GET", headers });
+  const r = await providerTestFetch(`${baseUrl}/models`, { method: "GET", headers });
   if (r.ok) return { ok: true, detail: "Authenticated against OpenAI /v1/models" };
   return fmtFail("OpenAI", r, await extractUpstreamError(r));
 }
@@ -123,7 +137,7 @@ async function testAnthropic(cfg: Record<string, string>): Promise<TestResult> {
   const url = `${baseUrl}/models`;
   let r: Response;
   try {
-    r = await guardedFetch(url, {
+    r = await providerTestFetch(url, {
       method: "GET",
       headers: { "x-api-key": key, "anthropic-version": version },
     });
@@ -140,7 +154,7 @@ async function testAnthropic(cfg: Record<string, string>): Promise<TestResult> {
 async function testGemini(cfg: Record<string, string>): Promise<TestResult> {
   const key = clean(cfg.api_key);
   if (!key) return { ok: false, detail: "API key is required" };
-  const r = await guardedFetch(
+  const r = await providerTestFetch(
     `https://generativelanguage.googleapis.com/v1beta/models?pageSize=1`,
     {
       method: "GET",
@@ -155,7 +169,7 @@ async function testGrok(cfg: Record<string, string>): Promise<TestResult> {
   const key = clean(cfg.api_key);
   if (!key) return { ok: false, detail: "API key is required" };
   const baseUrl = (cfg.base_url || "https://api.x.ai/v1").replace(/\/+$/, "");
-  const r = await guardedFetch(`${baseUrl}/models`, {
+  const r = await providerTestFetch(`${baseUrl}/models`, {
     method: "GET",
     headers: { Authorization: `Bearer ${key}` },
   });
@@ -168,7 +182,7 @@ async function testOllama(cfg: Record<string, string>): Promise<TestResult> {
   if (!endpoint) return { ok: false, detail: "Server URL is required" };
   try {
     // /api/tags returns 200 + list of available models; works without auth.
-    const r = await guardedFetch(`${endpoint}/api/tags`, { method: "GET" });
+    const r = await providerTestFetch(`${endpoint}/api/tags`, { method: "GET" });
     if (r.ok) {
       const j = (await r.json().catch(() => null)) as { models?: unknown[] } | null;
       const count = Array.isArray(j?.models) ? j!.models!.length : 0;
@@ -195,14 +209,14 @@ async function testOpenRouter(cfg: Record<string, string>): Promise<TestResult> 
   const url = `${baseUrl}/auth/key`;
   let r: Response;
   try {
-    r = await guardedFetch(url, { method: "GET", headers });
+    r = await providerTestFetch(url, { method: "GET", headers });
   } catch (e) {
     return { ok: false, detail: `Network error reaching ${url}: ${(e as Error).message}` };
   }
   if (r.status === 404) {
     const fallbackUrl = `${baseUrl}/models`;
     try {
-      r = await guardedFetch(fallbackUrl, { method: "GET", headers });
+      r = await providerTestFetch(fallbackUrl, { method: "GET", headers });
     } catch (e) {
       return {
         ok: false,
@@ -229,7 +243,7 @@ async function testGroq(cfg: Record<string, string>): Promise<TestResult> {
   if (!key) return { ok: false, detail: "API key is required" };
   const baseUrl = (cfg.base_url || "https://api.groq.com/openai/v1").replace(/\/+$/, "");
   // GET /models is the cheapest authed call on Groq's OpenAI-compat surface.
-  const r = await guardedFetch(`${baseUrl}/models`, {
+  const r = await providerTestFetch(`${baseUrl}/models`, {
     method: "GET",
     headers: { Authorization: `Bearer ${key}` },
   });
@@ -252,7 +266,7 @@ async function testQwen(cfg: Record<string, string>): Promise<TestResult> {
   const url = `${baseUrl}/models`;
   let r: Response;
   try {
-    r = await guardedFetch(url, {
+    r = await providerTestFetch(url, {
       method: "GET",
       headers: { Authorization: `Bearer ${key}` },
     });
@@ -286,7 +300,7 @@ async function testVLLM(cfg: Record<string, string>): Promise<TestResult> {
   if (key) headers.Authorization = `Bearer ${key}`;
   let r: Response;
   try {
-    r = await guardedFetch(url, { method: "GET", headers });
+    r = await providerTestFetch(url, { method: "GET", headers });
   } catch (e) {
     return { ok: false, detail: `Network error reaching ${url}: ${(e as Error).message}` };
   }
@@ -320,7 +334,7 @@ async function testNvidia(cfg: Record<string, string>): Promise<TestResult> {
   const url = `${baseUrl}/models`;
   let r: Response;
   try {
-    r = await guardedFetch(url, {
+    r = await providerTestFetch(url, {
       method: "GET",
       headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
     });
@@ -554,7 +568,7 @@ export async function testGatewayCore(cfg: {
   const url = `${base}/models`;
   let r: Response;
   try {
-    r = await guardedFetch(url, { method: "GET", headers });
+    r = await providerTestFetch(url, { method: "GET", headers });
   } catch (e) {
     return { ok: false, detail: `Network error reaching ${url}: ${(e as Error).message}` };
   }

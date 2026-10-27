@@ -3,6 +3,8 @@
 // with RSA-SHA256. Targets the Generative AI Inference `chat` action.
 
 import type { ChatMessage, OCIConfig, OCICreds } from "../types";
+import { providerFetch } from "@/utils/ssrfGuard.server";
+import { providerEndpoint } from "../privateEndpoint";
 import { cloudRegion } from "../cloudRegion";
 
 function toOpenAIChunk(content: string): string {
@@ -119,9 +121,12 @@ export async function ociChatStream(args: {
   if (!compartmentId) throw new Error("OCI compartmentId is required");
 
   // The region becomes part of the host; see cloudRegion().
-  const url = new URL(
-    `${endpointForRegion(cloudRegion(region, "OCI region"))}/20231130/actions/chat`,
-  );
+  // An endpoint override (e.g. a private endpoint's *.pe.* name) replaces the
+  // regional host; the request is signed for the host it is sent to.
+  const base =
+    providerEndpoint("oci_genai", config.endpoint) ??
+    endpointForRegion(cloudRegion(region, "OCI region"));
+  const url = new URL(`${base}/20231130/actions/chat`);
 
   // Build a generic Cohere/Llama-style chat payload. OCI auto-routes based on
   // the servingMode model. Users can pick GENERIC vs COHERE in config.style.
@@ -174,7 +179,7 @@ export async function ociChatStream(args: {
     privateKeyPem: creds.privateKeyPem,
   });
 
-  const upstream = await fetch(url.toString(), { method: "POST", headers, body });
+  const upstream = await providerFetch(url.toString(), { method: "POST", headers, body });
   if (!upstream.ok || !upstream.body) {
     const t = await upstream.text();
     throw new Error(`OCI Generative AI error [${upstream.status}]: ${t.slice(0, 400)}`);

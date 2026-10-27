@@ -33,6 +33,19 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Private connectivity to hosted models.** LLM provider calls — chat,
+  embeddings, model listing and connection tests — now honour the corporate
+  proxy (`HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY`), like the warehouse and SaaS
+  connectors already did, so a proxy-only network can reach a hosted model; the
+  link-local / cloud-metadata block is still applied to the target first.
+  Bedrock, Vertex AI and OCI Generative AI each take an optional **Private
+  endpoint URL** (an AWS PrivateLink `vpce` name, a Vertex Private Service
+  Connect `*.p.googleapis.com` name, an OCI `*.pe.*` name); it must be an https
+  address on the provider's own domain, the signed request is sent to it, and
+  the Vertex OAuth token follows the PSC name. Azure OpenAI refuses a
+  `*.privatelink.*` hostname with guidance to use the resource's own name. An
+  empty override keeps the public hostname, which is what private DNS and a VPN
+  rely on. See [Private connectivity for GenAI](./docs/PRIVATE_GENAI_CONNECTIVITY.md).
 - **Settings → API Keys covers every key this instance issues and every
   credential you've connected** (PR #95, completed in R385). The hub showed six
   kinds. It now also lists MCP app keys, notebook API keys, lakehouse share

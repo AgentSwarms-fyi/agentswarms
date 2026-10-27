@@ -4,6 +4,7 @@
 // via dynamic import so they don't end up in the client bundle.
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { azureEndpointProblem, providerEndpoint } from "@/utils/providers/privateEndpoint";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { Json } from "@/integrations/supabase/types";
 import type {
@@ -39,6 +40,7 @@ const SaveSchema = z.object({
       accessKeyId: z.string().min(4).max(128),
       secretAccessKey: z.string().min(4).max(256),
       sessionToken: z.string().max(4096).optional(),
+      endpoint: z.string().max(300).optional(),
     })
     .optional(),
   vertex: z
@@ -46,6 +48,7 @@ const SaveSchema = z.object({
       projectId: z.string().min(1).max(120),
       location: z.string().min(1).max(40),
       serviceAccountJson: z.string().min(20).max(20000),
+      endpoint: z.string().max(300).optional(),
     })
     .optional(),
   anthropic: z
@@ -69,6 +72,7 @@ const SaveSchema = z.object({
       fingerprint: z.string().min(10).max(120),
       privateKeyPem: z.string().min(40).max(20000),
       style: z.enum(["GENERIC", "COHERE"]).optional(),
+      endpoint: z.string().max(300).optional(),
     })
     .optional(),
   qwen: z
@@ -98,7 +102,10 @@ export const saveProviderCredential = createServerFn({ method: "POST" })
           secretAccessKey: data.bedrock.secretAccessKey,
           sessionToken: data.bedrock.sessionToken || undefined,
         } satisfies BedrockCreds;
-        configPayload = { region: data.bedrock.region } satisfies BedrockConfig;
+        configPayload = {
+          region: data.bedrock.region,
+          endpoint: providerEndpoint("bedrock", data.bedrock.endpoint),
+        } satisfies BedrockConfig;
         break;
       }
       case "vertex": {
@@ -112,6 +119,7 @@ export const saveProviderCredential = createServerFn({ method: "POST" })
         configPayload = {
           projectId: data.vertex.projectId,
           location: data.vertex.location,
+          endpoint: providerEndpoint("vertex", data.vertex.endpoint),
         } satisfies VertexConfig;
         break;
       }
@@ -123,6 +131,8 @@ export const saveProviderCredential = createServerFn({ method: "POST" })
       }
       case "azure_openai": {
         if (!data.azure_openai) throw new Error("Azure fields required");
+        const azureProblem = azureEndpointProblem(data.azure_openai.endpoint);
+        if (azureProblem) throw new Error(azureProblem);
         credsPayload = { apiKey: data.azure_openai.apiKey } satisfies AzureCreds;
         configPayload = {
           endpoint: data.azure_openai.endpoint,
@@ -146,6 +156,7 @@ export const saveProviderCredential = createServerFn({ method: "POST" })
           region: o.region,
           compartmentId: o.compartmentId,
           style: o.style ?? "GENERIC",
+          endpoint: providerEndpoint("oci_genai", o.endpoint),
         } satisfies OCIConfig;
         break;
       }

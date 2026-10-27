@@ -1,5 +1,6 @@
 // Google Vertex AI streaming adapter using a service account JSON to mint OAuth tokens.
 import type { ChatMessage, VertexConfig, VertexCreds } from "../types";
+import { providerEndpoint, vertexTokenUrl } from "../privateEndpoint";
 import { cloudRegion } from "../cloudRegion";
 import { providerFetch } from "@/utils/ssrfGuard.server";
 
@@ -25,7 +26,7 @@ function base64UrlEncode(bytes: Uint8Array | string): string {
   return btoa(bin).replace(/=+$/g, "").replace(/\+/g, "-").replace(/\//g, "_");
 }
 
-async function getAccessToken(sa: ServiceAccount): Promise<string> {
+async function getAccessToken(sa: ServiceAccount, apiEndpoint?: string): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   const header = { alg: "RS256", typ: "JWT" };
   const claim = {
@@ -51,11 +52,16 @@ async function getAccessToken(sa: ServiceAccount): Promise<string> {
   const jwt = `${toSign}.${base64UrlEncode(sig)}`;
   // token_uri comes from the pasted service-account JSON, so it is a URL the
   // user chose: fetched through the guard like any other.
-  const resp = await providerFetch(sa.token_uri || "https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${encodeURIComponent(jwt)}`,
-  });
+  // Over Private Service Connect the token is fetched through the same PSC
+  // endpoint as the API (vertexTokenUrl); otherwise from the token URI as given.
+  const resp = await providerFetch(
+    vertexTokenUrl(apiEndpoint, sa.token_uri || "https://oauth2.googleapis.com/token"),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${encodeURIComponent(jwt)}`,
+    },
+  );
   if (!resp.ok) {
     const t = await resp.text();
     throw new Error(`Vertex auth failed [${resp.status}]: ${t.slice(0, 300)}`);
@@ -93,10 +99,12 @@ export async function vertexChatStream(args: {
   if (!sa.client_email || !sa.private_key) {
     throw new Error("Vertex service account missing client_email/private_key");
   }
-  const token = await getAccessToken(sa);
   const projectId = config.projectId;
   // The location becomes part of the host; see cloudRegion().
   const location = cloudRegion(config.location || "us-central1", "Vertex location");
+  // An endpoint override (e.g. a PSC *.p.googleapis.com name) replaces the host.
+  const apiBase = providerEndpoint("vertex", config.endpoint);
+  const token = await getAccessToken(sa, apiBase);
 
   // Use Vertex Gemini streamGenerateContent endpoint.
   // For Anthropic-on-Vertex (claude-* models), endpoint differs; we surface a clear error.
@@ -104,7 +112,7 @@ export async function vertexChatStream(args: {
     throw new Error("Claude-on-Vertex routing is not yet implemented. Please pick a Gemini model.");
   }
 
-  const url = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/${encodeURIComponent(modelId)}:streamGenerateContent?alt=sse`;
+  const url = `${apiBase ?? `https://${location}-aiplatform.googleapis.com`}/v1/projects/${projectId}/locations/${location}/publishers/google/models/${encodeURIComponent(modelId)}:streamGenerateContent?alt=sse`;
 
   const contents = messages.map((m) => ({
     role: m.role === "assistant" ? "model" : "user",

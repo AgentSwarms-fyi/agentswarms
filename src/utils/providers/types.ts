@@ -215,14 +215,16 @@ export type OCICreds = {
 };
 
 // Non-secret config per provider.
-export type BedrockConfig = { region: string };
-export type VertexConfig = { projectId: string; location: string };
+// `endpoint`: an optional override, e.g. a private endpoint (privateEndpoint.ts).
+export type BedrockConfig = { region: string; endpoint?: string };
+export type VertexConfig = { projectId: string; location: string; endpoint?: string };
 export type AnthropicConfig = Record<string, never>;
 export type AzureConfig = { endpoint: string; apiVersion?: string };
 export type OCIConfig = {
   region: string; // e.g. us-chicago-1, eu-frankfurt-1
   compartmentId: string; // OCID of the compartment
   style?: "GENERIC" | "COHERE"; // chat request shape; default GENERIC
+  endpoint?: string; // optional override, e.g. a private endpoint
 };
 
 // Qwen via Alibaba DashScope OpenAI-compatible endpoint.

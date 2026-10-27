@@ -104,6 +104,7 @@ type EncryptedSaveData =
         accessKeyId: string;
         secretAccessKey: string;
         sessionToken?: string;
+        endpoint?: string;
       };
     }
   | {
@@ -116,7 +117,12 @@ type EncryptedSaveData =
       provider: "vertex";
       label?: string;
       defaultModel?: string;
-      vertex: { projectId: string; location: string; serviceAccountJson: string };
+      vertex: {
+        projectId: string;
+        location: string;
+        serviceAccountJson: string;
+        endpoint?: string;
+      };
     }
   | {
       provider: "oci_genai";
@@ -130,6 +136,7 @@ type EncryptedSaveData =
         fingerprint: string;
         privateKeyPem: string;
         style?: "GENERIC" | "COHERE";
+        endpoint?: string;
       };
     };
 type EncryptedSavePayload = { data: EncryptedSaveData } | { error: string };
@@ -156,6 +163,7 @@ function buildEncryptedPayload(
             accessKeyId,
             secretAccessKey,
             sessionToken: trim(config.session_token) || undefined,
+            endpoint: trim(config.endpoint) || undefined,
           },
         },
       };
@@ -193,7 +201,12 @@ function buildEncryptedPayload(
         data: {
           provider: "vertex",
           label: uiId,
-          vertex: { projectId, location, serviceAccountJson },
+          vertex: {
+            projectId,
+            location,
+            serviceAccountJson,
+            endpoint: trim(config.endpoint) || undefined,
+          },
         },
       };
     }
@@ -222,6 +235,7 @@ function buildEncryptedPayload(
             fingerprint,
             privateKeyPem,
             style: "GENERIC",
+            endpoint: trim(config.endpoint) || undefined,
           },
         },
       };
@@ -461,7 +475,12 @@ const LLM_PROVIDERS = [
         type: "password",
         placeholder: "",
       },
-      { key: "profile", label: "AWS Profile (optional)", type: "text", placeholder: "default" },
+      {
+        key: "endpoint",
+        label: "Private endpoint URL (optional)",
+        type: "text",
+        placeholder: "https://vpce-….bedrock-runtime.us-east-1.vpce.amazonaws.com",
+      },
     ],
   },
   {
@@ -495,7 +514,12 @@ const LLM_PROVIDERS = [
         type: "password",
         placeholder: '{"type": "service_account", ...}',
       },
-      { key: "endpoint", label: "Custom Endpoint (optional)", type: "text", placeholder: "" },
+      {
+        key: "endpoint",
+        label: "Private endpoint URL (optional)",
+        type: "text",
+        placeholder: "https://aiplatform-myendpoint.p.googleapis.com",
+      },
     ],
   },
   {
@@ -512,9 +536,9 @@ const LLM_PROVIDERS = [
       },
       {
         key: "endpoint",
-        label: "Service Endpoint",
+        label: "Private endpoint URL (optional)",
         type: "text",
-        placeholder: "https://inference.generativeai.us-chicago-1.oci.oraclecloud.com",
+        placeholder: "https://myprefix.pe.inference.generativeai.us-chicago-1.oci.oraclecloud.com",
       },
       {
         key: "tenancy_ocid",

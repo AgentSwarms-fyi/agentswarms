@@ -200,16 +200,29 @@ export async function safeFetch(
     maxRedirects?: number;
     blockPrivate?: boolean;
     allowPrivate?: boolean;
+    /** Route through HTTPS_PROXY / HTTP_PROXY unless NO_PROXY bypasses the hop. */
+    useProxy?: boolean;
   } = {},
 ): Promise<Response> {
-  const { maxRedirects = 5, blockPrivate, allowPrivate, ...rest } = init;
+  const { maxRedirects = 5, blockPrivate, allowPrivate, useProxy, ...rest } = init;
   let current = rawUrl;
   for (let hop = 0; hop <= maxRedirects; hop++) {
     // EVERY hop is re-validated, including the first. A public URL that 302s
     // to 169.254.169.254 is the whole reason this loop exists.
     const check = await assertPublicUrl(current, { blockPrivate, allowPrivate });
     if (!check.ok) throw new SsrfRefusedError(check.error);
-    const res = await fetch(check.url, { ...rest, redirect: "manual" });
+    // The proxy is chosen after the target is checked, per hop: NO_PROXY may
+    // send one hop direct and the next through the proxy.
+    let dispatcher: unknown;
+    if (useProxy && !("dispatcher" in rest)) {
+      const { proxyDispatcherFor } = await import("@/utils/http/connectorFetch.server");
+      dispatcher = await proxyDispatcherFor(check.url);
+    }
+    const res = await fetch(check.url, {
+      ...rest,
+      ...(dispatcher ? ({ dispatcher } as Record<string, unknown>) : {}),
+      redirect: "manual",
+    });
     const isRedirect = res.status >= 300 && res.status < 400 && res.headers.has("location");
     if (!isRedirect) return res;
     current = new URL(res.headers.get("location")!, check.url).toString();
@@ -225,10 +238,14 @@ export async function safeFetch(
  * resolves to and every redirect hop. BLOCK_PRIVATE_NETWORK_FETCH does not: a
  * model server on a private address (Ollama, vLLM, LiteLLM) is what these
  * settings exist for, and the models docs say the block does not cover them.
+ *
+ * Model calls honour the corporate proxy (HTTPS_PROXY / HTTP_PROXY, bypassed
+ * per host by NO_PROXY) like every connector: a network whose only egress is
+ * a proxy could otherwise reach no hosted model at all.
  */
 export function providerFetch(
   rawUrl: string,
   init: RequestInit & { maxRedirects?: number } = {},
 ): Promise<Response> {
-  return safeFetch(rawUrl, { ...init, allowPrivate: true });
+  return safeFetch(rawUrl, { ...init, allowPrivate: true, useProxy: true });
 }

@@ -156,6 +156,15 @@ export function proxyForUrl(target: URL): string | null {
 // avoid, moved one hop out.
 const agents = new Map<string, unknown>();
 
+/**
+ * The proxy dispatcher for `target` (HTTPS_PROXY / HTTP_PROXY / NO_PROXY), or
+ * undefined for a direct connection. Shared with model calls (providerFetch),
+ * so every outbound path honours one proxy setting.
+ */
+export async function proxyDispatcherFor(target: URL): Promise<unknown | undefined> {
+  return dispatcherFor(target);
+}
+
 async function dispatcherFor(target: URL): Promise<unknown | undefined> {
   const proxy = proxyForUrl(target);
   if (!proxy) return undefined;

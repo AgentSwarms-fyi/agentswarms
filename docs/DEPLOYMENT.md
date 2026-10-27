@@ -1844,19 +1844,42 @@ need none of this — `fetch` keeps sockets alive underneath.
 
 ### Outbound HTTP: proxies and retries
 
-Every warehouse HTTP driver and app-source connector goes through one client.
+Every warehouse HTTP driver and app-source connector goes through one client,
+**and so does every LLM provider call** (chat, embeddings, model listing,
+connection tests) — one proxy setting covers both.
 
 **Corporate proxy.** Many enterprises have no direct egress; if that is you,
-set the conventional variables and the connectors will use them:
+set the conventional variables and the app will use them:
 
 - `HTTPS_PROXY` / `HTTP_PROXY` (or `ALL_PROXY`) — lower-case spellings also
   accepted.
 - `NO_PROXY` — comma-separated bypass list. `*` bypasses everything;
   `internal.corp` matches that host and its subdomains; `db.corp:5432` matches
-  only that port.
+  only that port. Name your in-VPC hosts here (a private model endpoint, a
+  self-hosted vLLM) so they are reached directly rather than through the proxy.
 
-Without this the product cannot reach Snowflake or Stripe from inside such a
-network, and the failure looks like a timeout rather than a missing setting.
+Without this the product cannot reach Snowflake, Stripe or a hosted model from
+inside such a network, and the failure looks like a timeout rather than a
+missing setting. The link-local / cloud-metadata block is applied to the target
+before any proxy is chosen, so a proxy can never become a path to the metadata
+service.
+
+**Private model endpoints.** Bedrock, Vertex AI and OCI Generative AI each take
+an optional **Private endpoint URL** in Provider Integrations — an AWS
+PrivateLink `vpce-…` name, a Vertex Private Service Connect `*.p.googleapis.com`
+name, or an OCI `*.pe.…oci.oraclecloud.com` name. It must be an https address on
+the provider's own domain, and the signed request is sent to it (the region
+still sets the signing scope). Leave it empty to use the public hostname, which
+is also what private DNS and a cloud VPN rely on — there, the public hostname
+resolves to a private address and nothing else changes. Azure OpenAI and every
+OpenAI-compatible provider already take a full endpoint / base URL, so a private
+Azure resource or an OpenAI `*.privatelink.api.openai.com` base URL works as-is;
+Azure refuses a `*.privatelink.*` hostname, which Microsoft documents as not a
+URL to call.
+
+**TLS-inspecting proxy or a private CA.** Point `NODE_EXTRA_CA_CERTS` at the PEM
+bundle (a bind-mounted file under Compose, a mounted secret on Kubernetes). Node
+reads it once at startup, so a restart is needed after a change.
 
 **Retries.** Transient failures (`408`, `429`, `502`, `503`, `504`, and
 transport errors) are retried with exponential backoff and full jitter,
