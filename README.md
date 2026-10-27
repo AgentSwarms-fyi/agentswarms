@@ -400,6 +400,7 @@ One focused guide per topic in [`docs/`](./docs):
 - **Governance and operations** — [Access control (IAM) & SSO](./docs/IAM.md) ·
   [Decision provenance](./docs/PROVENANCE.md) ·
   [Key management](./docs/KEY_MANAGEMENT.md) ·
+  [Private connectivity for GenAI (design)](./docs/PRIVATE_GENAI_CONNECTIVITY.md) ·
   [Model pricing](./docs/MODEL_PRICING.md) ·
   [Architecture](./docs/ARCHITECTURE.md) ·
   [The engineering behind AgentSwarms](./docs/engineering/README.md), seven
