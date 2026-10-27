@@ -290,6 +290,24 @@ stores the key with no way to delete it — a private-path refusal is a failed
 test — so a saved key whose test failed now offers Disconnect, and a row a
 disconnect has emptied no longer reads as a saved key.
 
+**End to end (2026-10-28, after the migration):** a Claude Platform on AWS credential saved with
+the switch on, an agent on it, and a chat: refused before sending, with
+`provider.private_path.refused` in the audit log; with the switch off, the real endpoint answered
+the made-up key with a 401 `authentication_error` (UI_TEST_RESULTS).
+
+### Phase 3 — data sources over private paths — **planned (requested 2026-10-28)**
+
+The same choice for everything the platform reads data from: object storage (S3, GCS, Azure Blob,
+MinIO and other S3-compatible stores), databases (Postgres, MySQL, SQL Server, Oracle, MongoDB and
+the other connectors), warehouses (Snowflake, BigQuery, Redshift, Databricks SQL, Synapse) and the
+lakehouse's catalogs. Public stays the default. For each: a private endpoint or private DNS name
+(PrivateLink, Private Service Connect, Azure Private Link, VPC/VNet endpoints, a VPN), the path
+reported by its connection test, and an optional require-private rule like the model providers'.
+It includes the object-store private-endpoint exemption from `BLOCK_PRIVATE_NETWORK_FETCH` (the
+VA-14 residual). Done when: per-connector tests and mutation checks, a UI round per connector
+family (real cloud connections cannot be made here; local stand-ins can), and the in-repo and
+in-app docs updated. The security campaign continues alongside it.
+
 ### How it would be tested
 
 - **Proxy:** a throwaway Squid container on the app network as the only egress;

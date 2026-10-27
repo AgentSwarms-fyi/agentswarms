@@ -15,6 +15,42 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-28 — R389: your own profile still loads and saves; other people's names still show where the server lists them
+
+After `20261029000000_profiles_own_row_only.sql` was pushed (the CLI lists it applied; its self-check
+raises inside the push, so it passed). Values were read as lengths, not shown.
+
+| What was pressed                      | Result                                                                                                                       |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Settings → Account                    | first name, last name, display name and organization loaded from your own row; `profiles?select=*&user_id=eq.<you>` → 200    |
+| **Save profile**, nothing changed     | "Profile updated"; the upsert (`profiles?on_conflict=user_id`, which Postgres checks against the SELECT policy too) → 200    |
+| the user menu, onboarding check       | `select=display_name,avatar_url` and `select=first_name,last_name,organization,display_name`, each filtered to your id → 200 |
+| Dashboard                             | "Welcome back, \<first name\>" — the first name from your own row (`select=first_name,display_name` → 200)                   |
+| Admin → IAM → Users (server function) | your row shows its name                                                                                                      |
+
+This instance has one account, so "another user's profile is not readable" cannot be shown from the UI; it
+rests on the migration's self-check, which on the live database read a real profile as a random signed-in
+user (nothing) and as its owner (the row), and on the two-user run in a throwaway `supabase/postgres`
+before the push (ADVERSARIAL_LOG). No fixtures were created.
+
+## 2026-10-28 — Private GenAI connectivity: Claude Platform on AWS end to end, and require-private on a chat
+
+After `20261028000000_provider_credentials_providers.sql` was pushed. Keys and IDs were made-up values.
+
+| What was pressed                                                                                                                                                   | Result                                                                                                                                                                                                                               |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| the Claude Platform on AWS card on Integrations: `us-west-2`, workspace `wrkspc_01R389UiProbe`, a made-up API key, **Require a private network path** on, **Save** | "claude_aws credentials saved (encrypted)." — refused by the database before the migration; the card shows Connected (encrypted providers save without a live test) and Disconnect                                                   |
+| a new agent (Agent Builder's New Agent), Model tab                                                                                                                 | the provider picker offers the connected providers: Google Gemini, OpenRouter, **Claude Platform on AWS (your account)**; model defaults to `claude-opus-5-5`; "Agent created"                                                       |
+| Agent Chat with it: "Reply with the single word OK."                                                                                                               | "claude_aws: Claude Platform on AWS is set to require a private network path, but aws-external-anthropic.us-west-2.api.aws resolves to a public address (44.226.34.112, 35.82.95.191) from this server, so the call was not sent. …" |
+| Audit Log                                                                                                                                                          | `provider_credential.save` claude_aws → `agents.insert` → the model call (ERROR) → **`provider.private_path.refused`** claude_aws with that reason                                                                                   |
+| the credential saved again with the switch off; the same chat                                                                                                      | "claude_aws: Claude Platform on AWS error [401]: {"type":"error","error":{"type":"authentication_error","message":"Invalid bearer token"}}" — the real endpoint answered the made-up key                                             |
+
+The refusal is the encrypted-credential path marking the call (the one the unit tests pin only by source);
+the 401 is the first-party Messages API on AWS rejecting the Bearer key, so the adapter reaches the live
+service and the switch was the only difference. Fixtures removed: the chat ("Delete chat"), the agent
+"R389 claude_aws probe" ("Delete agent", its history with it; 14 → 13 agents) and the credential
+("Disconnect claude_aws?" → the card back to Configure only).
+
 ## 2026-10-27 — Private GenAI connectivity, Phase 2: the network section, the path check, require-private, Claude Platform on AWS
 
 Integrations → LLM Providers, after the Phase 2 build was deployed. Keys and IDs were made-up values

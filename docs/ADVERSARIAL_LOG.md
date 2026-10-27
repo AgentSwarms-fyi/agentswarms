@@ -143,7 +143,9 @@ needs.
 of `profiles` is the signed-in user's own row while the server routes that list names use the service
 role. Mutation run: 7 of 7 caught.
 
-**The UI:** after the migration is pushed — see UI_TEST_RESULTS.
+**Applied 2026-10-28**: the push succeeded, so the live self-check passed — on the live database it read a
+real profile as a random signed-in user (nothing) and as its owner (the row). **The UI:** see
+UI_TEST_RESULTS — the pages that read your own profile, and the profile save, still work.
 
 ### 2026-10-27 — R388: a local-engine query could reach other datasets' mirrors in the shared cache
 
