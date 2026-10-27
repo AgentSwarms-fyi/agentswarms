@@ -29,7 +29,11 @@ development branch and may be ahead of the latest tag.
   (R383) makes `execution_traces` read-only to signed-in clients — **start this
   release's build before applying it**: the previous build recorded chat and
   notebook traces as the signed-in user, which the new policy refuses, so those
-  traces would go unrecorded in between. It proves itself on apply.
+  traces would go unrecorded in between. It proves itself on apply. One
+  (`20261028000000`) lets the encrypted provider store hold every provider the
+  save form offers — its check admitted only Bedrock, Vertex, Anthropic and
+  Azure, so OCI Generative AI and Qwen keys could not be saved there — and
+  Claude Platform on AWS; it also proves itself on apply.
 
 ### Added
 
@@ -46,6 +50,25 @@ development branch and may be ahead of the latest tag.
   `*.privatelink.*` hostname with guidance to use the resource's own name. An
   empty override keeps the public hostname, which is what private DNS and a VPN
   rely on. See [Private connectivity for GenAI](./docs/PRIVATE_GENAI_CONNECTIVITY.md).
+- **See, and require, the network path a model call takes.** Each provider's
+  dialog has a **Network** section: _Public_ (the default), _Private DNS_ (the
+  same hostname, resolving privately over a private zone or a VPN), or _Private
+  endpoint URL_, which lists the hosts it accepts. A passing Test & Connect now
+  says how the call went — through the proxy, or direct to a private or a public
+  address — and which TLS certificate the endpoint presented; Bedrock, Vertex AI,
+  OCI, Azure and Claude Platform on AWS get a **Check network path** button that
+  needs no credentials. **Require a private network path**, per provider and off
+  by default, refuses (and audits) any call to that provider that would leave
+  directly for a public address — including each redirect hop — so a missing
+  private DNS zone fails instead of quietly using the internet; a call through
+  the proxy is allowed. `GENAI_REQUIRE_PRIVATE` sets the starting value for new
+  integrations only. The route-all LLM gateway switch now names the providers it
+  cannot carry, and with it on their cards say so.
+- **Claude Platform on AWS** as a provider: Claude through the first-party API,
+  billed to your AWS account. It takes the workspace's region and ID and either
+  an API key from the AWS console or AWS access keys (SigV4), and an optional
+  PrivateLink endpoint. It is in every model picker. Apply the migration above
+  before saving one.
 - **Settings → API Keys covers every key this instance issues and every
   credential you've connected** (PR #95, completed in R385). The hub showed six
   kinds. It now also lists MCP app keys, notebook API keys, lakehouse share
@@ -400,6 +423,22 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **A provider credential the form refuses says which field, in words.**
+  Saving Bedrock, Vertex AI, Azure OpenAI, OCI Generative AI or Claude Platform
+  on AWS with a value the save schema rejects showed the schema's raw issue list
+  in the toast and the dialog — for an OCI private key pasted short,
+  `[{"origin":"string","code":"too_small","minimum":40,"path":["oci_genai","privateKeyPem"],…}]`.
+  Each failing field is now one sentence, named as the dialog names it: "Private
+  Key (PEM) is too short — paste the whole PEM file, from its -----BEGIN line to
+  its -----END line." **Check network path** and the credential delete answer
+  the same way.
+- **A provider key whose test failed can be removed.** A failed Test & Connect
+  still stores the key (inactive, so it can be fixed without retyping), but the
+  card offered no Disconnect for it, so the key could never be deleted — which
+  matters more now that a private-path refusal is a failed test. Such a card now
+  has Disconnect. A provider you had already disconnected no longer shows
+  "Saved — last test failed": disconnecting empties its row, and an emptied row
+  is no longer counted as a saved key.
 - **The Data Catalog says it is still loading your local and connected-app
   tables, instead of looking empty** (R384). Those tables arrive a few seconds
   after the crawled ones — about seven on a fresh load here, a third of the

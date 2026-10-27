@@ -15,6 +15,35 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-27 — Private GenAI connectivity, Phase 2: the network section, the path check, require-private, Claude Platform on AWS
+
+Integrations → LLM Providers, after the Phase 2 build was deployed. Keys and IDs were made-up values
+(`r389-…`); the OCI "private key" was placeholder text carrying the PEM header words and no key material.
+
+| What was pressed                                                                                               | Result (the server's reply, read from the dialog)                                                                                                                                                |
+| -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Claude Platform on AWS → Configure                                                                             | Region, workspace ID, API key / access keys; a **Network** section with Public, Private DNS, Private endpoint URL; the require-private switch; **Check network path**                            |
+| region `us-west-2`, Public, **Check network path**                                                             | "aws-external-anthropic.us-west-2.api.aws — direct to 184.34.116.120, 35.82.95.191 (public); certificate for aws-external-anthropic.us-west-2.api.aws from Amazon", then the public-path warning |
+| **Private endpoint URL**                                                                                       | the endpoint field appears: "An https address, with no path, on \*.api.aws, \*.vpce.amazonaws.com."; the previous result is cleared                                                              |
+| endpoint `https://aws-external-anthropic.attacker.test`, **Check network path**                                | "Claude Platform on AWS endpoint must be a \*.api.aws or \*.vpce.amazonaws.com address — expected something like https://vpce-0abc123…"                                                          |
+| endpoint `https://vpce-0r389probe.aws-external-anthropic.us-west-2.vpce.amazonaws.com`, **Check network path** | "… — direct; vpce-0r389probe… does not resolve from this server"                                                                                                                                 |
+| endpoint emptied, **Save**                                                                                     | "Enter the private endpoint URL, or choose Public or Private DNS." — nothing sent                                                                                                                |
+| Public, workspace `wrkspc_01R389UiProbe`, a made-up API key, **Save**                                          | "new row for relation "provider_credentials" violates check constraint "provider_credentials_provider_check"" — the migration is not applied yet                                                 |
+| OCI Generative AI, made-up OCIDs and placeholder key, **Save**                                                 | the same constraint violation: OCI keys cannot be saved on this database today, which the same migration fixes                                                                                   |
+| OpenAI → Configure, made-up key, **Require a private network path** on, **Test & Connect**                     | "OpenAI is set to require a private network path, but api.openai.com resolves to a public address (172.66.0.243, 162.159.140.245) from this server, so the call was not sent. …"                 |
+| the same with the switch off                                                                                   | "OpenAI 401: invalid_request_error — invalid_api_key — Incorrect API key provided: sk-r389-…" — the call went out; the refusal above was the switch                                              |
+| LLM Gateway tab                                                                                                | "Not covered: AWS Bedrock, Google Vertex AI, Azure OpenAI, OCI Generative AI and Claude Platform on AWS sign each request with their own credentials …"; both switches off here                  |
+
+The failed OpenAI tests stored the made-up key as an inactive row ("Saved — last test failed") with no
+Disconnect on the card — no way to delete it. Fixed in the same round (a saved key can be disconnected; an
+emptied row is not a saved key) and redeployed: the OpenAI card then offered **Disconnect**, which was
+pressed and confirmed ("Provider disconnected"; the card back to Configure only), and the vLLM and Ollama
+cards, whose rows earlier disconnects had emptied, stopped claiming "Saved — last test failed". The
+gateway flag read (`integrations?select=is_active,route_all:config->route_all&type=eq.llm_gateway`)
+answered 200. The card badge for a route-all gateway was not driven live — it would have meant routing all
+of this account's model traffic through a stand-in gateway — and is covered by the consistency test.
+No fixtures remain.
+
 ## 2026-10-27 — Private GenAI connectivity: the endpoint-override guards, from the UI
 
 On the deployed feature build, on the Integrations page, opening a provider's Configure dialog. The save-time

@@ -23,6 +23,7 @@
 // resolves again; a hostile resolver could answer differently the second time.
 // Fully closing that needs connection-level IP pinning, which fetch() does not
 // expose. Egress firewall rules remain the strongest control.
+import { AsyncLocalStorage } from "node:async_hooks";
 import { lookup } from "node:dns/promises";
 
 function normalize(host: string): string {
@@ -218,6 +219,11 @@ export async function safeFetch(
       const { proxyDispatcherFor } = await import("@/utils/http/connectorFetch.server");
       dispatcher = await proxyDispatcherFor(check.url);
     }
+    // A provider set to require a private path: a hop that leaves through the
+    // proxy is the egress the operator chose; a direct hop must resolve to
+    // private addresses only. Checked per hop, at the connection itself.
+    const policy = useProxy ? privatePathScope.getStore() : undefined;
+    if (policy?.required && !dispatcher) await assertPrivateTarget(check.url.hostname, policy);
     const res = await fetch(check.url, {
       ...rest,
       ...(dispatcher ? ({ dispatcher } as Record<string, unknown>) : {}),
@@ -248,4 +254,72 @@ export function providerFetch(
   init: RequestInit & { maxRedirects?: number } = {},
 ): Promise<Response> {
   return safeFetch(rawUrl, { ...init, allowPrivate: true, useProxy: true });
+}
+
+// ── Require a private path (per provider, off by default) ───────────────────
+
+/**
+ * The provider requires a private network path, and this call would not take
+ * one. A refusal like SsrfRefusedError: never retried, safe to show.
+ */
+export class PrivatePathRequiredError extends SsrfRefusedError {
+  constructor(message: string) {
+    super(message);
+    this.name = "PrivatePathRequiredError";
+  }
+}
+
+/**
+ * The private-path requirement for the provider call in progress. Mutable on
+ * purpose: a call enters the scope before its provider's configuration is
+ * read, and marks it required once it has been.
+ */
+export type PrivatePathPolicy = {
+  required: boolean;
+  /** Names the provider in the refusal, e.g. "AWS Bedrock". */
+  label: string;
+  /** Records a refusal (the audit trail); never throws. */
+  onRefuse?: (detail: string) => void;
+};
+
+const privatePathScope = new AsyncLocalStorage<PrivatePathPolicy>();
+
+/** Run a provider call in a scope its configuration can mark private-only. */
+export function withPrivatePathScope<T>(fn: (policy: PrivatePathPolicy) => Promise<T>): Promise<T> {
+  const policy: PrivatePathPolicy = { required: false, label: "This provider" };
+  return privatePathScope.run(policy, () => fn(policy));
+}
+
+/** The refusal message, shared by the per-connection check and the preflight. */
+export function privatePathRefusal(label: string, host: string, addresses: string[]): string {
+  const where = addresses.length
+    ? `resolves to a public address (${addresses.slice(0, 2).join(", ")})`
+    : "does not resolve";
+  return (
+    `${label} is set to require a private network path, but ${host} ${where} from this ` +
+    "server, so the call was not sent. Check the private endpoint's DNS zone, set the " +
+    "provider's endpoint URL, or send model traffic through the proxy."
+  );
+}
+
+async function assertPrivateTarget(hostname: string, policy: PrivatePathPolicy): Promise<void> {
+  const host = normalize(hostname);
+  let addresses: string[] = [];
+  try {
+    addresses = (await lookup(host, { all: true })).map((a) => a.address);
+  } catch {
+    addresses = [];
+  }
+  if (addresses.length > 0 && addresses.every((a) => isPrivateNetwork(a))) return;
+  const detail = privatePathRefusal(
+    policy.label,
+    host,
+    addresses.filter((a) => !isPrivateNetwork(a)),
+  );
+  try {
+    policy.onRefuse?.(detail);
+  } catch {
+    /* auditing must not change the outcome */
+  }
+  throw new PrivatePathRequiredError(detail);
 }

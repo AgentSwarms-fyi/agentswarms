@@ -3056,6 +3056,10 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "terms": [
       "2024-08-01-preview",
       "BLOCK_PRIVATE_NETWORK_FETCH",
+      "GENAI_REQUIRE_PRIVATE",
+      "HTTPS_PROXY",
+      "NODE_EXTRA_CA_CERTS",
+      "NO_PROXY",
       "accessKeyId",
       "anthropic",
       "apiKey",
@@ -3063,6 +3067,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "azure_openai",
       "baseUrl",
       "bedrock",
+      "claude-sonnet-5-5",
+      "claude_aws",
       "compartmentId",
       "endpoint",
       "fingerprint",
@@ -3085,6 +3091,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "projectId",
       "qwen",
       "region",
+      "requirePrivate",
       "secretAccessKey",
       "serviceAccountJson",
       "sessionToken",
@@ -3092,7 +3099,9 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "tenancyOcid",
       "userOcid",
       "vertex",
-      "vllm"
+      "vllm",
+      "workspaceId",
+      "wrkspc_01AbCdEf23GhIj"
     ],
     "headings": [
       {
@@ -3102,12 +3111,17 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       },
       {
         "id": "providers",
-        "text": "Supported providers — all 14",
+        "text": "Supported providers — all 15",
         "level": 3
       },
       {
         "id": "cloud-config",
         "text": "Configuring the cloud providers",
+        "level": 3
+      },
+      {
+        "id": "private-connectivity",
+        "text": "Private connectivity",
         "level": 3
       },
       {

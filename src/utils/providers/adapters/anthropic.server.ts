@@ -56,7 +56,16 @@ export async function anthropicChatStream(args: {
     const t = await upstream.text();
     throw new Error(`Anthropic error [${upstream.status}]: ${t.slice(0, 300)}`);
   }
+  return anthropicSseResponse(upstream);
+}
 
+/**
+ * An Anthropic Messages API event stream, re-emitted as OpenAI-style SSE
+ * chunks. Shared by the direct API and Claude Platform on AWS, which speak the
+ * same wire format.
+ */
+export function anthropicSseResponse(upstream: Response): Response {
+  if (!upstream.body) throw new Error("The model response had no body");
   const reader = upstream.body.getReader();
   const decoder = new TextDecoder();
 

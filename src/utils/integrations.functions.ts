@@ -574,6 +574,12 @@ export const saveIntegration = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<{ ok: true; id: string } | { ok: false; error: string }> => {
     const auth = await validateAccessToken(data.access_token);
     if (!auth.ok) return { ok: false, error: auth.detail };
+    // A new model provider row takes the operator's private-path default when
+    // the caller did not say (GENAI_REQUIRE_PRIVATE); existing rows never do.
+    if (data.type === "llm_provider" && !data.id && data.config.require_private === undefined) {
+      const dflt = /^(1|true|yes)$/i.test(process.env.GENAI_REQUIRE_PRIVATE ?? "");
+      data.config = { ...data.config, require_private: dflt ? "true" : "false" };
+    }
     return saveIntegrationForUser(auth.userId, data);
   });
 

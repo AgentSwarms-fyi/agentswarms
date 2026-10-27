@@ -12,9 +12,12 @@ import { grokChatStream } from "./adapters/grok.server";
 import { geminiChatStream } from "./adapters/gemini.server";
 import { openAICompatChatStream } from "./adapters/openai-compat.server";
 import { vllmChatStream } from "./adapters/vllm.server";
+import { claudeAwsChatStream } from "./adapters/claudeAws.server";
 import type {
   AnthropicCreds,
   AzureConfig,
+  ClaudeAwsConfig,
+  ClaudeAwsCreds,
   AzureCreds,
   BedrockConfig,
   BedrockCreds,
@@ -38,6 +41,9 @@ import type {
 // through the encrypted provider_credentials table. The chat route checks
 // the legacy table first, so the Integrations card takes precedence.
 import { resolveIntegrationConfig } from "./integrationConfig.server";
+import { assertPrivatePath } from "./connectivityPath.server";
+import { auditEvent } from "@/utils/audit.server";
+import { type PrivatePathPolicy, withPrivatePathScope } from "@/utils/ssrfGuard.server";
 
 const LEGACY_PROVIDERS = new Set<ProviderId>([
   "grok",
@@ -229,6 +235,61 @@ export type OpenAICompatTransport = {
   organizationId?: string;
 };
 
+/**
+ * Whether a provider's saved configuration requires a private network path:
+ * `requirePrivate` on an encrypted credential, `require_private` on an
+ * Integrations-page row. Off unless set — private connectivity is a choice.
+ */
+export function requiresPrivatePath(cfg: Record<string, unknown> | null | undefined): boolean {
+  if (!cfg) return false;
+  return (
+    cfg.requirePrivate === true || cfg.require_private === true || cfg.require_private === "true"
+  );
+}
+
+const PROVIDER_LABELS: Partial<Record<ProviderId, string>> = {
+  bedrock: "AWS Bedrock",
+  vertex: "Google Vertex AI",
+  azure_openai: "Azure OpenAI",
+  oci_genai: "OCI Generative AI",
+  openai: "OpenAI",
+  anthropic: "Anthropic",
+  gemini: "Google Gemini",
+  grok: "Grok",
+  groq: "Groq",
+  qwen: "Qwen",
+  vllm: "vLLM",
+  nvidia: "NVIDIA NIM",
+  openrouter: "OpenRouter",
+  ollama: "Ollama",
+  claude_aws: "Claude Platform on AWS",
+};
+
+/** Audit a refused call: a provider set to require a private path, reached publicly. */
+function privatePathRefused(userId: string, provider: ProviderId): (detail: string) => void {
+  return (detail) =>
+    auditEvent({
+      userId,
+      action: "provider.private_path.refused",
+      resourceType: "llm_provider",
+      resourceName: provider,
+      detail: { provider, reason: detail },
+    });
+}
+
+/** Mark the call in progress private-only when this provider's config says so. */
+function markPrivatePath(
+  policy: PrivatePathPolicy | undefined,
+  userId: string,
+  provider: ProviderId,
+  cfg: Record<string, unknown> | null | undefined,
+): void {
+  if (!policy || !requiresPrivatePath(cfg)) return;
+  policy.required = true;
+  policy.label = PROVIDER_LABELS[provider] ?? provider;
+  policy.onRefuse = privatePathRefused(userId, provider);
+}
+
 // Resolve the OpenAI-compatible /chat/completions URL + key for a given user
 // + provider. Returns null when the provider isn't OpenAI-compatible or the
 // user hasn't configured credentials. Used by the chat route to run the
@@ -282,100 +343,114 @@ export async function resolveOpenAICompatTransport(args: {
 
   const baseUrlOverride = typeof cfg.base_url === "string" && cfg.base_url ? cfg.base_url : "";
 
-  switch (provider) {
-    case "openai": {
-      const baseUrl = baseUrlOverride || "https://api.openai.com/v1";
-      return {
-        endpointUrl: `${baseUrl.replace(/\/+$/, "")}/chat/completions`,
-        apiKey: cleanKey,
-        organizationId: typeof cfg.organization_id === "string" ? cfg.organization_id : undefined,
-      };
-    }
-    case "gemini": {
-      // Google publishes an OpenAI-compatible endpoint for Gemini at this URL.
-      // Tool calling works the same way — function declarations come back as
-      // standard `tool_calls` on the assistant message.
-      const baseUrl = baseUrlOverride || "https://generativelanguage.googleapis.com/v1beta/openai";
-      return {
-        endpointUrl: `${baseUrl.replace(/\/+$/, "")}/chat/completions`,
-        apiKey: cleanKey,
-      };
-    }
-    case "grok": {
-      const baseUrl = baseUrlOverride || "https://api.x.ai/v1";
-      return {
-        endpointUrl: `${baseUrl.replace(/\/+$/, "")}/chat/completions`,
-        apiKey: cleanKey,
-      };
-    }
-    case "groq": {
-      const baseUrl = baseUrlOverride || "https://api.groq.com/openai/v1";
-      return {
-        endpointUrl: `${baseUrl.replace(/\/+$/, "")}/chat/completions`,
-        apiKey: cleanKey,
-      };
-    }
-    case "openrouter": {
-      const baseUrl = baseUrlOverride || "https://openrouter.ai/api/v1";
-      const extraHeaders: Record<string, string> = {};
-      if (typeof cfg.http_referer === "string" && cfg.http_referer.trim()) {
-        extraHeaders["HTTP-Referer"] = cfg.http_referer.trim();
+  const transport = ((): OpenAICompatTransport | null => {
+    switch (provider) {
+      case "openai": {
+        const baseUrl = baseUrlOverride || "https://api.openai.com/v1";
+        return {
+          endpointUrl: `${baseUrl.replace(/\/+$/, "")}/chat/completions`,
+          apiKey: cleanKey,
+          organizationId: typeof cfg.organization_id === "string" ? cfg.organization_id : undefined,
+        };
       }
-      if (typeof cfg.app_title === "string" && cfg.app_title.trim()) {
-        extraHeaders["X-Title"] = cfg.app_title.trim();
+      case "gemini": {
+        // Google publishes an OpenAI-compatible endpoint for Gemini at this URL.
+        // Tool calling works the same way — function declarations come back as
+        // standard `tool_calls` on the assistant message.
+        const baseUrl =
+          baseUrlOverride || "https://generativelanguage.googleapis.com/v1beta/openai";
+        return {
+          endpointUrl: `${baseUrl.replace(/\/+$/, "")}/chat/completions`,
+          apiKey: cleanKey,
+        };
       }
-      return {
-        endpointUrl: `${baseUrl.replace(/\/+$/, "")}/chat/completions`,
-        apiKey: cleanKey,
-        extraHeaders,
-      };
+      case "grok": {
+        const baseUrl = baseUrlOverride || "https://api.x.ai/v1";
+        return {
+          endpointUrl: `${baseUrl.replace(/\/+$/, "")}/chat/completions`,
+          apiKey: cleanKey,
+        };
+      }
+      case "groq": {
+        const baseUrl = baseUrlOverride || "https://api.groq.com/openai/v1";
+        return {
+          endpointUrl: `${baseUrl.replace(/\/+$/, "")}/chat/completions`,
+          apiKey: cleanKey,
+        };
+      }
+      case "openrouter": {
+        const baseUrl = baseUrlOverride || "https://openrouter.ai/api/v1";
+        const extraHeaders: Record<string, string> = {};
+        if (typeof cfg.http_referer === "string" && cfg.http_referer.trim()) {
+          extraHeaders["HTTP-Referer"] = cfg.http_referer.trim();
+        }
+        if (typeof cfg.app_title === "string" && cfg.app_title.trim()) {
+          extraHeaders["X-Title"] = cfg.app_title.trim();
+        }
+        return {
+          endpointUrl: `${baseUrl.replace(/\/+$/, "")}/chat/completions`,
+          apiKey: cleanKey,
+          extraHeaders,
+        };
+      }
+      case "ollama": {
+        const endpoint =
+          typeof cfg.endpoint === "string" && cfg.endpoint
+            ? cfg.endpoint.replace(/\/+$/, "")
+            : "http://localhost:11434";
+        const baseUrl = endpoint.endsWith("/v1") ? endpoint : `${endpoint}/v1`;
+        return {
+          endpointUrl: `${baseUrl.replace(/\/+$/, "")}/chat/completions`,
+          apiKey: cleanKey,
+        };
+      }
+      case "qwen": {
+        // Alibaba DashScope OpenAI-compatible endpoint. International default;
+        // mainland China users override base_url to dashscope.aliyuncs.com/...
+        const baseUrl = baseUrlOverride || "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
+        return {
+          endpointUrl: `${baseUrl.replace(/\/+$/, "")}/chat/completions`,
+          apiKey: cleanKey,
+        };
+      }
+      case "vllm": {
+        // Self-hosted vLLM. base_url MUST be supplied (no public default). If
+        // the operator configured a served-model-name, it overrides whatever
+        // model id the agent passes (vLLM only knows that one alias).
+        const baseUrl = baseUrlOverride;
+        if (!baseUrl) return null;
+        const normalized = baseUrl.replace(/\/+$/, "");
+        const withV1 = normalized.endsWith("/v1") ? normalized : `${normalized}/v1`;
+        return {
+          endpointUrl: `${withV1}/chat/completions`,
+          apiKey: cleanKey,
+        };
+      }
+      case "nvidia": {
+        // NVIDIA NIM (build.nvidia.com) — OpenAI-compatible endpoint with a
+        // generous free tier for NVIDIA Developer Program members. Keys look
+        // like `nvapi-...`. Default endpoint: integrate.api.nvidia.com.
+        const baseUrl = baseUrlOverride || "https://integrate.api.nvidia.com/v1";
+        return {
+          endpointUrl: `${baseUrl.replace(/\/+$/, "")}/chat/completions`,
+          apiKey: cleanKey,
+        };
+      }
+      default:
+        return null;
     }
-    case "ollama": {
-      const endpoint =
-        typeof cfg.endpoint === "string" && cfg.endpoint
-          ? cfg.endpoint.replace(/\/+$/, "")
-          : "http://localhost:11434";
-      const baseUrl = endpoint.endsWith("/v1") ? endpoint : `${endpoint}/v1`;
-      return {
-        endpointUrl: `${baseUrl.replace(/\/+$/, "")}/chat/completions`,
-        apiKey: cleanKey,
-      };
-    }
-    case "qwen": {
-      // Alibaba DashScope OpenAI-compatible endpoint. International default;
-      // mainland China users override base_url to dashscope.aliyuncs.com/...
-      const baseUrl = baseUrlOverride || "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
-      return {
-        endpointUrl: `${baseUrl.replace(/\/+$/, "")}/chat/completions`,
-        apiKey: cleanKey,
-      };
-    }
-    case "vllm": {
-      // Self-hosted vLLM. base_url MUST be supplied (no public default). If
-      // the operator configured a served-model-name, it overrides whatever
-      // model id the agent passes (vLLM only knows that one alias).
-      const baseUrl = baseUrlOverride;
-      if (!baseUrl) return null;
-      const normalized = baseUrl.replace(/\/+$/, "");
-      const withV1 = normalized.endsWith("/v1") ? normalized : `${normalized}/v1`;
-      return {
-        endpointUrl: `${withV1}/chat/completions`,
-        apiKey: cleanKey,
-      };
-    }
-    case "nvidia": {
-      // NVIDIA NIM (build.nvidia.com) — OpenAI-compatible endpoint with a
-      // generous free tier for NVIDIA Developer Program members. Keys look
-      // like `nvapi-...`. Default endpoint: integrate.api.nvidia.com.
-      const baseUrl = baseUrlOverride || "https://integrate.api.nvidia.com/v1";
-      return {
-        endpointUrl: `${baseUrl.replace(/\/+$/, "")}/chat/completions`,
-        apiKey: cleanKey,
-      };
-    }
-    default:
-      return null;
+  })();
+  // A provider set to require a private path: its endpoint must be reached
+  // through the proxy or at private addresses only. Checked here because the
+  // transport is fetched later, by its caller, outside any call scope.
+  if (transport && requiresPrivatePath(cfg)) {
+    await assertPrivatePath(
+      transport.endpointUrl,
+      PROVIDER_LABELS[provider] ?? provider,
+      privatePathRefused(userId, provider),
+    );
   }
+  return transport;
 }
 
 async function streamLegacyProvider(args: {
@@ -387,6 +462,7 @@ async function streamLegacyProvider(args: {
   temperature?: number;
   maxTokens?: number;
   gateway?: GatewayOverride;
+  policy?: PrivatePathPolicy;
 }): Promise<Response> {
   const { userId, provider, modelId, systemPrompt, messages, temperature, maxTokens, gateway } =
     args;
@@ -414,6 +490,7 @@ async function streamLegacyProvider(args: {
     throw new Error(`No ${provider} credentials configured. Add them in Integrations.`);
   }
   const cfg = (row.config || {}) as Record<string, unknown>;
+  markPrivatePath(args.policy, userId, provider, cfg);
   const apiKey = typeof cfg.api_key === "string" ? cfg.api_key : "";
   const cleanApiKey = apiKey
     .trim()
@@ -712,16 +789,30 @@ export async function getProviderDefaultModel(
   return null;
 }
 
-export async function streamWithProvider(args: {
-  userId: string;
-  provider: ProviderId;
-  modelId: string;
-  systemPrompt?: string;
-  messages: { role: "system" | "user" | "assistant"; content: string }[];
-  temperature?: number;
-  maxTokens?: number;
-  gateway?: GatewayOverride;
-}): Promise<Response> {
+/**
+ * Stream a chat completion from a provider. Every call runs in a private-path
+ * scope, which the provider's configuration marks private-only when it
+ * requires a private network path (see providerFetch / ssrfGuard).
+ */
+export function streamWithProvider(
+  args: Parameters<typeof streamWithProviderScoped>[1],
+): Promise<Response> {
+  return withPrivatePathScope((policy) => streamWithProviderScoped(policy, args));
+}
+
+async function streamWithProviderScoped(
+  policy: PrivatePathPolicy,
+  args: {
+    userId: string;
+    provider: ProviderId;
+    modelId: string;
+    systemPrompt?: string;
+    messages: { role: "system" | "user" | "assistant"; content: string }[];
+    temperature?: number;
+    maxTokens?: number;
+    gateway?: GatewayOverride;
+  },
+): Promise<Response> {
   const { userId, provider, modelId, systemPrompt, messages, temperature, maxTokens, gateway } =
     args;
 
@@ -739,6 +830,7 @@ export async function streamWithProvider(args: {
       temperature,
       maxTokens,
       gateway,
+      policy,
     });
   }
 
@@ -772,6 +864,7 @@ export async function streamWithProvider(args: {
     );
   const decrypted = await decryptJson<Record<string, unknown>>(stored.ciphertext, stored.iv);
   const config = row.config as Record<string, unknown>;
+  markPrivatePath(policy, userId, provider, config);
 
   switch (provider) {
     case "bedrock":
@@ -827,6 +920,16 @@ export async function streamWithProvider(args: {
       return qwenChatStream({
         creds: decrypted as QwenCreds,
         config: config as QwenConfig,
+        modelId,
+        systemPrompt,
+        messages,
+        temperature,
+        maxTokens,
+      });
+    case "claude_aws":
+      return claudeAwsChatStream({
+        creds: decrypted as ClaudeAwsCreds,
+        config: config as ClaudeAwsConfig,
         modelId,
         systemPrompt,
         messages,

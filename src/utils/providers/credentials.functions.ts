@@ -4,13 +4,25 @@
 // via dynamic import so they don't end up in the client bundle.
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { azureEndpointProblem, providerEndpoint } from "@/utils/providers/privateEndpoint";
+import { cloudRegion } from "@/utils/providers/cloudRegion";
+import {
+  networkPathFieldText,
+  parseOrExplain,
+  saveFieldText,
+} from "@/utils/providers/credentialFieldErrors";
+import {
+  azureEndpointProblem,
+  providerEndpoint,
+  providerOrigin,
+} from "@/utils/providers/privateEndpoint";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { Json } from "@/integrations/supabase/types";
 import type {
   AnthropicCreds,
   AzureConfig,
   AzureCreds,
+  ClaudeAwsConfig,
+  ClaudeAwsCreds,
   BedrockConfig,
   BedrockCreds,
   OCIConfig,
@@ -28,6 +40,7 @@ const providerEnum = z.enum([
   "azure_openai",
   "oci_genai",
   "qwen",
+  "claude_aws",
 ]);
 
 const SaveSchema = z.object({
@@ -41,6 +54,7 @@ const SaveSchema = z.object({
       secretAccessKey: z.string().min(4).max(256),
       sessionToken: z.string().max(4096).optional(),
       endpoint: z.string().max(300).optional(),
+      requirePrivate: z.boolean().optional(),
     })
     .optional(),
   vertex: z
@@ -49,6 +63,7 @@ const SaveSchema = z.object({
       location: z.string().min(1).max(40),
       serviceAccountJson: z.string().min(20).max(20000),
       endpoint: z.string().max(300).optional(),
+      requirePrivate: z.boolean().optional(),
     })
     .optional(),
   anthropic: z
@@ -61,6 +76,7 @@ const SaveSchema = z.object({
       endpoint: z.string().url().max(300),
       apiKey: z.string().min(10).max(256),
       apiVersion: z.string().max(50).optional(),
+      requirePrivate: z.boolean().optional(),
     })
     .optional(),
   oci_genai: z
@@ -73,6 +89,7 @@ const SaveSchema = z.object({
       privateKeyPem: z.string().min(40).max(20000),
       style: z.enum(["GENERIC", "COHERE"]).optional(),
       endpoint: z.string().max(300).optional(),
+      requirePrivate: z.boolean().optional(),
     })
     .optional(),
   qwen: z
@@ -81,11 +98,90 @@ const SaveSchema = z.object({
       baseUrl: z.string().url().max(300).optional(),
     })
     .optional(),
+  claude_aws: z
+    .object({
+      region: z.string().min(1).max(40),
+      workspaceId: z
+        .string()
+        .regex(/^wrkspc_[A-Za-z0-9]+$/, "Workspace ID looks like wrkspc_01AbCdEf23GhIj"),
+      apiKey: z.string().max(512).optional(),
+      accessKeyId: z.string().max(128).optional(),
+      secretAccessKey: z.string().max(256).optional(),
+      sessionToken: z.string().max(4096).optional(),
+      endpoint: z.string().max(300).optional(),
+      requirePrivate: z.boolean().optional(),
+    })
+    .optional(),
 });
 
+/**
+ * The operator's default for "require a private network path" on NEW
+ * provider integrations (GENAI_REQUIRE_PRIVATE). Never applied to an
+ * existing integration; read server-side only.
+ */
+function requirePrivateDefault(): boolean {
+  return /^(1|true|yes)$/i.test(process.env.GENAI_REQUIRE_PRIVATE ?? "");
+}
+
+/** The defaults the provider dialog starts a new integration with. */
+export const getPrivateConnectivityDefaults = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async () => ({ requirePrivateDefault: requirePrivateDefault() }));
+
+/**
+ * Which network path a cloud provider's calls would take from this server —
+ * via the proxy, or direct to a private or public address — for the
+ * endpoint (or region) in the form. Needs no credentials and sends no
+ * request to the provider: it resolves the name and reads the proxy settings,
+ * so it can be checked before anything is saved.
+ */
+export const checkProviderNetworkPath = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((input: unknown) =>
+    parseOrExplain(
+      z.object({
+        provider: z.enum(["bedrock", "vertex", "oci_genai", "azure_openai", "claude_aws"]),
+        region: z.string().max(60).optional(),
+        endpoint: z.string().max(300).optional(),
+      }),
+      input,
+      networkPathFieldText,
+    ),
+  )
+  .handler(async ({ data }) => {
+    try {
+      let origin: string;
+      if (data.provider === "azure_openai") {
+        const raw = (data.endpoint ?? "").trim();
+        let u: URL;
+        try {
+          u = new URL(raw);
+        } catch {
+          throw new Error("Enter the Azure endpoint URL first");
+        }
+        if (u.protocol !== "https:") throw new Error("The Azure endpoint must use https");
+        const problem = azureEndpointProblem(raw);
+        if (problem) throw new Error(problem);
+        origin = u.origin;
+      } else {
+        origin = providerOrigin(data.provider, { region: data.region, endpoint: data.endpoint });
+      }
+      const { describeConnectivity } = await import("./connectivityPath.server");
+      return {
+        ok: true as const,
+        origin,
+        path: await describeConnectivity(origin, { tls: true }),
+      };
+    } catch (e) {
+      return { ok: false as const, error: (e as Error).message };
+    }
+  });
+
+// A schema failure reads as one sentence per field, named as the dialog names
+// it — `SaveSchema.parse` put the ZodError's issue JSON in the toast.
 export const saveProviderCredential = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .validator((input: unknown) => SaveSchema.parse(input))
+  .validator((input: unknown) => parseOrExplain(SaveSchema, input, saveFieldText))
   .handler(async ({ data, context }) => {
     const { encryptJson } = await import("./crypto.server");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -105,6 +201,7 @@ export const saveProviderCredential = createServerFn({ method: "POST" })
         configPayload = {
           region: data.bedrock.region,
           endpoint: providerEndpoint("bedrock", data.bedrock.endpoint),
+          requirePrivate: data.bedrock.requirePrivate ?? requirePrivateDefault(),
         } satisfies BedrockConfig;
         break;
       }
@@ -120,6 +217,7 @@ export const saveProviderCredential = createServerFn({ method: "POST" })
           projectId: data.vertex.projectId,
           location: data.vertex.location,
           endpoint: providerEndpoint("vertex", data.vertex.endpoint),
+          requirePrivate: data.vertex.requirePrivate ?? requirePrivateDefault(),
         } satisfies VertexConfig;
         break;
       }
@@ -137,6 +235,7 @@ export const saveProviderCredential = createServerFn({ method: "POST" })
         configPayload = {
           endpoint: data.azure_openai.endpoint,
           apiVersion: data.azure_openai.apiVersion || undefined,
+          requirePrivate: data.azure_openai.requirePrivate ?? requirePrivateDefault(),
         } satisfies AzureConfig;
         break;
       }
@@ -157,7 +256,31 @@ export const saveProviderCredential = createServerFn({ method: "POST" })
           compartmentId: o.compartmentId,
           style: o.style ?? "GENERIC",
           endpoint: providerEndpoint("oci_genai", o.endpoint),
+          requirePrivate: o.requirePrivate ?? requirePrivateDefault(),
         } satisfies OCIConfig;
+        break;
+      }
+      case "claude_aws": {
+        if (!data.claude_aws) throw new Error("Claude Platform on AWS fields required");
+        const c = data.claude_aws;
+        const apiKey = c.apiKey?.trim();
+        const keys = c.accessKeyId?.trim() && c.secretAccessKey?.trim();
+        if (!apiKey && !keys) {
+          throw new Error("Enter an API key, or an access key ID and secret access key");
+        }
+        credsPayload = apiKey
+          ? ({ apiKey } satisfies ClaudeAwsCreds)
+          : ({
+              accessKeyId: c.accessKeyId!.trim(),
+              secretAccessKey: c.secretAccessKey!.trim(),
+              sessionToken: c.sessionToken?.trim() || undefined,
+            } satisfies ClaudeAwsCreds);
+        configPayload = {
+          region: cloudRegion(c.region, "Claude Platform on AWS region"),
+          workspaceId: c.workspaceId,
+          endpoint: providerEndpoint("claude_aws", c.endpoint),
+          requirePrivate: c.requirePrivate ?? requirePrivateDefault(),
+        } satisfies ClaudeAwsConfig;
         break;
       }
       case "qwen": {
@@ -219,7 +342,7 @@ export const listProviderCredentials = createServerFn({ method: "POST" })
 const DeleteSchema = z.object({ provider: providerEnum });
 export const deleteProviderCredential = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .validator((input: unknown) => DeleteSchema.parse(input))
+  .validator((input: unknown) => parseOrExplain(DeleteSchema, input, saveFieldText))
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { userId } = context;

@@ -382,11 +382,19 @@ const PROVIDERS = [
   { value: "anthropic", label: "Anthropic direct (your API key)" },
   { value: "azure_openai", label: "Azure OpenAI (your deployment)" },
   { value: "oci_genai", label: "OCI Generative AI (your tenancy)" },
+  { value: "claude_aws", label: "Claude Platform on AWS (your account)" },
   { value: "qwen", label: "Qwen (Alibaba DashScope)" },
   { value: "vllm", label: "vLLM (self-hosted)" },
 ];
 
-const EXTERNAL_PROVIDERS = new Set(["bedrock", "vertex", "azure_openai", "oci_genai", "qwen"]);
+const EXTERNAL_PROVIDERS = new Set([
+  "bedrock",
+  "vertex",
+  "azure_openai",
+  "oci_genai",
+  "qwen",
+  "claude_aws",
+]);
 
 const MODEL_SUGGESTIONS: Record<string, string[]> = {
   openai: [
@@ -445,6 +453,7 @@ const MODEL_SUGGESTIONS: Record<string, string[]> = {
     "claude-3-opus-20240229",
   ],
   azure_openai: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
+  claude_aws: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-1", "claude-haiku-4-5"],
   oci_genai: [
     "cohere.command-r-plus-08-2024",
     "cohere.command-r-08-2024",

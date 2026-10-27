@@ -19,4 +19,5 @@ export const GATEWAY_PROVIDERS = [
   "groq",
   "vllm",
   "nvidia",
+  "claude_aws",
 ] as const satisfies readonly ProviderId[];

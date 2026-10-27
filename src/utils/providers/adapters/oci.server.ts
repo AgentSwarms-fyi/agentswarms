@@ -4,8 +4,7 @@
 
 import type { ChatMessage, OCIConfig, OCICreds } from "../types";
 import { providerFetch } from "@/utils/ssrfGuard.server";
-import { providerEndpoint } from "../privateEndpoint";
-import { cloudRegion } from "../cloudRegion";
+import { providerOrigin } from "../privateEndpoint";
 
 function toOpenAIChunk(content: string): string {
   return `data: ${JSON.stringify({
@@ -101,10 +100,6 @@ async function buildSignedHeaders(args: {
 }
 
 // Endpoint host varies by region: https://inference.generativeai.<region>.oci.oraclecloud.com
-function endpointForRegion(region: string): string {
-  return `https://inference.generativeai.${region}.oci.oraclecloud.com`;
-}
-
 export async function ociChatStream(args: {
   creds: OCICreds;
   config: OCIConfig;
@@ -120,12 +115,10 @@ export async function ociChatStream(args: {
   if (!region) throw new Error("OCI region is required");
   if (!compartmentId) throw new Error("OCI compartmentId is required");
 
-  // The region becomes part of the host; see cloudRegion().
-  // An endpoint override (e.g. a private endpoint's *.pe.* name) replaces the
-  // regional host; the request is signed for the host it is sent to.
-  const base =
-    providerEndpoint("oci_genai", config.endpoint) ??
-    endpointForRegion(cloudRegion(region, "OCI region"));
+  // providerOrigin validates the region before it becomes part of the host
+  // (cloudRegion), or uses the endpoint override (e.g. a private endpoint's
+  // *.pe.* name); the request is signed for the host it is sent to.
+  const base = providerOrigin("oci_genai", { region, endpoint: config.endpoint });
   const url = new URL(`${base}/20231130/actions/chat`);
 
   // Build a generic Cohere/Llama-style chat payload. OCI auto-routes based on

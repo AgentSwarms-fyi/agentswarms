@@ -41,7 +41,7 @@ export type StatusReadState = {
 export type ProviderFacts = {
   /** A row exists for this provider and is active. */
   active: boolean;
-  /** A row exists at all — saved, but its last live test failed. */
+  /** A row holds a configuration — saved, but its last live test failed. */
   saved: boolean;
   /** An admin granted use of their credential to this user. */
   shared: boolean;
@@ -83,9 +83,23 @@ export function providerBadge(read: StatusReadState, facts: ProviderFacts): Prov
  * separate from the badge because the button is a WRITE: firing it against a
  * provider whose rows never loaded would resolve `existing` to undefined and
  * do nothing at all, which is a dead control rather than an honest refusal.
+ *
+ * A saved key whose test failed is something to disconnect: a failed test
+ * still stores the key (inactive, so it can be fixed without retyping), and a
+ * test the private-path rule refused is one. Without the button, that key
+ * could never be removed.
  */
 export function mayOfferDisconnect(read: StatusReadState, facts: ProviderFacts): boolean {
-  return !read.error && read.loaded && facts.active;
+  return !read.error && read.loaded && (facts.active || facts.saved);
+}
+
+/**
+ * Does this provider row still hold a configuration? Disconnecting an
+ * Integrations-page provider keeps the row and empties its config, so an
+ * emptied row is nothing saved — not a key whose test failed.
+ */
+export function holdsSavedConfig(row: { config: Record<string, unknown> }): boolean {
+  return Object.keys(row.config).length > 0;
 }
 
 /**

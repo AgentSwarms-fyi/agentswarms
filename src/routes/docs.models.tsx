@@ -59,7 +59,7 @@ function ModelsPage() {
         difference between "some vendor sees this" and "the vendor we approved sees this".
       </Callout>
 
-      <H3 id="providers">Supported providers — all 14</H3>
+      <H3 id="providers">Supported providers — all 15</H3>
       <P>
         These are the provider ids the chat route accepts. Anything else is rejected before a call
         is made.
@@ -82,6 +82,11 @@ function ModelsPage() {
           ],
           [<C key="f">azure_openai</C>, "Azure OpenAI", "Endpoint + deployment name + key"],
           [<C key="g">oci_genai</C>, "OCI Generative AI", "Oracle Cloud tenancy credentials"],
+          [
+            <C key="ca">claude_aws</C>,
+            "Claude Platform on AWS",
+            "Workspace region and ID, and an API key from the AWS console or AWS access keys. Claude models billed through your AWS account.",
+          ],
           [<C key="h">grok</C>, "Grok (xAI)", "API key"],
           [<C key="i">qwen</C>, "Qwen", "API key"],
           [<C key="j">groq</C>, "Groq", "API key — fast inference for small models"],
@@ -117,7 +122,7 @@ function ModelsPage() {
 
       <H3 id="cloud-config">Configuring the cloud providers</H3>
       <P>
-        Most of the fourteen need nothing but an API key. Four ask for real cloud credentials, and
+        Most of the fifteen need nothing but an API key. Five ask for real cloud credentials, and
         two more take an optional endpoint override; the exact fields are worth having in front of
         you, because most failed connections are one of these values in the wrong box. The two
         self-hosted providers are covered separately below — they take a base URL instead of a key.
@@ -129,22 +134,35 @@ function ModelsPage() {
             <C key="a">bedrock</C>,
             <>
               <C key="b">region</C>, <C key="c">accessKeyId</C>, <C key="d">secretAccessKey</C>, and
-              optionally <C key="e">sessionToken</C>
+              optionally <C key="e">sessionToken</C>, <C key="pe1">endpoint</C>,{" "}
+              <C key="pe2">requirePrivate</C>
             </>,
-            "The session token is only for temporary STS credentials — leave it blank for a long-lived IAM user.",
+            <>
+              The session token is only for temporary STS credentials — leave it blank for a
+              long-lived IAM user. <C key="pe3">endpoint</C> is an optional private endpoint, e.g. a
+              PrivateLink <C key="pe4">vpce-….bedrock-runtime.us-east-1.vpce.amazonaws.com</C>{" "}
+              address; see <a href="#private-connectivity">private connectivity</a>.
+            </>,
           ],
           [
             <C key="f">vertex</C>,
             <>
-              <C key="g">projectId</C>, <C key="h">location</C>, <C key="i">serviceAccountJson</C>
+              <C key="g">projectId</C>, <C key="h">location</C>, <C key="i">serviceAccountJson</C>,
+              and optionally <C key="pe5">endpoint</C>, <C key="pe6">requirePrivate</C>
             </>,
-            "Paste the whole service-account JSON file. It is parsed on save, so a truncated paste fails immediately rather than at first use.",
+            <>
+              Paste the whole service-account JSON file. It is parsed on save, so a truncated paste
+              fails immediately rather than at first use. <C key="pe7">endpoint</C> is an optional
+              Private Service Connect address such as{" "}
+              <C key="pe8">https://aiplatform-myendpoint.p.googleapis.com</C>; the OAuth token is
+              then fetched through the same endpoint.
+            </>,
           ],
           [
             <C key="j">azure_openai</C>,
             <>
               <C key="k">endpoint</C>, <C key="l">apiKey</C>, and optionally{" "}
-              <C key="m">apiVersion</C>
+              <C key="m">apiVersion</C>, <C key="pe9">requirePrivate</C>
             </>,
             <>
               Endpoint is the resource root, e.g.{" "}
@@ -156,11 +174,30 @@ function ModelsPage() {
             <C key="p">oci_genai</C>,
             <>
               <C key="q">region</C>, <C key="r">compartmentId</C>, <C key="s">tenancyOcid</C>,{" "}
-              <C key="t">userOcid</C>, <C key="u">fingerprint</C>, <C key="v">privateKeyPem</C>
+              <C key="t">userOcid</C>, <C key="u">fingerprint</C>, <C key="v">privateKeyPem</C>, and
+              optionally <C key="pe10">endpoint</C>, <C key="pe11">requirePrivate</C>
             </>,
             <>
               Six fields, all from your OCI API-key config file. <C key="w">style</C> selects the
-              GENERIC or COHERE request shape.
+              GENERIC or COHERE request shape. <C key="pe12">endpoint</C> is an optional private
+              endpoint, the <C key="pe13">*.pe.inference.generativeai.…oci.oraclecloud.com</C> name
+              OCI gives it.
+            </>,
+          ],
+          [
+            <C key="ca1">claude_aws</C>,
+            <>
+              <C key="ca2">region</C>, <C key="ca3">workspaceId</C>, then either{" "}
+              <C key="ca4">apiKey</C> or <C key="ca5">accessKeyId</C> +{" "}
+              <C key="ca6">secretAccessKey</C> (optionally <C key="ca7">sessionToken</C>), and
+              optionally <C key="ca8">endpoint</C>, <C key="ca9">requirePrivate</C>
+            </>,
+            <>
+              The region is the workspace&apos;s own — there is no default, and a request signed for
+              another region is rejected. The workspace ID looks like{" "}
+              <C key="ca10">wrkspc_01AbCdEf23GhIj</C>. Model ids are the plain Claude ids, e.g.{" "}
+              <C key="ca11">claude-sonnet-5-5</C>. AWS PrivateLink is supported:{" "}
+              <C key="ca12">endpoint</C> takes the private endpoint&apos;s address.
             </>,
           ],
           [
@@ -185,6 +222,58 @@ function ModelsPage() {
         model is <C>prod-chat</C>. A wrong value here comes back as a 404 from Azure, which reads
         like the endpoint is wrong.
       </Callout>
+
+      <H3 id="private-connectivity">Private connectivity</H3>
+      <P>
+        Reaching a provider over a private network is a choice, never a requirement. Each
+        provider&apos;s dialog has a <strong>Network</strong> section. <em>Public</em>, the default,
+        uses the provider&apos;s public hostname. <em>Private DNS</em> saves exactly the same thing:
+        it is for when a private DNS zone, or a VPN / Direct Connect / ExpressRoute / Interconnect
+        link, already makes that public hostname resolve to a private address. Choose{" "}
+        <em>Private endpoint URL</em> only when your private endpoint has a name of its own.
+      </P>
+      <Table
+        headers={["Need", "What to set"]}
+        rows={[
+          [
+            "A proxy is the only way out of your network",
+            <>
+              <C key="p1">HTTPS_PROXY</C> / <C key="p2">NO_PROXY</C> on the server. Every model call
+              and connection test uses it, as the connectors do.
+            </>,
+          ],
+          [
+            "A private endpoint with its own name",
+            "Private endpoint URL, under Network, on Bedrock, Vertex AI, OCI or Claude Platform on AWS. The dialog lists the hosts it accepts: an https address on the provider's own domain, with no path. Requests are signed for it.",
+          ],
+          [
+            "Proof of which path a call takes",
+            "Check network path on Bedrock, Vertex AI, OCI, Azure and Claude Platform on AWS — no credentials, no request to the provider — or the result of Test & Connect for the others. Each says via the proxy, or direct to a private or public address, and names the TLS certificate the endpoint presents, flagged when it is not valid for that name.",
+          ],
+          [
+            "A missing DNS zone must fail, not fall back to the internet",
+            <>
+              Require a private network path on the provider. Its calls are then refused, and
+              audited, unless the endpoint resolves to private addresses here or goes through the
+              proxy. Off by default; <C key="p3">GENAI_REQUIRE_PRIVATE</C> sets the starting value
+              for new integrations only.
+            </>,
+          ],
+          [
+            "A private CA, or a proxy that inspects TLS",
+            <>
+              <C key="p4">NODE_EXTRA_CA_CERTS</C> on the server: a PEM file of the extra CA
+              certificates, read at startup. Check network path shows which issuer the endpoint
+              presents.
+            </>,
+          ],
+        ]}
+      />
+      <P>
+        The route-all LLM gateway does not cover Bedrock, Vertex AI, Azure OpenAI, OCI Generative AI
+        or Claude Platform on AWS — they sign each request with their own credentials, so they are
+        always called directly. With route-all on, their cards say so.
+      </P>
 
       <H3 id="local-config">Keeping inference on your own machines</H3>
       <P>

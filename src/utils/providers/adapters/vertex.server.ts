@@ -1,6 +1,6 @@
 // Google Vertex AI streaming adapter using a service account JSON to mint OAuth tokens.
 import type { ChatMessage, VertexConfig, VertexCreds } from "../types";
-import { providerEndpoint, vertexTokenUrl } from "../privateEndpoint";
+import { providerEndpoint, providerOrigin, vertexTokenUrl } from "../privateEndpoint";
 import { cloudRegion } from "../cloudRegion";
 import { providerFetch } from "@/utils/ssrfGuard.server";
 
@@ -112,7 +112,7 @@ export async function vertexChatStream(args: {
     throw new Error("Claude-on-Vertex routing is not yet implemented. Please pick a Gemini model.");
   }
 
-  const url = `${apiBase ?? `https://${location}-aiplatform.googleapis.com`}/v1/projects/${projectId}/locations/${location}/publishers/google/models/${encodeURIComponent(modelId)}:streamGenerateContent?alt=sse`;
+  const url = `${providerOrigin("vertex", { region: location, endpoint: config.endpoint })}/v1/projects/${projectId}/locations/${location}/publishers/google/models/${encodeURIComponent(modelId)}:streamGenerateContent?alt=sse`;
 
   const contents = messages.map((m) => ({
     role: m.role === "assistant" ? "model" : "user",

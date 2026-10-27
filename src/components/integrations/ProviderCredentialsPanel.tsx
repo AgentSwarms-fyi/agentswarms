@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import {
+  holdsSavedConfig,
   integrationsReadNotice,
   mayOfferDisconnect,
   providerBadge,
@@ -20,6 +21,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Dialog,
   DialogContent,
@@ -50,7 +53,12 @@ import {
   listSharedProviders,
   saveIntegration,
 } from "@/utils/integrations.functions";
-import { saveProviderCredential } from "@/utils/providers/credentials.functions";
+import {
+  checkProviderNetworkPath,
+  getPrivateConnectivityDefaults,
+  saveProviderCredential,
+} from "@/utils/providers/credentials.functions";
+import { endpointHosts, type EndpointProvider } from "@/utils/providers/privateEndpoint";
 import { detectOllama } from "@/utils/providers/ollama.functions";
 import { invalidateOllamaModels } from "@/hooks/use-ollama-models";
 
@@ -75,17 +83,24 @@ const TESTABLE_PROVIDERS = new Set([
 // auth like SigV4/IAM/OAuth/SigV1). These never go to the plaintext
 // `integrations` table — they route through saveProviderCredential and the
 // encrypted `provider_credentials` table that the chat API reads from.
-const ENCRYPTED_PROVIDERS = new Set(["bedrock", "azure_openai", "vertex_ai", "oci_genai"]);
+const ENCRYPTED_PROVIDERS = new Set([
+  "bedrock",
+  "azure_openai",
+  "vertex_ai",
+  "oci_genai",
+  "claude_aws",
+]);
 
 // The chat API uses "vertex" as the provider id internally; the UI uses
 // "vertex_ai" for legacy compatibility. Map between them.
 function toEncryptedProviderId(
   uiId: string,
-): "bedrock" | "vertex" | "azure_openai" | "oci_genai" | null {
+): "bedrock" | "vertex" | "azure_openai" | "oci_genai" | "claude_aws" | null {
   if (uiId === "bedrock") return "bedrock";
   if (uiId === "azure_openai") return "azure_openai";
   if (uiId === "vertex_ai") return "vertex";
   if (uiId === "oci_genai") return "oci_genai";
+  if (uiId === "claude_aws") return "claude_aws";
   return null;
 }
 
@@ -105,13 +120,19 @@ type EncryptedSaveData =
         secretAccessKey: string;
         sessionToken?: string;
         endpoint?: string;
+        requirePrivate?: boolean;
       };
     }
   | {
       provider: "azure_openai";
       label?: string;
       defaultModel?: string;
-      azure_openai: { endpoint: string; apiKey: string; apiVersion?: string };
+      azure_openai: {
+        endpoint: string;
+        apiKey: string;
+        apiVersion?: string;
+        requirePrivate?: boolean;
+      };
     }
   | {
       provider: "vertex";
@@ -122,6 +143,7 @@ type EncryptedSaveData =
         location: string;
         serviceAccountJson: string;
         endpoint?: string;
+        requirePrivate?: boolean;
       };
     }
   | {
@@ -137,11 +159,27 @@ type EncryptedSaveData =
         privateKeyPem: string;
         style?: "GENERIC" | "COHERE";
         endpoint?: string;
+        requirePrivate?: boolean;
+      };
+    }
+  | {
+      provider: "claude_aws";
+      label?: string;
+      defaultModel?: string;
+      claude_aws: {
+        region: string;
+        workspaceId: string;
+        apiKey?: string;
+        accessKeyId?: string;
+        secretAccessKey?: string;
+        sessionToken?: string;
+        endpoint?: string;
+        requirePrivate?: boolean;
       };
     };
 type EncryptedSavePayload = { data: EncryptedSaveData } | { error: string };
 function buildEncryptedPayload(
-  encId: "bedrock" | "vertex" | "azure_openai" | "oci_genai",
+  encId: "bedrock" | "vertex" | "azure_openai" | "oci_genai" | "claude_aws",
   uiId: string,
   config: Record<string, string>,
 ): EncryptedSavePayload {
@@ -164,6 +202,7 @@ function buildEncryptedPayload(
             secretAccessKey,
             sessionToken: trim(config.session_token) || undefined,
             endpoint: trim(config.endpoint) || undefined,
+            requirePrivate: config.require_private === "true",
           },
         },
       };
@@ -186,6 +225,7 @@ function buildEncryptedPayload(
             endpoint,
             apiKey,
             apiVersion: trim(config.api_version) || undefined,
+            requirePrivate: config.require_private === "true",
           },
         },
       };
@@ -206,6 +246,7 @@ function buildEncryptedPayload(
             location,
             serviceAccountJson,
             endpoint: trim(config.endpoint) || undefined,
+            requirePrivate: config.require_private === "true",
           },
         },
       };
@@ -236,6 +277,35 @@ function buildEncryptedPayload(
             privateKeyPem,
             style: "GENERIC",
             endpoint: trim(config.endpoint) || undefined,
+            requirePrivate: config.require_private === "true",
+          },
+        },
+      };
+    }
+    case "claude_aws": {
+      const region = trim(config.region);
+      const workspaceId = trim(config.workspace_id);
+      const apiKey = trim(config.api_key);
+      const accessKeyId = trim(config.access_key_id);
+      const secretAccessKey = trim(config.secret_access_key);
+      if (!region) return { error: "AWS region is required (the workspace's region)" };
+      if (!workspaceId) return { error: "Workspace ID is required" };
+      if (!apiKey && !(accessKeyId && secretAccessKey)) {
+        return { error: "Enter an API key, or an access key ID and secret access key" };
+      }
+      return {
+        data: {
+          provider: "claude_aws",
+          label: uiId,
+          claude_aws: {
+            region,
+            workspaceId,
+            apiKey: apiKey || undefined,
+            accessKeyId: accessKeyId || undefined,
+            secretAccessKey: secretAccessKey || undefined,
+            sessionToken: trim(config.session_token) || undefined,
+            endpoint: trim(config.endpoint) || undefined,
+            requirePrivate: config.require_private === "true",
           },
         },
       };
@@ -265,6 +335,7 @@ const PROVIDER_LOGO: Record<string, string> = {
   bedrock: "/provider-logos/amazon.svg",
   azure_openai: "/provider-logos/microsoftazure.svg",
   oci_genai: "/provider-logos/oracle.svg",
+  claude_aws: "/provider-logos/anthropic.svg",
   vllm: "/provider-logos/vllm.svg",
   // Groq has no Simple Icons mark, so it keeps its lucide icon rather than a
   // favicon fetched from groq.com.
@@ -461,6 +532,47 @@ const LLM_PROVIDERS = [
     ],
   },
   {
+    id: "claude_aws",
+    name: "Claude Platform on AWS",
+    icon: Brain,
+    description:
+      "Anthropic's Claude API, billed through your AWS account. Uses the workspace's region and ID, and either an API key from the AWS console or AWS access keys (SigV4).",
+    fields: [
+      {
+        key: "region",
+        label: "AWS Region (the workspace's)",
+        type: "text",
+        placeholder: "us-west-2",
+      },
+      {
+        key: "workspace_id",
+        label: "Workspace ID",
+        type: "text",
+        placeholder: "wrkspc_01AbCdEf23GhIj",
+      },
+      {
+        key: "api_key",
+        label: "API Key (or use access keys below)",
+        type: "password",
+        placeholder: "",
+      },
+      { key: "access_key_id", label: "Access Key ID", type: "password", placeholder: "AKIA..." },
+      { key: "secret_access_key", label: "Secret Access Key", type: "password", placeholder: "" },
+      {
+        key: "session_token",
+        label: "Session Token (optional)",
+        type: "password",
+        placeholder: "",
+      },
+      {
+        key: "endpoint",
+        label: "Private endpoint URL (optional)",
+        type: "text",
+        placeholder: "https://vpce-….aws-external-anthropic.us-west-2.vpce.amazonaws.com",
+      },
+    ],
+  },
+  {
     id: "bedrock",
     name: "AWS Bedrock",
     icon: Cloud,
@@ -584,6 +696,9 @@ export function ProviderCredentialsPanel() {
   // Disconnect button is derived from `integrations`, so when these fail the
   // panel has to say so rather than render an account with nothing in it.
   const [readState, setReadState] = useState<StatusReadState>({ loaded: false, error: null });
+  // Whether an active LLM gateway routes all traffic: the providers it cannot
+  // carry are then marked on their cards. Reads the flag, never the gateway key.
+  const [gatewayRoutesAll, setGatewayRoutesAll] = useState(false);
 
   async function loadIntegrations() {
     // Pull from both tables — encrypted providers live in provider_credentials
@@ -642,6 +757,12 @@ export function ProviderCredentialsPanel() {
       }
     }
     setIntegrations(merged);
+    const { data: gw } = await supabase
+      .from("integrations")
+      .select("is_active, route_all:config->route_all")
+      .eq("type", "llm_gateway")
+      .limit(1);
+    setGatewayRoutesAll(Boolean(gw?.[0]?.is_active && gw[0].route_all === true));
   }
 
   useEffect(() => {
@@ -838,7 +959,8 @@ export function ProviderCredentialsPanel() {
   const sharedFor = (id: string) => sharedProviders.find((s) => s.provider === id) ?? null;
   const isProviderActive = (id: string) =>
     integrations.some((i) => i.provider === id && i.is_active);
-  const isProviderSaved = (id: string) => integrations.some((i) => i.provider === id);
+  const isProviderSaved = (id: string) =>
+    integrations.some((i) => i.provider === id && holdsSavedConfig(i));
   // Scheduled health checks stamp health_status/health_detail into config
   // (see utils/integrations/health.server.ts). Non-null = last check FAILED.
   const providerHealthError = (id: string): string | null => {
@@ -952,6 +1074,16 @@ export function ProviderCredentialsPanel() {
                     : ""}
                 </Badge>
               ) : null}
+              {gatewayRoutesAll && GATEWAY_BYPASS.has(provider.id) && (
+                <Badge
+                  variant="outline"
+                  className="w-fit text-muted-foreground border-border"
+                  data-testid="gateway-bypass-badge"
+                  title="Each request is signed with this provider's own credentials, so it is always sent to the provider itself. Route ALL LLM traffic does not cover it."
+                >
+                  Called directly, not via your gateway
+                </Badge>
+              )}
             </CardHeader>
             <CardContent className="mt-auto p-4 pt-0">
               {provider.fields.length === 0 ? (
@@ -981,6 +1113,53 @@ export function ProviderCredentialsPanel() {
   );
 }
 
+// Cloud providers with no live connection test still get a network-path check:
+// it resolves the endpoint (or regional host) and reads the proxy settings,
+// with no credentials and no request to the provider.
+const PATH_CHECK_PROVIDER: Record<
+  string,
+  "bedrock" | "vertex" | "oci_genai" | "azure_openai" | "claude_aws"
+> = {
+  bedrock: "bedrock",
+  vertex_ai: "vertex",
+  oci_genai: "oci_genai",
+  azure_openai: "azure_openai",
+  claude_aws: "claude_aws",
+};
+
+// Providers a route-all LLM gateway cannot carry: each request is signed with
+// the provider's own credentials, so it is always sent to the provider itself.
+const GATEWAY_BYPASS = new Set(["bedrock", "vertex_ai", "azure_openai", "oci_genai", "claude_aws"]);
+
+// The three network setups (docs/PRIVATE_GENAI_CONNECTIVITY.md). Public and
+// Private DNS save the same thing, no endpoint: they differ only in what the
+// hostname resolves to from this server, which Check network path shows. A
+// private endpoint URL is an override, checked against the provider's domain.
+const ENDPOINT_OVERRIDE: Record<string, EndpointProvider> = {
+  bedrock: "bedrock",
+  vertex_ai: "vertex",
+  oci_genai: "oci_genai",
+  claude_aws: "claude_aws",
+};
+type NetworkMode = "public" | "private_dns" | "endpoint";
+const NETWORK_MODES: { value: NetworkMode; label: string; hint: string }[] = [
+  {
+    value: "public",
+    label: "Public",
+    hint: "The provider's public hostname, over the internet or through the proxy.",
+  },
+  {
+    value: "private_dns",
+    label: "Private DNS",
+    hint: "The same hostname, resolving to a private endpoint from this server: a private DNS zone, or a VPN / Direct Connect / ExpressRoute / Interconnect link. Nothing to enter; Check network path confirms it.",
+  },
+  {
+    value: "endpoint",
+    label: "Private endpoint URL",
+    hint: "An endpoint-specific name, such as a VPC endpoint's own DNS name.",
+  },
+];
+
 function ProviderConfigDialog({
   provider,
   onSave,
@@ -992,6 +1171,65 @@ function ProviderConfigDialog({
   const [open, setOpen] = useState(false);
   const [testing, setTesting] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [pathCheck, setPathCheck] = useState<null | {
+    ok: boolean;
+    text: string;
+    kind?: "private" | "public" | "proxy" | "unknown";
+    certInvalid?: boolean;
+  }>(null);
+  const [checkingPath, setCheckingPath] = useState(false);
+  const pathTarget = PATH_CHECK_PROVIDER[provider.id];
+  const override = ENDPOINT_OVERRIDE[provider.id];
+  const endpointField = override ? provider.fields.find((f) => f.key === "endpoint") : undefined;
+  const [networkMode, setNetworkMode] = useState<NetworkMode>("public");
+
+  function chooseNetworkMode(mode: NetworkMode) {
+    setNetworkMode(mode);
+    setPathCheck(null);
+    // Only the endpoint mode saves an endpoint.
+    if (mode !== "endpoint")
+      setConfig((c) => {
+        const next = { ...c };
+        delete next.endpoint;
+        return next;
+      });
+  }
+
+  async function checkPath() {
+    if (!pathTarget) return;
+    setCheckingPath(true);
+    setPathCheck(null);
+    try {
+      const r = await checkProviderNetworkPath({
+        data: {
+          provider: pathTarget,
+          region: config.region?.trim() || undefined,
+          endpoint: config.endpoint?.trim() || undefined,
+        },
+      });
+      if (!r.ok) {
+        setPathCheck({ ok: false, text: r.error });
+        return;
+      }
+      const kind = r.path.proxied
+        ? "proxy"
+        : r.path.privateAddress === true
+          ? "private"
+          : r.path.privateAddress === false
+            ? "public"
+            : "unknown";
+      setPathCheck({
+        ok: true,
+        kind,
+        certInvalid: r.path.tls?.valid === false,
+        text: `${r.path.host} — ${r.path.summary}`,
+      });
+    } catch (e) {
+      setPathCheck({ ok: false, text: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setCheckingPath(false);
+    }
+  }
   // Ollama auto-detection: when the dialog opens we probe the default
   // localhost:11434 FROM THE SERVER; a hit turns connecting into one click.
   const [ollamaProbe, setOllamaProbe] = useState<null | {
@@ -1032,9 +1270,33 @@ function ProviderConfigDialog({
     };
   }, [open, provider.id]);
 
+  // "Require a private network path" starts from the operator's default
+  // (GENAI_REQUIRE_PRIVATE) for a new integration; off unless set.
+  useEffect(() => {
+    if (!open || config.require_private !== undefined) return;
+    let cancelled = false;
+    void getPrivateConnectivityDefaults()
+      .then((d) => {
+        if (cancelled) return;
+        setConfig((c) =>
+          c.require_private === undefined
+            ? { ...c, require_private: d.requirePrivateDefault ? "true" : "false" }
+            : c,
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [open, config.require_private]);
+
   const willTest = TESTABLE_PROVIDERS.has(provider.id);
 
   async function handleSubmit() {
+    if (endpointField && networkMode === "endpoint" && !config.endpoint?.trim()) {
+      setLastError("Enter the private endpoint URL, or choose Public or Private DNS.");
+      return;
+    }
     setTesting(true);
     setLastError(null);
     // Ollama: an empty address means "use the auto-detected local daemon".
@@ -1048,6 +1310,7 @@ function ProviderConfigDialog({
       if (provider.id === "ollama") invalidateOllamaModels();
       setOpen(false);
       setConfig({});
+      setNetworkMode("public");
     } else {
       // Always surface the EXACT upstream message — never swallow it behind a
       // generic "Could not connect to provider". If the server returned no
@@ -1122,18 +1385,137 @@ function ProviderConfigDialog({
           </div>
         )}
         <div className="space-y-4">
-          {provider.fields.map((field) => (
-            <div key={field.key} className="space-y-2">
-              <Label>{field.label}</Label>
-              <Input
-                type={field.type}
-                placeholder={field.placeholder}
-                value={config[field.key] || ""}
-                onChange={(e) => setConfig({ ...config, [field.key]: e.target.value })}
+          {provider.fields
+            .filter((field) => field !== endpointField)
+            .map((field) => (
+              <div key={field.key} className="space-y-2">
+                <Label>{field.label}</Label>
+                <Input
+                  type={field.type}
+                  placeholder={field.placeholder}
+                  value={config[field.key] || ""}
+                  onChange={(e) => setConfig({ ...config, [field.key]: e.target.value })}
+                  disabled={testing}
+                />
+              </div>
+            ))}
+          <fieldset className="space-y-3 rounded-md border p-2.5" data-testid="network-section">
+            <legend className="px-1 text-sm font-medium">Network</legend>
+            {endpointField && (
+              <RadioGroup
+                value={networkMode}
+                onValueChange={(v) => chooseNetworkMode(v as NetworkMode)}
+                disabled={testing}
+                aria-label="Network"
+                data-testid="network-mode"
+                className="gap-2"
+              >
+                {NETWORK_MODES.map((m) => (
+                  <div key={m.value} className="flex items-start gap-2">
+                    <RadioGroupItem
+                      value={m.value}
+                      id={`network-${provider.id}-${m.value}`}
+                      className="mt-0.5"
+                    />
+                    <Label
+                      htmlFor={`network-${provider.id}-${m.value}`}
+                      className="space-y-0.5 font-normal"
+                    >
+                      <span className="block text-sm font-medium">{m.label}</span>
+                      <span className="block text-xs text-muted-foreground">{m.hint}</span>
+                    </Label>
+                  </div>
+                ))}
+              </RadioGroup>
+            )}
+            {override && endpointField && networkMode === "endpoint" && (
+              <div className="space-y-1.5">
+                <Label htmlFor={`endpoint-${provider.id}`}>Private endpoint URL</Label>
+                <Input
+                  id={`endpoint-${provider.id}`}
+                  data-testid="private-endpoint-input"
+                  type="text"
+                  placeholder={endpointField.placeholder}
+                  value={config.endpoint || ""}
+                  onChange={(e) => setConfig({ ...config, endpoint: e.target.value })}
+                  disabled={testing}
+                />
+                <p className="text-xs text-muted-foreground">
+                  An https address, with no path, on {endpointHosts(override).join(", ")}.
+                </p>
+              </div>
+            )}
+            {provider.id === "azure_openai" && (
+              <p className="text-xs text-muted-foreground">
+                For a private endpoint, keep the resource&apos;s own hostname above and make it
+                resolve privately from this server. A <code>privatelink</code> name is refused.
+              </p>
+            )}
+            <div className="flex items-start gap-3">
+              <Switch
+                id={`require-private-${provider.id}`}
+                data-testid="require-private-switch"
+                checked={config.require_private === "true"}
+                onCheckedChange={(v) =>
+                  setConfig({ ...config, require_private: v ? "true" : "false" })
+                }
                 disabled={testing}
               />
+              <div className="space-y-0.5">
+                <Label htmlFor={`require-private-${provider.id}`} className="text-sm">
+                  Require a private network path
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Refuse calls unless the endpoint resolves to a private address here, or the call
+                  goes through the proxy — so a missing private DNS zone fails loudly instead of
+                  sending traffic over the internet. Off unless you need it.
+                </p>
+              </div>
             </div>
-          ))}
+            {pathTarget && (
+              <div className="space-y-1.5">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => void checkPath()}
+                  disabled={checkingPath || testing}
+                >
+                  {checkingPath ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" /> Checking the network
+                      path…
+                    </>
+                  ) : (
+                    "Check network path"
+                  )}
+                </Button>
+                {pathCheck && (
+                  <p
+                    data-testid="network-path-result"
+                    className={`text-xs break-words ${
+                      !pathCheck.ok
+                        ? "text-destructive"
+                        : pathCheck.kind === "public" || pathCheck.certInvalid
+                          ? "text-warning"
+                          : pathCheck.kind === "unknown"
+                            ? "text-muted-foreground"
+                            : "text-primary"
+                    }`}
+                  >
+                    {pathCheck.text}
+                    {pathCheck.ok && pathCheck.kind === "public"
+                      ? " — this resolves to a public address, so calls go over the internet. For a private endpoint, check its private DNS zone or set the endpoint URL."
+                      : ""}
+                    {pathCheck.ok && pathCheck.certInvalid
+                      ? " Calls to this name will fail TLS verification: reach the endpoint by a name its certificate covers."
+                      : ""}
+                  </p>
+                )}
+              </div>
+            )}
+          </fieldset>
           {lastError && (
             <div className="rounded-md border border-destructive/40 bg-destructive/10 p-2.5">
               <p className="text-xs font-semibold text-destructive flex items-center gap-1.5 mb-1">

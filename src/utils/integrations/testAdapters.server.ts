@@ -12,11 +12,20 @@
 // client routes, so it dynamic-imports this one inside handlers (same pattern
 // it already used for the SSRF guard).
 
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import { formatUsd } from "@/lib/usd";
-import { providerFetch, safeFetch } from "@/utils/ssrfGuard.server";
+import { describeConnectivity, type PathReport } from "@/utils/providers/connectivityPath.server";
+import { PROVIDER_LABELS, type ProviderId } from "@/utils/providers/types";
+import {
+  PrivatePathRequiredError,
+  providerFetch,
+  safeFetch,
+  withPrivatePathScope,
+} from "@/utils/ssrfGuard.server";
 
 export type TestResult =
-  { ok: true; detail: string } | { ok: false; detail: string; status?: number };
+  { ok: true; detail: string; path?: PathReport } | { ok: false; detail: string; status?: number };
 
 /** Providers whose integrations-table credentials we can live-test. */
 export const TESTABLE_INTEGRATION_PROVIDERS = new Set([
@@ -66,8 +75,12 @@ export async function providerTestFetch(
   init: RequestInit = {},
   timeoutMs: number = OUTBOUND_TIMEOUT_MS,
 ): Promise<Response> {
+  testedUrls.getStore()?.push(url);
   return providerFetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
 }
+
+/** The URLs a provider test called, so its result can say which path it took. */
+const testedUrls = new AsyncLocalStorage<string[]>();
 
 function normalizeAnthropicBaseUrl(v: unknown): string {
   const base = (typeof v === "string" ? v.trim() : "") || "https://api.anthropic.com/v1";
@@ -350,7 +363,41 @@ async function testNvidia(cfg: Record<string, string>): Promise<TestResult> {
 }
 
 /** Dispatch a live credential test for an LLM-provider integration. */
+/**
+ * Run a provider's connection test and, when it passes, report the network
+ * path the call took (direct to a private or public address, or via the
+ * proxy) — so a private endpoint whose DNS zone is missing shows "public"
+ * here instead of quietly working over the internet.
+ */
 export async function runProviderTest(
+  provider: string,
+  cfg: Record<string, string>,
+): Promise<TestResult> {
+  const urls: string[] = [];
+  // A provider set to require a private path is tested under that rule too, so
+  // a test cannot pass over a public path the real calls would refuse.
+  const requirePrivate = cfg.require_private === "true";
+  let result: TestResult;
+  try {
+    result = await testedUrls.run(urls, () =>
+      requirePrivate
+        ? withPrivatePathScope((policy) => {
+            policy.required = true;
+            policy.label = PROVIDER_LABELS[provider as ProviderId] ?? provider;
+            return runProviderTestOnce(provider, cfg);
+          })
+        : runProviderTestOnce(provider, cfg),
+    );
+  } catch (e) {
+    if (e instanceof PrivatePathRequiredError) return { ok: false, detail: e.message };
+    throw e;
+  }
+  if (!result.ok || !urls[0]) return result;
+  const path = await describeConnectivity(urls[0], { tls: true }).catch(() => null);
+  return path ? { ...result, path, detail: `${result.detail} — ${path.summary}` } : result;
+}
+
+async function runProviderTestOnce(
   provider: string,
   cfg: Record<string, string>,
 ): Promise<TestResult> {

@@ -579,9 +579,18 @@ function IntegrationsPage() {
                   <div>
                     <Label>Route ALL LLM traffic</Label>
                     <p className="text-xs text-muted-foreground">
-                      Every LLM call on this account — chat, swarms, BI answers, embeds, skill
-                      generation, notebooks, model listings and embeddings — goes through the
-                      gateway. Your gateway must be able to route every model you use.
+                      LLM calls on this account — chat, swarms, BI answers, embeds, skill
+                      generation, notebooks, model listings and embeddings — go through the gateway.
+                      Your gateway must be able to route every model you use.
+                    </p>
+                    <p
+                      className="text-xs text-muted-foreground"
+                      data-testid="gateway-route-all-exceptions"
+                    >
+                      <span className="font-medium">Not covered:</span> AWS Bedrock, Google Vertex
+                      AI, Azure OpenAI, OCI Generative AI and Claude Platform on AWS sign each
+                      request with their own credentials, so they are always called directly. For a
+                      private path to those, set the provider's private endpoint URL instead.
                     </p>
                   </div>
                   <Switch

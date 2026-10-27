@@ -12,7 +12,9 @@
 // below. That keeps an override from re-aiming signed traffic elsewhere — the
 // same principle as cloudRegion().
 
-export type EndpointProvider = "bedrock" | "vertex" | "oci_genai";
+import { cloudRegion } from "./cloudRegion";
+
+export type EndpointProvider = "bedrock" | "vertex" | "oci_genai" | "claude_aws";
 
 const RULES: Record<EndpointProvider, { label: string; suffixes: string[]; example: string }> = {
   bedrock: {
@@ -25,12 +27,22 @@ const RULES: Record<EndpointProvider, { label: string; suffixes: string[]; examp
     suffixes: [".googleapis.com"],
     example: "https://aiplatform-myendpoint.p.googleapis.com",
   },
+  claude_aws: {
+    label: "Claude Platform on AWS endpoint",
+    suffixes: [".api.aws", ".vpce.amazonaws.com"],
+    example: "https://vpce-0abc123.aws-external-anthropic.us-west-2.vpce.amazonaws.com",
+  },
   oci_genai: {
     label: "OCI Generative AI endpoint",
     suffixes: [".oci.oraclecloud.com"],
     example: "https://myprefix.pe.inference.generativeai.us-chicago-1.oci.oraclecloud.com",
   },
 };
+
+/** The hosts an override may name, as shown to a person: `*.vpce.amazonaws.com`. */
+export function endpointHosts(provider: EndpointProvider): string[] {
+  return RULES[provider].suffixes.map((s) => `*${s}`);
+}
 
 /**
  * The override as an https origin (`https://host[:port]`), or undefined when
@@ -105,4 +117,27 @@ export function vertexTokenUrl(apiEndpoint: string | undefined, tokenUri: string
     /* keep /token */
   }
   return `https://oauth2-${m[1].toLowerCase()}.p.googleapis.com${path}`;
+}
+
+/**
+ * The origin a provider's calls go to: the override when one is set, else the
+ * provider's public regional host. The adapters and the network-path check both
+ * use it, so the check reports exactly the host the call will use.
+ */
+export function providerOrigin(
+  provider: EndpointProvider,
+  cfg: { region?: string; endpoint?: string | null },
+): string {
+  const override = providerEndpoint(provider, cfg.endpoint);
+  if (override) return override;
+  switch (provider) {
+    case "bedrock":
+      return `https://bedrock-runtime.${cloudRegion(cfg.region || "us-east-1", "Bedrock region")}.amazonaws.com`;
+    case "vertex":
+      return `https://${cloudRegion(cfg.region || "us-central1", "Vertex location")}-aiplatform.googleapis.com`;
+    case "claude_aws":
+      return `https://aws-external-anthropic.${cloudRegion(cfg.region ?? "", "Claude Platform on AWS region")}.api.aws`;
+    case "oci_genai":
+      return `https://inference.generativeai.${cloudRegion(cfg.region ?? "", "OCI region")}.oci.oraclecloud.com`;
+  }
 }

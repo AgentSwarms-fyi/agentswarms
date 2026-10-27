@@ -2,7 +2,7 @@
 // Re-emits responses as OpenAI-style SSE chunks for client compatibility.
 import type { BedrockConfig, BedrockCreds, ChatMessage } from "../types";
 import { providerFetch } from "@/utils/ssrfGuard.server";
-import { providerEndpoint } from "../privateEndpoint";
+import { providerOrigin } from "../privateEndpoint";
 import { cloudRegion } from "../cloudRegion";
 import { recordOf } from "@/lib/jsonRecord";
 
@@ -27,7 +27,10 @@ async function sha256Hex(data: string): Promise<string> {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-async function signRequest(opts: {
+/** SigV4-sign a JSON POST. `service` defaults to Bedrock's signing name. */
+export async function signRequest(opts: {
+  /** SigV4 service name, e.g. "aws-external-anthropic". */
+  service?: string;
   region: string;
   accessKeyId: string;
   secretAccessKey: string;
@@ -59,7 +62,8 @@ async function signRequest(opts: {
     "\n",
   );
 
-  const credentialScope = `${dateStamp}/${region}/${SERVICE}/aws4_request`;
+  const service = opts.service ?? SERVICE;
+  const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
   const stringToSign = [
     "AWS4-HMAC-SHA256",
     amzDate,
@@ -69,7 +73,7 @@ async function signRequest(opts: {
 
   const kDate = await hmac(new TextEncoder().encode("AWS4" + secretAccessKey), dateStamp);
   const kRegion = await hmac(kDate, region);
-  const kService = await hmac(kRegion, SERVICE);
+  const kService = await hmac(kRegion, service);
   const kSigning = await hmac(kService, "aws4_request");
   const signature = [...(await hmac(kSigning, stringToSign))]
     .map((b) => b.toString(16).padStart(2, "0"))
@@ -146,8 +150,7 @@ export async function bedrockChatStream(args: {
   const region = cloudRegion(config.region || "us-east-1", "Bedrock region");
   // An endpoint override (e.g. a PrivateLink vpce name) replaces the host; the
   // request is signed for whichever host it is sent to.
-  const override = providerEndpoint("bedrock", config.endpoint);
-  const host = override ? new URL(override).host : `bedrock-runtime.${region}.amazonaws.com`;
+  const host = new URL(providerOrigin("bedrock", { region, endpoint: config.endpoint })).host;
   const path = `/model/${encodeURIComponent(modelId)}/converse-stream`;
 
   const body = JSON.stringify({

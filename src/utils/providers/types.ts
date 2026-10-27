@@ -14,7 +14,8 @@ export type ProviderId =
   | "openrouter"
   | "groq"
   | "vllm"
-  | "nvidia";
+  | "nvidia"
+  | "claude_aws";
 
 export type ChatMessage = {
   role: "system" | "user" | "assistant";
@@ -43,6 +44,13 @@ export const PROVIDER_MODELS: Record<ProviderId, ProviderModel[]> = {
     { id: "claude-3-5-sonnet-20241022", label: "Claude 3.5 Sonnet" },
     { id: "claude-3-5-haiku-20241022", label: "Claude 3.5 Haiku" },
     { id: "claude-3-opus-20240229", label: "Claude 3 Opus" },
+  ],
+  // Claude Platform on AWS takes the same plain model ids as the direct API.
+  claude_aws: [
+    { id: "claude-opus-5-5", label: "Claude Opus 5.5" },
+    { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5" },
+    { id: "claude-fable-5-1", label: "Claude Fable 5.1" },
+    { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
   ],
   azure_openai: [
     { id: "gpt-4o", label: "GPT-4o (deployment name)" },
@@ -192,6 +200,7 @@ export const PROVIDER_LABELS: Record<ProviderId, string> = {
   groq: "Groq (LPU inference)",
   vllm: "vLLM (self-hosted)",
   nvidia: "NVIDIA NIM (build.nvidia.com)",
+  claude_aws: "Claude Platform on AWS",
 };
 
 // NVIDIA Build (NIM) — OpenAI-compatible endpoint at integrate.api.nvidia.com.
@@ -207,6 +216,13 @@ export type BedrockCreds = { accessKeyId: string; secretAccessKey: string; sessi
 export type VertexCreds = { serviceAccountJson: string }; // raw JSON string
 export type AnthropicCreds = { apiKey: string };
 export type AzureCreds = { apiKey: string };
+// Claude Platform on AWS: an API key from the AWS console, or AWS access keys (SigV4).
+export type ClaudeAwsCreds = {
+  apiKey?: string;
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  sessionToken?: string;
+};
 export type OCICreds = {
   tenancyOcid: string;
   userOcid: string;
@@ -216,15 +232,29 @@ export type OCICreds = {
 
 // Non-secret config per provider.
 // `endpoint`: an optional override, e.g. a private endpoint (privateEndpoint.ts).
-export type BedrockConfig = { region: string; endpoint?: string };
-export type VertexConfig = { projectId: string; location: string; endpoint?: string };
+// `requirePrivate`: refuse calls that would not take a private path (off by default).
+export type BedrockConfig = { region: string; endpoint?: string; requirePrivate?: boolean };
+export type VertexConfig = {
+  projectId: string;
+  location: string;
+  endpoint?: string;
+  requirePrivate?: boolean;
+};
 export type AnthropicConfig = Record<string, never>;
-export type AzureConfig = { endpoint: string; apiVersion?: string };
+export type AzureConfig = { endpoint: string; apiVersion?: string; requirePrivate?: boolean };
 export type OCIConfig = {
   region: string; // e.g. us-chicago-1, eu-frankfurt-1
   compartmentId: string; // OCID of the compartment
   style?: "GENERIC" | "COHERE"; // chat request shape; default GENERIC
   endpoint?: string; // optional override, e.g. a private endpoint
+  requirePrivate?: boolean;
+};
+
+export type ClaudeAwsConfig = {
+  region: string; // the workspace's region; there is no default
+  workspaceId: string; // wrkspc_…
+  endpoint?: string; // optional override, e.g. a PrivateLink endpoint
+  requirePrivate?: boolean;
 };
 
 // Qwen via Alibaba DashScope OpenAI-compatible endpoint.

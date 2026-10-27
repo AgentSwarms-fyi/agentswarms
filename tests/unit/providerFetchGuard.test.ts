@@ -202,9 +202,14 @@ describe("no provider call site fetches a configured URL raw", () => {
     expect(readFileSync("src/utils/providers/adapters/bedrock.server.ts", "utf8")).toMatch(
       /const region = cloudRegion\(/,
     );
+    // OCI builds its host through providerOrigin, which validates the region.
     expect(readFileSync("src/utils/providers/adapters/oci.server.ts", "utf8")).toMatch(
-      /endpointForRegion\(cloudRegion\(region/,
+      /providerOrigin\("oci_genai", \{ region/,
     );
+    const origin = readFileSync("src/utils/providers/privateEndpoint.ts", "utf8");
+    for (const label of ["Bedrock region", "Vertex location", "OCI region"]) {
+      expect(origin, label).toContain(`"${label}")`);
+    }
     expect(readFileSync("src/utils/providers/adapters/vertex.server.ts", "utf8")).toMatch(
       /const location = cloudRegion\(/,
     );

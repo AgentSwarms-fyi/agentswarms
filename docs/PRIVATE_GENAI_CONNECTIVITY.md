@@ -2,7 +2,8 @@
 
 > Part of the [AgentSwarms docs](../README.md#documentation).
 
-**Status: design. Not implemented.** An exploration of how AgentSwarms, running
+**Status: Phases 1 and 2 implemented (2026-10-27); live cloud validation
+deferred.** An exploration of how AgentSwarms, running
 inside a customer's VPC/VNet, can reach every GenAI provider it integrates with
 over private network paths instead of the public internet — what each cloud
 offers, what the app supports today, the gaps, and a phased plan. Provider facts
@@ -146,18 +147,18 @@ Cross-cutting:
 
 ## Gaps
 
-**Closed (this work):** model calls now honour the corporate proxy; Bedrock,
-Vertex and OCI take a validated endpoint override; Azure refuses a `privatelink`
-hostname with guidance. Remaining:
+**Closed (Phase 1):** model calls honour the corporate proxy; Bedrock, Vertex
+and OCI take a validated endpoint override; Azure refuses a `privatelink`
+hostname with guidance.
 
-1. **No proof of path.** Nothing tells an admin whether a call resolved to a
-   private or a public address, so a mis-set DNS zone silently sends traffic
-   over the internet.
-2. **No policy to require private paths** for GenAI traffic.
-3. **The route-all gateway does not cover Bedrock/Vertex/Azure/OCI** — and does
-   not say so in the UI.
-4. **Gemini (AI Studio)** has no endpoint override (use Vertex for private
+**Closed (Phase 2):** the path a call takes is reported (proxy, or direct to a
+private or public address, with the endpoint's TLS certificate); a provider can
+require a private path; the route-all gateway says which providers it does not
+cover. Remaining:
+
+1. **Gemini (AI Studio)** has no endpoint override (use Vertex for private
    Gemini).
+2. **Live cloud validation** against real PrivateLink / PSC / private endpoints.
 
 ## Plan
 
@@ -207,7 +208,7 @@ http and look-alikes; and the adapters, driven end to end, call (and sign for)
 the override host while keeping the region scope, with the Vertex token routed
 through the PSC name.
 
-### Phase 2 — make the path visible and enforceable
+### Phase 2 — make the path visible and enforceable — **DONE (2026-10-27)**
 
 1. **"Network" section per provider integration:** _Public_, _Private DNS_
    (public hostname, resolves privately), or _Private endpoint URL_ — with the
@@ -227,6 +228,67 @@ through the PSC name.
 5. **New provider: Claude Platform on AWS** (`aws-external-anthropic.<region>.api.aws`,
    SigV4 service `aws-external-anthropic` or a Bearer key; PrivateLink-capable).
    Bedrock's OpenAI-compatible Mantle endpoint can follow the same pattern later.
+
+**As built:**
+
+1. Every provider dialog has a **Network** section. For the four providers that
+   take an override (Bedrock, Vertex, OCI, Claude Platform on AWS) it offers
+   _Public_, _Private DNS_ and _Private endpoint URL_, the last showing the
+   accepted hosts (`endpointHosts`). _Public_ and _Private DNS_ save the same
+   thing, no endpoint; they differ only in what the name resolves to from the
+   server, which the path check shows, so no mode is stored. Azure's section
+   says to keep the resource's own hostname and resolve it privately.
+2. `describeConnectivity` (`connectivityPath.server.ts`) reports the path: via
+   the proxy (its host, never its credentials), or direct to the resolved
+   addresses, private only if every one is. With `tls`, a direct https call
+   also reads the endpoint's certificate (subject, issuer, valid for the name)
+   in a handshake to the address already resolved, with SNI, a 5 s timeout, and
+   never to a name resolving to a metadata or link-local address. A passing
+   Test & Connect appends it; the four cloud providers and Azure, which have no
+   live test, get a credential-free **Check network path** button. A
+   certificate not valid for the name is flagged: every call to it would fail.
+3. **Require a private network path** is a switch on every provider, stored as
+   `requirePrivate` (encrypted credentials) or `require_private` (Integrations
+   rows). A provider call runs in a scope (`withPrivatePathScope`) that its
+   saved configuration marks; `safeFetch` then refuses, per connection and per
+   redirect hop, a direct hop to a name with any public address or none, and
+   lets a proxied hop through. An OpenAI-compatible transport, fetched later by
+   its caller, is preflighted (`assertPrivatePath`). Refusals are audited
+   (`provider.private_path.refused`) and are `SsrfRefusedError`s, so never
+   retried. Connection tests run under the same rule. `GENAI_REQUIRE_PRIVATE`
+   sets the starting value for new integrations only.
+4. The route-all switch lists what it does not cover — Bedrock, Vertex, Azure,
+   OCI and Claude Platform on AWS, which sign their own requests — and, with
+   route-all on, those cards say _Called directly, not via your gateway_. The
+   cards read only the gateway's route-all flag, never its key.
+5. **Claude Platform on AWS** (`claude_aws`): `claudeAws.server.ts` calls
+   `/v1/messages` at `aws-external-anthropic.<region>.api.aws` (or the private
+   endpoint) with `anthropic-workspace-id`, authenticated by an API key
+   (Bearer) or SigV4 for `aws-external-anthropic` (Bedrock's signer, now
+   taking a service name). There is no default region and the workspace id
+   must look like `wrkspc_…`. Registered in the save schema, dispatch, chat,
+   gateway prefixes and every model picker. Migration
+   `20261028000000_provider_credentials_providers.sql` widens the encrypted
+   store's provider check, which had admitted only four providers, so OCI
+   Generative AI and Qwen keys could not be saved there either.
+
+**Tested, code side** (`privatePathPolicy.test.ts`, `connectivityPath.test.ts`,
+`connectivityTls.test.ts`, `claudeAwsProvider.test.ts`, `privateEndpoint.test.ts`):
+the per-connection rule (public, mixed, unresolvable, proxied, redirect hops, a
+throwing audit hook, a non-provider fetch in the scope); a chat call and a
+resolved transport marked from a saved row, refused and audited or sent; the
+connection test under the rule; the path report and the certificate (mocked
+handshake: SNI, the resolved address, validity, fallbacks, failure and
+timeout, and the cases that must not probe); Claude Platform on AWS end to end
+(Bearer and SigV4 requests, the exact signature for a PrivateLink host, the
+refusals, the stream); and the gateway list matching the server's dispatch.
+Three mutation rounds: 73 of 74 mutants caught; the survivor (a refusal from a
+test that does not catch its own errors) got a test and is caught.
+
+The UI round (docs/UI_TEST_RESULTS.md, 2026-10-27) found that a failed test
+stores the key with no way to delete it — a private-path refusal is a failed
+test — so a saved key whose test failed now offers Disconnect, and a row a
+disconnect has emptied no longer reads as a saved key.
 
 ### How it would be tested
 

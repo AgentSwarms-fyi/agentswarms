@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   azureEndpointProblem,
+  endpointHosts,
   providerEndpoint,
   vertexTokenUrl,
 } from "@/utils/providers/privateEndpoint";
@@ -108,6 +109,19 @@ describe("vertexTokenUrl follows the API endpoint over PSC", () => {
     expect(
       vertexTokenUrl("https://bedrock-runtime.us-east-1.amazonaws.com", "https://x.test/t"),
     ).toBe("https://x.test/t");
+  });
+});
+
+describe("endpointHosts is what the dialog shows as accepted", () => {
+  it("lists each provider's domains as wildcards", () => {
+    expect(endpointHosts("bedrock")).toEqual([
+      "*.vpce.amazonaws.com",
+      "*.amazonaws.com",
+      "*.api.aws",
+    ]);
+    expect(endpointHosts("claude_aws")).toEqual(["*.api.aws", "*.vpce.amazonaws.com"]);
+    expect(endpointHosts("vertex")).toEqual(["*.googleapis.com"]);
+    expect(endpointHosts("oci_genai")).toEqual(["*.oci.oraclecloud.com"]);
   });
 });
 

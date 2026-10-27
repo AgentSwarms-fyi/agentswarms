@@ -12,6 +12,7 @@
 // from what rendered.
 import { describe, expect, it } from "vitest";
 import {
+  holdsSavedConfig,
   integrationsReadNotice,
   mayOfferDisconnect,
   providerBadge,
@@ -104,8 +105,29 @@ describe("mayOfferDisconnect", () => {
     expect(mayOfferDisconnect(PENDING, facts({ active: true }))).toBe(false);
   });
 
-  it("does not offer it for a provider that is not active", () => {
-    expect(mayOfferDisconnect(OK, facts({ saved: true }))).toBe(false);
+  it("offers it for a saved key whose test failed — the key is stored and must be removable", () => {
+    // A failed test still saves the key (inactive); a test the private-path
+    // rule refused is one. With no button, that key could never be removed.
+    expect(mayOfferDisconnect(OK, facts({ saved: true }))).toBe(true);
+    expect(mayOfferDisconnect(FAILED, facts({ saved: true }))).toBe(false);
+    expect(mayOfferDisconnect(PENDING, facts({ saved: true }))).toBe(false);
+  });
+
+  it("does not offer it when nothing is saved, or only shared", () => {
+    expect(mayOfferDisconnect(OK, facts())).toBe(false);
+    expect(mayOfferDisconnect(OK, facts({ shared: true }))).toBe(false);
+  });
+});
+
+describe("holdsSavedConfig", () => {
+  it("is a saved key while the row holds a configuration", () => {
+    expect(holdsSavedConfig({ config: { api_key_enc: "…", base_url: "" } })).toBe(true);
+  });
+
+  it("is nothing saved once disconnect has emptied the row", () => {
+    // Disconnecting an Integrations-page provider keeps the row, empties its
+    // config and marks it inactive — it is not a key whose test failed.
+    expect(holdsSavedConfig({ config: {} })).toBe(false);
   });
 });
 

@@ -74,6 +74,7 @@ const PROVIDERS = [
   { value: "grok", label: "Grok (xAI)" },
   { value: "ollama", label: "Ollama (local)" },
   { value: "oci_genai", label: "OCI Generative AI" },
+  { value: "claude_aws", label: "Claude Platform on AWS" },
   { value: "bedrock", label: "AWS Bedrock" },
   { value: "vertex", label: "Google Vertex AI" },
   { value: "anthropic", label: "Anthropic (direct)" },

@@ -113,6 +113,7 @@ const VALID_PROVIDERS: ProviderId[] = [
   "groq",
   "vllm",
   "nvidia",
+  "claude_aws",
 ];
 
 function getServerSupabase(authToken?: string) {
