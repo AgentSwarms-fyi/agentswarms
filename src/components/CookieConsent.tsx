@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Link } from "@tanstack/react-router";
 import { Cookie } from "lucide-react";
+import { withCspNonce } from "@/lib/cspNonce";
 
 const STORAGE_KEY = "agentswarms.cookie-consent.v1";
 
@@ -16,6 +17,9 @@ const GTM_ID = (import.meta.env.VITE_GTM_ID as string | undefined) || undefined;
 
 type Consent = "accepted" | "declined";
 
+// Every tag added here carries the page's CSP nonce (R397). The default
+// policy allows only the app's own scripts and nonced ones, so without it
+// the operator's analytics would be refused the moment the visitor accepts.
 function loadAnalytics() {
   if (typeof window === "undefined") return;
   const w = window as unknown as {
@@ -26,7 +30,7 @@ function loadAnalytics() {
   w.__agentswarmsAnalyticsLoaded = true;
 
   if (GTM_ID) {
-    const gtm = document.createElement("script");
+    const gtm = withCspNonce(document.createElement("script"));
     gtm.async = true;
     gtm.src = `https://www.googletagmanager.com/gtm.js?id=${GTM_ID}`;
     document.head.appendChild(gtm);
@@ -35,11 +39,11 @@ function loadAnalytics() {
   }
 
   if (GA_ID) {
-    const ga = document.createElement("script");
+    const ga = withCspNonce(document.createElement("script"));
     ga.async = true;
     ga.src = `https://www.googletagmanager.com/gtag/js?id=${GA_ID}`;
     document.head.appendChild(ga);
-    const inline = document.createElement("script");
+    const inline = withCspNonce(document.createElement("script"));
     inline.text = `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${GA_ID}');`;
     document.head.appendChild(inline);
   }

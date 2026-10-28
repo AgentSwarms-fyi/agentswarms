@@ -235,6 +235,15 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   server stays open as before. The first start after the upgrade re-owns the jar
   cache once, so it takes a little longer. A remote cluster takes its token in
   the URL instead (`sc://host:15002;token=…`).
+- **Pages run only their own scripts** (R397, VA-2026-10-25-22). The default
+  Content-Security-Policy now includes `script-src 'self' 'nonce-…'`. A fresh
+  nonce on each response covers the app's own inline scripts; nothing else
+  inline runs, and nothing evals. The browser SQL engine and the swarm function
+  node's sandbox are workers with policies of their own. The sandbox can no
+  longer reach the network at all, not even through `import()`. If your proxy
+  injects an inline script, or you set `CONTENT_SECURITY_POLICY` yourself, read
+  Configuration → Security headers: a policy you write can use
+  `'nonce-{nonce}'`.
 - **Security headers on every response** (R396, VA-2026-10-25-22). App pages can
   no longer be framed by another site; the embed and published-dashboard pages
   still can (narrow them with `EMBED_FRAME_ANCESTORS`). Also `nosniff`,

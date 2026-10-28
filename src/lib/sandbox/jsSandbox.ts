@@ -36,6 +36,14 @@
 //      synchronous infinite loop — the previous version could hang the tab,
 //      and documented that as an accepted limitation. It no longer applies.
 //
+//   5. The worker is a FILE on this origin (public/sandbox/function-node.js),
+//      not a blob: URL (R397). A blob: worker takes the page's
+//      Content-Security-Policy, and the page's script-src has no
+//      'unsafe-eval', so the snippet could not have been compiled. A file
+//      takes the policy of its own response, which server.mjs sets to
+//      `default-src 'none'; script-src 'unsafe-eval'`: compile the snippet,
+//      and reach nothing, even if deleting a global in step 2 fails.
+//
 // Residual, and deliberately so: the snippet can still burn CPU for up to
 // `timeoutMs` on a background thread, and can read the `ctx` it was given
 // (that is the entire point of the node).
@@ -54,29 +62,6 @@ export type SandboxContext = {
 
 export type SandboxResult =
   { ok: true; value: unknown; logs: string[] } | { ok: false; error: string; logs: string[] };
-
-// Globals removed from the worker scope before user code runs. Anything that
-// could reach the network, persist data, or spawn more execution contexts.
-// `postMessage` is captured by the bootstrap first, then deleted, so the
-// snippet cannot message the parent directly.
-const STRIPPED_GLOBALS = [
-  "fetch",
-  "XMLHttpRequest",
-  "WebSocket",
-  "EventSource",
-  "importScripts",
-  "indexedDB",
-  "caches",
-  "Worker",
-  "SharedWorker",
-  "BroadcastChannel",
-  "Notification",
-  "navigator",
-  "location",
-  "postMessage",
-  "close",
-  "crypto",
-];
 
 // Safe stringify: handles circular refs and converts non-JSON values to
 // readable strings. Returned to the caller when the user code returns an
@@ -108,85 +93,17 @@ export function safeStringify(value: unknown): string {
   }
 }
 
-// The worker bootstrap, as source. Kept as a string and loaded through a Blob
-// URL so it needs no bundler plumbing and stays readable in one place.
-//
-// Note the ordering: capture the reply channel, strip the globals, THEN run
-// anything the user supplied.
-const WORKER_BOOTSTRAP = `
-const __post = self.postMessage.bind(self);
-const __strip = ${JSON.stringify(STRIPPED_GLOBALS)};
-
-self.onmessage = async (ev) => {
-  const { code, ctx, timeoutMs } = ev.data;
-  const logs = [];
-  const sandboxConsole = {
-    log: (...a) => logs.push(a.map(String).join(" ")),
-    info: (...a) => logs.push(a.map(String).join(" ")),
-    warn: (...a) => logs.push("[warn] " + a.map(String).join(" ")),
-    error: (...a) => logs.push("[error] " + a.map(String).join(" ")),
-  };
-
-  // Strip AFTER capturing what we need. Some of these are non-configurable in
-  // certain engines, so fall back to overwriting with undefined.
-  for (const name of __strip) {
-    try {
-      delete self[name];
-      if (self[name] !== undefined) self[name] = undefined;
-    } catch {
-      try { self[name] = undefined; } catch { /* frozen: best effort */ }
-    }
-  }
-
-  // Freeze the context so a snippet can read but not reshape shared state.
-  const frozen = Object.freeze({
-    input: ctx.input,
-    vars: Object.freeze({ ...(ctx.vars || {}) }),
-    params: Object.freeze({ ...(ctx.params || {}) }),
-  });
-
-  try {
-    const fn = new Function(
-      "ctx",
-      "console",
-      '"use strict";\\nreturn (async function userFn(ctx, console) {\\n' + code + '\\n})(ctx, console);'
-    );
-    const value = await Promise.race([
-      Promise.resolve().then(() => fn(frozen, sandboxConsole)),
-      new Promise((_, rej) =>
-        setTimeout(() => rej(new Error("Function timed out after " + timeoutMs + "ms")), timeoutMs)
-      ),
-    ]);
-    // Structured-clone can't carry functions/symbols; stringify defensively.
-    let safe;
-    try {
-      safe = JSON.parse(JSON.stringify(value === undefined ? null : value));
-    } catch {
-      safe = String(value);
-    }
-    __post({ ok: true, value: safe, logs });
-  } catch (err) {
-    __post({ ok: false, error: err && err.message ? err.message : String(err), logs });
-  }
-};
-`;
-
-let cachedUrl: string | null = null;
-function bootstrapUrl(): string {
-  if (!cachedUrl) {
-    cachedUrl = URL.createObjectURL(
-      new Blob([WORKER_BOOTSTRAP], { type: "application/javascript" }),
-    );
-  }
-  return cachedUrl;
-}
+// The worker, served from this origin: public/sandbox/function-node.js holds
+// the bootstrap (the reply channel, the globals it strips, the snippet's
+// wrapper). server.mjs gives that one path its own Content-Security-Policy.
+export const SANDBOX_WORKER_URL = "/sandbox/function-node.js";
 
 export async function runSandboxed(
   code: string,
   ctx: SandboxContext,
   timeoutMs = 2000,
 ): Promise<SandboxResult> {
-  if (typeof Worker === "undefined" || typeof URL.createObjectURL !== "function") {
+  if (typeof Worker === "undefined") {
     // No worker available (SSR / non-browser). Refuse rather than fall back to
     // an in-realm eval — an unsandboxed path is worse than an unavailable one.
     return {
@@ -207,7 +124,7 @@ export async function runSandboxed(
     cloneableCtx = { input: String(ctx.input ?? ""), vars: {}, params: {} };
   }
 
-  const worker = new Worker(bootstrapUrl());
+  const worker = new Worker(SANDBOX_WORKER_URL);
   // The worker's own timer rejects a well-behaved (async) snippet; this one is
   // the hard stop that also kills a synchronous infinite loop. Slightly longer
   // so the in-worker message wins when it can.

@@ -8,7 +8,9 @@
     "url": "git+https://github.com/AgentSwarms-fyi/agentswarms.git"
   },
   "private": true,
-  "sideEffects": false,
+  "sideEffects": [
+    "./src/lib/zodNoEval.ts"
+  ],
   "type": "module",
   "engines": {
     "node": ">=20.19"

@@ -22,7 +22,14 @@ import { describe, expect, it } from "vitest";
 const codeOnly = (src: string) =>
   src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, " ");
 
-const BROWSER = codeOnly(readFileSync(resolve("src/lib/sandbox/jsSandbox.ts"), "utf-8"));
+// The canvas sandbox is two files since R397: the Worker's bootstrap, served
+// from this origin so it takes its own Content-Security-Policy, and the code
+// that starts it.
+const BROWSER = codeOnly(
+  readFileSync(resolve("public/sandbox/function-node.js"), "utf-8") +
+    "\n" +
+    readFileSync(resolve("src/lib/sandbox/jsSandbox.ts"), "utf-8"),
+);
 const SERVER = codeOnly(readFileSync(resolve("services/js-sandbox/worker.mjs"), "utf-8"));
 const SERVICE = codeOnly(readFileSync(resolve("services/js-sandbox/server.mjs"), "utf-8"));
 const EXECUTOR = codeOnly(readFileSync(resolve("src/utils/swarmExecute.server.ts"), "utf-8"));

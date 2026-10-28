@@ -4,8 +4,10 @@
 //   • /api/* (and anything cross-origin, e.g. Supabase) is never touched.
 //   • Content-hashed assets under /assets/* are cache-first (immutable).
 //   • Navigations are network-first with an offline fallback page.
-// Bump VERSION when this file changes to drop the old caches.
-const VERSION = "v1";
+// Bump VERSION when this file changes to drop the old caches — and when
+// offline.html does, which install caches once (v2, R397: its inline handler
+// went, and a cached copy would have kept it).
+const VERSION = "v2";
 const STATIC_CACHE = `as-static-${VERSION}`;
 const OFFLINE_URL = "/offline.html";
 

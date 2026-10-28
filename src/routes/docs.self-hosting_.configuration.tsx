@@ -434,14 +434,15 @@ SITE_URL="https://your-domain.com"`}</Code>
           [
             <C key="b">CONTENT_SECURITY_POLICY</C>,
             <C key="d">
-              object-src &apos;none&apos;; base-uri &apos;self&apos;; form-action &apos;self&apos;
+              object-src &apos;none&apos;; base-uri &apos;self&apos;; form-action &apos;self&apos;;
+              script-src &apos;self&apos; &apos;nonce-{"{nonce}"}&apos;
             </C>,
-            "The enforced policy, replacing the default. frame-ancestors is set per page and ignored here.",
+            "The enforced policy, replacing the default. {nonce} is each response's nonce: keep 'nonce-{nonce}' in any script-src you write, or the page's own scripts are refused. frame-ancestors is set per page and ignored here.",
           ],
           [
             <C key="c">CONTENT_SECURITY_POLICY_REPORT_ONLY</C>,
             "unset",
-            "A stricter policy to trial: the browser reports what it would block and blocks nothing.",
+            "A stricter policy to trial: the browser reports what it would block and blocks nothing. {nonce} works here too.",
           ],
           [
             <C key="e">EMBED_FRAME_ANCESTORS</C>,
@@ -456,12 +457,16 @@ SITE_URL="https://your-domain.com"`}</Code>
           [<C key="g">HSTS_INCLUDE_SUBDOMAINS</C>, "false", "Add includeSubDomains to HSTS."],
         ]}
       />
-      <Callout kind="info" title="Why the default policy has no script-src">
-        The page&apos;s own hydration scripts are inline, and the browser SQL engine, the
-        spreadsheet and slide exporters and the swarm runtime compile code as they run. A script-src
-        that kept all of that working would have to allow inline scripts and <C>eval</C>, and would
-        stop next to nothing. To add one, trial it with <C>CONTENT_SECURITY_POLICY_REPORT_ONLY</C>{" "}
-        and read the browser console before enforcing it.
+      <Callout kind="info" title="Scripts: the app's own, and nonced ones">
+        The default <C>script-src</C> allows the app&apos;s own files and the inline scripts it
+        renders with that response&apos;s nonce: no other inline script and no <C>eval</C>. Two
+        workers carry a script-src of their own whatever you set. The browser SQL engine gets{" "}
+        <C>&apos;self&apos; &apos;wasm-unsafe-eval&apos;</C>, and the swarm function node&apos;s
+        sandbox gets <C>default-src &apos;none&apos;; script-src &apos;unsafe-eval&apos;</C>: it can
+        run the snippet and reach nothing. If something you add needs more (an inline tag your
+        reverse proxy injects, say), write your own <C>CONTENT_SECURITY_POLICY</C>. The three
+        directives without a script-src give you no script restriction at all. Trial any change with{" "}
+        <C>CONTENT_SECURITY_POLICY_REPORT_ONLY</C> and read the browser console before enforcing it.
       </Callout>
 
       <H3 id="env-observability">Observability and audit</H3>

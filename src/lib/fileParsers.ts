@@ -73,7 +73,11 @@ async function loadPdf(file: File): Promise<any> {
   const pdfjs: any = await import(/* @vite-ignore */ PDFJS_URL);
   pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_URL;
   const buf = await file.arrayBuffer();
-  return await pdfjs.getDocument({ data: buf }).promise;
+  // isEvalSupported: false — pdf.js would otherwise probe `new Function`
+  // and compile PostScript functions and font paths with it. The page's
+  // Content-Security-Policy allows no eval (R397); its interpreter is the
+  // path every CSP-restricted site takes, and the text is the same.
+  return await pdfjs.getDocument({ data: buf, isEvalSupported: false }).promise;
 }
 
 /** The text layer of every page, in order; a scanned page yields "". */

@@ -6,6 +6,9 @@
 // Note: any future middleware added here runs on ALL server functions.
 // Keep authentication-only concerns here; per-route logic belongs in the
 // individual `createServerFn` chain.
+//
+// First: Zod must be told before any schema is built (src/lib/zodNoEval.ts).
+import "@/lib/zodNoEval";
 import { createCsrfMiddleware, createStart } from "@tanstack/react-start";
 import { attachSupabaseAuth } from "@/integrations/supabase/auth-attacher";
 

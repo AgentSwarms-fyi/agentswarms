@@ -161,15 +161,44 @@ R396 it set none, so any site could frame a signed-in page under a decoy.
 decides what they show. The prefix match keeps its slash: `/embeds`, the signed-in
 page that manages keys, is not frameable.
 
-**The default policy has no `script-src`, on purpose.** Measured on the built
-client: the SSR hydration scripts are inline, and the DuckDB workers, exceljs,
-pptxgen and the swarm runtime compile code at run time. A `script-src` that kept
-them working would allow `'unsafe-inline'` and `'unsafe-eval'` and stop next to
-nothing. The default is what cannot break anything — `object-src 'none'`,
-`base-uri 'self'`, `form-action 'self'` — and an operator can enforce more with
-`CONTENT_SECURITY_POLICY`, after trialling it with
-`CONTENT_SECURITY_POLICY_REPORT_ONLY`. A nonce-based `script-src` needs the
-framework to stamp the nonce on its own inline scripts; that is the follow-up.
+**Scripts: the app's own, and nonced ones (R397).** The default policy is
+`object-src 'none'; base-uri 'self'; form-action 'self'; script-src 'self' 'nonce-…'`:
+no `'unsafe-inline'`, no `'unsafe-eval'`, no `'wasm-unsafe-eval'`. The middleware
+makes a 128-bit nonce for each response and runs the request inside an
+AsyncLocalStorage it parks on `globalThis`. `getRouter()` reads the nonce from there
+(`src/lib/cspNonce.ts`) into the router's `ssr.nonce`, so TanStack stamps it on every
+inline script it renders: hydration, streamed chunks, head scripts, and
+`<meta property="csp-nonce">`. The client router reads that meta tag back. So does the
+consent banner, whose analytics tags carry it. The theme boot script goes through
+`ScriptOnce`, which takes the router's nonce. The service-worker registration became an
+effect, and `offline.html` lost its inline `onclick`. In an operator's own policy,
+`{nonce}` stands for the nonce.
+
+Two code paths compile code by design, and both are workers. A worker loaded from a
+URL takes the policy of its own response, so each gets one:
+
+- **DuckDB-WASM's engine** (`/assets/duckdb-browser-*.worker-<hash>.js`):
+  `script-src 'self' 'wasm-unsafe-eval'` replaces the page's script-src (when the
+  policy restricts scripts at all); every other directive still applies.
+- **The swarm function node's sandbox** (`/sandbox/function-node.js`):
+  `default-src 'none'; script-src 'unsafe-eval'`, fixed. It may compile the snippet
+  and reach nothing. It used to be a `blob:` worker, which takes the PAGE's policy; that would
+  have refused the snippet outright, and with no policy it let a snippet `import()` a
+  module from anywhere, a way out that deleting `fetch` never closed.
+
+Nothing else needs eval. Zod 4 probes `new Function("")` to decide whether to
+compile its parsers; `src/lib/zodNoEval.ts` sets `jitless` first, because Zod reads it
+when a schema is built, and package.json lists it under `sideEffects` so the bundler
+keeps it. pdf.js is called with `isEvalSupported: false`. The `Function("return
+this")` fallbacks in lodash and underscore, the `setImmediate` string form in exceljs
+and pptxgen, and regenerator's strict-mode fallback are never reached in a browser.
+
+MEASURED before enforcing: a report-only trial on the live instance walked thirteen
+pages, among them the Lakehouse, Data Catalog with the in-browser engine, BI, Sheets,
+Agent Chat, swarms and two embeds. Every report was Zod's probe, one per page load.
+Then enforced, the same walk ran clean. A blocked inline tag your proxy injects, for
+example, is fixed in `CONTENT_SECURITY_POLICY`. Setting it to the three R396
+directives removes the script-src again.
 
 ---
 

@@ -3617,6 +3617,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "noreply@example.com",
       "off",
       "onboarding@resend.dev",
+      "script-src",
       "true",
       "web_browse",
       "yes"

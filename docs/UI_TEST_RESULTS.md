@@ -34,6 +34,49 @@ with no token; it was removed after each run. `.env` gained a generated `SPARK_C
 Console on Lakehouse and ETL: no Content-Security-Policy message; the service-worker "unknown error" lines
 R396 explained; one 429 whose request had already left the tab's network buffer — both runs completed.
 
+## 2026-10-28 — R397: a nonce-based script-src, trialled report-only, then enforced
+
+The live container was recreated from the plain compose file plus a scratchpad override that only adds the
+CSP variables. Reports went to a throwaway collector (`python:3.12-slim` on `127.0.0.1:8097`, `report-uri`).
+Three phases:
+
+- **Trial:** the R396 policy enforced (`CONTENT_SECURITY_POLICY` set to its three directives), and the
+  candidate `script-src 'self' 'nonce-{nonce}'` sent report-only. The deployed module was a copy that sent
+  the function-node sandbox's policy report-only too, so the trial enforced nothing new.
+- **Enforced:** the default policy, with the same script-src also sent report-only so the collector still
+  saw anything it refused.
+- **Control:** the DuckDB worker's grant without `'wasm-unsafe-eval'`.
+
+| Phase    | What was driven                                                                                            | Result                                                                                                                                                                                                                                                                                                                                |
+| -------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Trial    | `GET /`: the header's nonce against the HTML                                                               | `content-security-policy-report-only: script-src 'self' 'nonce-4geHbf…'`; `<meta property="csp-nonce">` and all seven `<script>` tags carry that nonce (hydration, the streamed part, JSON-LD, the module entry); no bare `<script>`                                                                                                  |
+| Trial    | Home, Lakehouse, Data Catalog, BI list + a dashboard, Sheets list + a workbook, Agents, Agent Chat, Swarms | 15 reports, all one place: `index-….js` line 105, Zod 4's `new Function("")` probe, once per full page load. No inline-script, `wasm-eval` or other report                                                                                                                                                                            |
+| Trial    | Data Catalog: 28 local tables, then a Workbench query on the Local engine                                  | 10 rows. The worker `/assets/duckdb-browser-eh.worker-CwdVMcbT.js` carried report-only `script-src 'self' 'wasm-unsafe-eval'`; nothing was reported from it while it compiled the engine and ran queries                                                                                                                              |
+| Trial    | In the page: pptxgen `write()`, exceljs write + read back, mermaid `render` (strict)                       | a 44.7 KB deck, a 6.4 KB workbook reading back "two", a 7-node SVG; no report                                                                                                                                                                                                                                                         |
+| Trial    | Agent Chat on Sample · SQL Reviewer: one message, then a hand-made one-line PDF attached                   | the reply streamed and rendered; the PDF parsed in the browser (chip `r397-probe.pdf`; pdf.js and its worker from `/vendor`, `isEvalSupported: false`)                                                                                                                                                                                |
+| Trial    | Swarm canvas, R109 chat echo: a Function (JS) node (not saved), Test on sample input                       | **HELLO WORLD**, from `/sandbox/function-node.js`. A snippet that `import()`s `/assets/r397-probe-nope.js` reached the network (a 404), and its in-worker `securitypolicyviolation` listener read `script-src-elem … report default-src 'none'; script-src 'unsafe-eval'`: the worker takes its own response's policy, not the page's |
+| Trial    | BI embed and agent embed previews                                                                          | the dashboard's 12 charts drew, and its page carries the nonce meta; the chat rendered                                                                                                                                                                                                                                                |
+| Enforced | `GET /`, `/sandbox/function-node.js`                                                                       | `object-src 'none'; base-uri 'self'; form-action 'self'; script-src 'self' 'nonce-…'; frame-ancestors 'self'`; the sandbox `default-src 'none'; script-src 'unsafe-eval'`                                                                                                                                                             |
+| Enforced | The same walk, on the build with Zod's `jitless`                                                           | **0 reports**. Theme class set by the boot script, which removed itself; Lakehouse query `n = 108`; 28 local tables and the Workbench query (10 rows, 154 ms); dashboard 28 charts; workbook 14 cells, 0 errors; deck, workbook and diagram as above                                                                                  |
+| Enforced | Chat with the PDF attached; the agent embed, one message                                                   | the PDF parsed (`r397-enforced.pdf`); both replies rendered; `/api/embed/chat` 200 with five knowledge-base sources                                                                                                                                                                                                                   |
+| Enforced | The function node: default snippet, then the probe                                                         | **HELLO WORLD**; then `import()` refused, `script-src-elem … enforce`, `new Function` still allowed, `typeof fetch` "undefined", and `typeof __post` "undefined" (the bootstrap's reply channel is no longer a global)                                                                                                                |
+| Control  | The DuckDB worker given `script-src 'self'` only, its cached copy refreshed, Data Catalog reloaded         | the engine never started: "Loading local tables" and "Starting the SQL engine…" for good; console: `CompileError: WebAssembly.instantiateStreaming(): … violates … "script-src 'self'"`. Restored: 28 tables                                                                                                                          |
+
+Found on the way, and recorded in the Adversarial log: the first enforced build still showed Zod's report,
+because `"sideEffects": false` had dropped the `import "./lib/zodNoEval"`. A worker's report is lost when
+the worker is terminated before sending it, and the sandbox terminates its worker on answering. The
+service-worker registration still fails in this pane ("An unknown error occurred when fetching the
+script"), while `/sw.js` itself answers 200 `text/javascript`. It failed the same way in the trial, under
+the R396 policy, which has no script-src, and R396 saw it on an origin that sends no headers at all: the
+pane does not register service workers. The consent banner was left unanswered, so the analytics tags were not loaded; the unit tests hold
+their nonce.
+
+Fixtures kept: the conversations "R397 CSP trial: reply with the single word OK." and "R397 enforced CSP:
+quote the one line of text in the attached PDF, nothing else." on Sample · SQL Reviewer, and one preview
+conversation on the "E2E agent" embed (its uses count rose by one). The function nodes were never saved.
+The collector container and the compose override are gone: the app container was recreated from the plain
+compose file and the gate's build deployed into it.
+
 ## 2026-10-28 — R396: security headers, and an app page framed by another site
 
 Fixture: a throwaway `python:3.12-slim` container serving one page on `127.0.0.1:8781` (another origin) that

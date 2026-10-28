@@ -1,4 +1,11 @@
-import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
+import {
+  Outlet,
+  Link,
+  createRootRoute,
+  HeadContent,
+  Scripts,
+  ScriptOnce,
+} from "@tanstack/react-router";
 import { Toaster } from "@/components/ui/sonner";
 import { useEffect } from "react";
 import { installSilentFailureNet } from "@/lib/silentFailureNet";
@@ -17,6 +24,11 @@ import { SchemaHealthGuard } from "@/components/SchemaHealthGuard";
 // components/ThemeProvider.tsx and ACCENTS in hooks/use-theme.ts: this has to be a string that runs
 // before any bundle loads, so it cannot import them. If either list changes,
 // change it here too.
+//
+// Rendered through ScriptOnce, which gives it the request's CSP nonce (R397):
+// a bare <script> had none, and the default policy refuses inline scripts
+// without one. ScriptOnce also removes the tag after it runs, so the client
+// has nothing to hydrate against it.
 const themeBootScript = `
 (function(){try{
   var t = localStorage.getItem('agentswarms.theme.v2');
@@ -166,12 +178,6 @@ export const Route = createRootRoute({
           sameAs: ["https://agentswarms.fyi/"],
         }),
       },
-      {
-        // Register the PWA service worker (installable + offline shell). Runs
-        // in the browser only; failures are swallowed so they never affect load.
-        children:
-          "if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){})})}",
-      },
     ],
   }),
   shellComponent: RootShell,
@@ -184,7 +190,7 @@ function RootShell({ children }: { children: React.ReactNode }) {
     <html lang="en" suppressHydrationWarning>
       <head>
         <HeadContent />
-        <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
+        <ScriptOnce>{themeBootScript}</ScriptOnce>
       </head>
       <body>
         {children}
@@ -203,6 +209,28 @@ function SilentFailureNet() {
   return null;
 }
 
+/**
+ * Registers the PWA service worker (installable + offline shell) once the
+ * page has loaded; failures are swallowed so they never affect it. This was
+ * an inline script in head, one more that needed the CSP nonce (R397), and
+ * nothing about it has to run before the app does.
+ */
+function ServiceWorkerRegistration() {
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const register = () => {
+      navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+    };
+    if (document.readyState === "complete") {
+      register();
+      return;
+    }
+    window.addEventListener("load", register, { once: true });
+    return () => window.removeEventListener("load", register);
+  }, []);
+  return null;
+}
+
 function RootComponent() {
   return (
     <ThemeProvider>
@@ -210,6 +238,7 @@ function RootComponent() {
         <Outlet />
         <Toaster />
         <SilentFailureNet />
+        <ServiceWorkerRegistration />
         {/* Mounted beside the Toaster and for the same reason: asking the user
             something must not depend on a browser dialog they can switch off. */}
         <ConfirmHost />

@@ -163,6 +163,85 @@ still parses the whole program as Python. Mutation: 5 of 5 caught.
 
 **Live:** see UI_TEST_RESULTS.
 
+### 2026-10-28 — R397: a script-src without 'unsafe-inline' or 'unsafe-eval', by default
+
+**Follow-up to** VA-2026-10-25-22. R396 shipped no default `script-src` because, measured on the built
+client, one that kept the app working would have needed `'unsafe-inline'` and `'unsafe-eval'`. Each reason
+was taken apart instead, and the default is now `script-src 'self' 'nonce-…'`.
+
+**The nonce.** TanStack Router stamps `router.options.ssr.nonce` on every inline script it renders (the
+hydration and stream scripts, head scripts, `<Scripts>`) and writes it into `<meta property="csp-nonce">`.
+The client router reads it back from there. `serverSecurityHeaders.mjs` makes 128 random bits per response
+and runs the rest of the chain inside an AsyncLocalStorage parked on `globalThis` under a registered symbol;
+TanStack keeps its own request store the same way. `getRouter()` reads it (`src/lib/cspNonce.ts`) without
+importing the server entry. The header fills `{nonce}` in its policy (and in an operator's) with the same
+value. The app's own inline scripts:
+
+- The theme boot script is rendered through `ScriptOnce`, which takes the router's nonce. A bare `<script>`
+  had none.
+- The service-worker registration was an inline head script; it is an effect now.
+- `offline.html` had `onclick="location.reload()"`, which no nonce can allow; it is a link to the same page,
+  and `sw.js` went to v2 so installed copies refetch it.
+- The consent banner's analytics tags take the nonce from the meta tag.
+
+**What compiles code, per path.**
+
+| Path                                      | What it does                                                                | Decision                                                                                                                                                                  |
+| ----------------------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| DuckDB-WASM engine worker                 | compiles the engine's WebAssembly; emscripten evals extensions' JS          | its own response gets `script-src 'self' 'wasm-unsafe-eval'` (replacing the page's when that restricts scripts at all). The app loads no extensions, and no eval was seen |
+| Swarm function node                       | `new Function(snippet)` in a worker                                         | moved from a `blob:` worker, which takes the PAGE's policy, to `/sandbox/function-node.js` with `default-src 'none'; script-src 'unsafe-eval'`, fixed                     |
+| Zod 4 (main bundle)                       | probes `new Function("")` once per page                                     | `z.config({ jitless: true })` in the browser (`src/lib/zodNoEval.ts`), first import of both entry roots                                                                   |
+| pdf.js (page + worker)                    | probes eval, compiles PostScript functions and font paths                   | `getDocument({ isEvalSupported: false })`                                                                                                                                 |
+| exceljs, pptxgen (JSZip), mammoth, lodash | `setImmediate` string form, regenerator fallback, `Function("return this")` | never reached in a browser: measured, writing a deck and a workbook raised nothing                                                                                        |
+| fflate, realtime-js, papaparse            | `blob:` workers                                                             | only behind APIs the app does not call (async zip, `worker: true`)                                                                                                        |
+
+**A way out of the sandbox, closed on the way.** The blob worker had no policy at all, so a snippet could
+`import()` a module from anywhere: deleting `fetch` and `importScripts` never covered dynamic import. With
+its own policy, the import is refused (shown live, `enforce`). The bootstrap's `__post` and `__strip` were
+script-level `const`s in a classic worker, so `new Function` code could see them. Its comment said the
+snippet could not see the bootstrap's bindings; now that is true, because the whole bootstrap sits inside an
+IIFE.
+
+**Measured, not assumed.** A report-only trial on the live instance (UI_TEST_RESULTS, R397), thirteen
+pages, every report Zod's probe. Enforced, the same walk produced none. A control without
+`'wasm-unsafe-eval'` on the DuckDB worker stopped the engine with `CompileError: WebAssembly.
+instantiateStreaming(): … violates … "script-src 'self'"`. That proves the worker runs under its own policy,
+and that the grant is the one it needs. No document compiled WebAssembly, so the page policy has no
+`'wasm-unsafe-eval'`.
+
+**Found on the way.**
+
+1. **`"sideEffects": false` drops side-effect imports.** The first enforced build still showed Zod's report:
+   Rollup had removed `import "./lib/zodNoEval"`, because package.json declared that no module has side
+   effects. Calling a function from `router.tsx` instead would run after the routes had built their schemas
+   (Zod reads `jitless` at construction), so the file is listed under `sideEffects`, and a test pins both.
+2. **A worker's CSP report dies with the worker.** The first sandbox probe's report never reached the
+   collector: the sandbox terminates its worker the moment it answers, before the report is sent. A
+   300 ms wait delivered it. So a collector's silence about a short-lived worker proves nothing; an
+   in-worker `securitypolicyviolation` listener does. The DuckDB worker lives for the tab, so its silence
+   does count.
+3. **An engine that cannot start spins for ever.** Under the control, the Data Catalog showed "Loading local
+   tables" and the Workbench "Starting the SQL engine…" indefinitely, with only an `Uncaught (in promise)`
+   in the console. Not CSP-specific: any failure to compile the engine looks the same. Open; proposed as its
+   own round.
+
+**Tests:** `securityHeaders.test.ts` 14 → 35:
+
+- the default script-src and its nonce;
+- the nonce the router reads inside the request, a separate nonce for each of two overlapping requests, none
+  outside a request, and none with `SECURITY_HEADERS=off`;
+- `{nonce}` in the operator's enforced and report-only policies;
+- the DuckDB workers found from `browserDuckdb.ts`'s own imports, with the default, an operator's policy,
+  report-only, a policy that restricts no scripts, and look-alike paths;
+- the sandbox's fixed policy;
+- a sweep of every `new Worker(` in `src`;
+- the root route, the consent banner and the static pages;
+- Zod's import order, `sideEffects` and browser-only `jitless`, and pdf.js.
+
+`sandboxParity.test.ts` reads the worker file. Mutation: 21 of 21 caught; the control stayed green.
+
+**Live:** see UI_TEST_RESULTS.
+
 ### 2026-10-28 — R396: the production server sent no security headers
 
 **Assessment finding** VA-2026-10-25-22 (medium). `server.mjs` set no Content-Security-Policy,

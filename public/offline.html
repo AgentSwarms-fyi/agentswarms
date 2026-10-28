@@ -48,8 +48,9 @@
         line-height: 1.5;
         margin: 0 0 1.5rem;
       }
-      button {
-        appearance: none;
+      .retry {
+        display: inline-block;
+        text-decoration: none;
         border: 0;
         border-radius: 0.5rem;
         background: #6366f1;
@@ -59,7 +60,7 @@
         padding: 0.6rem 1.2rem;
         cursor: pointer;
       }
-      button:hover {
+      .retry:hover {
         background: #4f46e5;
       }
     </style>
@@ -72,7 +73,11 @@
         AgentSwarms needs a connection to load this page. Check your network and try again — pages
         you've already opened may still work.
       </p>
-      <button onclick="location.reload()">Retry</button>
+      <!-- A link to this same page, not onclick="location.reload()": the
+           Content-Security-Policy refuses inline handlers (R397). The service
+           worker serves this page in place of the one that failed, so the
+           empty href is that page. -->
+      <a class="retry" href="">Retry</a>
     </div>
   </body>
 </html>
