@@ -83,8 +83,10 @@ else
   echo "[3/5] grype  $GRYPE_IMAGE"
   pull "$GRYPE_IMAGE"
   digest "$GRYPE_IMAGE" >> "$OUT/_versions.txt"
-  # First-party images this repo builds, plus the base/third-party images the
-  # compose stack runs. Edit this list when the stack changes.
+  # First-party images this repo builds and their bases, plus every
+  # third-party image the compose stack runs — read from docker-compose.yml,
+  # pinned digests included, so the scan covers exactly what runs.
+  THIRD_PARTY="$(sed -n 's/^ *image: *\([^ #]*\).*/\1/p' "$REPO/docker-compose.yml" | grep -v '^agentswarms/')"
   IMAGES="
     agentswarms-share-agentswarms:latest
     agentswarms/notebook-runtime:latest
@@ -93,12 +95,7 @@ else
     agentswarms/js-sandbox:latest
     node:22-slim
     python:3.12-slim
-    apache/spark:4.2.0-python3
-    postgres:16
-    qdrant/qdrant:v1.12.4
-    valkey/valkey:8.1-alpine
-    tecnativa/docker-socket-proxy:latest
-    ubuntu/squid:latest
+    $THIRD_PARTY
   "
   mkdir -p "$OUT/grype"
   # Persist grype's vulnerability DB across images and runs: it is ~1 GB and

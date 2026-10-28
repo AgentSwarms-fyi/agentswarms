@@ -26,6 +26,32 @@ updates:
     commit-message:
       prefix: "deps"
 
+  # Third-party images are pinned as tag@sha256 (VA-24), which never moves on
+  # its own: these propose the next tag and its digest together, so a pin
+  # does not quietly age into the image scan's CVE list. Majors stay manual
+  # for the same reason as npm (Postgres, Spark and Valkey majors are
+  # migrations). The k8s entries read the image: lines in the manifests.
+  - package-ecosystem: docker-compose
+    directory: "/"
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    labels: ["dependencies", "docker"]
+    commit-message:
+      prefix: "deps(images)"
+  - package-ecosystem: docker
+    directories: ["/deploy/k8s/app", "/deploy/k8s/notebooks"]
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    labels: ["dependencies", "docker"]
+    commit-message:
+      prefix: "deps(images)"
+
   # Keep the workflow's own actions current. Stale action majors are a common
   # source of sudden CI breakage when GitHub retires a runtime.
   - package-ecosystem: github-actions

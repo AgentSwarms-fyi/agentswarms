@@ -15,6 +15,23 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-28 — R399: the stack recreated on pinned images
+
+Fixtures: a probe cell added to the **R301 probe** notebook was deleted after the round. The notebook again
+has its three code cells; the cell's runs left two idle kernels, which the reaper collects. The counter
+cell of **r213 double run** was run once on a fresh kernel. No data was written.
+
+| Build            | What was done                                                                                                                                 | Result                                                                                                                                                                                                                                                 |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| R398 (`:latest`) | `docker inspect` of each third-party container; `imagetools inspect` of each tag                                                              | socket proxy ran v0.4.2 `1f3a6f…` while `:latest` is v0.5.0 `1f5038…`; postgres ran `f1c337…` (Aug) while `16` is 16.15 `1beaa3…`; valkey ran `d2e18f…` while `8.1-alpine` is 8.1.11 `2602ac…`. MinIO and mc: quay answers 401, Hub "object not found" |
+| R398             | Developer workspace → R301 probe → new code cell → Shift+Enter (`urllib` to `pypi.org` and `example.com`)                                     | first run "Kernel connect timed out": the proxy's `start` took 18.7 s on this machine. Rerun: `pypi.org -> 200`, `example.com -> URLError(OSError('Tunnel connection failed: 403 Forbidden'))`. Proxy log: `POST /containers/create` 201, `/start` 204 |
+| R399 pins        | `docker compose pull lakehouse-catalog valkey`; `up -d --no-deps` the proxy, squid, catalog twin, Qdrant, Valkey, MinIO + init, spark-connect | each container's `Config.Image` is its `tag@sha256` pin; all healthy; `valkey-server` 8.1.11, `postgres` 16.15; spark-connect "server started" in 2 m 13 s, JVM user `spark` (startup heartbeat NPE warnings before registration, as on a slow boot)   |
+| R399             | the same probe cell → Shift+Enter (squid recreated)                                                                                           | **`pypi.org -> 200`, `example.com -> … 403 Forbidden`**: the recreated squid loaded the same allow-list                                                                                                                                                |
+| R399             | r213 double run → counter cell → Shift+Enter (no kernel yet for this notebook)                                                                | **printed `1`** (a new interpreter). The pinned proxy's log: `POST /containers/create?name=nb-bc11e335…` **201**, `/start` **204**                                                                                                                     |
+| R399             | Lakehouse → Spark cluster → `SELECT n, count(*) AS c FROM analytics.r211_double GROUP BY n ORDER BY n` → Run                                  | **3 row(s) · 31636 ms · spark**, n 1 → 2, 2 → 1, 3 → 1 (as in R398), through the token                                                                                                                                                                 |
+| R399             | The gate's `dist` copied into the app container, restarted; Docs → Install & deploy → Operations                                              | **Every page showed "Something went wrong"**, console "Missing Supabase environment variables": the scratch worktree that built it had no `.env`, and Vite bakes `VITE_SUPABASE_*` into the client. Down about 15 minutes                              |
+| R399             | The same tree rebuilt with `.env` copied in (not committed), redeployed; Operations, then Lakehouse                                           | Operations shows **"Every third-party image … is pinned as tag@sha256 digest"** under Upgrades and **"Keep the image pins"** under Before you expose it; Lakehouse loads signed in, 11 schemas · 64 tables                                             |
+
 ## 2026-10-28 — R398: the Spark Connect server, from the kernels' network and from the UI
 
 Fixtures: none new. `r227_gateway` was switched to the Spark engine for one run and back; after a reload,

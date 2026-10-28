@@ -136,7 +136,7 @@ function SelfHostingOperationsPage() {
           },
           {
             name: "Upgrades",
-            body: "Take a backup first (npm run backup), then pull, rebuild (docker compose up -d --build) and run npx supabase db push --include-all. Migrations only add and are never reverted, so the rollback is the backup plus a git checkout of the previous tag. Check the release notes before skipping several versions.",
+            body: "Take a backup first (npm run backup), then pull, rebuild (docker compose up -d --build) and run npx supabase db push --include-all. Every third-party image (Postgres, MinIO, Qdrant, Valkey, Spark, Squid, the Docker socket proxy) is pinned as tag@sha256 digest, so docker compose pull fetches exactly the build that release was tested with and never whatever was pushed under the tag since. Migrations only add and are never reverted, so the rollback is the backup plus a git checkout of the previous tag. Check the release notes before skipping several versions.",
           },
           {
             name: "Logs",
@@ -241,6 +241,11 @@ function SelfHostingOperationsPage() {
         <li>Review retention windows for chats, transcripts and audit.</li>
         <li>
           Back up <C>PROVIDER_CREDS_SECRET</C> somewhere you can actually retrieve it.
+        </li>
+        <li>
+          Keep the image pins. If you mirror the images into your own registry, mirror them by
+          digest and keep the <C>@sha256:</C> part, so a mirror cannot serve a different build under
+          the same tag.
         </li>
       </UL>
 

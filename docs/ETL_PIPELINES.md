@@ -332,7 +332,7 @@ environment, then the default.
 | -------------------- | ------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------ |
 | Clusters come from   | `SPARK_PROVIDER`                                              | `static`                     | `static` (a shared endpoint) or `k8s` (one per run)                      |
 | Endpoint             | `SPARK_CONNECT_URL`                                           | —                            | `static` only: where every run dials                                     |
-| Spark image          | `SPARK_IMAGE`                                                 | `apache/spark:4.2.0-python3` | driver and executors                                                     |
+| Spark image          | `SPARK_IMAGE`                                                 | `apache/spark:4.2.0-python3` | driver and executors; the default is pinned by digest (the server's)     |
 | Executors per run    | `SPARK_EXECUTORS`                                             | 2                            | executor pods one run asks for                                           |
 | Cores per executor   | `SPARK_EXECUTOR_CORES`                                        | 1                            |                                                                          |
 | Executor memory (MB) | `SPARK_EXECUTOR_MEM_MB`                                       | 2048                         |                                                                          |

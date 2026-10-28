@@ -2507,11 +2507,27 @@ the lakehouse catalog and its object store included), restore in the order above
 the drill against the same backup on the new host to prove the catalog and
 lake it now serves match what you moved. Only then repoint DNS.
 
-### Pin image digests
+### Image digests are pinned
 
-`docker-compose.yml` uses `:latest` for the third-party runtime images
-(`tecnativa/docker-socket-proxy`, `ubuntu/squid`) and flags this inline — pin
-them to digests in production for reproducibility.
+Every third-party image the stack pulls is pinned as `tag@sha256:<digest>`:
+in `docker-compose.yml`, in the Kubernetes manifests under `deploy/k8s/`, in
+the one-off containers `scripts/setup-k8s.sh` and
+`deploy/notebooks/test/verify-runtime.sh` start, and in the per-run Spark
+image (`SPARK_IMAGE`'s default). The digest is the multi-platform index, so
+the same pin works on amd64 and arm64. Docker and Kubernetes pull by the
+digest and ignore the tag, which is there for people. So `docker compose pull`
+fetches the build a release was tested with, never whatever was pushed under
+the tag since. Before VA-24 (R399), `docker-socket-proxy` and `squid` were
+`:latest`, and `latest` for the proxy had moved from v0.4.2 to v0.5.0 under
+installs that never changed a file.
+
+Moving a pin is a change like any other. `.github/dependabot.yml` proposes the
+next tag and digest weekly for compose and the manifests; majors (Postgres 17,
+a new Spark) stay manual, because they are migrations. The image scan
+(`docs/security/scripts/scan.sh`) reads its list from `docker-compose.yml`, so
+it scans exactly the pinned builds. If you mirror images into a private
+registry, mirror by digest and keep the `@sha256:` suffix. If you override
+`SPARK_IMAGE`, keep its major.minor equal to the Connect server's.
 
 ### Document renderer (Deep-mode Office exports)
 

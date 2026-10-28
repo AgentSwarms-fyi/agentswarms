@@ -10,8 +10,8 @@
 // What must stay true: nothing in the compose file is profiled, the installers
 // still accept the flags people have in their notes, and those flags change
 // nothing about what runs.
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readdirSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import yaml from "js-yaml";
 
@@ -160,6 +160,99 @@ describe("the installers", () => {
     ]) {
       expect(env, `.env.example does not set ${line}`).toContain(line);
     }
+  });
+});
+
+describe("every third-party image is pinned by digest (VA-24)", () => {
+  // tag@sha256:<64 hex> — the engine pulls by the digest, the tag is for people.
+  const PINNED = /^[a-z0-9][a-z0-9./_-]*:[\w.-]+@sha256:[0-9a-f]{64}$/;
+  // Images this repo builds itself; their tag names a local build, not a pull.
+  const firstParty = (image: string) => /^agentswarms(\/|:)/.test(image);
+
+  const k8sFiles = (dir: string): string[] =>
+    readdirSync(resolve(dir), { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory()
+        ? k8sFiles(join(dir, e.name))
+        : /\.ya?ml$/.test(e.name)
+          ? [join(dir, e.name)]
+          : [],
+    );
+  const imageLines = (file: string) =>
+    [...readFileSync(resolve(file), "utf-8").matchAll(/^\s*-?\s*image:\s*(\S+)/gm)].map(
+      (m) => m[1],
+    );
+
+  const composeImages = Object.entries(
+    (compose as unknown as { services: Record<string, { image?: string }> }).services,
+  ).flatMap(([name, s]) => (s.image ? [[name, s.image] as const] : []));
+
+  it("pins every image docker compose pulls", () => {
+    const thirdParty = composeImages.filter(([, image]) => !firstParty(image));
+    expect(thirdParty.length).toBeGreaterThanOrEqual(8);
+    for (const [name, image] of thirdParty) {
+      expect(image, `compose service ${name}`).toMatch(PINNED);
+    }
+  });
+
+  it("pins every image the Kubernetes manifests pull", () => {
+    const files = k8sFiles("deploy/k8s");
+    let seen = 0;
+    for (const file of files) {
+      for (const image of imageLines(file).filter((i) => !firstParty(i))) {
+        seen++;
+        expect(image, file).toMatch(PINNED);
+      }
+    }
+    expect(seen).toBeGreaterThanOrEqual(7);
+  });
+
+  it("runs the same build of a service in compose and on Kubernetes", () => {
+    const k8s = k8sFiles("deploy/k8s").flatMap(imageLines);
+    const byRepo = (image: string) => image.split(":")[0];
+    for (const [, image] of composeImages.filter(([, i]) => !firstParty(i))) {
+      const twin = k8s.filter((i) => byRepo(i) === byRepo(image));
+      for (const t of twin) expect(t, `${byRepo(image)} differs between the two`).toBe(image);
+    }
+  });
+
+  it("pins the one-off containers the scripts start", () => {
+    const k8sSetup = readFileSync(resolve("scripts/setup-k8s.sh"), "utf-8");
+    const verify = readFileSync(resolve("deploy/notebooks/test/verify-runtime.sh"), "utf-8");
+    const runImages = [
+      ...[...k8sSetup.matchAll(/--image=(\S+)/g)].map((m) => m[1]),
+      ...[...verify.matchAll(/run --rm --network "\$NET" (\S+)/g)].map((m) => m[1]),
+    ];
+    expect(runImages.length).toBeGreaterThanOrEqual(2);
+    for (const image of runImages) expect(image).toMatch(PINNED);
+  });
+
+  it("starts per-run Spark clusters on the build the Connect server runs", () => {
+    const src = readFileSync(resolve("src/utils/etl/sparkCluster.server.ts"), "utf-8");
+    const def = /const DEFAULT_IMAGE =\s*"([^"]+)"/.exec(src)?.[1];
+    const server = composeImages.find(([name]) => name === "spark-connect")?.[1];
+    expect(def).toMatch(PINNED);
+    expect(def).toBe(server);
+  });
+
+  it("has Dependabot propose the next pin, for compose and the manifests", () => {
+    const cfg = yaml.load(readFileSync(resolve(".github/dependabot.yml"), "utf-8")) as {
+      updates: { "package-ecosystem": string; directory?: string; directories?: string[] }[];
+    };
+    const composeEntry = cfg.updates.find((u) => u["package-ecosystem"] === "docker-compose");
+    expect(composeEntry?.directory).toBe("/");
+    const docker = cfg.updates.find((u) => u["package-ecosystem"] === "docker");
+    const dirs = new Set(
+      k8sFiles("deploy/k8s")
+        .filter((f) => imageLines(f).some((i) => !firstParty(i)))
+        .map((f) => "/" + f.split(/[\\/]/).slice(0, -1).join("/")),
+    );
+    for (const dir of dirs) expect(docker?.directories, dir).toContain(dir);
+  });
+
+  it("scans exactly what compose runs, read from the file", () => {
+    const scan = readFileSync(resolve("docs/security/scripts/scan.sh"), "utf-8");
+    expect(scan).toContain(`"$REPO/docker-compose.yml" | grep -v '^agentswarms/'`);
+    expect(scan).not.toMatch(/^\s+(postgres|ubuntu\/squid|tecnativa|valkey|qdrant)\S*$/m);
   });
 });
 

@@ -53,7 +53,8 @@ const DEFAULT_PACKAGES =
   "org.apache.hadoop:hadoop-aws:3.5.0,io.delta:delta-spark_2.13:4.4.0," +
   "org.postgresql:postgresql:42.7.13,com.mysql:mysql-connector-j:9.7.0";
 
-const DEFAULT_IMAGE = "apache/spark:4.2.0-python3";
+const DEFAULT_IMAGE =
+  "apache/spark:4.2.0-python3@sha256:fc64959c04bd87b0ac686be9aaa9008b69cdb1afc695400528279c8b01f43d89";
 
 function envInt(name: string): number | undefined {
   const n = Number(process.env[name]?.trim());

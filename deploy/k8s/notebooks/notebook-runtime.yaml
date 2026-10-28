@@ -199,7 +199,7 @@ spec:
             matchLabels: { app: notebook-egress }
       containers:
         - name: squid
-          image: ubuntu/squid:latest # pin a digest in production
+          image: ubuntu/squid:6.6-24.04_beta@sha256:6a097f68bae708cedbabd6188d68c7e2e7a38cedd05a176e1cc0ba29e3bbe029
           ports: [{ containerPort: 3128 }]
           volumeMounts:
             - { name: cfg, mountPath: /etc/squid/squid.conf, subPath: squid.conf }

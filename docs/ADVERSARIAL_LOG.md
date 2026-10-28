@@ -109,6 +109,56 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-28 — R399: every third-party image pinned to the build it was tested with (VA-24)
+
+**Finding** VA-2026-10-25-24: `tecnativa/docker-socket-proxy` and `ubuntu/squid` were `:latest` in
+`docker-compose.yml` (and squid in the notebook manifest), with a comment saying to pin a digest in
+production. Those two guard the Docker socket and the kernels' only route out.
+
+**Measured before.** The running proxy was v0.4.2 (`sha256:1f3a6f…`), but `:latest` on Docker Hub now
+resolves to v0.5.0 (`sha256:1f5038…`, July 2026: a new HAProxy base and pause/resume permissions). So a plain
+`docker compose pull` would have replaced the proxy in front of the Docker socket with no file in the repo
+changing, and two installs of the same commit could run different proxies. `postgres:16` and
+`valkey/valkey:8.1-alpine` had drifted the same way: the install ran August builds, and the tags now name
+16.15 and 8.1.11.
+
+**Fix.** Every third-party image is written `tag@sha256:<index digest>`. That covers compose (8 services),
+`deploy/k8s/**` (Postgres, Valkey, Qdrant, MinIO, mc, squid, the scheduler's curl), the one-off containers
+`setup-k8s.sh` and `verify-runtime.sh` start, and the default `SPARK_IMAGE` in `sparkCluster.server.ts`, which
+is now the Connect server's own pin. A per-run cluster and the shared server cannot drift apart, and client
+and server must agree on major.minor. The `:latest` images were pinned to the build the install already ran
+(v0.4.2 proxy, squid `6.6-24.04_beta`). Floating tags were pinned to their current build. Every digest was
+read back as an OCI index or manifest list, so the pin works on arm64 too. Dependabot gained
+`docker-compose` (for `/`) and `docker` (for `deploy/k8s/app` and `deploy/k8s/notebooks`) entries, which
+propose tag and digest together, with majors manual. Without them a pin would quietly age into VA-25's CVE
+list. `scan.sh` reads the third-party list from `docker-compose.yml` rather than keeping a copy that had
+already gone stale.
+
+**Found on the way: VA-2026-10-25-35.** Resolving the MinIO digests failed. `quay.io/minio/minio` and
+`quay.io/minio/mc` answer 401 to anonymous pulls (`docker manifest inspect …:RELEASE.2025-09-07T16-13-09Z`:
+"no such manifest"), and Docker Hub's `minio/minio` no longer exists. The compose file had moved to quay
+precisely because Hub had gone. This install runs only because both images are cached; on any other
+machine the lakehouse object store cannot be installed. R399 pins the digest this install runs, which is the
+honest pin. Replacing the image is the next round.
+
+**Not in scope.** The five first-party Dockerfiles keep `node:22-slim` / `python:3.12-slim`. A digest there
+freezes OS patches until something bumps it, and validating a new base means rebuilding five images on this
+machine. That belongs to VA-25's rebuild.
+
+**Tests:** `composeServices.test.ts` +7. They check:
+
+- every compose and manifest image outside `agentswarms/*` matches `tag@sha256:<64 hex>`;
+- a service runs the same build in compose and on Kubernetes;
+- the scripts' one-off images are pinned;
+- the Spark default equals the server's pin;
+- Dependabot covers compose and every manifest directory that names a third-party image;
+- `scan.sh` derives its list from the compose file.
+
+Mutation 9 of 9, among them `:latest` restored on the proxy, a different Postgres build on k8s, an unpinned
+Spark default, and a dropped Dependabot directory.
+
+**Live:** see UI_TEST_RESULTS (R399).
+
 ### 2026-10-28 — R398: anything on the kernels' network could drive the Spark driver, which ran as root
 
 **Assessment finding** VA-2026-10-25-23. The Compose `spark-connect` service listens on `nb-internal`, where

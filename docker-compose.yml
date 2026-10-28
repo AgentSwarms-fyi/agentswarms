@@ -104,10 +104,16 @@ services:
     networks: [default, nb-internal, nb-dev]
     restart: unless-stopped
 
+  # Every third-party image in this file is pinned as tag@sha256:<index digest>
+  # (VA-24). The engine pulls by the digest, so the image cannot change under
+  # the same name; the tag is there for people. Dependabot proposes new pins
+  # (.github/dependabot.yml); a `:latest` would mean `docker compose pull` runs
+  # whatever was pushed last.
+  #
   # Least-privilege Docker API: only container create/inspect/logs + write verbs
   # are exposed to the app (never the raw /var/run/docker.sock).
   notebook-docker-proxy:
-    image: tecnativa/docker-socket-proxy:latest # pin a digest in production
+    image: tecnativa/docker-socket-proxy:v0.4.2@sha256:1f3a6f303320723d199d2316a3e82b2e2685d86c275d5e3deeaf182573b47476
     environment:
       # Only the API sections the orchestrator needs: create/inspect/stop/remove
       # containers, plus read access to images and networks (preflight verifies
@@ -145,7 +151,7 @@ services:
 
   # Default-deny egress proxy — the kernels' only route to the internet.
   notebook-egress:
-    image: ubuntu/squid:latest # pin a digest in production
+    image: ubuntu/squid:6.6-24.04_beta@sha256:6a097f68bae708cedbabd6188d68c7e2e7a38cedd05a176e1cc0ba29e3bbe029
     # Fixed name so the app can locate and restart it when an administrator
     # saves a new egress allow-list (squid re-reads ACL files only on start,
     # and the docker socket proxy deliberately denies `exec`).
@@ -173,7 +179,7 @@ services:
   # Postgres 12+ works; this one exists so a single-host deployment has zero
   # extra moving parts. Point LAKEHOUSE_CATALOG_URL at it (or at your own).
   lakehouse-catalog:
-    image: postgres:16
+    image: postgres:16.15@sha256:1beaa3084eee2676f20a9cd9928f0bf2c5bf674f8e49f81017912183d377c61c
     # 55432, not 5432: a developer's own Postgres is usually on 5432 and a
     # port clash here reads as "the catalog is broken".
     ports:
@@ -239,7 +245,7 @@ services:
   # LAKEHOUSE_S3_* at that instead. This one is here so an install has a
   # working lakehouse without an account anywhere.
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
@@ -272,7 +278,7 @@ services:
   # bucket surfaces as a write error on the first table, which is a poor way to
   # learn that a container never ran.
   minio-init:
-    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
     depends_on:
       minio: { condition: service_healthy }
     # MC_HOST_<alias> is mc's own way to carry a target's credentials. The first
@@ -285,7 +291,7 @@ services:
     restart: "no"
 
   qdrant:
-    image: qdrant/qdrant:v1.12.4
+    image: qdrant/qdrant:v1.12.4@sha256:241edb9d7778327516ef218f8c74e1bd61b5ea42cd4f193cb8d0896199705636
     # Loopback only, so `scripts/setup.sh --dev` (app on the host) reaches the
     # same service the containerised app does rather than running without it.
     ports:
@@ -340,7 +346,7 @@ services:
   # Not published to the host, for the same reason the vector store is not: a
   # feature store on a laptop's loopback is one anybody on that laptop can read.
   valkey:
-    image: valkey/valkey:8.1-alpine
+    image: valkey/valkey:8.1.11-alpine@sha256:2602ace2be6569bc2bbb06f873776516ab9089821525be34f4305c67eb9db02a
     ports:
       - "127.0.0.1:6379:6379"
     command:
@@ -394,7 +400,7 @@ services:
   # construction. Empty/unset SPARK_CONNECT_TOKEN = no auth, so an existing
   # deployment keeps working unchanged.
   spark-connect:
-    image: apache/spark:4.2.0-python3
+    image: apache/spark:4.2.0-python3@sha256:fc64959c04bd87b0ac686be9aaa9008b69cdb1afc695400528279c8b01f43d89
     ports:
       - "127.0.0.1:15002:15002"
     # root only for the one-shot chown in the command below; the JVM runs as 185.

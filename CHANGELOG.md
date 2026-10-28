@@ -222,6 +222,18 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   so nothing stops being recorded. The matching lockdown of the swarm-run table —
   which doesn't feed the budget and is written from the browser — is tracked
   separately (VA-2026-10-25-31).
+- **Every third-party image is pinned to an exact build** (R399,
+  VA-2026-10-25-24). `docker-compose.yml`, the Kubernetes manifests, the
+  installers' one-off containers and the per-run Spark image now name each
+  third-party image as `tag@sha256:<digest>`, so `docker compose pull` fetches
+  the build a release was tested with. Before, the Docker socket proxy and the
+  notebook egress proxy were `:latest`, and `latest` for the socket proxy had
+  already moved from v0.4.2 to v0.5.0. Postgres (16.15) and Valkey (8.1.11)
+  move to their tags' current builds; every other pin is the build installs
+  already ran. Dependabot now proposes new pins weekly for compose and the
+  manifests, and the image scan reads its list from the compose file.
+  **Upgrading:** `docker compose pull && docker compose up -d`. If you mirror
+  images into a private registry, mirror them by digest.
 - **The Spark Connect server asks for a token and no longer runs as root**
   (R398, VA-2026-10-25-23). Notebook kernels share an internal network with the
   Compose `spark-connect` service; until now a kernel could connect to it and

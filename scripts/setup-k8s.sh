@@ -287,7 +287,7 @@ echo "    API gateway: $SUPABASE_URL"
 
 if [ -n "$ADMIN_EMAIL" ] && [ -n "$ADMIN_PASSWORD" ]; then
   say "Creating the admin user"
-  kubectl -n "$NS" run as-admin-setup --rm -i --restart=Never --image=curlimages/curl:8.11.1 --command -- \
+  kubectl -n "$NS" run as-admin-setup --rm -i --restart=Never --image=curlimages/curl:8.11.1@sha256:c1fe1679c34d9784c1b0d1e5f62ac0a79fca01fb6377cdd33e90473c6f9f9a69 --command -- \
     curl -sS -X POST "${SUPABASE_URL}/auth/v1/admin/users" \
       -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" \
       -H "Content-Type: application/json" \

@@ -3825,6 +3825,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "--cpus=2",
       "/api/health",
       "/api/health/ready",
+      "@sha256:",
       "APP_ROLE=analytics",
       "DISABLE_INPROCESS_SCHEDULER",
       "ENFORCE_BUDGET_CAP",
