@@ -222,6 +222,12 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   so nothing stops being recorded. The matching lockdown of the swarm-run table —
   which doesn't feed the budget and is written from the browser — is tracked
   separately (VA-2026-10-25-31).
+- **A workflow's API trigger works, and is rate-limited the right way round**
+  (R392, VA-2026-10-25-18). `POST /api/workflows/run` read the limiter
+  backwards: a trigger within the limit was refused with 429, and after six
+  refusals had filled the minute's allowance, every further trigger went
+  through unlimited. Triggers within `WORKFLOW_TRIGGER_PER_MIN` (default 6) now
+  start a run; the next one in the same minute gets 429.
 - **The cost of every AI draft and graph build counts toward your budget**
   (R391, VA-2026-10-25-34). The ETL, lakehouse and skills generators and a
   knowledge-graph build recorded nothing, so they never appeared in Traces and

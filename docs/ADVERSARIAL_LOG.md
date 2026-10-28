@@ -109,6 +109,29 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-28 — R392: a workflow's trigger door was rate-limited backwards
+
+**Assessment finding** VA-2026-10-25-18. `rateLimitedGlobal` answers "is the caller over the limit?" (true
+refuses). `POST /api/workflows/run` asked `!(await rateLimitedGlobal(…))`, so a trigger within the limit got 429
+— having already taken a slot — and once six refusals had filled the minute's bucket, every later trigger was
+let through, unlimited. Introduced with the route in 7575ea43; the ETL trigger door it copies, and every other
+caller, read the limiter correctly.
+
+**Before, live:** a new workflow "R392 trigger probe" (one `SELECT 1` step) with a minted trigger token: its
+very first trigger answered 429 "Too many triggers for this workflow"; the next seven answered
+`429 429 429 429 429 202 409` — five more refusals inside the limit, then the trigger past it accepted (the 409
+is the one-run-at-a-time guard, a run being in progress).
+
+**The fix:** the negation removed, with a comment saying what the limiter returns.
+
+**Tests:** `workflowTriggerRateLimit.test.ts` (5) — the route driven through the real `rateLimitedGlobal` (the
+database RPC is the only stub): a trigger within the limit starts a run, one over it gets 429 and runs
+nothing, the bucket is per workflow with the configured ceiling, and with the RPC down the in-process fallback
+lets six through a minute and refuses the seventh; and a sweep that no caller in `src` negates the limiter.
+Mutation: 5 of 5 caught, including the original bug put back and another caller negated.
+
+**The UI:** see UI_TEST_RESULTS.
+
 ### 2026-10-28 — R391: spend the budget could not see — AI drafts, graph builds, ingestion embeddings
 
 **Assessment finding** VA-2026-10-25-34, found in R390: the R390 "before" skills draft was a real model call

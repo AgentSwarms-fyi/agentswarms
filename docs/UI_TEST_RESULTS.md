@@ -15,6 +15,23 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-28 — R392: a workflow's API trigger starts a run, and the seventh in a minute is refused
+
+A throwaway workflow "R392 trigger probe" (one SQL statement, `SELECT 1`), saved; Settings, Start it from
+outside, **Create token**. The token was read from the dialog inside the page and the endpoint called from the
+page with `fetch` — `POST /api/workflows/run` with `Authorization: Bearer wfk_…` and the `workflow_id` from the
+dialog's own curl example — so it never left the browser.
+
+| Build  | Triggers sent                                 | Answers                                                                                 |
+| ------ | --------------------------------------------- | --------------------------------------------------------------------------------------- |
+| before | one, to a workflow never triggered            | 429 "Too many triggers for this workflow"                                               |
+| before | seven more, back to back                      | 429 429 429 429 429 **202** 409 — refused inside the limit, accepted past it            |
+| R392   | seven, about eight seconds apart (one minute) | **202** 409 409 409 409 409 **429** — the run started; the seventh refused by the limit |
+
+The 409s are "This workflow is already running" — the one-run-at-a-time guard; each still passed the limiter,
+so the seventh call was the seventh in the minute. The list then showed the workflow "succeeded". The workflow
+was deleted afterwards ("Workflow deleted"), its token and run history with it.
+
 ## 2026-10-28 — R391: AI drafts, graph builds and ingestion count toward the budget
 
 Before (seen in R390, and still visible after): the R390 "before" skills draft was a real model call and Traces

@@ -90,8 +90,11 @@ export const Route = createFileRoute("/api/workflows/run")({
 
         const perMin = envInt("WORKFLOW_TRIGGER_PER_MIN", 6);
         // Global rather than per process, so the documented ceiling holds
-        // however many replicas are behind the load balancer.
-        if (!(await rateLimitedGlobal(`wfrun:${id}`, perMin))) {
+        // however many replicas are behind the load balancer. rateLimitedGlobal
+        // answers "over the limit?" — true refuses (VA-2026-10-25-18: this was
+        // negated, so every trigger within the limit got 429 and, once six had
+        // filled the bucket, every trigger after them went through unlimited).
+        if (await rateLimitedGlobal(`wfrun:${id}`, perMin)) {
           return json({ error: "Too many triggers for this workflow" }, 429);
         }
 
