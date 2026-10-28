@@ -399,6 +399,16 @@ SITE_URL="https://your-domain.com"`}</Code>
         exists to close. It is clamped to the length of the chain, so it can never walk past the
         end.
       </Callout>
+      <Callout kind="info" title="How an outbound URL is checked">
+        The app resolves the name itself and checks every address it gets back, on every redirect.
+        Cloud metadata and the rest of link-local (IPv4 and IPv6, including an IPv4 address written
+        inside IPv6) are refused whatever these settings say. A name that does not resolve from the
+        server is refused too — before, it was sent anyway — unless the request goes through{" "}
+        <C>HTTPS_PROXY</C>, which resolves it. A direct connection then goes only to the addresses
+        that were checked, so a DNS answer that changes in between cannot redirect it. Object-store
+        and Iceberg URLs are checked the same way but fetched by DuckDB, which resolves them again:
+        egress rules are what stop a hostile resolver there.
+      </Callout>
       <Callout kind="warn">
         Allowing private-network fetches means a URL chosen by a model — from <C>web_browse</C>, a
         swarm HTTP node, or a prompt-injected instruction — can reach inside your network. If you

@@ -15,6 +15,33 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-28 — R395: the SSRF guard covers whole ranges, refuses unresolved names, and pins direct connections
+
+Lakehouse → Iceberg → **Add catalog**, name `r395_nat64`, warehouse `s3://iceberg/`, **Test and save**, on the
+R394 build and again on R395. Toasts were captured by a page observer (they expire in ~4 s).
+
+| Build | REST endpoint                                  | Result                                                                                                                                                                       |
+| ----- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R394  | `http://[64:ff9b::a9fe:a9fe]/api/catalog`      | "The catalog did not answer: IO Error: Could not connect to server error for HTTP GET to 'http://[64:ff9b::a9fe:a9fe]/api/catalog/v1/config…'" — the engine made the request |
+| R394  | `http://[fea0::1]/api/catalog`                 | "… Could not connect to server error for HTTP GET to 'http://[fea0::1]/api/catalog/v1/config…'" — the engine made the request                                                |
+| R394  | `http://r395-nowhere.invalid:8181/api/catalog` | "… IO Error: Could not resolve hostname error for HTTP GET to 'http://r395-nowhere.invalid:8181/…'" — the engine resolved it itself                                          |
+| R395  | the NAT64 address                              | "The catalog did not answer: Iceberg catalog endpoint: Refusing to fetch link-local/metadata address: [64:ff9b::a9fe:a9fe]" (1.3 s)                                          |
+| R395  | `fea0::1`                                      | "… Iceberg catalog endpoint: Refusing to fetch link-local/metadata address: [fea0::1]"                                                                                       |
+| R395  | the unresolved name                            | "… Iceberg catalog endpoint: r395-nowhere.invalid does not resolve from this server (ENOTFOUND), so nothing was sent to it"                                                  |
+
+No catalog was saved by any of them (the list still holds only `local_rest`). Then, on R395, the paths whose
+connections are now pinned (the app container sets no proxy, so every one of these hops is direct):
+
+| What was pressed                                                                                      | Result                                                                                                                                                                        |
+| ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Iceberg mount picker, catalog `local_rest` (`http://192.168.1.85:8181`, private)                      | namespaces `r107`, `r181`, `sales` listed                                                                                                                                     |
+| Lakehouse → **Draft SQL**, OpenRouter / server default, "how many tables are in the analytics schema" | "SQL drafted — review, then run" in 9.0 s: `SELECT COUNT(*) AS table_count FROM information_schema.tables WHERE table_schema = 'analytics';` — HTTPS through the pinned agent |
+| Data Catalog → "MinIO local etl demo" → **Re-crawl** (private MinIO)                                  | "Crawled "MinIO local etl demo" — 12 assets, 85 columns" in 4.8 s                                                                                                             |
+
+A resolver that changes its answer between the check and the connection could not be staged on this network
+(Docker's embedded DNS answers the container); `ssrfGuardGaps.test.ts` carries that with a real socket. No
+fixtures.
+
 ## 2026-10-28 — R394: the kernel reaper's cron token
 
 `POST /api/notebook/runtime/reap` after the R394 build: no Authorization header → `401 {"error":"Unauthorized"}`;

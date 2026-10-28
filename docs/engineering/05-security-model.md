@@ -109,7 +109,11 @@ because most SSRF guards get this wrong in one direction or the other:
 **Always refused, unconditionally.** Link-local, cloud-metadata, unspecified and
 multicast addresses. `169.254.169.254` — the AWS/GCP/Azure/OCI instance metadata
 endpoint — can hand out the host's IAM credentials and has no legitimate use as a
-fetch target, so nothing can enable it.
+fetch target, so nothing can enable it. The ranges are whole: all of IPv6
+link-local `fe80::/10` and multicast `ff00::/8`, and an IPv4 address carried
+inside IPv6 — IPv4-mapped `::ffff:`, IPv4-compatible `::`, NAT64 `64:ff9b::`
+and 6to4 `2002::` — is judged as that IPv4 address (behind a NAT64 gateway,
+`64:ff9b::a9fe:a9fe` _is_ the metadata endpoint).
 
 **Allowed by default.** Ordinary private networks: localhost, RFC1918, CGNAT,
 IPv6 ULA. This is a self-hostable product, and self-hosted model servers
@@ -123,9 +127,22 @@ every resulting IP is checked**, not just the literal in the URL; and
 **redirects are followed manually**, so a public URL cannot `302` into a blocked
 range.
 
-**Residual risk, documented rather than hidden:** DNS rebinding. The guard
-validates the resolved address and then calls `fetch()`, which resolves again.
-Closing that properly needs connection-level pinning.
+**A name that does not resolve is refused**, not waved through: a resolver
+that fails the check's query and answers the connection's with
+`169.254.169.254` used to walk past the guard. The refusal is a network
+failure (`HostNotResolvedError`, the resolver's own code), so it is retried
+like one and reads "its host name does not resolve". The exception is a hop
+that leaves through `HTTPS_PROXY` / `HTTP_PROXY`, because the proxy resolves
+the name, not this server.
+
+**DNS rebinding is closed for direct connections.** `safeFetch` hands
+`fetch()` a dispatcher whose lookup answers with the addresses the check just
+accepted, so the connection cannot be sent anywhere else; the `Host` header
+and TLS name stay the URL's. **Residual:** a hop through the proxy (the proxy
+resolves it — filter there), and URLs another program fetches after the check
+— DuckDB reading an object store or an Iceberg catalog, a scraping service
+behind `web_browse` — cannot be pinned from here. Egress rules are the control
+for those.
 
 ---
 
@@ -224,7 +241,8 @@ what it found.
 
 Stated because an unstated limit is worse than a known one:
 
-- **DNS rebinding** against the SSRF guard, above.
+- **DNS rebinding** where the guard cannot pin the connection: proxied hops and
+  URLs fetched by DuckDB or a scraping service, above.
 - **The `ADMIN_EMAIL` bootstrap under autoconfirm.** With email confirmations
   disabled, Supabase stamps `email_confirmed_at` for everyone, so the operator
   and an attacker present identical evidence — possession of a string. The fix is

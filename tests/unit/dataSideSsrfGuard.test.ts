@@ -19,6 +19,10 @@ vi.mock("node:dns/promises", () => ({
   lookup: async (host: string) => {
     if (host.endsWith("metadata.attacker.test")) return [{ address: "169.254.169.254", family: 4 }];
     if (host === "catalog.internal.test") return [{ address: "10.0.0.7", family: 4 }];
+    // R395: a name that does not resolve here.
+    if (host.endsWith(".nowhere.test")) {
+      throw Object.assign(new Error(`getaddrinfo ENOTFOUND ${host}`), { code: "ENOTFOUND" });
+    }
     return [{ address: "93.184.216.34", family: 4 }];
   },
 }));
@@ -164,6 +168,17 @@ describe("Iceberg catalogs the lakehouse attaches", () => {
     ).rejects.toThrow(/endpoint.*(link-local|metadata)/i);
   });
 
+  it("refuses an endpoint whose name does not resolve here, before DuckDB is asked (R395)", async () => {
+    // DuckDB resolves the name again itself; a resolver that failed the
+    // check and answered DuckDB with 169.254.169.254 used to pass.
+    await expect(
+      assertIcebergUrlsAllowed({ ...ICE, endpoint: "http://catalog.nowhere.test/api/catalog" }),
+    ).rejects.toThrow(/endpoint: catalog\.nowhere\.test does not resolve from this server/);
+    await expect(assertEndpointAllowed("http://minio.nowhere.test:9000")).rejects.toThrow(
+      /does not resolve from this server/,
+    );
+  });
+
   it("refuses an OAuth2 token URL at the metadata address", async () => {
     await expect(
       assertIcebergUrlsAllowed({ ...ICE, oauth2_server_uri: "http://169.254.169.254/token" }),
@@ -196,6 +211,17 @@ describe("warehouse and SaaS connectors (connectorFetch)", () => {
       connectorFetch("https://warehouse.example/api", {}, { retries: 2, sleepFn: async () => {} }),
     ).rejects.toThrow(/link-local|metadata/i);
     expect(calls).toEqual(["https://warehouse.example/api"]);
+  });
+
+  it("sends nothing to a name that does not resolve, retries it, and says so plainly (R395)", async () => {
+    const err = await connectorFetch(
+      "https://acct.nowhere.test/api",
+      {},
+      { retries: 1, sleepFn: async () => {} },
+    ).catch((e) => e);
+    expect(calls).toEqual([]);
+    expect(err.name).toBe("HostNotResolvedError");
+    expect(err.code).toBe("ENOTFOUND");
   });
 
   it("still reaches a self-hosted warehouse on a private address", async () => {

@@ -11,6 +11,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 
+// Deterministic DNS. The end-to-end cases stub fetch, and since R395 a name
+// that does not resolve is refused before fetch is reached.
+vi.mock("node:dns/promises", () => ({
+  lookup: async () => [{ address: "93.184.216.34", family: 4 }],
+}));
+
 import {
   backoffMs,
   bypassesProxy,

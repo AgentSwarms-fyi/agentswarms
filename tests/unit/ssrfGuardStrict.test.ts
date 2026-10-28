@@ -133,7 +133,8 @@ describe("resolution, not just spelling", () => {
     const guard = readFileSync("src/utils/ssrfGuard.server.ts", "utf8");
     const fn = guard.slice(guard.indexOf("export async function assertPublicUrl"));
     const body = fn.slice(0, fn.indexOf("\n}"));
-    expect(body).toContain("await lookup(u.hostname, { all: true })");
+    // (Normalised since R395: an IPv6 literal's brackets are not part of it.)
+    expect(body).toContain("await lookup(normalize(u.hostname), { all: true })");
     // Every resolved address must go through the same classifier as the
     // hostname — not a second, weaker check.
     expect(body).toMatch(/for \(const a of addrs\)[\s\S]*classify\(a\.address\)/);

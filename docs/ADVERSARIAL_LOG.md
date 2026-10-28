@@ -109,6 +109,45 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-28 — R395: the SSRF guard's three gaps — partial ranges, fail-open lookups, rebinding
+
+**Assessment finding** VA-2026-10-25-21 (medium). Three gaps in `ssrfGuard.server.ts`:
+
+1. **Partial ranges.** Only the `fe80:` prefix of IPv6 link-local `fe80::/10` was refused, so `fe90::` …
+   `febf::` passed; IPv6 multicast was not refused at all; and an IPv4 address carried inside IPv6 was read as
+   ordinary IPv6 unless it was IPv4-mapped. The URL parser writes `http://[64:ff9b::169.254.169.254]/` as
+   `[64:ff9b::a9fe:a9fe]`, and behind a NAT64 gateway that **is** the metadata endpoint. Now: all of
+   `fe80::/10` and `ff00::/8`; IPv4-compatible `::`, NAT64 `64:ff9b::` and 6to4 `2002::` are read as the IPv4
+   address they carry; site-local `fec0::/10` counts as private.
+2. **A lookup that failed was allowed** ("resolution failure isn't itself an SSRF signal"). It is when the
+   connection resolves again: a resolver that fails the check's query and answers the connection's with
+   `169.254.169.254` walked through. The bracketed IPv6 literal made this worse than it looked — the guard
+   looked up `[64:ff9b::a9fe:a9fe]` with its brackets, which always fails, so every IPv6 literal skipped
+   resolution and depended on the static check alone. Now the name is normalised, and a name that does not
+   resolve is refused — as `HostNotResolvedError`, a network failure carrying the resolver's code, so a
+   transient `EAI_AGAIN` is retried (each attempt checks again) and `describeFetchFailure` still reads "its
+   host name does not resolve". The exception is a hop through `HTTPS_PROXY`, where the proxy resolves it.
+3. **DNS rebinding.** The check resolved, `fetch()` resolved again. `safeFetch` now gives a direct hop an
+   undici `Agent` whose `connect.lookup` answers with the addresses the check accepted (both the list form
+   net uses when it races address families and the single form it uses when it does not), so the
+   connection cannot go anywhere else; the Host header and TLS name stay the URL's. Agents are pooled per
+   host and address set. A provider set to require a private path is now judged on those same addresses —
+   one lookup per hop instead of two — and a name that does not resolve is that refusal, audited.
+
+**Residual, documented:** a proxied hop (the proxy resolves it), and URLs that another program fetches after
+the check — DuckDB for object stores and Iceberg catalogs, the scraping service behind `web_browse`.
+
+**Tests:** `ssrfGuardGaps.test.ts` (22) — the ranges, the embedded forms through the URL parser, fail-closed
+lookups and their proxy exception, the error's retry and wording, the private-path policy, and a real HTTP
+server reached through `pinned.test`, a name only the check's (mocked) resolver knows: the request arrives
+under that name, with one lookup, on every redirect hop, with address-family racing on and off. Six
+existing files relied on the fail-open lookup with made-up hostnames (`connectorFetch`, four Iceberg files)
+or pinned the old lookup line, and now mock DNS; `dataSideSsrfGuard.test.ts` gained the unresolved Iceberg,
+object-store and connector cases. Mutation: 20 of 20 caught — one survivor ("the pin replaces a caller's
+proxy dispatcher") until a test passed a dispatcher for a name that also resolves.
+
+**Live:** see UI_TEST_RESULTS.
+
 ### 2026-10-28 — R394: the kernel reaper compared its cron token with ===
 
 **Assessment finding** VA-2026-10-25-20 (low). `/api/notebook/runtime/reap` accepted `NOTEBOOK_CRON_TOKEN`

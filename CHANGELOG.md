@@ -222,6 +222,13 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   so nothing stops being recorded. The matching lockdown of the swarm-run table —
   which doesn't feed the budget and is written from the browser — is tracked
   separately (VA-2026-10-25-31).
+- **Outbound URLs are checked more strictly** (R395, VA-2026-10-25-21). All of
+  IPv6 link-local and multicast is refused, as is an IPv4 metadata or link-local
+  address written inside IPv6 (for example `http://[64:ff9b::169.254.169.254]/`).
+  A host name that does not resolve from the server is now refused before
+  anything is sent — it reads "its host name does not resolve", as before —
+  unless the request goes through `HTTPS_PROXY`. A direct connection goes only to
+  the addresses that were checked, which closes DNS rebinding for those calls.
 - **The notebook kernel reaper checks its cron token in constant time**
   (R394, VA-2026-10-25-20), as `/api/bi/cron` already did. Nothing changes for
   a scheduler that sends `NOTEBOOK_CRON_TOKEN` or `BI_CRON_TOKEN`.

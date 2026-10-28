@@ -29,6 +29,12 @@ function builder(table: string) {
 vi.mock("@/integrations/supabase/client.server", () => ({
   supabaseAdmin: { from: (table: string) => builder(table) },
 }));
+// Deterministic DNS: the catalog's name (`iceberg`) is a Compose service that
+// does not resolve on a test machine, and since R395 a name that does not
+// resolve is refused before anything is sent to it.
+vi.mock("node:dns/promises", () => ({
+  lookup: async () => [{ address: "10.0.0.9", family: 4 }],
+}));
 vi.mock("@/utils/audit.server", () => ({ auditEvent: vi.fn() }));
 vi.mock("@/utils/secrets.server", () => ({ resolveSecretRefs: vi.fn() }));
 

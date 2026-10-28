@@ -19,12 +19,18 @@
 // The hostname is RESOLVED and every resulting IP is checked, and redirects are
 // followed manually, so a public URL can't 302 into a blocked range.
 //
-// RESIDUAL RISK: DNS rebinding — we validate the resolved address, then fetch()
-// resolves again; a hostile resolver could answer differently the second time.
-// Fully closing that needs connection-level IP pinning, which fetch() does not
-// expose. Egress firewall rules remain the strongest control.
+// DNS REBINDING (VA-2026-10-25-21): a direct connection is PINNED to the
+// addresses that were just checked — fetch() is given a dispatcher whose lookup
+// answers with them — so a resolver cannot pass the check with one address and
+// hand the connection another. A name that does not resolve here is refused,
+// unless the hop leaves through the proxy, which resolves it. A proxied hop, and
+// a fetch some other program makes (DuckDB, a scraping service), cannot be
+// pinned from here; egress firewall rules remain the strongest control.
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { LookupAddress } from "node:dns";
 import { lookup } from "node:dns/promises";
+
+import { Agent } from "undici";
 
 function normalize(host: string): string {
   return host
@@ -40,15 +46,26 @@ function normalize(host: string): string {
  * keeps the dotted tail, but the COMPRESSED HEX form `::ffff:a9fe:a9fe` is the
  * same address and used to fall through every static check: it was refused only
  * because Node's resolver happened to hand the dotted form back. That is defence
- * by luck — assertPublicUrl allows a URL whose lookup FAILS, so a resolver that
- * errors (or a platform that does not normalise) turned a missed static check
- * into a reachable metadata endpoint.
+ * by luck — assertPublicUrl allowed a URL whose lookup FAILED (until R395), so a
+ * resolver that errors (or a platform that does not normalise) turned a missed
+ * static check into a reachable metadata endpoint.
  */
 function extractV4(h: string): [number, number, number, number] | null {
-  const hexMapped = h.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
-  if (hexMapped) {
-    const hi = parseInt(hexMapped[1], 16);
-    const lo = parseInt(hexMapped[2], 16);
+  // An IPv4 address carried in the last two hextets: IPv4-mapped (::ffff:),
+  // IPv4-compatible (::), and the NAT64 well-known prefix (64:ff9b::) — the URL
+  // parser writes all three in hex, and through a NAT64 gateway
+  // 64:ff9b::a9fe:a9fe IS 169.254.169.254 (VA-2026-10-25-21).
+  const hexTail = h.match(/^(?:::ffff:|::|64:ff9b::)([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+  if (hexTail) {
+    const hi = parseInt(hexTail[1], 16);
+    const lo = parseInt(hexTail[2], 16);
+    return [hi >> 8, hi & 0xff, lo >> 8, lo & 0xff];
+  }
+  // 6to4 (2002::/16) carries one in the second and third hextets.
+  const sixToFour = h.match(/^2002:([0-9a-f]{1,4}):([0-9a-f]{1,4})(?::|$)/i);
+  if (sixToFour) {
+    const hi = parseInt(sixToFour[1], 16);
+    const lo = parseInt(sixToFour[2], 16);
     return [hi >> 8, hi & 0xff, lo >> 8, lo & 0xff];
   }
   const mapped = h.match(/(?:^|:)((?:\d{1,3}\.){3}\d{1,3})$/);
@@ -68,7 +85,10 @@ export function isBlockedAlways(host: string): boolean {
   const h = normalize(host);
   if (!h) return true;
   if (h === "::") return true; // unspecified
-  if (h.startsWith("fe80:")) return true; // IPv6 link-local
+  // IPv6 link-local is fe80::/10 — fe80: through febf: — not just fe80:
+  // (VA-2026-10-25-21); multicast is ff00::/8.
+  if (/^fe[89ab][0-9a-f]:/.test(h)) return true; // IPv6 link-local
+  if (/^ff[0-9a-f]{2}:/.test(h)) return true; // IPv6 multicast
   if (h === "fd00:ec2::254") return true; // AWS instance metadata over IPv6
   const v4 = extractV4(h);
   if (v4) {
@@ -90,6 +110,7 @@ export function isPrivateNetwork(host: string): boolean {
   if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".local")) return true;
   if (h === "::1" || h === "0:0:0:0:0:0:0:1") return true; // IPv6 loopback
   if (/^f[cd]/.test(h)) return true; // IPv6 ULA fc00::/7 (fd00:ec2::254 already blocked above)
+  if (/^fe[c-f][0-9a-f]:/.test(h)) return true; // IPv6 site-local fec0::/10 (deprecated)
   const v4 = extractV4(h);
   if (v4) {
     const [a, b] = v4;
@@ -125,8 +146,21 @@ function blockPrivateNetworks(): boolean {
  */
 export async function assertPublicUrl(
   rawUrl: string,
-  opts: { blockPrivate?: boolean; allowPrivate?: boolean } = {},
-): Promise<{ ok: true; url: URL } | { ok: false; error: string }> {
+  opts: {
+    blockPrivate?: boolean;
+    allowPrivate?: boolean;
+    /**
+     * The name is resolved somewhere else — the hop goes through the proxy.
+     * Undefined: assume so when a proxy applies to this URL (a caller that
+     * hands the URL to another service, or to the proxy, rather than fetching
+     * it directly). safeFetch says exactly.
+     */
+    resolvedElsewhere?: boolean;
+  } = {},
+): Promise<
+  | { ok: true; url: URL; addresses: LookupAddress[] }
+  | { ok: false; error: string; unresolved?: { host: string; code: string } }
+> {
   let u: URL;
   try {
     u = new URL(rawUrl);
@@ -168,16 +202,83 @@ export async function assertPublicUrl(
   if (hostErr) return { ok: false, error: hostErr };
 
   // A public-looking name can still resolve into a blocked range.
+  let addrs: LookupAddress[];
   try {
-    const addrs = await lookup(u.hostname, { all: true });
-    for (const a of addrs) {
-      const err = classify(a.address);
-      if (err) return { ok: false, error: `${err} (resolved from ${u.hostname})` };
-    }
-  } catch {
-    // Resolution failure isn't itself an SSRF signal — let fetch report it.
+    addrs = await lookup(normalize(u.hostname), { all: true });
+  } catch (e) {
+    // A name that does not resolve HERE is refused (VA-2026-10-25-21): it used
+    // to pass, and fetch() then resolved it again — a resolver that fails the
+    // first query and answers the second with 169.254.169.254 walked straight
+    // through. Unless the name is resolved elsewhere: a proxied hop.
+    const elsewhere =
+      opts.resolvedElsewhere ??
+      (await import("@/utils/http/connectorFetch.server")).proxyForUrl(u) !== null;
+    if (elsewhere) return { ok: true, url: u, addresses: [] };
+    const code = String((e as { code?: unknown })?.code ?? "ENOTFOUND");
+    return {
+      ok: false,
+      unresolved: { host: u.hostname, code },
+      error: unresolvedMessage(u.hostname, code),
+    };
   }
-  return { ok: true, url: u };
+  for (const a of addrs) {
+    const err = classify(a.address);
+    if (err) return { ok: false, error: `${err} (resolved from ${u.hostname})` };
+  }
+  return { ok: true, url: u, addresses: addrs };
+}
+
+function unresolvedMessage(host: string, code: string): string {
+  return `${host} does not resolve from this server (${code}), so nothing was sent to it`;
+}
+
+/**
+ * The target's name did not resolve, so nothing was sent. A network failure
+ * caught before the connection, not a refusal: a transient EAI_AGAIN is worth
+ * retrying (each attempt resolves and checks again), and `code` is the one
+ * fetch() itself would have reported, so describeFetchFailure still says "its
+ * host name does not resolve".
+ */
+export class HostNotResolvedError extends Error {
+  readonly code: string;
+  constructor(host: string, code: string) {
+    super(unresolvedMessage(host, code));
+    this.name = "HostNotResolvedError";
+    this.code = code;
+  }
+}
+
+// One pinned agent per host and checked address set: pooled like any agent,
+// and able to connect nowhere but those addresses. Dropped (not closed — a
+// response may still be streaming) once there are many.
+const pinnedAgents = new Map<string, Agent>();
+
+/** A dispatcher whose every connection goes to the addresses already checked. */
+function pinnedDispatcher(host: string, addresses: LookupAddress[]): Agent {
+  const key = `${host}|${addresses
+    .map((a) => a.address)
+    .sort()
+    .join(",")}`;
+  let agent = pinnedAgents.get(key);
+  if (!agent) {
+    if (pinnedAgents.size >= 256) pinnedAgents.clear();
+    agent = new Agent({
+      connect: {
+        // net.connect's lookup: with `all` (address-family racing) it wants the
+        // list, without it one address.
+        lookup: (
+          _name: string,
+          options: { all?: boolean },
+          callback: (...args: unknown[]) => void,
+        ) => {
+          if (options?.all) callback(null, addresses);
+          else callback(null, addresses[0].address, addresses[0].family);
+        },
+      } as never,
+    });
+    pinnedAgents.set(key, agent);
+  }
+  return agent;
 }
 
 /**
@@ -207,23 +308,49 @@ export async function safeFetch(
 ): Promise<Response> {
   const { maxRedirects = 5, blockPrivate, allowPrivate, useProxy, ...rest } = init;
   let current = rawUrl;
+  const callerDispatcher = "dispatcher" in rest;
   for (let hop = 0; hop <= maxRedirects; hop++) {
+    // The proxy is chosen per hop (NO_PROXY may send one hop direct and the
+    // next through the proxy) — before the check, which must know whether this
+    // hop's name is resolved here or by the proxy.
+    let dispatcher: unknown;
+    if (useProxy && !callerDispatcher) {
+      let hopUrl: URL | null = null;
+      try {
+        hopUrl = new URL(current);
+      } catch {
+        /* the check below says it is not a URL */
+      }
+      if (hopUrl) {
+        const { proxyDispatcherFor } = await import("@/utils/http/connectorFetch.server");
+        dispatcher = await proxyDispatcherFor(hopUrl);
+      }
+    }
     // EVERY hop is re-validated, including the first. A public URL that 302s
     // to 169.254.169.254 is the whole reason this loop exists.
-    const check = await assertPublicUrl(current, { blockPrivate, allowPrivate });
-    if (!check.ok) throw new SsrfRefusedError(check.error);
-    // The proxy is chosen after the target is checked, per hop: NO_PROXY may
-    // send one hop direct and the next through the proxy.
-    let dispatcher: unknown;
-    if (useProxy && !("dispatcher" in rest)) {
-      const { proxyDispatcherFor } = await import("@/utils/http/connectorFetch.server");
-      dispatcher = await proxyDispatcherFor(check.url);
-    }
+    const check = await assertPublicUrl(current, {
+      blockPrivate,
+      allowPrivate,
+      resolvedElsewhere: Boolean(dispatcher) || callerDispatcher,
+    });
     // A provider set to require a private path: a hop that leaves through the
     // proxy is the egress the operator chose; a direct hop must resolve to
-    // private addresses only. Checked per hop, at the connection itself.
+    // private addresses only — checked against the addresses just resolved,
+    // the ones the connection is pinned to. A name that does not resolve is
+    // that refusal too (audited), not the generic one.
     const policy = useProxy ? privatePathScope.getStore() : undefined;
-    if (policy?.required && !dispatcher) await assertPrivateTarget(check.url.hostname, policy);
+    if (policy?.required && !dispatcher) {
+      if (!check.ok && check.unresolved) assertPrivateTarget(check.unresolved.host, policy, []);
+      if (check.ok) assertPrivateTarget(check.url.hostname, policy, check.addresses);
+    }
+    if (!check.ok && check.unresolved) {
+      throw new HostNotResolvedError(check.unresolved.host, check.unresolved.code);
+    }
+    if (!check.ok) throw new SsrfRefusedError(check.error);
+    // A direct hop connects only to the addresses just checked (DNS rebinding).
+    if (!dispatcher && !callerDispatcher && check.addresses.length > 0) {
+      dispatcher = pinnedDispatcher(check.url.hostname, check.addresses);
+    }
     const res = await fetch(check.url, {
       ...rest,
       ...(dispatcher ? ({ dispatcher } as Record<string, unknown>) : {}),
@@ -302,14 +429,18 @@ export function privatePathRefusal(label: string, host: string, addresses: strin
   );
 }
 
-async function assertPrivateTarget(hostname: string, policy: PrivatePathPolicy): Promise<void> {
+/**
+ * Refuse a direct hop for a provider that requires a private path unless every
+ * address it resolved to — the ones its connection is pinned to — is private.
+ * An empty list is a name that did not resolve.
+ */
+function assertPrivateTarget(
+  hostname: string,
+  policy: PrivatePathPolicy,
+  resolved: LookupAddress[],
+): void {
   const host = normalize(hostname);
-  let addresses: string[] = [];
-  try {
-    addresses = (await lookup(host, { all: true })).map((a) => a.address);
-  } catch {
-    addresses = [];
-  }
+  const addresses = resolved.map((a) => a.address);
   if (addresses.length > 0 && addresses.every((a) => isPrivateNetwork(a))) return;
   const detail = privatePathRefusal(
     policy.label,
