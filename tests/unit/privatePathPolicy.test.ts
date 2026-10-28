@@ -9,7 +9,7 @@
 // resolved OpenAI-compatible transport, which its caller fetches later.
 import { readFileSync } from "node:fs";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const answers: Record<string, string[]> = {};
 vi.mock("node:dns/promises", () => ({
@@ -58,6 +58,14 @@ function noProxy() {
   for (const k of ["https_proxy", "http_proxy", "all_proxy", "no_proxy"]) vi.stubEnv(k, "");
   for (const k of ["HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY"]) vi.stubEnv(k, "");
 }
+
+// The proxy dispatcher (and undici under it) is imported on first use, inside
+// the call. Warm it here, so a cold import under a full-suite load does not
+// spend the proxy test's own 20 s (it did, in R392's gate).
+beforeAll(async () => {
+  await import("@/utils/http/connectorFetch.server");
+  await import("undici");
+}, 120_000);
 
 beforeEach(() => {
   for (const k of Object.keys(answers)) delete answers[k];

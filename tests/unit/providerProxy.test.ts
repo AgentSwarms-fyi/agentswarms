@@ -65,7 +65,13 @@ beforeAll(async () => {
   });
   await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", r));
   proxyPort = (proxy.address() as AddressInfo).port;
-});
+
+  // The proxy dispatcher (and undici under it) is imported on first use,
+  // inside the call. Warm it here, so a cold import under a full-suite load
+  // does not spend the first test's own 20 s (it did, in R392's gate).
+  await import("@/utils/http/connectorFetch.server");
+  await import("undici");
+}, 120_000);
 
 afterAll(async () => {
   await new Promise((r) => target.close(r));
