@@ -113,7 +113,7 @@ services:
   # Least-privilege Docker API: only container create/inspect/logs + write verbs
   # are exposed to the app (never the raw /var/run/docker.sock).
   notebook-docker-proxy:
-    image: tecnativa/docker-socket-proxy:v0.4.2@sha256:1f3a6f303320723d199d2316a3e82b2e2685d86c275d5e3deeaf182573b47476
+    image: tecnativa/docker-socket-proxy:v0.5.0@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
     environment:
       # Only the API sections the orchestrator needs: create/inspect/stop/remove
       # containers, plus read access to images and networks (preflight verifies
