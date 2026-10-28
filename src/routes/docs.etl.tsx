@@ -335,6 +335,15 @@ function EtlDocsPage() {
         it.
       </P>
       <P>
+        The Compose endpoint runs its driver as a non-root user and requires a pre-shared{" "}
+        <strong>token</strong>: <C>setup.sh</C> generates <C>SPARK_CONNECT_TOKEN</C>, the server
+        enforces it, and the platform sends it to every run — so a notebook kernel on the same
+        internal network cannot drive the Spark driver unauthenticated. A managed or remote endpoint
+        carries the token in the URL instead (<C>sc://host:15002;token=…</C>, or{" "}
+        <C>;use_ssl=true;token=…</C> over TLS); either way it never reaches a run log. Leave{" "}
+        <C>SPARK_CONNECT_TOKEN</C> empty only for an endpoint that authenticates its callers itself.
+      </P>
+      <P>
         <strong>One cluster per run, on Kubernetes</strong> is the other, available when the app
         runs in a cluster. Each run gets its own driver — which is also its Spark Connect endpoint —
         and the executors it asks for, sized in the admin form; both are deleted when the run ends,

@@ -92,7 +92,8 @@ describe("the program", () => {
   const code = compileSparkQuery(plan());
 
   it("connects through Spark Connect and reads with per-call S3 credentials", () => {
-    expect(code).toContain("SparkSession.builder.remote(_url)");
+    // R398: through _connect_spark, which carries the endpoint's token.
+    expect(code).toContain("spark = _connect_spark(_url)");
     expect(code).toContain("os.environ.get('ETL_SPARK_CONNECT_URL', '')");
     expect(code).toContain("'fs.s3a.access.key': os.environ.get('ETL_LAKEHOUSE_S3_KEY_ID', '')");
     expect(code).toContain("spark.read.options(**_s3())");

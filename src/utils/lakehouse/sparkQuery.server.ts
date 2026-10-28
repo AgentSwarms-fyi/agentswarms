@@ -28,6 +28,7 @@ import {
 } from "./core.server";
 import { loadPolicies } from "./policies.server";
 import { compileSparkQuery, type SparkQueryTable } from "./sparkQueryCodegen";
+import { sparkRunToken } from "@/utils/etl/sparkConnectClient";
 
 /** The key a Spark query session carries in its runtime session inputs. */
 export const SPARK_QUERY_KEY = "__lakehouse_spark_query";
@@ -494,6 +495,14 @@ async function queryEnv(
     env.no_proxy = noProxy;
     const token = /[;?&]token=([^;&\s]+)/i.exec(url);
     if (token) secretValues.push(decodeURIComponent(token[1]));
+    // The static endpoint's pre-shared token (SPARK_CONNECT_TOKEN), as its own
+    // variable so the URL stays clean; sparkRunToken returns null when the URL
+    // already embeds one, or for a k8s run. The generated client reads either.
+    const runToken = sparkRunToken(s.provider, s.token, url);
+    if (runToken) {
+      env.ETL_SPARK_CONNECT_TOKEN = runToken;
+      secretValues.push(runToken);
+    }
   }
   return { env, secretValues };
 }
@@ -515,6 +524,10 @@ async function staticSecrets(storedUrl: string | null): Promise<string[]> {
   const url = s.provider === "k8s" ? storedUrl : s.staticUrl;
   const token = url ? /[;?&]token=([^;&\s]+)/i.exec(url) : null;
   if (token) out.push(decodeURIComponent(token[1]));
+  // The static endpoint's pre-shared token, scrubbed from live output just like
+  // a URL-embedded one — it reaches the run as ETL_SPARK_CONNECT_TOKEN.
+  const runToken = sparkRunToken(s.provider, s.token, url ?? "");
+  if (runToken) out.push(runToken);
   return out.filter(Boolean);
 }
 

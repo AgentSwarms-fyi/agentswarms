@@ -467,7 +467,13 @@ capabilities dropped and no API token mounted; `/tmp` is an `emptyDir` because
 the lakehouse engine spills there. Verified in-cluster — `id` reports uid 1000
 and a write to `/` is refused. The JS sandbox, which runs user-supplied code,
 adds a `NetworkPolicy` denying it egress outright (needs a CNI that enforces
-policy — Docker Desktop's default does not).
+policy — Docker Desktop's default does not). The per-run Spark driver pods are
+unprivileged (`runAsNonRoot`, uid 185); the Compose Spark Connect server drops
+its JVM to the same non-root user and, when `SPARK_CONNECT_TOKEN` is set,
+requires that pre-shared token on every connection — generate it (`setup.sh`
+does) so a notebook kernel on the internal network cannot drive the Spark driver
+unauthenticated. A managed or remote cluster carries the token in
+`SPARK_CONNECT_URL` as `;token=…` (prefer `;use_ssl=true;token=…` off-box).
 
 The app is stateless, so replica count and the HPA are free to move. Two probe
 details matter: **liveness** on `/api/health`, **readiness** on

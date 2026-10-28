@@ -68,6 +68,13 @@ export type SparkClusterSettings = {
   provider: SparkProvider;
   /** static only: the endpoint every run shares. */
   staticUrl: string | null;
+  /**
+   * The pre-shared token the static endpoint requires, from `SPARK_CONNECT_TOKEN`
+   * (Compose wires it into the server as `SPARK_CONNECT_AUTHENTICATE_TOKEN`). A
+   * token embedded in the URL as `;token=…` is honoured separately by the run's
+   * generated client, so this stays null when the operator uses that form.
+   */
+  token: string | null;
   image: string;
   executors: number;
   executorCores: number;
@@ -93,6 +100,7 @@ export async function sparkClusterSettings(): Promise<SparkClusterSettings> {
   return {
     provider,
     staticUrl: data?.spark_connect_url?.trim() || process.env.SPARK_CONNECT_URL?.trim() || null,
+    token: process.env.SPARK_CONNECT_TOKEN?.trim() || null,
     image: data?.spark_image?.trim() || process.env.SPARK_IMAGE?.trim() || DEFAULT_IMAGE,
     executors: positive(data?.spark_executors) ?? envInt("SPARK_EXECUTORS") ?? 2,
     executorCores: positive(data?.spark_executor_cores) ?? envInt("SPARK_EXECUTOR_CORES") ?? 1,

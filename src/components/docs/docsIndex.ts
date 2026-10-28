@@ -1505,6 +1505,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "*/15",
       "/etl-samples/",
       "200",
+      ";use_ssl=true;token=…",
       "ETL_CONTINUOUS_RESTART_BACKOFF_SECONDS",
       "ETL_CONTINUOUS_ROLLOVER_MINUTES",
       "ETL_DEST_ACCESS_KEY_ID",
@@ -1514,6 +1515,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "ETL_TRIGGER_PER_MIN",
       "Europe/Berlin",
       "SELECT",
+      "SPARK_CONNECT_TOKEN",
       "SPARK_CONNECT_URL",
       "SPARK_PACKAGES=",
       "_x",
@@ -1537,7 +1539,9 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "read_parquet()",
       "regexp_extract",
       "replace",
+      "sc://host:15002;token=…",
       "sc://spark-connect:15002",
+      "setup.sh",
       "success"
     ],
     "headings": [
@@ -3577,6 +3581,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "SMTP_PORT",
       "SMTP_SECURE",
       "SMTP_USER",
+      "SPARK_CONNECT_TOKEN",
       "SUPABASE_PUBLISHABLE_KEY",
       "SUPABASE_SERVICE_ROLE_KEY",
       "SUPABASE_URL",

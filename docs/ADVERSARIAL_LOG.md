@@ -109,6 +109,60 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-28 — R398: anything on the kernels' network could drive the Spark driver, which ran as root
+
+**Assessment finding** VA-2026-10-25-23. The Compose `spark-connect` service listens on `nb-internal`, where
+notebook kernels live, with no authentication, and ran its JVM as root. Shown live before the fix: a
+throwaway client on that network, with no token, opened a session (the server logged an empty userId), and
+the server planned the query and started its task on the driver.
+
+**Fix.** Two properties, in the compose service and in the code that talks to it.
+
+- _Authentication._ Spark 4.2 enforces `SPARK_CONNECT_AUTHENTICATE_TOKEN` with a pre-shared-key interceptor.
+  The installers generate `SPARK_CONNECT_TOKEN`; the service exports it under that name, and the app hands
+  the same value to each Spark run and lakehouse Spark query as `ETL_SPARK_CONNECT_TOKEN`, scrubbed from
+  their output. `sparkRunToken` decides who carries it: the static endpoint only, and not when the URL
+  already has `;token=`.
+- _Not root._ The container starts as root only to re-own the jar cache (`chown -R`, gated on `stat`, so it
+  runs once), then `exec gosu spark` — uid 185, as the per-run Kubernetes drivers already were.
+
+**Measured rather than assumed.**
+
+- The stock client cannot send this token here. PySpark attaches a token only over TLS or to `localhost`,
+  because gRPC refuses call credentials on an insecure channel. Against `spark-connect` by name it tried TLS
+  on a plaintext port and retried indefinitely (`WRONG_VERSION_NUMBER`), whether the token came in the URL or
+  in `SPARK_CONNECT_AUTHENTICATE_TOKEN`. So both generated programs open the session through `_connect_spark`
+  (`sparkConnectClient.ts`): a `ChannelBuilder` on an insecure channel whose interceptor adds
+  `authorization: Bearer …`. Right token: connects. Wrong: "Invalid authentication token". None: "No
+  authentication token provided". A URL with `use_ssl=true`, or `localhost`, keeps the stock path.
+- An _empty_ `SPARK_CONNECT_AUTHENTICATE_TOKEN` still turns authentication on — a client without a token was
+  refused. Passing `${SPARK_CONNECT_TOKEN:-}` straight through would have locked every existing install out
+  of its own cluster, so the command exports the variable only when the token is non-empty.
+- A fresh named volume is root-owned, so uid 185 cannot write the jar cache. That is why the service had
+  `user: root`. Re-owning it once and dropping through `gosu` keeps the cache; tested on a root-owned cache
+  with a file already inside.
+- The exact fragment the app emits, built from the TypeScript with esbuild, ran against a token server by
+  both routes (variable and URL) and returned 1.
+
+**Residual, stated.** The token proves a caller is one of the platform's Spark runs, not which user it runs
+for. Any user allowed to run a Spark-engine pipeline can read it inside that run (code mode or Custom
+Python) and reuse it from a notebook kernel to drive the same driver they could already drive. A per-run
+token, which the server cannot check today, would close that. The token also crosses `nb-internal` in
+plaintext. That keeps out a caller without it; it does not encrypt the hop, so a remote cluster should use
+`;use_ssl=true;token=…`. The per-run Kubernetes drivers carry no token. They are non-root, but the reference
+manifest's NetworkPolicy admits port 15002 from the whole `agentswarms-notebooks` namespace — any sandbox —
+so what separates one user's kernel from another run's driver is only that the per-run service name cannot
+be guessed. A per-run token derived from the run id is the follow-up: the app creates both the driver pod
+and the run's sandbox, so it can hand the same value to exactly those two.
+
+**Tests:** `sparkConnectAuth.test.ts` (11) — who carries a token (static, k8s, none, URL-embedded), the
+fragment's channel and its bypasses, both programs calling it exactly once, the env builders and the log
+scrubber. `composeServices.test.ts` (4 more) — `gosu`, the once-only chown, the token gate, the installers
+and `.env.example`. The `etlSparkCodegen` and `lakehouseSparkQuery` pins moved to `_connect_spark`; the first
+still parses the whole program as Python. Mutation: 5 of 5 caught.
+
+**Live:** see UI_TEST_RESULTS.
+
 ### 2026-10-28 — R396: the production server sent no security headers
 
 **Assessment finding** VA-2026-10-25-22 (medium). `server.mjs` set no Content-Security-Policy,

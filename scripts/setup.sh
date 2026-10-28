@@ -87,6 +87,10 @@ gen_secret() {
 # Auto-generate the at-rest encryption + internal secrets if blank.
 [ -z "$(getenv PROVIDER_CREDS_SECRET)" ] && { say "Generating PROVIDER_CREDS_SECRET"; setenv PROVIDER_CREDS_SECRET "$(gen_secret)"; }
 [ -z "$(getenv INTERNAL_RUN_SECRET)" ]   && setenv INTERNAL_RUN_SECRET "$(gen_secret)"
+# The Spark Connect pre-shared token (VA-23). The server enforces it and the app
+# sends it to every run, so a kernel cannot drive the Spark driver unauthenticated.
+# A fresh install gets one; left blank, the server runs without auth.
+[ -z "$(getenv SPARK_CONNECT_TOKEN)" ]   && { say "Generating SPARK_CONNECT_TOKEN"; setenv SPARK_CONNECT_TOKEN "$(gen_secret)"; }
 
 # The lakehouse catalog's password lives in TWO places that must agree: the
 # container reads LAKEHOUSE_CATALOG_PASSWORD, the app reads it inside

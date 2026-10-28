@@ -86,6 +86,10 @@ function New-Secret {
 
 if ([string]::IsNullOrEmpty((Get-EnvVar "PROVIDER_CREDS_SECRET"))) { Say "Generating PROVIDER_CREDS_SECRET"; Set-EnvVar "PROVIDER_CREDS_SECRET" (New-Secret) }
 if ([string]::IsNullOrEmpty((Get-EnvVar "INTERNAL_RUN_SECRET")))   { Set-EnvVar "INTERNAL_RUN_SECRET" (New-Secret) }
+# The Spark Connect pre-shared token (VA-23). The server enforces it and the app
+# sends it to every run, so a kernel cannot drive the Spark driver unauthenticated.
+# A fresh install gets one; left blank, the server runs without auth.
+if ([string]::IsNullOrEmpty((Get-EnvVar "SPARK_CONNECT_TOKEN")))   { Say "Generating SPARK_CONNECT_TOKEN"; Set-EnvVar "SPARK_CONNECT_TOKEN" (New-Secret) }
 
 # The lakehouse catalog's password lives in TWO places that must agree: the
 # container reads LAKEHOUSE_CATALOG_PASSWORD, the app reads it inside

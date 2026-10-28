@@ -56,6 +56,7 @@ import {
   type SourceFileFormat,
 } from "@/utils/etl/codegen";
 import { continuousWrapper } from "./continuous";
+import { SPARK_CONNECT_FN, sparkConnectClientFragment } from "./sparkConnectClient";
 import { isCatalogAsset, unwrapSourceConfig } from "@/utils/etl/catalogAsset";
 import { toSparkSql } from "@/utils/etl/sparkExpr";
 import { isStreamSource } from "@/utils/etl/streaming";
@@ -270,6 +271,7 @@ function prelude(): string[] {
     `from pyspark.sql import SparkSession, Window`,
     `from pyspark.sql import functions as F`,
     ``,
+    ...sparkConnectClientFragment().split("\n"),
     `_SPARK = None`,
     ``,
     `def _spark():`,
@@ -278,7 +280,7 @@ function prelude(): string[] {
     `        _url = os.environ.get('ETL_SPARK_CONNECT_URL', '')`,
     `        if not _url:`,
     `            raise RuntimeError('This pipeline uses the Spark engine, but no Spark Connect endpoint is configured (Admin -> Developer runtime -> Spark).')`,
-    `        _SPARK = SparkSession.builder.remote(_url).getOrCreate()`,
+    `        _SPARK = ${SPARK_CONNECT_FN}(_url)`,
     `        print('[etl] spark: connected to ' + _url.split(';')[0] + ' (' + _SPARK.version + ')')`,
     `    return _SPARK`,
     ``,

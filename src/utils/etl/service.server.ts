@@ -30,6 +30,7 @@ import type { LakeManifest } from "@/utils/lakehouse/sandboxLake.server";
 import { etlLakeManifest } from "@/utils/etl/lakeManifest";
 import { etlErrorMessage } from "@/utils/etl/explainError";
 import { compilePipeline, engineOf, pipelineRequirements } from "@/utils/etl/compile";
+import { sparkRunToken } from "@/utils/etl/sparkConnectClient";
 import { chainTargetsOf, hasChainTargets } from "@/lib/etlChain";
 import {
   CONTINUOUS_SCHEDULE,
@@ -633,7 +634,7 @@ export async function resolveRunEnv(
   // no-proxy list — the prelude applies this env before the client connects.
   if (engineOf(pipeline.engine) === "spark") {
     const { sparkClusterSettings } = await import("@/utils/etl/sparkCluster.server");
-    const { provider, staticUrl } = await sparkClusterSettings();
+    const { provider, staticUrl, token: connectToken } = await sparkClusterSettings();
     // Under `k8s` the endpoint belongs to the run, not to the deployment, and
     // it does not exist until the run's driver does — so a missing one is only
     // an error once the sandbox is actually asking for its environment.
@@ -662,6 +663,15 @@ export async function resolveRunEnv(
     // A token riding in the URL must never reach the run's logs.
     const token = /[;?&]token=([^;&\s]+)/i.exec(sparkConnectUrl);
     if (token) secretValues.push(decodeURIComponent(token[1]));
+    // The static endpoint's pre-shared token (SPARK_CONNECT_TOKEN), handed to the
+    // run as its own variable so the URL stays clean. sparkRunToken returns null
+    // when the URL already embeds one (it wins) or for a k8s run. The generated
+    // client reads ETL_SPARK_CONNECT_TOKEN or a URL token, whichever it finds.
+    const runToken = sparkRunToken(provider, connectToken, sparkConnectUrl);
+    if (runToken) {
+      env.ETL_SPARK_CONNECT_TOKEN = runToken;
+      secretValues.push(runToken);
+    }
   }
   return { env, secretValues, lake };
 }

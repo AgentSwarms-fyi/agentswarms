@@ -235,6 +235,36 @@ attacker. See [Request lifecycle](./01-request-lifecycle.md#2-the-internal-run-s
 
 ---
 
+## The Spark Connect endpoint
+
+A Spark-engine pipeline runs arbitrary code on the driver, and the Compose
+`spark-connect` server sits on `nb-internal` — the same internal network as the
+notebook kernels. Two properties keep that from being a way in:
+
+- **It authenticates.** The server enforces a pre-shared token
+  (`SPARK_CONNECT_AUTHENTICATE_TOKEN`, wired from `SPARK_CONNECT_TOKEN`, which
+  `setup.sh` generates). The app hands the same token to every governed run, so
+  a kernel that reaches the port without it is refused `UNAUTHENTICATED`. The
+  token is held only server-side and in the run's own environment, scrubbed from
+  logs like any other secret — never in the stored URL unless an operator put it
+  there for a managed cluster.
+- **The driver is not root.** The container starts as root only long enough to
+  chown the first-boot jar cache, then drops the JVM to the unprivileged `spark`
+  user (uid 185) via `gosu`; the per-run Kubernetes driver pods are
+  `runAsNonRoot` for the same reason. So code running on the driver cannot act as
+  root inside the container.
+
+The client wrinkle worth recording: gRPC refuses to attach a bearer token over
+an insecure channel unless the host is `localhost`, and this endpoint is reached
+by service name over plaintext (gRPC cannot traverse the HTTP egress proxy). The
+generated program therefore carries a custom Spark Connect channel that adds the
+token as request metadata on an insecure channel — the one channel it actually
+has. A managed endpoint reached over TLS uses the stock client's own token path
+instead. Leaving `SPARK_CONNECT_TOKEN` empty disables the requirement, for an
+endpoint that authenticates its callers some other way.
+
+---
+
 ## Generated code is an injection surface
 
 The agent and swarm exporters turn a saved graph into a Python or TypeScript file
@@ -278,6 +308,10 @@ Stated because an unstated limit is worse than a known one:
 - **No argument-level policy** in front of MCP dispatch, as above.
 - **Approval nodes auto-decide on headless runs**, so an approval gate is not a
   safety gate on the scheduled path.
+- **The Spark Connect token is per deployment, not per run.** Anyone allowed to
+  run a Spark-engine pipeline can read it inside that run. The per-run
+  Kubernetes drivers carry none: their NetworkPolicy admits any sandbox, and an
+  unguessable service name is the only separation.
 
 ---
 

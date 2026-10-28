@@ -12,6 +12,7 @@ import { sparkDriverManifests, type SparkClusterSettings } from "@/utils/etl/spa
 const SETTINGS: SparkClusterSettings = {
   provider: "k8s",
   staticUrl: null,
+  token: null,
   image: "apache/spark:4.2.0-python3",
   executors: 3,
   executorCores: 2,

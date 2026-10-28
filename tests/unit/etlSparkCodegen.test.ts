@@ -119,7 +119,9 @@ describe("compile — one graph, two compilers", () => {
     const code = compilePipeline(g, "spark");
     expect(code).toBe(compileSparkGraph(g));
     expect(code).toContain("for the SPARK engine");
-    expect(code).toContain("SparkSession.builder.remote(_url)");
+    // R398: the session opens through _connect_spark, which sends the endpoint's
+    // pre-shared token when there is one (sparkConnectAuth.test.ts).
+    expect(code).toContain("_SPARK = _connect_spark(_url)");
     expect(code).toContain("'engine': 'spark',");
     assertParsesAsPython(code);
   });

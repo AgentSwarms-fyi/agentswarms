@@ -222,6 +222,19 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   so nothing stops being recorded. The matching lockdown of the swarm-run table —
   which doesn't feed the budget and is written from the browser — is tracked
   separately (VA-2026-10-25-31).
+- **The Spark Connect server asks for a token and no longer runs as root**
+  (R398, VA-2026-10-25-23). Notebook kernels share an internal network with the
+  Compose `spark-connect` service; until now a kernel could connect to it and
+  drive the Spark driver, which ran as root. The server now requires a
+  pre-shared token whenever `SPARK_CONNECT_TOKEN` is set, and the app sends that
+  token with every Spark run and lakehouse Spark query. Its driver JVM runs as
+  the image's unprivileged `spark` user. **Upgrading:** `setup.sh` / `setup.ps1`
+  generate the token for a new install; on an existing one, add
+  `SPARK_CONNECT_TOKEN` to `.env` (`openssl rand -hex 32`) and recreate both
+  services (`docker compose up -d spark-connect agentswarms`). Left empty, the
+  server stays open as before. The first start after the upgrade re-owns the jar
+  cache once, so it takes a little longer. A remote cluster takes its token in
+  the URL instead (`sc://host:15002;token=…`).
 - **Security headers on every response** (R396, VA-2026-10-25-22). App pages can
   no longer be framed by another site; the embed and published-dashboard pages
   still can (narrow them with `EMBED_FRAME_ANCESTORS`). Also `nosniff`,

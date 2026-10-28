@@ -521,6 +521,10 @@ SITE_URL="https://your-domain.com"`}</Code>
           [<C key="c">NOTEBOOK_RUNTIME_BACKEND</C>, "docker | k8s | e2b"],
           [<C key="d">NOTEBOOK_RUNTIME_IMAGE</C>, "Kernel image to launch"],
           [<C key="e">NOTEBOOK_GATEWAY_URL</C>, "Websocket gateway address"],
+          [
+            <C key="f">SPARK_CONNECT_TOKEN</C>,
+            "Pre-shared token the Compose Spark Connect server requires; the app sends it to every run, so a notebook kernel cannot drive the Spark driver unauthenticated. setup.sh generates one; empty = no auth. A managed cluster carries the token in SPARK_CONNECT_URL as ;token=… instead.",
+          ],
         ]}
       />
 

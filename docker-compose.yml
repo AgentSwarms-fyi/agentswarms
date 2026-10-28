@@ -381,28 +381,45 @@ services:
   # through the HTTP egress proxy. The first start downloads the S3, Delta and
   # JDBC jars (several hundred MB) into the spark-ivy volume; later starts are
   # fast.
+  #
+  # AUTH + non-root (VA-23). A Spark-engine pipeline runs arbitrary code on the
+  # driver, and this endpoint sits on nb-internal where notebook kernels live,
+  # so two things matter: the driver must not be root, and an unauthenticated
+  # kernel must not be able to drive it. The container therefore starts as root
+  # ONLY long enough to chown the first-boot ivy cache, then drops to the image's
+  # unprivileged `spark` user (uid 185) for the JVM via gosu; and the server
+  # enforces a pre-shared token (SPARK_CONNECT_AUTHENTICATE_TOKEN) whenever
+  # SPARK_CONNECT_TOKEN is set — which setup.sh generates for a new install and
+  # the app hands to every run as the SAME value, so the two agree by
+  # construction. Empty/unset SPARK_CONNECT_TOKEN = no auth, so an existing
+  # deployment keeps working unchanged.
   spark-connect:
     image: apache/spark:4.2.0-python3
     ports:
       - "127.0.0.1:15002:15002"
+    # root only for the one-shot chown in the command below; the JVM runs as 185.
     user: root
     environment:
       SPARK_NO_DAEMONIZE: "true"
       HOME: /tmp
+      SPARK_CONNECT_TOKEN: ${SPARK_CONNECT_TOKEN:-}
+    # `$$` keeps the shell variable for container runtime; Compose would expand a
+    # single `$`. The stat-gate runs the recursive chown only once (the boot
+    # after an upgrade, when the cache is still root-owned), so later starts stay
+    # fast.
     command:
-      - /opt/spark/sbin/start-connect-server.sh
-      - --packages
-      - org.apache.hadoop:hadoop-aws:3.5.0,io.delta:delta-spark_2.13:4.4.0,org.postgresql:postgresql:42.7.13,com.mysql:mysql-connector-j:9.7.0
-      - --conf
-      - spark.jars.ivy=/tmp/ivy
-      - --conf
-      - spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension
-      - --conf
-      - spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog
-      - --conf
-      - spark.driver.memory=${SPARK_CONNECT_DRIVER_MEMORY:-2g}
-      - --conf
-      - spark.connect.grpc.binding.port=15002
+      - bash
+      - -c
+      - |
+        if [ "$$(stat -c %u /tmp/ivy)" != "185" ]; then chown -R spark:spark /tmp/ivy; fi
+        if [ -n "$$SPARK_CONNECT_TOKEN" ]; then export SPARK_CONNECT_AUTHENTICATE_TOKEN="$$SPARK_CONNECT_TOKEN"; fi
+        exec gosu spark /opt/spark/sbin/start-connect-server.sh \
+          --packages org.apache.hadoop:hadoop-aws:3.5.0,io.delta:delta-spark_2.13:4.4.0,org.postgresql:postgresql:42.7.13,com.mysql:mysql-connector-j:9.7.0 \
+          --conf spark.jars.ivy=/tmp/ivy \
+          --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension \
+          --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog \
+          --conf spark.driver.memory=${SPARK_CONNECT_DRIVER_MEMORY:-2g} \
+          --conf spark.connect.grpc.binding.port=15002
     volumes:
       - spark-ivy:/tmp/ivy
     networks: [default, nb-internal, nb-dev]

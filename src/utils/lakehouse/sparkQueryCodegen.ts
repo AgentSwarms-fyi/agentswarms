@@ -18,6 +18,8 @@
 // whatever scheme it read it with — so both sides are compared with the
 // scheme stripped.
 
+import { SPARK_CONNECT_FN, sparkConnectClientFragment } from "@/utils/etl/sparkConnectClient";
+
 export type SparkQueryTable = {
   schema: string;
   table: string;
@@ -93,11 +95,12 @@ export function compileSparkQuery(plan: SparkQueryPlan): string {
     `from pyspark.sql import functions as F`,
     `from pyspark.sql import types as T`,
     ``,
+    ...sparkConnectClientFragment().split("\n"),
     `_url = os.environ.get('ETL_SPARK_CONNECT_URL', '')`,
     `if not _url:`,
     `    raise RuntimeError('No Spark Connect endpoint is configured (Admin -> Developer runtime -> Spark engine).')`,
     `_t0 = time.time()`,
-    `spark = SparkSession.builder.remote(_url).getOrCreate()`,
+    `spark = ${SPARK_CONNECT_FN}(_url)`,
     `print('[sparkq] connected to ' + _url.split(';')[0] + ' (' + spark.version + ')')`,
     ``,
     `def _s3():`,

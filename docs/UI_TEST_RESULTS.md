@@ -15,6 +15,25 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-28 — R398: the Spark Connect server, from the kernels' network and from the UI
+
+Fixtures: none new. `r227_gateway` was switched to the Spark engine for one run and back; after a reload,
+Settings reads "Sandbox (pandas) — the default". The probe is a throwaway `agentswarms/notebook-runtime`
+container on `agentswarms_nb-internal`, the kernels' network, running `select 1` against `spark-connect:15002`
+with no token; it was removed after each run. `.env` gained a generated `SPARK_CONNECT_TOKEN` (not printed).
+
+| Build | What was done                                                                                                | Result                                                                                                                                                                                                                                |
+| ----- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R397  | `ps` in spark-connect                                                                                        | the JVM runs as uid 0 (root)                                                                                                                                                                                                          |
+| R397  | Token-less client from `nb-internal`                                                                         | Server: "Session with userId: and sessionId: e110b576… accessed", "ExecuteHolder … is created", job 0 submitted, its task started on the driver. The client gave up at 150 s; the 28-hour-old driver sat at 119 % CPU and 2.2 GiB     |
+| R398  | `docker compose up -d --no-deps spark-connect agentswarms`, then the R398 `dist/` copied in                  | The old container did not stop in Docker's wait (it exited 137 later) and Compose left a never-started temp container; both were removed and `up` rerun. JVM uid 185 (spark); `/tmp/ivy` re-owned to spark; 144 s to "server started" |
+| R398  | The same token-less client                                                                                   | **`UNAUTHENTICATED` — "No authentication token provided"**, at once                                                                                                                                                                   |
+| R398  | Lakehouse → Spark cluster → `SELECT n, count(*) AS c FROM analytics.r211_double GROUP BY n ORDER BY n` → Run | **3 row(s) · 53108 ms · spark**, first rows n 1 → 2, 2 → 1 (R222's count and values); the server logged the run's own session                                                                                                         |
+| R398  | `r227_gateway` on the Spark engine → Run now                                                                 | **Succeeded, 1 m 6 s, 108 rows → 1 target(s)** (as in R230). Logs: "[etl] spark: connected to sc://spark-connect:15002 (4.2.0)" twice (live and final); no `token=`, no token variable name, no 64-hex value anywhere in the log      |
+
+Console on Lakehouse and ETL: no Content-Security-Policy message; the service-worker "unknown error" lines
+R396 explained; one 429 whose request had already left the tab's network buffer — both runs completed.
+
 ## 2026-10-28 — R396: security headers, and an app page framed by another site
 
 Fixture: a throwaway `python:3.12-slim` container serving one page on `127.0.0.1:8781` (another origin) that

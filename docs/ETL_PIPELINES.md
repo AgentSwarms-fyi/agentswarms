@@ -243,8 +243,16 @@ docker compose up -d
 and `sc://spark-connect:15002` is the endpoint. The first start downloads the
 connector jars into a volume; later starts are fast. In production the endpoint
 can be a standalone cluster, a Spark Connect server in front of one, or a
-managed service that speaks Spark Connect. A token in the URL
-(`sc://host:15002;token=…`) is kept out of every run log.
+managed service that speaks Spark Connect.
+
+The Compose server requires a pre-shared **token** (`setup.sh` generates
+`SPARK_CONNECT_TOKEN`; the server enforces it and the app sends it to every run,
+so a notebook kernel sharing the internal network cannot drive the Spark driver
+unauthenticated). It also drops to a non-root user for the driver JVM. A managed
+or remote cluster carries the token in the URL instead
+(`sc://host:15002;token=…`), or over TLS (`;use_ssl=true;token=…`); either way
+the token is kept out of every run log. Leave `SPARK_CONNECT_TOKEN` blank only
+for an endpoint that does its own authentication.
 
 **One cluster per run, on Kubernetes (`k8s`).** Available when the app itself
 runs in a cluster. Each Spark-engine run gets its own driver pod — which is
