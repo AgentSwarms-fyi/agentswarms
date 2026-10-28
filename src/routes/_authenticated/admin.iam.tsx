@@ -1394,11 +1394,12 @@ function AccessTab({
           <CardTitle className="text-base">Resource shares</CardTitle>
           <CardDescription>
             Grant access to any user's knowledge base, SQL data table, secret, BI dashboard,
-            semantic model, catalog source, LLM key, or database / app connection. Everything is
-            shared <strong>read-only</strong>. Credentials are never exposed: secrets become usable
-            via <code className="text-xs">{"{{secret:NAME}}"}</code> references, and a shared
-            connection runs as its owner — the grantee's queries hit the owner's warehouse, and a
-            shared app source syncs into the owner's datasets.
+            semantic model, catalog source, LLM key or credential, database / app connection, AI
+            analyst, lakehouse schema, ML model or ontology. Everything is shared{" "}
+            <strong>read-only</strong>. Credentials are never exposed: secrets become usable via{" "}
+            <code className="text-xs">{"{{secret:NAME}}"}</code> references, and a shared connection
+            runs as its owner — the grantee's queries hit the owner's warehouse, and a shared app
+            source syncs into the owner's datasets.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

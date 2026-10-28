@@ -14,6 +14,7 @@ import {
   compileRule,
   CompileError,
   impliedRules,
+  isRowCount,
   isMasked,
   typedLiteral,
   type CompileOpts,
@@ -21,14 +22,17 @@ import {
 import {
   aiCatalog,
   askPlanSchema,
+  askSystemPrompt,
   normaliseQuestion,
   questionSimilarity,
+  tidyPlan,
 } from "@/lib/ontology/catalog";
 import { diffSpecs } from "@/lib/ontology/diff";
 import { removeType, renameProperty, renameType } from "@/lib/ontology/edit";
 import { inferFromTables } from "@/lib/ontology/infer";
 import { autoLayout } from "@/lib/ontology/layout";
 import { toTurtle } from "@/lib/ontology/owl";
+import { notInstalledMessage } from "@/lib/ontology/install";
 import { describeOntologyPolicy, ontologyPolicyFrom } from "@/lib/ontology/policy";
 import { sampleSpec } from "@/lib/ontology/sample";
 import {
@@ -297,6 +301,29 @@ describe("the compiler's guards", () => {
     expect(ids).not.toContain("auto-order-contains-exists");
   });
 
+  it("knows a bare row count, which is always 1 for a single object", () => {
+    for (const e of ["COUNT(*)", " count( * ) ", "COUNT(1)"]) expect(isRowCount(e), e).toBe(true);
+    for (const e of ["COUNT(DISTINCT customer_id)", "SUM(total_amount)", "COUNT(*) / 2"])
+      expect(isRowCount(e), e).toBe(false);
+  });
+
+  it("words implied rules as sentences, and checks a subtype's inherited rows once", () => {
+    const rules = impliedRules(spec);
+    const names = rules.map((r) => r.name);
+    // Articles follow the sound ("an Order", "a valid email address") and
+    // titles are the ones people see, not column names.
+    expect(names).toContain("Customer email is a valid email address");
+    expect(names).toContain("Order status is a known order status");
+    expect(rules.find((r) => r.id === "auto-order-placed_by-exists")?.statement).toBe(
+      "When an Order names its Customer, that Customer exists.",
+    );
+    expect(names.some((n) => / a [AEIOUaeiou]/.test(n))).toBe(false);
+    // VIP customers are customers with a filter, read from the same table:
+    // the Customer checks already cover their rows, so nothing is repeated.
+    expect(rules.filter((r) => r.objectType === "VipCustomer")).toEqual([]);
+    expect(rules.filter((r) => r.objectType === "Customer").length).toBeGreaterThan(0);
+  });
+
   it("reads a predicate rule as a CHECK does: unknown is not a violation", () => {
     const rule = spec.rules.find((r) => r.id === "delivered-after-shipped")!;
     expect(compileRule(spec, rule, owner).checkSql).toContain("NOT COALESCE(");
@@ -451,6 +478,58 @@ describe("what the AI sees and may answer with", () => {
     expect(cat).toMatch(/link placed_by \(forward\) → Customer, each Order has at most one/);
   });
 
+  it("spells out every safe grouping, with the exact path, so the model never judges fan-out", () => {
+    // Found live: asked "revenue by customer segment", the model refused it
+    // as a fan-out although Order → Customer is to-one.
+    const cat = aiCatalog(spec, {
+      seeRestricted: false,
+      policy: { maskedProperties: ["Customer.email"] },
+    });
+    const order = cat.split("TYPE Order ")[1].split("TYPE ")[0];
+    expect(order).toMatch(/GROUP Order METRICS BY its own: .*ordered_on \(date: give a grain\)/);
+    const viaCustomer = order
+      .split("\n")
+      .find((l) =>
+        l.includes('GROUP Order METRICS BY path [{"link":"placed_by","direction":"forward"}]'),
+      );
+    expect(viaCustomer).toContain("(Order → Customer)");
+    expect(viaCustomer).toContain("segment");
+    // What the asker cannot see is not offered as a grouping either.
+    expect(viaCustomer).not.toContain("email");
+    // No walk straight back, and nothing that fans out (Order → OrderLine).
+    expect(order).not.toContain("Order → Shipment → Order");
+    expect(order).not.toMatch(/GROUP Order METRICS BY path [^\n]*\(Order → OrderLine\)/);
+    expect(askSystemPrompt(cat, "2026-10-28")).toContain(
+      "use ONLY a grouping listed under 'GROUP <Type> METRICS BY'",
+    );
+  });
+
+  it("drops a time grain from a grouping that is not a date, and touches nothing else", () => {
+    // Found live: the model grouped revenue by segment "by month".
+    const path = [{ link: "placed_by", direction: "forward" as const }];
+    const plan = tidyPlan(spec, {
+      kind: "metric",
+      explanation: "Revenue by customer segment",
+      query: {
+        objectType: "Order",
+        metric: "revenue",
+        groupBy: [
+          { property: "segment", path, grain: "month" },
+          { property: "ordered_on", grain: "quarter" },
+          { property: "no_such_thing", grain: "month" },
+        ],
+      },
+    });
+    expect(plan.kind === "metric" && plan.query.groupBy).toEqual([
+      { property: "segment", path },
+      { property: "ordered_on", grain: "quarter" },
+      // Unknown: left exactly as it was, for the compiler to refuse.
+      { property: "no_such_thing", grain: "month" },
+    ]);
+    const refuse = { kind: "refuse" as const, reason: "no cost data" };
+    expect(tidyPlan(spec, refuse)).toBe(refuse);
+  });
+
   it("accepts a plan in the ontology's terms and nothing else", () => {
     expect(
       askPlanSchema.safeParse({
@@ -474,5 +553,24 @@ describe("what the AI sees and may answer with", () => {
       ),
     ).toBeGreaterThan(0.6);
     expect(questionSimilarity("Revenue by segment", "Orders by month")).toBeLessThan(0.3);
+  });
+});
+
+describe("an install whose database has not been migrated", () => {
+  it("is told which migration to apply, in place of the schema-cache error", () => {
+    expect(
+      notInstalledMessage("Could not find the table 'public.ontologies' in the schema cache"),
+    ).toMatch(/20261030000000_enterprise_ontology\.sql/);
+    expect(notInstalledMessage('relation "public.ontology_versions" does not exist')).toMatch(
+      /db push/,
+    );
+  });
+
+  it("leaves every other error as it was", () => {
+    expect(notInstalledMessage("permission denied for table ontologies")).toBeNull();
+    expect(
+      notInstalledMessage("Could not find the table 'public.sheets' in the schema cache"),
+    ).toBeNull();
+    expect(notInstalledMessage(null)).toBeNull();
   });
 });

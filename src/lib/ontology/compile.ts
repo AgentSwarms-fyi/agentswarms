@@ -26,8 +26,11 @@ import {
   allProperties,
   baseTypeOf,
   findObjectType,
+  propertyTitle,
+  splitCamel,
   sqlTypeOf,
   supertypes,
+  titleOf,
   walksToOne,
   type ActionType,
   type BaseType,
@@ -123,6 +126,8 @@ export type ColumnMeta = {
   base: BaseType;
   masked: boolean;
   isKey: boolean;
+  /** A metric grouping truncated to a period: its values are that period's first day. */
+  grain?: TimeGrain;
 };
 
 export type Compiled = { sql: string; countSql?: string; columns: ColumnMeta[] };
@@ -650,6 +655,7 @@ export function compileMetric(spec: OntologySpec, q: MetricQuery, opts: CompileO
       base: g.grain ? "date" : base,
       masked: false,
       isKey: false,
+      ...(g.grain ? { grain: g.grain } : {}),
     });
   });
   const mKey = q.metric;
@@ -703,6 +709,9 @@ export function compileRule(
   let from = base;
   let applies = "TRUE";
   let violation: string;
+  // What an example row shows besides its key and title: the property the
+  // rule is about, every property its condition reads, a link's own key.
+  const shown: string[] = rule.property ? [rule.property] : [];
   switch (rule.kind) {
     case "required": {
       const p = prop(rule.property);
@@ -750,13 +759,17 @@ export function compileRule(
       const target = typeOrThrow(spec, link.to);
       from = `${base} ${joinSql(spec, link, "forward", t, "t0", target, "r1", "LEFT JOIN")}`;
       const fks = link.join.fromProperties.map((p) => propertySql(spec, t, p, "t0"));
+      shown.push(...link.join.fromProperties);
       applies = fks.map((c) => `${c} IS NOT NULL`).join(" AND ");
       violation = `${propertySql(spec, target, link.join.toProperties[0], "r1")} IS NULL`;
       break;
     }
     case "predicate": {
       if (!rule.predicate) throw new CompileError("The rule has no condition");
-      const cond = compileExpr(rule.predicate, (name) => propertySql(spec, t, name, "t0"));
+      const cond = compileExpr(rule.predicate, (name) => {
+        shown.push(name);
+        return propertySql(spec, t, name, "t0");
+      });
       // As a CHECK constraint reads it: false breaks the rule, unknown does not.
       violation = `NOT COALESCE((${cond}), TRUE)`;
       break;
@@ -773,21 +786,34 @@ export function compileRule(
           `${isMasked(spec, t, t.titleProperty, opts) ? "NULL" : propertySql(spec, t, t.titleProperty, "t0")} AS ${quoteIdent(t.titleProperty)}`,
         ]
       : [];
-  const offending =
-    rule.property && !t.primaryKey.includes(rule.property) && rule.property !== t.titleProperty
-      ? [
-          `${isMasked(spec, t, rule.property, opts) ? "NULL" : prop(rule.property)} AS ${quoteIdent(rule.property)}`,
-        ]
-      : [];
+  const offending = [...new Set(shown)]
+    .filter((n) => !t.primaryKey.includes(n) && n !== t.titleProperty)
+    .slice(0, 6)
+    .map((n) => `${isMasked(spec, t, n, opts) ? "NULL" : prop(n)} AS ${quoteIdent(n)}`);
   const sampleWhere = [...scope, applies, violation].join(" AND ");
   const sampleSql = `SELECT ${[...keySel, ...title, ...offending].join(", ")} FROM ${from} WHERE ${sampleWhere} LIMIT ${Math.min(opts.sample ?? 20, 200)}`;
   return { checkSql, sampleSql };
+}
+
+/** A metric that only counts the type's rows (COUNT(*), COUNT(1)): always 1 for a single object. */
+export function isRowCount(expression: string): boolean {
+  return /^\s*COUNT\s*\(\s*(\*|1)\s*\)\s*$/i.test(expression);
+}
+
+/** "a" or "an", by the sound of the first letter: an Order, a Customer, an email address. */
+export function article(word: string): "a" | "an" {
+  return /^[aeiou]/i.test(word.trim()) ? "an" : "a";
 }
 
 /**
  * The rules the model implies without anyone writing them: a key is present
  * and unique, a required property is filled, a value type's allowed values,
  * pattern and range hold, and a link through a key points at something.
+ *
+ * A subtype read from its supertype's own table (VIP customers are customers
+ * with a filter) is not checked again for what it inherits: the supertype's
+ * check already covers every one of its rows, and a second copy would count
+ * each broken row twice.
  */
 export function impliedRules(spec: OntologySpec): OntologyRule[] {
   const out: OntologyRule[] = [];
@@ -795,12 +821,21 @@ export function impliedRules(spec: OntologySpec): OntologyRule[] {
   for (const t of spec.objectTypes) {
     if (!t.source) continue;
     const slug = t.name.toLowerCase();
-    if (t.primaryKey.length === 1) {
+    const T = titleOf(t);
+    const coveredBy = supertypes(spec, t).find(
+      (s) => s.source?.table.toLowerCase() === t.source!.table.toLowerCase(),
+    );
+    const inherited = (name: string) => !!coveredBy && !t.properties.some((p) => p.name === name);
+    const titleFor = (name: string) => {
+      const p = allProperties(spec, t).find((x) => x.name === name);
+      return p ? propertyTitle(p) : name;
+    };
+    if (t.primaryKey.length === 1 && !inherited(t.primaryKey[0])) {
       const k = t.primaryKey[0];
       add({
         id: `auto-${slug}-${k}-key`.slice(0, 64),
-        name: `${t.name} key is unique`,
-        statement: `Every ${t.name} has its own ${k}.`,
+        name: `${T} key is unique`,
+        statement: `Every ${T} has its own ${titleFor(k)}.`,
         objectType: t.name,
         kind: "unique",
         property: k,
@@ -808,10 +843,12 @@ export function impliedRules(spec: OntologySpec): OntologyRule[] {
       });
     }
     for (const k of t.primaryKey) {
+      if (inherited(k)) continue;
+      const K = titleFor(k);
       add({
         id: `auto-${slug}-${k}-present`.slice(0, 64),
-        name: `${t.name} has a ${k}`,
-        statement: `No ${t.name} is missing its ${k}.`,
+        name: `${T} has ${article(K)} ${K}`,
+        statement: `No ${T} is missing its ${K}.`,
         objectType: t.name,
         kind: "required",
         property: k,
@@ -819,11 +856,13 @@ export function impliedRules(spec: OntologySpec): OntologyRule[] {
       });
     }
     for (const p of allProperties(spec, t)) {
+      if (inherited(p.name)) continue;
+      const P = propertyTitle(p);
       if (p.required && !t.primaryKey.includes(p.name))
         add({
           id: `auto-${slug}-${p.name}-required`.slice(0, 64),
-          name: `${t.name} has a ${p.name}`,
-          statement: `Every ${t.name} has a ${p.name}.`,
+          name: `${T}: ${P.toLowerCase()} is filled in`,
+          statement: `${P} is filled in for every ${T}.`,
           objectType: t.name,
           kind: "required",
           property: p.name,
@@ -831,11 +870,12 @@ export function impliedRules(spec: OntologySpec): OntologyRule[] {
         });
       const vt = spec.valueTypes.find((v) => v.name.toLowerCase() === p.type.toLowerCase());
       if (!vt) continue;
+      const V = splitCamel(vt.name).toLowerCase();
       if (vt.enum)
         add({
           id: `auto-${slug}-${p.name}-values`.slice(0, 64),
-          name: `${t.name} ${p.name} is a known ${vt.name}`,
-          statement: `${p.name} is one of: ${vt.enum.slice(0, 8).join(", ")}${vt.enum.length > 8 ? ", …" : ""}.`,
+          name: `${T} ${P.toLowerCase()} is a known ${V}`,
+          statement: `${P} is one of: ${vt.enum.slice(0, 8).join(", ")}${vt.enum.length > 8 ? ", …" : ""}.`,
           objectType: t.name,
           kind: "allowed_values",
           property: p.name,
@@ -845,8 +885,8 @@ export function impliedRules(spec: OntologySpec): OntologyRule[] {
       if (vt.pattern)
         add({
           id: `auto-${slug}-${p.name}-pattern`.slice(0, 64),
-          name: `${t.name} ${p.name} looks like a ${vt.name}`,
-          statement: `${p.name} matches the ${vt.name} format.`,
+          name: `${T} ${P.toLowerCase()} is a valid ${V}`,
+          statement: `${P} matches the ${V} format.`,
           objectType: t.name,
           kind: "pattern",
           property: p.name,
@@ -856,8 +896,8 @@ export function impliedRules(spec: OntologySpec): OntologyRule[] {
       if (vt.min !== undefined || vt.max !== undefined)
         add({
           id: `auto-${slug}-${p.name}-range`.slice(0, 64),
-          name: `${t.name} ${p.name} is in range`,
-          statement: `${p.name} is${vt.min !== undefined ? ` at least ${vt.min}` : ""}${vt.min !== undefined && vt.max !== undefined ? " and" : ""}${vt.max !== undefined ? ` at most ${vt.max}` : ""}.`,
+          name: `${T} ${P.toLowerCase()} is in range`,
+          statement: `${P} is${vt.min !== undefined ? ` at least ${vt.min}` : ""}${vt.min !== undefined && vt.max !== undefined ? " and" : ""}${vt.max !== undefined ? ` at most ${vt.max}` : ""}.`,
           objectType: t.name,
           kind: "range",
           property: p.name,
@@ -872,10 +912,12 @@ export function impliedRules(spec: OntologySpec): OntologyRule[] {
     const to = findObjectType(spec, l.to);
     if (!from?.source || !to?.source || l.join.kind !== "foreign_key") continue;
     if (!walksToOne(l, "forward")) continue;
+    const F = titleOf(from);
+    const To = titleOf(to);
     add({
       id: `auto-${from.name.toLowerCase()}-${l.name}-exists`.slice(0, 64),
-      name: `${from.name} ${l.name} points at a real ${to.name}`,
-      statement: `When a ${from.name} names its ${to.name}, that ${to.name} exists.`,
+      name: `${F} “${l.label ?? l.name.replace(/_/g, " ")}” points at a real ${To}`,
+      statement: `When ${article(F)} ${F} names its ${To}, that ${To} exists.`,
       objectType: from.name,
       kind: "referential",
       link: l.name,

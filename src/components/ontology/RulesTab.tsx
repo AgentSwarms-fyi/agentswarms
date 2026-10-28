@@ -42,7 +42,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { ObjectPanel } from "@/components/ontology/ExploreTab";
 import { useOntology } from "@/components/ontology/OntologyContext";
 import { Field } from "@/components/ontology/TypeEditor";
-import { formatValue, relativeTime, SeverityChip, TypeBadge } from "@/components/ontology/theme";
+import {
+  formatValue,
+  looksLikeIdentifier,
+  relativeTime,
+  SeverityChip,
+  TypeBadge,
+} from "@/components/ontology/theme";
 import {
   ontologyRuleRuns,
   ontologyRunRules,
@@ -373,7 +379,7 @@ function RuleTable(props: {
                               >
                                 {Object.keys(res.sample[0]).map((k) => (
                                   <td key={k} className="px-2 py-1 tabular-nums">
-                                    {formatValue(s[k])}
+                                    {formatValue(s[k], { plain: looksLikeIdentifier(k) })}
                                   </td>
                                 ))}
                               </tr>

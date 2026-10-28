@@ -57,9 +57,23 @@ import {
   allProperties,
   findObjectType,
   MEMBER_NAME,
+  titleOf,
   type ActionType,
 } from "@/lib/ontology/spec";
 import { cn } from "@/lib/utils";
+
+/** "Order 1063", "Order line 12 · 3", or "a new Customer" for a create. */
+function ObjectRef(props: { type: string; objectKey: Record<string, unknown> | null }) {
+  const o = useOntology();
+  const t = findObjectType(o.spec, props.type);
+  const name = t ? titleOf(t) : props.type;
+  if (!props.objectKey) return <>a new {name}</>;
+  return (
+    <>
+      {name} <span className="font-mono text-xs">{Object.values(props.objectKey).join(" · ")}</span>
+    </>
+  );
+}
 
 const AGENT_TEXT: Record<ActionType["agentMode"], string> = {
   none: "Agents may not use it",
@@ -209,8 +223,7 @@ export function ActionsTab() {
                       {o.spec.actionTypes.find((a) => a.name === r.action_name)?.label ??
                         r.action_name}
                     </span>{" "}
-                    on {r.object_type}{" "}
-                    <span className="font-mono text-xs">{JSON.stringify(r.object_key)}</span>
+                    on <ObjectRef type={r.object_type} objectKey={r.object_key} />
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {Object.entries(r.params)
@@ -297,12 +310,8 @@ export function ActionsTab() {
                         {o.spec.actionTypes.find((a) => a.name === r.action_name)?.label ??
                           r.action_name}
                       </span>{" "}
-                      <span className="text-muted-foreground">on</span> {r.object_type}{" "}
-                      {r.object_key && (
-                        <span className="font-mono text-xs">
-                          {Object.values(r.object_key).join(" · ")}
-                        </span>
-                      )}
+                      <span className="text-muted-foreground">on</span>{" "}
+                      <ObjectRef type={r.object_type} objectKey={r.object_key} />
                     </p>
                     {changed.length > 0 && (
                       <ul className="mt-1 space-y-0.5 text-xs">

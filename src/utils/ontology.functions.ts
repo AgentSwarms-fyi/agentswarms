@@ -31,6 +31,7 @@ import { lakehouseConnection, lakehouseEnabled } from "@/utils/lakehouse/core.se
 import { listLakehouseTablesForUser } from "@/utils/lakehouse/tables.server";
 import { runSql } from "@/utils/ontology/run.server";
 import { diffSpecs, type SpecDiff } from "@/lib/ontology/diff";
+import { notInstalledMessage } from "@/lib/ontology/install";
 import { describeOntologyPolicy } from "@/lib/ontology/policy";
 import { SAMPLE_NAME, SAMPLE_SCHEMA_BASE, sampleSpec, sampleSql } from "@/lib/ontology/sample";
 import { emptySpec, ontologySpecSchema, type OntologySpec } from "@/lib/ontology/spec";
@@ -90,6 +91,29 @@ async function sizeProblem(spec: OntologySpec): Promise<string | null> {
     : null;
 }
 
+/** The names of an owner's ontologies, but for `exceptId`. */
+async function ownerNames(userId: string, exceptId?: string): Promise<string[]> {
+  const { data, error } = await supabaseAdmin
+    .from("ontologies")
+    .select("id, name")
+    .eq("user_id", userId);
+  if (error) throw new Error(notInstalledMessage(error.message) ?? error.message);
+  return (data ?? []).filter((o) => o.id !== exceptId).map((o) => o.name);
+}
+
+/**
+ * Agents, shares and the agent builder's picker tell ontologies apart by
+ * name, so an owner's names are unique (ignoring case). Two called the same
+ * left an agent allowed "Northwind Outfitters" reading whichever came first.
+ */
+async function nameClash(userId: string, name: string, exceptId?: string): Promise<string | null> {
+  const want = name.trim().toLowerCase();
+  const other = (await ownerNames(userId, exceptId)).find((n) => n.trim().toLowerCase() === want);
+  return other
+    ? `You already have an ontology called "${other}". Agents and shares tell ontologies apart by name, so give this one another.`
+    : null;
+}
+
 // ── List ────────────────────────────────────────────────────────────────────
 
 export const ontologyList = createServerFn({ method: "POST" })
@@ -114,7 +138,8 @@ export const ontologyList = createServerFn({ method: "POST" })
             .not("published_version", "is", null)
         : Promise.resolve({ data: [], error: null }),
     ]);
-    if (own.error) return { ok: false, error: own.error.message };
+    if (own.error)
+      return { ok: false, error: notInstalledMessage(own.error.message) ?? own.error.message };
     if (granted.error) return { ok: false, error: granted.error.message };
     const out: OntologySummary[] = [];
     for (const row of [...(own.data ?? []), ...(granted.data ?? [])]) {
@@ -191,6 +216,8 @@ export const ontologyCreate = createServerFn({ method: "POST" })
     }
     const tooBig = await sizeProblem(spec);
     if (tooBig) return { ok: false, error: tooBig };
+    const clash = await nameClash(caller.userId, data.name);
+    if (clash) return { ok: false, error: clash };
     const { data: row, error } = await supabaseAdmin
       .from("ontologies")
       .insert({
@@ -230,6 +257,17 @@ export const ontologyCreateSample = createServerFn({ method: "POST" })
         error: "The sample needs the lakehouse, which is not configured on this instance",
       };
     }
+    // Before anything is made: on a database without the ontology tables the
+    // last step would fail and strand a schema of six tables under the name.
+    const reachable = await supabaseAdmin.from("ontologies").select("id").limit(1);
+    if (reachable.error) {
+      return {
+        ok: false,
+        error:
+          notInstalledMessage(reachable.error.message) ??
+          `Could not reach the ontology tables: ${reachable.error.message}`,
+      };
+    }
     // Claim the first free schema name: ontology_sample, ontology_sample_2, …
     let schema = "";
     let schemaId = "";
@@ -244,30 +282,84 @@ export const ontologyCreateSample = createServerFn({ method: "POST" })
         })
         .select("id")
         .single();
-      if (claimed) {
+      if (error && error.code !== "23505") {
+        return { ok: false, error: `Could not create the sample's schema: ${error.message}` };
+      }
+      if (!claimed) continue;
+      // Claimed in the registry; now made in the catalog. A schema already
+      // there (made outside the app, or left by a crash) is not this call's
+      // to fill or to drop: release the claim and try the next name.
+      try {
+        const c = await lakehouseConnection();
+        try {
+          await c.run(`CREATE SCHEMA ${name}`);
+        } finally {
+          c.closeSync();
+        }
         schema = name;
         schemaId = claimed.id;
-      } else if (error && error.code !== "23505") {
-        return { ok: false, error: `Could not create the sample's schema: ${error.message}` };
+      } catch (e) {
+        await supabaseAdmin.from("lakehouse_schemas").delete().eq("id", claimed.id);
+        if (!/already exists/i.test((e as Error).message)) {
+          return {
+            ok: false,
+            error: `Could not create the sample's schema: ${(e as Error).message}`,
+          };
+        }
       }
     }
     if (!schema) return { ok: false, error: "Could not find a free name for the sample's schema" };
-    const unclaim = () => supabaseAdmin.from("lakehouse_schemas").delete().eq("id", schemaId);
-    try {
-      const c = await lakehouseConnection();
+    // Undo everything this call made (the schema is its own, created above),
+    // so a failure at any later step leaves no tables behind and the name
+    // free for the next try.
+    const rollback = async () => {
       try {
-        await c.run(`CREATE SCHEMA IF NOT EXISTS ${schema}`);
-      } finally {
-        c.closeSync();
+        const c = await lakehouseConnection();
+        try {
+          await c.run(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+        } finally {
+          c.closeSync();
+        }
+      } catch {
+        /* the claim below is released either way */
       }
+      await supabaseAdmin.from("lakehouse_schemas").delete().eq("id", schemaId);
+    };
+    try {
       // The tables are written as the caller, through the governed path,
       // into the schema they now own.
       for (const sql of sampleSql(schema)) {
         await runSql(caller.userId, sql, { rowCap: 1, via: "ontology:sample", timeoutMs: 120_000 });
       }
     } catch (e) {
-      await unclaim();
+      await rollback();
       return { ok: false, error: `Could not create the sample's tables: ${(e as Error).message}` };
+    }
+    // A second sample is "Northwind Outfitters 2": names tell ontologies apart.
+    const taken = new Set((await ownerNames(caller.userId)).map((n) => n.trim().toLowerCase()));
+    let name = SAMPLE_NAME;
+    for (let i = 2; taken.has(name.toLowerCase()); i++) name = `${SAMPLE_NAME} ${i}`;
+    const spec = { ...sampleSpec(schema), name };
+    const { data: row, error } = await supabaseAdmin
+      .from("ontologies")
+      .insert({
+        user_id: caller.userId,
+        name,
+        description: spec.description ?? null,
+        spec: spec as unknown as Json,
+        sample_schema: schema,
+      })
+      .select("id")
+      .single();
+    if (error || !row) {
+      await rollback();
+      return {
+        ok: false,
+        error:
+          notInstalledMessage(error?.message) ??
+          error?.message ??
+          "Could not create the sample ontology",
+      };
     }
     auditEvent({
       userId: caller.userId,
@@ -277,26 +369,12 @@ export const ontologyCreateSample = createServerFn({ method: "POST" })
       resourceName: schema,
       detail: { via: "ontology:sample" },
     });
-    const spec = sampleSpec(schema);
-    const { data: row, error } = await supabaseAdmin
-      .from("ontologies")
-      .insert({
-        user_id: caller.userId,
-        name: SAMPLE_NAME,
-        description: spec.description ?? null,
-        spec: spec as unknown as Json,
-        sample_schema: schema,
-      })
-      .select("id")
-      .single();
-    if (error || !row)
-      return { ok: false, error: error?.message ?? "Could not create the sample ontology" };
     auditEvent({
       userId: caller.userId,
       action: "ontology.create",
       resourceType: "ontology",
       resourceId: row.id,
-      resourceName: SAMPLE_NAME,
+      resourceName: name,
       detail: { origin: "sample", schema, ...countsOf(spec) },
     });
     return { ok: true, id: row.id, schema };
@@ -408,6 +486,10 @@ export const ontologySave = createServerFn({ method: "POST" })
       }
       const tooBig = await sizeProblem(parsed.data);
       if (tooBig) return { ok: false, error: tooBig };
+      if (parsed.data.name.trim().toLowerCase() !== access.row.name.trim().toLowerCase()) {
+        const clash = await nameClash(caller.userId, parsed.data.name, data.id);
+        if (clash) return { ok: false, error: `Not saved: ${clash}` };
+      }
       // Compare-and-set on the revision: an UPDATE that matches no row means
       // someone saved in between.
       const { data: updated, error } = await supabaseAdmin
@@ -676,6 +758,10 @@ export const ontologyRestore = createServerFn({ method: "POST" })
       .maybeSingle();
     if (!v) return { ok: false, error: "That version does not exist" };
     const spec = parseStoredSpec(v.spec, `version ${data.version}`);
+    if (spec.name.trim().toLowerCase() !== access.row.name.trim().toLowerCase()) {
+      const clash = await nameClash(caller.userId, spec.name, data.id);
+      if (clash) return { ok: false, error: `Not restored: ${clash}` };
+    }
     const { data: updated, error } = await supabaseAdmin
       .from("ontologies")
       .update({ spec: spec as unknown as Json, name: spec.name, revision: data.revision + 1 })
@@ -915,6 +1001,10 @@ export const ontologyDecideProposal = createServerFn({ method: "POST" })
         };
       }
       const spec = parseStoredSpec(p.spec, "proposal");
+      if (spec.name.trim().toLowerCase() !== access.row.name.trim().toLowerCase()) {
+        const clash = await nameClash(access.row.user_id, spec.name, data.id);
+        if (clash) return { ok: false, error: `Not merged: ${clash}` };
+      }
       const { data: updated, error } = await supabaseAdmin
         .from("ontologies")
         .update({

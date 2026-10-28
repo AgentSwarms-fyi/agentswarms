@@ -49,6 +49,18 @@ scores completeness. `diff.ts` classifies changes as breaking (removed type / pr
 link, changed key, binding, join or cardinality) and lists what still refers to each.
 `edit.ts` renames and removes with every reference carried along.
 
+An ontology's own name is renamed in place from the workspace title. Agents, shares and the agent
+builder's picker tell ontologies apart by name, so an owner's names are unique (ignoring case):
+creating, renaming, restoring a version or merging a proposal under a name the owner already uses
+is refused with the reason, and a second sample is called "Northwind Outfitters 2".
+
+Rules the model implies (`impliedRules` in `compile.ts`) read as sentences in the model's own
+words ("Customer email is a valid email address", "When an Order names its Customer, that
+Customer exists"). A subtype read from its supertype's own table (VIP customers) is not checked
+again for what it inherits; the supertype's check already covers its rows. A rule's example rows
+show their key and title plus what the rule reads: its property, every property a condition
+uses, a link's own key.
+
 ## From the model to SQL
 
 `compile.ts` is pure: object sets (filters with literals checked against the property's type,
@@ -63,7 +75,8 @@ smuggled `(SELECT secret FROM t)` becomes quoted names the engine cannot parse.
 
 Compiled SQL runs through `runLakehouseStatement` **as the caller** (`src/utils/ontology/run.server.ts`):
 their schema grants, the tables' tag policies and row filters apply, and the statement lands in
-their Lakehouse history and the audit log marked `ontology:<what>` (`explore`, `object`, `graph`,
+their Lakehouse → History as the SQL it compiled to. Its audit-log entry (`lakehouse.select`, or the
+write's kind) says where it came from in `via`: `ontology:<what>` (`explore`, `object`, `graph`,
 `metric`, `rule`, `profile`, `ask`, `action`, `draft`, `sample`).
 
 ## Access, sharing and policy
@@ -93,9 +106,13 @@ catalog AI sees. `tests/unit/enterpriseOntologyAccess.test.ts` pins all of this 
 - **Ask** (`src/utils/ontology/ask.server.ts`): a verified question that matches closely answers
   without a model call; otherwise the model reads `catalog.ts`'s catalog and returns a plan
   (`askPlanSchema`: objects / metric / refuse); a plan that does not compile goes back once with
-  the error. The answer's trust envelope lists the metric and whether it is certified, types,
-  links, tables, the asker's restrictions, open rule violations on those types and the
-  verification. Verified questions store the plan and a digest of the answer; **Evaluate**
+  the error. The catalog lists, for every measured type, each grouping it can use without double
+  counting, with the exact path to copy (`GROUP Order METRICS BY path [...] (Order → Customer):
+segment, …`, from `toOneReach` in `spec.ts`, the same set the Metrics page offers), so the model
+  never judges fan-out itself. `tidyPlan` drops a time grain the model puts on a property that is
+  not a date (the one mistake with only one reading); everything else is left to the compiler. The answer's trust envelope lists the metric and whether it is certified, types,
+  links, tables, the asker's restrictions, open rule violations on those types (named as the
+  rules read now) and the verification. Verified questions store the plan and a digest of the answer; **Evaluate**
   re-runs them (same / changed / broken).
 - **Agents**: the `ontology_query` tool (`src/utils/tools/ontology.server.ts`), deny-by-default by
   ontology name, catalog in the description, runs as `scopeUserId ?? userId`, may request actions
@@ -158,3 +175,9 @@ quantities and two orders in an unknown status.
   caller, grantees get the published version, RLS and the IAM type, the agent tool's allow-list.
 - `tests/unit/ontologyOssie.test.ts` — Ossie mirrors against the official schemas, official
   examples imported, lossless round trips.
+- `tests/unit/enterpriseOntologyUi.test.ts` — what the screens offer and how they label it:
+  groupings never step straight back, suggested questions group by categories (never an e-mail),
+  periods read "Jan 2024", keys print as labels ("1063", not "1,063").
+- `tests/unit/effectCleanupSweep.test.ts` — no effect in the app returns a scroll, timer,
+  animation or promise (a smooth `scrollIntoView` returns a Promise in current Chromium, and the
+  Ask tab's effect returned it to React as its cleanup).

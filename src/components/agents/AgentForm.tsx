@@ -2535,6 +2535,7 @@ export function AgentForm({
                                 <Switch
                                   checked={isEnabled}
                                   onCheckedChange={(v) => toggleTool(tool.id, v)}
+                                  aria-label={`Use ${tool.name}`}
                                 />
                               )}
                             </div>

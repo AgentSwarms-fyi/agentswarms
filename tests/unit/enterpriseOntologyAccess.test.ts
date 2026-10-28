@@ -203,4 +203,58 @@ describe("ontology server functions", () => {
     // And the object must be visible to them (their row filter) before anything runs.
     expect(actions).toContain("compileGetObject(access.spec, t.name, key, opts)");
   });
+
+  it("the sample leaves nothing behind when it cannot finish", () => {
+    // Found live: on a database without the ontology tables the sample made
+    // its schema and six tables, then failed to save the ontology and kept
+    // them, so the next try landed in ontology_sample_2.
+    const body = fns.find((f) => f.name === "ontologyCreateSample")!.body;
+    const probe = body.indexOf('.from("ontologies").select("id").limit(1)');
+    const claim = body.indexOf('.from("lakehouse_schemas")');
+    expect(probe).toBeGreaterThan(-1);
+    expect(probe).toBeLessThan(claim);
+    // It fills only a schema it created: no IF NOT EXISTS, and an existing
+    // one is released and skipped rather than filled or dropped.
+    expect(body).toContain("await c.run(`CREATE SCHEMA ${name}`);");
+    expect(body).not.toContain("CREATE SCHEMA IF NOT EXISTS");
+    expect(body).toMatch(/already exists/);
+    // Both later failures roll the whole thing back.
+    const insert = body.search(/\.from\("ontologies"\)\s*\.insert\(/);
+    expect(insert).toBeGreaterThan(-1);
+    expect(body.match(/await rollback\(\);/g)?.length).toBe(2);
+    expect(body.indexOf("await rollback();", insert)).toBeGreaterThan(insert);
+    // The schema is audited as made only once the ontology exists.
+    expect(body.indexOf('action: "lakehouse.schema.create"')).toBeGreaterThan(insert);
+  });
+
+  it("an ontology's statements say where they came from in the audit log", () => {
+    // Every compiled statement is audited with via: "ontology:<what>"; the
+    // Audit Log row shows it ("SELECT · 4 rows · via ontology:ask").
+    const run = readFileSync("src/utils/ontology/run.server.ts", "utf8");
+    expect(run).toContain("auditVia: opts.via");
+    const ui = readFileSync("src/components/observability/AuditLog.tsx", "utf8");
+    const summary = ui.slice(ui.indexOf("function describeDetail("));
+    expect(summary).toMatch(
+      /if \(typeof d\.via === "string"\) bits\.push\(`via \$\{String\(d\.via\)\}`\);/,
+    );
+  });
+
+  it("an owner's ontology names are unique, and an agent resolves one per name", () => {
+    // Found live: two samples were both "Northwind Outfitters", the agent
+    // builder listed the name twice, and the tool read whichever came first.
+    const body = (n: string) => fns.find((f) => f.name === n)!.body;
+    expect(body("ontologyCreate")).toContain("await nameClash(caller.userId, data.name)");
+    expect(body("ontologySave")).toContain(
+      "await nameClash(caller.userId, parsed.data.name, data.id)",
+    );
+    expect(body("ontologyRestore")).toContain("await nameClash(caller.userId, spec.name, data.id)");
+    expect(body("ontologyDecideProposal")).toContain(
+      "await nameClash(access.row.user_id, spec.name, data.id)",
+    );
+    // A second sample gets a name of its own rather than a duplicate.
+    expect(body("ontologyCreateSample")).toMatch(/name = `\$\{SAMPLE_NAME\} \$\{i\}`/);
+    const tool = readFileSync("src/utils/tools/ontology.server.ts", "utf8");
+    expect(tool).toContain("x.name.toLowerCase() === o.name.toLowerCase()");
+    expect(tool).toContain('.order("updated_at", { ascending: false })');
+  });
 });

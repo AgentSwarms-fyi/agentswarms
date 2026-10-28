@@ -443,6 +443,47 @@ export function walksToOne(link: LinkType, direction: "forward" | "inverse"): bo
   return c === "many_to_one" || c === "one_to_one";
 }
 
+export type ReachStep = { link: string; direction: "forward" | "inverse" };
+
+/**
+ * Every bound type reachable from `typeName` by to-one steps (each object has
+ * at most one at every step), up to `depth` steps, in walking order. These
+ * are the groupings a metric of `typeName` can use without double counting.
+ * A step straight back over the link just taken (Order → Shipment → Order)
+ * only returns to what was already reachable, so it is not taken.
+ */
+export function toOneReach(
+  spec: OntologySpec,
+  typeName: string,
+  depth = 2,
+): { path: ReachStep[]; type: string; via: string }[] {
+  const out: { path: ReachStep[]; type: string; via: string }[] = [];
+  const visit = (
+    at: string,
+    path: ReachStep[],
+    via: string,
+    d: number,
+    came?: { link: string; direction: "forward" | "inverse" },
+  ) => {
+    if (d > 0) out.push({ path, type: at, via });
+    if (d >= depth) return;
+    for (const { link, direction, other } of linksOf(spec, at)) {
+      if (!walksToOne(link, direction)) continue;
+      if (came && came.link === link.name && came.direction !== direction) continue;
+      if (!findObjectType(spec, other)?.source) continue;
+      visit(
+        other,
+        [...path, { link: linkReading(link, direction), direction }],
+        `${via} → ${other}`,
+        d + 1,
+        { link: link.name, direction },
+      );
+    }
+  };
+  visit(typeName, [], typeName, 0);
+  return out;
+}
+
 export function titleOf(type: ObjectType): string {
   return type.label?.trim() || splitCamel(type.name);
 }

@@ -66,14 +66,23 @@ export function suggestQuestions(spec: OntologySpec): string[] {
     if (m) {
       const near = linksOf(spec, t.name).find(({ link, direction }) => walksToOne(link, direction));
       const other = near ? findObjectType(spec, near.other) : undefined;
-      const prop = other
-        ? allProperties(spec, other).find(
-            (p) =>
+      // Group by something with few values people compare (a segment, a
+      // status), never an identifier, a free-text format like an e-mail, or
+      // anything sensitive.
+      const groupable = other
+        ? allProperties(spec, other).filter((p) => {
+            const vt = findValueType(spec, p.type);
+            return (
               (baseTypeOf(spec, p.type) ?? "string") === "string" &&
               !other.primaryKey.includes(p.name) &&
-              p.name !== other.titleProperty,
-          )
-        : undefined;
+              p.name !== other.titleProperty &&
+              !vt?.pattern &&
+              (p.sensitivity ?? "public") !== "confidential" &&
+              p.sensitivity !== "restricted"
+            );
+          })
+        : [];
+      const prop = groupable.find((p) => findValueType(spec, p.type)?.enum) ?? groupable[0];
       if (other && prop)
         out.push(
           `${m.label ?? m.name} by ${other.label ?? other.name} ${propertyTitle(prop).toLowerCase()}`,
@@ -115,10 +124,11 @@ export function AskTab() {
   useEffect(() => {
     void loadVerified();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(
-    () => bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" }),
-    [turns.length, busy],
-  );
+  useEffect(() => {
+    // Braced on purpose: Chromium's smooth scrollIntoView returns a Promise,
+    // and an effect that returns one hands React a "cleanup" it cannot call.
+    bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [turns.length, busy]);
 
   const ask = async (question: string) => {
     if (!question.trim() || busy) return;

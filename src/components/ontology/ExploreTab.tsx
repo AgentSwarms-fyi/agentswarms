@@ -3,7 +3,7 @@
 // products those customers bought). Each object opens in a side panel with
 // its properties, the rules it breaks, its own metrics, what it links to and
 // the actions available on it. Hidden properties say "hidden", never blank.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import {
   AlertTriangle,
@@ -33,7 +33,12 @@ import {
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ActionDialog } from "@/components/ontology/ActionDialog";
 import { useOntology } from "@/components/ontology/OntologyContext";
-import { formatValue, SeverityChip, TypeBadge } from "@/components/ontology/theme";
+import {
+  formatValue,
+  looksLikeIdentifier,
+  SeverityChip,
+  TypeBadge,
+} from "@/components/ontology/theme";
 import {
   ontologyObject,
   ontologyObjects,
@@ -231,9 +236,11 @@ export function ExploreTab() {
               setOrder(null);
             }}
           >
-            <SelectTrigger className="w-56" aria-label="Search around">
+            <SelectTrigger className="w-56 [&>span]:flex" aria-label="Search around">
+              {/* The trigger clamps a child span to one line, which drops it out
+                  of flex and stacks the icon over the words; keep it a row. */}
               <span className="flex items-center gap-1.5 text-sm">
-                <Network className="h-4 w-4" /> Search around…
+                <Network className="h-4 w-4 shrink-0" /> Search around…
               </span>
             </SelectTrigger>
             <SelectContent>
@@ -382,7 +389,12 @@ export function ExploreTab() {
                         }
                         className="inline-flex items-center gap-1 hover:text-foreground"
                       >
-                        {propertyTitle({ name: c.property })}
+                        {propertyTitle(
+                          (endType &&
+                            allProperties(o.spec, endType).find((p) => p.name === c.property)) || {
+                            name: c.property,
+                          },
+                        )}
                         {c.isKey && <span className="text-[9px] text-amber-600">key</span>}
                         {c.masked && <EyeOff className="h-3 w-3" aria-label="hidden" />}
                         {order?.property === c.property && (order.direction === "asc" ? "↑" : "↓")}
@@ -427,7 +439,10 @@ export function ExploreTab() {
                             {c.masked ? (
                               <span className="text-xs italic text-muted-foreground">hidden</span>
                             ) : (
-                              formatValue(r[c.key], { unit: vt?.unit })
+                              formatValue(r[c.key], {
+                                unit: vt?.unit,
+                                plain: c.isKey || looksLikeIdentifier(c.property),
+                              })
                             )}
                           </td>
                         );
@@ -571,10 +586,16 @@ export function ObjectPanel(props: {
   const [error, setError] = useState<string | null>(null);
   const [action, setAction] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
+  const shown = useRef<typeof props.target>(null);
 
   useEffect(() => {
     if (!props.target) return;
-    setView(null);
+    // A refresh after an action keeps the panel, and the action dialog's
+    // outcome, on screen; only a different object starts from blank.
+    if (shown.current !== props.target) {
+      setView(null);
+      shown.current = props.target;
+    }
     setError(null);
     let live = true;
     void (async () => {
@@ -671,16 +692,14 @@ export function ObjectPanel(props: {
               </h3>
               <dl className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-x-4 gap-y-1.5 text-sm">
                 {view.columns.map((c) => {
-                  const vt = t
-                    ? findValueType(
-                        o.spec,
-                        allProperties(o.spec, t).find((p) => p.name === c.property)?.type ?? "",
-                      )
+                  const prop = t
+                    ? allProperties(o.spec, t).find((p) => p.name === c.property)
                     : undefined;
+                  const vt = prop ? findValueType(o.spec, prop.type) : undefined;
                   return (
                     <div key={c.key} className="contents">
                       <dt className="truncate text-muted-foreground">
-                        {propertyTitle({ name: c.property })}
+                        {propertyTitle(prop ?? { name: c.property })}
                       </dt>
                       <dd className="truncate tabular-nums">
                         {c.masked ? (
@@ -688,7 +707,10 @@ export function ObjectPanel(props: {
                             <EyeOff className="h-3 w-3" /> hidden from you
                           </span>
                         ) : (
-                          formatValue(view.object[c.key], { unit: vt?.unit })
+                          formatValue(view.object[c.key], {
+                            unit: vt?.unit,
+                            plain: c.isKey || looksLikeIdentifier(c.property),
+                          })
                         )}
                       </dd>
                     </div>

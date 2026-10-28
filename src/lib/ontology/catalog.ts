@@ -23,12 +23,16 @@ import {
 } from "@/lib/ontology/compile";
 import {
   allProperties,
+  baseTypeOf,
   cardinalityWalking,
+  findObjectType,
   findValueType,
   linkReading,
   linksOf,
   pluralTitleOf,
   titleOf,
+  toOneReach,
+  type ObjectType,
   type OntologySpec,
 } from "@/lib/ontology/spec";
 
@@ -75,8 +79,35 @@ export function aiCatalog(spec: OntologySpec, opts: CompileOpts): string {
         `  > link ${linkReading(link, direction)} (${direction}) → ${other}, each ${t.name} has ${one ? "at most one" : "many"}${link.verbalization ? `: "${link.verbalization}"` : ""}`,
       );
     }
+    // The groupings a metric of this type can use, spelled out with the exact
+    // path to copy: deciding which walks are safe is the compiler's job, not
+    // the model's (it once refused "revenue by customer segment" as a fan-out).
+    if (t.metrics.length) {
+      const own = groupable(spec, t, opts);
+      if (own) lines.push(`  GROUP ${t.name} METRICS BY its own: ${own}`);
+      for (const r of toOneReach(spec, t.name)) {
+        const there = findObjectType(spec, r.type);
+        const props = there ? groupable(spec, there, opts) : "";
+        if (props)
+          lines.push(
+            `  GROUP ${t.name} METRICS BY path ${JSON.stringify(r.path)} (${r.via}): ${props}`,
+          );
+      }
+    }
   }
   return lines.join("\n");
+}
+
+/** A type's properties a grouping may use, dates marked: the asker's hidden ones left out. */
+function groupable(spec: OntologySpec, t: ObjectType, opts: CompileOpts): string {
+  return allProperties(spec, t)
+    .filter((p) => !isMasked(spec, t, p.name, opts))
+    .map((p) =>
+      ["date", "datetime", "timestamp"].includes(baseTypeOf(spec, p.type) ?? "")
+        ? `${p.name} (date: give a grain)`
+        : p.name,
+    )
+    .join(", ");
 }
 
 // ── Plans ────────────────────────────────────────────────────────────────────
@@ -145,7 +176,7 @@ export function askSystemPrompt(catalog: string, today: string): string {
     "RULES:",
     "- Use ONLY names in the catalog, exactly as written. Never invent a property, metric or link.",
     "- To count or sum, use a METRIC of the type being measured. Prefer CERTIFIED metrics.",
-    "- groupBy may walk links only where the catalog says 'at most one' at each step (otherwise totals double count). If the question needs a fan-out grouping, refuse and say why.",
+    "- groupBy: use ONLY a grouping listed under 'GROUP <Type> METRICS BY' for the type being measured, copying its path exactly (no path for its own properties). Every listed grouping is safe: each step is at most one. A grouping that is not listed would double count totals: then refuse and say why.",
     "- A 'path' on an objects query walks from the filtered start set to linked objects (e.g. the customers of these orders).",
     "- Dates are ISO (YYYY-MM-DD). Today is " +
       today +
@@ -156,6 +187,44 @@ export function askSystemPrompt(catalog: string, today: string): string {
     "",
     catalog,
   ].join("\n");
+}
+
+/**
+ * Mend what a plan gets wrong in form only, never in meaning: a time grain on
+ * a grouping that is not a date (a model adds "month" to a customer segment)
+ * has no other reading, so it is dropped. Everything else is left for the
+ * compiler to accept or refuse, including a property that does not exist.
+ */
+export function tidyPlan(spec: OntologySpec, plan: AskPlan): AskPlan {
+  if (plan.kind !== "metric" || !plan.query.groupBy?.length) return plan;
+  const groupBy = plan.query.groupBy.map((g) => {
+    if (!g.grain) return g;
+    const at = typeAtEnd(spec, plan.query.objectType, g.path ?? []);
+    const p = at ? allProperties(spec, at).find((x) => x.name === g.property) : undefined;
+    if (!p || ["date", "datetime", "timestamp"].includes(baseTypeOf(spec, p.type) ?? "")) return g;
+    const rest = { ...g };
+    delete rest.grain;
+    return rest;
+  });
+  return { ...plan, query: { ...plan.query, groupBy } };
+}
+
+/** The type a path of link steps ends at, or undefined when a step does not exist. */
+function typeAtEnd(
+  spec: OntologySpec,
+  start: string,
+  path: { link: string; direction: "forward" | "inverse" }[],
+): ObjectType | undefined {
+  let at = findObjectType(spec, start);
+  for (const step of path) {
+    if (!at) return undefined;
+    const hit = linksOf(spec, at.name).find(
+      ({ link, direction }) =>
+        direction === step.direction && linkReading(link, direction) === step.link,
+    );
+    at = hit ? findObjectType(spec, hit.other) : undefined;
+  }
+  return at;
 }
 
 /** Plans for an object-set or metric query, after the zod check. */

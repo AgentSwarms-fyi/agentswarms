@@ -252,6 +252,8 @@ describe("rules find the rows the sample breaks on purpose", () => {
     const r = await run("line-quantity-positive");
     expect(r.violations).toBe(2);
     expect(r.sample.map((s) => num(s.line_id)).sort((a, b) => a - b)).toEqual([777, 1201]);
+    // Each example shows what the condition read, so it says why it breaks.
+    for (const s of r.sample) expect(num(s.quantity)).toBeLessThanOrEqual(0);
   });
 
   it("two customers whose e-mail is not an e-mail (the value type's pattern)", async () => {
@@ -269,6 +271,9 @@ describe("rules find the rows the sample breaks on purpose", () => {
     const r = await run("auto-order-placed_by-exists");
     expect(r.violations).toBe(1);
     expect(num(r.sample[0].order_id)).toBe(1333);
+    // And the key it points with, which is the one that names no customer.
+    expect(r.sample[0]).toHaveProperty("customer_id");
+    expect(r.sample[0].customer_id).not.toBeNull();
   });
 
   it("keys that are unique pass", async () => {

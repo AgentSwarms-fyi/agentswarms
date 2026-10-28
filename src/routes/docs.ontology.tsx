@@ -142,7 +142,10 @@ function OntologyDocsPage() {
             "Explore",
             "A type's objects: search, filters, sorting, and search around (the customers of these orders). Each object opens with its properties, the rules it breaks, its metrics, what it links to and its actions.",
           ],
-          ["Graph", "One object's neighbourhood, drawn; click a node to grow the graph from it."],
+          [
+            "Graph",
+            "One object's neighbourhood, drawn; click a node to grow the graph from it. A crowded graph names only the links of the object under the pointer.",
+          ],
           [
             "Metrics",
             "A metric broken down by its own properties or by those of types it reaches through to-one links, by day to year; chart, table and the compiled SQL.",
@@ -165,6 +168,12 @@ function OntologyDocsPage() {
         save made from a stale tab is refused rather than written over newer work. Publishing
         freezes the draft into a numbered version — what people you share with, agents and exports
         use — after showing exactly what changed and which changes are breaking.
+      </P>
+      <P>
+        Click the ontology&apos;s name at the top of the workspace to rename it. Agents, shares and
+        the agent builder tell ontologies apart by name, so two of yours cannot share one: a name
+        you already use is refused with the reason, and a second sample is called{" "}
+        <em>Northwind Outfitters 2</em>.
       </P>
 
       <H2 id="binding">Binding to the lakehouse</H2>
@@ -202,9 +211,11 @@ function OntologyDocsPage() {
         check: required, unique, matches a pattern, within a range, one of a list, a link that must
         point at something, or any condition over the type&apos;s properties. The model also implies
         rules nobody has to write: keys are present and unique, required properties are filled,
-        value types hold, and links through a key resolve. <strong>Run all rules</strong> counts the
-        objects breaking each and keeps examples you can open; the result shows on the gallery card
-        and in every answer that uses those types.
+        value types hold, and links through a key resolve. A subtype read from its supertype&apos;s
+        own table (VIP customers are customers) is not checked twice for what it inherits.{" "}
+        <strong>Run all rules</strong> counts the objects breaking each and keeps examples you can
+        open — each shows the values the rule read, so you can see why it breaks; the result shows
+        on the gallery card and in every answer that uses those types.
       </P>
       <Callout kind="info" title="A condition reads like a database CHECK">
         An object breaks a condition when it is false. When it cannot be decided (a value is
@@ -216,7 +227,9 @@ function OntologyDocsPage() {
       <P>
         A question is planned by AI over the ontology&apos;s own catalog — types, properties, links,
         certified metrics and the words people use for them — and the plan is compiled and run as
-        you. The model never writes SQL. A question the ontology cannot answer is refused with the
+        you. The model never writes SQL, and never decides on its own which groupings are safe: the
+        catalog spells out every grouping each metric can use without double counting — the same
+        ones the Metrics tab offers. A question the ontology cannot answer is refused with the
         reason. Every answer carries a <strong>trust envelope</strong>: the metric it used and
         whether it is certified, the types, links and tables it read, what your share hid or
         limited, rules the data currently breaks on those types, and whether a person verified the
@@ -273,9 +286,9 @@ function OntologyDocsPage() {
         rule runs, drafts, questions asked (with the plan that answered), verified questions,
         evaluations and every action requested, approved, rejected or failed are recorded in{" "}
         <strong>Observability → Audit Log</strong>. Every query the ontology runs is also in the
-        asker&apos;s <strong>Lakehouse → History</strong>, marked with where it came from — for
-        example <C>ontology:explore</C>, <C>ontology:rule</C>, <C>ontology:ask</C> or{" "}
-        <C>ontology:action</C>.
+        asker&apos;s <strong>Lakehouse → History</strong> as the SQL it compiled to, and its audit
+        entry says where it came from in <C>via</C> — for example <C>ontology:explore</C>,{" "}
+        <C>ontology:rule</C>, <C>ontology:ask</C> or <C>ontology:action</C>.
       </P>
 
       <H2 id="agents">Agents</H2>

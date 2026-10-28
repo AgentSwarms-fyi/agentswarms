@@ -30,7 +30,7 @@ import {
 } from "@/components/ui/select";
 import { FilterBuilder } from "@/components/ontology/ExploreTab";
 import { useOntology } from "@/components/ontology/OntologyContext";
-import { formatValue, TypeBadge } from "@/components/ontology/theme";
+import { formatPeriod, formatValue, TypeBadge } from "@/components/ontology/theme";
 import { ontologyMetric } from "@/utils/ontologyData.functions";
 import type { ColumnMeta, Filter, GroupBy, PathStep, TimeGrain } from "@/lib/ontology/compile";
 import { TIME_GRAINS } from "@/lib/ontology/compile";
@@ -38,10 +38,8 @@ import {
   allProperties,
   baseTypeOf,
   findObjectType,
-  linkReading,
-  linksOf,
   propertyTitle,
-  walksToOne,
+  toOneReach,
   type OntologySpec,
 } from "@/lib/ontology/spec";
 
@@ -54,10 +52,14 @@ type GroupOption = {
   isDate: boolean;
 };
 
-/** Every property a metric of `typeName` can be grouped by: its own, then one and two to-one steps out. */
+/**
+ * Every property a metric of `typeName` can be grouped by: its own, then
+ * those of every type one and two to-one steps out (`toOneReach`, which the
+ * AI's catalog lists too, so Ask and this page offer the same groupings).
+ */
 export function groupOptions(spec: OntologySpec, typeName: string): GroupOption[] {
   const out: GroupOption[] = [];
-  const visit = (at: string, path: PathStep[], via: string, depth: number) => {
+  const add = (at: string, path: PathStep[], via: string) => {
     const t = findObjectType(spec, at);
     if (!t?.source) return;
     for (const p of allProperties(spec, t)) {
@@ -71,14 +73,9 @@ export function groupOptions(spec: OntologySpec, typeName: string): GroupOption[
         isDate: ["date", "datetime", "timestamp"].includes(base),
       });
     }
-    if (depth >= 2) return;
-    for (const { link, direction, other } of linksOf(spec, at)) {
-      if (!walksToOne(link, direction)) continue;
-      const step = { link: linkReading(link, direction), direction };
-      visit(other, [...path, step], `${via} → ${other}`, depth + 1);
-    }
   };
-  visit(typeName, [], typeName, 0);
+  add(typeName, [], typeName);
+  for (const r of toOneReach(spec, typeName)) add(r.type, r.path, r.via);
   return out;
 }
 
@@ -173,8 +170,12 @@ export function MetricsTab() {
 
   const groupCols = result?.columns.filter((c) => c.key !== metric) ?? [];
   const isTime = groups.some((g) => g.grain);
+  const cell = (c: ColumnMeta, v: unknown) =>
+    c.grain
+      ? formatPeriod(v, c.grain)
+      : formatValue(v, c.key === metric ? { format: m?.format } : undefined);
   const chartData = (result?.rows ?? []).map((r) => ({
-    label: groupCols.map((c) => formatValue(r[c.key])).join(" · ") || m?.label || metric,
+    label: groupCols.map((c) => cell(c, r[c.key])).join(" · ") || m?.label || metric,
     value: typeof r[metric] === "number" ? (r[metric] as number) : Number(r[metric] ?? 0),
   }));
 
@@ -480,10 +481,7 @@ export function MetricsTab() {
                                 : "px-3 py-1.5"
                             }
                           >
-                            {formatValue(
-                              r[c.key],
-                              c.key === metric ? { format: m?.format } : undefined,
-                            )}
+                            {cell(c, r[c.key])}
                           </td>
                         ))}
                       </tr>

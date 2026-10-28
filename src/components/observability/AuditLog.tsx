@@ -169,6 +169,9 @@ function describeDetail(r: AuditRow): string {
   if (typeof d.rows === "number") bits.push(`${d.rows} rows`);
   if (typeof d.assets === "number") bits.push(`${d.assets} assets`);
   if (typeof d.sql === "string") bits.push(String(d.sql));
+  // Where a lakehouse statement came from: the SQL page ("ui"), an ontology
+  // ("ontology:ask", "ontology:rule", …), a pipeline.
+  if (typeof d.via === "string") bits.push(`via ${String(d.via)}`);
   // Workflow events: how it was started, and how it ended.
   if (typeof d.trigger === "string") bits.push(`via ${String(d.trigger)}`);
   if (typeof d.outcome === "string") bits.push(String(d.outcome));

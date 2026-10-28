@@ -12,6 +12,7 @@ import {
   MarkerType,
   Position,
   ReactFlow,
+  useReactFlow,
   type Edge,
   type Node,
   type NodeProps,
@@ -36,7 +37,7 @@ import {
   type GraphEdge,
   type GraphNode,
 } from "@/utils/ontologyData.functions";
-import { findObjectType, pluralTitleOf } from "@/lib/ontology/spec";
+import { findObjectType, pluralTitleOf, titleOf } from "@/lib/ontology/spec";
 import { cn } from "@/lib/utils";
 
 type GNodeData = { node: GraphNode; root: boolean };
@@ -65,12 +66,31 @@ function GNode({ data }: NodeProps<Node<GNodeData>>) {
       >
         <Icon className="h-3.5 w-3.5" />
       </span>
-      <span className="truncate text-xs font-medium">{data.node.title}</span>
+      <span className="truncate text-xs font-medium">{nodeTitle(data.node, t)}</span>
     </div>
   );
 }
 
+/** A title that is only a number (an order's key) says what it numbers: "Order 1063". */
+function nodeTitle(node: GraphNode, t: ReturnType<typeof findObjectType>): string {
+  return t && /^[\d.,-]+$/.test(node.title) ? `${titleOf(t)} ${node.title}` : node.title;
+}
+
 const nodeTypes = { obj: GNode };
+
+/** Edges beyond this many draw without labels, except those of the node under the pointer. */
+const LABELLED_EDGES = 16;
+
+/** Frame the whole graph again whenever it grows, so new objects are not drawn off-screen. */
+function FitOnGrow(props: { count: number }) {
+  const { fitView } = useReactFlow();
+  useEffect(() => {
+    if (props.count === 0) return;
+    const id = requestAnimationFrame(() => void fitView({ padding: 0.15, duration: 300 }));
+    return () => cancelAnimationFrame(id);
+  }, [props.count, fitView]);
+  return null;
+}
 
 /** Rings by depth; each ring spread evenly, grouped by type so a type's objects sit together. */
 function radial(nodes: GraphNode[], placed: Map<string, { x: number; y: number }>) {
@@ -108,6 +128,7 @@ export function GraphTab() {
   const [open, setOpen] = useState<{ objectType: string; key: Record<string, unknown> } | null>(
     null,
   );
+  const [hovered, setHovered] = useState<string | null>(null);
   // Picking a starting object.
   const [pickType, setPickType] = useState(bound[0]?.name ?? "");
   const [pickQ, setPickQ] = useState("");
@@ -208,14 +229,20 @@ export function GraphTab() {
         id: `${e.from}|${e.link}|${e.to}`,
         source: e.from,
         target: e.to,
-        label: e.label,
+        // A crowded graph labels only the hovered node's links; every label
+        // at once is unreadable past a dozen or so.
+        label:
+          edges.length <= LABELLED_EDGES || e.from === hovered || e.to === hovered
+            ? e.label
+            : undefined,
+        ariaLabel: `${e.label}: ${e.from} to ${e.to}`,
         type: "straight",
         style: { strokeWidth: 1.2 },
         labelStyle: { fontSize: 10 },
         labelBgStyle: { fill: "var(--card)" },
         markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12 },
       })),
-    [edges],
+    [edges, hovered],
   );
 
   if (!root) {
@@ -324,11 +351,14 @@ export function GraphTab() {
               key: (n.data as GNodeData).node.key,
             })
           }
+          onNodeMouseEnter={(_, n) => setHovered(n.id)}
+          onNodeMouseLeave={() => setHovered(null)}
           nodesConnectable={false}
           fitView
           minZoom={0.15}
           proOptions={{ hideAttribution: true }}
         >
+          <FitOnGrow count={nodes.length} />
           <Background variant={BackgroundVariant.Dots} gap={18} size={1} />
           <Controls showInteractive={false} />
         </ReactFlow>

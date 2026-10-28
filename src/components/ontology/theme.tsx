@@ -183,9 +183,18 @@ export function SeverityChip({ severity }: { severity: string }) {
 }
 
 /** A cell value as people read it: numbers grouped, money with its unit, nulls as a dash. */
-export function formatValue(v: unknown, opts?: { format?: string; unit?: string }): string {
+/** A key or code column, whose numbers are labels, not quantities: order 1063, not 1,063. */
+export function looksLikeIdentifier(name: string): boolean {
+  return /(^id$|_id$|^id_|_key$|_number$|_no$|_code$)/i.test(name);
+}
+
+export function formatValue(
+  v: unknown,
+  opts?: { format?: string; unit?: string; plain?: boolean },
+): string {
   if (v === null || v === undefined || v === "") return "—";
   if (typeof v === "boolean") return v ? "Yes" : "No";
+  if (typeof v === "number" && opts?.plain) return String(v);
   if (typeof v === "number") {
     if (opts?.format === "percent") return `${(v * 100).toFixed(1)}%`;
     if (opts?.format === "currency" || opts?.unit === "USD")
@@ -198,6 +207,29 @@ export function formatValue(v: unknown, opts?: { format?: string; unit?: string 
     return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
   }
   return String(v);
+}
+
+/** A period's first day as people name the period: "Jan 2024", "Q3 2025", "2024". */
+export function formatPeriod(
+  v: unknown,
+  grain: "day" | "week" | "month" | "quarter" | "year",
+): string {
+  if (v === null || v === undefined || v === "") return "—";
+  const s = String(v);
+  const iso = /^\d{4}-\d{2}-\d{2}$/.test(s)
+    ? `${s}T00:00:00Z`
+    : /[zZ]$|[+-]\d\d:?\d\d$/.test(s)
+      ? s.replace(" ", "T")
+      : `${s.replace(" ", "T")}Z`;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return s;
+  const month = d.toLocaleString("en", { month: "short", timeZone: "UTC" });
+  const y = d.getUTCFullYear();
+  if (grain === "year") return String(y);
+  if (grain === "quarter") return `Q${Math.floor(d.getUTCMonth() / 3) + 1} ${y}`;
+  if (grain === "month") return `${month} ${y}`;
+  if (grain === "week") return `Week of ${d.getUTCDate()} ${month} ${y}`;
+  return `${d.getUTCDate()} ${month} ${y}`;
 }
 
 export function relativeTime(iso: string | null | undefined): string {

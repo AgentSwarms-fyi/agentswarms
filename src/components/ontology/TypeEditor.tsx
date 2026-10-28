@@ -2,7 +2,7 @@
 // known about each, and what is measured. Every field validates as you type,
 // and a property or metric expression says exactly which name it does not
 // know before anything runs.
-import { useMemo, useState, type ReactNode } from "react";
+import { type ReactNode, useId, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { reportFailure } from "@/lib/silentFailureNet";
@@ -34,7 +34,12 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { useOntology } from "@/components/ontology/OntologyContext";
-import { TYPE_ICON, TYPE_TONE, formatValue } from "@/components/ontology/theme";
+import {
+  TYPE_ICON,
+  TYPE_TONE,
+  formatValue,
+  looksLikeIdentifier,
+} from "@/components/ontology/theme";
 import { useLakehouseTables } from "@/components/ontology/useLakehouseTables";
 import { ontologyPreviewTable } from "@/utils/ontologyData.functions";
 import { usesOfType } from "@/lib/ontology/diff";
@@ -486,7 +491,7 @@ function BindingSection({ t, update, ro }: { t: ObjectType; update: Updater; ro:
                           key={c}
                           className="max-w-[200px] truncate whitespace-nowrap px-2 py-1 tabular-nums"
                         >
-                          {formatValue(r[c])}
+                          {formatValue(r[c], { plain: looksLikeIdentifier(c) })}
                         </td>
                       ))}
                     </tr>
@@ -591,21 +596,21 @@ function PropertiesSection({ t, update, ro }: { t: ObjectType; update: Updater; 
       }
     >
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[860px] text-xs">
+        <table className="w-full min-w-[1040px] text-xs">
           <thead className="text-left text-[11px] uppercase tracking-wide text-muted-foreground">
             <tr>
-              <th className="w-8 py-1" title="Part of the key">
+              <th className="w-12 py-1 pr-2" title="Part of the key">
                 Key
               </th>
-              <th className="w-8 py-1" title="Shown as the object's name">
+              <th className="w-12 py-1 pr-2" title="Shown as the object's name">
                 Title
               </th>
-              <th className="py-1">Name</th>
-              <th className="py-1">Type</th>
-              <th className="py-1">Column or expression</th>
-              <th className="w-16 py-1">Required</th>
-              <th className="py-1">Sensitivity</th>
-              <th className="py-1">Description</th>
+              <th className="min-w-[170px] py-1 pr-2">Name</th>
+              <th className="min-w-[140px] py-1 pr-2">Type</th>
+              <th className="min-w-[200px] py-1 pr-2">Column or expression</th>
+              <th className="w-20 py-1 pr-2">Required</th>
+              <th className="min-w-[130px] py-1 pr-2">Sensitivity</th>
+              <th className="min-w-[200px] py-1">Description</th>
               <th className="w-8" />
             </tr>
           </thead>
@@ -751,6 +756,7 @@ function PropertiesSection({ t, update, ro }: { t: ObjectType; update: Updater; 
                               })
                             }
                             title="Derive it with an expression"
+                            aria-label={`Derive ${p.name} with an expression`}
                           >
                             ƒx
                           </button>
@@ -1013,9 +1019,14 @@ export function Field({
   className?: string;
   children: ReactNode;
 }) {
+  // The label names the group, so whatever control sits inside (an input, a
+  // select, a row of switches) is announced with it.
+  const id = useId();
   return (
-    <div className={cn("space-y-1", className)}>
-      <Label className="text-xs">{label}</Label>
+    <div className={cn("space-y-1", className)} role="group" aria-labelledby={id}>
+      <Label id={id} className="text-xs">
+        {label}
+      </Label>
       {children}
       {error ? (
         <p className="text-[11px] text-destructive">{error}</p>

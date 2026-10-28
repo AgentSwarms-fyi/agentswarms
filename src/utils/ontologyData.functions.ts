@@ -38,6 +38,7 @@ import {
   FILTER_OPS,
   impliedRules,
   isMasked,
+  isRowCount,
   propertySql,
   TIME_GRAINS,
   typedLiteral,
@@ -354,8 +355,9 @@ export const ontologyObject = createServerFn({ method: "POST" })
 
       // This object's own metrics (an Order's revenue is its total; a
       // Customer's comes through links and is shown on their orders' group).
+      // A plain count of the type is always 1 for one object, so it is left out.
       const metrics: ObjectView["metrics"] = [];
-      for (const m of t.metrics.slice(0, 6)) {
+      for (const m of t.metrics.filter((x) => !isRowCount(x.expression)).slice(0, 6)) {
         try {
           const mc = compileMetric(
             spec,

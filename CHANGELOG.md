@@ -62,7 +62,7 @@ development branch and may be ahead of the latest tag.
     the agent tool included. Restricted properties are the owner's only.
   - **Audit and history**: creates, publishes, proposals, rule runs, questions,
     evaluations and every action are audited; every query is in the asker's
-    Lakehouse history as `ontology:<what>`.
+    Lakehouse history as its SQL, and its audit entry carries `via: ontology:<what>`.
   - **Agents**: the `ontology_query` tool, deny-by-default by ontology.
   - **Apache Ossie** export and import (semantic model, ontology, mapping;
     lossless round trip through an `AGENTSWARMS` extension), OWL (Turtle), JSON.
@@ -547,6 +547,25 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **Enterprise Ontology, after its first live UI round.** Asking a question
+  replaced the whole page with "Something went wrong": the Ask tab's scroll
+  effect returned `scrollIntoView(...)`, which current Chromium answers with a
+  Promise, and React called it as the effect's cleanup (a new sweep test keeps
+  every effect in the app from returning a scroll, timer, animation or promise).
+  Ask then refused "revenue by customer segment" as a fan-out although Order →
+  Customer is to-one: the AI catalog now lists every safe grouping per metric
+  with the exact path, and a time grain put on a non-date grouping is dropped.
+  Approving an action after requesting it from an object showed the form again
+  instead of "Waiting for approval", and the approval card printed the key as
+  JSON. Implied rules said "looks like a EmailAddress" and checked VIP customers
+  twice; rule examples now show the values the rule read. Keys print as labels
+  (Order 1063, not 1,063), months as "Jan 2024", the graph frames itself as it
+  grows and names only the hovered node's links, a single object no longer
+  shows "Orders 1", and grouping no longer offers Order → Shipment → Order. An
+  ontology can be renamed from its title, and an owner's ontology names are
+  unique (agents tell them apart by name; two samples were both "Northwind
+  Outfitters"). A sample that fails part-way now removes its schema. The Audit
+  Log row shows where a lakehouse statement came from (`via ontology:ask`).
 - **A provider credential the form refuses says which field, in words.**
   Saving Bedrock, Vertex AI, Azure OpenAI, OCI Generative AI or Claude Platform
   on AWS with a value the save schema rejects showed the schema's raw issue list

@@ -3279,7 +3279,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "orders",
       "placed_by",
       "sales.customers",
-      "total_amount"
+      "total_amount",
+      "via"
     ],
     "headings": [
       {

@@ -29,6 +29,7 @@ import {
   Loader2,
   Network,
   PenLine,
+  Pencil,
   Shapes,
   ShieldAlert,
   Sigma,
@@ -276,9 +277,11 @@ function OntologyWorkspace() {
                 <ArrowLeft className="h-3.5 w-3.5" /> Enterprise Ontology
               </Link>
               <div className="mt-1 flex flex-wrap items-center gap-2">
-                <h1 className="truncate font-display text-2xl font-semibold tracking-tight">
-                  {spec.name}
-                </h1>
+                <OntologyTitle
+                  name={spec.name}
+                  editable={canEdit}
+                  onRename={(name) => setSpec((s) => ({ ...s, name }))}
+                />
                 {detail.role === "viewer" ? (
                   <Badge variant="outline" className="gap-1">
                     <Eye className="h-3 w-3" /> v{detail.version} · shared with you
@@ -434,6 +437,72 @@ function OntologyWorkspace() {
         />
       )}
     </OntologyContext.Provider>
+  );
+}
+
+/**
+ * The ontology's name, renamed in place by whoever may edit it. It saves with
+ * the draft, where the server refuses a name the owner already uses (agents
+ * and shares tell ontologies apart by name) and the toast says so.
+ */
+function OntologyTitle(props: {
+  name: string;
+  editable: boolean;
+  onRename: (name: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(props.name);
+  const cancelled = useRef(false);
+  const heading = "truncate font-display text-2xl font-semibold tracking-tight";
+  if (!props.editable) return <h1 className={heading}>{props.name}</h1>;
+  if (editing) {
+    const commit = () => {
+      setEditing(false);
+      if (cancelled.current) {
+        cancelled.current = false;
+        return;
+      }
+      const v = draft.trim().slice(0, 200);
+      if (v && v !== props.name) props.onRename(v);
+    };
+    return (
+      <Input
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit();
+          if (e.key === "Escape") {
+            cancelled.current = true;
+            setEditing(false);
+          }
+        }}
+        maxLength={200}
+        aria-label="Ontology name"
+        className="h-9 w-[min(28rem,80vw)] font-display text-xl font-semibold"
+      />
+    );
+  }
+  return (
+    <h1 className={heading}>
+      <button
+        type="button"
+        onClick={() => {
+          setDraft(props.name);
+          setEditing(true);
+        }}
+        className="group inline-flex items-center gap-2 rounded-md text-left hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        title="Rename"
+        aria-label={`Rename ${props.name}`}
+      >
+        {props.name}
+        <Pencil
+          className="h-4 w-4 opacity-0 transition group-hover:opacity-60 group-focus-visible:opacity-60"
+          aria-hidden
+        />
+      </button>
+    </h1>
   );
 }
 

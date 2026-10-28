@@ -22,6 +22,7 @@ import {
   resolveAttributeGrants,
 } from "@/lib/semanticPolicy";
 import type { OntologyPolicy } from "@/lib/ontology/compile";
+import { notInstalledMessage } from "@/lib/ontology/install";
 import { ontologyPolicyFrom } from "@/lib/ontology/policy";
 import { ontologySpecSchema, type OntologySpec } from "@/lib/ontology/spec";
 
@@ -117,7 +118,11 @@ export async function loadOntology(
     )
     .eq("id", ontologyId)
     .maybeSingle();
-  if (error) return { ok: false, error: `Could not load the ontology: ${error.message}` };
+  if (error)
+    return {
+      ok: false,
+      error: notInstalledMessage(error.message) ?? `Could not load the ontology: ${error.message}`,
+    };
   if (!data) return { ok: false, error: NOT_FOUND };
   const row = data as OntologyRow;
   if (row.user_id === userId) {

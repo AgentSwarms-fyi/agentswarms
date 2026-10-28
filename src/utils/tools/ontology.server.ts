@@ -76,7 +76,8 @@ async function loadAllowed(ctx: AgentToolContext, names: string[]): Promise<Load
   const { data: own } = await supabaseAdmin
     .from("ontologies")
     .select("id, name")
-    .eq("user_id", userId);
+    .eq("user_id", userId)
+    .order("updated_at", { ascending: false });
   const { data: shared } = granted.length
     ? await supabaseAdmin.from("ontologies").select("id, name").in("id", granted)
     : { data: [] as { id: string; name: string }[] };
@@ -85,8 +86,11 @@ async function loadAllowed(ctx: AgentToolContext, names: string[]): Promise<Load
   );
   const { maxRows } = await ontologyLimits();
   const out: Loaded[] = [];
+  // One ontology per name: the caller's own before one shared with them, the
+  // most recently edited first. Names are unique per owner (ontologyCreate),
+  // but a share can carry a name the caller also uses.
   for (const o of candidates) {
-    if (out.some((x) => x.id === o.id)) continue;
+    if (out.some((x) => x.id === o.id || x.name.toLowerCase() === o.name.toLowerCase())) continue;
     const access = await loadOntology(userId, o.id, "read");
     if (isFail(access)) continue;
     out.push({

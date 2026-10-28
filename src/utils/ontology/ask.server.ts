@@ -27,11 +27,13 @@ import {
   askPlanSchema,
   askSystemPrompt,
   questionSimilarity,
+  tidyPlan,
   type AskPlan,
 } from "@/lib/ontology/catalog";
 import {
   compileMetric,
   compileObjectSet,
+  impliedRules,
   resolveStep,
   type ColumnMeta,
   type CompileOpts,
@@ -99,7 +101,7 @@ function typesAndLinks(spec: OntologySpec, start: string, paths: PathStep[][]) {
   return { types: [...types], links: [...links] };
 }
 
-async function lastRun(ontologyId: string, types: string[]) {
+async function lastRun(spec: OntologySpec, ontologyId: string, types: string[]) {
   const { data } = await supabaseAdmin
     .from("ontology_rule_runs")
     .select("finished_at, results")
@@ -111,17 +113,21 @@ async function lastRun(ontologyId: string, types: string[]) {
   const wanted = new Set(types.map((t) => t.toLowerCase()));
   const results =
     (data.results as unknown as {
+      id?: string;
       name: string;
       objectType: string;
       violations: number | null;
       severity: string;
     }[]) ?? [];
+  // A rule is named as the model names it now (its wording may have changed
+  // since the run); the stored name stands in for a rule since removed.
+  const current = new Map([...spec.rules, ...impliedRules(spec)].map((r) => [r.id, r.name]));
   return {
     at: data.finished_at,
     open: results
       .filter((r) => wanted.has(r.objectType.toLowerCase()) && (r.violations ?? 0) > 0)
       .map((r) => ({
-        rule: r.name,
+        rule: (r.id && current.get(r.id)) || r.name,
         objectType: r.objectType,
         violations: r.violations ?? 0,
         severity: r.severity,
@@ -179,7 +185,7 @@ export async function runPlan(
       };
   }
   const { types, links } = typesAndLinks(spec, start, paths);
-  const run = await lastRun(access.row.id, types);
+  const run = await lastRun(spec, access.row.id, types);
   return {
     ok: true,
     kind: plan.kind,
@@ -271,7 +277,7 @@ export async function askOntology(args: {
       prompt = `QUESTION: ${question}\n\nYour previous answer was not a valid plan (${parsed.error.issues[0]?.path.join(".")}: ${parsed.error.issues[0]?.message}). Return one valid JSON object.`;
       continue;
     }
-    const plan = parsed.data;
+    const plan = tidyPlan(access.spec, parsed.data);
     if (plan.kind === "refuse")
       return { ok: true, kind: "refuse", reason: plan.reason, trust: null };
     try {
