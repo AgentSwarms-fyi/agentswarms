@@ -1086,6 +1086,7 @@ export const Route = createFileRoute("/api/chat")({
               mcp_server_names?: string[];
               sql_table_names?: string[];
               metric_model_names?: string[];
+              ontology_names?: string[];
               ml_model_names?: string[];
             };
             // Per-call guardrail override (used by swarm nodes that want
@@ -1263,6 +1264,7 @@ export const Route = createFileRoute("/api/chat")({
             mcp_server_names?: string[];
             sql_table_names?: string[];
             metric_model_names?: string[];
+            ontology_names?: string[];
             ml_model_names?: string[];
           } = {};
           let agentSkillIds: string[] = [];
@@ -1381,6 +1383,17 @@ export const Route = createFileRoute("/api/chat")({
                 );
               }
             }
+            // Ontologies — saved under tools.toolConfigs.ontology_query
+            // .ontology_names; deny-by-default like the semantic models.
+            const ontologyCfg = tools.toolConfigs?.ontology_query;
+            if (ontologyCfg && typeof ontologyCfg === "object") {
+              const raw = (ontologyCfg as { ontology_names?: unknown }).ontology_names;
+              if (Array.isArray(raw)) {
+                agentToolConfigs.ontology_names = raw.filter(
+                  (s): s is string => typeof s === "string" && s.trim().length > 0,
+                );
+              }
+            }
             // ML models. An ABSENT list means every model (the pre-list
             // behaviour every existing agent relies on); a present one,
             // even empty, means exactly what it says.
@@ -1426,6 +1439,9 @@ export const Route = createFileRoute("/api/chat")({
               }
               if (Array.isArray(c.metric_model_names) && c.metric_model_names.length > 0) {
                 merged.metric_model_names = c.metric_model_names;
+              }
+              if (Array.isArray(c.ontology_names) && c.ontology_names.length > 0) {
+                merged.ontology_names = c.ontology_names;
               }
               // Copied when PRESENT, including empty: for this list an empty
               // array is a decision ("none"), not an absence.
@@ -1963,6 +1979,13 @@ export const Route = createFileRoute("/api/chat")({
               // the swarm owner's own + shared models. Its per-agent allow-list
               // narrows it further and is deny-by-default.
               "metric_query",
+              // Safe for the same reason: the ontology tool loads ontologies
+              // for scopeUserId (own, or shared AND published to them), runs
+              // every query as that user through the governed lakehouse path
+              // with their share's masks and row filters, and an agent's
+              // action request is only ever a proposal unless the action type
+              // allows agents to execute. Deny-by-default allow-list.
+              "ontology_query",
               // Data health reads the owner's own monitors and incidents by
               // scopeUserId; nothing else, so it is safe headless.
               "data_health",

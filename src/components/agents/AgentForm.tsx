@@ -45,6 +45,7 @@ import {
   Trash2,
   Boxes,
   HeartPulse,
+  Network,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { Json } from "@/integrations/supabase/types";
@@ -128,6 +129,15 @@ const BUILT_IN_TOOLS: BuiltInTool[] = [
     description:
       "Query governed metrics + dimensions defined in the Semantic Layer, so business definitions (revenue, active customers) compute consistently. Pick which models this agent may read — it gets none until you do.",
     icon: Database,
+    category: "data",
+    requiresConfig: true,
+  },
+  {
+    id: "ontology_query",
+    name: "Enterprise Ontology",
+    description:
+      "Ask about business objects (customers, orders, shipments…), follow the links between them, read certified metrics and request changes through approved actions — through the ontologies you pick. It gets none until you do.",
+    icon: Network,
     category: "data",
     requiresConfig: true,
   },
@@ -813,6 +823,23 @@ export function AgentForm({
     : [];
   const [metricModelNames, setMetricModelNames] = useState<string[]>(initialMetricModels);
 
+  // Ontologies — the ontology_query tool's allow-list, deny by default like
+  // the semantic models above. RLS returns the user's own ontologies and the
+  // ones shared with them: the set the tool could ever reach.
+  const [availableOntologies, setAvailableOntologies] = useState<
+    { id: string; name: string; user_id: string; published_version: number | null }[]
+  >([]);
+  const [ontologiesLoaded, setOntologiesLoaded] = useState(false);
+  const initialOntologies: string[] = Array.isArray(
+    (existingTools.toolConfigs?.ontology_query as { ontology_names?: unknown } | undefined)
+      ?.ontology_names,
+  )
+    ? (
+        existingTools.toolConfigs!.ontology_query as { ontology_names: unknown[] }
+      ).ontology_names.filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+    : [];
+  const [ontologyNames, setOntologyNames] = useState<string[]>(initialOntologies);
+
   // ML models the agent may predict with. The same RLS set the tool reaches
   // (own + IAM-shared), so the picker cannot offer a model that would then be
   // refused at run time.
@@ -970,6 +997,25 @@ export function AgentForm({
           );
         }
         setSemanticModelsLoaded(true);
+      });
+
+    supabase
+      .from("ontologies")
+      .select("id, name, user_id, published_version")
+      .order("name", { ascending: true })
+      .then(({ data }) => {
+        // A missing table (migration not yet applied) reads as none.
+        if (data) {
+          setAvailableOntologies(
+            data as {
+              id: string;
+              name: string;
+              user_id: string;
+              published_version: number | null;
+            }[],
+          );
+        }
+        setOntologiesLoaded(true);
       });
 
     // Load ML models for the ml_predict allow-list. RLS returns own + shared,
@@ -1213,6 +1259,7 @@ export function AgentForm({
         const {
           sql_query: sqlCfg,
           metric_query: metricCfg,
+          ontology_query: ontologyCfg,
           ml_predict: mlCfg,
           ...others
         } = toolConfigs as Record<string, Record<string, unknown>>;
@@ -1232,6 +1279,14 @@ export function AgentForm({
         );
         if (metricKept.length > 0) {
           out.metric_query = { ...(metricCfg || {}), model_names: metricKept };
+        }
+        // Ontology allow-list: deny-by-default, persisted only when non-empty
+        // and only for ontologies the picker still offers.
+        const ontologyKept = ontologyNames.filter(
+          (n) => !ontologiesLoaded || availableOntologies.some((o) => o.name === n),
+        );
+        if (ontologyKept.length > 0) {
+          out.ontology_query = { ...(ontologyCfg || {}), ontology_names: ontologyKept };
         }
         // ML allow-list. Written only once the picker has been touched or a
         // list already existed — an agent that never configured one keeps the
@@ -2665,6 +2720,73 @@ export function AgentForm({
                                           {metricModelNames.length === 0
                                             ? "No models selected — this tool is inactive and costs the agent nothing. Pick at least one."
                                             : `Agent can query ${metricModelNames.length} model${metricModelNames.length === 1 ? "" : "s"}. Only these reach its prompt.`}
+                                        </p>
+                                      </>
+                                    )}
+                                  </div>
+                                ) : tool.id === "ontology_query" ? (
+                                  <div className="space-y-1">
+                                    <Label className="text-xs">Ontologies this agent may use</Label>
+                                    {!ontologiesLoaded ? (
+                                      <p className="text-[11px] text-muted-foreground">
+                                        Loading ontologies…
+                                      </p>
+                                    ) : availableOntologies.length === 0 ? (
+                                      <p className="text-[11px] text-muted-foreground">
+                                        No ontologies yet. Create one under{" "}
+                                        <span className="font-medium text-foreground">
+                                          Enterprise Ontology
+                                        </span>
+                                        .
+                                      </p>
+                                    ) : (
+                                      <>
+                                        <div className="max-h-40 overflow-y-auto space-y-1 rounded-md border border-border/50 p-2 bg-background/40">
+                                          {availableOntologies.map((o) => {
+                                            const checked = ontologyNames.includes(o.name);
+                                            const shared = !!userId && o.user_id !== userId;
+                                            return (
+                                              <label
+                                                key={o.id}
+                                                className="flex items-start gap-2 cursor-pointer text-[11px]"
+                                              >
+                                                <input
+                                                  type="checkbox"
+                                                  className="mt-0.5"
+                                                  checked={checked}
+                                                  onChange={(e) =>
+                                                    setOntologyNames((prev) =>
+                                                      e.target.checked
+                                                        ? Array.from(new Set([...prev, o.name]))
+                                                        : prev.filter((n) => n !== o.name),
+                                                    )
+                                                  }
+                                                />
+                                                <span className="truncate flex-1">{o.name}</span>
+                                                {shared && (
+                                                  <Badge variant="outline" className="text-[9px]">
+                                                    shared
+                                                  </Badge>
+                                                )}
+                                                {shared && !o.published_version && (
+                                                  <Badge variant="outline" className="text-[9px]">
+                                                    not published
+                                                  </Badge>
+                                                )}
+                                              </label>
+                                            );
+                                          })}
+                                        </div>
+                                        <p
+                                          className={`text-[11px] leading-snug ${
+                                            ontologyNames.length === 0
+                                              ? "text-amber-600 dark:text-amber-500"
+                                              : "text-muted-foreground"
+                                          }`}
+                                        >
+                                          {ontologyNames.length === 0
+                                            ? "No ontologies selected — this tool is inactive and costs the agent nothing. Pick at least one."
+                                            : `Agent can use ${ontologyNames.length} ontolog${ontologyNames.length === 1 ? "y" : "ies"}, as you: your own access and any share restrictions apply, and actions it requests wait for approval unless an action type allows agents to execute.`}
                                         </p>
                                       </>
                                     )}

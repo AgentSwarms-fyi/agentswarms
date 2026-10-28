@@ -113,6 +113,11 @@ function ConceptsPage() {
             "The number has an agreed definition you must not re-derive",
           ],
           [
+            <C key="o">ontology_query</C>,
+            "Business objects, their links, certified metrics and approved actions from an Enterprise Ontology",
+            "The question is about customers, orders or other business things and how they connect, or a change must go through an approved action",
+          ],
+          [
             <C key="c">ml_predict</C>,
             "Predictions from trained models in the ML registry (own and shared)",
             "A trained model should answer, not a guess; call ml_list_models first for its feature columns",

@@ -177,7 +177,7 @@ function IamPage() {
       <H2 id="sharing">Resource sharing</H2>
       <P>
         Grant a user or group <strong>read-only</strong> access to a resource owned by someone else,
-        under <strong>Admin → IAM → Access</strong>. Thirteen resource types are grantable, enforced
+        under <strong>Admin → IAM → Access</strong>. Fourteen resource types are grantable, enforced
         by a database constraint:
       </P>
       <Table
@@ -198,6 +198,18 @@ function IamPage() {
             "🧪 ML model",
             "Their agents and dashboards can predict with it; training, promotion and deletion stay with the owner",
           ],
+          [
+            "🕸️ Ontology",
+            <>
+              Its published version: explore objects, metrics, ask, propose changes and request
+              actions — as themselves, subject to row filters and hidden properties; editing,
+              publishing and approving stay with the owner. See{" "}
+              <DocLink key="o" to="/docs/ontology">
+                Enterprise Ontology
+              </DocLink>
+              .
+            </>,
+          ],
         ]}
       />
       <P>
@@ -213,8 +225,11 @@ function IamPage() {
       <P>
         Sharing a dataset, dashboard or model does not have to mean sharing all of it. Two optional
         restrictions can be attached to a grant on a <strong>SQL data table</strong>, a{" "}
-        <strong>BI dashboard</strong> or a <strong>semantic model</strong> — the three types that
-        serve rows. Neither applies to the other ten, and the platform refuses to save them there.
+        <strong>BI dashboard</strong>, a <strong>semantic model</strong> or an{" "}
+        <strong>ontology</strong> — the four types that serve rows. Neither applies to the other
+        ten, and the platform refuses to save them there. On an ontology the filter names{" "}
+        <C>Type.property</C> (or a bare property, for every type that has it) and the mask names
+        properties such as <C>Customer.email</C>.
       </P>
       <Table
         headers={["Restriction", "Shape", "Effect on the grantee"]}

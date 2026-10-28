@@ -46,6 +46,7 @@ export function enabledToolsFromToggles(
   if (t.weather) out.push("weather");
   if (t.sql_query) out.push("sql_query");
   if (t.metric_query) out.push("metric_query");
+  if (t.ontology_query) out.push("ontology_query");
   if (t.ml_predict) out.push("ml_predict");
   if (t.data_health) out.push("data_health");
   if (t.n8n || t.n8n_run_workflow) out.push("n8n_run_workflow");

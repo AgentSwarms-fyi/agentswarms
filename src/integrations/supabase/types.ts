@@ -726,6 +726,301 @@ export type Database = {
         };
         Relationships: [];
       };
+      ontologies: {
+        Row: {
+          created_at: string;
+          description: string | null;
+          health: Json | null;
+          id: string;
+          name: string;
+          published_version: number | null;
+          revision: number;
+          sample_schema: string | null;
+          spec: Json;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          description?: string | null;
+          health?: Json | null;
+          id?: string;
+          name: string;
+          published_version?: number | null;
+          revision?: number;
+          sample_schema?: string | null;
+          spec: Json;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          description?: string | null;
+          health?: Json | null;
+          id?: string;
+          name?: string;
+          published_version?: number | null;
+          revision?: number;
+          sample_schema?: string | null;
+          spec?: Json;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      ontology_actions: {
+        Row: {
+          action_name: string;
+          after: Json | null;
+          before: Json | null;
+          created_at: string;
+          decided_at: string | null;
+          decided_by: string | null;
+          decision_note: string | null;
+          error: string | null;
+          id: string;
+          object_key: Json | null;
+          object_type: string;
+          ontology_id: string;
+          params: Json;
+          requested_by: string | null;
+          status: string;
+          via: string;
+        };
+        Insert: {
+          action_name: string;
+          after?: Json | null;
+          before?: Json | null;
+          created_at?: string;
+          decided_at?: string | null;
+          decided_by?: string | null;
+          decision_note?: string | null;
+          error?: string | null;
+          id?: string;
+          object_key?: Json | null;
+          object_type: string;
+          ontology_id: string;
+          params?: Json;
+          requested_by?: string | null;
+          status: string;
+          via?: string;
+        };
+        Update: {
+          action_name?: string;
+          after?: Json | null;
+          before?: Json | null;
+          created_at?: string;
+          decided_at?: string | null;
+          decided_by?: string | null;
+          decision_note?: string | null;
+          error?: string | null;
+          id?: string;
+          object_key?: Json | null;
+          object_type?: string;
+          ontology_id?: string;
+          params?: Json;
+          requested_by?: string | null;
+          status?: string;
+          via?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ontology_actions_ontology_id_fkey";
+            columns: ["ontology_id"];
+            isOneToOne: false;
+            referencedRelation: "ontologies";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      ontology_proposals: {
+        Row: {
+          author_id: string | null;
+          base_revision: number;
+          created_at: string;
+          decided_at: string | null;
+          decided_by: string | null;
+          decision_note: string | null;
+          id: string;
+          note: string | null;
+          ontology_id: string;
+          spec: Json;
+          status: string;
+          title: string;
+        };
+        Insert: {
+          author_id?: string | null;
+          base_revision: number;
+          created_at?: string;
+          decided_at?: string | null;
+          decided_by?: string | null;
+          decision_note?: string | null;
+          id?: string;
+          note?: string | null;
+          ontology_id: string;
+          spec: Json;
+          status?: string;
+          title: string;
+        };
+        Update: {
+          author_id?: string | null;
+          base_revision?: number;
+          created_at?: string;
+          decided_at?: string | null;
+          decided_by?: string | null;
+          decision_note?: string | null;
+          id?: string;
+          note?: string | null;
+          ontology_id?: string;
+          spec?: Json;
+          status?: string;
+          title?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ontology_proposals_ontology_id_fkey";
+            columns: ["ontology_id"];
+            isOneToOne: false;
+            referencedRelation: "ontologies";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      ontology_questions: {
+        Row: {
+          created_at: string;
+          expected: Json | null;
+          id: string;
+          last_result: Json | null;
+          ontology_id: string;
+          query: Json;
+          question: string;
+          updated_at: string;
+          verified_by: string | null;
+        };
+        Insert: {
+          created_at?: string;
+          expected?: Json | null;
+          id?: string;
+          last_result?: Json | null;
+          ontology_id: string;
+          query: Json;
+          question: string;
+          updated_at?: string;
+          verified_by?: string | null;
+        };
+        Update: {
+          created_at?: string;
+          expected?: Json | null;
+          id?: string;
+          last_result?: Json | null;
+          ontology_id?: string;
+          query?: Json;
+          question?: string;
+          updated_at?: string;
+          verified_by?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ontology_questions_ontology_id_fkey";
+            columns: ["ontology_id"];
+            isOneToOne: false;
+            referencedRelation: "ontologies";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      ontology_rule_runs: {
+        Row: {
+          errored: number;
+          failed: number;
+          finished_at: string | null;
+          id: string;
+          ontology_id: string;
+          passed: number;
+          results: Json;
+          revision: number;
+          rules_run: number;
+          started_at: string;
+          user_id: string | null;
+        };
+        Insert: {
+          errored?: number;
+          failed?: number;
+          finished_at?: string | null;
+          id?: string;
+          ontology_id: string;
+          passed?: number;
+          results?: Json;
+          revision: number;
+          rules_run?: number;
+          started_at?: string;
+          user_id?: string | null;
+        };
+        Update: {
+          errored?: number;
+          failed?: number;
+          finished_at?: string | null;
+          id?: string;
+          ontology_id?: string;
+          passed?: number;
+          results?: Json;
+          revision?: number;
+          rules_run?: number;
+          started_at?: string;
+          user_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ontology_rule_runs_ontology_id_fkey";
+            columns: ["ontology_id"];
+            isOneToOne: false;
+            referencedRelation: "ontologies";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      ontology_versions: {
+        Row: {
+          created_at: string;
+          diff: Json | null;
+          id: string;
+          note: string | null;
+          ontology_id: string;
+          published_by: string | null;
+          spec: Json;
+          version: number;
+        };
+        Insert: {
+          created_at?: string;
+          diff?: Json | null;
+          id?: string;
+          note?: string | null;
+          ontology_id: string;
+          published_by?: string | null;
+          spec: Json;
+          version: number;
+        };
+        Update: {
+          created_at?: string;
+          diff?: Json | null;
+          id?: string;
+          note?: string | null;
+          ontology_id?: string;
+          published_by?: string | null;
+          spec?: Json;
+          version?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ontology_versions_ontology_id_fkey";
+            columns: ["ontology_id"];
+            isOneToOne: false;
+            referencedRelation: "ontologies";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       workflows: {
         Row: {
           id: string;
@@ -6161,6 +6456,8 @@ export type Database = {
           sheets_export_max_rows: number | null;
           sheets_version_interval_minutes: number | null;
           sheets_versions_max: number | null;
+          ontology_max_rows: number | null;
+          ontology_max_spec_kb: number | null;
           sheets_assist_model: string | null;
           sheets_assist_per_minute: number | null;
           sheets_ai_fill_max_rows: number | null;
@@ -6232,6 +6529,8 @@ export type Database = {
           sheets_export_max_rows?: number | null;
           sheets_version_interval_minutes?: number | null;
           sheets_versions_max?: number | null;
+          ontology_max_rows?: number | null;
+          ontology_max_spec_kb?: number | null;
           sheets_assist_model?: string | null;
           sheets_assist_per_minute?: number | null;
           sheets_ai_fill_max_rows?: number | null;
@@ -6303,6 +6602,8 @@ export type Database = {
           sheets_export_max_rows?: number | null;
           sheets_version_interval_minutes?: number | null;
           sheets_versions_max?: number | null;
+          ontology_max_rows?: number | null;
+          ontology_max_spec_kb?: number | null;
           sheets_assist_model?: string | null;
           sheets_assist_per_minute?: number | null;
           sheets_ai_fill_max_rows?: number | null;

@@ -32,6 +32,7 @@ import {
   Wallet,
   X,
   Brain,
+  Network,
 } from "lucide-react";
 import { GroupBudgetsTab } from "@/components/admin/GroupBudgetsTab";
 
@@ -1188,7 +1189,8 @@ function AccessTab({
     | "saas_connection"
     | "ai_analyst"
     | "lakehouse_schema"
-    | "ml_model";
+    | "ml_model"
+    | "ontology";
   const [shareResourceType, setShareResourceType] = useState<ShareResourceType>("knowledge_base");
   const [shareResourceId, setShareResourceId] = useState("");
   const [sharePrincipalType, setSharePrincipalType] = useState<"group" | "user">("group");
@@ -1202,10 +1204,13 @@ function AccessTab({
   // left a way around it. For a semantic model the filter names a DIMENSION
   // and is compiled into the governed query itself; the mask hides fields
   // (metrics or dimensions) by name.
+  // An ontology share takes them too: the filter names `Type.property`
+  // (Customer.region) and the mask names properties (Customer.email).
   const shareIsDashboard =
     shareResourceType === "bi_dashboard" ||
     shareResourceType === "data_table" ||
-    shareResourceType === "semantic_model";
+    shareResourceType === "semantic_model" ||
+    shareResourceType === "ontology";
   const shareTypeOptions: { value: ShareResourceType; label: string }[] = [
     { value: "knowledge_base", label: "📚 Knowledge base" },
     { value: "data_table", label: "🗃 SQL data table" },
@@ -1227,6 +1232,10 @@ function AccessTab({
     // Sharing a model shares predictions with it and its metrics; training,
     // promotion and deletion stay with the owner.
     { value: "ml_model", label: "🧪 ML model" },
+    // Sharing an ontology lets the grantee explore its objects as themselves
+    // (their own lakehouse access still applies), ask it questions, propose
+    // changes and request actions; editing and approving stay with the owner.
+    { value: "ontology", label: "🕸️ Ontology" },
   ];
   const shareableOfType = resources.filter((r) => r.resource_type === shareResourceType);
 
@@ -1523,7 +1532,9 @@ function AccessTab({
                 placeholder={
                   shareResourceType === "semantic_model"
                     ? "Dimension name, e.g. region"
-                    : "Column, e.g. Region"
+                    : shareResourceType === "ontology"
+                      ? "Type.property, e.g. Customer.region"
+                      : "Column, e.g. Region"
                 }
               />
               <Input
@@ -1546,7 +1557,11 @@ function AccessTab({
                 className="h-8 w-72 text-xs"
                 value={shareMaskColumns}
                 onChange={(e) => setShareMaskColumns(e.target.value)}
-                placeholder="Columns to hide, comma-separated — e.g. salary, email"
+                placeholder={
+                  shareResourceType === "ontology"
+                    ? "Properties to hide — e.g. Customer.email, salary"
+                    : "Columns to hide, comma-separated — e.g. salary, email"
+                }
               />
               <span className="text-[11px] text-muted-foreground">
                 Masked columns are removed server-side before results reach the grantee. A grant
@@ -1585,6 +1600,8 @@ function AccessTab({
                           <FolderTree className="h-4 w-4 text-muted-foreground" />
                         ) : g.resource_type === "ml_model" ? (
                           <Brain className="h-4 w-4 text-muted-foreground" />
+                        ) : g.resource_type === "ontology" ? (
+                          <Network className="h-4 w-4 text-muted-foreground" />
                         ) : (
                           <DatabaseIcon className="h-4 w-4 text-muted-foreground" />
                         )}

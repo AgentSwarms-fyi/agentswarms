@@ -113,6 +113,7 @@ export type SwarmToolId =
   | "weather"
   | "sql_query"
   | "metric_query"
+  | "ontology_query"
   | "ml_predict";
 
 // Per-node tool configuration. Mirrors the server's ToolConfigs shape.
@@ -129,6 +130,9 @@ export type SwarmToolConfigs = {
   // empty / undefined means NO models and the tool is not given to the node
   // at all, because the model catalogue costs prompt tokens on every call.
   metric_model_names?: string[];
+  // Allow-list of Enterprise Ontology names the ontology_query tool may
+  // read. Deny by default, like metric_model_names.
+  ontology_names?: string[];
   // Allow-list of ML model names the ml_predict tool may score with. ABSENT
   // means every model the owner can use (the pre-list behaviour); present
   // means exactly those, and [] means none. Mirrors ToolConfigs on the server.

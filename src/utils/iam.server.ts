@@ -301,7 +301,7 @@ import { callerFailure } from "@/utils/callerLookup.server";
 export async function readApplicableGrants(
   sb: SupabaseClient<Database>,
   userId: string,
-  resourceType: "bi_dashboard" | "semantic_model" | "data_table",
+  resourceType: "bi_dashboard" | "semantic_model" | "data_table" | "ontology",
   resourceIds: string[],
 ): Promise<
   {
@@ -347,7 +347,8 @@ export async function resolveGrantedResourceIds(
     | "provider_credential"
     | "warehouse_connection"
     | "saas_connection"
-    | "ml_model",
+    | "ml_model"
+    | "ontology",
 ): Promise<Set<string>> {
   const [membershipsRes, grantsRes] = await Promise.all([
     sb.from("iam_group_members").select("group_id").eq("user_id", userId),

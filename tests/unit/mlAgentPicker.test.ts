@@ -126,7 +126,7 @@ describe("the save path", () => {
 
   it("removes every allow-list key from the state before writing any back", () => {
     expect(savePath).toMatch(
-      /const \{\s*sql_query: sqlCfg,\s*metric_query: metricCfg,\s*ml_predict: mlCfg,\s*\.\.\.others\s*\} = toolConfigs/,
+      /const \{\s*sql_query: sqlCfg,\s*metric_query: metricCfg,\s*ontology_query: ontologyCfg,\s*ml_predict: mlCfg,\s*\.\.\.others\s*\} = toolConfigs/,
     );
     expect(savePath).toContain(
       "const out: Record<string, Record<string, unknown>> = { ...others };",

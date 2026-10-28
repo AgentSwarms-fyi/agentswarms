@@ -63,6 +63,10 @@ describe("the headless allow-list stays honest", () => {
       // Data health reads the run owner's monitors and incidents only: the
       // registry pins the owner from scopeUserId (asserted below).
       "data_health",
+      // The ontology tool loads ontologies for scopeUserId (own, or shared AND
+      // published to them) and runs every query as that user through the
+      // governed lakehouse path (asserted below).
+      "ontology_query",
     ]);
     for (const id of headlessAllowList()) {
       expect(
@@ -89,6 +93,19 @@ describe("the headless allow-list stays honest", () => {
     const block = registry.slice(start, registry.indexOf('if (allows("ml_predict")) {', start));
     expect(block).toContain("const monitorOwner = ctx.scopeUserId ?? ctx.userId;");
     expect((block.match(/\.eq\("user_id", monitorOwner\)/g) ?? []).length).toBe(2);
+  });
+
+  it("ontology_query loads and queries as the run's owner, not the caller", () => {
+    const src = readFileSync("src/utils/tools/ontology.server.ts", "utf8");
+    // Both the catalog and every handler resolve the user the same way.
+    expect((src.match(/const userId = ctx\.scopeUserId \?\? ctx\.userId;/g) ?? []).length).toBe(2);
+    expect(src).toContain('loadOntology(userId, o.id, "read")');
+    expect(src).toMatch(
+      /\.from\("ontologies"\)\s*\.select\("id, name"\)\s*\.eq\("user_id", userId\)/,
+    );
+    expect(src).toContain('resolveGrantedResourceIds(supabaseAdmin, userId, "ontology")');
+    // An agent never acts as anyone else, and asks rather than acts by default.
+    expect(src).toContain('via: "agent"');
   });
 
   it("metric_query actually forwards the tenant scope it claims to", () => {

@@ -23,6 +23,7 @@ import {
 } from "./sql.server";
 import { SQL_SCHEMA_SUMMARY_MAX_CHARS, summarizeTablesForPrompt } from "@/lib/sqlSchemaSummary";
 import { metricQueryTool, runMetricQuery, semanticCatalogForCtx } from "./metric.server";
+import { ontologyCatalogForCtx, ontologyQueryTool, runOntologyTool } from "./ontology.server";
 import { auditEvent } from "@/utils/audit.server";
 import { resultDigest } from "@/utils/provenance/canonical";
 
@@ -405,6 +406,11 @@ export type ToolConfigs = {
   // system prompt on every call, so an agent that was given no models should
   // cost nothing rather than advertise the whole account's metrics.
   metric_model_names?: string[];
+  // Allow-list of Enterprise Ontology NAMES the ontology_query tool may
+  // read. DENY BY DEFAULT, as for semantic models: absent or empty means
+  // none, and the tool is not registered, so an unconfigured agent pays no
+  // tokens for a catalog it cannot use.
+  ontology_names?: string[];
   // Allow-list of ML model NAMES the ml_predict tool may score with.
   //
   // ABSENT MEANS EVERY MODEL THE CALLER CAN USE, the opposite of the metric
@@ -1597,6 +1603,7 @@ export const TOOLABLE_IDS = [
   "weather",
   "sql_query",
   "metric_query",
+  "ontology_query",
   "data_health",
   "ml_predict",
   "memory_remember",
@@ -2074,6 +2081,26 @@ export async function resolveAgentTools(
     }
   }
 
+  // Enterprise Ontology — business objects, links, governed metrics and
+  // actions. Deny by default; the catalog of each allowed ontology goes into
+  // the description, the handler re-checks the allow-list, and every query
+  // runs as the caller (scopeUserId on a headless run) with their share's
+  // masks and row filters applied (src/utils/tools/ontology.server.ts).
+  if (allows("ontology_query")) {
+    const allowedOntologies = cfg.ontology_names ?? [];
+    const catalog = await ontologyCatalogForCtx(ctx, allowedOntologies);
+    if (catalog.count > 0) {
+      tools.push({
+        ...ontologyQueryTool,
+        function: {
+          ...ontologyQueryTool.function,
+          description: `${ontologyQueryTool.function.description}\n\nOntology catalog:\n${catalog.text}`,
+        },
+      });
+      handlers.set("ontology_query", (c, a) => runOntologyTool(c, a, allowedOntologies));
+    }
+  }
+
   // ML models — score rows with a trained version from the registry. Offered
   // only when the caller can use at least one model with a production
   // version, so the LLM never sees a tool that has nothing to predict with.
@@ -2503,6 +2530,13 @@ function buildRoutingGuidance(enabled: ResolvedTools["enabled"], tools: ToolDef[
     lines.push(
       "- metric_query answers governed business-metric questions from the semantic catalog — prefer " +
         "it over raw SQL when a listed metric matches.",
+    );
+  }
+  if (has("ontology_query")) {
+    lines.push(
+      "- ontology_query answers questions about business objects (customers, orders…), what links " +
+        "them and their certified metrics, and requests changes through approved actions — prefer it " +
+        "over raw SQL for anything its catalog names, and quote its trust notes when it reports any.",
     );
   }
   if (has("ml_predict")) {

@@ -71,7 +71,8 @@ export type IamGrantRow = {
     | "warehouse_connection"
     | "saas_connection"
     | "lakehouse_schema"
-    | "ml_model";
+    | "ml_model"
+    | "ontology";
   resource_id: string;
   resource_name: string | null; // null = resource was deleted
   resource_owner_id: string | null;
@@ -97,7 +98,8 @@ export type IamResourceOption = {
     | "saas_connection"
     | "ai_analyst"
     | "lakehouse_schema"
-    | "ml_model";
+    | "ml_model"
+    | "ontology";
   id: string;
   name: string;
   owner_user_id: string | null;
@@ -784,6 +786,7 @@ export const iamListGrantableResources = createServerFn({ method: "POST" })
       { data: analysts },
       { data: lakehouseSchemas },
       { data: mlModels },
+      { data: ontologyRows },
     ] = await Promise.all([
       supabaseAdmin.from("knowledge_bases").select("id, name, user_id").order("name"),
       supabaseAdmin
@@ -813,6 +816,7 @@ export const iamListGrantableResources = createServerFn({ method: "POST" })
       supabaseAdmin.from("ai_analysts").select("id, name, user_id").order("name"),
       supabaseAdmin.from("lakehouse_schemas").select("id, name, user_id").order("name"),
       supabaseAdmin.from("ml_models").select("id, name, user_id").order("name"),
+      supabaseAdmin.from("ontologies").select("id, name, user_id").order("name"),
     ]);
     const resources: IamResourceOption[] = [
       ...(kbs ?? []).map((k) => ({
@@ -903,6 +907,15 @@ export const iamListGrantableResources = createServerFn({ method: "POST" })
         id: m.id,
         name: m.name,
         owner_user_id: m.user_id,
+      })),
+      // Sharing an ontology conveys reading its published model, exploring
+      // its objects (as the grantee, so their own lakehouse access applies),
+      // asking it questions, proposing changes and requesting actions.
+      ...(ontologyRows ?? []).map((o) => ({
+        resource_type: "ontology" as const,
+        id: o.id,
+        name: `${o.name} (ontology)`,
+        owner_user_id: o.user_id,
       })),
     ];
     return { ok: true, resources };
@@ -1021,6 +1034,15 @@ export const iamListGrants = createServerFn({ method: "POST" })
     const mlModelById = new Map(
       (mlRows ?? []).map((m) => [m.id, { name: m.name, user_id: m.user_id }]),
     );
+    const ontologyIds = (grants ?? [])
+      .filter((g) => g.resource_type === "ontology")
+      .map((g) => g.resource_id);
+    const { data: ontologyNameRows } = ontologyIds.length
+      ? await supabaseAdmin.from("ontologies").select("id, name, user_id").in("id", ontologyIds)
+      : { data: [] as { id: string; name: string; user_id: string }[] };
+    const ontologyById = new Map(
+      (ontologyNameRows ?? []).map((o) => [o.id, { name: o.name, user_id: o.user_id }]),
+    );
     const credById = new Map(
       (credRows ?? []).map((c) => [
         c.id,
@@ -1048,7 +1070,9 @@ export const iamListGrants = createServerFn({ method: "POST" })
                         ? credById.get(g.resource_id)
                         : g.resource_type === "ml_model"
                           ? mlModelById.get(g.resource_id)
-                          : tableById.get(g.resource_id);
+                          : g.resource_type === "ontology"
+                            ? ontologyById.get(g.resource_id)
+                            : tableById.get(g.resource_id);
         const rf = g.row_filter as { column?: unknown; values?: unknown } | null;
         return {
           id: g.id,
@@ -1087,6 +1111,7 @@ export const iamCreateGrant = createServerFn({ method: "POST" })
           "ai_analyst",
           "lakehouse_schema",
           "ml_model",
+          "ontology",
         ]),
         resource_id: z.string().uuid(),
         principal_type: z.enum(["user", "group"]),
@@ -1123,18 +1148,23 @@ export const iamCreateGrant = createServerFn({ method: "POST" })
     // — the same person could read past the mask through SQL. For a SEMANTIC
     // MODEL the filter names a dimension (not a raw column) and is compiled
     // into the governed query itself; the grantee has no other path to the
-    // owner's data, so the restriction is complete on its own.
-    const RESTRICTABLE = new Set(["bi_dashboard", "data_table", "semantic_model"]);
+    // owner's data, so the restriction is complete on its own. For an
+    // ONTOLOGY the filter names `Type.property` and the mask names properties
+    // (`Customer.email`, or `email` for every type); both are compiled into
+    // every query the grantee's exploring, metrics and agent tools run.
+    const RESTRICTABLE = new Set(["bi_dashboard", "data_table", "semantic_model", "ontology"]);
     if (data.row_filter && !RESTRICTABLE.has(data.resource_type)) {
       return {
         ok: false,
-        error: "Row filters only apply to BI dashboard, dataset and semantic model grants",
+        error:
+          "Row filters only apply to BI dashboard, dataset, semantic model and ontology grants",
       };
     }
     if (data.column_mask?.length && !RESTRICTABLE.has(data.resource_type)) {
       return {
         ok: false,
-        error: "Column masks only apply to BI dashboard, dataset and semantic model grants",
+        error:
+          "Column masks only apply to BI dashboard, dataset, semantic model and ontology grants",
       };
     }
     // Merge on conflict so re-granting updates the row filter in place.

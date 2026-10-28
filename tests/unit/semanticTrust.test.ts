@@ -355,7 +355,7 @@ describe("wiring (source guards)", () => {
 
   it("semantic_model joined the restrictable grant types", () => {
     expect(iam).toMatch(
-      /RESTRICTABLE = new Set\(\["bi_dashboard", "data_table", "semantic_model"\]\)/,
+      /RESTRICTABLE = new Set\(\["bi_dashboard", "data_table", "semantic_model", "ontology"\]\)/,
     );
   });
 

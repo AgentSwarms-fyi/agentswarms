@@ -252,11 +252,11 @@ describe("the trust pages describe the software that exists", () => {
     const sql = readFileSync(`supabase/migrations/${last}`, "utf8");
     const block = sql.slice(sql.lastIndexOf("resource_type IN ("));
     const types = [...block.slice(0, block.indexOf(")")).matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
-    expect(types.length).toBe(13);
+    expect(types.length).toBe(14);
     const iam = readFileSync("docs/IAM.md", "utf8");
     // The document names them in prose rather than as ids, so pin the three
     // that were missing by the words it uses for them.
-    for (const phrase of ["AI analyst", "lakehouse schema", "ML model"]) {
+    for (const phrase of ["AI analyst", "lakehouse schema", "ML model", "ontology"]) {
       expect(iam, `IAM.md no longer mentions ${phrase}`).toContain(phrase);
     }
   });

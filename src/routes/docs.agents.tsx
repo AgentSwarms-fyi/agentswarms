@@ -363,6 +363,23 @@ If the customer is angry, or asks for a refund above $500, reply only:
           ],
           [
             <>
+              Enterprise Ontology <C key="o">ontology_query</C>
+            </>,
+            "Chosen ontologies",
+            <>
+              Ask about business objects, follow their links, read certified metrics and request
+              changes through approved actions in an{" "}
+              <DocLink key="eo" to="/docs/ontology">
+                Enterprise Ontology
+              </DocLink>
+              . <strong>Deny by default</strong>, like Semantic Metrics. Queries run as the person
+              chatting (the owner on a scheduled run) with their share restrictions; an action
+              request waits for a person unless the action type lets agents run it. Answers carry
+              the ontology&apos;s trust envelope.
+            </>,
+          ],
+          [
+            <>
               Semantic Metrics <C key="f">metric_query</C>
             </>,
             "Chosen semantic models",

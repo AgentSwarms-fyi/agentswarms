@@ -66,6 +66,20 @@ type Currency = {
 const CASES: Currency[] = [
   {
     capability:
+      "Enterprise Ontology compiles object sets, metrics and rules from one model, refuses fan-out totals and applies share masks and row filters",
+    code: "src/lib/ontology/compile.ts",
+    codeContains: "export function compileMetric(",
+    doc: "src/routes/docs.ontology.tsx",
+    docMentions: [
+      /search around/i,
+      /double count/i,
+      /row filter/i,
+      /trust envelope/i,
+      /Apache Ossie/,
+    ],
+  },
+  {
+    capability:
       "Data monitors judge volume against a learned baseline and open one incident per monitor",
     code: "src/utils/dataMonitors/run.server.ts",
     codeContains: "baselineOf(",

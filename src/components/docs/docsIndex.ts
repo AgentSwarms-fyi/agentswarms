@@ -58,6 +58,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "mcp_call_tool",
       "metric_query",
       "n8n_run_workflow",
+      "ontology_query",
       "openai",
       "orders",
       "refunds",
@@ -822,6 +823,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "metric_query",
       "ml_predict",
       "n8n_run_workflow",
+      "ontology_query",
       "sql_query",
       "weather",
       "web_browse",
@@ -1869,6 +1871,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "/api/scim/v2",
       "/login?native=1",
       "ADMIN_EMAIL",
+      "Customer.email",
+      "Type.property",
       "analytics",
       "gpt-4o",
       "gpt-4o-mini",
@@ -3254,6 +3258,108 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     ]
   },
   {
+    "route": "/docs/ontology",
+    "title": "Enterprise Ontology",
+    "description": "Describe the business once — the things it deals in, how they connect, what is measured, what must hold true and what may be changed — on top of your lakehouse tables. People, dashboards and agents then ask in business words and get governed answers.",
+    "terms": [
+      "AGENTSWARMS",
+      "Customer.email",
+      "ONTOLOGY_MAX_ROWS",
+      "ONTOLOGY_MAX_SPEC_KB",
+      "OrderLine",
+      "Type.property",
+      "email",
+      "is_open",
+      "ontology:action",
+      "ontology:ask",
+      "ontology:explore",
+      "ontology:rule",
+      "ontology_query",
+      "order_id",
+      "orders",
+      "placed_by",
+      "sales.customers",
+      "total_amount"
+    ],
+    "headings": [
+      {
+        "id": "why",
+        "text": "The problem it solves",
+        "level": 2
+      },
+      {
+        "id": "concepts",
+        "text": "What a model holds",
+        "level": 2
+      },
+      {
+        "id": "workspace",
+        "text": "The workspace",
+        "level": 2
+      },
+      {
+        "id": "binding",
+        "text": "Binding to the lakehouse",
+        "level": 2
+      },
+      {
+        "id": "explore",
+        "text": "Exploring and searching around",
+        "level": 2
+      },
+      {
+        "id": "metrics",
+        "text": "Metrics that cannot double count",
+        "level": 2
+      },
+      {
+        "id": "rules",
+        "text": "Rules",
+        "level": 2
+      },
+      {
+        "id": "ask",
+        "text": "Ask, with a trust envelope",
+        "level": 2
+      },
+      {
+        "id": "actions",
+        "text": "Actions and the edit log",
+        "level": 2
+      },
+      {
+        "id": "sharing",
+        "text": "Sharing and access control",
+        "level": 2
+      },
+      {
+        "id": "audit",
+        "text": "Audit and query history",
+        "level": 2
+      },
+      {
+        "id": "agents",
+        "text": "Agents",
+        "level": 2
+      },
+      {
+        "id": "ossie",
+        "text": "Apache Ossie, OWL and JSON",
+        "level": 2
+      },
+      {
+        "id": "limits",
+        "text": "Limits",
+        "level": 2
+      },
+      {
+        "id": "related",
+        "text": "Related",
+        "level": 3
+      }
+    ]
+  },
+  {
     "route": "/docs/playground",
     "title": "Agent Chat",
     "description": "The playground at /playground is where you talk to agents directly. It looks like a chat app; the difference is that every message produces a trace you can inspect, and the agent runs with its full saved configuration — same tools, same guardrails, same memory as anywhere else on the platform.",
@@ -3557,6 +3663,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "NOTEBOOK_RUNTIME_ENABLED",
       "NOTEBOOK_RUNTIME_IMAGE",
       "NOTEBOOK_RUNTIME_SECRET",
+      "ONTOLOGY_MAX_ROWS",
+      "ONTOLOGY_MAX_SPEC_KB",
       "OPENROUTER_API_KEY",
       "OPENROUTER_BASE_URL",
       "OPENROUTER_DEFAULT_MODEL",

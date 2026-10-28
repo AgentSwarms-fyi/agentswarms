@@ -49,18 +49,22 @@ It manages:
   for anonymous visitors and are checked against the owner's effective rules
   on every request — and reflected in the model pickers.
 
-- **Shares** — grant users or groups **read-only** access to any of thirteen
+- **Shares** — grant users or groups **read-only** access to any of fourteen
   resource types: knowledge base, SQL data table, secret, BI dashboard,
   semantic model, catalog source, integration, LLM key/credential,
   **database & warehouse connection**, **app source**, **AI analyst**,
-  **lakehouse schema** or **ML model**;
+  **lakehouse schema**, **ML model** or **ontology**;
   recipients' agents can search/query them but never modify them. (A Sheets
   workbook is shared from the workbook itself, to view or to edit: see
   [Sheets → Sharing](./SHEETS.md#sharing).) A shared
   **connection** runs as its OWNER: the owner's credential is decrypted
   server-side and the grantee's queries run against the owner's warehouse, so
   a grantee gains the use of a connection without ever receiving its
-  credential — see [Data sources](./DATA_SOURCES.md#sharing-a-connection-with-your-team). Dataset and dashboard grants also
+  credential — see [Data sources](./DATA_SOURCES.md#sharing-a-connection-with-your-team). An
+  **ontology** grant gives its published version: the grantee explores, asks,
+  proposes and requests actions as themselves, and its row filter
+  (`Type.property`) and mask (`Customer.email`) apply in every query — see
+  [Enterprise Ontology](./ENTERPRISE_ONTOLOGY.md#access-sharing-and-policy). Dataset and dashboard grants also
   take a **row filter** (only rows whose column matches the listed values) and
   a **column mask** (named columns are removed entirely, not blanked). Both
   are enforced **inside the database** — a grantee cannot read a shared
@@ -109,10 +113,10 @@ It manages:
 Every server function and API route first asks whose token it was handed, through
 `src/utils/callerLookup.server.ts`. The answer is one of two kinds:
 
-| What happened | What the caller gets |
-| --- | --- |
+| What happened                                                                                                                                                                          | What the caller gets                                                                                   |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | **The token was refused.** It was malformed or wrongly signed, its session is gone, or its user is unknown (a 4xx from the auth server, or `AuthInvalidJwtError` from reading the JWT) | 401, with the message that route has always given ("Unauthorized", "Not signed in", "Invalid session") |
-| **The check itself failed.** A network error, a 429, a 5xx, or a reply that would not parse | 503, "Could not check who you are just now (…). Nothing was done; try again in a moment." |
+| **The check itself failed.** A network error, a 429, a 5xx, or a reply that would not parse                                                                                            | 503, "Could not check who you are just now (…). Nothing was done; try again in a moment."              |
 
 Before R297 the second case was reported as the first, so a signed-in person was told they were not.
 Agent Chat had the sharper version. A user it could not identify skips the IAM model rules and the

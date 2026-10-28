@@ -20,3 +20,9 @@ LICENSE.md
 # The document parsers, copied from node_modules at build start (R321):
 # minified third-party code, not ours to format.
 public/vendor
+
+# Apache Ossie's schemas and examples, vendored byte for byte from one upstream
+# commit (see the README beside them): `npm run format` would make them copies
+# of nothing. The README is ours and stays formatted.
+tests/fixtures/ossie/*.json
+tests/fixtures/ossie/*.yaml

@@ -223,6 +223,14 @@ SITE_URL="https://your-domain.com"`}</Code>
           [<C key="b">SWARM_RUN_MAX_CONCURRENT</C>, "Simultaneous runs per key"],
           [<C key="c">SWARM_RUN_TIMEOUT_MS</C>, "Wall-clock ceiling for one run"],
           [
+            <C key="o1">ONTOLOGY_MAX_ROWS</C>,
+            "Most rows one Enterprise Ontology query returns (default 5000)",
+          ],
+          [
+            <C key="o2">ONTOLOGY_MAX_SPEC_KB</C>,
+            "Largest Enterprise Ontology document saved, in KB (default 4096)",
+          ],
+          [
             <C key="d">ENFORCE_BUDGET_CAP</C>,
             <>
               Makes budget caps BLOCK rather than only alert. Accepts <C key="v">1</C>,{" "}

@@ -194,7 +194,9 @@ describe("governance", () => {
   });
 
   it("is offered, accepted and resolved everywhere grant types are listed", () => {
-    expect(rd("src/utils/iam.functions.ts")).toContain('"ml_model",\n        ]),');
+    // ml_model is no longer last in the enum (ontology follows it), so pin
+    // its presence in the validator's list rather than its position.
+    expect(rd("src/utils/iam.functions.ts")).toMatch(/"ml_model",\n\s+"ontology",\n\s+\]\),/);
     expect(rd("src/utils/iam.functions.ts")).toContain('resource_type: "ml_model" as const');
     expect(rd("src/utils/iam.functions.ts")).toContain("mlModelById.get(g.resource_id)");
     expect(rd("src/utils/iam.server.ts")).toContain('| "ml_model"');

@@ -43,6 +43,7 @@ import {
   ScrollText,
   Server,
   Settings,
+  Shapes,
   ShieldCheck,
   Sigma,
   type LucideIcon,
@@ -101,6 +102,10 @@ export const NAV_GROUPS: NavGroup[] = [
       // 6. Browse those definitions: authors go to Semantic Layer, everyone
       // else comes here to find a metric to use.
       { title: "Metrics", url: "/metrics", icon: Sigma },
+      // 7. Model the business itself: the things the metrics are about, how
+      // they connect, what must hold true and what may be changed. After the
+      // metrics because an ontology hangs its metrics on its object types.
+      { title: "Enterprise Ontology", url: "/ontology", icon: Shapes },
       // 7-10. Consume it. Sheets first: the spreadsheet is where most
       // people already do analysis, now over the lakehouse's tables.
       { title: "Sheets", url: "/sheets", icon: FileSpreadsheet },

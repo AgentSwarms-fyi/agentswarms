@@ -173,6 +173,12 @@ function IntroductionPage() {
             "Dashboards, paginated reports, filters, drill-through, alerts, sharing and embedding.",
           ],
           [
+            <DocLink key="e1" to="/docs/ontology">
+              Enterprise Ontology
+            </DocLink>,
+            "The business as objects, links, certified metrics, rules and governed actions, on lakehouse tables.",
+          ],
+          [
             <DocLink key="e2" to="/docs/sheets">
               Sheets
             </DocLink>,

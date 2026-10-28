@@ -39,6 +39,39 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Enterprise Ontology** (Data & BI → Enterprise Ontology). Describe the business
+  once — object types bound to lakehouse tables, properties and value types,
+  interfaces, links read both ways (through a key or a join table), certified
+  metrics, rules and typed actions — and work in those terms:
+  - **Explore** objects with search, filters and search-around up to four links;
+    each object opens with its properties, the rules it breaks, its metrics, what
+    it links to and its actions; **Graph** draws an object's neighbourhood.
+  - **Metrics** group through to-one links only, so a total never double counts
+    through a fan-out (refused with the reason).
+  - **Rules** in words and as checks against the data, plus the rules the model
+    implies (keys, required properties, value types, link targets).
+  - **Ask** in words: planned by AI over the ontology, never free SQL, refused
+    when it cannot answer; every answer has a trust envelope. Verified questions
+    answer without a model call and re-run as an evaluation suite.
+  - **Actions** are the only way the ontology changes data: criteria, approval,
+    agents propose by default, and an edit log with before and after.
+  - **Versions and proposals**: an autosaved, revision-checked draft; published
+    versions with what changed and what breaks; grantees propose, the owner merges.
+  - **IAM**: share as resource type _Ontology_; a share can hide properties and
+    filter rows (`Type.property`, `{{user.<key>}}` tokens), applied in every query,
+    the agent tool included. Restricted properties are the owner's only.
+  - **Audit and history**: creates, publishes, proposals, rule runs, questions,
+    evaluations and every action are audited; every query is in the asker's
+    Lakehouse history as `ontology:<what>`.
+  - **Agents**: the `ontology_query` tool, deny-by-default by ontology.
+  - **Apache Ossie** export and import (semantic model, ontology, mapping;
+    lossless round trip through an `AGENTSWARMS` extension), OWL (Turtle), JSON.
+  - Start from the **Northwind Outfitters** sample, a draft measured against your
+    tables (with optional AI descriptions), an import, or blank.
+    **Upgrading:** push migration `20261030000000_enterprise_ontology.sql`
+    (`npx supabase db push --include-all`). New limits `ONTOLOGY_MAX_ROWS` (5000)
+    and `ONTOLOGY_MAX_SPEC_KB` (4096).
+
 - **Private connectivity to hosted models.** LLM provider calls — chat,
   embeddings, model listing and connection tests — now honour the corporate
   proxy (`HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY`), like the warehouse and SaaS
