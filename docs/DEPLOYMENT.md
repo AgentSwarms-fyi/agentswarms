@@ -1702,6 +1702,16 @@ one pass runs at a time (extra callers get `{"skipped": true}`).
     -H "Authorization: Bearer $BI_CRON_TOKEN"
   ```
 
+- **Model Registry refresh (optional, e.g. weekly):** the same token lets a
+  scheduler pull the AIMLAPI catalogue. Only that token or a superadmin's session
+  is accepted, and at most `MODEL_REGISTRY_SYNC_PER_MIN` (default 2) run a
+  minute:
+
+  ```bash
+  curl -fsS -X POST https://your-domain.com/api/public/hooks/refresh-model-registry \
+    -H "Authorization: Bearer $BI_CRON_TOKEN"
+  ```
+
 The scheduled pass also **re-validates Integration Hub credentials** (LLM
 provider keys, the LLM gateway, n8n, Firecrawl) every 6 hours with the same
 cheap live tests used at save time, so a key revoked upstream surfaces as a

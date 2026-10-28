@@ -313,6 +313,14 @@ vllm      http://vllm.internal:8000/v1`}</Code>
         <li>Set the workspace default for new agents.</li>
       </UL>
       <P>
+        The catalogue comes from AIMLAPI. A superadmin refreshes it with{" "}
+        <strong>Refresh now</strong> on the registry page; an external scheduler can do the same by
+        sending a POST to <C>/api/public/hooks/refresh-model-registry</C> with{" "}
+        <C>Authorization: Bearer $BI_CRON_TOKEN</C>. Nobody else can — a refresh rewrites the whole
+        registry — and at most <C>MODEL_REGISTRY_SYNC_PER_MIN</C> refreshes run a minute (2 by
+        default).
+      </P>
+      <P>
         The registry is about <em>visibility</em>. To control what a particular person is{" "}
         <em>allowed</em> to run, use model rules in <DocLink to="/docs/iam">Access control</DocLink>{" "}
         — those are enforced server-side on every request, not just hidden in the UI.

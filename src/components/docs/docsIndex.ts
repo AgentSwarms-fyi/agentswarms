@@ -3054,10 +3054,12 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "Models & providers",
     "description": "Which models your workspace can reach, whose account pays for them, and how to pick sensibly between them.",
     "terms": [
+      "/api/public/hooks/refresh-model-registry",
       "2024-08-01-preview",
       "BLOCK_PRIVATE_NETWORK_FETCH",
       "GENAI_REQUIRE_PRIVATE",
       "HTTPS_PROXY",
+      "MODEL_REGISTRY_SYNC_PER_MIN",
       "NODE_EXTRA_CA_CERTS",
       "NO_PROXY",
       "accessKeyId",

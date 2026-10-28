@@ -143,12 +143,22 @@ for (const [k, v] of [...Object.entries(APP_NAV), ...Object.entries(PAGE_TABS)])
   NAV_PARENTS.set(k, [...(NAV_PARENTS.get(k) ?? []), ...v]);
 }
 
-const apiRoutes = new Set(
-  fs
-    .readdirSync("src/routes/api")
-    .filter((f) => f.endsWith(".ts"))
-    .map((f) => "/api/" + f.replace(/\.ts$/, "").split(".").join("/")),
-);
+// Every route file under src/routes/api, as the URL it serves. Folders and
+// dots are both path segments to the router (api/kb/build-graph.ts and
+// api/mcp.s.$slug.ts alike), so the walk descends: reading the top level only
+// called every route in a folder an unknown endpoint.
+const apiRoutes = (() => {
+  const out = new Set();
+  const walk = (dir, prefix) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (e.isDirectory()) walk(path.join(dir, e.name), `${prefix}/${e.name}`);
+      else if (e.name.endsWith(".ts"))
+        out.add(`${prefix}/${e.name.replace(/\.ts$/, "").split(".").join("/")}`);
+    }
+  };
+  walk("src/routes/api", "/api");
+  return out;
+})();
 
 /** Everything the runtime and deploy tooling read — markdown is not evidence. */
 const envHaystack = (() => {

@@ -222,6 +222,13 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   so nothing stops being recorded. The matching lockdown of the swarm-run table —
   which doesn't feed the budget and is written from the browser — is tracked
   separately (VA-2026-10-25-31).
+- **Only your scheduler or a superadmin can refresh the Model Registry**
+  (R393, VA-2026-10-25-19). `POST /api/public/hooks/refresh-model-registry`
+  accepted anyone, with no limit, and each call fetched the AIMLAPI catalogue and
+  rewrote the registry. It now needs `BI_CRON_TOKEN` or a superadmin's session,
+  and runs at most `MODEL_REGISTRY_SYNC_PER_MIN` times a minute (default 2). The
+  registry page's **Refresh now** is unchanged. If you drive it from a
+  scheduler, send `Authorization: Bearer $BI_CRON_TOKEN` (DEPLOYMENT.md).
 - **A workflow's API trigger works, and is rate-limited the right way round**
   (R392, VA-2026-10-25-18). `POST /api/workflows/run` read the limiter
   backwards: a trigger within the limit was refused with 429, and after six

@@ -109,6 +109,35 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-28 — R393: anyone could make the server rewrite the Model Registry
+
+**Assessment finding** VA-2026-10-25-19. `POST /api/public/hooks/refresh-model-registry` took any request: no
+auth ("soft auth: we accept either the anon key bearer or no auth"), no throttle. Each call fetched the AIMLAPI
+catalogue and upserted or deleted every registry row. Nothing in the repo calls it — its comment names a
+pg_cron job that does not exist here — and the registry page's own Refresh now is a separate, superadmin-only
+server function.
+
+**Before, live:** an anonymous `curl -X POST` answered `200 {"ok":true,"count":789}` after an 8 s sync; the
+log said `cron tick (auth=no)`.
+
+**The fix:** the hook answers `BI_CRON_TOKEN` — the bearer `/api/bi/cron` takes, compared in constant time
+through `staticCronCaller` — or a superadmin's session (`requireSuperadmin`); anything else 401 or 403 before
+any fetch. Allowed refreshes are throttled by `rateLimitedGlobal("model-registry-sync",
+MODEL_REGISTRY_SYNC_PER_MIN)`, default 2 a minute. The GET probe stays public. `.env.example`, DEPLOYMENT.md
+and the in-app Models page say how a scheduler drives it.
+
+**Found alongside:** `check-docs.mjs` and `check-md-docs.mjs` read only the top level of `src/routes/api`, so
+any route in a folder (`kb/build-graph`, `public/hooks/…`, 11 of them) was an "unknown endpoint" — which is
+why R390's UI record had to word around `/api/kb/build-graph`. Both now walk the tree; both still reject
+`/api/kb/not-a-route`.
+
+**Tests:** `modelRegistryRefreshHook.test.ts` (9) — no bearer 401, a session that is not a superadmin's 403, a
+near miss of the cron token 403, the cron token 200 without a session lookup, a superadmin 200, no cron access
+when `BI_CRON_TOKEN` is unset, the throttle (configurable, asked only after the caller is allowed), and the
+public probe. Mutation: 5 of 5 caught.
+
+**The UI:** see UI_TEST_RESULTS.
+
 ### 2026-10-28 — R392: a workflow's trigger door was rate-limited backwards
 
 **Assessment finding** VA-2026-10-25-18. `rateLimitedGlobal` answers "is the caller over the limit?" (true

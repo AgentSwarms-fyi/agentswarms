@@ -15,6 +15,19 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-28 — R393: the Model Registry refresh hook answers only the scheduler or a superadmin
+
+| Build  | What was sent or pressed                                                 | Result                                                                                       |
+| ------ | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| before | `POST /api/public/hooks/refresh-model-registry`, no Authorization header | `200 {"ok":true,"count":789}` after 8 s — a full sync ran; the log: `cron tick (auth=no)`    |
+| R393   | the same                                                                 | `401 {"error":"Unauthorized"}`                                                               |
+| R393   | the same with `Authorization: Bearer made-up-bearer`                     | `403` "Only the operator's cron or a superadmin can refresh the model registry"              |
+| R393   | `GET` the same path                                                      | `200` "POST to trigger a refresh" — and no "refresh by" line in the log for any of the three |
+| R393   | Model Registry, **Refresh now** (signed in as a superadmin)              | "Synced 789 models from AIMLAPI"; "Last refreshed just now"                                  |
+
+The scheduler path (`BI_CRON_TOKEN`) is not set on this instance, so it was exercised by the tests only. No
+fixtures.
+
 ## 2026-10-28 — R392: a workflow's API trigger starts a run, and the seventh in a minute is refused
 
 A throwaway workflow "R392 trigger probe" (one SQL statement, `SELECT 1`), saved; Settings, Start it from
