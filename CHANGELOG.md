@@ -222,6 +222,12 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   so nothing stops being recorded. The matching lockdown of the swarm-run table —
   which doesn't feed the budget and is written from the browser — is tracked
   separately (VA-2026-10-25-31).
+- **Security headers on every response** (R396, VA-2026-10-25-22). App pages can
+  no longer be framed by another site; the embed and published-dashboard pages
+  still can (narrow them with `EMBED_FRAME_ANCESTORS`). Also `nosniff`,
+  `Referrer-Policy`, a baseline Content-Security-Policy, and HSTS over HTTPS —
+  with nginx, pass `X-Forwarded-Proto` for HSTS to apply. All configurable;
+  `SECURITY_HEADERS=off` when a proxy in front sets them.
 - **Outbound URLs are checked more strictly** (R395, VA-2026-10-25-21). All of
   IPv6 link-local and multicast is refused, as is an IPv4 metadata or link-local
   address written inside IPv6 (for example `http://[64:ff9b::169.254.169.254]/`).

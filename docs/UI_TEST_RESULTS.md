@@ -15,6 +15,26 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-28 — R396: security headers, and an app page framed by another site
+
+Fixture: a throwaway `python:3.12-slim` container serving one page on `127.0.0.1:8781` (another origin) that
+frames `http://localhost:8080/dashboard` and `http://localhost:8080/embed/agent/emk_r396probe` side by side.
+Removed afterwards.
+
+| Build | What was done                                                  | Result                                                                                                                                                                                                                  |
+| ----- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R395  | `HEAD` /dashboard, /embed/agent/…, /api/health                 | none of Content-Security-Policy, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Strict-Transport-Security on any of them                                                                                     |
+| R395  | Opened the framing page                                        | left frame: the app's sign-in form, whole — email, password, **Sign In**; right frame: "Invalid embed key."                                                                                                             |
+| R396  | `HEAD` /dashboard, /embeds, /api/health                        | `object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'`, `X-Frame-Options: SAMEORIGIN`, `nosniff`, `strict-origin-when-cross-origin`                                                           |
+| R396  | `HEAD` /embed/agent/…, /share/bi/…?embed=1                     | the same without `frame-ancestors` and without X-Frame-Options (the share link's 307 stays under `/share/bi/`)                                                                                                          |
+| R396  | `HEAD` /dashboard with `X-Forwarded-Proto: https`              | `Strict-Transport-Security: max-age=15552000`; none without it                                                                                                                                                          |
+| R396  | Opened the framing page again                                  | left frame blank; console: "Framing 'http://localhost:8080/' violates the following Content Security Policy directive: "frame-ancestors 'self'". The request has been blocked."; right frame still "Invalid embed key." |
+| R396  | Data Catalog, then Lakehouse, BI, Sheets, Docs → Configuration | "Local tables 28" (the browser DuckDB engine and its worker load under `nosniff`); no Content-Security-Policy message in the console; the new **Security headers** section renders                                      |
+
+The console also showed "An unknown error occurred when fetching the script." for the PWA service worker. Not
+R396: registering a one-line service worker from the probe origin, which sends no security headers, fails with
+the same message — this browser pane does not register service workers. No fixtures kept.
+
 ## 2026-10-28 — R395: the SSRF guard covers whole ranges, refuses unresolved names, and pins direct connections
 
 Lakehouse → Iceberg → **Add catalog**, name `r395_nat64`, warehouse `s3://iceberg/`, **Test and save**, on the

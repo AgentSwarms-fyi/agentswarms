@@ -3503,6 +3503,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "description": "Every environment variable, grouped by what it configures, and the settings that fit each way of running the platform — a laptop, one team, public embeds, a regulated network, a fleet behind a load balancer.",
     "terms": [
       ".env",
+      "/embed/…",
+      "/share/bi/…",
       "ADMIN_EMAIL",
       "ALLOW_PRIVATE_NETWORK_FETCH",
       "AUDIT_ARCHIVE_ON_PURGE",
@@ -3515,13 +3517,18 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "CONNECTOR_RETRY_500",
       "CONNECTOR_RETRY_BASE_MS",
       "CONNECTOR_RETRY_MAX_MS",
+      "CONTENT_SECURITY_POLICY",
+      "CONTENT_SECURITY_POLICY_REPORT_ONLY",
       "CREDENTIAL_MAX_AGE_DAYS",
       "DISABLE_INPROCESS_SCHEDULER",
       "DOCGEN_SERVICE_URL",
       "DOCGEN_TOKEN",
       "EMAIL_FROM",
+      "EMBED_FRAME_ANCESTORS",
       "ENFORCE_BUDGET_CAP",
       "FIRECRAWL_API_KEY",
+      "HSTS_INCLUDE_SUBDOMAINS",
+      "HSTS_MAX_AGE",
       "HTTPS_PROXY",
       "HTTP_PROXY",
       "INTEGRATION_TEST_PER_MINUTE",
@@ -3563,6 +3570,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "PROVIDER_CREDS_SECRET_OLD",
       "PUBLIC_APP_URL",
       "RESEND_API_KEY",
+      "SECURITY_HEADERS",
       "SITE_URL",
       "SMTP_HOST",
       "SMTP_PASS",
@@ -3596,6 +3604,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "X-Forwarded-For",
       "docs/KEY_MANAGEMENT.md",
       "email_send_log",
+      "eval",
       "function",
       "http://127.0.0.1:8091",
       "http://js-sandbox:8091",
@@ -3646,6 +3655,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "env-network",
         "text": "Network egress",
+        "level": 3
+      },
+      {
+        "id": "env-security-headers",
+        "text": "Security headers",
         "level": 3
       },
       {

@@ -28,6 +28,22 @@ const docText = DOC_PAGES.map((f) => readFileSync(f, "utf8")).join("\n");
 /** Everything the code actually reads, including via the envInt/envBool helpers. */
 function envVarsInCode(): Set<string> {
   const out = new Set<string>();
+  const scan = (p: string) => {
+    const src = readFileSync(p, "utf8");
+    for (const re of [
+      /process\.env\.([A-Z][A-Z0-9_]{2,})/g,
+      /process\.env\[["']([A-Z][A-Z0-9_]{2,})["']\]/g,
+      /import\.meta\.env\.([A-Z][A-Z0-9_]{2,})/g,
+      // Any envInt/envNum/envBool/envStr reader, including a suffixed
+      // variant (envNumZeroOk, for a knob whose zero is a real setting).
+      // Pinned to the exact names made the check miss a variable that IS
+      // read and report it as dead, which is the one wrong answer here.
+      /env(?:Int|Bool|Num|Str)[A-Za-z]*\(\s*["']([A-Z][A-Z0-9_]{2,})["']/g,
+      /\benv\.([A-Z][A-Z0-9_]{2,})/g,
+    ]) {
+      for (const m of src.matchAll(re)) out.add(m[1]);
+    }
+  };
   const walk = (dir: string) => {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
       const p = `${dir}/${e.name}`;
@@ -35,26 +51,16 @@ function envVarsInCode(): Set<string> {
         if (["node_modules", ".git", "dist", ".output"].includes(e.name)) continue;
         walk(p);
       } else if (/\.(ts|tsx|mjs)$/.test(e.name)) {
-        const src = readFileSync(p, "utf8");
-        for (const re of [
-          /process\.env\.([A-Z][A-Z0-9_]{2,})/g,
-          /process\.env\[["']([A-Z][A-Z0-9_]{2,})["']\]/g,
-          /import\.meta\.env\.([A-Z][A-Z0-9_]{2,})/g,
-          // Any envInt/envNum/envBool/envStr reader, including a suffixed
-          // variant (envNumZeroOk, for a knob whose zero is a real setting).
-          // Pinned to the exact names made the check miss a variable that IS
-          // read and report it as dead, which is the one wrong answer here.
-          /env(?:Int|Bool|Num|Str)[A-Za-z]*\(\s*["']([A-Z][A-Z0-9_]{2,})["']/g,
-          /\benv\.([A-Z][A-Z0-9_]{2,})/g,
-        ]) {
-          for (const m of src.matchAll(re)) out.add(m[1]);
-        }
+        scan(p);
       }
     }
   };
   walk("src");
   walk("scripts");
   walk("services");
+  // The production entry and its middleware sit at the repository root
+  // (server.mjs, serverSecurityHeaders.mjs …) and read real settings too.
+  for (const f of readdirSync(".")) if (/^server.*\.mjs$/.test(f)) scan(f);
   return out;
 }
 
@@ -137,6 +143,11 @@ describe("no page promises a setting the code does not read", () => {
       "BLOCK_PRIVATE_NETWORK_FETCH",
       "PROVIDER_CREDS_SECRET",
       "INTERNAL_RUN_SECRET",
+      // R396: whether security headers are sent at all, and who may frame the
+      // embed pages.
+      "SECURITY_HEADERS",
+      "EMBED_FRAME_ANCESTORS",
+      "CONTENT_SECURITY_POLICY",
     ]) {
       expect(reference, `${v} is missing from the environment reference`).toContain(v);
     }

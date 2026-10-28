@@ -109,6 +109,42 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-28 — R396: the production server sent no security headers
+
+**Assessment finding** VA-2026-10-25-22 (medium). `server.mjs` set no Content-Security-Policy,
+`X-Content-Type-Options`, `X-Frame-Options`/`frame-ancestors`, `Referrer-Policy` or HSTS. Shown live
+before the fix: a page on another origin framed the app and its sign-in form rendered whole inside the frame,
+password field and all — the clickjacking and look-alike surface the headers exist to close.
+
+**Fix.** `serverSecurityHeaders.mjs`, the outermost srvx middleware, so static files, pages and API routes
+all carry `nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, a CSP and — when the browser came
+over HTTPS, directly or per `X-Forwarded-Proto` — HSTS (180 days, `HSTS_MAX_AGE`,
+`HSTS_INCLUDE_SUBDOMAINS`). Framing is per page: app pages send `frame-ancestors 'self'` and
+`X-Frame-Options: SAMEORIGIN`; `/embed/…` and `/share/bi/…` are made to be framed and send neither unless
+`EMBED_FRAME_ANCESTORS` names the sites. The prefix keeps its slash, so `/embeds` (the signed-in page that
+manages embed keys) is not frameable. A header the app sets itself is kept; an immutable response
+(`Response.redirect`) is copied. `SECURITY_HEADERS=off` for a proxy that sets its own.
+
+**No default `script-src`, measured rather than assumed.** In the built client the SSR hydration scripts are
+inline, the DuckDB workers use `eval`, and the main bundle, swarm runtime, exceljs and pptxgen use
+`new Function`. A policy that kept them working would allow `'unsafe-inline'` and `'unsafe-eval'` and stop
+next to nothing, so the default enforces what cannot break anything (`object-src 'none'; base-uri 'self';
+form-action 'self'` — no page posts a form off-origin, and every PDF or file the app makes is downloaded
+through an anchor, never shown in an `<object>`). Operators enforce more with `CONTENT_SECURITY_POLICY` after
+trialling it with `CONTENT_SECURITY_POLICY_REPORT_ONLY`; `frame-ancestors` stays per page whatever they set.
+A nonce-based default needs the framework to stamp a nonce on its own inline scripts — the follow-up.
+
+**Found on the way.** `inAppDocsAccuracy.test.ts` scanned `src`, `scripts` and `services` for settings the
+code reads, never the root `server*.mjs` files, so it reported the new settings as "read by nothing"; it
+scans them now, and lists the three switches among the settings that must appear in the reference.
+
+**Tests:** `securityHeaders.test.ts` (14) — app and API pages, a redirect, the `/embeds` boundary, all five
+frameable paths with and without `EMBED_FRAME_ANCESTORS`, HSTS over HTTPS / forwarded HTTPS / plain HTTP and
+its settings, the operator's policy, Report-Only, a header the app set, the off switch, a run through srvx
+itself, and the wiring in `server.mjs`. Mutation: 20 of 20 caught.
+
+**Live:** see UI_TEST_RESULTS.
+
 ### 2026-10-28 — R395: the SSRF guard's three gaps — partial ranges, fail-open lookups, rebinding
 
 **Assessment finding** VA-2026-10-25-21 (medium). Three gaps in `ssrfGuard.server.ts`:

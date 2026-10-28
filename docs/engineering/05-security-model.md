@@ -146,6 +146,33 @@ for those.
 
 ---
 
+## HTTP security headers
+
+`serverSecurityHeaders.mjs`, the outermost middleware in `server.mjs`, gives every
+response — static files, pages and API routes — `X-Content-Type-Options: nosniff`,
+`Referrer-Policy: strict-origin-when-cross-origin` and a Content-Security-Policy, and
+HSTS when the browser came over HTTPS (directly or per `X-Forwarded-Proto`). Until
+R396 it set none, so any site could frame a signed-in page under a decoy.
+
+**Framing is decided per page.** App pages send `frame-ancestors 'self'` and
+`X-Frame-Options: SAMEORIGIN`. The embed pages (`/embed/…`) and published dashboards
+(`/share/bi/…`) are meant to be framed by other sites, so they send neither, unless
+`EMBED_FRAME_ANCESTORS` names the sites; an embed key's domain allow-list still
+decides what they show. The prefix match keeps its slash: `/embeds`, the signed-in
+page that manages keys, is not frameable.
+
+**The default policy has no `script-src`, on purpose.** Measured on the built
+client: the SSR hydration scripts are inline, and the DuckDB workers, exceljs,
+pptxgen and the swarm runtime compile code at run time. A `script-src` that kept
+them working would allow `'unsafe-inline'` and `'unsafe-eval'` and stop next to
+nothing. The default is what cannot break anything — `object-src 'none'`,
+`base-uri 'self'`, `form-action 'self'` — and an operator can enforce more with
+`CONTENT_SECURITY_POLICY`, after trialling it with
+`CONTENT_SECURITY_POLICY_REPORT_ONLY`. A nonce-based `script-src` needs the
+framework to stamp the nonce on its own inline scripts; that is the follow-up.
+
+---
+
 ## Prompt injection, and where the line is
 
 The honest position is that prompt injection is not solved here or anywhere. What

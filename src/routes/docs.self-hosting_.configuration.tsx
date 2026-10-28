@@ -415,6 +415,55 @@ SITE_URL="https://your-domain.com"`}</Code>
         must enable it, do so on an instance with no public embeds.
       </Callout>
 
+      <H3 id="env-security-headers">Security headers</H3>
+      <P>
+        Every response carries <C>X-Content-Type-Options: nosniff</C>,{" "}
+        <C>Referrer-Policy: strict-origin-when-cross-origin</C> and a Content-Security-Policy. App
+        pages may be framed only by the app itself; the embed pages (<C>/embed/…</C>) and published
+        dashboards (<C>/share/bi/…</C>) may be framed by any site, because that is what they are for
+        — an embed key&apos;s domain allow-list still decides what they show.
+      </P>
+      <Table
+        headers={["Variable", "Default", "Purpose"]}
+        rows={[
+          [
+            <C key="a">SECURITY_HEADERS</C>,
+            "on",
+            "Set off when a reverse proxy in front already sets these headers, so the two never disagree.",
+          ],
+          [
+            <C key="b">CONTENT_SECURITY_POLICY</C>,
+            <C key="d">
+              object-src &apos;none&apos;; base-uri &apos;self&apos;; form-action &apos;self&apos;
+            </C>,
+            "The enforced policy, replacing the default. frame-ancestors is set per page and ignored here.",
+          ],
+          [
+            <C key="c">CONTENT_SECURITY_POLICY_REPORT_ONLY</C>,
+            "unset",
+            "A stricter policy to trial: the browser reports what it would block and blocks nothing.",
+          ],
+          [
+            <C key="e">EMBED_FRAME_ANCESTORS</C>,
+            "any site",
+            "Space-separated origins allowed to frame the embed and share pages.",
+          ],
+          [
+            <C key="f">HSTS_MAX_AGE</C>,
+            "15552000 (180 days)",
+            "Sent only to a browser that came over HTTPS — directly, or through a proxy that sends X-Forwarded-Proto: https. 0 sends none.",
+          ],
+          [<C key="g">HSTS_INCLUDE_SUBDOMAINS</C>, "false", "Add includeSubDomains to HSTS."],
+        ]}
+      />
+      <Callout kind="info" title="Why the default policy has no script-src">
+        The page&apos;s own hydration scripts are inline, and the browser SQL engine, the
+        spreadsheet and slide exporters and the swarm runtime compile code as they run. A script-src
+        that kept all of that working would have to allow inline scripts and <C>eval</C>, and would
+        stop next to nothing. To add one, trial it with <C>CONTENT_SECURITY_POLICY_REPORT_ONLY</C>{" "}
+        and read the browser console before enforcing it.
+      </Callout>
+
       <H3 id="env-observability">Observability and audit</H3>
       <Table
         headers={["Variable", "Purpose"]}
@@ -543,6 +592,9 @@ BUDGET_FAIL_CLOSED="true"
 
 # A public embed has no reason to reach anything inside your network.
 BLOCK_PRIVATE_NETWORK_FETCH="true"
+
+# Only your own sites may frame the embed pages.
+EMBED_FRAME_ANCESTORS="https://www.example.com"
 
 TRUSTED_PROXY_HOPS="1"
 

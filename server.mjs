@@ -24,6 +24,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { installServerGuards, quietClientGone, rememberClientAborts } from "./serverGuards.mjs";
 import { compressStatic } from "./serverCompression.mjs";
+import { securityHeaders } from "./serverSecurityHeaders.mjs";
 
 // Before anything else, in the primary and in every worker: undici can throw
 // from a microtask when it closes a response stream twice, which used to end
@@ -157,7 +158,10 @@ async function startWorker() {
     // a request for one.
     // Order matters: the type fix runs first (innermost) so the compressor
     // sees the corrected Content-Type when deciding what is compressible.
+    // Security headers are outermost, so every response carries them — static
+    // files, pages and API routes alike (R396).
     middleware: [
+      securityHeaders(),
       compressStatic(correctContentTypes(serveStatic({ dir: path.join(HERE, "dist", "client") }))),
     ],
     fetch: rememberClientAborts(app.fetch),

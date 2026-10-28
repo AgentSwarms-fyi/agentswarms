@@ -180,6 +180,13 @@ comfortably serves a lot of users.
    `gzip_types`: either one holds an answer back until it is complete. The app
    does not compress event streams itself.
 
+   The app sets its own security headers, HSTS included once it knows the
+   browser came over HTTPS: Caddy says so with `X-Forwarded-Proto`; with nginx,
+   add `proxy_set_header X-Forwarded-Proto $scheme;`. If the proxy already sets
+   security headers, set `SECURITY_HEADERS=off` so the two never disagree. The
+   settings are listed in `.env.example` and in the app under Docs →
+   Self-hosting → Configuration → Security headers.
+
 The in-process scheduler runs automatically on a single VM — **no cron setup
 needed.** To update: `git pull && docker compose up -d --build`.
 
