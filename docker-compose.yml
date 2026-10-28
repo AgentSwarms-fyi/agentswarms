@@ -291,7 +291,7 @@ services:
     restart: "no"
 
   qdrant:
-    image: qdrant/qdrant:v1.12.4@sha256:241edb9d7778327516ef218f8c74e1bd61b5ea42cd4f193cb8d0896199705636
+    image: qdrant/qdrant:v1.20.0@sha256:9bfc89f9914fc14876a88c05270685921a55b8877b254a98bcc1cc2f0a424cd2
     # Loopback only, so `scripts/setup.sh --dev` (app on the host) reaches the
     # same service the containerised app does rather than running without it.
     ports:
