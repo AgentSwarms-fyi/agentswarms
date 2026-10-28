@@ -8,6 +8,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { reapSessions } from "@/utils/notebookRuntime/service.server";
 import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
+import { staticCronCaller } from "@/utils/cronCaller.server";
 
 function json(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
@@ -20,7 +21,9 @@ async function handle(request: Request): Promise<Response> {
   const auth = request.headers.get("Authorization") ?? "";
   const bearer = auth.replace(/^Bearer\s+/i, "").trim();
   const cronToken = process.env.NOTEBOOK_CRON_TOKEN || process.env.BI_CRON_TOKEN;
-  let allowed = Boolean(cronToken && bearer && bearer === cronToken);
+  // Compared in constant time, as /api/bi/cron does (VA-2026-10-25-20: this
+  // was `===`, which returns at the first differing character).
+  let allowed = staticCronCaller(bearer, { cronToken }) === "cron";
   let lookupError: unknown = null;
   if (!allowed && bearer) {
     const { data, error } = await supabaseAdmin.auth.getUser(bearer);

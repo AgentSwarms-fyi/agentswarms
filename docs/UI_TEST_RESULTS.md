@@ -15,6 +15,14 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-28 — R394: the kernel reaper's cron token
+
+`POST /api/notebook/runtime/reap` after the R394 build: no Authorization header → `401 {"error":"Unauthorized"}`;
+`Authorization: Bearer made-up-bearer` → `401`. No cron token is set on this instance and nothing in the app
+calls this endpoint (the in-process scheduler reaps directly), so the token path and the signed-in sweep were
+exercised by the tests; constant time is not observable from outside and is held by the test's pin. No
+fixtures.
+
 ## 2026-10-28 — R393: the Model Registry refresh hook answers only the scheduler or a superadmin
 
 | Build  | What was sent or pressed                                                 | Result                                                                                       |

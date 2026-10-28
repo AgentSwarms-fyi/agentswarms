@@ -222,6 +222,9 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   so nothing stops being recorded. The matching lockdown of the swarm-run table —
   which doesn't feed the budget and is written from the browser — is tracked
   separately (VA-2026-10-25-31).
+- **The notebook kernel reaper checks its cron token in constant time**
+  (R394, VA-2026-10-25-20), as `/api/bi/cron` already did. Nothing changes for
+  a scheduler that sends `NOTEBOOK_CRON_TOKEN` or `BI_CRON_TOKEN`.
 - **Only your scheduler or a superadmin can refresh the Model Registry**
   (R393, VA-2026-10-25-19). `POST /api/public/hooks/refresh-model-registry`
   accepted anyone, with no limit, and each call fetched the AIMLAPI catalogue and

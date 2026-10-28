@@ -109,6 +109,21 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-28 — R394: the kernel reaper compared its cron token with ===
+
+**Assessment finding** VA-2026-10-25-20 (low). `/api/notebook/runtime/reap` accepted `NOTEBOOK_CRON_TOKEN`
+(or `BI_CRON_TOKEN`) with `bearer === cronToken`, which stops at the first differing character. It now uses
+`staticCronCaller`, the `timingSafeEqual` check `/api/bi/cron` and the model-registry hook use; a signed-in
+user can still trigger a best-effort sweep. A sweep of `src` for other `===` comparisons against a presented
+secret found none — the matches compare content hashes, MCP tool fingerprints, replay digests and idempotency
+keys, none of them a credential.
+
+**Tests:** `notebookReapAuth.test.ts` (6) — the cron token without a session lookup, a near miss refused, the
+`BI_CRON_TOKEN` fallback, no cron access with neither set, a signed-in user's sweep, and a pin that no `===`
+compare of the token remains. Mutation: 4 of 4 caught, the original `===` among them.
+
+**Live:** see UI_TEST_RESULTS.
+
 ### 2026-10-28 — R393: anyone could make the server rewrite the Model Registry
 
 **Assessment finding** VA-2026-10-25-19. `POST /api/public/hooks/refresh-model-registry` took any request: no
