@@ -11,7 +11,7 @@ storage), configuring environment variables, and running the app.
 | Requirement                                   | Version              | Why                                                                                                                              |
 | --------------------------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | **Node.js**                                   | `20.19+` or `22.12+` | Required by Vite 7. Older Node 18 will fail to start the dev server.                                                             |
-| **npm** (bundled with Node) or **Bun** `1.1+` | —                    | Either works — both `package-lock.json` and `bun.lock` are committed. Use one consistently.                                      |
+| **npm** (bundled with Node) or **Bun** `1.1+` | —                    | `package-lock.json` is the one lockfile (CI, the Docker build and the audits use it). Bun converts it on its first install; see below. |
 | **Git**                                       | any recent           | to clone the repo                                                                                                                |
 | **A Supabase account**                        | free tier is enough  | [supabase.com](https://supabase.com) — this is your database, auth, and file storage                                             |
 | **Supabase CLI**                              | `2.x`                | _(recommended, not strictly required)_ — the fastest way to apply the project's SQL migrations (over two hundred) in one command |
@@ -104,6 +104,11 @@ git clone https://github.com/AgentSwarms-fyi/agentswarms.git
 cd agentswarms
 npm install     # or: bun install
 ```
+
+`package-lock.json` is the only lockfile in the repository. With Bun, the first `bun install`
+converts it into a local `bun.lock`, so you get the same versions; that file is git-ignored. Bun
+keeps using its own `bun.lock` afterwards and does not follow later changes to
+`package-lock.json`, so delete `bun.lock` after pulling a dependency change and install again.
 
 If you plan to contribute, fork it on GitHub first and clone your fork instead
 — the rest of this guide is identical either way.

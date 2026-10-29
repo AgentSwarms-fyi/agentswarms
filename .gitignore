@@ -1,6 +1,12 @@
 # dependencies
 /node_modules
 
+# One lockfile: package-lock.json. Bun converts it on its first install; a
+# bun.lock committed beside it was never updated after the first commit and
+# pinned 178 known advisories (VA-2026-10-25-27).
+bun.lock
+bun.lockb
+
 # env
 .env
 .env.local

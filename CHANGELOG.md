@@ -318,6 +318,14 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   manifests, and the image scan reads its list from the compose file.
   **Upgrading:** `docker compose pull && docker compose up -d`. If you mirror
   images into a private registry, mirror them by digest.
+- **One lockfile** (R401, VA-2026-10-25-27). `bun.lock` was committed next to
+  `package-lock.json` and never updated after the first commit, so anyone
+  running `bun install` got versions with 178 known advisories, while CI, the
+  Docker build and every audit used `package-lock.json`. It is removed, along
+  with `bunfig.toml`. Bun still works: with no `bun.lock`, its first install
+  converts `package-lock.json`, so it resolves the same versions. The file it
+  writes is git-ignored, and a test fails if a second lockfile is committed.
+  **If you use Bun:** delete your old `bun.lock` and run `bun install`.
 - **The Spark Connect server asks for a token and no longer runs as root**
   (R398, VA-2026-10-25-23). Notebook kernels share an internal network with the
   Compose `spark-connect` service; until now a kernel could connect to it and

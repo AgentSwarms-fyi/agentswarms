@@ -109,6 +109,29 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-29 — R401: one lockfile (VA-27)
+
+**Finding** VA-2026-10-25-27: osv-scanner reported 178 advisories in `bun.lock` and 1 in
+`package-lock.json`. `bun.lock` had not changed since the initial commit; CI, the Docker build, Dependabot
+and `npm audit` all read `package-lock.json`. INSTALL told readers "either works — both are committed", so
+`bun install` installed the stale versions.
+
+**Fix.** `bun.lock` and `bunfig.toml` (its only setting was the text-lockfile format) are removed. Bun is
+still supported. With no `bun.lock`, `bun install` (Bun ≥ 1.0.5) converts `package-lock.json` (lockfile v2
+to v4), so it resolves the same versions. `bun.lock` and `bun.lockb` are git-ignored, so the file Bun
+writes cannot be committed by accident. INSTALL says to delete it after a dependency change, because Bun
+keeps using its own file afterwards. `oneLockfile.test.ts` fails when a second lockfile is tracked.
+
+**Measured** with osv-scanner `v2.6.0`, one lockfile at a time. The removed `bun.lock` holds 149 advisories
+in 40 packages (178 when assessed on 2026-10-25, because the count moves with the advisory database).
+`package-lock.json` holds 5 in 4 packages. One is the accepted `@azure/msal-node` advisory. The other four
+were published since the assessment and are filed as **VA-2026-10-25-36**: `seroval` 1.6.8, which
+serializes server-function results for the client, has two moderate injection advisories (fixed in
+1.6.11); `qs` 6.16.0 has one (fixed in 6.16.1); `deepmerge` 4.3.1 has one, low, with no fixed release.
+
+**Tests.** `oneLockfile.test.ts` (2). Mutation 2 of 2: a tracked `bun.lock` fails the first test, and
+dropping the ignore rule fails the second.
+
 ### 2026-10-28 — R399: every third-party image pinned to the build it was tested with (VA-24)
 
 **Finding** VA-2026-10-25-24: `tecnativa/docker-socket-proxy` and `ubuntu/squid` were `:latest` in
