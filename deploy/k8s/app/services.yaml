@@ -34,8 +34,9 @@
 #                               here: silently standing up a database on a
 #                               well-known password is worse than not starting.
 #
-# DOCGEN_TOKEN and OPENROUTER_API_KEY are marked optional below, so their
-# absence degrades a feature rather than stopping a pod.
+# DOCGEN_TOKEN is marked optional below, so its absence degrades a feature
+# rather than stopping a pod. The renderer is given no model key: Deep mode's
+# slide review runs in the app, as the user (R405).
 ---
 # ── Office renderer ─────────────────────────────────────────────────────────
 # Stateless and bursty: it renders a document and forgets it.
@@ -103,9 +104,6 @@ spec:
             - name: DOCGEN_TOKEN
               valueFrom:
                 secretKeyRef: { name: agentswarms-env, key: DOCGEN_TOKEN, optional: true }
-            - name: OPENROUTER_API_KEY
-              valueFrom:
-                secretKeyRef: { name: agentswarms-env, key: OPENROUTER_API_KEY, optional: true }
           resources:
             requests: { cpu: 100m, memory: 256Mi }
             limits: { cpu: "1", memory: 2Gi }

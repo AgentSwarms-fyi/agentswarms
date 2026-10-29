@@ -109,6 +109,63 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-30 — R405: Deep mode's slide review runs as the user, not on the renderer's key (VA-37)
+
+**Finding** VA-2026-10-25-37, found reviewing where the instance default model reaches (R404). In Deep mode a
+deck went to the doc-gen container with `verify: true`. The container rendered it, sent up to ten slide images to
+OpenRouter with **its own** `OPENROUTER_API_KEY`, and applied the fixes the model asked for. Compose and the
+Kubernetes manifest hand that container the operator's key, and the running one holds it. The model was
+whatever the request's `model` said, and `/api/docgen/pptx` forwarded it unchecked. Without one, the model was
+the container's `OPENROUTER_DEFAULT_MODEL`, which the Admin default model replaced in dc8856ce.
+
+So any signed-in user could have the operator pay for a vision call on any OpenRouter model, once per POST. The
+user's IAM model rules did not apply, no trace was written, and no budget was asked. The page never sent a
+model, so the review ran on whatever the container's env named, not the instance default. docs.budgets.tsx
+already listed "a render-verify vision pass" as a cost a budget covers. It never did.
+
+**Fix.** The container only renders. `/render` with `images: true` returns up to ten slides as JPEG data URIs
+(see below for why JPEG), from the same LibreOffice run as the thumbnail, converting only the pages asked for. The app runs the
+review (`src/utils/deckReview.server.ts`): `chooseModel` picks the chat's model if this user can run it, else the
+instance default, and `internalChatText` asks it as the user. So IAM model rules, the budget, the trace
+(`Deck review`) and cost accounting apply, and a fallback is recorded. The fixes are parsed and applied in
+`src/lib/docGen/deckReview.ts`, a port of the Python with two changes. A fix that leaves the slide as it was no
+longer counts as a change, so it does not cost a second render. Only known actions on whole slide numbers are
+kept, at most six. The deck renders again only when something changed. A review that cannot run (no usable
+model, budget, timeout) never stops the deck: it ships as first rendered, with a notice giving the reason.
+
+The page now sends the chat's model, as the BI fill already did. It shows the review's note: "Reviewed by
+openrouter/openai/gpt-4o-mini: 2 fixes applied", or the reason it did not run. `critique`, `apply_fixes` and
+`httpx` are gone from the container, and so is `OPENROUTER_*` from its Compose and Kubernetes environment.
+
+**Found live, fixed before commit: the review did not fit in one request.** The first Deep deck on the hot
+deploy shipped with the notice "The slide review did not run: The model call to
+openrouter/google/gemini-3-flash-preview failed (413): Conversations are limited to 200 messages and 500k
+characters." The chat channel refuses any request over 500k characters, and ten slides as 90 dpi PNGs, base64,
+came to more than that: the thumbnail alone is 50k. The deck still shipped as first rendered, and the notice said
+why, as intended. So the renderer now sends the review slides as JPEGs at 48 dpi (640 px wide, enough to see
+overflow and clipping). The thumbnail stays a 90 dpi PNG from the same LibreOffice run. Measured on a 13-slide
+deck, ten review images came to 139k characters. The app also sends only as many slides, from the first, as fit
+under the ceiling less 50k for the prompt. When that is fewer than all, the note says "the first N of M slides".
+
+**From the UI, after the fix.** Agent Chat with Sample · Graph RAG Explorer (whose model is
+`google/gemini-3-flash-preview`), Deep · slow, PPT, "A short deck on Acme Corp's knowledge graph … 6 slides":
+the deck arrived with the notice "Reviewed by openrouter/google/gemini-3-flash-preview: 1 fix applied." Traces
+& Logs has the call as **Deck review**: `google/gemini-3-flash-preview`, 3.3 s, 7826/34 tokens, $0.004, on this
+account. The renderer container has no `OPENROUTER_*` variable and cannot import `httpx`.
+
+**Tests.** `deckReview.test.ts` (12). It checks:
+
+- parsing tolerates a fenced answer and drops unknown actions, bad slide numbers and anything past six;
+- the promote-or-refuse rule for a visual-only slide, and no change reported for a no-op;
+- only JPEG and PNG data URIs reach the model, ten at most, and only as many as fit under the channel's ceiling;
+  the result passes the channel's own `isConversationTooLarge`;
+- the note says when it saw fewer slides than there are;
+- the container's Python has no model key, OpenRouter URL or HTTP client, and its requirements no HTTP library;
+- Compose gives it no `OPENROUTER_*`;
+- the route reviews as `user.id` and forwards no model.
+
+Mutation 11 of 11.
+
 ### 2026-10-29 — R404: the doc renderer and the kernel image take their Python fixes (VA-26)
 
 **Finding** VA-2026-10-25-26, measured on what the images actually install. `pip freeze` ran inside each built

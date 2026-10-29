@@ -147,7 +147,7 @@ By default all three formats are built **in the browser**, which works on every
 deploy. You can also run
 the optional **[doc-gen service](../docgen-service/README.md)** (`--docgen`),
 which renders server-side with the native Office toolchains — **python-pptx**
-(editable charts + a LibreOffice render-verify loop), **python-docx** (cover +
+(editable charts, with the slides reviewed; see below), **python-docx** (cover +
 updatable table of contents + fixed-width tables), and **openpyxl** (formulas
 recalculated by LibreOffice so values show immediately). The browser fills the
 numbers first, then posts the plan to `/api/docgen/{pptx,docx,xlsx}`; if the
@@ -164,6 +164,17 @@ using **all 14** diagram kinds, with a second KPI scorecard, more data slides,
 and takeaways that are asked to be a non-obvious reading of the numbers rather
 than a restatement of the chart. The server renderer also adds a **Contents**
 page when the deck has three or more sections.
+
+A Deep deck's slides are then **reviewed**. The renderer returns them as
+images, and a vision model looks for text that overflows or is cut off,
+unreadable contrast, or an empty visual. It may only shorten a title, trim
+bullets or drop a visual. On a slide with nothing but the visual, it can drop it
+only if the notes can take its place. The deck is rendered again with the
+fixes. The review runs in the app as you (`src/utils/deckReview.server.ts`), on
+the chat's model or else the instance default, within your IAM model rules and
+budget, and is traced as `Deck review`. A notice says what it did, or why it did
+not run. The renderer holds no model key: until R405 the review ran inside it,
+on the operator's OpenRouter key with a model the request named, untraced.
 
 There is **nothing to configure**: the app finds the renderer at
 `http://docgen:8099` when it runs inside the compose network, or at

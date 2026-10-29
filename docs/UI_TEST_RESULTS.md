@@ -15,6 +15,22 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-30 — R405: Deep mode's slide review runs as you, through the chat channel
+
+Build: a hot deploy of the working copy; the renderer rebuilt from it and recreated with Compose's new
+environment (no `OPENROUTER_*`; `import httpx` fails inside it). Agent Chat, agent Sample · Graph RAG Explorer
+(Acme Corp), whose model is `openrouter` / `google/gemini-3-flash-preview`. Toasts captured by a DOM observer.
+
+| What was pressed                                                                                                                                                                       | Result                                                                                                                                                                                                                                                                                              |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Deep · slow**, **PPT**, "A short deck on Acme Corp's knowledge graph: what it contains, how to query it, and three tips. Keep it to 6 slides." → send (first build: ten 90 dpi PNGs) | the deck arrived ("PowerPoint · ready"), with the warning "The slide review did not run: The model call to openrouter/google/gemini-3-flash-preview failed (413): Conversations are limited to 200 messages and 500k characters." The review slides did not fit in one request; fixed before commit |
+| The renderer's port after the fix: a 13-slide deck with `images: true`                                                                                                                 | 10 review images, JPEG, 7k–22k characters each, 139k in all (the PNG thumbnail alone is 50k)                                                                                                                                                                                                        |
+| The same request in a new chat, on the fixed build                                                                                                                                     | the deck arrived with "Reviewed by openrouter/google/gemini-3-flash-preview: 1 fix applied."                                                                                                                                                                                                        |
+| Observability → Traces & Logs                                                                                                                                                          | newest row: **Deck review**, `google/gemini-3-flash-preview`, 3.3 s, 7826/34 tokens, ok, $0.004, on this account                                                                                                                                                                                    |
+
+Fixtures kept: the two chats with their decks (the first shows the 413 notice's deck, the second the reviewed one),
+and two empty "New Chat" threads from starting the second chat.
+
 ## 2026-10-29 — R404: the renderer and a notebook kernel on the rebuilt Python images
 
 Builds: `docker compose build docgen notebook-runtime-image` from a clean worktree at 545766a5 plus this round's

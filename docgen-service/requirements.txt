@@ -9,8 +9,6 @@ openpyxl==3.1.5
 cairosvg==2.9.1
 pdf2image==1.17.0
 pillow==13.0.0
-httpx==0.28.1
 pydantic==2.10.4
-# Not imported: httpx's CA bundle. 2026.10.19 removes the emSign roots whose
-# intermediate keys were compromised.
-certifi>=2026.10.19
+# No HTTP client: the service calls nothing outside itself. Deep mode's slide
+# review, its one outbound call, runs in the app as the user since R405.

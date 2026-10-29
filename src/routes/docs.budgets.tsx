@@ -68,7 +68,7 @@ function BudgetsPage() {
           ["Swarm fan-out", "Parallel branches multiply calls; a loop node multiplies them again."],
           [
             "Deep document generation",
-            "A large deck is a big plan plus a render-verify vision pass.",
+            "A large deck is a big plan plus a vision model reading up to ten of its slides.",
           ],
           [
             "Public embeds",

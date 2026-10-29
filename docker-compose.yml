@@ -432,20 +432,18 @@ services:
     restart: unless-stopped
 
   # ── Server-side Office renderer ───────────────────
-  # python-pptx (native editable charts/tables + LibreOffice render-verify),
-  # python-docx (multi-page Word) and openpyxl (Excel with LibreOffice formula
-  # recalc). No env wiring needed — the app probes `docgen:8099` (in-network) and
+  # python-pptx (native editable charts/tables, slides rendered by LibreOffice
+  # for Deep mode's review), python-docx (multi-page Word) and openpyxl (Excel
+  # with LibreOffice formula recalc). No env wiring needed — the app probes `docgen:8099` (in-network) and
   # `localhost:8099` (published below) and uses whichever answers, falling back
   # to the in-browser generators when neither does.
   docgen:
     build:
       context: ./docgen-service
     image: agentswarms/docgen:latest
+    # No model key: Deep mode's slide review runs in the app, as the user, on
+    # the images this service renders (R405).
     environment:
-      # Used only for the optional render-verify vision loop; falls back to no
-      # verification if unset.
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      OPENROUTER_DEFAULT_MODEL: ${OPENROUTER_DEFAULT_MODEL:-openai/gpt-4o-mini}
       # Optional shared secret; if set, also put it in the app's DOCGEN_TOKEN.
       DOCGEN_TOKEN: ${DOCGEN_TOKEN:-}
     expose:

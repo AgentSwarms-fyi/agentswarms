@@ -359,9 +359,22 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   with DuckDB 1.5. osv-scanner on the rebuilt images: 50 advisories → 0 in the
   renderer, 72 → 0 in the kernel image. A test holds both files to those
   versions.
-  **Upgrading:** rebuild both images (`docker compose build docgen
-notebook-runtime-image && docker compose up -d docgen`), then stop and
-  deploy any warm model endpoint again so it starts from the new image.
+  **Upgrading:** rebuild both images with `docker compose build docgen notebook-runtime-image`,
+  run `docker compose up -d docgen`, then stop and deploy any warm model
+  endpoint again so it starts from the new image.
+- **Deep mode's slide review runs as you, not on the renderer's key** (R405,
+  VA-2026-10-25-37). The review ran inside the doc-gen container, on the
+  operator's OpenRouter key that Compose and the Kubernetes manifest gave it.
+  It used any model the request named, with no trace, no budget and no IAM
+  model rules. Without a model, it used the container's own
+  `OPENROUTER_DEFAULT_MODEL` rather than the default set in Admin. Now the
+  container only renders and returns the slides as images. The app has a vision
+  model review them through the same channel as every other model call: the
+  chat's model if you can use it, else the instance default. The review shows
+  in Traces as `Deck review`, and a notice says what it changed or why it did
+  not run. The container is given no model key and no HTTP client.
+  **Upgrading:** rebuild the renderer and the app image
+  (`docker compose up -d --build docgen agentswarms`).
 - **The Spark Connect server asks for a token and no longer runs as root**
   (R398, VA-2026-10-25-23). Notebook kernels share an internal network with the
   Compose `spark-connect` service; until now a kernel could connect to it and

@@ -27,7 +27,7 @@ export type DocgenStatus = {
   reason: string | null;
   /** Formats the service advertises (pptx/docx/xlsx) when reachable. */
   formats?: string[];
-  /** True when the PowerPoint render-verify vision loop is also configured. */
+  /** True when the service can render slide images for Deep mode's review. */
   verify?: boolean;
 };
 

@@ -21,7 +21,8 @@ export type DocScope = "sample" | "full";
 /**
  * How the file gets built. "fast" renders in the browser (instant, works on
  * every deploy). "deep" sends the filled plan to the optional server doc-gen
- * service — native Office toolchains + the AI render-verify loop — and falls
+ * service — native Office toolchains, and a deck's slides reviewed by a vision
+ * model as the user (deckReview.server.ts) — and falls
  * back to the browser build when the service isn't configured.
  */
 export type DocGenMode = "fast" | "deep";

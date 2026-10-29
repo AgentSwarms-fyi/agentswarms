@@ -181,7 +181,7 @@ function PlaygroundDoc() {
           ["Renders", "In your browser", "Server-side, native Office toolchains"],
           ["Deck size", "16–22 slides", "24–30 slides"],
           ["Diagram variety", "≥8 kinds", "All 14 kinds, none more than twice"],
-          ["Extras", "—", "Contents page; render-verify pass"],
+          ["Extras", "—", "Contents page; a deck's slides reviewed by a vision model"],
           [
             "Needs",
             "Nothing",
@@ -200,6 +200,16 @@ function PlaygroundDoc() {
         the reason instead, so "Deep did nothing" is visible up front rather than after a
         generation.
       </Callout>
+      <P>
+        In Deep mode a deck is rendered, and a vision model looks at the slides for text that
+        overflows or is cut off, unreadable contrast, or an empty visual. It may only shorten a
+        title, trim bullets or drop a visual. On a slide where the visual is all there is, it can
+        drop it only if the slide&apos;s notes can take its place. The deck is then rendered again
+        with those fixes. The review runs as you, on the chat&apos;s model or else the instance
+        default, within your model rules and budget. It appears in{" "}
+        <strong>Traces &amp; Logs</strong> as <C>Deck review</C>, and a notice says what it did. If
+        it cannot run, the notice gives the reason and the deck is delivered as first rendered.
+      </P>
       <P>
         The finished file appears as a preview card with a thumbnail and a Download button, and is
         stored in a private bucket so Download still works after a reload — until the agent's chat

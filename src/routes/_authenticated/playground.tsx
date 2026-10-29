@@ -3101,7 +3101,7 @@ function b64ToBlob(b64: string, type: string): Blob {
 }
 
 // Build a PPTX: fill data + pre-render diagrams once, try the optional
-// server-side python-pptx renderer (native editable + render-verify), and fall
+// server-side python-pptx renderer (native editable, slides reviewed), and fall
 // back to the in-browser pptxgenjs builder when it isn't configured/reachable.
 // One-time notice when Deep mode silently falls back to the browser build.
 function notifyDeepFallback() {
@@ -3148,11 +3148,17 @@ async function buildPptxDoc(
       const resp = await fetch("/api/docgen/pptx", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ plan, verify: true }),
+        // The slide review runs on the chat's model, as the BI fill above does.
+        body: JSON.stringify({ plan, verify: true, model }),
       });
       if (resp.ok) {
-        const j = (await resp.json()) as { pptx_base64?: string; thumb?: string };
+        const j = (await resp.json()) as { pptx_base64?: string; thumb?: string; notes?: string[] };
         if (j.pptx_base64) {
+          // The review is what Deep adds; say what it did, or why it did not run.
+          for (const note of j.notes ?? []) {
+            if (note.startsWith("Reviewed by")) toast.message(note, { duration: 8000 });
+            else toast.warning(note, { duration: 12000 });
+          }
           return {
             blob: b64ToBlob(
               j.pptx_base64,

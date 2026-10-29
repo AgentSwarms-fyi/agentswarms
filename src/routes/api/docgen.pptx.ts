@@ -2,8 +2,10 @@
 // Optional server-side PowerPoint renderer. Forwards a FILLED plan (charts
 // already materialised client-side, diagrams pre-rendered to SVG) to the
 // self-hosted python-pptx doc-gen service (DOCGEN_SERVICE_URL), which produces
-// NATIVE editable charts/tables/text and optionally runs a LibreOffice
-// render-verify loop. Returns { pptx_base64, thumb, notes }.
+// NATIVE editable charts/tables/text. With `verify`, the service also returns
+// the slides as images, a vision model reviews them as the user (the chat's
+// model, else the instance default; see deckReview.server.ts), and the deck is
+// rendered again with the fixes. Returns { pptx_base64, thumb, notes }.
 //
 // When no service can be reached (e.g. Cloudflare Workers, or the container
 // isn't running) this returns 501 { error: "not_configured" } and the browser
@@ -15,6 +17,14 @@ import { createClient } from "@supabase/supabase-js";
 import { resolveDocgenBaseUrl, docgenAuthHeaders } from "@/utils/docgenService.server";
 import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
 import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
+import { applyDeckFixes, reviewNote } from "@/lib/docGen/deckReview";
+import type { PptxPlan } from "@/lib/docGen/types";
+import { reviewDeck, slideImages } from "@/utils/deckReview.server";
+
+/** One LibreOffice render of a deck, slide images included when asked for. */
+const RENDER_TIMEOUT_MS = 90_000;
+
+type Rendered = { pptx_base64: string; thumb?: string | null; images?: unknown };
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -66,42 +76,73 @@ export const Route = createFileRoute("/api/docgen/pptx")({
         const body = (await request.json().catch(() => ({}))) as {
           plan?: unknown;
           verify?: boolean;
-          model?: string;
+          model?: unknown;
         };
-        if (!body.plan) return json({ error: "plan required" }, 400);
-
-        const ctrl = new AbortController();
-        // The render-verify loop can take a while (LibreOffice + a vision call).
-        const timer = setTimeout(() => ctrl.abort(), body.verify ? 180_000 : 60_000);
-        try {
-          const resp = await fetch(`${serviceUrl}/render`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...docgenAuthHeaders(),
-            },
-            body: JSON.stringify({
-              plan: body.plan,
-              verify: !!body.verify,
-              model: body.model,
-            }),
-            signal: ctrl.signal,
-          });
-          const text = await resp.text();
-          if (!resp.ok) {
-            return json({ error: "render_failed", detail: text.slice(0, 500) }, 502);
-          }
-          // Pass the service JSON straight through ({ pptx_base64, thumb, notes }).
-          return new Response(text, {
-            status: 200,
-            headers: { "Content-Type": "application/json", ...corsHeaders },
-          });
-        } catch (e) {
-          const msg = (e as Error).name === "AbortError" ? "timeout" : (e as Error).message;
-          return json({ error: "render_failed", detail: msg }, 502);
-        } finally {
-          clearTimeout(timer);
+        const plan = body.plan as PptxPlan | undefined;
+        if (!plan || typeof plan !== "object" || !Array.isArray(plan.slides)) {
+          return json({ error: "plan required" }, 400);
         }
+
+        // One render; with `images`, the slides come back as PNGs too.
+        const render = async (images: boolean) => {
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), RENDER_TIMEOUT_MS);
+          try {
+            const resp = await fetch(`${serviceUrl}/render`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", ...docgenAuthHeaders() },
+              body: JSON.stringify({ plan, images }),
+              signal: ctrl.signal,
+            });
+            const text = await resp.text();
+            if (!resp.ok) throw new Error(text.slice(0, 500) || `doc-gen replied ${resp.status}`);
+            return JSON.parse(text) as Rendered;
+          } catch (e) {
+            throw new Error((e as Error).name === "AbortError" ? "timeout" : (e as Error).message);
+          } finally {
+            clearTimeout(timer);
+          }
+        };
+
+        let out: Rendered;
+        try {
+          out = await render(!!body.verify);
+        } catch (e) {
+          return json({ error: "render_failed", detail: (e as Error).message }, 502);
+        }
+        const notes: string[] = [];
+        if (body.verify) {
+          // The review is best-effort: whatever it says, the deck ships.
+          const slides = slideImages(out.images);
+          const review = await reviewDeck({
+            userId: user.id,
+            choice: typeof body.model === "string" ? body.model.slice(0, 200) : null,
+            title: String(plan.title ?? ""),
+            images: slides.images,
+            total: slides.total,
+          });
+          if (!review.ok) {
+            notes.push(`The slide review did not run: ${review.error}`);
+          } else {
+            const changed = applyDeckFixes(plan, review.fixes);
+            notes.push(
+              reviewNote(review.model, review.fixes, changed, {
+                reviewed: slides.images.length,
+                total: slides.total,
+              }),
+            );
+            if (changed) {
+              try {
+                out = await render(false);
+              } catch (e) {
+                notes.push(
+                  `The reviewed deck could not be rendered (${(e as Error).message}); this is the first render.`,
+                );
+              }
+            }
+          }
+        }
+        return json({ pptx_base64: out.pptx_base64, thumb: out.thumb ?? null, notes });
       },
     },
   },

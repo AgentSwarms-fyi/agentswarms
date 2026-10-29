@@ -1,11 +1,11 @@
 """
-AgentSwarms doc-gen service — FastAPI wrapper around the python-pptx renderer
-and the optional LibreOffice render-verify loop.
+AgentSwarms doc-gen service — FastAPI wrapper around the python-pptx renderer,
+with LibreOffice for thumbnails and slide images.
 
 Endpoints:
   GET  /health                 → liveness + capability flags
-  POST /render       { plan, verify?, model?, verify_rounds? }
-       → { pptx_base64, thumb, notes[] }        (PowerPoint)
+  POST /render       { plan, images? }
+       → { pptx_base64, thumb, images? }        (PowerPoint)
   POST /render/docx  { plan }
        → { docx_base64, thumb }                 (Word, python-docx)
   POST /render/xlsx  { plan }
@@ -13,6 +13,11 @@ Endpoints:
 
 Auth: a shared bearer token (env DOCGEN_TOKEN) the app sends; if unset, open
 (intended for a private in-network service only).
+
+The service calls no model. Deep mode's slide review used to run here, on this
+container's own OpenRouter key and with whatever model the request named; the
+app now runs it as the user (src/utils/deckReview.server.ts) on the images
+`/render` returns with `images: true` (R405, VA-2026-10-25-37).
 """
 from __future__ import annotations
 
@@ -28,18 +33,19 @@ from renderer import render_pptx
 from renderer_docx import render_docx
 from renderer_xlsx import render_xlsx
 from thumbs import office_first_thumb
-from verify import apply_fixes, critique, first_thumb, pptx_to_images
+from verify import slide_images
 
 app = FastAPI(title="AgentSwarms doc-gen")
 
 HAS_SOFFICE = shutil.which("soffice") is not None
+# Slides returned for review; the app shows at most this many to the model.
+MAX_IMAGES = 10
 
 
 class RenderRequest(BaseModel):
     plan: dict[str, Any]
-    verify: bool = False
-    model: str | None = None
-    verify_rounds: int = 1
+    # Return the rendered slides as small JPEG data URIs too, for the app's review.
+    images: bool = False
 
 
 class DocRenderRequest(BaseModel):
@@ -59,7 +65,8 @@ def health():
     return {
         "ok": True,
         "soffice": HAS_SOFFICE,
-        "verify_available": HAS_SOFFICE and bool(os.environ.get("OPENROUTER_API_KEY")),
+        # The review needs only the slide images; the app brings the model.
+        "verify_available": HAS_SOFFICE,
         "formats": ["pptx", "docx", "xlsx"],
     }
 
@@ -67,35 +74,20 @@ def health():
 @app.post("/render")
 def render(req: RenderRequest, authorization: str | None = Header(default=None)):
     _check_auth(authorization)
-    plan = req.plan
-    notes: list[str] = []
     try:
-        pptx = render_pptx(plan)
+        pptx = render_pptx(req.plan)
     except Exception as e:  # renderer failure → let the caller fall back
         raise HTTPException(status_code=500, detail=f"render failed: {e}")
 
-    if req.verify and HAS_SOFFICE and os.environ.get("OPENROUTER_API_KEY"):
-        for _ in range(max(0, min(req.verify_rounds, 2))):
-            images = pptx_to_images(pptx)
-            if not images:
-                break
-            fixes = critique(images, plan, req.model)
-            note = fixes.get("summary") if isinstance(fixes, dict) else None
-            if note:
-                notes.append(str(note))
-            if not apply_fixes(plan, fixes):
-                break
-            try:
-                pptx = render_pptx(plan)
-            except Exception:
-                break
-
-    thumb = first_thumb(pptx) if HAS_SOFFICE else None
-    return {
+    # One LibreOffice run serves both the thumbnail and the review slides.
+    thumb, review = slide_images(pptx, MAX_IMAGES if req.images else 0) if HAS_SOFFICE else (None, [])
+    out: dict[str, Any] = {
         "pptx_base64": base64.b64encode(pptx).decode(),
-        "thumb": thumb,
-        "notes": notes,
+        "thumb": "data:image/png;base64," + base64.b64encode(thumb).decode() if thumb else None,
     }
+    if req.images:
+        out["images"] = ["data:image/jpeg;base64," + base64.b64encode(j).decode() for j in review]
+    return out
 
 
 @app.post("/render/docx")

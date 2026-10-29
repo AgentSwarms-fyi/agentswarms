@@ -44,7 +44,6 @@ const FLOORS: [file: string, name: string, floor: string, why: string][] = [
   [DOCGEN, "pillow", "13.0.0", "41 image-parsing advisories"],
   [DOCGEN, "cairosvg", "2.9.1", "GHSA-c3jg-qh8m-j3h2"],
   [DOCGEN, "starlette", "1.3.1", "seven advisories in 0.41.3"],
-  [DOCGEN, "certifi", "2026.10.19", "GHSA-6q48-6c7w-9gw2"],
   [RUNTIME, "pillow", "13.0.0", "41 image-parsing advisories"],
   [RUNTIME, "tornado", "6.6", "the kernel gateway's HTTP server"],
   [RUNTIME, "aiohttp", "3.14.4", "GHSA-2g87-pp6c-29x5 and seven more"],
@@ -93,10 +92,8 @@ describe("Python packages with a known advisory below a version", () => {
     expect(line!.replace(/#.*/, "").replace(/\s/g, "")).toMatch(new RegExp(`,<${major + 1}$`));
   });
 
-  it("pins every doc-renderer package exactly, except the CA bundle", () => {
-    for (const r of requirements(DOCGEN)) {
-      expect(r.op, r.name).toBe(r.name === "certifi" ? ">=" : "==");
-    }
+  it("pins every doc-renderer package exactly", () => {
+    for (const r of requirements(DOCGEN)) expect(r.op, r.name).toBe("==");
   });
 
   it("reads names and versions the way pip does", () => {
