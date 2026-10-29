@@ -60,7 +60,7 @@ export function fetchConnectedIntegrations(): Promise<ConnectedIntegration[]> {
     // swarms already behave that way. A failure here is not fatal — it just
     // means we fall back to whatever the two tables hold.
     getInstanceProviderStatus().catch(
-      () => ({ openrouter: false, openrouterDefaultModel: null }) as InstanceProviderStatus,
+      () => ({ openrouter: false, defaultModel: null }) as unknown as InstanceProviderStatus,
     ),
   ])
     .then(([legacy, creds, instance]) => {
@@ -99,7 +99,9 @@ export function fetchConnectedIntegrations(): Promise<ConnectedIntegration[]> {
       if (instance.openrouter && !byProvider.has("openrouter")) {
         byProvider.set("openrouter", {
           provider: "openrouter",
-          default_model: instance.openrouterDefaultModel,
+          // The instance default, when it is an OpenRouter model.
+          default_model:
+            instance.defaultModel?.provider === "openrouter" ? instance.defaultModel.model : null,
         });
       }
       integrationsCache = [...byProvider.values()];

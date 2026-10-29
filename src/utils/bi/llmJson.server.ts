@@ -21,22 +21,29 @@ import { providerFetch } from "@/utils/ssrfGuard.server";
 import { usageReportingBody } from "@/utils/observability/providerCost";
 import { getEffectiveModelRules, isModelAllowed } from "@/utils/iam.server";
 import { budgetRefusal } from "@/utils/budgetGuard.server";
+import { resolveOpenAICompatTransport } from "@/utils/providers/credentials.server";
 import {
-  getProviderDefaultModel,
-  resolveOpenAICompatTransport,
-} from "@/utils/providers/credentials.server";
+  chooseModel,
+  isUnknownModelError,
+  type ChosenModel,
+} from "@/utils/providers/defaultModel.server";
 import { isBiCompatProvider } from "@/utils/providers/modelChoice";
 import { describeJsonFault, repairJsonGlitches } from "@/utils/jsonFault";
 import { isSlowReasoningModel, upstreamDeadlineMs } from "@/lib/llmDeadline";
-import type { ProviderId } from "@/utils/providers/types";
-
-const DEFAULT_MODEL = "google/gemini-2.5-flash";
 
 /** Why retry at all: see the comment at the retry site below. */
 const MAX_ATTEMPTS = 2;
 
 export type LlmJsonServerResult =
-  { ok: true; result: unknown } | { ok: false; status: number; error: string; raw?: string };
+  | {
+      ok: true;
+      result: unknown;
+      /** The model that answered, as traces label it ("openai/gpt-4o-mini", "anthropic/…"). */
+      model?: string;
+      /** Set when the caller's choice could not run and the default answered instead. */
+      fellBack?: { from: string; reason: string };
+    }
+  | { ok: false; status: number; error: string; raw?: string };
 
 export type LlmJsonServerOpts = {
   /** Whose credentials, IAM rules and spend this call runs under. */
@@ -55,23 +62,73 @@ export type LlmJsonServerOpts = {
   costScope?: Parameters<typeof recordGatewayCall>[0]["costScope"];
 };
 
+/**
+ * One JSON-answering model call. The model is the caller's choice when this
+ * user can use it, else the instance default (Admin → Developer runtime → AI
+ * defaults) — see providers/defaultModel.server. A provider that answers "no
+ * such model" gets one more try, on the default.
+ */
 export async function llmJsonServer(opts: LlmJsonServerOpts): Promise<LlmJsonServerResult> {
+  const { userId, iamClient } = opts;
+  // This path speaks OpenAI Chat Completions; a choice on a provider that
+  // does not is a choice this surface cannot use, like an unconnected one.
+  const compatible = !opts.provider || isBiCompatProvider(opts.provider);
+  const chosen = await chooseModel(
+    userId,
+    compatible ? { provider: opts.provider, model: opts.model } : null,
+    { iamClient },
+  );
+  if (!chosen.ok) return { ok: false, status: chosen.status, error: chosen.error };
+  const incompatible =
+    !compatible && opts.provider
+      ? {
+          from: `${opts.provider}/${opts.model ?? ""}`,
+          reason: `${opts.provider} can't serve this feature`,
+        }
+      : null;
+  if (!isBiCompatProvider(chosen.provider)) {
+    return {
+      ok: false,
+      status: 400,
+      error:
+        `${chosen.spec} runs on ${chosen.provider}, which this feature can't call (it needs an ` +
+        "OpenAI-compatible provider). Pick another model here, or set a different default " +
+        "under Admin → Developer runtime → AI services → Default model.",
+    };
+  }
+  const first = await llmJsonOnce(opts, chosen, chosen.fellBack ?? incompatible);
+  if (first.ok || !first.unknownModel || chosen.source === "default") return strip(first);
+  const fallback = await chooseModel(userId, null, { iamClient });
+  if (!fallback.ok || fallback.spec === chosen.spec || !isBiCompatProvider(fallback.provider)) {
+    return strip(first);
+  }
+  return strip(
+    await llmJsonOnce(opts, fallback, {
+      from: chosen.spec,
+      reason: `${chosen.provider} does not know the model ${chosen.model}`,
+    }),
+  );
+}
+
+type Attempt = LlmJsonServerResult & { unknownModel?: boolean };
+
+function strip(r: Attempt): LlmJsonServerResult {
+  if (r.ok) return r;
+  return { ok: false, status: r.status, error: r.error, ...(r.raw ? { raw: r.raw } : {}) };
+}
+
+async function llmJsonOnce(
+  opts: LlmJsonServerOpts,
+  chosen: ChosenModel,
+  modelFallback: { from: string; reason: string } | null,
+): Promise<Attempt> {
   const { userId, iamClient, costScope } = opts;
   const startedAt = Date.now();
-
-  // Which of the caller's integrations executes the call. Defaults to
-  // OpenRouter (the zero-config path with an operator env fallback).
-  const provider = opts.provider || "openrouter";
-  if (!isBiCompatProvider(provider)) {
-    return { ok: false, status: 400, error: `Provider "${provider}" isn't available for BI.` };
-  }
+  const provider = chosen.provider;
 
   // BYOK: the caller's own integration wins; for OpenRouter the operator's
-  // shared env key is the zero-config fallback.
-  const transport = await resolveOpenAICompatTransport({
-    userId,
-    provider: provider as ProviderId,
-  });
+  // shared instance key is the zero-config fallback.
+  const transport = await resolveOpenAICompatTransport({ userId, provider });
   if (!transport || (!transport.apiKey && provider !== "ollama")) {
     return {
       ok: false,
@@ -82,24 +139,7 @@ export async function llmJsonServer(opts: LlmJsonServerOpts): Promise<LlmJsonSer
     };
   }
 
-  // Model precedence: explicit choice → the integration's default_model → the
-  // operator's OPENROUTER_DEFAULT_MODEL → the instance default (OpenRouter
-  // only). The env override matters on shared operator keys that only carry
-  // credit for specific models.
-  let model = opts.model || "";
-  if (!model) model = (await getProviderDefaultModel(userId, provider as ProviderId)) ?? "";
-  if (!model && provider === "openrouter") {
-    model = process.env.OPENROUTER_DEFAULT_MODEL || DEFAULT_MODEL;
-  }
-  if (!model) {
-    return {
-      ok: false,
-      status: 400,
-      error:
-        `Pick a model — your ${provider} integration has no default ` +
-        "model set (Integrations → edit the connection).",
-    };
-  }
+  const model = chosen.model;
 
   // IAM model governance: same gate as /api/chat, against the executing
   // provider. It applies to embeds too — an administrator who disallowed a
@@ -236,7 +276,18 @@ export async function llmJsonServer(opts: LlmJsonServerOpts): Promise<LlmJsonSer
         latencyMs: Date.now() - startedAt,
         status: "error",
         errorMessage: `Gateway ${r.status}: ${errText.slice(0, 200)}`,
+        modelFallback,
       });
+      // The provider does not know this model: the choice is unavailable,
+      // and the caller retries on the default.
+      if (isUnknownModelError(r.status, errText)) {
+        return {
+          ok: false,
+          status: r.status,
+          error: `${gatewayModelLabel} is not a model ${provider} knows.`,
+          unknownModel: true,
+        };
+      }
       // Name the model. This surface can run on a different model from the one
       // the caller thinks they picked, and a bare "credits exhausted" sends
       // people to check the wrong account.
@@ -291,6 +342,7 @@ export async function llmJsonServer(opts: LlmJsonServerOpts): Promise<LlmJsonSer
       latencyMs: Date.now() - startedAt,
       status: "success",
       responsePreview: text.slice(0, 800),
+      modelFallback,
     });
 
     // The gateway with response_format: json_object should return clean JSON,
@@ -312,7 +364,12 @@ export async function llmJsonServer(opts: LlmJsonServerOpts): Promise<LlmJsonSer
     let firstErr: unknown;
     for (const c of candidates) {
       try {
-        return { ok: true, result: JSON.parse(c) };
+        return {
+          ok: true,
+          result: JSON.parse(c),
+          model: gatewayModelLabel,
+          ...(modelFallback ? { fellBack: modelFallback } : {}),
+        };
       } catch (e) {
         if (firstErr === undefined) firstErr = e;
       }
@@ -337,7 +394,12 @@ export async function llmJsonServer(opts: LlmJsonServerOpts): Promise<LlmJsonSer
             `Repaired a duplicated JSON key from ${gatewayModelLabel} ` +
             `(attempt ${attempt}/${MAX_ATTEMPTS}). ${describeJsonFault(cleaned, firstErr)}`,
         });
-        return { ok: true, result };
+        return {
+          ok: true,
+          result,
+          model: gatewayModelLabel,
+          ...(modelFallback ? { fellBack: modelFallback } : {}),
+        };
       } catch {
         /* the repair did not produce valid JSON either — fall through */
       }

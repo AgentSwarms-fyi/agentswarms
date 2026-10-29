@@ -846,7 +846,7 @@ export function parseImportedAgent(
         description: optStr(a.goal),
         system_prompt: optStr(a.backstory),
         llm_provider: str(provider, "openrouter", 60),
-        llm_model: str(modelParts.join("/"), "openai/gpt-4o-mini", 200),
+        llm_model: str(modelParts.join("/"), "", 200),
         temperature: num(a.temperature, 0.7, 0, 2),
         max_tokens: Math.round(num(a.max_tokens, 4096, 1, MAX_IMPORT_TOKENS)),
         tools: { builtInTools: flags },
@@ -866,7 +866,8 @@ export function parseImportedAgent(
     description: optStr(parsed.description),
     system_prompt: optStr(parsed.system_prompt),
     llm_provider: str(model.provider, "openrouter", 60),
-    llm_model: str(model.model, "google/gemini-3-flash-preview", 200),
+    // No model in the file: the agent runs on the instance default.
+    llm_model: str(model.model, "", 200),
     temperature: num(model.temperature, 0.7, 0, 2),
     max_tokens: Math.round(num(model.max_tokens, 4096, 1, MAX_IMPORT_TOKENS)),
     tools: {

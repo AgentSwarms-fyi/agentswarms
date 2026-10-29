@@ -15,6 +15,33 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-29 — One default model, set in Admin; the ontology's publish gate; Ask on a small model
+
+After `20261031000000_default_model.sql` was pushed. Builds: hot deploys of the working copy, each
+row re-driven on the build that carried its fix. The container still has
+`OPENROUTER_DEFAULT_MODEL=openai/gpt-4o-mini` in its environment, which nothing reads any more.
+Ontology `33883aa4-…` ("Northwind Outfitters 2"), owner rghosh044. Browser pane 1198×652.
+
+| What was pressed                                                                                                      | Result                                                                                                                                                                                                                                                                                         |
+| --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Admin → Developer runtime → AI services, before the push                                                              | Default model card "In force: openrouter/google/gemini-2.5-flash (built-in)", "The database does not have this setting yet: apply the migration 20261031000000_default_model.sql …", and "No longer read from the environment: OPENROUTER_DEFAULT_MODEL"                                       |
+| After the push: type `openrouter/openai/gpt-4o-mini`, **Save** (set with the user's yes)                              | toast "Default model set to openrouter/openai/gpt-4o-mini"; the badge reads "In force: openrouter/openai/gpt-4o-mini" and **Use built-in** appears; the migration notice is gone; after a reload the same; the retired-variable notice stays, because the variable is still in the container   |
+| Ontology → Ask, model left on **Server default**: "How many orders were placed each month?"                           | **bug 1**: "The ontology cannot answer that — No valid plan could be made for that question", naming no model and no reason. Fixed: a refusal says why and which model planned it                                                                                                              |
+| The same, on the fixed build                                                                                          | "The ontology does not support grouping orders by the ordered_on date through the Customer link. — Planned by openai/gpt-4o-mini": the default ran, and the small model misread the rules. **Bug 2**: fixed with two worked plans in the ontology's own names in the prompt                    |
+| The same, with the worked plans                                                                                       | 22 rows, 20 … 20 orders, envelope "Planned by AI over the ontology · openai/gpt-4o-mini · Orders certified · Order". **Bug 3**: months read `2024-01-01`; fixed, they read "Jan 2024" … "Oct 2025" in the chart and the table, as on the Metrics tab                                           |
+| Lakehouse → Query: `SELECT ai_sentiment('The tent arrived torn and two weeks late', 'anthropic/claude-sonnet-4')`     | `negative`, "1 AI call": Anthropic is not connected for this account, so the call ran on the default                                                                                                                                                                                           |
+| Observability → Traces & Logs                                                                                         | the AI SQL row reads `openai/gpt-4o-mini` with a **fallback** marker; its detail "Model fallback — Ran on openai/gpt-4o-mini, the default model, because anthropic/claude-sonnet-4 could not run: anthropic is not connected for this account (Integrations → LLM Providers)"                  |
+| The same trace's request payload                                                                                      | **bug 4**: `"stm_enabled": true` although the call sends memory off — a server-to-server call's memory settings were dropped. Fixed; nothing was read from or written to memory on that path                                                                                                   |
+| Ontology Overview: **Edit** the description, add "Shipping costs and returns are not modelled.", **Save description** | "Saved"; the gallery card shows the new sentence after a reload                                                                                                                                                                                                                                |
+| Model → Customer: rename `segment` to `market_segment`, then **Publish**                                              | "Publish version 3", "1 breaking" (Customer.segment), and "1 verified question: 0 unchanged · 1 no longer answers — What is revenue by customer segment? Customer has no property `segment`"; **Publish anyway** disabled until its box is ticked, enabled after. Cancelled without publishing |
+| Rename back to `segment`, **Publish** with a note                                                                     | the dialog "1 verified question: 1 unchanged" and a plain **Publish**; toast "Published version 3 · 1 verified question checked"; Versions → v3 "1 verified question: 1 unchanged" (v1 and v2, published before the check, show none)                                                          |
+
+The tick box first said people asking a broken question "will get an error"; Ask in fact plans such a
+question afresh, without the checked answer. Its sentence now says that.
+
+Kept for review: the instance default model (gpt-4o-mini), version 3 of this ontology with its new
+description, the AI SQL trace that fell back. The draft is back to `segment`; nothing else changed.
+
 ## 2026-10-29 — Enterprise Ontology, end to end on the Northwind sample (fixtures kept for review)
 
 After `20261030000000_enterprise_ontology.sql` was pushed. Builds: the commit 29989f60 build, then

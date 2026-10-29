@@ -35,6 +35,9 @@ export type ExecutionTraceRow = {
    *  because nothing knew the rate, not because the call was free). Projected
    *  from request_payload by the list query; the reprice sweep clears it. */
   pricing_missing?: string | null;
+  /** The model that was chosen but could not run, when the call ran on the
+   *  default instead (request_payload.model_fallback.from). */
+  fell_back_from?: string | null;
 };
 
 // pricing_missing is projected out of the jsonb payload rather than selecting
@@ -42,7 +45,7 @@ export type ExecutionTraceRow = {
 // prompt/response previews. A $0.0000 with this flag set is money nothing knew
 // how to price — the UI must not render it as if the call were free.
 const TRACE_LIST_COLUMNS =
-  "id, agent_name, llm_provider, llm_model, latency_ms, tokens_in, tokens_out, cost_usd, status, prompt, error_message, created_at, parent_trace_id, decision_id, pricing_missing:request_payload->>pricing_missing";
+  "id, agent_name, llm_provider, llm_model, latency_ms, tokens_in, tokens_out, cost_usd, status, prompt, error_message, created_at, parent_trace_id, decision_id, pricing_missing:request_payload->>pricing_missing, fell_back_from:request_payload->model_fallback->>from";
 
 export const getExecutionTraces = createServerFn({ method: "POST" })
   .validator((input: unknown) => TraceLogInput.parse(input))
@@ -124,11 +127,17 @@ export const getExecutionTraceDetail = createServerFn({ method: "POST" })
       // replaces the list row in the UI, so it must carry the same field or
       // an "unpriced" cost would flip back to $0.0000 the moment the panel
       // finishes loading.
-      const payload = (row as { request_payload?: { pricing_missing?: unknown } }).request_payload;
+      const payload = (
+        row as {
+          request_payload?: { pricing_missing?: unknown; model_fallback?: { from?: unknown } };
+        }
+      ).request_payload;
+      const from = payload?.model_fallback?.from;
       const trace = {
         ...(row as object),
         pricing_missing:
           payload?.pricing_missing === true || payload?.pricing_missing === "true" ? "true" : null,
+        fell_back_from: typeof from === "string" ? from : null,
       };
       return { ok: true, trace: trace as ExecutionTraceRow };
     },

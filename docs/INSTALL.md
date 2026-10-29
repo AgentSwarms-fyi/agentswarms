@@ -297,8 +297,11 @@ is documented inline in the file. In short:
 - `OPENROUTER_API_KEY` — optional but recommended; makes the app usable
   with zero per-user setup. Get one at
   [openrouter.ai/keys](https://openrouter.ai/keys).
-- `OPENROUTER_DEFAULT_MODEL`, `OPENROUTER_BASE_URL` — optional overrides,
-  sensible defaults are pre-filled.
+- `OPENROUTER_BASE_URL` — optional, to route OpenRouter through a gateway.
+- The **default model** is not an environment variable: after install, a
+  superadmin sets it under **Admin → Developer runtime → AI services →
+  Default model** (until then `openrouter/google/gemini-2.5-flash` is used).
+  `OPENROUTER_DEFAULT_MODEL` is no longer read.
 - No separate embeddings key. Knowledge Base vector search runs on whichever
   model provider is connected — see
   [Which provider embeds](KNOWLEDGE_BASES.md#which-provider-embeds).

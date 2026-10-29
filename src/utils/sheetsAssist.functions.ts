@@ -15,11 +15,14 @@ import {
   type AssistMessage,
   type AssistReply,
 } from "@/lib/sheets/assist";
-import { parseGatewayModel } from "@/utils/gateway/keys";
 import { parseModelChoice } from "@/utils/providers/modelChoice";
-import { GATEWAY_PROVIDERS } from "@/utils/gateway/providers";
 import { internalChatText } from "@/utils/internalChat.server";
 import { getPlatformResources } from "@/utils/notebookRuntime/config.server";
+import {
+  chooseModel,
+  instanceDefaultModel,
+  parseModelSpec,
+} from "@/utils/providers/defaultModel.server";
 import { rateLimitedGlobal } from "@/utils/rateLimit.server";
 import { requireAccess } from "@/utils/sheets/access.server";
 import { ASSIST_SYSTEM, FILL_SYSTEM } from "@/utils/sheets/assistPrompt.server";
@@ -45,30 +48,40 @@ export function transcript(messages: AssistMessage[]): string {
 
 /**
  * The model a step runs on: the one the person picked in the panel (R158),
- * or the admin's (SHEETS_ASSIST_MODEL). A pick is only a name: the chat
- * channel it goes through still applies the person's IAM model rules, budget
- * and provider credentials, and refuses a model they may not use.
+ * else the admin's Sheets assistant model, else the instance default — each
+ * only if this person can use it (connected provider, IAM model rules), the
+ * next one otherwise. The chat channel it goes through still applies their
+ * credentials, rules and budget.
  */
 async function modelFor(
+  userId: string,
   choice?: string,
-): Promise<{ ok: true; spec: string; provider: string; model: string; perMinute: number } | Fail> {
+): Promise<
+  | {
+      ok: true;
+      spec: string;
+      provider: string;
+      model: string;
+      fellBack: { from: string; reason: string } | null;
+      perMinute: number;
+    }
+  | Fail
+> {
   const settings = await getPlatformResources();
   const picked = choice ? parseModelChoice(choice) : null;
-  const spec = picked ? `${picked.provider}/${picked.model}` : settings.sheetsAssistModel;
-  const target = parseGatewayModel(spec, GATEWAY_PROVIDERS);
-  if (!target || target.kind !== "model") {
-    return {
-      ok: false,
-      error: picked
-        ? `"${spec}" is not a model the assistant can use; pick another, or the default.`
-        : `The assistant's model "${spec}" is not provider/model (Admin → Developer runtime → Sheets → Assistant model).`,
-    };
-  }
+  const chosen = await chooseModel(
+    userId,
+    picked
+      ? { provider: picked.provider, model: picked.model }
+      : parseModelSpec(settings.sheetsAssistModel),
+  );
+  if (!chosen.ok) return { ok: false, error: chosen.error };
   return {
     ok: true,
-    spec,
-    provider: target.provider,
-    model: target.model,
+    spec: chosen.spec,
+    provider: chosen.provider,
+    model: chosen.model,
+    fellBack: chosen.fellBack,
     perMinute: settings.sheetsAssistPerMinute,
   };
 }
@@ -102,7 +115,7 @@ export const sheetsAssist = createServerFn({ method: "POST" })
         asShare: data.as_share,
       });
       if (!got.ok) return got;
-      const m = await modelFor(data.model);
+      const m = await modelFor(who.userId, data.model);
       if (!m.ok) return m;
       if (await rateLimitedGlobal(`sheets-assist:${who.userId}`, m.perMinute)) {
         return {
@@ -121,6 +134,7 @@ export const sheetsAssist = createServerFn({ method: "POST" })
           temperature: 0,
           maxTokens: 2500,
           timeoutMs: 90_000,
+          modelFallback: m.fellBack,
         });
         return { ok: true, reply: parseAssistReply(text), cost, model: m.spec };
       } catch (e) {
@@ -161,7 +175,7 @@ export const sheetsAiFill = createServerFn({ method: "POST" })
       if (!who.ok) return who;
       const got = await requireAccess(who.userId, data.workbook_id, "edit");
       if (!got.ok) return got;
-      const m = await modelFor(data.model);
+      const m = await modelFor(who.userId, data.model);
       if (!m.ok) return m;
       if (await rateLimitedGlobal(`sheets-assist:${who.userId}`, m.perMinute)) {
         return {
@@ -185,6 +199,7 @@ export const sheetsAiFill = createServerFn({ method: "POST" })
           temperature: 0,
           maxTokens: Math.min(8000, 200 + data.inputs.length * 80),
           timeoutMs: 120_000,
+          modelFallback: m.fellBack,
         });
         const { outputs, read } = parseFillAnswer(text, data.inputs.length);
         // Nothing read is a failure to say, not a column of blanks to write (R135).
@@ -212,5 +227,8 @@ export const sheetsAssistDefaults = createServerFn({ method: "POST" })
     const who = await caller(data.access_token);
     if (!who.ok) return who;
     const settings = await getPlatformResources();
-    return { ok: true, model: settings.sheetsAssistModel };
+    return {
+      ok: true,
+      model: settings.sheetsAssistModel ?? (await instanceDefaultModel()).spec,
+    };
   });

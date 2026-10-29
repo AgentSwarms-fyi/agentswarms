@@ -43,6 +43,11 @@ import { GATEWAY_PROVIDERS } from "@/utils/gateway/providers";
 import { parseGatewayModel } from "@/utils/gateway/keys";
 import { internalChatText } from "@/utils/internalChat.server";
 import { getPlatformResources } from "@/utils/notebookRuntime/config.server";
+import {
+  chooseModel,
+  parseModelSpec,
+  type ChosenModel,
+} from "@/utils/providers/defaultModel.server";
 
 /** Passes a statement may take: two for flat calls, one more per nesting level. */
 const MAX_PASSES = 4;
@@ -66,7 +71,12 @@ type Miss = { call: AiCall; model: string };
 
 export type AiSqlSession = {
   userId: string;
+  /** The model a call that names none runs on: the AI SQL setting, else the instance default. */
   defaultModel: string;
+  /** The AI SQL setting's model when it could not run and the default stands in, for the trace. */
+  defaultFallback?: ChosenModel["fellBack"];
+  /** A named model → the model it actually runs on (itself, or the default when it cannot run). */
+  effective: Map<string, Promise<{ spec: string; fellBack: ChosenModel["fellBack"] }>>;
   cap: number;
   cacheTtlDays: number;
   /** Cache key -> answer. A null answer is a real answer (the model found no label). */
@@ -104,9 +114,13 @@ export async function openAiSqlSession(
   opts: { decisionId?: string } = {},
 ): Promise<AiSqlSession> {
   const settings = await getPlatformResources();
+  const chosen = await chooseModel(userId, parseModelSpec(settings.aiSqlDefaultModel));
+  if (!chosen.ok) throw new Error(chosen.error);
   return {
     userId,
-    defaultModel: settings.aiSqlDefaultModel,
+    defaultModel: chosen.spec,
+    defaultFallback: chosen.fellBack,
+    effective: new Map(),
     cap: settings.aiSqlMaxCallsPerStatement,
     cacheTtlDays: settings.aiSqlCacheTtlDays,
     answers: new Map(),
@@ -175,9 +189,34 @@ export function registerAiSqlFunctions(
   }
 }
 
-async function callModel(session: AiSqlSession, miss: Miss): Promise<string | null> {
-  const target = parseGatewayModel(miss.model, GATEWAY_PROVIDERS);
-  if (!target || target.kind !== "model") throw new Error(`Unknown model "${miss.model}"`);
+/**
+ * The model a named one runs on, once per statement: itself when this user
+ * can use it, else the default (an unconnected provider, a model their IAM
+ * rules do not allow).
+ */
+function effectiveModel(
+  session: AiSqlSession,
+  spec: string,
+): Promise<{ spec: string; fellBack: ChosenModel["fellBack"] }> {
+  if (spec === session.defaultModel) return Promise.resolve({ spec, fellBack: null });
+  let hit = session.effective.get(spec);
+  if (!hit) {
+    hit = chooseModel(session.userId, parseModelSpec(spec)).then((c) => {
+      if (!c.ok) throw new Error(c.error);
+      return { spec: c.spec, fellBack: c.fellBack };
+    });
+    session.effective.set(spec, hit);
+  }
+  return hit;
+}
+
+async function callModel(
+  session: AiSqlSession,
+  miss: Miss,
+): Promise<{ answer: string | null; fellBack: boolean }> {
+  const eff = await effectiveModel(session, miss.model);
+  const target = parseGatewayModel(eff.spec, GATEWAY_PROVIDERS);
+  if (!target || target.kind !== "model") throw new Error(`Unknown model "${eff.spec}"`);
   const prompt = buildAiPrompt(miss.call);
   const { text, cost } = await internalChatText({
     userId: session.userId,
@@ -189,9 +228,12 @@ async function callModel(session: AiSqlSession, miss: Miss): Promise<string | nu
     user: prompt.user,
     maxTokens: prompt.maxTokens,
     timeoutMs: CALL_TIMEOUT_MS,
+    modelFallback:
+      eff.fellBack ?? (miss.model === session.defaultModel ? session.defaultFallback : null),
   });
   if (cost !== null) session.stats.cost_usd = (session.stats.cost_usd ?? 0) + cost;
-  return normalizeAiAnswer(miss.call, text);
+  if (!session.stats.models.includes(eff.spec)) session.stats.models.push(eff.spec);
+  return { answer: normalizeAiAnswer(miss.call, text), fellBack: eff.fellBack !== null };
 }
 
 /**
@@ -221,18 +263,19 @@ export async function resolveAiSqlMisses(session: AiSqlSession): Promise<void> {
   if (session.stats.calls + pending.length > session.cap) {
     throw new Error(aiCallsOverCapMessage(session.stats.calls + pending.length, session.cap));
   }
-  for (const [, m] of pending) {
-    if (!session.stats.models.includes(m.model)) session.stats.models.push(m.model);
-  }
   const expires = new Date(Date.now() + session.cacheTtlDays * 86_400_000).toISOString();
   let next = 0;
   const worker = async () => {
     while (next < pending.length) {
       const [key, miss] = pending[next++];
-      const answer = await callModel(session, miss);
+      const { answer, fellBack } = await callModel(session, miss);
       session.stats.calls++;
       session.answers.set(key, answer);
       session.misses.delete(key);
+      // An answer the default model gave for a model that could not run is
+      // used now but not kept under that model's name: once it can run, the
+      // next statement asks it.
+      if (fellBack) continue;
       await supabaseAdmin.from("ai_function_cache").upsert(
         {
           key,

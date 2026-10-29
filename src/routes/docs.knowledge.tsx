@@ -82,9 +82,10 @@ function KnowledgePage() {
         cost) apply. The upload shows the page being read; the document keeps a <C>[page N]</C>{" "}
         marker per page and records the model and cost in its metadata. The model and the{" "}
         <strong>Pages per document</strong> limit live under Admin → Developer runtime → Document
-        intelligence (<C>DOCUMENT_VISION_MODEL</C>, <C>DOCUMENT_VISION_MAX_PAGES</C>). A page the
-        model reads as empty is dropped; if every page is, the upload says so instead of adding a
-        document with nothing in it.
+        intelligence (<C>DOCUMENT_VISION_MAX_PAGES</C> for the limit); an empty model means the
+        platform&apos;s default model, which must then accept images. A page the model reads as
+        empty is dropped; if every page is, the upload says so instead of adding a document with
+        nothing in it.
       </Callout>
 
       <H3 id="s-url">Web page / crawl</H3>

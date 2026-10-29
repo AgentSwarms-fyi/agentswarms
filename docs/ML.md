@@ -1021,8 +1021,9 @@ contradicted by the table above it.
 
 Both calls go through the same governed door as every other model call
 (`internalChatText`), so IAM model rules, budgets and audit apply, and both are
-audited as `ml.fairness.suggest` and `ml.fairness.narrate`. The assistant model
-is `ML_ASSIST_MODEL`.
+audited as `ml.fairness.suggest` and `ml.fairness.narrate`. The assistant runs
+on the platform's default model (Admin → Developer runtime → AI services →
+Default model).
 
 A check is recorded as `ml.fairness.check`, or `ml.fairness.review` when the
 ratio falls below the line, which also notifies the model's owner.

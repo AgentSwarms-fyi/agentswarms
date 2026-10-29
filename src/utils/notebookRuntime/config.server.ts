@@ -116,8 +116,8 @@ export type PlatformResourceSettings = {
   sheetsVersionIntervalMinutes: number;
   /** Automatic versions kept per Sheets workbook; older ones are pruned first, named ones are kept. */
   sheetsVersionsMax: number;
-  /** provider/model the Sheets assistant and Fill with AI call (through the chat channel). */
-  sheetsAssistModel: string;
+  /** provider/model the Sheets assistant and Fill with AI call; null = the instance default model. */
+  sheetsAssistModel: string | null;
   /** Model calls one person's Sheets assistant and Fill with AI may make in a minute. */
   sheetsAssistPerMinute: number;
   /** Most rows one Fill with AI in Sheets works through. */
@@ -126,12 +126,12 @@ export type PlatformResourceSettings = {
   dataMonitorAnomalySigma: number;
   /** Model calls one SQL statement may make through ai_* functions. */
   aiSqlMaxCallsPerStatement: number;
-  /** provider/model an ai_* function uses when the statement names none. */
-  aiSqlDefaultModel: string;
+  /** provider/model an ai_* function uses when the statement names none; null = the instance default model. */
+  aiSqlDefaultModel: string | null;
   /** Days an ai_* answer is reused before the model is asked again. */
   aiSqlCacheTtlDays: number;
-  /** provider/model that reads scanned pages and images on knowledge-base upload. */
-  documentVisionModel: string;
+  /** provider/model that reads scanned pages and images on knowledge-base upload; null = the instance default model. */
+  documentVisionModel: string | null;
   /** Pages one uploaded document may have read by the vision model. */
   documentVisionMaxPages: number;
 };
@@ -282,10 +282,11 @@ export async function getPlatformResources(): Promise<PlatformResourceSettings> 
       envInt("SHEETS_VERSION_INTERVAL_MINUTES") ??
       30,
     sheetsVersionsMax: positive(data?.sheets_versions_max) ?? envInt("SHEETS_VERSIONS_MAX") ?? 50,
+    // Section models are set here or not at all: an unset one runs on the
+    // instance default model (Admin → Developer runtime → AI services → Default model), which
+    // replaced the env variables these used to fall back to.
     sheetsAssistModel:
-      (typeof data?.sheets_assist_model === "string" && data.sheets_assist_model.trim()) ||
-      (process.env.SHEETS_ASSIST_MODEL ?? "").trim() ||
-      "openrouter/google/gemini-3-flash-preview",
+      (typeof data?.sheets_assist_model === "string" && data.sheets_assist_model.trim()) || null,
     sheetsAssistPerMinute:
       positive(data?.sheets_assist_per_minute) ?? envInt("SHEETS_ASSIST_PER_MINUTE") ?? 30,
     sheetsAiFillMaxRows:
@@ -295,15 +296,12 @@ export async function getPlatformResources(): Promise<PlatformResourceSettings> 
       envInt("AI_SQL_MAX_CALLS_PER_STATEMENT") ??
       200,
     aiSqlDefaultModel:
-      (typeof data?.ai_sql_default_model === "string" && data.ai_sql_default_model.trim()) ||
-      (process.env.AI_SQL_DEFAULT_MODEL ?? "").trim() ||
-      "openrouter/google/gemini-3-flash-preview",
+      (typeof data?.ai_sql_default_model === "string" && data.ai_sql_default_model.trim()) || null,
     aiSqlCacheTtlDays:
       positive(data?.ai_sql_cache_ttl_days) ?? envInt("AI_SQL_CACHE_TTL_DAYS") ?? 30,
     documentVisionModel:
       (typeof data?.document_vision_model === "string" && data.document_vision_model.trim()) ||
-      (process.env.DOCUMENT_VISION_MODEL ?? "").trim() ||
-      "openrouter/google/gemini-3-flash-preview",
+      null,
     documentVisionMaxPages:
       positive(data?.document_vision_max_pages) ?? envInt("DOCUMENT_VISION_MAX_PAGES") ?? 200,
   };

@@ -48,8 +48,9 @@ async function judgeChat(args: {
     headers: { "Content-Type": "application/json", "x-internal-run-secret": secret },
     body: JSON.stringify({
       internalUserId: args.userId,
-      provider: args.provider || "openrouter",
-      model: args.model || "google/gemini-3-flash-preview",
+      // No model named: the chat route runs it on the instance default.
+      provider: args.provider || undefined,
+      model: args.model || undefined,
       systemPrompt: args.systemPrompt,
       temperature: 0,
       maxTokens: 2048,

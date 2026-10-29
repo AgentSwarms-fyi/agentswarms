@@ -67,6 +67,11 @@ export const Route = createFileRoute("/_authenticated/traces")({
 
 type Trace = ExecutionTraceRow;
 
+/** Why the chosen model could not run, from the trace's request payload. */
+function fallbackReason(payload: unknown): string {
+  return textOf(recordOf(recordOf(payload).model_fallback).reason);
+}
+
 const PAGE_SIZE = 25;
 
 function TracesPage() {
@@ -143,7 +148,7 @@ function TracesPage() {
       const { data, error } = await supabase
         .from("execution_traces")
         .select(
-          "id, agent_name, llm_provider, llm_model, latency_ms, tokens_in, tokens_out, cost_usd, status, prompt, error_message, created_at, parent_trace_id, pricing_missing:request_payload->>pricing_missing",
+          "id, agent_name, llm_provider, llm_model, latency_ms, tokens_in, tokens_out, cost_usd, status, prompt, error_message, created_at, parent_trace_id, pricing_missing:request_payload->>pricing_missing, fell_back_from:request_payload->model_fallback->>from",
         )
         .gte("created_at", since)
         .order("created_at", { ascending: false })
@@ -459,6 +464,15 @@ function TracesPage() {
                 </TableCell>
                 <TableCell className="text-xs font-mono text-muted-foreground">
                   {t.llm_model}
+                  {t.fell_back_from && (
+                    <Badge
+                      variant="outline"
+                      className="ml-1.5 border-amber-500/50 px-1 py-0 font-sans text-[10px] text-amber-700 dark:text-amber-400"
+                      title={`${t.fell_back_from} could not run; this call ran on the default model`}
+                    >
+                      fallback
+                    </Badge>
+                  )}
                 </TableCell>
                 <TableCell className="text-right text-xs font-mono tabular-nums">
                   {formatMs(t.latency_ms)}
@@ -601,6 +615,19 @@ function TracesPage() {
                       }
                     />
                   </div>
+
+                  {selected.fell_back_from && (
+                    <Section title="Model fallback">
+                      <p className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs">
+                        Ran on <span className="font-mono">{selected.llm_model}</span>, the default
+                        model, because <span className="font-mono">{selected.fell_back_from}</span>{" "}
+                        could not run
+                        {fallbackReason(selected.request_payload)
+                          ? `: ${fallbackReason(selected.request_payload)}`
+                          : "."}
+                      </p>
+                    </Section>
+                  )}
 
                   {selected.error_message && (
                     <Section title="Error">

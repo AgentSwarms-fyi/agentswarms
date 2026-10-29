@@ -1270,8 +1270,8 @@ into it.
 lists the model providers connected for you (Integrations, or the instance's OpenRouter key) and
 their models, leaving out any an IAM model rule refuses you.
 
-- **Default · …** is the admin's model: `SHEETS_ASSIST_MODEL` under **Admin → Developer runtime →
-  Data platform**.
+- **Default · …** is the admin's assistant model under **Admin → Developer runtime → Data
+  platform**, or the platform's default model (AI services → Default model) when that is empty.
 - **Remembered.** Your pick is remembered in this browser, and Fill with AI runs on it too; its
   dialog names the model.
 - **Named.** Each answer says which model gave it, beside its cost.
@@ -1304,18 +1304,17 @@ Sharing is audited as `sheet.share` and `sheet.unshare` ([Sharing](#sharing)).
 
 ## Limits
 
-| Setting                           | Default                       | What it bounds                                                          |
-| --------------------------------- | ----------------------------- | ----------------------------------------------------------------------- |
-| `SHEETS_MAX_CELLS`                | 200,000                       | Non-empty cells one grid sheet may hold                                 |
-| `SHEETS_PAGE_ROWS`                | 500                           | Rows a table sheet fetches per page while scrolling                     |
-| `SHEETS_UPLOAD_MAX_MB`            | 50                            | The largest CSV an upload brings into the lakehouse                     |
-| `SHEETS_IMPORT_MAX_SHEETS`        | 100                           | Sheets one Excel or CSV import may bring into a workbook                |
-| `SHEETS_EXPORT_MAX_ROWS`          | 100,000                       | Rows of a table sheet written into a downloaded .xlsx or .csv           |
-| `SHEETS_VERSION_INTERVAL_MINUTES` | 30                            | The least time between two automatic versions of a workbook             |
-| `SHEETS_VERSIONS_MAX`             | 50                            | Automatic versions kept per workbook (named ones are kept)              |
-| `SHEETS_ASSIST_MODEL`             | Gemini 3 Flash via OpenRouter | The model the assistant and Fill with AI call ([AI](#ai-in-a-workbook)) |
-| `SHEETS_ASSIST_PER_MINUTE`        | 30                            | Model calls one person's assistant and Fill with AI may make a minute   |
-| `SHEETS_AI_FILL_MAX_ROWS`         | 2,000                         | Rows one Fill with AI works through                                     |
+| Setting                           | Default | What it bounds                                                        |
+| --------------------------------- | ------- | --------------------------------------------------------------------- |
+| `SHEETS_MAX_CELLS`                | 200,000 | Non-empty cells one grid sheet may hold                               |
+| `SHEETS_PAGE_ROWS`                | 500     | Rows a table sheet fetches per page while scrolling                   |
+| `SHEETS_UPLOAD_MAX_MB`            | 50      | The largest CSV an upload brings into the lakehouse                   |
+| `SHEETS_IMPORT_MAX_SHEETS`        | 100     | Sheets one Excel or CSV import may bring into a workbook              |
+| `SHEETS_EXPORT_MAX_ROWS`          | 100,000 | Rows of a table sheet written into a downloaded .xlsx or .csv         |
+| `SHEETS_VERSION_INTERVAL_MINUTES` | 30      | The least time between two automatic versions of a workbook           |
+| `SHEETS_VERSIONS_MAX`             | 50      | Automatic versions kept per workbook (named ones are kept)            |
+| `SHEETS_ASSIST_PER_MINUTE`        | 30      | Model calls one person's assistant and Fill with AI may make a minute |
+| `SHEETS_AI_FILL_MAX_ROWS`         | 2,000   | Rows one Fill with AI works through                                   |
 
 All ten are editable under **Admin → Developer runtime**. A direct import from a connection is
 also bounded by `WAREHOUSE_ABS_MAX_ROWS`. A larger result is refused, never truncated; land it with

@@ -35,7 +35,20 @@ export async function resolveMemoryConfig(opts: {
       /* ignore — defaults apply */
     }
   }
-  const merged: MemoryConfig = { ...DEFAULT_MEMORY_CONFIG, ...stored };
+  return withMemoryOverrides({ ...DEFAULT_MEMORY_CONFIG, ...stored }, overrides);
+}
+
+/**
+ * A memory config with a caller's per-call overrides laid over it. Also used
+ * on its own for a server-to-server call, which has no session to read an
+ * agent's stored config with: before, such a call ignored its overrides and
+ * its trace said short-term memory was on when the caller had switched it off.
+ */
+export function withMemoryOverrides(
+  base: MemoryConfig,
+  overrides: MemoryOverrides | undefined,
+): MemoryConfig {
+  const merged: MemoryConfig = { ...base };
   if (overrides) {
     for (const k of Object.keys(overrides) as (keyof MemoryConfig)[]) {
       const v = overrides[k];

@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useTokenRef } from "@/hooks/use-token-ref";
+import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -63,6 +64,7 @@ import { ontologyDraftFromTables, type DraftEvidence } from "@/utils/ontologyAi.
 import { importOssie } from "@/lib/ontology/ossie";
 import { ontologySpecSchema, type OntologySpec } from "@/lib/ontology/spec";
 import { cn } from "@/lib/utils";
+import { parseModelChoice } from "@/utils/providers/modelChoice";
 
 export const Route = createFileRoute("/_authenticated/ontology")({
   head: () => ({ meta: [{ title: "Enterprise Ontology — AgentSwarms" }] }),
@@ -614,6 +616,7 @@ function DraftDialog(props: {
   const [filter, setFilter] = useState("");
   const [name, setName] = useState("");
   const [enrich, setEnrich] = useState(true);
+  const [modelChoice, setModelChoice] = useState<string | null>(null);
   const [busy, setBusy] = useState<null | "draft" | "create">(null);
   const [draft, setDraft] = useState<{
     spec: OntologySpec;
@@ -646,6 +649,12 @@ function DraftDialog(props: {
           name: name.trim() || "Draft ontology",
           tables: picked,
           enrich,
+          ...(enrich && parseModelChoice(modelChoice)
+            ? {
+                provider: parseModelChoice(modelChoice)!.provider,
+                model: parseModelChoice(modelChoice)!.model,
+              }
+            : {}),
         },
       });
       if (!res.ok) toast.error(res.error);
@@ -726,6 +735,11 @@ function DraftDialog(props: {
                 />{" "}
                 Describe with AI
               </label>
+              {enrich && (
+                <div className="w-48" title="The model that writes the descriptions">
+                  <BiModelSelect value={modelChoice} onChange={setModelChoice} allowUnset />
+                </div>
+              )}
             </div>
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">

@@ -37,6 +37,7 @@ import {
   resolveMemoryConfig,
   loadMemoryContext,
   composeSystemPrompt,
+  withMemoryOverrides,
   type MemoryOverrides,
 } from "@/utils/memory/memory.server";
 import { summarizeIfNeeded } from "@/utils/memory/summarize.server";
@@ -45,6 +46,13 @@ import type { RecalledItem } from "@/utils/memory/types";
 import { isImageModelId } from "@/lib/providerSupport";
 import { getEffectiveModelRules, isModelAllowed } from "@/utils/iam.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import {
+  chooseModel,
+  fallbackFromCaller,
+  instanceDefaultModel,
+  isUnknownModelError,
+  type IamClient,
+} from "@/utils/providers/defaultModel.server";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -351,7 +359,6 @@ function withPostTurnMemory(
     authToken: string | undefined;
     config: import("@/utils/memory/types").MemoryConfig;
     userMessage: string;
-    apiKey: string;
     /** The agent's PII policy, applied to what memory stores (R351). */
     redact: (text: string, side: "input" | "output") => string;
   },
@@ -415,7 +422,6 @@ function withPostTurnMemory(
                 conversationId: ctx.conversationId,
                 windowMessages: ctx.config.stm_window_messages,
                 summaryModel: ctx.config.stm_summary_model,
-                apiKey: ctx.apiKey,
                 redact: ctx.redact,
               });
             } catch (e) {
@@ -431,7 +437,6 @@ function withPostTurnMemory(
                 conversationId: ctx.conversationId ?? null,
                 userMessage: ctx.redact(ctx.userMessage, "input"),
                 assistantMessage: ctx.redact(assistantText, "output"),
-                apiKey: ctx.apiKey,
                 maxItems: ctx.config.ltm_max_items,
               });
             } catch (e) {
@@ -1061,6 +1066,10 @@ export const Route = createFileRoute("/api/chat")({
             // service secret and name the owner here (see the internal-auth
             // block below). Ignored for normal browser requests.
             internalUserId?: string;
+            // An internal caller that already fell back from the model it was
+            // asked for (AI in SQL, document reading, the Sheets assistant)
+            // says so, for the trace. Ignored for normal browser requests.
+            modelFallback?: unknown;
             // A swarm run passes its run id so every node turn is correlated
             // to the same decision. A standalone chat turn omits it and
             // becomes a decision of its own (see provenance/decision.server).
@@ -1153,14 +1162,19 @@ export const Route = createFileRoute("/api/chat")({
             );
           }
 
-          const provider = (body.provider || "openrouter") as ProviderId;
-          if (!VALID_PROVIDERS.includes(provider)) {
+          // The caller's choice (an agent's model, a swarm node's, the
+          // playground's); resolved below, once the user is known, against what
+          // they can use — the instance default stands in for no choice and for
+          // one they cannot use (providers/defaultModel.server).
+          let provider = (body.provider || "openrouter") as ProviderId;
+          if (body.provider && !VALID_PROVIDERS.includes(provider)) {
             return new Response(JSON.stringify({ error: `Unsupported provider: ${provider}` }), {
               status: 400,
               headers: { "Content-Type": "application/json", ...corsHeaders },
             });
           }
-          const model = body.model || process.env.OPENROUTER_DEFAULT_MODEL || "openai/gpt-4o-mini";
+          let model = body.model || "";
+          let modelFallback: { from: string; reason: string } | null = null;
 
           // ===== Auth + trace context =====
           // Resolve userId up-front so every provider path can record
@@ -1188,6 +1202,39 @@ export const Route = createFileRoute("/api/chat")({
             });
           }
           const userId = caller;
+
+          if (userId) {
+            const chosen = await chooseModel(
+              userId,
+              { provider: body.provider ?? null, model: body.model ?? null },
+              {
+                iamClient: ((authToken ? getServerSupabase(authToken) : null) ??
+                  supabaseAdmin) as unknown as IamClient,
+              },
+            );
+            if (!chosen.ok) {
+              return new Response(
+                JSON.stringify({
+                  error: chosen.status === 403 ? "model_not_allowed" : "model_unavailable",
+                  message: chosen.error,
+                }),
+                {
+                  status: chosen.status,
+                  headers: { "Content-Type": "application/json", ...corsHeaders },
+                },
+              );
+            }
+            provider = chosen.provider;
+            model = chosen.model;
+            modelFallback =
+              chosen.fellBack ?? (isInternalRun ? fallbackFromCaller(body.modelFallback) : null);
+          } else if (!model) {
+            // No user means the auth check below refuses the call; name a
+            // model only so nothing before it reads an empty one.
+            const d = await instanceDefaultModel();
+            provider = d.provider;
+            model = d.model;
+          }
 
           // IAM model governance: a user subject to model rules (their own or
           // any of their groups') may only call allowed provider/model
@@ -1551,6 +1598,7 @@ export const Route = createFileRoute("/api/chat")({
             requestPayload: {
               provider,
               model,
+              ...(modelFallback ? { model_fallback: modelFallback } : {}),
               agentId: body.agentId ?? null,
               temperature: body.temperature ?? null,
               maxTokens: body.maxTokens ?? null,
@@ -1863,7 +1911,10 @@ export const Route = createFileRoute("/api/chat")({
             const sb = authToken ? getServerSupabase(authToken) : null;
             if (!sb) {
               const { DEFAULT_MEMORY_CONFIG } = await import("@/utils/memory/types");
-              return { ...DEFAULT_MEMORY_CONFIG };
+              return withMemoryOverrides(
+                DEFAULT_MEMORY_CONFIG,
+                body.memoryOverrides as MemoryOverrides | undefined,
+              );
             }
             return resolveMemoryConfig({
               sb,
@@ -2310,39 +2361,82 @@ export const Route = createFileRoute("/api/chat")({
                 const systemWithRouting = [effectiveSystemPrompt, resolved.guidance]
                   .filter((s): s is string => Boolean(s && s.trim()))
                   .join("\n\n");
-                const upstreamWithTools = await streamChatWithTools({
-                  apiKey: transport.apiKey,
-                  model,
-                  systemPrompt: systemWithRouting || undefined,
-                  userMessages: flatMessages,
-                  tools: resolved.tools,
-                  handlers: resolved.handlers,
-                  toolCtx: {
-                    userId,
-                    agentId: body.agentId,
-                    authToken,
-                    sb: sbForTools,
-                    conversationId: body.conversationId ?? null,
-                    reranker: bodyReranker,
-                    scopeUserId: toolScopeUserId,
-                    decisionId: trace.decisionId,
-                  },
-                  temperature: body.temperature,
-                  maxTokens: body.maxTokens,
-                  endpointUrl: transport.endpointUrl,
-                  extraHeaders: transport.extraHeaders,
-                  organizationId: transport.organizationId,
-                  onToolEvent: (e) => toolEvents.push(e),
-                  userId: userId ?? null,
-                  parentTraceId: trace?.traceId ?? null,
-                  // Client abort must stop the loop server-side too — without
-                  // this, Stop closed the browser connection while tool rounds
-                  // kept running (and billing) to the last iteration.
-                  signal: request.signal,
-                });
+                const callModel = (m: string, tr: NonNullable<typeof transport>) =>
+                  streamChatWithTools({
+                    apiKey: tr.apiKey,
+                    model: m,
+                    systemPrompt: systemWithRouting || undefined,
+                    userMessages: flatMessages,
+                    tools: resolved.tools,
+                    handlers: resolved.handlers,
+                    toolCtx: {
+                      userId,
+                      agentId: body.agentId,
+                      authToken,
+                      sb: sbForTools,
+                      conversationId: body.conversationId ?? null,
+                      reranker: bodyReranker,
+                      scopeUserId: toolScopeUserId,
+                      decisionId: trace.decisionId,
+                    },
+                    temperature: body.temperature,
+                    maxTokens: body.maxTokens,
+                    endpointUrl: tr.endpointUrl,
+                    extraHeaders: tr.extraHeaders,
+                    organizationId: tr.organizationId,
+                    onToolEvent: (e) => toolEvents.push(e),
+                    userId: userId ?? null,
+                    parentTraceId: trace?.traceId ?? null,
+                    // Client abort must stop the loop server-side too — without
+                    // this, Stop closed the browser connection while tool rounds
+                    // kept running (and billing) to the last iteration.
+                    signal: request.signal,
+                  });
+                let upstreamWithTools = await callModel(model, transport);
                 if (!upstreamWithTools.ok) {
-                  const t = await upstreamWithTools.text().catch(() => "");
-                  throw new Error(`${provider} [${upstreamWithTools.status}]: ${t.slice(0, 300)}`);
+                  let t = await upstreamWithTools.text().catch(() => "");
+                  // The provider does not know the chosen model: run the turn
+                  // on the instance default instead, once, before anything
+                  // has streamed (providers/defaultModel.server).
+                  if (
+                    userId &&
+                    !modelFallback &&
+                    isUnknownModelError(upstreamWithTools.status, t)
+                  ) {
+                    const d = await chooseModel(userId, null);
+                    const dTransport =
+                      d.ok && (d.provider !== provider || d.model !== model)
+                        ? await resolveOpenAICompatTransport({
+                            userId,
+                            provider: d.provider,
+                            gateway: gatewayOverride,
+                          }).catch(() => null)
+                        : null;
+                    if (d.ok && dTransport && (dTransport.apiKey || d.provider === "ollama")) {
+                      modelFallback = {
+                        from: `${provider}/${model}`,
+                        reason: `${provider} does not know the model ${model}`,
+                      };
+                      provider = d.provider;
+                      model = d.model;
+                      trace.provider = provider;
+                      trace.model = model;
+                      if (trace.requestPayload) {
+                        trace.requestPayload.provider = provider;
+                        trace.requestPayload.model = model;
+                        trace.requestPayload.model_fallback = modelFallback;
+                      }
+                      upstreamWithTools = await callModel(model, dTransport);
+                      if (!upstreamWithTools.ok) {
+                        t = await upstreamWithTools.text().catch(() => "");
+                      }
+                    }
+                  }
+                  if (!upstreamWithTools.ok) {
+                    throw new Error(
+                      `${provider} [${upstreamWithTools.status}]: ${t.slice(0, 300)}`,
+                    );
+                  }
                 }
                 if (trace.requestPayload && toolEvents.length > 0) {
                   trace.requestPayload.toolEvents = toolEvents;
@@ -2373,19 +2467,17 @@ export const Route = createFileRoute("/api/chat")({
                   toolEvents.flatMap((e) => (e.type === "tool_result" ? (e.sources ?? []) : [])),
                 );
                 const withMem = withMemoryUsedPreamble(withSrc, recalledItems, memorySummaryUsed);
-                const memoryApiKey = process.env.OPENROUTER_API_KEY;
-                const withPostMem = memoryApiKey
-                  ? withPostTurnMemory(withMem, {
-                      userId,
-                      agentId: body.agentId,
-                      conversationId: body.conversationId,
-                      authToken,
-                      config: memoryConfig,
-                      userMessage: guardedPrompt,
-                      apiKey: memoryApiKey,
-                      redact: (text, side) => piiRedactorFor(effectiveGuardrails)(text, side).text,
-                    })
-                  : withMem;
+                // Memory runs on the agent's summary model or the instance default,
+                // resolved per turn (providers/defaultModel.server).
+                const withPostMem = withPostTurnMemory(withMem, {
+                  userId,
+                  agentId: body.agentId,
+                  conversationId: body.conversationId,
+                  authToken,
+                  config: memoryConfig,
+                  userMessage: guardedPrompt,
+                  redact: (text, side) => piiRedactorFor(effectiveGuardrails)(text, side).text,
+                });
                 const guarded = withOutputGuardrails(
                   withPostMem,
                   effectiveGuardrails,
@@ -2418,19 +2510,17 @@ export const Route = createFileRoute("/api/chat")({
             const withCits = withCitationsPreamble(tapped, citations);
             const withSrc = withSourcesTrailer(withCits, citationSources(citations), []);
             const withMem = withMemoryUsedPreamble(withSrc, recalledItems, memorySummaryUsed);
-            const memoryApiKey = process.env.OPENROUTER_API_KEY;
-            const withPostMem = memoryApiKey
-              ? withPostTurnMemory(withMem, {
-                  userId,
-                  agentId: body.agentId,
-                  conversationId: body.conversationId,
-                  authToken,
-                  config: memoryConfig,
-                  userMessage: guardedPrompt,
-                  apiKey: memoryApiKey,
-                  redact: (text, side) => piiRedactorFor(effectiveGuardrails)(text, side).text,
-                })
-              : withMem;
+            // Memory runs on the agent's summary model or the instance default,
+            // resolved per turn (providers/defaultModel.server).
+            const withPostMem = withPostTurnMemory(withMem, {
+              userId,
+              agentId: body.agentId,
+              conversationId: body.conversationId,
+              authToken,
+              config: memoryConfig,
+              userMessage: guardedPrompt,
+              redact: (text, side) => piiRedactorFor(effectiveGuardrails)(text, side).text,
+            });
             const guarded = withOutputGuardrails(
               withPostMem,
               effectiveGuardrails,

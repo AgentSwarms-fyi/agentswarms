@@ -129,8 +129,9 @@ SELECT *, ai_classify(region, 'americas, emea, apac') AS zone FROM analytics.rev
         </li>
         <li>
           <strong>Default model</strong> and <strong>answer cache (days)</strong> live beside it (
-          <C>AI_SQL_DEFAULT_MODEL</C>, <C>AI_SQL_CACHE_TTL_DAYS</C>). None of them is capped by the
-          application.
+          <C>AI_SQL_CACHE_TTL_DAYS</C> for the cache). Left empty, the model is the platform&apos;s
+          default model (AI services → Default model); a statement naming a model the caller
+          can&apos;t use runs on it too. None of them is capped by the application.
         </li>
         <li>
           <strong>IAM.</strong> A model the caller's role may not use is refused per call, exactly

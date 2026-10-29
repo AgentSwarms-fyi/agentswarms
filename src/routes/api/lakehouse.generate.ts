@@ -10,6 +10,7 @@
 // where every rule (single statement, schema access, no table functions)
 // applies to AI SQL exactly as it does to typed SQL.
 import { createFileRoute } from "@tanstack/react-router";
+import { chooseModel } from "@/utils/providers/defaultModel.server";
 import { providerFetch } from "@/utils/ssrfGuard.server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -25,8 +26,6 @@ import { auditEvent } from "@/utils/audit.server";
 import { accessibleSchemas, lakehouseConnection } from "@/utils/lakehouse/core.server";
 import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
 import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
-
-const FALLBACK_MODEL = "openai/gpt-4o-mini";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -121,11 +120,25 @@ export const Route = createFileRoute("/api/lakehouse/generate")({
             return json({ error: "Your schemas have no tables yet — create or import one." }, 400);
           }
 
-          const provider =
-            typeof body.provider === "string" && body.provider ? body.provider : "openrouter";
-          if (!isBiCompatProvider(provider)) {
-            return json({ error: `Provider "${provider}" can't be used here.` }, 400);
+          // The picker's choice when this user can use it, else the instance
+          // default (providers/defaultModel.server).
+          const wanted = typeof body.provider === "string" && body.provider ? body.provider : null;
+          const chosen = await chooseModel(
+            user.id,
+            !wanted || isBiCompatProvider(wanted)
+              ? { provider: wanted, model: typeof body.model === "string" ? body.model : null }
+              : null,
+          );
+          if (!chosen.ok) return json({ error: chosen.error }, chosen.status);
+          if (!isBiCompatProvider(chosen.provider)) {
+            return json(
+              {
+                error: `${chosen.spec} can't be used here — pick another model, or change the default under Admin → Developer runtime → AI services → Default model.`,
+              },
+              400,
+            );
           }
+          const provider = chosen.provider;
           // The monthly AI budget, asked before the model is (VA-2026-10-25-17).
           const overBudget = await budgetRefusal(user.id);
           if (overBudget) return json({ error: overBudget }, 402);
@@ -139,13 +152,7 @@ export const Route = createFileRoute("/api/lakehouse/generate")({
               503,
             );
           }
-          let model = typeof body.model === "string" && body.model ? body.model : "";
-          if (!model)
-            model = (await getProviderDefaultModel(user.id, provider as ProviderId)) ?? "";
-          if (!model && provider === "openrouter") model = FALLBACK_MODEL;
-          if (!model) {
-            return json({ error: `Choose a model — ${provider} has no default configured.` }, 400);
-          }
+          const model = chosen.model;
 
           // FOUND FROM THE SURVEY (R97). The model is final here, fallback and
           // all, so this is where the caller's model rules are asked. The picker

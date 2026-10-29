@@ -6,9 +6,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import type { MemoryItemKind } from "./types";
-import { OPENROUTER_CHAT_URL } from "@/utils/providers/openrouterDefault.server";
-
-const EXTRACT_MODEL = "openai/gpt-4o-mini";
+import { openAiCompatTarget, type CompatTarget } from "@/utils/providers/defaultModel.server";
+import { providerFetch } from "@/utils/ssrfGuard.server";
 
 type Extracted = {
   kind: MemoryItemKind;
@@ -17,13 +16,14 @@ type Extracted = {
 
 const VALID_KINDS = new Set<MemoryItemKind>(["fact", "preference", "episodic", "instruction"]);
 
-async function callOpenRouterForExtraction(opts: {
-  apiKey: string;
+async function callModelForExtraction(opts: {
+  target: CompatTarget;
   userMessage: string;
   assistantMessage: string;
   userId?: string | null;
 }): Promise<Extracted[]> {
-  const { apiKey, userMessage, assistantMessage, userId } = opts;
+  const { target, userMessage, assistantMessage, userId } = opts;
+  const { transport, model } = target;
   const systemPrompt =
     "You extract durable memory items from a single chat turn. " +
     "Keep ONLY information that will plausibly be useful in a future, separate conversation: " +
@@ -38,14 +38,15 @@ async function callOpenRouterForExtraction(opts: {
 
   const tStart = Date.now();
   try {
-    const r = await fetch(OPENROUTER_CHAT_URL, {
+    const r = await providerFetch(transport.endpointUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
+        ...(transport.apiKey ? { Authorization: `Bearer ${transport.apiKey}` } : {}),
+        ...(transport.extraHeaders ?? {}),
       },
       body: JSON.stringify({
-        model: EXTRACT_MODEL,
+        model,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: user },
@@ -69,7 +70,8 @@ async function callOpenRouterForExtraction(opts: {
       await recordGatewayCall({
         userId,
         surface: "Memory: Extract",
-        model: EXTRACT_MODEL,
+        model: target.spec,
+        modelFallback: target.fellBack,
         tokensIn: j.usage?.prompt_tokens,
         tokensOut: j.usage?.completion_tokens,
         promptText: user,
@@ -105,14 +107,19 @@ export async function extractMemoriesFromTurn(opts: {
   conversationId: string | null;
   userMessage: string;
   assistantMessage: string;
-  apiKey: string;
   maxItems: number;
 }): Promise<number> {
-  const { sb, userId, agentId, conversationId, userMessage, assistantMessage, apiKey, maxItems } =
-    opts;
+  const { sb, userId, agentId, conversationId, userMessage, assistantMessage, maxItems } = opts;
   if (!userMessage.trim() || !assistantMessage.trim()) return 0;
-  const items = await callOpenRouterForExtraction({
-    apiKey,
+  // The instance default model (providers/defaultModel.server), on the
+  // user's own connection to its provider or the instance key.
+  const target = await openAiCompatTarget(userId, null);
+  if (!target.ok) {
+    console.warn("[memory.extract] no model:", target.error);
+    return 0;
+  }
+  const items = await callModelForExtraction({
+    target,
     userMessage,
     assistantMessage,
     userId,

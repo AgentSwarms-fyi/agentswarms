@@ -7,8 +7,6 @@
 // trace (agent name "Document OCR") and the cost accounting apply per page.
 // The instance decides the model and how many pages one document may have.
 import { auditEvent } from "@/utils/audit.server";
-import { GATEWAY_PROVIDERS } from "@/utils/gateway/providers";
-import { parseGatewayModel } from "@/utils/gateway/keys";
 import { internalChatText } from "@/utils/internalChat.server";
 import {
   isNoText,
@@ -18,6 +16,7 @@ import {
   visionPagesOverCapMessage,
 } from "@/lib/documentVision";
 import { getPlatformResources } from "@/utils/notebookRuntime/config.server";
+import { chooseModel, parseModelSpec } from "@/utils/providers/defaultModel.server";
 
 /** Pages read at once for one document. */
 const CONCURRENCY = 3;
@@ -31,20 +30,27 @@ export type OcrBatchResult = {
   cost_usd: number | null;
 };
 
-/** The provider/model pages are read with: the caller's choice, else the instance's. */
-async function resolveVisionModel(spec: string | null | undefined) {
+/**
+ * The provider/model pages are read with: the caller's choice, else the
+ * admin's vision model, else the instance default — each only when this user
+ * can use it.
+ */
+async function resolveVisionModel(userId: string, spec: string | null | undefined) {
   const settings = await getPlatformResources();
-  const s = (spec ?? "").trim() || settings.documentVisionModel;
-  const target = parseGatewayModel(s, GATEWAY_PROVIDERS);
-  if (!target || target.kind !== "model") {
+  const named = (spec ?? "").trim();
+  const request = named ? parseModelSpec(named) : parseModelSpec(settings.documentVisionModel);
+  if (named && !request) {
     throw new Error(
-      `Unknown vision model "${s}". Write it as provider/model, for example openrouter/google/gemini-3-flash-preview.`,
+      `Unknown vision model "${named}". Write it as provider/model, for example openrouter/google/gemini-3-flash-preview.`,
     );
   }
+  const chosen = await chooseModel(userId, request);
+  if (!chosen.ok) throw new Error(chosen.error);
   return {
-    provider: target.provider,
-    model: target.model,
-    spec: `${target.provider}/${target.model}`,
+    provider: chosen.provider,
+    model: chosen.model,
+    spec: chosen.spec,
+    fellBack: chosen.fellBack,
     settings,
   };
 }
@@ -67,7 +73,10 @@ export async function readPagesWithVision(args: {
   model?: string | null;
   decisionId?: string;
 }): Promise<OcrBatchResult> {
-  const { provider, model, spec, settings } = await resolveVisionModel(args.model);
+  const { provider, model, spec, fellBack, settings } = await resolveVisionModel(
+    args.userId,
+    args.model,
+  );
   const cap = settings.documentVisionMaxPages;
   if (args.totalPages > cap) throw new Error(visionPagesOverCapMessage(args.totalPages, cap));
   if (args.pages.length > PAGES_PER_REQUEST) {
@@ -92,6 +101,7 @@ export async function readPagesWithVision(args: {
         ],
         maxTokens: 4096,
         timeoutMs: PAGE_TIMEOUT_MS,
+        modelFallback: fellBack,
       });
       if (c !== null) cost = (cost ?? 0) + c;
       texts[i] = isNoText(text) ? "" : text.trim();

@@ -25,6 +25,9 @@ export type InternalChatArgs = {
   agentName: string;
   decisionId?: string;
   timeoutMs?: number;
+  /** The caller resolved its model and fell back from the one it was asked
+   *  for: the trace records it as model_fallback. */
+  modelFallback?: { from: string; reason: string } | null;
 };
 
 /**
@@ -102,6 +105,7 @@ export async function internalChatText(
         vision: typeof args.user !== "string" ? true : undefined,
         enabledTools: [],
         memoryOverrides: { stm_enabled: false, ltm_enabled: false, ltm_scope: "none" },
+        ...(args.modelFallback ? { modelFallback: args.modelFallback } : {}),
       }),
     });
     if (!res.ok || !res.body) {

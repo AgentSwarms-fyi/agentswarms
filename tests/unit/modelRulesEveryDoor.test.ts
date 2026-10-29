@@ -31,11 +31,16 @@ describe("the code generators", () => {
   for (const path of GENERATORS) {
     it(`${path} asks once the model is final, and before it calls one`, () => {
       const src = read(path);
-      const fallback = src.indexOf("model = FALLBACK_MODEL;");
+      // The model is final once the resolver has chosen it (the request, or
+      // the instance default — itself asked about this user's rules), and
+      // the rules are asked again of the final model before any call.
+      const chosen = src.indexOf("const chosen = await chooseModel( user.id,");
+      const final = src.indexOf("const model = chosen.model;");
       const ask = src.indexOf("refused = await modelAccessRefusal(user.id, provider, model);");
       const call = src.indexOf("await providerFetch(transport.endpointUrl");
-      expect(fallback).toBeGreaterThan(-1);
-      expect(ask).toBeGreaterThan(fallback);
+      expect(chosen).toBeGreaterThan(-1);
+      expect(final).toBeGreaterThan(chosen);
+      expect(ask).toBeGreaterThan(final);
       expect(ask).toBeLessThan(call);
       expect(src).toContain("if (refused) return json({ error: refused }, 403);");
     });
@@ -51,15 +56,19 @@ describe("the knowledge-graph builder", () => {
   const src = read("src/routes/api/kb/build-graph.ts");
 
   it("asks about the model it will use, before it wipes the graph it has", () => {
-    const ask = src.indexOf(
-      'refused = await modelAccessRefusal(user.id, "openrouter", EXTRACTION_MODEL);',
-    );
+    // The resolver asks this user's rules about the model (and refuses with
+    // the reason when even the default is not allowed), before anything is
+    // marked building or wiped.
+    const ask = src.indexOf("const chosen = await chooseModel(user.id, null);");
     expect(ask).toBeGreaterThan(-1);
     expect(ask).toBeLessThan(src.indexOf('.from("kb_graph_entities") .delete()'));
     expect(ask).toBeLessThan(src.indexOf('kb_graph_status: "building"'));
     expect(src).toContain(
-      "if (refused) return Response.json({ error: refused }, { status: 403 });",
+      "if (!chosen.ok) return Response.json({ error: chosen.error }, { status: chosen.status });",
     );
+    const resolver = read("src/utils/providers/defaultModel.server.ts");
+    expect(resolver).toContain("const rules = await getEffectiveModelRules(iamClient, userId);");
+    expect(resolver).toContain("if (rules && !isModelAllowed(rules, t.provider, t.model)) {");
   });
 });
 

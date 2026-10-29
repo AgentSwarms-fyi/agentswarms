@@ -8,6 +8,7 @@
 // OpenAI-compatible providers only (openrouter, openai, gemini, groq, grok,
 // qwen, ollama, vllm, nvidia).
 import { createFileRoute } from "@tanstack/react-router";
+import { chooseModel, type IamClient } from "@/utils/providers/defaultModel.server";
 import { providerFetch } from "@/utils/ssrfGuard.server";
 import { resolveOpenAICompatTransport } from "@/utils/providers/credentials.server";
 import type { ProviderId } from "@/utils/providers/types";
@@ -65,10 +66,27 @@ export const Route = createFileRoute("/api/python-chat")({
           return json(400, { error: "Invalid JSON body" });
         }
 
-        const provider = (body.provider || "openrouter").toLowerCase();
-        const model = body.model || process.env.OPENROUTER_DEFAULT_MODEL || "openai/gpt-4o-mini";
         const messages = Array.isArray(body.messages) ? body.messages : [];
         if (messages.length === 0) return json(400, { error: "messages array is required" });
+        // The notebook's chat_model(model=…) when this user can use it, else
+        // the instance default (providers/defaultModel.server). A provider this
+        // proxy cannot speak to is a choice it cannot use, like an unconnected one.
+        const wanted = (body.provider || "").toLowerCase();
+        const chosen = await chooseModel(
+          userId,
+          !wanted || COMPAT_PROVIDERS.has(wanted)
+            ? { provider: wanted || null, model: body.model ?? null }
+            : null,
+          { iamClient: sb as unknown as IamClient },
+        );
+        if (!chosen.ok) {
+          return json(chosen.status, {
+            error: chosen.status === 403 ? "model_not_allowed" : "model_unavailable",
+            message: chosen.error,
+          });
+        }
+        const provider = chosen.provider;
+        const model = chosen.model;
 
         if (!COMPAT_PROVIDERS.has(provider)) {
           return json(400, {

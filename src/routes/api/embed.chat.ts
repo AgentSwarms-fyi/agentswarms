@@ -22,6 +22,7 @@ import { clientIp, clientUserAgent } from "@/utils/requestMeta.server";
 import { budgetMessage, getBudgetDecision } from "@/utils/budgetGuard.server";
 import { recordGatewayCall } from "@/utils/observability/recordGatewayUsage.server";
 import { resolveOpenAICompatTransport } from "@/utils/providers/credentials.server";
+import { chooseModel } from "@/utils/providers/defaultModel.server";
 import type { ProviderId } from "@/utils/providers/types";
 import {
   autoRagMinSimilarity,
@@ -156,7 +157,8 @@ async function resolveConfig(
         label: agent.name,
         systemPrompt: agent.system_prompt ?? "",
         provider: (agent.llm_provider || "openrouter") as ProviderId,
-        model: agent.llm_model || "openai/gpt-4o-mini",
+        // Empty = no choice: the instance default runs it (resolved per request).
+        model: agent.llm_model || "",
         temperature: typeof agent.temperature === "number" ? agent.temperature : 0.4,
         maxTokens: typeof agent.max_tokens === "number" ? agent.max_tokens : 4096,
         kbIds: [...new Set(kbIds)],
@@ -250,7 +252,7 @@ async function resolveConfig(
       label: `${swarm.name} · ${d.label ?? nodeId}`,
       systemPrompt,
       provider: (d.provider || "openrouter") as ProviderId,
-      model: d.model || "google/gemini-3-flash-preview",
+      model: d.model || "",
       temperature: typeof d.temperature === "number" ? d.temperature : 0.4,
       maxTokens: 8192,
       kbIds: [...new Set(kbIds)],
@@ -313,6 +315,25 @@ export const Route = createFileRoute("/api/embed/chat")({
         const resolved = await resolveConfig(keyRow, body.nodeId);
         if (!resolved.ok) return json({ error: resolved.error }, resolved.status);
         const cfg = resolved.cfg;
+        // The agent's or node's model when its owner can use it, else the
+        // instance default (providers/defaultModel.server).
+        {
+          const chosen = await chooseModel(keyRow.user_id, {
+            provider: cfg.provider,
+            model: cfg.model || null,
+          });
+          if (!chosen.ok) {
+            return json(
+              {
+                error:
+                  "This assistant is temporarily unavailable — neither its model nor the workspace default can run.",
+              },
+              503,
+            );
+          }
+          cfg.provider = chosen.provider;
+          cfg.model = chosen.model;
+        }
 
         // Model governance applies to embeds too. This surface executes the
         // OWNER's stored model on behalf of anonymous strangers, and it was

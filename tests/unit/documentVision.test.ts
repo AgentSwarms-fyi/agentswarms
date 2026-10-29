@@ -124,7 +124,11 @@ describe("the wiring", () => {
     expect(sql).toContain("ADD COLUMN IF NOT EXISTS document_vision_model text");
     expect(sql).toContain("ADD COLUMN IF NOT EXISTS document_vision_max_pages integer");
     const cfg = rd("src/utils/notebookRuntime/config.server.ts");
-    expect(cfg).toContain("process.env.DOCUMENT_VISION_MODEL");
+    // Set here or not at all: unset, pages are read by the instance default model.
+    expect(cfg).not.toContain("process.env.DOCUMENT_VISION_MODEL");
+    expect(rd("src/utils/documents/vision.server.ts")).toContain(
+      "const chosen = await chooseModel(userId, request);",
+    );
     expect(cfg).toContain('envInt("DOCUMENT_VISION_MAX_PAGES") ??');
     for (const col of ["document_vision_model", "document_vision_max_pages"]) {
       expect(rd("src/utils/notebookRuntimeAdmin.functions.ts")).toContain(`${col}:`);

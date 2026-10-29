@@ -32,9 +32,8 @@ cost. The stored document carries a `[page N]` marker per page and records
 `{ ocr: { pages, model, cost_usd } }` in its metadata.
 
 Two instance settings govern it, under **Admin → Developer runtime →
-Document intelligence** with env fallbacks: the **vision model**
-(`DOCUMENT_VISION_MODEL`, default `openrouter/google/gemini-3-flash-preview`;
-it must accept images) and **pages per document**
+Document intelligence**: the **vision model** (empty = the platform's default
+model; it must accept images) and **pages per document**
 (`DOCUMENT_VISION_MAX_PAGES`, default 200). A document over the limit is
 refused before its first page is read. A page the model reads as empty is
 dropped; if every page is, the upload reports it rather than adding an empty

@@ -79,7 +79,8 @@ export function ImportAgentDialog({
       description: parsed.description || null,
       system_prompt: parsed.system_prompt || null,
       llm_provider: parsed.llm_provider || "openrouter",
-      llm_model: parsed.llm_model || "openai/gpt-4o-mini",
+      // No model in the file: the agent runs on the instance default.
+      llm_model: parsed.llm_model || "",
       temperature: parsed.temperature ?? 0.7,
       max_tokens: parsed.max_tokens ?? 4096,
       tools: parsed.tools || {},

@@ -88,6 +88,14 @@ function SelfHostingConfigurationPage() {
       </Callout>
 
       <H3 id="env-models">Models and search</H3>
+      <P>
+        Which model runs is not set here. A superadmin sets the <strong>default model</strong> under
+        Admin → Developer runtime → AI services → Default model; every part of the platform uses it
+        when it has no model of its own, or when its own can&apos;t run for the person (its provider
+        isn&apos;t connected for them, or their IAM model rules don&apos;t allow it). Until one is
+        set the built-in default, <C>openrouter/google/gemini-2.5-flash</C>, is used.{" "}
+        <C>OPENROUTER_DEFAULT_MODEL</C> and the per-section model variables are no longer read.
+      </P>
       <Table
         headers={["Variable", "Purpose"]}
         rows={[
@@ -95,7 +103,6 @@ function SelfHostingConfigurationPage() {
             <C key="a">OPENROUTER_API_KEY</C>,
             "Zero-config model fallback so a fresh workspace works before anyone connects their own provider.",
           ],
-          [<C key="b">OPENROUTER_DEFAULT_MODEL</C>, "Model used for that fallback"],
           [
             <C key="c">OPENROUTER_BASE_URL</C>,
             "Point at a compatible gateway instead of OpenRouter",

@@ -24,9 +24,12 @@ import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import {
-  OPENROUTER_CHAT_URL,
-  getOpenRouterApiKey,
-} from "@/utils/providers/openrouterDefault.server";
+  resolveOpenAICompatTransport,
+  type OpenAICompatTransport,
+} from "@/utils/providers/credentials.server";
+import { chooseModel } from "@/utils/providers/defaultModel.server";
+import { isBiCompatProvider } from "@/utils/providers/modelChoice";
+import { providerFetch } from "@/utils/ssrfGuard.server";
 import { budgetRefusal } from "@/utils/budgetGuard.server";
 import { extractUsage, recordGatewayCall } from "@/utils/observability/recordGatewayUsage.server";
 import {
@@ -43,7 +46,6 @@ const Body = z.object({
   knowledge_base_id: z.string().uuid(),
 });
 
-const EXTRACTION_MODEL = "google/gemini-2.5-flash";
 const CHUNK_SIZE = 3000;
 const MAX_DOCS = 200;
 const MAX_CHUNKS_PER_DOC = 3;
@@ -99,7 +101,8 @@ function snippetFor(text: string, term: string, radius = 140): string {
 
 async function extractFromChunk(
   chunk: string,
-  apiKey: string,
+  transport: OpenAICompatTransport,
+  model: string,
   spend: SpendTally,
 ): Promise<ExtractionResult> {
   const prompt = `Extract entities and relations from the text below.
@@ -119,14 +122,15 @@ Rules:
 TEXT:
 ${chunk}`;
 
-  const res = await fetch(OPENROUTER_CHAT_URL, {
+  const res = await providerFetch(transport.endpointUrl, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${apiKey}`,
+      ...(transport.apiKey ? { Authorization: `Bearer ${transport.apiKey}` } : {}),
       "Content-Type": "application/json",
+      ...(transport.extraHeaders ?? {}),
     },
     body: JSON.stringify({
-      model: EXTRACTION_MODEL,
+      model,
       messages: [
         {
           role: "system",
@@ -142,7 +146,7 @@ ${chunk}`;
   if (!res.ok) {
     addFailedCall(spend);
     const txt = await res.text().catch(() => "");
-    throw new Error(`Gemini extraction failed [${res.status}]: ${txt.slice(0, 200)}`);
+    throw new Error(`Extraction with ${model} failed [${res.status}]: ${txt.slice(0, 200)}`);
   }
 
   const json = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
@@ -207,15 +211,8 @@ export const Route = createFileRoute("/api/kb/build-graph")({
 
         const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
         const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-        const openRouterKey = getOpenRouterApiKey();
         if (!supabaseUrl || !serviceKey) {
           return Response.json({ error: "Backend misconfigured" }, { status: 500 });
-        }
-        if (!openRouterKey) {
-          return Response.json(
-            { error: "AI gateway is not configured. Contact support." },
-            { status: 500 },
-          );
         }
 
         const userClient = createClient(
@@ -253,25 +250,38 @@ export const Route = createFileRoute("/api/kb/build-graph")({
           return Response.json({ error: "Not authorized" }, { status: 403 });
         }
 
-        // FOUND FROM THE SURVEY (R97). Every chunk goes to EXTRACTION_MODEL on the
-        // user's behalf, so their model rules are asked first — and BEFORE the
-        // existing graph is wiped below, so a refused build leaves it intact.
-        const { modelAccessRefusal } = await import("@/utils/iam.server");
-        let refused: string | null;
-        try {
-          refused = await modelAccessRefusal(user.id, "openrouter", EXTRACTION_MODEL);
-        } catch (e) {
+        // FOUND FROM THE SURVEY (R97). Every chunk goes to the model on the
+        // user's behalf, so it is chosen — and their model rules and
+        // connections asked — BEFORE the existing graph is wiped below, so a
+        // refused build leaves it intact. The instance default runs it
+        // (providers/defaultModel.server), on the user's own connection to its
+        // provider or the instance key.
+        const chosen = await chooseModel(user.id, null);
+        if (!chosen.ok) return Response.json({ error: chosen.error }, { status: chosen.status });
+        if (!isBiCompatProvider(chosen.provider)) {
           return Response.json(
-            { error: `Could not check your model access: ${(e as Error).message}` },
-            { status: 503 },
+            {
+              error: `The default model ${chosen.spec} can't extract a graph (it needs an OpenAI-compatible provider). Change it under Admin → Developer runtime → AI services → Default model.`,
+            },
+            { status: 400 },
           );
         }
-        if (refused) return Response.json({ error: refused }, { status: 403 });
 
         // The monthly AI budget (VA-2026-10-25-17), asked for the same reason and
         // at the same point: a refused build leaves the existing graph intact.
         const overBudget = await budgetRefusal(user.id);
         if (overBudget) return Response.json({ error: overBudget }, { status: 402 });
+
+        const transport = await resolveOpenAICompatTransport({
+          userId: user.id,
+          provider: chosen.provider,
+        });
+        if (!transport || (!transport.apiKey && chosen.provider !== "ollama")) {
+          return Response.json(
+            { error: `${chosen.provider} is not connected for your account.` },
+            { status: 503 },
+          );
+        }
 
         // Mark building.
         await admin
@@ -339,7 +349,12 @@ export const Route = createFileRoute("/api/kb/build-graph")({
 
           for (const chunk of chunks) {
             try {
-              const { entities, relations } = await extractFromChunk(chunk, openRouterKey, spend);
+              const { entities, relations } = await extractFromChunk(
+                chunk,
+                transport,
+                chosen.model,
+                spend,
+              );
               chunksProcessed += 1;
 
               const localKey = new Map<string, string>(); // raw name -> entity key
@@ -394,14 +409,14 @@ export const Route = createFileRoute("/api/kb/build-graph")({
         }
 
         // The build's cost goes on the caller's spend as one trace, so a budget
-        // can see it (VA-2026-10-25-34). It runs on the operator's OpenRouter
-        // key, but the spend is this user's — as for every other surface.
+        // can see it (VA-2026-10-25-34). Whichever key it ran on, the spend is
+        // this user's — as for every other surface.
         if (spend.calls > 0) {
           void recordGatewayCall({
             userId: user.id,
             surface: "KB: Graph Build",
-            provider: "openrouter",
-            model: EXTRACTION_MODEL,
+            provider: chosen.provider,
+            model: chosen.model,
             tokensIn: spend.tokensIn,
             tokensOut: spend.tokensOut,
             providerCostUsd: reportedCost(spend),
@@ -534,7 +549,7 @@ export const Route = createFileRoute("/api/kb/build-graph")({
           mentions: mentionRows.length,
           chunks_processed: chunksProcessed,
           chunks_failed: chunksFailed,
-          model: EXTRACTION_MODEL,
+          model: chosen.spec,
         });
       },
     },

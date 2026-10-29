@@ -12,12 +12,16 @@
 // it — it can only ask whether one exists. That is all this returns: a boolean
 // and the default model id, never the key.
 import { createServerFn } from "@tanstack/react-start";
+import { instanceDefaultModel } from "@/utils/providers/defaultModel.server";
 
 export type InstanceProviderStatus = {
   /** True when the deployment has an instance-wide OpenRouter key set. */
   openrouter: boolean;
-  /** OPENROUTER_DEFAULT_MODEL, when the operator pinned one. */
-  openrouterDefaultModel: string | null;
+  /**
+   * The instance default model every surface falls back to (Admin ->
+   * Developer runtime -> AI services -> Default model; the built-in one until it is set).
+   */
+  defaultModel: { provider: string; model: string; spec: string; source: "admin" | "built-in" };
 };
 
 /**
@@ -27,8 +31,11 @@ export type InstanceProviderStatus = {
  * would only mean pickers cannot render before the session resolves.
  */
 export const getInstanceProviderStatus = createServerFn({ method: "GET" }).handler(
-  async (): Promise<InstanceProviderStatus> => ({
-    openrouter: Boolean(process.env.OPENROUTER_API_KEY),
-    openrouterDefaultModel: process.env.OPENROUTER_DEFAULT_MODEL || null,
-  }),
+  async (): Promise<InstanceProviderStatus> => {
+    const d = await instanceDefaultModel();
+    return {
+      openrouter: Boolean(process.env.OPENROUTER_API_KEY),
+      defaultModel: { provider: d.provider, model: d.model, spec: d.spec, source: d.source },
+    };
+  },
 );

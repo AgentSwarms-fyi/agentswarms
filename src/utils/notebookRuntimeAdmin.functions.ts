@@ -8,6 +8,7 @@ import type { EgressApplyResult } from "./notebookRuntime/egressApply.server";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { requireSuperadmin } from "@/utils/iam.server";
+import { parseModelSpec } from "@/utils/providers/defaultModel.server";
 import { ensureRuntimeSecret, runtimeSecretConfigured } from "@/utils/notebookRuntime/token.server";
 import { appInContainer, dockerBase } from "@/utils/notebookRuntime/docker.server";
 
@@ -175,13 +176,13 @@ const DEFAULTS: NbRuntimeSettings = {
   sheets_export_max_rows: 100_000,
   sheets_version_interval_minutes: 30,
   sheets_versions_max: 50,
-  sheets_assist_model: "openrouter/google/gemini-3-flash-preview",
+  sheets_assist_model: "",
   sheets_assist_per_minute: 30,
   sheets_ai_fill_max_rows: 2000,
   ai_sql_max_calls_per_statement: 200,
-  ai_sql_default_model: "openrouter/google/gemini-3-flash-preview",
+  ai_sql_default_model: "",
   ai_sql_cache_ttl_days: 30,
-  document_vision_model: "openrouter/google/gemini-3-flash-preview",
+  document_vision_model: "",
   document_vision_max_pages: 200,
   sandbox_tmpfs_mb: 512,
   batch_max_minutes: 120,
@@ -262,16 +263,13 @@ export const nbRuntimeGetState = createServerFn({ method: "POST" })
           sheets_export_max_rows: row.sheets_export_max_rows ?? 100_000,
           sheets_version_interval_minutes: row.sheets_version_interval_minutes ?? 30,
           sheets_versions_max: row.sheets_versions_max ?? 50,
-          sheets_assist_model:
-            row.sheets_assist_model ?? "openrouter/google/gemini-3-flash-preview",
+          sheets_assist_model: row.sheets_assist_model ?? "",
           sheets_assist_per_minute: row.sheets_assist_per_minute ?? 30,
           sheets_ai_fill_max_rows: row.sheets_ai_fill_max_rows ?? 2000,
           ai_sql_max_calls_per_statement: row.ai_sql_max_calls_per_statement ?? 200,
-          ai_sql_default_model:
-            row.ai_sql_default_model ?? "openrouter/google/gemini-3-flash-preview",
+          ai_sql_default_model: row.ai_sql_default_model ?? "",
           ai_sql_cache_ttl_days: row.ai_sql_cache_ttl_days ?? 30,
-          document_vision_model:
-            row.document_vision_model ?? "openrouter/google/gemini-3-flash-preview",
+          document_vision_model: row.document_vision_model ?? "",
           document_vision_max_pages: row.document_vision_max_pages ?? 200,
           sandbox_tmpfs_mb: row.sandbox_tmpfs_mb ?? 512,
           batch_max_minutes: row.batch_max_minutes,
@@ -381,13 +379,16 @@ export const nbRuntimeUpdateSettings = createServerFn({ method: "POST" })
         sheets_export_max_rows: z.number().int().min(100).max(100_000_000).optional(),
         sheets_version_interval_minutes: z.number().int().min(1).max(10_080).optional(),
         sheets_versions_max: z.number().int().min(1).max(100_000).optional(),
-        sheets_assist_model: z.string().trim().min(3).max(160).optional(),
+        // Empty = no model of its own: the instance default model runs it.
+        sheets_assist_model: z.string().trim().max(160).optional(),
         sheets_assist_per_minute: z.number().int().min(1).max(100_000).optional(),
         sheets_ai_fill_max_rows: z.number().int().min(1).max(10_000_000).optional(),
         ai_sql_max_calls_per_statement: z.number().int().min(1).max(1000000).optional(),
-        ai_sql_default_model: z.string().trim().min(3).max(160).optional(),
+        // Empty = no model of its own: the instance default model runs it.
+        ai_sql_default_model: z.string().trim().max(160).optional(),
         ai_sql_cache_ttl_days: z.number().int().min(1).max(3650).optional(),
-        document_vision_model: z.string().trim().min(3).max(160).optional(),
+        // Empty = no model of its own: the instance default model runs it.
+        document_vision_model: z.string().trim().max(160).optional(),
         document_vision_max_pages: z.number().int().min(1).max(100000).optional(),
         sandbox_tmpfs_mb: z.number().int().min(64).optional(),
         egress_allowlist: z.array(z.string().min(1).max(255)).max(200).optional(),
@@ -417,6 +418,29 @@ export const nbRuntimeUpdateSettings = createServerFn({ method: "POST" })
           error: e instanceof Error ? e.message : "Could not create signing secret",
         };
       }
+    }
+    // A section model must be provider/model, or empty. Empty is stored as
+    // NULL: that section runs on the instance default model (Admin ->
+    // Developer runtime -> AI services).
+    for (const k of [
+      "sheets_assist_model",
+      "ai_sql_default_model",
+      "document_vision_model",
+    ] as const) {
+      const v = fields[k];
+      if (v && !parseModelSpec(v)) {
+        return {
+          ok: false,
+          error: `"${v}" is not provider/model (${k}) — for example openrouter/google/gemini-2.5-flash, or leave it empty for the default model.`,
+        };
+      }
+    }
+    for (const k of [
+      "sheets_assist_model",
+      "ai_sql_default_model",
+      "document_vision_model",
+    ] as const) {
+      if (fields[k] !== undefined && !fields[k]) (fields as Record<string, unknown>)[k] = null;
     }
     const patch = { ...fields, updated_at: new Date().toISOString() };
     const { error } = await supabaseAdmin

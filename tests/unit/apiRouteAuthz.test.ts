@@ -84,8 +84,14 @@ describe("skills.generate bounds what a caller can ask for", () => {
   it("accepts only an allow-listed provider", () => {
     // The provider selects the transport that gets fetched. An arbitrary
     // string here would be choosing the destination.
-    expect(src).toMatch(/isBiCompatProvider\(provider\)/);
-    expect(src).toMatch(/can't be used to generate skills/);
+    // The request's provider is only a choice: one off the list is not used,
+    // and whatever is chosen (the request or the instance default) is
+    // checked against the list again before a transport is resolved.
+    expect(src).toMatch(/!wanted \|\| isBiCompatProvider\(wanted\)/);
+    expect(src).toMatch(/if \(!isBiCompatProvider\(chosen\.provider\)\) \{/);
+    expect(src.indexOf("isBiCompatProvider(chosen.provider)")).toBeLessThan(
+      src.indexOf("resolveOpenAICompatTransport("),
+    );
   });
 });
 

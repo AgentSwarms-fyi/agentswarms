@@ -132,7 +132,7 @@ function OntologyDocsPage() {
         rows={[
           [
             "Overview",
-            "The model as a canvas, how complete it is, how well it fits the data (rows, key uniqueness, link match rates — measured) and rule health.",
+            "The model as a canvas, how complete it is, how well it fits the data (rows, key uniqueness, link match rates — measured) and rule health. The description above the canvas is what the gallery shows and what AI reads first: Edit it to say what the ontology covers and what it leaves out.",
           ],
           [
             "Model",
@@ -230,10 +230,18 @@ function OntologyDocsPage() {
         you. The model never writes SQL, and never decides on its own which groupings are safe: the
         catalog spells out every grouping each metric can use without double counting — the same
         ones the Metrics tab offers. A question the ontology cannot answer is refused with the
-        reason. Every answer carries a <strong>trust envelope</strong>: the metric it used and
-        whether it is certified, the types, links and tables it read, what your share hid or
-        limited, rules the data currently breaks on those types, and whether a person verified the
-        question.
+        reason and the model that planned it. Every answer carries a <strong>trust envelope</strong>
+        : the metric it used and whether it is certified, the types, links and tables it read, what
+        your share hid or limited, rules the data currently breaks on those types, whether a person
+        verified the question, and which model planned it.
+      </P>
+      <P>
+        The model picker beside the question box chooses the model. Left on{" "}
+        <strong>Server default</strong>, Ask runs on the platform&apos;s default model, which a
+        superadmin sets under Admin → Developer runtime → AI services → Default model; a model you
+        pick but can&apos;t use (its provider isn&apos;t connected for you, or your model rules
+        don&apos;t allow it) falls back to the default, and the trace says so. Draft from tables has
+        the same picker when it writes descriptions.
       </P>
       <P>
         The owner can verify a good answer. A verified question answers again without a model call
@@ -241,6 +249,12 @@ function OntologyDocsPage() {
         unchanged, changed (new data or a new definition) or broken (the model no longer supports
         it).
       </P>
+      <Callout kind="info" title="Publishing checks the verified questions first">
+        <strong>Publish</strong> runs every verified question against the draft before it becomes
+        the version everyone reads. If a change breaks one — a renamed property, a removed link —
+        the dialog lists it, and publishing needs a tick on <strong>Publish anyway</strong>.{" "}
+        <strong>Versions</strong> shows how each version did, and the audit entry records it.
+      </Callout>
 
       <H2 id="actions">Actions and the edit log</H2>
       <P>

@@ -57,6 +57,7 @@ import {
   CopyPlus,
   Puzzle,
 } from "lucide-react";
+import { useInstanceDefaultModel } from "@/hooks/use-instance-default-model";
 import { useAuth } from "@/hooks/use-auth";
 import { useApproverDirectory } from "@/hooks/use-approver-directory";
 import { runSandboxed, safeStringify } from "@/lib/sandbox/jsSandbox";
@@ -444,8 +445,14 @@ export function NodeInspector({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const currentProvider = data.provider || "openrouter";
-  const currentModel = data.model || "openai/gpt-4o-mini";
+  // A node with no model of its own runs on the instance default (Admin ->
+  // Developer runtime -> AI services); show that rather than a model it
+  // would not use.
+  const instanceDefault = useInstanceDefaultModel();
+  const currentProvider = data.provider || instanceDefault?.provider || "openrouter";
+  const currentModel =
+    data.model ||
+    (instanceDefault && instanceDefault.provider === currentProvider ? instanceDefault.model : "");
   // IAM model governance: hide providers/models the admin hasn't allowed.
   const myModelRules = useMyModelRules();
   const iamAllowedProviders = allowedProviders(myModelRules);

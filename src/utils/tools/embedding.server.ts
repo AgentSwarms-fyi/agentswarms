@@ -26,8 +26,7 @@ import {
 export { chunkText };
 export type { ChunkOptions, ChunkStrategy };
 import { chunkParentChild, isChunkMode, type ChunkMode, DEFAULT_PARENT_TOKENS } from "@/lib/kbRag";
-import { generateQaPairs } from "./kbQa.server";
-import { getOpenRouterApiKey } from "@/utils/providers/openrouterDefault.server";
+import { generateQaPairs, qaTarget } from "./kbQa.server";
 import {
   externalStoreConfigured,
   storeFor,
@@ -358,13 +357,17 @@ export async function embedAndStoreDocuments(opts: {
         for (const child of pc.children) pushRow(child, child, slot, "text", null);
       }
     } else if (perDoc.mode === "qa") {
-      const key = getOpenRouterApiKey();
+      // The instance default model writes the pairs, on the owner's own
+      // connection (providers/defaultModel.server); asked once per document.
+      const target = await qaTarget(d.user_id ?? opts.userId ?? null);
       // Passages are chunked first so each generation call sees a bounded,
       // coherent piece of text rather than a whole document.
-      const passages = chunkText(text, { ...chunkOpts, chunkOverlap: 0 });
+      const passages = target.ok ? chunkText(text, { ...chunkOpts, chunkOverlap: 0 }) : [];
+      if (!target.ok) warnings.push(`${d.id}: ${target.error}`);
       let pairCount = 0;
       for (const passage of passages) {
-        const res = await generateQaPairs(passage, key ?? "");
+        if (!target.ok) break;
+        const res = await generateQaPairs(passage, target.target);
         if (!res.ok) {
           // Reported, never downgraded. Silently writing flat chunks would
           // leave a knowledge base that disagrees with its own settings, and

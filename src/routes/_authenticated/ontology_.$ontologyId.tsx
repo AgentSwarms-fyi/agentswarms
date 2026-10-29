@@ -40,6 +40,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useTokenRef } from "@/hooks/use-token-ref";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -70,6 +71,7 @@ import { ActionsTab } from "@/components/ontology/ActionsTab";
 import { HistoryTab } from "@/components/ontology/HistoryTab";
 import { ExportTab } from "@/components/ontology/ExportTab";
 import { ChangeList } from "@/components/ontology/ChangeList";
+import { EvalLine, EvalResults } from "@/components/ontology/EvalSummary";
 import {
   ontologyCompare,
   ontologyGet,
@@ -78,6 +80,8 @@ import {
   ontologySave,
   type OntologyDetail,
 } from "@/utils/ontology.functions";
+import { ontologyRunEval } from "@/utils/ontologyAi.functions";
+import type { EvalSummary } from "@/utils/ontology/evals.server";
 import type { SpecDiff } from "@/lib/ontology/diff";
 import type { OntologySpec } from "@/lib/ontology/spec";
 import { validateSpec } from "@/lib/ontology/validate";
@@ -537,22 +541,41 @@ function PublishDialog(props: {
   const { id, detail, tokenRef } = useOntology();
   const publishFn = useServerFn(ontologyPublish);
   const compareFn = useServerFn(ontologyCompare);
+  const evalFn = useServerFn(ontologyRunEval);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [diff, setDiff] = useState<SpecDiff | null>(null);
+  // Semantic CI: the verified questions, run against this draft before it
+  // is frozen. null while checking; "skipped" when the check itself failed.
+  const [check, setCheck] = useState<EvalSummary | "skipped" | null>(null);
+  const [allowBroken, setAllowBroken] = useState(false);
 
   useEffect(() => {
     if (!props.open) return;
     setDiff(null);
+    setCheck(null);
+    setAllowBroken(false);
     void (async () => {
       await props.flush();
-      if (!detail.published_version) return;
-      const res = await compareFn({
-        data: { access_token: tokenRef.current, id, base: detail.published_version, target: null },
-      });
-      if (res.ok) setDiff(res.diff);
+      const [cmp, ev] = await Promise.all([
+        detail.published_version
+          ? compareFn({
+              data: {
+                access_token: tokenRef.current,
+                id,
+                base: detail.published_version,
+                target: null,
+              },
+            })
+          : Promise.resolve(null),
+        evalFn({ data: { access_token: tokenRef.current, id } }).catch(() => null),
+      ]);
+      if (cmp?.ok) setDiff(cmp.diff);
+      setCheck(ev?.ok ? ev : "skipped");
     })();
   }, [props.open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const broken = check && check !== "skipped" ? check.errors : 0;
 
   const publish = async () => {
     setBusy(true);
@@ -565,11 +588,30 @@ function PublishDialog(props: {
           id,
           revision: fresh ?? detail.revision,
           note: note.trim() || undefined,
+          ...(allowBroken ? { allow_broken: true } : {}),
         },
       });
-      if (!res.ok) toast.error(res.error);
-      else {
-        toast.success(`Published version ${res.version}`);
+      if (!res.ok) {
+        toast.error(res.error);
+        // The server's own run found broken questions this dialog had not
+        // (the draft or the data moved): show them and ask again.
+        if ("broken" in res) {
+          setCheck({
+            total: res.broken.length,
+            same: 0,
+            changed: 0,
+            errors: res.broken.length,
+            results: res.broken,
+          });
+          setAllowBroken(false);
+        }
+      } else {
+        toast.success(
+          `Published version ${res.version}` +
+            (res.eval
+              ? ` · ${res.eval.total} verified question${res.eval.total === 1 ? "" : "s"} checked`
+              : ""),
+        );
         setNote("");
         props.onClose();
         props.onPublished();
@@ -611,6 +653,45 @@ function PublishDialog(props: {
                 The first version: everything in the draft is published.
               </p>
             )}
+            <section aria-label="Verified questions against this draft" className="space-y-2">
+              {check === null ? (
+                <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Running the verified questions
+                  against this draft…
+                </p>
+              ) : check === "skipped" ? (
+                <p className="text-xs text-muted-foreground">
+                  The verified questions could not be run now; publishing runs them again.
+                </p>
+              ) : check.total === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No verified questions yet — verify good answers under Ask and every publish checks
+                  them.
+                </p>
+              ) : (
+                <>
+                  <EvalLine counts={check} />
+                  <EvalResults results={check.results} />
+                  {broken > 0 && (
+                    <label className="flex items-start gap-2 rounded-md border border-rose-500/40 bg-rose-500/5 p-2.5 text-sm">
+                      <Checkbox
+                        checked={allowBroken}
+                        onCheckedChange={(v) => setAllowBroken(v === true)}
+                        aria-label="Publish even though verified questions no longer answer"
+                        className="mt-0.5"
+                      />
+                      <span>
+                        Publish anyway. Until the owner verifies{" "}
+                        {broken === 1 ? "an answer to it" : "answers to them"} again,{" "}
+                        {broken === 1 ? "this question is" : "these questions are"} planned by AI
+                        afresh, without the checked answer, and Evaluate marks{" "}
+                        {broken === 1 ? "it" : "them"} broken.
+                      </span>
+                    </label>
+                  )}
+                </>
+              )}
+            </section>
             <div className="space-y-1.5">
               <Label htmlFor="publish-note">What changed, for the people who use it</Label>
               <Textarea
@@ -627,8 +708,13 @@ function PublishDialog(props: {
           <Button variant="ghost" onClick={props.onClose}>
             Cancel
           </Button>
-          <Button onClick={publish} disabled={busy || props.errors > 0}>
-            {busy && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />} Publish
+          <Button
+            onClick={publish}
+            disabled={busy || props.errors > 0 || check === null || (broken > 0 && !allowBroken)}
+            variant={broken > 0 ? "destructive" : "default"}
+          >
+            {busy && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+            {broken > 0 ? "Publish anyway" : "Publish"}
           </Button>
         </DialogFooter>
       </DialogContent>

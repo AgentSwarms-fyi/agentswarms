@@ -168,8 +168,9 @@ async function serverChat(args: {
       // Every node turn joins the run's decision, so the run's provenance is
       // one id rather than one per node.
       decisionId: args.runId ?? undefined,
-      provider: d.provider || "openrouter",
-      model: d.model || "google/gemini-3-flash-preview",
+      // No model on the node: the chat route runs it on the instance default.
+      provider: d.provider || undefined,
+      model: d.model || undefined,
       systemPrompt: args.systemPrompt,
       temperature: typeof d.temperature === "number" ? d.temperature : 0.4,
       maxTokens: 8192,

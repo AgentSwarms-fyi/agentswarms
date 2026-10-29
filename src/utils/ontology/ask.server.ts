@@ -26,6 +26,8 @@ import {
   aiCatalog,
   askPlanSchema,
   askSystemPrompt,
+  examplePlans,
+  parseAskPlan,
   questionSimilarity,
   tidyPlan,
   type AskPlan,
@@ -76,7 +78,14 @@ export type AskAnswer = {
   trust: TrustEnvelope;
 };
 
-export type AskRefusal = { ok: true; kind: "refuse"; reason: string; trust: null };
+export type AskRefusal = {
+  ok: true;
+  kind: "refuse";
+  reason: string;
+  trust: null;
+  /** The model that refused, or failed to plan; absent when none was asked. */
+  model?: string | null;
+};
 
 const VERIFIED_MATCH = 0.82;
 
@@ -257,8 +266,11 @@ export async function askOntology(args: {
   const system = askSystemPrompt(
     aiCatalog(access.spec, opts),
     new Date().toISOString().slice(0, 10),
+    examplePlans(access.spec, opts),
   );
   let prompt = `QUESTION: ${question}`;
+  let model: string | null = args.model ?? null;
+  let problem = "";
   for (let attempt = 0; attempt < 2; attempt++) {
     const res = await llmJsonServer({
       userId,
@@ -272,19 +284,21 @@ export async function askOntology(args: {
       surface: args.surface ?? "Ontology: Ask",
     });
     if (!res.ok) return { ok: false, error: res.error };
-    const parsed = askPlanSchema.safeParse(res.result);
+    // The model that actually planned it, even when the asker left the choice
+    // to the server default.
+    model = res.model ?? model;
+    const parsed = parseAskPlan(res.result);
     if (!parsed.success) {
-      prompt = `QUESTION: ${question}\n\nYour previous answer was not a valid plan (${parsed.error.issues[0]?.path.join(".")}: ${parsed.error.issues[0]?.message}). Return one valid JSON object.`;
+      const issue = parsed.error.issues[0];
+      problem = `${issue?.path.join(".") || "the plan"}: ${issue?.message ?? "not a plan"}`;
+      prompt = `QUESTION: ${question}\n\nYour previous answer was not a valid plan (${problem}). Return one valid JSON object.`;
       continue;
     }
     const plan = tidyPlan(access.spec, parsed.data);
     if (plan.kind === "refuse")
-      return { ok: true, kind: "refuse", reason: plan.reason, trust: null };
+      return { ok: true, kind: "refuse", reason: plan.reason, trust: null, model };
     try {
-      return await runPlan(userId, access, opts, plan, {
-        verified: null,
-        model: args.model ?? null,
-      });
+      return await runPlan(userId, access, opts, plan, { verified: null, model });
     } catch (e) {
       const msg = (e as Error).message;
       if (attempt === 1) {
@@ -293,16 +307,20 @@ export async function askOntology(args: {
           kind: "refuse",
           reason: `The ontology could not answer that as planned: ${msg}`,
           trust: null,
+          model,
         };
       }
       prompt = `QUESTION: ${question}\n\nYour plan ${JSON.stringify(plan)} failed: ${msg}\nFix the plan using only catalog names, or refuse if the ontology cannot answer.`;
     }
   }
+  // Say what was wrong: "no valid plan" alone reads as the ontology lacking
+  // something, when it is usually the model not following the shape.
   return {
     ok: true,
     kind: "refuse",
-    reason: "No valid plan could be made for that question",
+    reason: `The model did not return a usable plan, twice (last: ${problem}). A stronger model may answer it.`,
     trust: null,
+    model,
   };
 }
 

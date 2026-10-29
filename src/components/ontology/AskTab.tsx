@@ -26,11 +26,13 @@ import {
   User,
 } from "lucide-react";
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useOntology } from "@/components/ontology/OntologyContext";
-import { formatValue, relativeTime, TypeBadge } from "@/components/ontology/theme";
+import { formatPeriod, formatValue, relativeTime, TypeBadge } from "@/components/ontology/theme";
+import type { ColumnMeta } from "@/lib/ontology/compile";
 import type { AskAnswer, AskRefusal } from "@/utils/ontology/ask.server";
 import {
   ontologyAsk,
@@ -52,6 +54,7 @@ import {
   type OntologySpec,
 } from "@/lib/ontology/spec";
 import { cn } from "@/lib/utils";
+import { parseModelChoice } from "@/utils/providers/modelChoice";
 
 type Turn = {
   question: string;
@@ -113,6 +116,9 @@ export function AskTab() {
   const [busy, setBusy] = useState(false);
   const [verified, setVerified] = useState<VerifiedQuestion[] | null>(null);
   const [evaluating, setEvaluating] = useState(false);
+  // Which model plans: null = the server default (the connection's default
+  // model, then the instance's). Remembered for this tab only.
+  const [modelChoice, setModelChoice] = useState<string | null>(null);
   const isOwner = o.detail.role === "owner";
   const suggestions = useMemo(() => suggestQuestions(o.spec), [o.spec]);
   const bottom = useRef<HTMLDivElement>(null);
@@ -136,7 +142,15 @@ export function AskTab() {
     setBusy(true);
     setTurns((t) => [...t, { question, answer: null }]);
     try {
-      const res = await askFn({ data: { access_token: o.tokenRef.current, id: o.id, question } });
+      const choice = parseModelChoice(modelChoice);
+      const res = await askFn({
+        data: {
+          access_token: o.tokenRef.current,
+          id: o.id,
+          question,
+          ...(choice ? { provider: choice.provider, model: choice.model } : {}),
+        },
+      });
       setTurns((t) => t.map((x, i) => (i === t.length - 1 ? { ...x, answer: res } : x)));
     } catch (e) {
       setTurns((t) =>
@@ -234,6 +248,11 @@ export function AskTab() {
                       <div>
                         <p className="font-medium">The ontology cannot answer that</p>
                         <p className="text-muted-foreground">{t.answer.reason}</p>
+                        {t.answer.model && (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Planned by {t.answer.model}
+                          </p>
+                        )}
                       </div>
                     </div>
                   ) : (
@@ -271,6 +290,9 @@ export function AskTab() {
             className="min-h-[42px] resize-none"
             aria-label="Your question"
           />
+          <div className="w-44 flex-none" title="The model that plans the answer">
+            <BiModelSelect value={modelChoice} onChange={setModelChoice} allowUnset />
+          </div>
           <Button type="submit" disabled={!q.trim() || busy} aria-label="Ask">
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           </Button>
@@ -386,6 +408,11 @@ function AnswerCard({
         (m) => m.name === a.trust.metric!.name,
       )?.format
     : undefined;
+  // A period reads as people name it ("Jan 2024"), as on the Metrics tab.
+  const cell = (c: ColumnMeta, v: unknown) =>
+    c.grain
+      ? formatPeriod(v, c.grain)
+      : formatValue(v, c.key === metricKey ? { format: metricFmt } : undefined);
   return (
     <div className="space-y-3 rounded-xl border border-border bg-background p-3">
       <p className="text-sm">{a.explanation}</p>
@@ -398,7 +425,7 @@ function AnswerCard({
           <ResponsiveContainer width="100%" height="100%">
             <BarChart
               data={a.rows.map((r) => ({
-                label: groupCols.map((c) => formatValue(r[c.key])).join(" · "),
+                label: groupCols.map((c) => cell(c, r[c.key])).join(" · "),
                 value: Number(r[metricKey] ?? 0),
               }))}
             >
@@ -442,10 +469,7 @@ function AnswerCard({
                       {c.masked ? (
                         <span className="italic text-muted-foreground">hidden</span>
                       ) : (
-                        formatValue(
-                          r[c.key],
-                          c.key === metricKey ? { format: metricFmt } : undefined,
-                        )
+                        cell(c, r[c.key])
                       )}
                     </td>
                   ))}
@@ -509,6 +533,7 @@ function TrustEnvelope({ a }: { a: AskAnswer }) {
         ) : (
           <Badge variant="outline" className="gap-1 text-[10px]">
             <Bot className="h-3 w-3" /> Planned by AI over the ontology
+            {t.model ? ` · ${t.model}` : ""}
           </Badge>
         )}
         {t.metric && (

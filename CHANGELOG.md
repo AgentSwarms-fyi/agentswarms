@@ -36,8 +36,59 @@ development branch and may be ahead of the latest tag.
   Claude Platform on AWS; it also proves itself on apply. One (R389,
   `20261029000000`) limits reading a profile to its owner; it proves itself on
   apply, reading a real profile as another user and as its owner.
+- **Set the default model in Admin, not in .env** (`20261031000000`). A
+  superadmin sets it under **Admin → Developer runtime → AI services →
+  Default model**; until then `openrouter/google/gemini-2.5-flash` is used.
+  `OPENROUTER_DEFAULT_MODEL`, `SHEETS_ASSIST_MODEL`, `AI_SQL_DEFAULT_MODEL`,
+  `DOCUMENT_VISION_MODEL` and `ML_ASSIST_MODEL` are no longer read; the page
+  lists any still set. The migration clears the Sheets, AI SQL and vision
+  model settings where they hold `openrouter/google/gemini-3-flash-preview`,
+  the value the old form saved without anyone choosing it — set them again if
+  you meant it.
 
 ### Added
+
+- **One default model, and a section's own model always first.** Every
+  surface that calls a model — agent chat, swarm nodes, BI, Ask over an
+  ontology, AI in SQL, the Sheets assistant, document reading, memory,
+  knowledge-graph extraction, Q&A indexing, the ETL / SQL / skill generators,
+  the ML assistant, embeds and notebooks — now resolves its model in one
+  place (`providers/defaultModel.server`). A model chosen in an agent, a node,
+  a picker or a section runs when the person can use it; when nothing is
+  chosen, or the choice can't run for them (its provider isn't connected, or
+  their IAM model rules don't allow it, or the provider answers that it
+  doesn't know the model), the call runs on the default instead, and the
+  trace records `model_fallback` with what was chosen and why it couldn't
+  run. A default that can't run either is an error naming both and where to
+  change it. Before, each surface had its own fallback — five different
+  models across a dozen places, plus the environment — and a disallowed or
+  unconnected choice failed instead of falling back. Graph extraction, Q&A
+  indexing and memory used to run only on the operator's OpenRouter key; they
+  now run on the person's own connection to the chosen provider. Ask and
+  Draft from tables over an ontology have the model picker other pages have,
+  and an answer's trust envelope names the model that planned it. In
+  **Traces**, a call that fell back is marked _fallback_ in the list, and its
+  detail says which model could not run and why.
+
+- **Publishing an ontology runs its verified questions first.** Each one's
+  plan is compiled and run against the draft about to be published; when a
+  change breaks one (a renamed property, a removed link) the publish dialog
+  lists it, and publishing over it needs a tick on **Publish anyway**. Each
+  version, and its audit entry, keeps how its questions did, and **Versions**
+  shows it. Ask also got better on smaller models: the prompt carries two
+  worked plans in the ontology's own names, a field a model writes as `null`
+  counts as absent instead of a broken plan, and a refusal says why and which
+  model planned it — before, gpt-4o-mini answered "how many orders each month"
+  with a bare "No valid plan could be made". An ontology's description can
+  now be edited from its Overview (it is what the gallery shows and what the
+  AI reads first), and Ask labels a monthly answer "Jan 2024", as the Metrics
+  tab does, instead of `2024-01-01`.
+- **Fixed: a server-to-server model call ignored the memory settings it
+  sent.** AI in SQL, document reading, the Sheets assistant and headless swarm
+  nodes call the chat route with memory switched off; with no session to read
+  an agent's stored settings, the route used the defaults and dropped the
+  call's own, so their traces said short-term memory was on. Nothing was read
+  from or written to memory on that path; the trace now says what applied.
 
 - **Enterprise Ontology** (Data & BI → Enterprise Ontology). Describe the business
   once — object types bound to lakehouse tables, properties and value types,

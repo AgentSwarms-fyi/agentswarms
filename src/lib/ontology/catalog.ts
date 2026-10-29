@@ -165,7 +165,86 @@ export const askPlanSchema = z.discriminatedUnion("kind", [
 ]);
 export type AskPlan = z.infer<typeof askPlanSchema>;
 
-export function askSystemPrompt(catalog: string, today: string): string {
+/** Drops null object fields, but a filter's `value`, which may be null. */
+function withoutNulls(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(withoutNulls);
+  if (!v || typeof v !== "object") return v;
+  return Object.fromEntries(
+    Object.entries(v)
+      .filter(([k, x]) => x !== null || k === "value")
+      .map(([k, x]) => [k, withoutNulls(x)]),
+  );
+}
+
+/**
+ * A plan as a model wrote it. Smaller models fill every field of the shape
+ * they were shown, writing null for the ones they do not use ("grain": null,
+ * "limit": null); null there means absent, not a broken plan.
+ */
+export function parseAskPlan(raw: unknown) {
+  return askPlanSchema.safeParse(withoutNulls(raw));
+}
+
+const isDate = (spec: OntologySpec, type: string) =>
+  ["date", "datetime", "timestamp"].includes(baseTypeOf(spec, type) ?? "");
+
+/**
+ * Worked plans in this ontology's own names: a metric by a date, and a metric
+ * by a linked type's property. Smaller models copy a shape far better than
+ * they follow rules — gpt-4o-mini refused "orders each month" as needing a
+ * link until it saw one.
+ */
+export function examplePlans(spec: OntologySpec, opts: CompileOpts): string[] {
+  const out: string[] = [];
+  let byDate = false;
+  let byLink = false;
+  for (const t of spec.objectTypes) {
+    if (!t.source || !t.metrics.length) continue;
+    const m = t.metrics.find((x) => x.certified) ?? t.metrics[0];
+    const label = m.label ?? m.name;
+    const visible = (at: ObjectType) =>
+      allProperties(spec, at).filter((p) => !isMasked(spec, at, p.name, opts));
+    const date = byDate ? undefined : visible(t).find((p) => isDate(spec, p.type));
+    if (date) {
+      byDate = true;
+      out.push(
+        `"${label} by month" → ${JSON.stringify({
+          kind: "metric",
+          explanation: `${label} for each month`,
+          query: {
+            objectType: t.name,
+            metric: m.name,
+            groupBy: [{ property: date.name, grain: "month" }],
+            order: "group_asc",
+          },
+        })}`,
+      );
+    }
+    for (const r of byLink ? [] : toOneReach(spec, t.name)) {
+      const there = findObjectType(spec, r.type);
+      const p = there && visible(there).find((x) => !isDate(spec, x.type));
+      if (!there || !p) continue;
+      byLink = true;
+      out.push(
+        `"${label} by ${titleOf(there).toLowerCase()} ${p.name}" → ${JSON.stringify({
+          kind: "metric",
+          explanation: `${label} for each ${p.name} of the ${titleOf(there).toLowerCase()}`,
+          query: {
+            objectType: t.name,
+            metric: m.name,
+            groupBy: [{ property: p.name, path: r.path }],
+            order: "metric_desc",
+          },
+        })}`,
+      );
+      break;
+    }
+    if (byDate && byLink) break;
+  }
+  return out;
+}
+
+export function askSystemPrompt(catalog: string, today: string, examples: string[] = []): string {
   return [
     "You answer business questions by planning a query over an ENTERPRISE ONTOLOGY.",
     "You never write SQL. You return ONE JSON object, nothing else, in one of these shapes:",
@@ -184,6 +263,7 @@ export function askSystemPrompt(catalog: string, today: string): string {
     "- Filter values for properties with listed values must be one of those values.",
     "- If the question is ambiguous between two reasonable plans, pick the more common business reading and say so in explanation.",
     "- explanation: one sentence, in business words, of exactly what the plan computes.",
+    ...(examples.length ? ["EXAMPLES (this ontology):", ...examples] : []),
     "",
     catalog,
   ].join("\n");

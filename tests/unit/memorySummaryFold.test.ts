@@ -19,6 +19,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/utils/observability/recordGatewayUsage.server", () => ({
   recordGatewayCall: async () => {},
 }));
+// The model the fold runs on is chosen elsewhere (providers/defaultModel.server);
+// here it is a fixed connection, and the call reaches the stubbed fetch.
+vi.mock("@/utils/providers/defaultModel.server", () => ({
+  openAiCompatTarget: async (_userId: string, request: { model?: string } | null) => ({
+    ok: true,
+    transport: { endpointUrl: "https://model.test/v1/chat/completions", apiKey: "test-key" },
+    model: request?.model ?? "default/model",
+    spec: `openrouter/${request?.model ?? "default/model"}`,
+    fellBack: null,
+  }),
+}));
+vi.mock("@/utils/ssrfGuard.server", () => ({
+  providerFetch: (url: string, init: unknown) =>
+    (globalThis.fetch as unknown as (u: string, i: unknown) => unknown)(url, init),
+}));
 
 import { summarizeIfNeeded } from "@/utils/memory/summarize.server";
 import { parseGuardrails, piiRedactorFor } from "@/utils/guardrails";
@@ -112,7 +127,6 @@ const run = (sb: never) =>
     conversationId: "c1",
     windowMessages: 20,
     summaryModel: "openai/gpt-4o-mini",
-    apiKey: "test-key",
   });
 
 describe("a conversation longer than one read", () => {
@@ -240,7 +254,6 @@ describe("under an agent's PII policy (R351)", () => {
       conversationId: "c1",
       windowMessages: 20,
       summaryModel: "openai/gpt-4o-mini",
-      apiKey: "test-key",
       redact: (text, side) => redact(text, side).text,
     });
     expect(prompts).toHaveLength(1);

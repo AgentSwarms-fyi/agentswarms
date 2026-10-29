@@ -257,4 +257,22 @@ describe("ontology server functions", () => {
     expect(tool).toContain("x.name.toLowerCase() === o.name.toLowerCase()");
     expect(tool).toContain('.order("updated_at", { ascending: false })');
   });
+
+  it("publishing runs the verified questions first and stops on a broken one", () => {
+    // Semantic CI: a draft that no longer answers a verified question is not
+    // frozen into a version unless the owner, shown which, says so.
+    const body = fns.find((f) => f.name === "ontologyPublish")!.body;
+    const run = body.indexOf("await runVerifiedQuestions(");
+    const insert = body.indexOf('.from("ontology_versions").insert(');
+    expect(run).toBeGreaterThan(-1);
+    expect(run).toBeLessThan(insert);
+    expect(body).toMatch(/if \(summary\.errors > 0 && !data\.allow_broken\) \{/);
+    expect(body).toContain('broken: summary.results.filter((r) => r.status === "error")');
+    // The counts travel with the version and the audit row.
+    expect(body).toContain("...(evalCounts ? { eval: evalCounts } : {})");
+    expect(body).toContain("published_with_broken_questions: true");
+    // Evaluate and Publish share one runner, so they cannot disagree.
+    const evalBody = fns.find((f) => f.name === "ontologyRunEval")!.body;
+    expect(evalBody).toContain("await runVerifiedQuestions(ctx.userId, ctx.a, ctx.opts, data.id)");
+  });
 });

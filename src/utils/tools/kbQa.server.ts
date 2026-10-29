@@ -9,10 +9,59 @@
 //
 // The cost is honest and worth stating plainly: this makes an LLM call per
 // passage at index time. It is opt-in per document for that reason.
-import { OPENROUTER_CHAT_URL } from "@/utils/providers/openrouterDefault.server";
+import {
+  getOpenRouterApiKey,
+  OPENROUTER_CHAT_URL,
+} from "@/utils/providers/openrouterDefault.server";
+import {
+  resolveOpenAICompatTransport,
+  type OpenAICompatTransport,
+} from "@/utils/providers/credentials.server";
+import { chooseModel, instanceDefaultModel } from "@/utils/providers/defaultModel.server";
+import { isBiCompatProvider } from "@/utils/providers/modelChoice";
+import { providerFetch } from "@/utils/ssrfGuard.server";
 import { parseQaPairs, type QaPair } from "@/lib/kbRag";
 
-export const QA_MODEL = "google/gemini-2.5-flash";
+/** The model Q&A pairs are written with, and the connection that reaches it. */
+export type QaTarget = { transport: OpenAICompatTransport; model: string };
+
+/**
+ * The instance default model, on the document owner's own connection to its
+ * provider (or the instance key); with no owner, the default on the
+ * instance's OpenRouter key. Asked once per ingestion, not per passage.
+ */
+export async function qaTarget(
+  userId: string | null | undefined,
+): Promise<{ ok: true; target: QaTarget } | { ok: false; error: string }> {
+  if (userId) {
+    const c = await chooseModel(userId, null);
+    if (!c.ok) return { ok: false, error: c.error };
+    if (!isBiCompatProvider(c.provider)) {
+      return {
+        ok: false,
+        error: `${c.spec} can't write Q&A pairs (it needs an OpenAI-compatible provider).`,
+      };
+    }
+    const t = await resolveOpenAICompatTransport({ userId, provider: c.provider });
+    if (!t || (!t.apiKey && c.provider !== "ollama")) {
+      return { ok: false, error: `${c.provider} is not connected for the document's owner.` };
+    }
+    return { ok: true, target: { transport: t, model: c.model } };
+  }
+  const d = await instanceDefaultModel();
+  const key = getOpenRouterApiKey();
+  if (d.provider !== "openrouter" || !key) {
+    return {
+      ok: false,
+      error:
+        "Q&A indexing needs the document's owner, or an instance OpenRouter key and an OpenRouter default model.",
+    };
+  }
+  return {
+    ok: true,
+    target: { transport: { endpointUrl: OPENROUTER_CHAT_URL, apiKey: key }, model: d.model },
+  };
+}
 
 /** Passages longer than this are truncated — one call should not cost a book. */
 const MAX_PASSAGE_CHARS = 12_000;
@@ -49,23 +98,21 @@ export type QaGenerationResult = { ok: true; pairs: QaPair[] } | { ok: false; er
  */
 export async function generateQaPairs(
   passage: string,
-  apiKey: string,
-  model: string = QA_MODEL,
+  target: QaTarget,
 ): Promise<QaGenerationResult> {
   const text = (passage || "").trim();
   if (!text) return { ok: true, pairs: [] };
-  if (!apiKey) {
-    return {
-      ok: false,
-      error: "Q&A indexing needs OPENROUTER_API_KEY — it generates pairs with a model.",
-    };
-  }
+  const { transport, model } = target;
 
   let res: Response;
   try {
-    res = await fetch(OPENROUTER_CHAT_URL, {
+    res = await providerFetch(transport.endpointUrl, {
       method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      headers: {
+        ...(transport.apiKey ? { Authorization: `Bearer ${transport.apiKey}` } : {}),
+        "Content-Type": "application/json",
+        ...(transport.extraHeaders ?? {}),
+      },
       body: JSON.stringify({
         model,
         messages: [

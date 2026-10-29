@@ -27,6 +27,7 @@ import {
   type AskAnswer,
   type AskRefusal,
 } from "@/utils/ontology/ask.server";
+import { runVerifiedQuestions, type EvalSummary } from "@/utils/ontology/evals.server";
 import { friendlyLakehouseError, runCount, runRows } from "@/utils/ontology/run.server";
 import { askPlanSchema } from "@/lib/ontology/catalog";
 import { compileObjectSet, type CompileOpts } from "@/lib/ontology/compile";
@@ -532,61 +533,27 @@ export const ontologyDeleteQuestion = createServerFn({ method: "POST" })
  */
 export const ontologyRunEval = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ access_token: token, id }).parse(input))
-  .handler(
-    async ({
-      data,
-    }): Promise<
-      { ok: true; same: number; changed: number; errors: number; total: number } | Fail
-    > => {
-      const ctx = await ctxFor(data.access_token, data.id, "own");
-      if (isFail(ctx)) return ctx;
-      const { data: rows } = await supabaseAdmin
-        .from("ontology_questions")
-        .select("id, question, query, expected")
-        .eq("ontology_id", data.id)
-        .limit(500);
-      let same = 0;
-      let changed = 0;
-      let errors = 0;
-      for (const q of rows ?? []) {
-        const ranAt = new Date().toISOString();
-        let result: VerifiedQuestion["last_result"];
-        const plan = askPlanSchema.safeParse(q.query);
-        if (!plan.success || plan.data.kind === "refuse") {
-          result = { status: "error", error: "The stored plan is no longer valid", ran_at: ranAt };
-        } else {
-          try {
-            const ans = await runPlan(ctx.userId, ctx.a, ctx.opts, plan.data, {
-              verified: null,
-              model: null,
-            });
-            const d = answerDigest(ans.rows);
-            const exp = q.expected as { hash?: string } | null;
-            result = {
-              status: exp?.hash === d.hash ? "same" : "changed",
-              rows: d.rows,
-              ran_at: ranAt,
-            };
-          } catch (e) {
-            result = { status: "error", error: (e as Error).message.slice(0, 500), ran_at: ranAt };
-          }
-        }
-        if (result.status === "same") same++;
-        else if (result.status === "changed") changed++;
-        else errors++;
-        await supabaseAdmin
-          .from("ontology_questions")
-          .update({ last_result: result as unknown as Json })
-          .eq("id", q.id);
-      }
-      auditEvent({
-        userId: ctx.userId,
-        action: "ontology.eval.run",
-        resourceType: "ontology",
-        resourceId: data.id,
-        resourceName: ctx.a.row.name,
-        detail: { same, changed, errors, total: rows?.length ?? 0 },
-      });
-      return { ok: true, same, changed, errors, total: rows?.length ?? 0 };
-    },
-  );
+  .handler(async ({ data }): Promise<({ ok: true } & EvalSummary) | Fail> => {
+    const ctx = await ctxFor(data.access_token, data.id, "own");
+    if (isFail(ctx)) return ctx;
+    let summary: EvalSummary;
+    try {
+      summary = await runVerifiedQuestions(ctx.userId, ctx.a, ctx.opts, data.id);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    auditEvent({
+      userId: ctx.userId,
+      action: "ontology.eval.run",
+      resourceType: "ontology",
+      resourceId: data.id,
+      resourceName: ctx.a.row.name,
+      detail: {
+        same: summary.same,
+        changed: summary.changed,
+        errors: summary.errors,
+        total: summary.total,
+      },
+    });
+    return { ok: true, ...summary };
+  });

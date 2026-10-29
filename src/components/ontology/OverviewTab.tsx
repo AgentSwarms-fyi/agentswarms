@@ -11,11 +11,13 @@ import {
   GitPullRequest,
   ListChecks,
   Loader2,
+  Pencil,
   RefreshCw,
   Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { Textarea } from "@/components/ui/textarea";
 import { ModelCanvas } from "@/components/ontology/ModelCanvas";
 import { useOntology } from "@/components/ontology/OntologyContext";
 import { relativeTime, TypeBadge } from "@/components/ontology/theme";
@@ -63,9 +65,7 @@ export function OverviewTab() {
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
       <section className="space-y-3">
-        {o.spec.description && (
-          <p className="max-w-3xl text-sm text-muted-foreground">{o.spec.description}</p>
-        )}
+        <Description />
         <ModelCanvas
           spec={o.spec}
           issues={issues}
@@ -257,6 +257,72 @@ export function OverviewTab() {
           </button>
         )}
       </aside>
+    </div>
+  );
+}
+
+/**
+ * What the ontology is about. People read it in the gallery, and the AI reads
+ * it first in the catalog it plans from, so the owner can say here what it
+ * covers and what it leaves out.
+ */
+function Description() {
+  const o = useOntology();
+  const [draft, setDraft] = useState<string | null>(null);
+  const save = () => {
+    const text = (draft ?? "").trim();
+    o.setSpec((s) => ({ ...s, description: text || undefined }));
+    setDraft(null);
+  };
+  if (draft !== null) {
+    return (
+      <div className="max-w-3xl space-y-2">
+        <Textarea
+          aria-label="Ontology description"
+          value={draft}
+          maxLength={8000}
+          rows={3}
+          autoFocus
+          placeholder="What this ontology describes, for whom, and what it leaves out. People see it in the gallery; AI reads it before planning an answer."
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setDraft(null);
+            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) save();
+          }}
+        />
+        <div className="flex gap-2">
+          <Button size="sm" onClick={save}>
+            Save description
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setDraft(null)}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+  if (!o.spec.description && !o.canEdit) return null;
+  return (
+    <div className="flex max-w-3xl items-start gap-2">
+      {o.spec.description ? (
+        <p className="whitespace-pre-line text-sm text-muted-foreground">{o.spec.description}</p>
+      ) : (
+        <p className="text-sm italic text-muted-foreground">
+          No description yet. It tells people, and the AI, what this ontology covers.
+        </p>
+      )}
+      {o.canEdit && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 shrink-0 px-2 text-xs"
+          aria-label="Edit description"
+          onClick={() => setDraft(o.spec.description ?? "")}
+        >
+          <Pencil className="mr-1 h-3.5 w-3.5" />
+          Edit
+        </Button>
+      )}
     </div>
   );
 }

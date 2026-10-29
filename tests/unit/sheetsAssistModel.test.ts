@@ -41,13 +41,16 @@ describe("the server", () => {
     expect(
       fns.match(/model: z\.string\(\)\.trim\(\)\.min\(1\)\.max\(300\)\.optional\(\),/g)?.length,
     ).toBe(2);
-    expect(fns.match(/const m = await modelFor\(data\.model\);/g)?.length).toBe(2);
+    expect(fns.match(/const m = await modelFor\(who\.userId, data\.model\);/g)?.length).toBe(2);
+    // The pick, else the admin's assistant model, else the instance default —
+    // each only if this person can use it (providers/defaultModel.server).
     expect(fns).toMatch(
-      /const picked = choice \? parseModelChoice\(choice\) : null;\s*const spec = picked \? `\$\{picked\.provider\}\/\$\{picked\.model\}` : settings\.sheetsAssistModel;/,
+      /const picked = choice \? parseModelChoice\(choice\) : null;\s*const chosen = await chooseModel\(\s*userId,\s*picked\s*\? \{ provider: picked\.provider, model: picked\.model \}\s*: parseModelSpec\(settings\.sheetsAssistModel\),\s*\);/,
     );
   });
-  it("a pick that isn't a model is refused, naming it", () => {
-    expect(fns).toMatch(/is not a model the assistant can use; pick another, or the default\./);
+  it("a pick this person can't use runs on the default instead of failing", () => {
+    expect(fns).toContain("if (!chosen.ok) return { ok: false, error: chosen.error };");
+    expect(fns).toContain("spec: chosen.spec,");
   });
   it("still through the chat channel, with the person as the caller", () => {
     expect(fns.match(/internalChatText\(\{\s*userId: who\.userId,/g)?.length).toBe(2);
@@ -57,7 +60,7 @@ describe("the server", () => {
     expect(fns).toMatch(/reply: parseAssistReply\(text\), cost, model: m\.spec/);
     expect(fns).toMatch(/return \{ ok: true, outputs, cost, model: m\.spec \};/);
     expect(fns).toMatch(
-      /export const sheetsAssistDefaults = [\s\S]{0,400}model: settings\.sheetsAssistModel/,
+      /export const sheetsAssistDefaults = [\s\S]{0,400}model: settings\.sheetsAssistModel \?\? \(await instanceDefaultModel\(\)\)\.spec/,
     );
   });
 });

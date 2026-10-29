@@ -86,6 +86,10 @@ function DebuggingDoc() {
             name: "Error",
             body: "For failed runs, the error message the runtime captured.",
           },
+          {
+            name: "Model fallback",
+            body: "When the model an agent, node, picker or setting chose could not run for the person — its provider isn't connected for them, their model rules don't allow it, or the provider does not know it — the call ran on the platform's default model instead. The row is marked fallback, and the detail names the model that could not run and why.",
+          },
         ]}
       />
 

@@ -4,9 +4,8 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
-import { OPENROUTER_CHAT_URL } from "@/utils/providers/openrouterDefault.server";
-
-const SUMMARY_MODEL_FALLBACK = "openai/gpt-4o-mini";
+import { openAiCompatTarget, type CompatTarget } from "@/utils/providers/defaultModel.server";
+import { providerFetch } from "@/utils/ssrfGuard.server";
 
 type DbMessage = {
   id: string;
@@ -15,14 +14,14 @@ type DbMessage = {
   created_at: string;
 };
 
-async function callOpenRouterForSummary(opts: {
-  apiKey: string;
-  model: string;
+async function callModelForSummary(opts: {
+  target: CompatTarget;
   previousSummary: string;
   newTurns: DbMessage[];
   userId?: string | null;
 }): Promise<string | null> {
-  const { apiKey, model, previousSummary, newTurns, userId } = opts;
+  const { target, previousSummary, newTurns, userId } = opts;
+  const { transport, model } = target;
   if (newTurns.length === 0) return previousSummary || null;
 
   const turnsText = newTurns
@@ -41,11 +40,12 @@ async function callOpenRouterForSummary(opts: {
 
   const tStart = Date.now();
   try {
-    const r = await fetch(OPENROUTER_CHAT_URL, {
+    const r = await providerFetch(transport.endpointUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
+        ...(transport.apiKey ? { Authorization: `Bearer ${transport.apiKey}` } : {}),
+        ...(transport.extraHeaders ?? {}),
       },
       body: JSON.stringify({
         model,
@@ -71,7 +71,8 @@ async function callOpenRouterForSummary(opts: {
       await recordGatewayCall({
         userId,
         surface: "Memory: Summarize",
-        model,
+        model: target.spec,
+        modelFallback: target.fellBack,
         tokensIn: j.usage?.prompt_tokens,
         tokensOut: j.usage?.completion_tokens,
         promptText: userMessage,
@@ -94,8 +95,8 @@ export async function summarizeIfNeeded(opts: {
   userId: string;
   conversationId: string;
   windowMessages: number;
+  /** The agent's summary model (an OpenRouter id, as stored); null = the instance default. */
   summaryModel: string | null;
-  apiKey: string;
   /**
    * The agent's PII policy for each side of the conversation (R351). The
    * stored messages hold what the person typed, so a fold without it sent a
@@ -103,7 +104,7 @@ export async function summarizeIfNeeded(opts: {
    */
   redact?: (text: string, side: "input" | "output") => string;
 }): Promise<{ summary: string | null; foldedCount: number }> {
-  const { sb, userId, conversationId, windowMessages, summaryModel, apiKey, redact } = opts;
+  const { sb, userId, conversationId, windowMessages, summaryModel, redact } = opts;
 
   // The stored summary, and how far it reaches. A failed read is not "no
   // summary yet": a fold from nothing would replace the stored summary with
@@ -153,9 +154,15 @@ export async function summarizeIfNeeded(opts: {
     return { summary: previousSummary || null, foldedCount: 0 };
   }
 
-  const newSummary = await callOpenRouterForSummary({
-    apiKey,
-    model: summaryModel || SUMMARY_MODEL_FALLBACK,
+  // The agent's summary model when its owner can use it, else the instance
+  // default (providers/defaultModel.server).
+  const target = await openAiCompatTarget(userId, summaryModel ? { model: summaryModel } : null);
+  if (!target.ok) {
+    console.warn("[memory.summarize] no model:", target.error);
+    return { summary: previousSummary || null, foldedCount: 0 };
+  }
+  const newSummary = await callModelForSummary({
+    target,
     // A summary folded before R351 can hold what the policy redacts.
     previousSummary: redact ? redact(previousSummary, "input") : previousSummary,
     newTurns: redact

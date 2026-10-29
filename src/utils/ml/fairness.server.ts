@@ -34,8 +34,7 @@ import { notifyUser } from "@/utils/notify.server";
 import { runLakehouseStatement } from "@/utils/lakehouse/core.server";
 import { getPlatformResources } from "@/utils/notebookRuntime/config.server";
 import { internalChatText } from "@/utils/internalChat.server";
-import { GATEWAY_PROVIDERS } from "@/utils/gateway/providers";
-import { parseGatewayModel } from "@/utils/gateway/keys";
+import { chooseModel } from "@/utils/providers/defaultModel.server";
 import {
   MAX_GROUPS,
   fairnessResult,
@@ -53,9 +52,16 @@ export type MlFairnessRow = Database["public"]["Tables"]["ml_fairness_checks"]["
 /** Fairness is about a decision, and only these tasks make one. */
 const CHECKABLE = new Set(["classification"]);
 
-/** The model that assists. Env-only: it is a preference, not a capacity. */
-const assistModel = () =>
-  (process.env.ML_ASSIST_MODEL ?? "").trim() || "openrouter/google/gemini-3-flash-preview";
+/**
+ * The model that assists: the instance default (Admin -> Developer runtime ->
+ * AI services -> Default model), checked against what this person may use.
+ */
+async function assistModel(userId: string) {
+  const chosen = await chooseModel(userId, null);
+  return chosen.ok
+    ? ({ ok: true, provider: chosen.provider, model: chosen.model } as const)
+    : chosen;
+}
 
 type CheckOutcome = { ok: true; checks: MlFairnessRow[] } | { ok: false; error: string };
 
@@ -251,10 +257,8 @@ export async function suggestSensitiveColumns(
   if (!columns.length)
     return { ok: false, error: "This model has no recorded feature schema yet." };
 
-  const target = parseGatewayModel(assistModel(), GATEWAY_PROVIDERS);
-  if (!target || target.kind !== "model") {
-    return { ok: false, error: `ML_ASSIST_MODEL is not a model this deployment can reach` };
-  }
+  const target = await assistModel(userId);
+  if (!target.ok) return { ok: false, error: target.error };
 
   const system =
     "You help an analyst audit a machine-learning model for unequal treatment between groups. " +
@@ -315,7 +319,10 @@ export async function suggestSensitiveColumns(
     resourceType: "ml_model",
     resourceId: model.id,
     resourceName: model.name,
-    detail: { model: assistModel(), suggested: suggestions.map((s) => s.column) },
+    detail: {
+      model: `${target.provider}/${target.model}`,
+      suggested: suggestions.map((s) => s.column),
+    },
   });
   return { ok: true, suggestions };
 }
@@ -340,10 +347,8 @@ export async function narrateFairnessCheck(
     .maybeSingle();
   if (!check) return { ok: false, error: "Check not found" };
 
-  const target = parseGatewayModel(assistModel(), GATEWAY_PROVIDERS);
-  if (!target || target.kind !== "model") {
-    return { ok: false, error: "ML_ASSIST_MODEL is not a model this deployment can reach" };
-  }
+  const target = await assistModel(userId);
+  if (!target.ok) return { ok: false, error: target.error };
 
   const groups = (check.groups ?? []) as {
     group: string;
@@ -401,7 +406,7 @@ export async function narrateFairnessCheck(
     action: "ml.fairness.narrate",
     resourceType: "ml_model",
     resourceId: check.model_id,
-    detail: { check_id: checkId, model: assistModel() },
+    detail: { check_id: checkId, model: `${target.provider}/${target.model}` },
   });
   return { ok: true, narrative: text };
 }

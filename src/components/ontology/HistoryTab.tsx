@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { ChangeList } from "@/components/ontology/ChangeList";
+import { EvalLine } from "@/components/ontology/EvalSummary";
 import { useOntology } from "@/components/ontology/OntologyContext";
 import { relativeTime } from "@/components/ontology/theme";
 import {
@@ -287,6 +288,7 @@ export function HistoryTab() {
                         </span>
                       ) : null}
                     </p>
+                    {v.eval && <EvalLine counts={v.eval} />}
                   </div>
                   <div className="flex gap-1">
                     <Button

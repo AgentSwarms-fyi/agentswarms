@@ -19,6 +19,7 @@
 // would leak the whole dashboard in prose. See src/utils/embedViewer.server.ts.
 
 import { createFileRoute } from "@tanstack/react-router";
+import { chooseModel } from "@/utils/providers/defaultModel.server";
 import { providerFetch } from "@/utils/ssrfGuard.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { sanitizePublicPages, sanitizePublicWidgets } from "@/lib/biDashboards";
@@ -35,12 +36,8 @@ import { rateLimitedGlobal } from "@/utils/rateLimit.server";
 import { budgetMessage, getBudgetDecision } from "@/utils/budgetGuard.server";
 import { clientIp, clientUserAgent } from "@/utils/requestMeta.server";
 import { recordGatewayCall, extractUsage } from "@/utils/observability/recordGatewayUsage.server";
-import {
-  getProviderDefaultModel,
-  resolveOpenAICompatTransport,
-} from "@/utils/providers/credentials.server";
-import { parseModelChoice } from "@/utils/providers/modelChoice";
-import type { ProviderId } from "@/utils/providers/types";
+import { resolveOpenAICompatTransport } from "@/utils/providers/credentials.server";
+import { isBiCompatProvider, parseModelChoice } from "@/utils/providers/modelChoice";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -309,22 +306,22 @@ export const Route = createFileRoute("/api/embed")({
           })
           .join("\n\n");
 
-        // Reader model chosen by the publisher; owner credentials execute it.
+        // Reader model chosen by the publisher, when the owner (whose
+        // credentials execute it) can use it; else the instance default.
         const choice = parseModelChoice(dash.ai_model);
-        const provider = (choice?.provider ?? "openrouter") as ProviderId;
-        const transport = await resolveOpenAICompatTransport({
-          userId: keyRow.user_id,
-          provider,
-        });
+        const chosen = await chooseModel(
+          keyRow.user_id,
+          choice && isBiCompatProvider(choice.provider) ? choice : null,
+        );
+        if (!chosen.ok || !isBiCompatProvider(chosen.provider)) {
+          return json({ error: "The AI analyst is not configured for this dashboard." }, 503);
+        }
+        const provider = chosen.provider;
+        const model = chosen.model;
+        const transport = await resolveOpenAICompatTransport({ userId: keyRow.user_id, provider });
         if (!transport || (!transport.apiKey && provider !== "ollama")) {
           return json({ error: "The AI analyst is not configured for this dashboard." }, 503);
         }
-        let model = choice?.model || "";
-        if (!model) model = (await getProviderDefaultModel(keyRow.user_id, provider)) ?? "";
-        if (!model && provider === "openrouter") {
-          model = process.env.OPENROUTER_DEFAULT_MODEL || "google/gemini-2.5-flash";
-        }
-        if (!model) return json({ error: "The AI analyst is not configured." }, 503);
 
         touchEmbedKey(keyRow, clientIp(request));
         const startedAt = Date.now();

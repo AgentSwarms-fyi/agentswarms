@@ -2,6 +2,7 @@ import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { loadDraft, saveDraft, clearDraft } from "@/lib/formDraft";
 import { supabase } from "@/integrations/supabase/client";
+import { useInstanceDefaultModel } from "@/hooks/use-instance-default-model";
 import { allowedProviders, isModelAllowedByRules, useMyModelRules } from "@/hooks/use-iam";
 import { useOllamaModels } from "@/hooks/use-ollama-models";
 import { useProviderModels } from "@/hooks/use-provider-models";
@@ -710,7 +711,15 @@ export function AgentForm({
   // Live model tags from a connected Ollama integration — replaces the
   // static suggestions whenever the user picks the ollama provider.
   const ollamaLive = useOllamaModels(provider === "ollama");
-  const [model, setModel] = useState(agent?.llm_model || "google/gemini-3-flash-preview");
+  // A new agent starts on the instance default model (Admin → Developer
+  // runtime → AI services), filled in once it is known.
+  const [model, setModel] = useState(agent?.llm_model || "");
+  const instanceDefault = useInstanceDefaultModel();
+  useEffect(() => {
+    if (agent || model || !instanceDefault) return;
+    setProvider(instanceDefault.provider);
+    setModel(instanceDefault.model);
+  }, [instanceDefault]); // eslint-disable-line react-hooks/exhaustive-deps
   const [temperature, setTemperature] = useState(agent?.temperature || 0.7);
   const [maxTokens, setMaxTokens] = useState(agent?.max_tokens || 4096);
   const [n8nWebhook, setN8nWebhook] = useState(agent?.n8n_webhook_url || "");
@@ -1215,8 +1224,8 @@ export function AgentForm({
     setName("");
     setDescription("");
     setSystemPrompt("");
-    setProvider("openrouter");
-    setModel("google/gemini-3-flash-preview");
+    setProvider(instanceDefault?.provider ?? "openrouter");
+    setModel(instanceDefault?.model ?? "");
     setTemperature(0.7);
     setMaxTokens(4096);
     setN8nWebhook("");

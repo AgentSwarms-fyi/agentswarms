@@ -34,9 +34,7 @@ async function freshModule(handlers: {
   vi.doMock("@/utils/providers/instanceProviders.functions", () => ({
     getInstanceProviderStatus: () =>
       Promise.resolve(
-        handlers.instance
-          ? handlers.instance()
-          : { openrouter: false, openrouterDefaultModel: null },
+        handlers.instance ? handlers.instance() : { openrouter: false, defaultModel: null },
       ),
   }));
   vi.doMock("@/integrations/supabase/client", () => ({
@@ -174,17 +172,46 @@ describe("the instance-wide OpenRouter key counts as a connected provider", () =
     const mod = await freshModule({
       integrations: () => okRows([]),
       provider_credentials: () => okRows([]),
-      instance: () => ({ openrouter: true, openrouterDefaultModel: "openai/gpt-4o-mini" }),
+      instance: () => ({
+        openrouter: true,
+        defaultModel: {
+          provider: "openrouter",
+          model: "openai/gpt-4o-mini",
+          spec: "openrouter/openai/gpt-4o-mini",
+          source: "admin",
+        },
+      }),
     });
     const list = await mod.fetchConnectedIntegrations();
     expect(list).toEqual([{ provider: "openrouter", default_model: "openai/gpt-4o-mini" }]);
+  });
+
+  it("names no OpenRouter default when the instance default is on another provider", async () => {
+    // The admin's default (Admin -> Developer runtime -> AI defaults) is what
+    // the instance key's entry offers; one on Anthropic is not an OpenRouter id.
+    const mod = await freshModule({
+      integrations: () => okRows([]),
+      provider_credentials: () => okRows([]),
+      instance: () => ({
+        openrouter: true,
+        defaultModel: {
+          provider: "anthropic",
+          model: "claude-sonnet-4",
+          spec: "anthropic/claude-sonnet-4",
+          source: "admin",
+        },
+      }),
+    });
+    expect(await mod.fetchConnectedIntegrations()).toEqual([
+      { provider: "openrouter", default_model: null },
+    ]);
   });
 
   it("does not invent a provider when no instance key is set", async () => {
     const mod = await freshModule({
       integrations: () => okRows([]),
       provider_credentials: () => okRows([]),
-      instance: () => ({ openrouter: false, openrouterDefaultModel: null }),
+      instance: () => ({ openrouter: false, defaultModel: null }),
     });
     expect(await mod.fetchConnectedIntegrations()).toEqual([]);
   });
@@ -198,7 +225,15 @@ describe("the instance-wide OpenRouter key counts as a connected provider", () =
         okRows([
           { provider: "openrouter", default_model: "anthropic/claude-opus-4", is_active: true },
         ]),
-      instance: () => ({ openrouter: true, openrouterDefaultModel: "openai/gpt-4o-mini" }),
+      instance: () => ({
+        openrouter: true,
+        defaultModel: {
+          provider: "openrouter",
+          model: "openai/gpt-4o-mini",
+          spec: "openrouter/openai/gpt-4o-mini",
+          source: "admin",
+        },
+      }),
     });
     const list = await mod.fetchConnectedIntegrations();
     expect(list).toEqual([{ provider: "openrouter", default_model: "anthropic/claude-opus-4" }]);

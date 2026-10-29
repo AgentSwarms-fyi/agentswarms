@@ -202,7 +202,7 @@ describe("the runner and its governance wiring", () => {
   it("the cap is checked before any call, answers are cached per user, and the statement is audited", () => {
     const run = rd("src/utils/aiSql/run.server.ts");
     const cap = run.indexOf("throw new Error(aiCallsOverCapMessage(");
-    const call = run.indexOf("const answer = await callModel(session, miss);");
+    const call = run.indexOf("const { answer, fellBack } = await callModel(session, miss);");
     expect(cap).toBeGreaterThan(0);
     expect(cap).toBeLessThan(call);
     expect(run).toContain('.from("ai_function_cache")');
@@ -219,6 +219,7 @@ describe("the runner and its governance wiring", () => {
   });
 
   it("the migration, settings and admin form carry the three knobs; the drafter knows the functions", () => {
+    const run = rd("src/utils/aiSql/run.server.ts");
     const sql = rd("supabase/migrations/20260865000000_ai_sql_functions.sql");
     expect(sql).toContain("CREATE TABLE IF NOT EXISTS public.ai_function_cache");
     expect(sql).toContain("ALTER TABLE public.ai_function_cache ENABLE ROW LEVEL SECURITY;");
@@ -233,7 +234,10 @@ describe("the runner and its governance wiring", () => {
     }
     const cfg = rd("src/utils/notebookRuntime/config.server.ts");
     expect(cfg).toContain('envInt("AI_SQL_MAX_CALLS_PER_STATEMENT") ??');
-    expect(cfg).toContain("process.env.AI_SQL_DEFAULT_MODEL");
+    // The model is set here or not at all: unset, ai_* calls run on the
+    // instance default model, which is chosen in the app, not in .env.
+    expect(cfg).not.toContain("process.env.AI_SQL_DEFAULT_MODEL");
+    expect(run).toContain("await chooseModel(userId, parseModelSpec(settings.aiSqlDefaultModel))");
     expect(cfg).toContain('envInt("AI_SQL_CACHE_TTL_DAYS") ??');
     expect(rd("src/routes/api/lakehouse.generate.ts")).toContain("ai_filter(text, 'condition')");
     expect(rd("src/components/docs/docsNav.ts")).toContain('to: "/docs/ai-sql"');

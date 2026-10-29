@@ -39,6 +39,24 @@ vi.mock("@/utils/providers/credentials.server", () => ({
   getProviderDefaultModel: async () => null,
 }));
 vi.mock("@/utils/iam.server", () => ({ modelAccessRefusal: async () => null }));
+// The model each generator runs on comes from the resolver (its own tests);
+// here every request gets one fixed, usable OpenRouter model.
+vi.mock("@/utils/providers/defaultModel.server", () => ({
+  chooseModel: async (
+    _u: string,
+    req: { provider?: string | null; model?: string | null } | null,
+  ) => {
+    const model = req?.model || "openai/gpt-4o-mini";
+    return {
+      ok: true,
+      provider: "openrouter",
+      model,
+      spec: `openrouter/${model}`,
+      source: req?.model ? "requested" : "default",
+      fellBack: null,
+    };
+  },
+}));
 // The lakehouse generator reads the schemas the caller may query first.
 vi.mock("@/utils/lakehouse/core.server", () => ({
   accessibleSchemas: async () => [{ name: "analytics" }],
@@ -233,7 +251,9 @@ describe("a graph build is one trace with the whole build's cost", () => {
       /addCallUsage\(spend, extractUsage\(json\), \{ prompt, reply: content \}\)/,
     );
     expect(src).toMatch(/if \(!res\.ok\) \{\s*addFailedCall\(spend\);/);
-    expect(src).toMatch(/await extractFromChunk\(chunk, openRouterKey, spend\)/);
+    expect(src).toMatch(
+      /await extractFromChunk\(\s*chunk,\s*transport,\s*chosen\.model,\s*spend,?\s*\)/,
+    );
     const recorded = src.indexOf('surface: "KB: Graph Build"');
     expect(recorded).toBeGreaterThan(-1);
     // after the chunk loop, before the first early return on "no entities"

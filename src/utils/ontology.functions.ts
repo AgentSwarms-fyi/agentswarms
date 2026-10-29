@@ -29,6 +29,7 @@ import {
 import { resolveGrantedResourceIds } from "@/utils/iam.server";
 import { lakehouseConnection, lakehouseEnabled } from "@/utils/lakehouse/core.server";
 import { listLakehouseTablesForUser } from "@/utils/lakehouse/tables.server";
+import { runVerifiedQuestions, type EvalOutcome } from "@/utils/ontology/evals.server";
 import { runSql } from "@/utils/ontology/run.server";
 import { diffSpecs, type SpecDiff } from "@/lib/ontology/diff";
 import { notInstalledMessage } from "@/lib/ontology/install";
@@ -527,88 +528,141 @@ export const ontologyPublish = createServerFn({ method: "POST" })
         id,
         revision: z.number().int().min(1),
         note: z.string().max(4000).optional(),
+        /** Publish even though verified questions no longer answer (the owner said so). */
+        allow_broken: z.boolean().optional(),
       })
       .parse(input),
   )
-  .handler(async ({ data }): Promise<{ ok: true; version: number; diff: SpecDiff } | Fail> => {
-    const caller = await resolveCaller(data.access_token);
-    if (!caller.ok) return caller;
-    const access = await loadOntology(caller.userId, data.id, "own");
-    if (isFail(access)) return access;
-    if (access.row.revision !== data.revision) {
-      return {
-        ok: false,
-        error: "The draft changed since you opened it. Reload, check it, then publish.",
-      };
-    }
-    const result = validateSpec(access.spec);
-    if (!result.ok) {
-      const first = result.issues.find((i) => i.level === "error");
-      return {
-        ok: false,
-        error: `Fix ${result.issues.filter((i) => i.level === "error").length} problem(s) before publishing. First: ${first?.path} — ${first?.message}`,
-      };
-    }
-    const prev = access.row.published_version;
-    let before: OntologySpec | null = null;
-    if (prev) {
-      const { data: v } = await supabaseAdmin
-        .from("ontology_versions")
-        .select("spec")
-        .eq("ontology_id", data.id)
-        .eq("version", prev)
-        .maybeSingle();
-      before = v ? parseStoredSpec(v.spec, `version ${prev}`) : null;
-    }
-    const diff = diffSpecs(before ?? emptySpec(access.spec.name), access.spec);
-    if (before && diff.changes.length === 0) {
-      return { ok: false, error: `Nothing to publish: the draft is the same as version ${prev}` };
-    }
-    const version = (prev ?? 0) + 1;
-    const { error } = await supabaseAdmin.from("ontology_versions").insert({
-      ontology_id: data.id,
-      version,
-      spec: access.spec as unknown as Json,
-      note: data.note ?? null,
-      diff: {
-        added: diff.added,
-        removed: diff.removed,
-        changed: diff.changed,
-        breaking: diff.breaking,
-        changes: diff.changes.slice(0, 500),
-      } as unknown as Json,
-      published_by: caller.userId,
-    });
-    if (error) {
-      return {
-        ok: false,
-        error:
-          error.code === "23505"
-            ? "Another publish just happened; reload and try again"
-            : error.message,
-      };
-    }
-    await supabaseAdmin.from("ontologies").update({ published_version: version }).eq("id", data.id);
-    auditEvent({
-      userId: caller.userId,
-      action: "ontology.publish",
-      resourceType: "ontology",
-      resourceId: data.id,
-      resourceName: access.row.name,
-      detail: {
+  .handler(
+    async ({
+      data,
+    }): Promise<
+      | { ok: true; version: number; diff: SpecDiff; eval: EvalCounts | null }
+      | Fail
+      | { ok: false; error: string; broken: EvalOutcome[] }
+    > => {
+      const caller = await resolveCaller(data.access_token);
+      if (!caller.ok) return caller;
+      const access = await loadOntology(caller.userId, data.id, "own");
+      if (isFail(access)) return access;
+      if (access.row.revision !== data.revision) {
+        return {
+          ok: false,
+          error: "The draft changed since you opened it. Reload, check it, then publish.",
+        };
+      }
+      const result = validateSpec(access.spec);
+      if (!result.ok) {
+        const first = result.issues.find((i) => i.level === "error");
+        return {
+          ok: false,
+          error: `Fix ${result.issues.filter((i) => i.level === "error").length} problem(s) before publishing. First: ${first?.path} — ${first?.message}`,
+        };
+      }
+      const prev = access.row.published_version;
+      let before: OntologySpec | null = null;
+      if (prev) {
+        const { data: v } = await supabaseAdmin
+          .from("ontology_versions")
+          .select("spec")
+          .eq("ontology_id", data.id)
+          .eq("version", prev)
+          .maybeSingle();
+        before = v ? parseStoredSpec(v.spec, `version ${prev}`) : null;
+      }
+      const diff = diffSpecs(before ?? emptySpec(access.spec.name), access.spec);
+      if (before && diff.changes.length === 0) {
+        return { ok: false, error: `Nothing to publish: the draft is the same as version ${prev}` };
+      }
+      // Semantic CI: every verified question is run against the draft before it
+      // is frozen. One that no longer answers stops the publish unless the
+      // owner, shown which and why, publishes anyway; the counts travel with
+      // the version either way.
+      let evalCounts: EvalCounts | null = null;
+      try {
+        const { maxRows } = await ontologyLimits();
+        const summary = await runVerifiedQuestions(
+          caller.userId,
+          access,
+          { seeRestricted: true, maxRows },
+          data.id,
+        );
+        if (summary.total > 0) {
+          evalCounts = {
+            total: summary.total,
+            same: summary.same,
+            changed: summary.changed,
+            errors: summary.errors,
+          };
+        }
+        if (summary.errors > 0 && !data.allow_broken) {
+          return {
+            ok: false,
+            error: `${summary.errors} verified question${summary.errors === 1 ? " no longer answers" : "s no longer answer"} with this draft`,
+            broken: summary.results.filter((r) => r.status === "error"),
+          };
+        }
+      } catch (e) {
+        return {
+          ok: false,
+          error: `Could not check the verified questions: ${(e as Error).message}`,
+        };
+      }
+      const version = (prev ?? 0) + 1;
+      const { error } = await supabaseAdmin.from("ontology_versions").insert({
+        ontology_id: data.id,
         version,
+        spec: access.spec as unknown as Json,
         note: data.note ?? null,
-        added: diff.added,
-        removed: diff.removed,
-        changed: diff.changed,
-        breaking: diff.changes
-          .filter((c) => c.breaking)
-          .map((c) => c.path)
-          .slice(0, 50),
-      },
-    });
-    return { ok: true, version, diff };
-  });
+        diff: {
+          added: diff.added,
+          removed: diff.removed,
+          changed: diff.changed,
+          breaking: diff.breaking,
+          changes: diff.changes.slice(0, 500),
+          ...(evalCounts ? { eval: evalCounts } : {}),
+        } as unknown as Json,
+        published_by: caller.userId,
+      });
+      if (error) {
+        return {
+          ok: false,
+          error:
+            error.code === "23505"
+              ? "Another publish just happened; reload and try again"
+              : error.message,
+        };
+      }
+      await supabaseAdmin
+        .from("ontologies")
+        .update({ published_version: version })
+        .eq("id", data.id);
+      auditEvent({
+        userId: caller.userId,
+        action: "ontology.publish",
+        resourceType: "ontology",
+        resourceId: data.id,
+        resourceName: access.row.name,
+        detail: {
+          version,
+          note: data.note ?? null,
+          added: diff.added,
+          removed: diff.removed,
+          changed: diff.changed,
+          breaking: diff.changes
+            .filter((c) => c.breaking)
+            .map((c) => c.path)
+            .slice(0, 50),
+          ...(evalCounts ? { eval: evalCounts } : {}),
+          ...(evalCounts?.errors ? { published_with_broken_questions: true } : {}),
+        },
+      });
+      return { ok: true, version, diff, eval: evalCounts };
+    },
+  );
+
+/** How a version's verified questions fared when it was published. */
+export type EvalCounts = { total: number; same: number; changed: number; errors: number };
 
 export type OntologyVersionRow = {
   version: number;
@@ -617,6 +671,8 @@ export type OntologyVersionRow = {
   published_by: string | null;
   publisher_email: string | null;
   diff: { added: number; removed: number; changed: number; breaking: number } | null;
+  /** How the verified questions fared when this version was published; null = none then. */
+  eval: EvalCounts | null;
 };
 
 export const ontologyVersions = createServerFn({ method: "POST" })
@@ -642,6 +698,7 @@ export const ontologyVersions = createServerFn({ method: "POST" })
           removed?: number;
           changed?: number;
           breaking?: number;
+          eval?: EvalCounts;
         } | null;
         return {
           version: r.version,
@@ -657,6 +714,7 @@ export const ontologyVersions = createServerFn({ method: "POST" })
                 breaking: d.breaking ?? 0,
               }
             : null,
+          eval: d?.eval ?? null,
         };
       }),
     };

@@ -68,6 +68,11 @@ export type RecordGatewayCallArgs = {
    * provider reported none, which is not the same as it reporting zero.
    */
   providerCostUsd?: number | null;
+  /**
+   * The model the caller chose and why it could not run, when this call ran
+   * on the instance default instead (providers/defaultModel.server).
+   */
+  modelFallback?: { from: string; reason: string } | null;
   // Which backend actually served the call. Defaults to "openrouter" since
   // that's the shared default provider for all internal/background calls;
   // pass the real provider id when a caller knows it (e.g. "openai" for
@@ -125,6 +130,7 @@ export async function recordGatewayCall(args: RecordGatewayCallArgs): Promise<vo
     else if (!priced.priced) requestPayload.pricing_missing = true;
     else requestPayload.price_source = priced.source;
     if (args.parentTraceId) requestPayload.parent_trace_id = args.parentTraceId;
+    if (args.modelFallback) requestPayload.model_fallback = args.modelFallback;
     if (typeof args.imageCount === "number") requestPayload.image_count = args.imageCount;
     if (args.requestPreview !== undefined) requestPayload.preview = args.requestPreview;
 

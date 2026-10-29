@@ -402,9 +402,10 @@ function MlTrustPage() {
       <P>
         Both calls go through the same governed door as every other model call, so IAM model rules,
         budgets and audit apply; they are recorded as <C>ml.fairness.suggest</C> and{" "}
-        <C>ml.fairness.narrate</C>, and the assistant model is <C>ML_ASSIST_MODEL</C>. A check is
-        audited as <C>ml.fairness.check</C>, or <C>ml.fairness.review</C> when the ratio falls below
-        the line, which also notifies the model&apos;s owner.
+        <C>ml.fairness.narrate</C>, and the assistant runs on the platform&apos;s default model
+        (Admin → Developer runtime → AI services → Default model). A check is audited as{" "}
+        <C>ml.fairness.check</C>, or <C>ml.fairness.review</C> when the ratio falls below the line,
+        which also notifies the model&apos;s owner.
       </P>
 
       <NextPrev current="/docs/ml/trust" />

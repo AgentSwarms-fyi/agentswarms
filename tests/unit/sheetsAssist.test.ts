@@ -630,6 +630,38 @@ vi.mock("@/utils/sheets/access.server", () => ({
   },
 }));
 vi.mock("@/utils/rateLimit.server", () => ({ rateLimitedGlobal: async () => state.limited }));
+// Which model runs is decided by the resolver (its own tests); here a request
+// naming a model runs on it, and anything else on the instance default.
+vi.mock("@/utils/providers/defaultModel.server", () => {
+  const parseModelSpec = (spec: string | null | undefined) => {
+    const s = (spec ?? "").trim();
+    const at = s.indexOf("/");
+    return at > 0 && at < s.length - 1
+      ? { provider: s.slice(0, at), model: s.slice(at + 1) }
+      : null;
+  };
+  return {
+    parseModelSpec,
+    instanceDefaultModel: async () => ({
+      provider: "openrouter",
+      model: "default/model",
+      spec: "openrouter/default/model",
+      source: "admin",
+    }),
+    chooseModel: async (_u: string, req: { provider?: string; model?: string } | null) => {
+      const t = req?.model
+        ? { provider: req.provider ?? "openrouter", model: req.model }
+        : { provider: "openrouter", model: "default/model" };
+      return {
+        ok: true,
+        ...t,
+        spec: `${t.provider}/${t.model}`,
+        source: req?.model ? "requested" : "default",
+        fellBack: null,
+      };
+    },
+  };
+});
 vi.mock("@/utils/notebookRuntime/config.server", () => ({
   getPlatformResources: async () => ({ sheetsAssistModel: state.model, sheetsAssistPerMinute: 30 }),
 }));
@@ -718,9 +750,11 @@ describe("who may ask, and how", () => {
     expect(state.chat).toEqual([]);
   });
 
-  it("a model setting that is not provider/model says where to fix it", async () => {
+  it("a model setting that is not provider/model runs on the default model", async () => {
+    // A section model that can't be used is no choice: the instance default
+    // answers (and the admin form refuses to save one that isn't provider/model).
     state.model = "gemini";
-    expect(await ask()).toMatchObject({ ok: false, error: /Admin → Developer runtime/ });
+    expect(await ask()).toMatchObject({ ok: true, model: "openrouter/default/model" });
   });
 
   it("the browser cannot choose the model", () => {

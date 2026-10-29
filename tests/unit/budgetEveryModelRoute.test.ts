@@ -124,7 +124,7 @@ function sources(dir: string): string[] {
 // A model is called on someone's behalf: a transport resolved, a provider
 // stream, the operator's OpenRouter endpoint, or the JSON helper.
 const MODEL_CALL =
-  /resolveOpenAICompatTransport\(|streamWithProvider\(|fetch\(OPENROUTER_CHAT_URL|llmJsonServer\(|openAICompatChatStream\(/;
+  /resolveOpenAICompatTransport\(|streamWithProvider\(|fetch\(OPENROUTER_CHAT_URL|providerFetch\(transport\.endpointUrl|llmJsonServer\(|openAICompatChatStream\(/;
 const BUDGET = /budgetRefusal\(|getBudgetDecision\(/;
 
 describe("no route spends without asking the budget", () => {

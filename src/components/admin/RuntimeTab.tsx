@@ -49,6 +49,7 @@ import {
 import { reportFailure } from "@/lib/silentFailureNet";
 import { RUNTIME_TABS } from "./runtimeTabs";
 import { RuntimeTabId } from "./runtimeTabs";
+import { DefaultModelCard } from "./DefaultModelCard";
 
 /**
  * What to say when the schema refuses a save.
@@ -773,13 +774,13 @@ export function RuntimeTab({
                 <Input
                   value={form.sheets_assist_model}
                   onChange={(e) => set("sheets_assist_model", e.target.value)}
-                  placeholder="openrouter/google/gemini-3-flash-preview"
+                  placeholder="Empty: the default model"
                   className="h-8 font-mono text-xs"
                 />
                 <p className="text-[10px] text-muted-foreground">
-                  The default provider/model for the Sheets assistant and Fill with AI; each person
-                  may pick another in the panel. It goes through the chat channel, so each person's
-                  IAM model rules and budget apply.
+                  The provider/model for the Sheets assistant and Fill with AI; empty runs them on
+                  the default model (AI services). Each person may pick another in the panel. It
+                  goes through the chat channel, so each person's IAM model rules and budget apply.
                 </p>
               </div>
               <NumberField
@@ -1016,6 +1017,7 @@ export function RuntimeTab({
             Models and limits for AI in SQL, document reading on upload, and the AI gateway — and
             where knowledge-base embeddings are searched.
           </p>
+          <DefaultModelCard token={token} />
           <div className="space-y-3 rounded-lg border border-border/60 p-3">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <p className="text-sm font-medium">AI services</p>
@@ -1049,11 +1051,12 @@ export function RuntimeTab({
                 <Input
                   value={form.ai_sql_default_model}
                   onChange={(e) => set("ai_sql_default_model", e.target.value)}
-                  placeholder="openrouter/google/gemini-3-flash-preview"
+                  placeholder="Empty: the default model"
                   className="h-8 font-mono text-xs"
                 />
                 <p className="text-[10px] text-muted-foreground">
-                  provider/model an ai_* function uses when the statement names none.
+                  provider/model an ai_* function uses when the statement names none; empty uses the
+                  default model above.
                 </p>
               </div>
               <NumberField
@@ -1070,7 +1073,7 @@ export function RuntimeTab({
                 <Input
                   value={form.document_vision_model}
                   onChange={(e) => set("document_vision_model", e.target.value)}
-                  placeholder="openrouter/google/gemini-3-flash-preview"
+                  placeholder="Empty: the default model"
                   className="h-8 font-mono text-xs"
                 />
                 <p className="text-[10px] text-muted-foreground">

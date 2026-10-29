@@ -91,7 +91,9 @@ describe("string fields reject non-strings", () => {
 
   it("survives a model block that is not an object", () => {
     expect(json({ name: "x", model: "gpt-4" }).llm_provider).toBe("openrouter");
-    expect(json({ name: "x" }).llm_model).toBeTruthy();
+    // No model in the file: empty, so the agent runs on the instance default
+    // (Admin -> Developer runtime -> AI services -> Default model).
+    expect(json({ name: "x" }).llm_model).toBe("");
   });
 });
 

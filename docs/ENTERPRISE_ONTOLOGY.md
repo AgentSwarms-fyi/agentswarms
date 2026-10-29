@@ -47,7 +47,9 @@ interfaces honoured, joins line up, many-to-many needs a join table, a key canno
 a property cannot be a SQL keyword, every expression parses and names only what it may) and
 scores completeness. `diff.ts` classifies changes as breaking (removed type / property / metric /
 link, changed key, binding, join or cardinality) and lists what still refers to each.
-`edit.ts` renames and removes with every reference carried along.
+`edit.ts` renames and removes with every reference carried along. The ontology's own
+`description` is edited on the Overview (owner, or a grantee proposing); it is the first line of
+the AI catalog and the gallery card's text, and saving copies it to `ontologies.description`.
 
 An ontology's own name is renamed in place from the workspace title. Agents, shares and the agent
 builder's picker tell ontologies apart by name, so an owner's names are unique (ignoring case):
@@ -110,10 +112,26 @@ catalog AI sees. `tests/unit/enterpriseOntologyAccess.test.ts` pins all of this 
   counting, with the exact path to copy (`GROUP Order METRICS BY path [...] (Order → Customer):
 segment, …`, from `toOneReach` in `spec.ts`, the same set the Metrics page offers), so the model
   never judges fan-out itself. `tidyPlan` drops a time grain the model puts on a property that is
-  not a date (the one mistake with only one reading); everything else is left to the compiler. The answer's trust envelope lists the metric and whether it is certified, types,
-  links, tables, the asker's restrictions, open rule violations on those types (named as the
-  rules read now) and the verification. Verified questions store the plan and a digest of the answer; **Evaluate**
-  re-runs them (same / changed / broken).
+  not a date (the one mistake with only one reading); everything else is left to the compiler.
+  The prompt also carries two worked plans in the ontology's own names (`examplePlans`: a metric
+  by month, a metric by a linked type's property), built from what the asker may see; smaller
+  models copy a shape far better than they follow rules. A field a model writes as `null` reads
+  as absent (`parseAskPlan`). A refusal says why — the model's own reason, the compile error, or
+  what was wrong with the plan it returned — and which model planned it. The answer's trust
+  envelope lists the metric and whether it is certified, types, links, tables, the asker's
+  restrictions, open rule violations on those types (named as the rules read now), the
+  verification and the model that planned it. Verified questions store the plan and a digest of
+  the answer; **Evaluate** re-runs them (same / changed / broken).
+- **Publishing runs the verified questions first** (`evals.server.ts`, `runVerifiedQuestions`):
+  each one's plan is compiled and run against the draft about to be published. When one breaks,
+  the publish dialog lists it and publishing needs a tick on **Publish anyway**; the version and
+  its audit row (`ontology.publish`, `published_with_broken_questions`) keep the counts, and
+  **Versions** shows them per version.
+- **Which model**: Ask and Draft from tables have the model picker the BI pages have. Left on
+  **Server default**, the call runs on the platform's default model (Admin → Developer runtime →
+  AI services → Default model); a picked model the asker can't use (provider not connected,
+  their IAM model rules, or a model the provider does not know) falls back to it, recorded as
+  `model_fallback` on the trace.
 - **Agents**: the `ontology_query` tool (`src/utils/tools/ontology.server.ts`), deny-by-default by
   ontology name, catalog in the description, runs as `scopeUserId ?? userId`, may request actions
   only where `agentMode` allows (propose by default).

@@ -74,7 +74,10 @@ describe("llmJsonServer and the budget", () => {
   });
 
   it("within the cap, the call goes ahead", async () => {
-    expect(await call()).toEqual({ ok: true, result: { answer: 42 } });
+    // The answer, and the model that gave it (the ontology's trust envelope names it).
+    const res = await call();
+    expect(res).toMatchObject({ ok: true, result: { answer: 42 } });
+    expect(res).toHaveProperty("model");
     expect(providerFetch).toHaveBeenCalledTimes(1);
   });
 });

@@ -92,8 +92,10 @@ working, since the step keeps one output row per input row.
   that would exceed it fails before any call is made, and the message says
   how many it needed; narrow the rows, or raise the limit.
 - **Default model** and **answer cache (days)** live beside it
-  (`AI_SQL_DEFAULT_MODEL`, `AI_SQL_CACHE_TTL_DAYS`). None of them is capped
-  by the application.
+  (`AI_SQL_CACHE_TTL_DAYS` for the cache). An empty model means the
+  platform's default model (AI services → Default model), which is also what
+  a statement naming a model the caller can't use runs on. None of them is
+  capped by the application.
 - **IAM.** A model the caller's role may not use is refused per call
   (`model_not_allowed`), exactly as in Agent Chat; the statement fails with
   the model named.

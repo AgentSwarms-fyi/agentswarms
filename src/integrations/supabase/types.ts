@@ -6438,6 +6438,7 @@ export type Database = {
       };
       notebook_runtime_settings: {
         Row: {
+          default_model: string | null;
           ai_sql_cache_ttl_days: number | null;
           ai_sql_default_model: string | null;
           ai_sql_max_calls_per_statement: number | null;
@@ -6511,6 +6512,7 @@ export type Database = {
           updated_at: string;
         };
         Insert: {
+          default_model?: string | null;
           ai_sql_cache_ttl_days?: number | null;
           ai_sql_default_model?: string | null;
           ai_sql_max_calls_per_statement?: number | null;
@@ -6584,6 +6586,7 @@ export type Database = {
           updated_at?: string;
         };
         Update: {
+          default_model?: string | null;
           ai_sql_cache_ttl_days?: number | null;
           ai_sql_default_model?: string | null;
           ai_sql_max_calls_per_statement?: number | null;

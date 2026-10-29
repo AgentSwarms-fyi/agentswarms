@@ -650,8 +650,7 @@ function PlaygroundPage() {
     const agent = agents.find((a) => a.id === selectedAgent);
     const provider =
       opts.providerOverride || overrideModel?.provider || agent?.llm_provider || "openrouter";
-    const model =
-      opts.modelOverride || overrideModel?.model || agent?.llm_model || "openai/gpt-4o-mini";
+    const model = opts.modelOverride || overrideModel?.model || agent?.llm_model || "";
 
     setThinking(true);
     const controller = new AbortController();
@@ -1132,8 +1131,7 @@ function PlaygroundPage() {
           isFirstUserMessage: opts.isFirstUserMessage,
           failedProvider:
             opts.providerOverride || overrideModel?.provider || agent?.llm_provider || "openrouter",
-          failedModel:
-            opts.modelOverride || overrideModel?.model || agent?.llm_model || "openai/gpt-4o-mini",
+          failedModel: opts.modelOverride || overrideModel?.model || agent?.llm_model || "",
         });
       } else {
         showChatError(result.errorMessage);

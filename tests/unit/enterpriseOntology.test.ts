@@ -23,7 +23,9 @@ import {
   aiCatalog,
   askPlanSchema,
   askSystemPrompt,
+  examplePlans,
   normaliseQuestion,
+  parseAskPlan,
   questionSimilarity,
   tidyPlan,
 } from "@/lib/ontology/catalog";
@@ -504,6 +506,37 @@ describe("what the AI sees and may answer with", () => {
     );
   });
 
+  it("shows the model worked plans in the ontology's own names, and each one compiles", () => {
+    // Found live: gpt-4o-mini refused "how many orders each month" as needing
+    // the Customer link, with the rules in front of it.
+    const opts = { seeRestricted: false, policy: { maskedProperties: ["Customer.email"] } };
+    const examples = examplePlans(spec, opts);
+    expect(examples).toHaveLength(2);
+    const plans = examples.map((e) => parseAskPlan(JSON.parse(e.slice(e.indexOf("→ ") + 2))));
+    const [byDate, byLink] = plans.map((p) =>
+      p.success && p.data.kind === "metric" ? p.data : null,
+    );
+    expect(byDate?.query.groupBy).toEqual([{ property: expect.any(String), grain: "month" }]);
+    expect(byLink?.query.groupBy?.[0].path?.length).toBeGreaterThan(0);
+    for (const p of [byDate, byLink])
+      expect(compileMetric(spec, p!.query, opts).sql).toMatch(/GROUP BY/i);
+    // Never a property the asker cannot see: hide the one it chose, and it
+    // chooses another.
+    const [step] = byLink!.query.groupBy![0].path!;
+    expect(step.direction).toBe("forward");
+    const there = spec.linkTypes.find((l) => l.name === step.link)!.to;
+    const chosen = byLink!.query.groupBy![0].property;
+    const hidden = examplePlans(spec, {
+      seeRestricted: false,
+      policy: { maskedProperties: ["Customer.email", `${there}.${chosen}`] },
+    });
+    expect(hidden).toHaveLength(2);
+    expect(hidden[1]).not.toContain(`"property":"${chosen}"`);
+    expect(askSystemPrompt("CATALOG", "2026-10-29", examples)).toContain(
+      `EXAMPLES (this ontology):\n${examples[0]}`,
+    );
+  });
+
   it("drops a time grain from a grouping that is not a date, and touches nothing else", () => {
     // Found live: the model grouped revenue by segment "by month".
     const path = [{ link: "placed_by", direction: "forward" as const }];
@@ -542,6 +575,35 @@ describe("what the AI sees and may answer with", () => {
     expect(askPlanSchema.safeParse({ kind: "refuse", reason: "no shipping cost" }).success).toBe(
       true,
     );
+  });
+
+  it("reads a field a model wrote as null as absent, but keeps a filter's null value", () => {
+    // Smaller models fill every field of the shape they were shown.
+    const parsed = parseAskPlan({
+      kind: "metric",
+      explanation: "Orders by month",
+      query: {
+        objectType: "Order",
+        metric: "order_count",
+        groupBy: [{ property: "ordered_on", path: null, grain: "month" }],
+        filters: [{ property: "shipped_on", op: "is_null", value: null }],
+        order: null,
+        limit: null,
+      },
+    });
+    expect(parsed.success && parsed.data).toEqual({
+      kind: "metric",
+      explanation: "Orders by month",
+      query: {
+        objectType: "Order",
+        metric: "order_count",
+        groupBy: [{ property: "ordered_on", grain: "month" }],
+        filters: [{ property: "shipped_on", op: "is_null", value: null }],
+      },
+    });
+    // Still nothing but a plan.
+    expect(parseAskPlan({ kind: "sql", sql: "SELECT 1", explanation: null }).success).toBe(false);
+    expect(parseAskPlan(null).success).toBe(false);
   });
 
   it("matches a verified question by meaning, not wording", () => {

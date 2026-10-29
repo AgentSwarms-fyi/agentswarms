@@ -667,8 +667,10 @@ async function callAgentImpl(
   const conversationId = ltmScope === "swarm" && swarmRunId ? swarmRunId : undefined;
   const { data: sessionData } = await supabase.auth.getSession();
   const token = sessionData.session?.access_token;
-  const provider = node.data.provider || "openrouter";
-  const model = node.data.model || "google/gemini-3-flash-preview";
+  // A node with no model of its own runs on the instance default, which the
+  // chat route resolves (Admin -> Developer runtime -> AI services -> Default model).
+  const provider = node.data.provider || undefined;
+  const model = node.data.model || undefined;
 
   // Forward upstream-generated images as proper image_url parts to ANY model
   // that can consume them — not just image-gen models. Gemini Pro / Flash and
@@ -701,7 +703,7 @@ async function callAgentImpl(
     if (parts.length === upstreamImages.length) {
       parts.unshift({
         type: "text",
-        text: isImageModelId(model)
+        text: isImageModelId(model ?? "")
           ? "Edit / regenerate based on the attached image(s)."
           : "Analyze the attached image(s) in the context above.",
       });
@@ -1725,8 +1727,8 @@ export async function runSwarm(
             data: {
               ...node.data,
               systemPrompt: sys,
-              provider: node.data.provider || "openrouter",
-              model: node.data.model || "openai/gpt-4o-mini",
+              provider: node.data.provider,
+              model: node.data.model,
               temperature: typeof node.data.temperature === "number" ? node.data.temperature : 0.1,
             },
           };
@@ -1915,8 +1917,9 @@ Evaluate the candidate output above against each metric and return the JSON scor
             data: {
               ...node.data,
               systemPrompt: evalSystemPrompt,
-              provider: node.data.provider || "openrouter",
-              model: node.data.model || "openai/gpt-5",
+              // No model on the node: the instance default evaluates.
+              provider: node.data.provider,
+              model: node.data.model,
               temperature: typeof node.data.temperature === "number" ? node.data.temperature : 0.1,
             },
           };
