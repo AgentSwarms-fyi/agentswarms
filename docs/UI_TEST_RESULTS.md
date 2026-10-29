@@ -15,6 +15,19 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-30 — The ontology header drops "draft has changes" when a save puts the published model back
+
+Build: a hot deploy of the working copy with `draftDiffers`. Ontology `33883aa4-…` "Northwind Outfitters 2",
+v3 published, owner rghosh044. The Overview tab's **Edit description** button.
+
+| What was pressed                                                       | Result                                                                                                          |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| The page on load                                                       | header "v3 published · Saved": the draft equals the published version                                           |
+| " Draft check." appended to the description → **Save description**     | header "v3 published · draft has changes"                                                                       |
+| **Edit description**, the 13 characters removed → **Save description** | header "v3 published" straight after the save, no reload (before: it stayed "draft has changes" until a reload) |
+
+The fixture keeps its v3 description, "… Shipping costs and returns are not modelled.", and its draft equals v3.
+
 ## 2026-10-30 — R405: Deep mode's slide review runs as you, through the chat channel
 
 Build: a hot deploy of the working copy; the renderer rebuilt from it and recreated with Compose's new

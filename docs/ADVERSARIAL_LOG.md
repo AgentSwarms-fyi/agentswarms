@@ -109,6 +109,21 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-30 — The ontology header kept saying "draft has changes" after the draft matched again
+
+Found in the ontology's round 2 and noted then. After any save the header said "draft has changes", even
+when the save had put the published model back, until a reload. There were two causes. The page set
+`unpublished_changes: true` on every successful save. And the server's check compared the draft with the
+published version as `JSON.stringify` bytes, which is right only while both sides come out of `jsonb` in
+the same key order. Now `draftDiffers` compares them as JSON values (`canonicalJson`, keys sorted). The
+load uses it, and every save answers with it, so the page shows what the server decided.
+
+From the UI on "Northwind Outfitters 2" (v3 published): a sentence appended to the description and saved
+turned the header to "v3 published · draft has changes". With the sentence removed and saved, it went back to
+"v3 published" without a reload. `ontologyDraftFlag.test.ts` (3): a spec with its keys reordered compares
+equal and a real edit does not, the server compares canonically on load and in the save's answer, and the
+page uses the answer. Mutation 3 of 3.
+
 ### 2026-10-30 — R405: Deep mode's slide review runs as the user, not on the renderer's key (VA-37)
 
 **Finding** VA-2026-10-25-37, found reviewing where the instance default model reaches (R404). In Deep mode a

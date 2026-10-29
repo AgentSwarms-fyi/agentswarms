@@ -86,7 +86,10 @@ write's kind) says where it came from in `via`: `ontology:<what>` (`explore`, `o
 `src/utils/ontology/access.server.ts` decides for every server function:
 
 - the **owner** works on the draft and may save, publish, restore, delete, run rules, preview
-  tables, approve actions and verify questions;
+  tables, approve actions and verify questions. Whether the draft differs from the published
+  version (`unpublished_changes`, the header's "draft has changes") is decided on the server, on
+  load and in every save's answer, comparing the two as JSON values: `jsonb` keeps keys in its own
+  order, so a byte compare called an unchanged draft changed;
 - a **grantee** (IAM resource type `ontology`, user or group) reads the **published** version only,
   explores, asks, proposes and requests actions; before the first publish there is nothing to see;
 - anyone else gets "does not exist", as for a deleted ontology.

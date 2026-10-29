@@ -31,6 +31,7 @@ import { lakehouseConnection, lakehouseEnabled } from "@/utils/lakehouse/core.se
 import { listLakehouseTablesForUser } from "@/utils/lakehouse/tables.server";
 import { runVerifiedQuestions, type EvalOutcome } from "@/utils/ontology/evals.server";
 import { runSql } from "@/utils/ontology/run.server";
+import { canonicalJson } from "@/lib/definitionFingerprint";
 import { diffSpecs, type SpecDiff } from "@/lib/ontology/diff";
 import { notInstalledMessage } from "@/lib/ontology/install";
 import { describeOntologyPolicy } from "@/lib/ontology/policy";
@@ -406,6 +407,27 @@ export type OntologyDetail = {
   updated_at: string;
 };
 
+/**
+ * Whether the draft differs from the published version. Compared as JSON
+ * values, not bytes: `jsonb` keeps keys in its own order and a parsed spec in
+ * the schema's, so a byte compare of a save against the published version
+ * called an unchanged draft changed.
+ */
+async function draftDiffers(
+  ontologyId: string,
+  publishedVersion: number | null,
+  spec: unknown,
+): Promise<boolean> {
+  if (!publishedVersion) return true;
+  const { data: v } = await supabaseAdmin
+    .from("ontology_versions")
+    .select("spec")
+    .eq("ontology_id", ontologyId)
+    .eq("version", publishedVersion)
+    .maybeSingle();
+  return !v || canonicalJson(v.spec) !== canonicalJson(spec);
+}
+
 export const ontologyGet = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ access_token: token, id }).parse(input))
   .handler(async ({ data }): Promise<{ ok: true; ontology: OntologyDetail } | Fail> => {
@@ -414,16 +436,8 @@ export const ontologyGet = createServerFn({ method: "POST" })
     const access = await loadOntology(caller.userId, data.id, "read");
     if (isFail(access)) return access;
     const { row, role, spec, version, policy } = access;
-    let unpublished = role === "owner";
-    if (role === "owner" && row.published_version) {
-      const { data: v } = await supabaseAdmin
-        .from("ontology_versions")
-        .select("spec")
-        .eq("ontology_id", row.id)
-        .eq("version", row.published_version)
-        .maybeSingle();
-      unpublished = !v || JSON.stringify(v.spec) !== JSON.stringify(row.spec);
-    }
+    const unpublished =
+      role === "owner" && (await draftDiffers(row.id, row.published_version, row.spec));
     const [{ count: openProposals }, { count: pendingActions }] = await Promise.all([
       supabaseAdmin
         .from("ontology_proposals")
@@ -472,7 +486,7 @@ export const ontologySave = createServerFn({ method: "POST" })
     async ({
       data,
     }): Promise<
-      | { ok: true; revision: number; issues: Issue[] }
+      | { ok: true; revision: number; issues: Issue[]; unpublished_changes: boolean }
       | Fail
       | { ok: false; conflict: true; error: string }
     > => {
@@ -514,7 +528,14 @@ export const ontologySave = createServerFn({ method: "POST" })
             "This ontology was changed in another tab or by another session. Reload to see it before saving.",
         };
       }
-      return { ok: true, revision: updated.revision, issues: validateSpec(parsed.data).issues };
+      return {
+        ok: true,
+        revision: updated.revision,
+        issues: validateSpec(parsed.data).issues,
+        // Said by the server, so a save that puts the published model back
+        // clears the header's "draft has changes".
+        unpublished_changes: await draftDiffers(data.id, access.row.published_version, parsed.data),
+      };
     },
   );
 

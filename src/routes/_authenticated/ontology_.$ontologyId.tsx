@@ -173,7 +173,7 @@ function OntologyWorkspace() {
                 ...d,
                 revision: res.revision,
                 issues: res.issues,
-                unpublished_changes: true,
+                unpublished_changes: res.unpublished_changes,
                 name: next.name,
               }
             : d,

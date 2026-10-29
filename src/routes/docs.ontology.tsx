@@ -167,7 +167,9 @@ function OntologyDocsPage() {
         The owner edits a <strong>draft</strong> that saves itself a moment after each change. A
         save made from a stale tab is refused rather than written over newer work. Publishing
         freezes the draft into a numbered version — what people you share with, agents and exports
-        use — after showing exactly what changed and which changes are breaking.
+        use — after showing exactly what changed and which changes are breaking. The header says{" "}
+        <em>draft has changes</em> while the draft differs from the published version, and drops it
+        as soon as a save puts the published model back.
       </P>
       <P>
         Click the ontology&apos;s name at the top of the workspace to rename it. Agents, shares and

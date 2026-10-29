@@ -655,6 +655,11 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **An ontology's header stops saying "draft has changes" once the draft
+  matches the published version again.** It stayed after any save until a
+  reload: the page assumed every save made a change, and the server compared
+  the two models byte for byte, which the database's key order defeats. The
+  server now compares them as JSON values, on load and in every save's answer.
 - **Enterprise Ontology, after its first live UI round.** Asking a question
   replaced the whole page with "Something went wrong": the Ask tab's scroll
   effect returned `scrollIntoView(...)`, which current Chromium answers with a
