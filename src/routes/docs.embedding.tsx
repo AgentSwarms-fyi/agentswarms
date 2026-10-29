@@ -58,7 +58,7 @@ function EmbeddingPage() {
         items={[
           {
             title: "Pick what to expose",
-            body: "One agent, one swarm, one published dashboard or one AI Analyst per key. Separate keys for separate placements — they can be revoked independently.",
+            body: "One agent, one swarm, one published dashboard or one AI Analyst per key, and only one you own: a dashboard shared with you is not yours to publish, and the database refuses a key that names someone else's resource. Separate keys for separate placements — they can be revoked independently.",
           },
           {
             title: "Restrict the domains",
@@ -318,6 +318,10 @@ const { turns, activeTurn, ask, isRunning, error } = useAgentAnalyst({
           {
             name: "Domain allow-list",
             body: "Requests carry the browser-set Origin header, which page scripts cannot forge, and are rejected when it isn't on your list. This stops your key being lifted and used on someone else's site — but it is a browser-level control, not authentication: a non-browser client can send any header it likes.",
+          },
+          {
+            name: "Ownership",
+            body: "A key can only name an agent, swarm, dashboard or analyst its owner owns. The database checks this when a key is written, and every embed endpoint checks it again before serving, so a key pointed at someone else's resource serves nothing.",
           },
           {
             name: "Key lifecycle",

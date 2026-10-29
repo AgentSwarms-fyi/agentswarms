@@ -170,7 +170,10 @@ literal text.
   reason**, never a fallback to the owner's unfiltered view. Widgets whose
   stored results do not project the scope column cannot be narrowed and are
   **withheld with that reason**, since an aggregate already contains every
-  customer. See `docs/BUSINESS_INTELLIGENCE.md`.
+  customer. See `docs/BUSINESS_INTELLIGENCE.md`. A key can only name a
+  resource its owner owns: the `embed_keys` policy checks it on every write
+  (`20261101000000`, VA-2026-10-25-32), and every embed endpoint checks it
+  again before serving.
 - **An embedded AI Analyst is the most exposed embed type, deliberately
   bounded.** Unlike a dashboard embed (stored snapshots the owner already
   computed), it accepts a free-form question and runs the full reasoning loop

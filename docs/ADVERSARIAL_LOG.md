@@ -109,6 +109,55 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-29 — R402: an embed key must name something its owner owns (VA-32)
+
+**Finding** VA-2026-10-25-32: `embed_keys` had one policy, `auth.uid() = user_id` on read and write. It
+said the key was yours, never that the agent, swarm, BI dashboard or AI analyst it names was. A signed-in
+client could insert a key naming another user's resource through the data API, or repoint its own key
+with an UPDATE. ml_api_keys and mcp_app_keys had the same hole until R375.
+
+**Why it was not exploitable.** Every loader re-checks the owner against the key's `user_id` (`api/embed`
+resolve, `api/embed.chat`, `api/embed.analyst` via `loadEmbeddedAnalyst`, the viewer functions) and answers
+"no longer exists". A planted key served nothing.
+
+**Fix.** Migration `20261101000000_embed_keys_owner_check.sql`:
+
+- removes any key whose named resource exists and belongs to someone else;
+- recreates the policy with the ownership rule on WITH CHECK, one CASE branch per resource type, ELSE
+  false, so a new type cannot pass by default;
+- proves on apply that there is exactly one policy, that its WITH CHECK names all four tables, and that it
+  has no top-level OR.
+
+USING stays "the key is yours". `resource_id` has no foreign key, so a key outlives the resource it named,
+and its owner must still see it to delete it.
+
+The embed form now lists only the caller's own resources. A dashboard shared with you was offered before,
+and its key could never work; under the new rule it would have been refused with a raw RLS error instead.
+
+**Proof** in a throwaway Postgres 16.15, with the four resource tables under owner RLS and B's dashboard
+readable by A (a share):
+
+- Before the fix, A, through the authenticated role, inserted keys naming B's agent, swarm, shared dashboard
+  and analyst, plus one for their own agent and one for a deleted agent: 6 keys.
+- The first apply removed 4 and the second removed 0.
+- After it, A held their own key and the orphan. A's key for their own dashboard was written, and turning
+  A's own key off worked.
+- All four cross-owner inserts were refused with "new row violates row-level security policy", and so was
+  repointing A's own key at B's agent.
+- The orphan was deletable.
+
+**Found in the proof.** The migration's "no OR" self-check first searched for `' OR '`, copied from R375.
+Postgres prints an OR-ed version of this policy as `... OR` followed by a newline and the CASE, so the
+mutant passed the check. It now matches OR as a word (`~ '\mOR\M'`), and the mutant fails the migration.
+R375's policies are not affected: their OR would precede `(EXISTS` on the same line.
+
+**Tests.** `embedKeysOwnerCheck.test.ts` (5), mutation 5 of 5. The mutants were `OR CASE`, a misnamed branch,
+`ELSE true`, `USING (true)`, and the form listing dashboards without the owner filter. The two database
+mutants, an OR-ed policy and a missing branch, both fail the migration.
+
+**Live:** the deployed embed form lists only the caller's 24 dashboards. The policy goes live when the
+migration is pushed.
+
 ### 2026-10-29 — R401: one lockfile (VA-27)
 
 **Finding** VA-2026-10-25-27: osv-scanner reported 178 advisories in `bun.lock` and 1 in

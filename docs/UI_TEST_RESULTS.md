@@ -15,6 +15,20 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-29 — R402: the embed form offers only what you own
+
+Build: a hot deploy of the working copy with the owner filter. The migration
+`20261101000000_embed_keys_owner_check.sql` is not pushed yet; it was proved in a throwaway Postgres
+(ADVERSARIAL_LOG, R402).
+
+| What was pressed                                                  | Result                                                                                                                                                    |
+| ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Integrations → Web Embedding → Embed Dashboard → **Create embed** | the form opened with Dashboard "Choose…", Expires 90 days, messages kept 30 days                                                                          |
+| The Dashboard picker                                              | 24 dashboards, every one owned by this account (the samples, "Call Center Stats", "Formula 1 Analytics", the r214/r215 fixtures); closed without creating |
+
+No fixtures were created. This account has no dashboard shared with it, so the filter removed nothing here; the
+throwaway database covers a shared dashboard.
+
 ## 2026-10-29 — One default model, set in Admin; the ontology's publish gate; Ask on a small model
 
 After `20261031000000_default_model.sql` was pushed. Builds: hot deploys of the working copy, each

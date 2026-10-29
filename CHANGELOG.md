@@ -326,6 +326,15 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   converts `package-lock.json`, so it resolves the same versions. The file it
   writes is git-ignored, and a test fails if a second lockfile is committed.
   **If you use Bun:** delete your old `bun.lock` and run `bun install`.
+- **An embed key must name something you own** (R402, VA-2026-10-25-32). The
+  database accepted an embed key naming another user's agent, swarm, dashboard
+  or AI analyst, because it checked only that the key was yours. Nothing was
+  served through such a key, because every embed loader checks the owner
+  again. Now the database refuses to write one, and the migration removes any
+  that exist. The embed form lists only your own resources: a dashboard shared
+  with you was offered before, and its key could never work.
+  **Upgrading:** push migration `20261101000000_embed_keys_owner_check.sql`
+  (`npx supabase db push --include-all`).
 - **The Spark Connect server asks for a token and no longer runs as root**
   (R398, VA-2026-10-25-23). Notebook kernels share an internal network with the
   Compose `spark-connect` service; until now a kernel could connect to it and

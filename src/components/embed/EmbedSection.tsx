@@ -194,6 +194,11 @@ export function EmbedSection() {
   }, []);
 
   const load = useCallback(async () => {
+    // Only what you own can be embedded (the key's policy checks it, VA-32):
+    // a dashboard shared with you is readable here, but not yours to publish.
+    const { data: auth } = await supabase.auth.getSession();
+    const uid = auth.session?.user.id;
+    if (!uid) return;
     const [k, a, s, d, an] = await Promise.all([
       supabase
         .from("embed_keys")
@@ -201,10 +206,10 @@ export function EmbedSection() {
           "id, name, key, resource_type, resource_id, allowed_domains, allow_ai, is_active, use_count, created_at, expires_at, last_used_ip, require_signed_viewer, viewer_attributes",
         )
         .order("created_at", { ascending: false }),
-      supabase.from("agents").select("id, name").order("name"),
-      supabase.from("swarms").select("id, name").order("name"),
-      supabase.from("bi_dashboards").select("id, name").order("name"),
-      supabase.from("ai_analysts").select("id, name").order("name"),
+      supabase.from("agents").select("id, name").eq("user_id", uid).order("name"),
+      supabase.from("swarms").select("id, name").eq("user_id", uid).order("name"),
+      supabase.from("bi_dashboards").select("id, name").eq("user_id", uid).order("name"),
+      supabase.from("ai_analysts").select("id, name").eq("user_id", uid).order("name"),
     ]);
     setKeys((k.data ?? []) as EmbedKey[]);
     setResources({
