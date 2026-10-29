@@ -335,6 +335,16 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   with you was offered before, and its key could never work.
   **Upgrading:** push migration `20261101000000_embed_keys_owner_check.sql`
   (`npx supabase db push --include-all`).
+- **Serialization and query-string libraries patched** (R403,
+  VA-2026-10-25-36). `seroval`, which turns server-function results into
+  what the browser reads, had two injection advisories published after the
+  October assessment, and `qs` one; both come in through other packages.
+  They move to the patch releases on the lines already in use (`seroval`
+  1.6.12, `qs` 6.16.1), not to the minors published the day before. A test
+  keeps them at or above the fixed versions. **Upgrading:** rebuild the app
+  image (`docker compose build agentswarms && docker compose up -d`). The
+  server loads `seroval` from the image's installed packages, not from the
+  bundle.
 - **The Spark Connect server asks for a token and no longer runs as root**
   (R398, VA-2026-10-25-23). Notebook kernels share an internal network with the
   Compose `spark-connect` service; until now a kernel could connect to it and

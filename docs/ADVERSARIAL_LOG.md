@@ -109,6 +109,34 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-29 — R403: seroval and qs to their patch fixes (VA-36)
+
+**Finding** VA-2026-10-25-36, found measuring R401: osv-scanner `v2.6.0` on `package-lock.json` reported four
+advisories published after the assessment, all in transitive packages:
+
+- `seroval` 1.6.8 has two moderate advisories, script injection through RegExp sources and code injection
+  through a typed array's constructor property, in the serialized output. TanStack Start uses it to send
+  server-function results to the browser.
+- `qs` 6.16.0 throws on a crafted `stringify` input. It comes in through duckdb-wasm.
+- `deepmerge` 4.3.1 has a low advisory with no fixed release.
+
+**Fix.** `npm update` resolved `seroval` to 1.7.3 and `qs` to 6.17.1. Both are minors published the day before,
+and `seroval` 1.7 has had four releases in a week and raises its Node floor. The lockfile instead pins the patch
+releases on the lines already in use: `seroval` and `seroval-plugins` 1.6.12, `qs` 6.16.1 (the advisory's fixed
+version). Only version, URL and integrity change, nine lines, and `npm install` then agreed with the lockfile.
+`deepmerge` is accepted in SECURITY.md: it merges `html-to-text`'s options, which `@react-email/render` builds
+from constants.
+
+**Where it runs.** The server bundle imports `seroval` from `node_modules`, so a dist hot deploy alone would
+have left 1.6.8 serializing every server-function result. The running container got the three packages copied
+in (versions read back inside it). `docker compose build` installs them from the lockfile.
+
+**Measured after:** osv-scanner on `package-lock.json` reports `@azure/msal-node` (accepted) and `deepmerge`
+(accepted) only.
+
+**Tests.** `dependencyFloors.test.ts` (5) reads every installed copy in the lockfile. Mutation 2 of 2: the old
+lockfile fails three floors, and a `seroval-plugins` release different from `seroval` fails the pairing.
+
 ### 2026-10-29 — R402: an embed key must name something its owner owns (VA-32)
 
 **Finding** VA-2026-10-25-32: `embed_keys` had one policy, `auth.uid() = user_id` on read and write. It

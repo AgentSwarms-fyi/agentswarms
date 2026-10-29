@@ -327,6 +327,14 @@ used only for the driver's own debug and error text, where no value from a user
 or a database reaches a format position, so it could not be triggered here
 either.
 
+`deepmerge` 4.3.1 (via `html-to-text`, via `@react-email/render`) has a low
+prototype-poisoning advisory (GHSA-gcqx-w48m-w2h4) with no fixed release. It
+merges `html-to-text`'s option objects, which `@react-email/render` builds
+from its own constants when rendering an email's plain-text part. No request
+value reaches the merge, so it is accepted until a fix is published.
+`tests/unit/dependencyFloors.test.ts` keeps the transitive packages that do
+have a fix (`seroval`, `qs`) at or above it.
+
 ## Security assessments
 
 The controls above are checked on a cadence by a repeatable vulnerability

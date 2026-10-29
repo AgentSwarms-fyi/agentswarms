@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-29 — R403: the app after seroval and qs moved to their patch fixes
+
+Build: a hot deploy of the working copy, plus `seroval`, `seroval-plugins` and `qs` copied into the
+container's `node_modules`. The server bundle imports `seroval` from there, and inside the container it read
+back 1.6.12, 1.6.12 and 6.16.1. Every page below crosses the serializer: server-side rendering, and
+server-function results.
+
+| What was pressed                                       | Result                                                                                                                                                                                 |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A fresh tab on ontology `33883aa4-…` (server-rendered) | "v3 published", the description with this round's sentence, completeness 64%, rules "25 pass", 4 failing                                                                               |
+| The same page's Fit to the data (a server function)    | Customer 120 rows … Order 600 rows … Shipment 286 rows; placed_by 99.8%, the other links 100.0%: the same as before the change                                                         |
+| The console on that fresh load                         | one error, "An unknown error occurred when fetching the script": the service-worker registration, which this browser pane never completes (no registration exists) and the app catches |
+
+No fixtures were created.
+
 ## 2026-10-29 — R402: the embed form offers only what you own
 
 Build: a hot deploy of the working copy with the owner filter. The migration
