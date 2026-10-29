@@ -1,10 +1,16 @@
-fastapi==0.115.6
+fastapi==0.142.4
+# FastAPI leaves Starlette open-ended, so it is pinned here: fastapi 0.115.6
+# brought 0.41.3, which carried seven advisories (VA-2026-10-25-26).
+starlette==1.7.0
 uvicorn[standard]==0.34.0
 python-pptx==1.0.2
 python-docx==1.1.2
 openpyxl==3.1.5
-cairosvg==2.9.0
+cairosvg==2.9.1
 pdf2image==1.17.0
-pillow==12.3.0
+pillow==13.0.0
 httpx==0.28.1
 pydantic==2.10.4
+# Not imported: httpx's CA bundle. 2026.10.19 removes the emSign roots whose
+# intermediate keys were compromised.
+certifi>=2026.10.19

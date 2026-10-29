@@ -335,6 +335,18 @@ value reaches the merge, so it is accepted until a fix is published.
 `tests/unit/dependencyFloors.test.ts` keeps the transitive packages that do
 have a fix (`seroval`, `qs`) at or above it.
 
+The Python images are held to the same rule. The document renderer pins every
+package, and the notebook kernel image ends its requirements with minimum
+versions for the packages osv-scanner found advisories in; both are checked by
+`tests/unit/pythonDependencyFloors.test.ts`. One advisory names no fixed
+release: `nltk`'s model import and export helpers ignore its optional path
+sandbox (GHSA-8mgp-746c-j5xp). The advisory database lists 3.10.3 as the last
+affected version, so osv-scanner does not report the 3.10.4 the image now
+installs, but the advisory's own text says it is not patched. It is accepted
+either way. `llama-index` brings `nltk` into the kernel image, and no platform
+code calls those helpers. Code in a kernel is already the user's own and can
+read and write files directly, so the bypass gives it nothing more.
+
 ## Security assessments
 
 The controls above are checked on a cadence by a repeatable vulnerability

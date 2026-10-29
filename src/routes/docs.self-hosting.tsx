@@ -132,6 +132,12 @@ function SelfHostingPage() {
         setting has nowhere to save. After any upgrade, run <C>npx supabase db push</C> before
         concluding a feature is broken.
       </Callout>
+      <Callout kind="info" title="Rebuild every image after an upgrade">
+        <C>docker compose up -d --build</C> with no service name rebuilds them all. Naming one, such
+        as <C>agentswarms</C>, rebuilds only that image: the document renderer and the notebook
+        kernel image keep the Python packages they were built with, security fixes included. The
+        changelog says which images a release needs rebuilt.
+      </Callout>
       <H2 id="services">The services</H2>
       <Table
         headers={["Service", "Container", "What it adds"]}

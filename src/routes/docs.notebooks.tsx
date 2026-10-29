@@ -282,6 +282,22 @@ function NotebooksDoc() {
         nodes, use the k8s backend.
       </Callout>
 
+      <H3 id="image-updates">Keeping the kernel image patched</H3>
+      <P>
+        The image&apos;s frameworks are unpinned, so a fresh build takes current releases. A rebuild
+        on the same machine does not, though: Docker reuses the cached install step until{" "}
+        <C>docker/notebook-runtime/requirements.txt</C> changes. That file therefore ends with a
+        list of minimum versions, each the first release that fixes a known advisory, and a release
+        that raises one changes the file, so the next build installs the fix. Rebuild with:
+      </P>
+      <Code lang="bash">{`docker compose build notebook-runtime-image`}</Code>
+      <P>
+        On the docker backend, new notebook sessions, pipeline runs and training jobs start from the
+        new image. A warm model endpoint keeps the image it started from until you stop it and
+        deploy it again. On Kubernetes, push the image under a new tag and point{" "}
+        <C>NOTEBOOK_RUNTIME_IMAGE</C> at it.
+      </P>
+
       <H2 id="egress">Kernel network isolation</H2>
       <P>
         Kernels sit on an internal network with <strong>no direct internet access</strong>. Their

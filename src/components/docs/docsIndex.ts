@@ -3180,6 +3180,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "async",
       "build-essential",
       "chat",
+      "docker/notebook-runtime/requirements.txt",
       "entrypoint",
       "error",
       "inputs",
@@ -3230,6 +3231,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "libraries",
         "text": "Installing libraries",
+        "level": 3
+      },
+      {
+        "id": "image-updates",
+        "text": "Keeping the kernel image patched",
         "level": 3
       },
       {
@@ -3563,6 +3569,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "/api/health/ready",
       "SPARK_CONNECT_URL",
       "VECTOR_STORE",
+      "agentswarms",
       "deploy/k8s/app/",
       "deploy/k8s/notebooks/",
       "docgen",

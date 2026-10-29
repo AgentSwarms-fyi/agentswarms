@@ -109,6 +109,58 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-29 — R404: the doc renderer and the kernel image take their Python fixes (VA-26)
+
+**Finding** VA-2026-10-25-26, measured on what the images actually install. `pip freeze` ran inside each built
+image, and osv-scanner `v2.6.0` scanned the result. The requirements files alone say little, because the kernel
+image's are mostly unpinned:
+
+- **Renderer** (`agentswarms/docgen`): 50 advisories in 4 packages. `pillow` 12.3.0 has 41 (image-parsing
+  overflows, decompression bombs, a Ghostscript argument injection). `starlette` 0.41.3, which the pinned
+  `fastapi` 0.115.6 brings, has 7 (Host-header poisoning, Range and multipart DoS). `cairosvg` 2.9.0 and
+  `certifi` 2026.7.22 have 1 each.
+- **Kernel image** (`agentswarms/notebook-runtime`): 72 in 14 packages. These include `pillow`, `tornado` (the
+  kernel gateway's HTTP server), `aiohttp`, `authlib` (JWS/JWT forgery), `nbconvert` (path traversal), `fastmcp`
+  (authorization skipped after a transform) and `langgraph`.
+
+**Why a rebuild was not enough.** The kernel image's frameworks are unpinned on purpose, so a fresh build takes
+current releases. But Docker reuses the `pip install` layer until `requirements.txt` changes. The image on this
+machine was three weeks old and would have stayed that way through any number of `docker compose build` runs.
+
+**Fix.**
+
+- **Renderer:** pins `pillow` 13.0.0, `cairosvg` 2.9.1 and `fastapi` 0.142.4 (released 2026-10-07, after
+  `starlette` 1.7.0). It pins `starlette` 1.7.0 explicitly, because FastAPI leaves it open-ended. `certifi` gets
+  a floor of 2026.10.19. Pillow 13's breaking changes (child images, ICO and PNG I-mode saving) touch nothing
+  `python-pptx`, `pdf2image` or `cairosvg` call.
+- **Kernel image:** keeps its frameworks unpinned and ends its requirements with a floor per advisory. Each
+  floor is the first release with the fix, and changing the file busts the cached layer.
+
+**Found on the way: an unpinned rebuild is a major-version upgrade.** The first rebuild took `duckdb` 2.0.0.
+Kernel-side lakehouse nodes write the DuckLake catalog that the app's DuckDB (`@duckdb/node-api` 1.5) also
+reads, and a newer DuckLake extension may move that catalog to a version the app's cannot open. The image was
+built but no run had used it: 0 pipelines are scheduled, the last run was the day before, and warm endpoints keep
+the image they started from. The old image was already gone (the containerd store collects an untagged image),
+so the fix went forward. `duckdb` is capped below 2, with a test tying the cap to `package.json`'s major, and the
+image was rebuilt. The same rebuild moved `pyarrow` 25 → 26, `multidict` 6 → 7, `websockets` 16 → 17 and
+`soupsieve` 2 → 3; none of those shares state with the app.
+
+**Measured after:** 0 advisories in each image. `nltk`'s GHSA-8mgp-746c-j5xp names no fix and is listed as
+affecting up to 3.10.3. It is accepted in SECURITY.md either way: kernel code is the user's own.
+
+**Smoke.**
+
+- **Renderer**, through its port: a deck rendered (chart, two KPI cards, an SVG diagram through `cairosvg`, 5
+  slides) with a 37 KB PNG thumbnail (LibreOffice, then `pdf2image`, then Pillow 13). So did a Word file and a
+  workbook, whose `SUM(B2:B3)` LibreOffice recalculated to 5.
+- **Kernel image:** imports Pillow 13.0.0 (and round-trips a PNG), `tornado` 6.6, `fastmcp` 4.1.4,
+  `ipykernel` 6.29.5 and the ML and agent frameworks.
+
+**Tests.** `pythonDependencyFloors.test.ts` (21): every floor, each package listed once per file, the renderer
+pinned exactly, the DuckDB major tied to the app's, and pip's name normalization and version order. Mutation 9 of
+9: an old Pillow, a removed `starlette` pin, a `uvicorn` range, an old `tornado`, a bare `fastmcp`, a duplicate
+`pillow` line, a removed `certifi` floor, an uncapped `duckdb` and a cap at 3.
+
 ### 2026-10-29 — R403: seroval and qs to their patch fixes (VA-36)
 
 **Finding** VA-2026-10-25-36, found measuring R401: osv-scanner `v2.6.0` on `package-lock.json` reported four

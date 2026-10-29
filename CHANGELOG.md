@@ -345,6 +345,23 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   image (`docker compose build agentswarms && docker compose up -d`). The
   server loads `seroval` from the image's installed packages, not from the
   bundle.
+- **The document renderer and the notebook kernel image take their Python
+  security fixes** (R404, VA-2026-10-25-26). Both images carried `pillow`
+  12.3.0, with 41 image-parsing advisories fixed in 13.0.0. The renderer also
+  had `cairosvg` 2.9.0 and the `starlette` 0.41.3 that `fastapi` 0.115.6
+  brought, with seven advisories. The kernel image had older `tornado`,
+  `aiohttp`, `authlib`, `nbconvert`, `fastmcp` and others. The renderer now pins
+  `pillow` 13.0.0, `cairosvg` 2.9.1, `fastapi` 0.142.4 and `starlette` 1.7.0.
+  The kernel image keeps its frameworks unpinned and adds a minimum version per
+  advisory, because Docker reuses the cached install step until the
+  requirements file changes. The kernel image's `duckdb` is now capped below 2:
+  the first rebuild took 2.0.0, while the app reads the same lakehouse catalog
+  with DuckDB 1.5. osv-scanner on the rebuilt images: 50 advisories → 0 in the
+  renderer, 72 → 0 in the kernel image. A test holds both files to those
+  versions.
+  **Upgrading:** rebuild both images (`docker compose build docgen
+notebook-runtime-image && docker compose up -d docgen`), then stop and
+  deploy any warm model endpoint again so it starts from the new image.
 - **The Spark Connect server asks for a token and no longer runs as root**
   (R398, VA-2026-10-25-23). Notebook kernels share an internal network with the
   Compose `spark-connect` service; until now a kernel could connect to it and

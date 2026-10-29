@@ -15,6 +15,38 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-29 — R404: the renderer and a notebook kernel on the rebuilt Python images
+
+Builds: `docker compose build docgen notebook-runtime-image` from a clean worktree at 545766a5 plus this round's
+two requirements files. The kernel image was built again after `duckdb` was capped below 2. The renderer
+container was recreated with `up -d --no-deps docgen`; kernels start from the image tag.
+
+| What was pressed                                                                            | Result                                                                                                                                                                   |
+| ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| The renderer's port: a deck with a bar chart, two KPI cards, an SVG diagram and bullets     | a 5-slide `.pptx` (1 native chart, the diagram rasterised by `cairosvg` as `image1.png`) and a 37 KB PNG thumbnail (LibreOffice, then `pdf2image`, then Pillow 13), 36 s |
+| The same for a Word plan and a workbook with `SUM(B2:B3)`                                   | both rendered with PNG thumbnails; the workbook's cell holds the formula with LibreOffice's cached value 5                                                               |
+| Developer workspace → **New Python notebook**; a code cell printing versions → **Run cell** | a kernel started in 30 s through the gateway and printed `pillow 13.0.0 \| tornado 6.6 \| duckdb 1.5.6 \| fastmcp 4.1.4 \| pyarrow 26.0.0` (1742 ms)                     |
+| ETL Pipelines, while the image with `duckdb` 2.0.0 was still the tag                        | Scheduled 0, Running now 0, last run 10/28: no pipeline ran on it                                                                                                        |
+
+The notebook was a fixture: its kernel was stopped and the notebook deleted; the six earlier notebooks remain.
+
+## 2026-10-29 — R402 after its migration: a key for your own agent is still created, disabled and deleted
+
+After `20261101000000_embed_keys_owner_check.sql` was pushed. Its self-check raises if the policy is
+not the one written (exactly one policy on `embed_keys`, all four resource tables named, no `OR`), so
+a clean push is the evidence the ownership check is live. This round checks that the owner's own paths
+still pass it. Build: the R403 hot deploy. Integrations → Web Embedding.
+
+| What was pressed                                                                                                         | Result                                                                                                                                                                       |
+| ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The page                                                                                                                 | the five existing keys (Test, E2E swarm, E2E locked, E2E dashboard, E2E agent) all listed: every one names this account's resource, so the migration's clean-up removed none |
+| Embed Standalone Chat Agent → **Create embed**, agent Demo · Image Generator, domain `example.com`, **Create embed key** | "Embed created" and the iframe code; the row "Demo · Image Generator · 10/29/2026", 0 uses, 90d left (the INSERT passed `WITH CHECK`)                                        |
+| The row's **Active** switch                                                                                              | off; after a reload still off (the UPDATE passed `WITH CHECK`)                                                                                                               |
+| **Delete** → **Delete**                                                                                                  | the row is gone after a reload; the five earlier keys remain                                                                                                                 |
+
+The key was a test fixture and was deleted. Keys naming someone else's resource cannot be made from this
+form (its pickers list only your own); the throwaway database run in R402 covers that refusal.
+
 ## 2026-10-29 — R403: the app after seroval and qs moved to their patch fixes
 
 Build: a hot deploy of the working copy, plus `seroval`, `seroval-plugins` and `qs` copied into the
@@ -29,6 +61,12 @@ server-function results.
 | The console on that fresh load                         | one error, "An unknown error occurred when fetching the script": the service-worker registration, which this browser pane never completes (no registration exists) and the app catches |
 
 No fixtures were created.
+
+**Later the same day, on a rebuilt image.** `docker compose build agentswarms` from a clean worktree at
+545766a5 (2 h 44 min on this disk; `npm ci` installed from the lockfile), then `docker compose up -d --no-deps
+agentswarms`. Ready on the first health probe; inside the container `seroval` 1.6.12, `seroval-plugins` 1.6.12,
+`qs` 6.16.1, now from the image rather than a copy. Data & BI → Enterprise Ontology listed 2 ontologies, 14 object
+types and 26 metrics from its server function, as before.
 
 ## 2026-10-29 — R402: the embed form offers only what you own
 
