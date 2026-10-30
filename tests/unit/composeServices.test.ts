@@ -137,6 +137,41 @@ describe("only the app can reach the Docker socket proxy (VA-40)", () => {
     expect(networks["docker-api"]?.internal).toBe(true);
   });
 
+  it("has --dev tell the developer how to start a loopback proxy, with compose's sections only", () => {
+    // R408 took the proxy's host port away, and --dev runs the app on the host:
+    // without this, notebooks under --dev could not start a kernel and nothing
+    // said why (R410). The installers print the command; they do not run it.
+    const env = (
+      compose.services["notebook-docker-proxy"] as { environment?: Record<string, string> }
+    ).environment!;
+    const flags = Object.keys(env)
+      .map((k) => `${k}=${env[k]}`)
+      .sort();
+    const deployment = readFileSync(resolve("docs/DEPLOYMENT.md"), "utf-8");
+    for (const [name, text, devStart] of [
+      ["setup.sh", setupSh, 'if [ "$MODE" = "dev" ]; then\n  # The Docker socket proxy'],
+      // .gitattributes checks setup.ps1 out with CRLF, on Linux CI too.
+      ["setup.ps1", setupPs.replace(/\r\n/g, "\n"), "if ($Dev) {\n  # The Docker socket proxy"],
+      ["DEPLOYMENT.md", deployment, "Running the app on the host with `npm run dev`?"],
+    ] as const) {
+      const at = text.indexOf(devStart);
+      expect(at, `${name}: the dev-mode note`).toBeGreaterThan(-1);
+      const block = text.slice(at, at + 1200);
+      expect(block, name).toContain("-p 127.0.0.1:2375:2375");
+      expect(block, name).toContain("agentswarms/docker-socket-proxy:latest");
+      // Exactly compose's sections: one more (EXEC, VOLUMES...) is one more way in.
+      const cmd = block.slice(0, block.indexOf("agentswarms/docker-socket-proxy:latest"));
+      const given = [...cmd.matchAll(/-e (\w+=\S+)/g)].map((m) => m[1]).sort();
+      expect(given, name).toEqual(flags);
+      if (name !== "DEPLOYMENT.md") {
+        expect(block.indexOf("docker run"), `${name}: printed, not run`).toBeLessThan(
+          block.indexOf("npm run dev"),
+        );
+        expect(block, `${name}: printed, not run`).not.toMatch(/^\s*docker run/m);
+      }
+    }
+  });
+
   it("has verify-runtime.sh find the proxy through its container, since the host cannot reach it", () => {
     // HEAD's check, run on this layout, reported the proxy missing.
     const verify = readFileSync(resolve("deploy/notebooks/test/verify-runtime.sh"), "utf-8");

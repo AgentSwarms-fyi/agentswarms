@@ -15,6 +15,16 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-30 — R410: the dev-mode proxy command, run as printed
+
+No page changes in this round. The check is the command `setup.sh --dev` now prints.
+
+| What was run                                                               | Result                                                                            |
+| -------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| The four lines `setup.sh` echoes for the dev proxy, extracted and executed | `agentswarms-dev-docker-proxy` started; `curl 127.0.0.1:2375/_ping` answered `OK` |
+| `docker rm -f agentswarms-dev-docker-proxy`                                | removed; the same `curl` got no answer (exit 7), so nothing was left listening    |
+| `setup.ps1`'s `Write-Host` lines, run through PowerShell                   | the same command, each line ending in a PowerShell continuation backtick          |
+
 ## 2026-10-30 — R409: Monitoring's Scheduler row, before and after
 
 Build: a hot deploy of the working copy, R409 included (`docker cp dist` then `docker restart`). The app

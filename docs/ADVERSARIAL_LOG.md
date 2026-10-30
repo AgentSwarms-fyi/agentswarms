@@ -109,6 +109,28 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-30 — R410: `--dev` left notebooks without a Docker proxy, silently (R408 follow-up)
+
+Found reading the installers while auditing what spark-connect can reach. `setup.sh --dev` and
+`setup.ps1 -Dev` run the app on the host and point `.env` at every service's loopback port: "so dev gets
+the same product rather than a subset". R408 took away the Docker proxy's port, and neither installer
+mentions the proxy. Under `--dev`, then, a notebook could start no kernel. The app's own message ("Cannot
+reach the Docker socket-proxy … start the runtime services") points at Compose, which is already up.
+
+**Fix.** At the end of a dev run both installers print the `docker run` for a loopback proxy, the same one
+DEPLOYMENT.md gives, with compose's four sections and nothing else. They say it is for development
+machines, and where its exposure is described. They do not run it: R408 measured that a published port
+answers containers on routable networks, so starting one is the developer's decision.
+
+**Checked.** The lines `setup.sh` prints, run as printed: the proxy answered `OK` on `127.0.0.1:2375`, and
+after `docker rm -f` the port was closed again. `setup.ps1`'s lines, run through PowerShell, print a
+command whose continuations are backticks.
+
+**Tests.** `composeServices.test.ts` +1 checks that `setup.sh`, `setup.ps1` and DEPLOYMENT.md each give the
+command with loopback only, the built image, and exactly compose's `-e` sections, and that the installers
+print it rather than run it. Mutation 5 of 5. The mutants were: no note; `EXEC` added; the proxy started
+by the script; `POST` missing from DEPLOYMENT.md; the port bound on every interface.
+
 ### 2026-10-30 — R409: Monitoring said the scheduler had stopped while it ran
 
 Found checking Monitoring after R408. The Scheduler row was **Degraded**, and six presses of **Refresh**

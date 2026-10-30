@@ -187,5 +187,16 @@ else
 fi
 
 if [ "$MODE" = "dev" ]; then
+  # The Docker socket proxy is reachable by the containerised app only (VA-40,
+  # R408): whoever reaches it can start any container. An app on this host
+  # needs its own proxy on loopback to start notebook kernels; that one is
+  # reachable from containers on routable networks while it runs, so it is
+  # the developer's choice, not this script's.
+  echo "  Notebook kernels with the app on this host: start a Docker proxy on loopback"
+  echo "    (development machines only; docs/DEPLOYMENT.md says what it exposes):"
+  echo "    docker run -d --name agentswarms-dev-docker-proxy -p 127.0.0.1:2375:2375 \\"
+  echo "      -v /var/run/docker.sock:/var/run/docker.sock:ro \\"
+  echo "      -e CONTAINERS=1 -e IMAGES=1 -e NETWORKS=1 -e POST=1 \\"
+  echo "      agentswarms/docker-socket-proxy:latest"
   npm run dev
 fi

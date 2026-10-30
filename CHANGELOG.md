@@ -401,6 +401,12 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   stop and deploy any warm model endpoint again so it starts from the new
   kernel image. `docker compose exec agentswarms npm …` no longer works: run
   npm on the host.
+- **`setup.sh --dev` says how to start notebook kernels** (R410, a follow-up
+  to R408). `--dev` runs the app on the host, and since R408 the host cannot
+  reach the Compose Docker proxy. Notebooks started no kernel, and nothing said
+  why. Both installers now print, at the end of a `--dev` run, the `docker run`
+  for a loopback proxy and where its risk is described. They do not start it,
+  because while it runs, containers on routable networks can reach it.
 - **Only the app can reach the Docker socket proxy** (R408,
   VA-2026-10-25-40). The proxy lets its caller create containers with any
   settings and pull any image, so whoever reaches it controls the host. It was

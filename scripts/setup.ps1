@@ -173,4 +173,17 @@ else {
   Write-Host '    docker compose exec -T js-sandbox node -e "fetch(''http://127.0.0.1:8091/health'').then(r=>r.text()).then(console.log)"'
 }
 
-if ($Dev) { npm run dev }
+if ($Dev) {
+  # The Docker socket proxy is reachable by the containerised app only (VA-40,
+  # R408): whoever reaches it can start any container. An app on this host
+  # needs its own proxy on loopback to start notebook kernels; that one is
+  # reachable from containers on routable networks while it runs, so it is
+  # the developer's choice, not this script's.
+  Write-Host "  Notebook kernels with the app on this host: start a Docker proxy on loopback"
+  Write-Host "    (development machines only; docs/DEPLOYMENT.md says what it exposes):"
+  Write-Host "    docker run -d --name agentswarms-dev-docker-proxy -p 127.0.0.1:2375:2375 ``"
+  Write-Host "      -v /var/run/docker.sock:/var/run/docker.sock:ro ``"
+  Write-Host "      -e CONTAINERS=1 -e IMAGES=1 -e NETWORKS=1 -e POST=1 ``"
+  Write-Host "      agentswarms/docker-socket-proxy:latest"
+  npm run dev
+}
