@@ -759,23 +759,16 @@ The Spark engine's lakehouse target is the exception for now: the cluster
 writes its Parquet itself, so that target still runs with the store's
 credentials. See [Sandbox lakehouse access](./SANDBOX_LAKEHOUSE_ACCESS.md).
 
-## Spark lakehouse targets need the catalog on the kernel network
+## Lakehouse targets never reach the catalog from the kernel
 
-A pipeline on the **Spark engine** whose target is a lakehouse table attaches
-DuckLake **from inside the notebook kernel**, not from the app (sandbox-engine
-pipelines no longer do: the app loads their targets). Kernels run on an `internal` Docker network
-with no route off it except the HTTP egress proxy — Parquet is HTTP and goes
-through it, the catalog is a raw Postgres connection and cannot. So the catalog
-has to be on the kernel's network and named by service (`lakehouse-catalog:5432`),
-not by a host IP or published port.
-
-Compose users get this already. The symptom when it is wrong is
-`connection to server at "…" failed: Network is unreachable` in the run log, and
-it appears **only in production**: under `npm run dev` the orchestrator places
-kernels on a routable network, so the whole class of failure is invisible in
-development. Full detail, including the `NOTEBOOK_NETWORK` escape hatch for a
-catalog outside Docker, is in
-[Lakehouse § the catalog must be reachable](./LAKEHOUSE.md#the-catalog-must-be-reachable-from-the-notebook-network).
+A pipeline whose target is a lakehouse table, on either engine, does not attach
+DuckLake inside the kernel (R230). The sandbox engine stages its rows; the Spark
+engine's executors write Parquet into the run's staging prefix with a
+credential scoped to it. In both cases the app loads the staged files into the
+declared target. The kernel never holds the catalog's connection string, so the
+catalog needs no route from the kernel network. Since R412 it has none
+(VA-42): see
+[Lakehouse § only the app reaches the catalog](./LAKEHOUSE.md#only-the-app-reaches-the-catalog).
 
 ## Native warehouse targets
 

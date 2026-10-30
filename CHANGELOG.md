@@ -401,6 +401,21 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   stop and deploy any warm model endpoint again so it starts from the new
   kernel image. `docker compose exec agentswarms npm …` no longer works: run
   npm on the host.
+- **Notebook kernels can no longer reach the lakehouse catalog** (R412,
+  VA-2026-10-25-42). Compose put `lakehouse-catalog` on `nb-internal`, the
+  kernels' network, from when an ETL kernel attached DuckLake itself with the
+  catalog's connection string. Since the sandbox-lake work no sandbox holds that
+  string (the app reads and loads for it), so on that network the catalog was
+  only a Postgres every notebook could reach. An install that kept the
+  `change-me` default gave notebooks the lakehouse's metadata. It is now on
+  `default` only, as Kubernetes already had it. A notebook cell that connected
+  to both catalogs before now fails to resolve them, and fails by IP too. The
+  lakehouse fixture pipeline (lakehouse → Python → lakehouse) still loads its
+  108 rows. LAKEHOUSE.md, ETL_PIPELINES.md and the in-app lakehouse page still
+  said the catalog had to sit on the kernels' network; they now say the
+  opposite. **Upgrading:** `docker compose up -d lakehouse-catalog`. If you
+  attached an external catalog to `nb-internal` as the old page advised, move
+  it as LAKEHOUSE.md shows.
 - **The feature store and the vector store require a password** (R411,
   VA-2026-10-25-41). The bundled valkey took commands from anyone, and Qdrant
   ran without an API key. Both share the Compose network with `spark-connect`,

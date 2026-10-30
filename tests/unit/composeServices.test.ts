@@ -109,6 +109,50 @@ describe("the Spark Connect server authenticates and does not run as root (VA-23
   });
 });
 
+describe("notebook kernels reach only what they need (VA-42)", () => {
+  // nb-internal is the kernels' network. The lakehouse catalog was on it from
+  // when ETL kernels attached DuckLake themselves; since sandboxLake.server.ts
+  // they hold no lakehouse credential, so it was only a Postgres every notebook
+  // could reach (R412).
+  type Svc = { networks?: string[] | Record<string, unknown> };
+  const nets = (s: Svc) => (Array.isArray(s.networks) ? s.networks : Object.keys(s.networks ?? {}));
+  const onKernelNet = Object.entries(compose.services as Record<string, Svc>)
+    .filter(([, s]) => nets(s).includes("nb-internal"))
+    .map(([name]) => name)
+    .sort();
+
+  it("puts on nb-internal only the services a kernel talks to", () => {
+    // The app (the session channel), the gateway (the websocket bridge), the
+    // egress proxy (the one route out) and Spark Connect (gRPC, which the
+    // proxy cannot carry).
+    expect(onKernelNet).toEqual([
+      "agentswarms",
+      "notebook-egress",
+      "notebook-gateway",
+      "spark-connect",
+    ]);
+  });
+
+  it("keeps the lakehouse catalog off it, as the Kubernetes policy already does", () => {
+    expect(nets(compose.services["lakehouse-catalog"] as Svc)).toEqual(["default"]);
+    const policy = readFileSync(resolve("deploy/k8s/notebooks/notebook-runtime.yaml"), "utf-8");
+    const deny = policy.slice(policy.indexOf("name: kernels-default-deny"));
+    expect(deny).not.toMatch(/5432|lakehouse-catalog/);
+  });
+
+  it("gives no sandbox the catalog's connection string", () => {
+    // What made nb-internal load-bearing once; pinned so it stays gone.
+    for (const f of [
+      "src/utils/etl/service.server.ts",
+      "src/utils/lakehouse/sparkQuery.server.ts",
+      "src/utils/lakehouse/sandboxLake.server.ts",
+    ]) {
+      const src = readFileSync(resolve(f), "utf-8");
+      expect(src, f).not.toMatch(/env\.[A-Z_]*CATALOG[A-Z_]*\s*=/);
+    }
+  });
+});
+
 describe("the feature store and the vector store take a password (VA-41)", () => {
   // Both sit on `default` with spark-connect, where Spark pipelines' Python UDFs
   // run; from there valkey answered DBSIZE and Qdrant listed its collections,

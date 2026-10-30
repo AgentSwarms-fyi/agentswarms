@@ -15,6 +15,24 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-30 — R412: what a notebook kernel reaches of the lakehouse catalog
+
+The notebook "R406 kernel image check" gets a cell #8 that tries a TCP connection to port 5432 on both
+catalogs, by name. The standalone `agentswarms-lakehouse-catalog` is the one the app's
+`LAKEHOUSE_CATALOG_URL` names; the Compose `lakehouse-catalog` is the twin.
+
+| What was pressed                                                                                                      | Result                                                                                                                      |
+| --------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **Before**: cell #8 → run                                                                                             | `{'agentswarms-lakehouse-catalog': 'open', 'lakehouse-catalog': 'open'}`, 475 ms                                            |
+| The standalone joined to the app's network; the app resolved it there; then it left `nb-internal`; the twin recreated | the standalone on `agentswarms-share_default` and `bridge`; the twin on `agentswarms-share_default`                         |
+| **After**: cell #8 → run, in the same kernel                                                                          | `{'agentswarms-lakehouse-catalog': 'gaierror', 'lakehouse-catalog': 'gaierror'}`, 1570 ms                                   |
+| The same kernel, by IP                                                                                                | the standalone's new address: errno 101 (network unreachable); its old one: timed out                                       |
+| **Stop the kernel**; Lakehouse                                                                                        | 13 schemas · 76 tables; the `ontology_sample` counts 600 / 1500 / 120, 356 ms                                               |
+| ETL Pipelines → `r227_gateway` (lakehouse → Custom Python → lakehouse) → **Run now**                                  | **Succeeded**, "108 rows → 1 target(s)", 8 m 14 s (1 m 6 s on 10/28; the kernel's pip ran under an image build's disk load) |
+
+Fixtures kept: cell #8 in the notebook, with its last output. The standalone catalog's networks changed
+as above. Reconnecting it to `nb-internal` would undo that, and is not wanted.
+
 ## 2026-10-30 — R411: the online feature store with a password
 
 Build: this install's `.env` backed up, then given a generated `VALKEY_PASSWORD` and one Qdrant key (as

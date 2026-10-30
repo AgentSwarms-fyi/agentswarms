@@ -51,29 +51,36 @@ One implementation detail that is LOAD-BEARING: the engine attaches with
 the string as a file path and silently creates a single-writer duckdb-file
 catalog — the exact opposite of this design. A wiring test pins the prefix.
 
-### The catalog must be reachable from the notebook network
+### Only the app reaches the catalog
 
-An ETL pipeline with a **lakehouse target** attaches DuckLake from inside a
-notebook kernel, not from the app. Kernels run on `nb-internal`, a Docker
-network with `internal: true` — no route off it — and reach the outside world
-only through the HTTP egress proxy. Parquet is HTTP and goes through the proxy;
-**the catalog is a raw Postgres TCP connection and cannot**. So the catalog has
-to be on the kernel's network, not merely reachable from the app:
+A sandbox, meaning an ETL run, a node preview, or an ML training or prediction,
+holds no lakehouse credential (`sandboxLake.server.ts`). It asks the app for
+what its run declared. The app runs the declared reads as the run's owner,
+under the same governance as the SQL editor. It also commits the run's staged
+writes into the declared targets. So the catalog has one client, the app, and
+must be reachable from the app's network and from nothing a kernel can reach.
 
-- **Compose users**: nothing to do. `lakehouse-catalog` joins `nb-internal`, and
-  `LAKEHOUSE_CATALOG_URL` should name it by service — `lakehouse-catalog:5432`,
-  not a host IP or a published port, neither of which an internal network can
-  route to.
-- **External catalog** (managed Postgres, another host): kernels cannot reach it
-  at all. Either attach that host's container to `nb-internal`, or move kernels
-  to a network that has a route with `NOTEBOOK_NETWORK=<network>` — weaker
-  isolation, because egress control then rests on the proxy environment
-  variables alone rather than on the network.
+- **Compose**: `lakehouse-catalog` is on `default` only (R412, VA-42). It used
+  to join `nb-internal`, the kernels' network, from when ETL kernels attached
+  DuckLake themselves. There it was a Postgres every notebook could reach. An
+  install that kept the `change-me` default handed notebooks the lakehouse's
+  metadata.
+- **External catalog** (managed Postgres, another host): reachable from the app,
+  and not on `nb-internal`. An earlier version of this page told you to attach
+  such a catalog's container to `nb-internal`. If you did, attach it to the
+  app's network instead, then detach it, in that order so the app never loses
+  it:
 
-The symptom when this is wrong is `connection to server at "…" failed: Network
-is unreachable` in the pipeline run log. It appears **only in production**: under
-`npm run dev` the orchestrator places kernels on the routable `nb-dev` network
-instead, so the whole class of failure is invisible in development.
+  ```bash
+  docker network connect agentswarms_default <catalog-container>
+  docker network disconnect agentswarms_nb-internal <catalog-container>
+  ```
+
+  The first network's name is your Compose project's default network. List them
+  with `docker network ls`.
+
+- **Kubernetes**: kernel pods may reach only the egress proxy, the app and Spark
+  Connect (`kernels-default-deny`), never the catalog.
 
 ## What you get
 
@@ -287,7 +294,7 @@ the same rewrite and summarises only the rows and values they may see.
 rewritten. Before R224 the statement's tables were looked up by its first
 word, and SUMMARIZE named none, so no policy was loaded and a masked column's
 minimum and maximum were two real values. That includes not
-being able to *read* the policy: a failed read of the table policies, the tag
+being able to _read_ the policy: a failed read of the table policies, the tag
 policies or the catalog tags they key on is an error, never "no policy" (R223).
 Before R223 those reads dropped their errors, and one failed read ran a
 reader's query unfiltered.

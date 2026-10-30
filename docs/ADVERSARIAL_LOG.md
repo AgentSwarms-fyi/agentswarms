@@ -109,6 +109,53 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-30 — R412: the lakehouse catalog sat on the kernels' network for a reason that had gone (VA-42)
+
+**Finding** VA-2026-10-25-42, found reading the catalog's Compose block during the spark-connect reach
+audit. The block said `nb-internal` was "LOAD-BEARING": an ETL pipeline with a lakehouse target attaches
+DuckLake from inside its kernel. That stopped being true when sandboxes lost every lakehouse credential.
+`sandboxLake.server.ts` has the app run a run's declared reads and commit its staged writes. The Spark
+target writes Parquet with a staging-scoped key, and the app loads it (R230). No sandbox env sets a
+catalog variable. The Kubernetes policy `kernels-default-deny` never let kernel pods reach port 5432.
+
+So on `nb-internal` the catalog was only a Postgres that every notebook could reach. A cell in this
+install's fixture notebook found both catalogs `open`: the Compose one, whose password here is the
+documented `change-me`, and the standalone the app uses. LAKEHOUSE.md had told operators with an external
+catalog to attach it to `nb-internal`, which is presumably how this install's standalone got there.
+ETL_PIPELINES.md and the in-app lakehouse page said the same.
+
+**Fix.**
+
+- `lakehouse-catalog: networks: [default]`, with a comment saying why.
+- LAKEHOUSE.md: "Only the app reaches the catalog", including how to move an external catalog without the
+  app losing it: connect it to the app's network first, then disconnect it from `nb-internal`.
+- ETL_PIPELINES.md and the in-app callout corrected.
+
+**Live.**
+
+- The standalone was joined to `agentswarms-share_default`. The app then resolved it there
+  (`172.19.0.10`), and only after that did it leave `nb-internal`. The Compose twin was recreated.
+- The same cell: `gaierror` for both names.
+- From that kernel, by IP: the standalone's new address gave errno 101, and its old one timed out.
+- The app: the Lakehouse page listed 13 schemas and 76 tables, and the `ontology_sample` counts came back
+  600 / 1500 / 120 in 356 ms.
+- `r227_gateway` (lakehouse table → Custom Python → lakehouse table), run from the UI with its kernel
+  unable to reach either catalog, succeeded with "108 rows → 1 target(s)". It took 8 m 14 s, against 1 m 6 s
+  last time; most of it was the kernel's `pip install` while an image build was using this disk.
+
+**A test pinned the opposite.** `lakehouseKernelReachability.test.ts` asserted that the catalog MUST
+be on `nb-internal`, written when a pipeline failure proved it. The first gate failed on it. It now
+asserts the reverse, and its header keeps the history and what measured the change.
+
+**Tests.** `composeServices.test.ts` +3 checks that:
+
+- `nb-internal`'s members are exactly the app, the gateway, the egress proxy and Spark Connect;
+- the catalog is on `default` only, and the Kubernetes deny policy names no 5432;
+- no sandbox's env builder sets a catalog variable.
+
+Mutation 4 of 4. The mutants were: the catalog back on `nb-internal`; the renderer joining it; the
+Kubernetes policy allowing 5432; an ETL run handed the catalog.
+
 ### 2026-10-30 — R411: the feature store and the vector store took anyone's commands (VA-41)
 
 **Finding** VA-2026-10-25-41, from the audit of what code in `spark-connect` can reach. Its own

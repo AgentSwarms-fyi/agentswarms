@@ -199,15 +199,16 @@ services:
       POSTGRES_DB: lakehouse_catalog
     volumes:
       - lakehouse-catalog-data:/var/lib/postgresql/data
-    # nb-internal is LOAD-BEARING, not tidiness. An ETL pipeline with a
-    # lakehouse target attaches DuckLake from inside a notebook kernel, and
-    # kernels sit on that `internal` network with no route off it except the
-    # HTTP egress proxy. Parquet travels over HTTP and so goes through the
-    # proxy; the CATALOG is a raw Postgres TCP connection and cannot. With the
-    # catalog only on `default`, every lakehouse-target pipeline failed with
-    # "Network is unreachable" the moment the app ran in a container rather
-    # than under `npm run dev` (dev kernels get the routable nb-dev network).
-    networks: [default, nb-internal]
+    # `default` only: the app is the catalog's one client (VA-42, R412). It
+    # used to sit on nb-internal too, when an ETL run attached DuckLake from
+    # inside its kernel with the catalog's own connection string. Since
+    # sandboxLake.server.ts a sandbox holds no lakehouse credential: the app
+    # runs its declared reads and commits its staged writes. On nb-internal
+    # the catalog was only a Postgres every notebook could reach, and an
+    # install that kept the `change-me` default handed it the lakehouse's
+    # metadata. Kubernetes never let kernel pods reach it
+    # (deploy/k8s/notebooks: kernels-default-deny).
+    networks: [default]
     restart: unless-stopped
     # An unclean stop makes Postgres replay its WAL on the next start, which on
     # a large catalog is minutes of "the database system is starting up". This
