@@ -357,7 +357,11 @@ tools, and how a finding moves from open to fixed or accepted — is in
 in [docs/security/scripts/scan.sh](./docs/security/scripts/scan.sh); and each
 assessment's report is under `docs/security/assessments/`. "We scanned it once"
 is not a posture, so the assessment is repeated and the reports accumulate next
-to one another.
+to one another. Between assessments, `.github/workflows/image-scan.yml` scans
+every image the stack runs each week and fails on a fixable critical CVE,
+except those listed with a reason in `.github/grype-baseline.yaml`. The
+images this repository builds start from bases pinned by digest, which
+Dependabot moves forward.
 
 ## What this project does not claim
 

@@ -15,6 +15,33 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-30 — R406: every service on its rebuilt image
+
+Builds:
+
+- The app: `docker compose -p agentswarms-share build agentswarms`, from a clean worktree at 4a49c398 plus
+  this round's files. That kept the other session's uncommitted credential files out.
+- The gateway, the sandbox, the renderer and the kernel image: built from the main checkout. Their contexts
+  are their own directories.
+- The renderer and the kernel image: built a second time after the pip upgrade was added.
+
+Each service was recreated with `up -d --no-deps`; kernels start from the image tag.
+
+| What was pressed                                                                                                                   | Result                                                                                                                                                                                                |
+| ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Inside each Node container: `node --version`, `command -v npm npx`                                                                 | app, gateway, sandbox: Node v22.23.4 (was 22.23.2), user `node`, no `npm`, no `npx`                                                                                                                   |
+| The app's `/api/health/ready`, then Lakehouse (cold start about a minute while the kernel image built)                             | `ready`, db and keys true; the explorer listed 13 schemas, 76 tables                                                                                                                                  |
+| Lakehouse → Query: order, line and customer counts over `ontology_sample` → **Run**                                                | 600, 1500, 120 in 1838 ms: the app's DuckDB, its baked extensions and the object store work on the new image                                                                                          |
+| Lakehouse → Query on `information_schema.tables` → **Run**                                                                         | refused, "No access to schema "information_schema" — it doesn't exist, or nobody shared it with you", as before                                                                                       |
+| From inside the app container, the request a server-side Function node sends to `js-sandbox:8091/run`                              | 200, `HELLO R406 on undefined` (`process` does not exist in the sandbox's realm); the same request without the internal secret: 401                                                                   |
+| The renderer's port: a deck with a bar chart, two KPI cards, an SVG diagram and bullets, with `images: true`                       | 5 slides, 1 native chart, the diagram as `image1.png` (`cairosvg` 2.9.1), a 44k-character PNG thumbnail and 5 review JPEGs, 78 s; inside: pip 26.2.2, Pillow 13.0.0, FastAPI 0.142.4, Starlette 1.7.0 |
+| The same for a Word plan and a workbook with `SUM(B2:B3)`                                                                          | both with PNG thumbnails; the cell holds the formula with LibreOffice's cached value 5                                                                                                                |
+| Developer workspace → **New Python notebook**; a code cell printing pip, Pillow, tornado, DuckDB, Python and Debian versions → run | a kernel `nb-aa5e244b…` started from `agentswarms/notebook-runtime:latest` through the new gateway ("token ok", "session ok"); output `26.2.2 13.0.0 6.6 1.5.6 3.12.16 13.7`, 4931 ms                 |
+| **Stop the kernel**                                                                                                                | no `nb-` container left                                                                                                                                                                               |
+
+Fixture kept: the notebook "R406 kernel image check" with its output. Renaming it, a triple-click first
+landed in markdown cell #5 and replaced its sentence; the sentence was typed back from the sample.
+
 ## 2026-10-30 — The ontology header drops "draft has changes" when a save puts the published model back
 
 Build: a hot deploy of the working copy with `draftDiffers`. Ontology `33883aa4-…` "Northwind Outfitters 2",

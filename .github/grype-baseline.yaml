@@ -1,0 +1,155 @@
+# Critical findings with a fixed version that the image-scan workflow does
+# not fail on, because the fix is not ours to apply yet. Each names the exact
+# package version, so a pin bump that changes the package drops the rule, and
+# each says why it is here and what tracks it. Delete a rule when its finding
+# is fixed; a new critical anywhere still fails the scan (R406, VA-25).
+# Generated from grype v0.120.1 on 2026-10-30; the scan reports list the rest.
+ignore:
+  # apache/spark:4.2.0-python3
+  - vulnerability: GHSA-c4c3-7fpv-j4q5
+    reason: "apache/spark 4.2.0 bundles it and no later 4.2 image exists (checked 2026-10-30); accepted in VA-2026-10-25-25"
+    package:
+      name: netty-handler
+      version: "4.2.13.Final"
+  - vulnerability: GHSA-rcjc-c4pj-xxrp
+    reason: "apache/spark 4.2.0 bundles it and no later 4.2 image exists (checked 2026-10-30); accepted in VA-2026-10-25-25"
+    package:
+      name: derby
+      version: "10.16.1.1"
+  # qdrant/qdrant:v1.12.4
+  - vulnerability: CVE-2025-15467
+    reason: "qdrant/qdrant v1.12.4 ships it; VA-2026-10-25-38 moves the pin to a current release"
+    package:
+      name: libssl3
+      version: "3.0.15-1~deb12u1"
+  - vulnerability: CVE-2025-15467
+    reason: "qdrant/qdrant v1.12.4 ships it; VA-2026-10-25-38 moves the pin to a current release"
+    package:
+      name: openssl
+      version: "3.0.15-1~deb12u1"
+  - vulnerability: CVE-2026-12087
+    reason: "qdrant/qdrant v1.12.4 ships it; VA-2026-10-25-38 moves the pin to a current release"
+    package:
+      name: perl-base
+      version: "5.36.0-7+deb12u1"
+  - vulnerability: CVE-2026-13221
+    reason: "qdrant/qdrant v1.12.4 ships it; VA-2026-10-25-38 moves the pin to a current release"
+    package:
+      name: perl-base
+      version: "5.36.0-7+deb12u1"
+  - vulnerability: CVE-2026-31789
+    reason: "qdrant/qdrant v1.12.4 ships it; VA-2026-10-25-38 moves the pin to a current release"
+    package:
+      name: libssl3
+      version: "3.0.15-1~deb12u1"
+  - vulnerability: CVE-2026-31789
+    reason: "qdrant/qdrant v1.12.4 ships it; VA-2026-10-25-38 moves the pin to a current release"
+    package:
+      name: openssl
+      version: "3.0.15-1~deb12u1"
+  - vulnerability: CVE-2026-33845
+    reason: "qdrant/qdrant v1.12.4 ships it; VA-2026-10-25-38 moves the pin to a current release"
+    package:
+      name: libgnutls30
+      version: "3.7.9-2+deb12u3"
+  - vulnerability: CVE-2026-34182
+    reason: "qdrant/qdrant v1.12.4 ships it; VA-2026-10-25-38 moves the pin to a current release"
+    package:
+      name: libssl3
+      version: "3.0.15-1~deb12u1"
+  - vulnerability: CVE-2026-34182
+    reason: "qdrant/qdrant v1.12.4 ships it; VA-2026-10-25-38 moves the pin to a current release"
+    package:
+      name: openssl
+      version: "3.0.15-1~deb12u1"
+  - vulnerability: CVE-2026-42010
+    reason: "qdrant/qdrant v1.12.4 ships it; VA-2026-10-25-38 moves the pin to a current release"
+    package:
+      name: libgnutls30
+      version: "3.7.9-2+deb12u3"
+  - vulnerability: CVE-2026-42496
+    reason: "qdrant/qdrant v1.12.4 ships it; VA-2026-10-25-38 moves the pin to a current release"
+    package:
+      name: perl-base
+      version: "5.36.0-7+deb12u1"
+  - vulnerability: CVE-2026-57433
+    reason: "qdrant/qdrant v1.12.4 ships it; VA-2026-10-25-38 moves the pin to a current release"
+    package:
+      name: perl-base
+      version: "5.36.0-7+deb12u1"
+  - vulnerability: CVE-2026-75803
+    reason: "qdrant/qdrant v1.12.4 ships it; VA-2026-10-25-38 moves the pin to a current release"
+    package:
+      name: libssl3
+      version: "3.0.15-1~deb12u1"
+  - vulnerability: CVE-2026-75803
+    reason: "qdrant/qdrant v1.12.4 ships it; VA-2026-10-25-38 moves the pin to a current release"
+    package:
+      name: openssl
+      version: "3.0.15-1~deb12u1"
+  - vulnerability: CVE-2026-8376
+    reason: "qdrant/qdrant v1.12.4 ships it; VA-2026-10-25-38 moves the pin to a current release"
+    package:
+      name: perl-base
+      version: "5.36.0-7+deb12u1"
+  # tecnativa/docker-socket-proxy:v0.4.2
+  - vulnerability: CVE-2025-15467
+    reason: "tecnativa/docker-socket-proxy v0.4.2 ships it; VA-2026-10-25-39 moves the pin to a current release"
+    package:
+      name: libcrypto3
+      version: "3.5.1-r0"
+  - vulnerability: CVE-2025-15467
+    reason: "tecnativa/docker-socket-proxy v0.4.2 ships it; VA-2026-10-25-39 moves the pin to a current release"
+    package:
+      name: libssl3
+      version: "3.5.1-r0"
+  - vulnerability: CVE-2025-58050
+    reason: "tecnativa/docker-socket-proxy v0.4.2 ships it; VA-2026-10-25-39 moves the pin to a current release"
+    package:
+      name: pcre2
+      version: "10.43-r1"
+  - vulnerability: CVE-2026-31789
+    reason: "tecnativa/docker-socket-proxy v0.4.2 ships it; VA-2026-10-25-39 moves the pin to a current release"
+    package:
+      name: libcrypto3
+      version: "3.5.1-r0"
+  - vulnerability: CVE-2026-31789
+    reason: "tecnativa/docker-socket-proxy v0.4.2 ships it; VA-2026-10-25-39 moves the pin to a current release"
+    package:
+      name: libssl3
+      version: "3.5.1-r0"
+  - vulnerability: CVE-2026-34182
+    reason: "tecnativa/docker-socket-proxy v0.4.2 ships it; VA-2026-10-25-39 moves the pin to a current release"
+    package:
+      name: libcrypto3
+      version: "3.5.1-r0"
+  - vulnerability: CVE-2026-34182
+    reason: "tecnativa/docker-socket-proxy v0.4.2 ships it; VA-2026-10-25-39 moves the pin to a current release"
+    package:
+      name: libssl3
+      version: "3.5.1-r0"
+  - vulnerability: CVE-2026-55203
+    reason: "tecnativa/docker-socket-proxy v0.4.2 ships it; VA-2026-10-25-39 moves the pin to a current release"
+    package:
+      name: haproxy
+      version: "3.2.4"
+  - vulnerability: CVE-2026-63073
+    reason: "tecnativa/docker-socket-proxy v0.4.2 ships it; VA-2026-10-25-39 moves the pin to a current release"
+    package:
+      name: libcrypto3
+      version: "3.5.1-r0"
+  - vulnerability: CVE-2026-63073
+    reason: "tecnativa/docker-socket-proxy v0.4.2 ships it; VA-2026-10-25-39 moves the pin to a current release"
+    package:
+      name: libssl3
+      version: "3.5.1-r0"
+  - vulnerability: CVE-2026-75803
+    reason: "tecnativa/docker-socket-proxy v0.4.2 ships it; VA-2026-10-25-39 moves the pin to a current release"
+    package:
+      name: libcrypto3
+      version: "3.5.1-r0"
+  - vulnerability: CVE-2026-75803
+    reason: "tecnativa/docker-socket-proxy v0.4.2 ships it; VA-2026-10-25-39 moves the pin to a current release"
+    package:
+      name: libssl3
+      version: "3.5.1-r0"

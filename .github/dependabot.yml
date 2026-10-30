@@ -41,8 +41,18 @@ updates:
     labels: ["dependencies", "docker"]
     commit-message:
       prefix: "deps(images)"
+  # The same for this repository's own Dockerfiles, whose FROM lines are
+  # pinned by digest since R406 (VA-25): a digest bump on the same tag is the
+  # base image's security rebuild, so these are the PRs that refresh the OS.
   - package-ecosystem: docker
-    directories: ["/deploy/k8s/app", "/deploy/k8s/notebooks"]
+    directories:
+      - "/deploy/k8s/app"
+      - "/deploy/k8s/notebooks"
+      - "/"
+      - "/docgen-service"
+      - "/docker/notebook-runtime"
+      - "/services/notebook-gateway"
+      - "/services/js-sandbox"
     schedule:
       interval: weekly
     ignore:

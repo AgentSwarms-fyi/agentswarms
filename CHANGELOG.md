@@ -375,6 +375,32 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   not run. The container is given no model key and no HTTP client.
   **Upgrading:** rebuild the renderer and the app image
   (`docker compose up -d --build docgen agentswarms`).
+- **Every image rebuilt on a current, pinned base, without npm, and scanned
+  weekly** (R406, VA-2026-10-25-25). The five images this repository builds
+  started from `node:22-slim` or `python:3.12-slim` as this host first pulled
+  them, two months earlier: Docker resolves a bare tag only when nothing is
+  cached, so a rebuild never refreshed the operating system. The Node images
+  also carried the npm their base bundles, with its own `tar` (critical) and
+  twelve high advisories, though nothing in a running container calls npm.
+  Now each Dockerfile pins its base by digest and Dependabot proposes the next
+  digest weekly. The app, the notebook gateway and the JS sandbox delete npm
+  once their build is done. The renderer and the kernel image upgrade the
+  base's pip 25.0.1, which had six advisories. Grype on the rebuilt images
+  found no fixable critical or high left in any of them, except the accepted
+  `@azure/msal-node` advisory in the app. Before, the app had 7 critical and
+  24 high, the gateway and the sandbox 7 and 23 each, the renderer 18 and 59,
+  and the kernel image 7 and 42. What remains has no fix in Debian yet, or
+  none planned for Debian 12. `.github/workflows/image-scan.yml` scans all five
+  images, and every third-party image `docker-compose.yml` runs, each Monday
+  and when an image's inputs change. It fails on a critical that has a fix,
+  except the 29 listed in `.github/grype-baseline.yaml`. Those are in the
+  pinned Qdrant (VA-2026-10-25-38), the Docker socket proxy (VA-39) and
+  Spark's bundled jars, which have no newer 4.2 image. Each rule names its
+  package version and what tracks it.
+  **Upgrading:** rebuild everything (`docker compose up -d --build`), then
+  stop and deploy any warm model endpoint again so it starts from the new
+  kernel image. `docker compose exec agentswarms npm …` no longer works: run
+  npm on the host.
 - **The Spark Connect server asks for a token and no longer runs as root**
   (R398, VA-2026-10-25-23). Notebook kernels share an internal network with the
   Compose `spark-connect` service; until now a kernel could connect to it and

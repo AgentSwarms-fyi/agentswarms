@@ -96,6 +96,29 @@ record exactly which scanner version produced the numbers.
 The script never fails the shell on findings — it is a report generator, not a
 gate. Read the output, then write it up.
 
+Grype's vulnerability database is fetched on the host with `curl`, checked
+against the listing's sha256 and imported into the `agentswarms-grype-db`
+volume, only when the listing is newer than the cached copy. Inside Docker
+Desktop grype's own download stalls (25 minutes without finishing, against 6
+seconds on the host), which is why the October assessment could not scan
+images at all. The import unpacks about 1 GB, so the first run takes a while
+on a slow disk.
+
+### In CI
+
+`.github/workflows/image-scan.yml` builds the five first-party images and scans
+them, and every third-party image `docker-compose.yml` runs, with the same
+pinned grype. It runs every Monday, on demand, and when an image's inputs
+change. It fails on a critical finding that has a fixed version, and the run
+summary shows each image's findings by severity. The exceptions are in
+`.github/grype-baseline.yaml`: fixes that are not ours to apply yet, in a
+third-party image. Each rule names the exact package version, its reason and
+the finding that tracks it. Delete a rule when its fix lands, and add one only
+with a finding to point at. The Dockerfiles' bases are
+pinned by digest, and Dependabot proposes the next digest weekly (R406). A
+digest bump on the same tag is the base image's security rebuild, and that pull
+request is how the OS layer gets refreshed.
+
 ## The manual review
 
 For each of the five scope areas, the code review looks for:

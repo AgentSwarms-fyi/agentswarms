@@ -12,7 +12,11 @@
 #
 #   docker compose up --build
 #
-FROM node:22-slim
+# The base is pinned by digest (R406, VA-25). The bare tag had frozen on
+# whatever this host first pulled, two months old, with nothing to say so.
+# Dependabot proposes the next digest weekly, and the image-scan workflow
+# reads what it brings.
+FROM node:22-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da
 
 WORKDIR /app
 
@@ -57,6 +61,11 @@ EXPOSE 8080
 # and installing an extension once httpfs is loaded. Verified in the image:
 # read_csv over https failed before, works after.
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+
+# npm is a build tool here: nothing in the running container calls it, and the
+# copy the base image bundles carried this image's critical CVE (its own tar)
+# and most of its fixable highs (R406, VA-25).
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 # Drop root. `npm ci` and the build above need to write node_modules and dist,
 # so this comes after them; from here the app only reads /app.

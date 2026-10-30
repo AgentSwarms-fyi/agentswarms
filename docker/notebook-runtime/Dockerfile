@@ -11,7 +11,11 @@
 # tmpfs/emptyDir at /home/runner/work, /home/runner/.local, /tmp), all caps
 # dropped. Runtime `pip install` works because PIP_USER targets the writable
 # ~/.local mount.
-FROM python:3.12-slim
+# The base is pinned by digest (R406, VA-25). The bare tag had frozen on
+# whatever this host first pulled, two months old, with nothing to say so.
+# Dependabot proposes the next digest weekly, and the image-scan workflow
+# reads what it brings.
+FROM python:3.12-slim@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential ca-certificates libgomp1 \
@@ -20,6 +24,10 @@ RUN apt-get update \
 RUN useradd -m -u 1000 -s /bin/bash runner
 
 WORKDIR /opt/agentswarms
+# The base's pip is 25.0.1, with six advisories fixed in the 26 releases
+# (grype, R406). Upgraded first, so the requirements install runs on it, and so
+# does every `pip install` a notebook runs.
+RUN pip install --no-cache-dir --upgrade "pip>=26.2"
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 

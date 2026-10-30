@@ -109,6 +109,91 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-30 — R406: images rebuilt on pinned bases, without npm, and scanned weekly (VA-25)
+
+**Finding** VA-2026-10-25-25. The October assessment could not scan images, because grype's database
+download stalls inside Docker Desktop. This round fetched the database on the host instead: `curl` took 6
+seconds for the 196 MB archive, grype's own download had run 25 minutes. With it imported, grype v0.120.1
+found 46 fixable criticals and 171 fixable highs across the five images this repository builds.
+
+**Why they were there.** Every Dockerfile named `node:22-slim` or `python:3.12-slim`, and Docker resolves a
+bare tag only when the image is not cached. This host's bases were pulled on 2026-08-25, so every rebuild
+since had reused them. R399 had left the bases on their tags so that "a rebuild picks up OS patches"; it
+picks up nothing while the tag is cached. The Node images also kept the npm their base bundles. Its own
+`tar` was a critical, and its `pacote`, `sigstore`, `picomatch`, `ip-address` and `brace-expansion` were 12
+of the 23 highs. Nothing in a running container calls npm. The Python images had Debian 13.6's OpenSSL,
+curl, expat and glibc, CPython 3.12.14, and the base's pip 25.0.1.
+
+**Fix.**
+
+- Each `FROM` is `tag@sha256:<digest>`, one digest per tag across the five.
+- Dependabot's `docker` entry covers all five build contexts, so a base's security rebuild arrives as a
+  pull request moving the digest.
+- The Node images delete npm and npx after their last npm step, before `USER`.
+- The Python images upgrade pip to 26.2 or later before installing their requirements.
+- `.github/workflows/image-scan.yml` builds and scans the five images, and pulls and scans every
+  third-party image `docker-compose.yml` runs, with the same pinned grype as `scan.sh`. It runs each Monday,
+  on demand, and when an image's inputs change, and fails on a critical with a fixed version.
+- `scan.sh` fetches and verifies the database on the host, imports it only when the listing is newer than
+  the cached copy, and reads the bases from the Dockerfiles' `FROM` lines.
+
+**After.** No fixable critical or high in any of the five images, except the accepted `@azure/msal-node`
+in the app. The criticals left have no fix. Two are Debian 12's glibc CVE-2026-5450, which Debian will not
+fix there. Grype does not report it against Debian 13's glibc, so `node:22-trixie-slim` is the follow-up
+most likely to clear them.
+The others are Debian 13's curl, libtiff and libxml2, marked will-not-fix. The CPython 3.12 mediums list
+fixes only in 3.13 and later.
+
+**Third-party images.** The same scan of the eight images `docker-compose.yml` pulls found fixable criticals
+in four. Qdrant v1.12.4 has 15, in OpenSSL, perl and GnuTLS: VA-38. The Docker socket proxy v0.4.2 has 12, in
+Alpine's OpenSSL, pcre2 and haproxy: VA-39. The MinIO pair (VA-35) has 26. Spark 4.2.0 has 3 in its bundled
+`netty-handler` and `derby`, and Apache has published no later 4.2 image. A gate that fails on all of them
+would be red from its first run and stay red. So `.github/grype-baseline.yaml` lists the 29 in Qdrant, the
+proxy and Spark, each by vulnerability and exact package version, with a reason that names its finding.
+Measured with the workflow's own verdict command: the proxy and Qdrant exit 2 without the baseline and 0
+with it. A critical not on the list still fails the scan.
+
+**Found while checking: not a bug.** `scan.sh` looks images up as `repo:tag@sha256:…`, and a first
+look-up of that form, typed by hand, said "no such image". It was Git Bash rewriting an argument with `/` and `:`; `scan.sh`
+turns that off (`MSYS_NO_PATHCONV`). The loop, cut from the file and run, scanned the pinned valkey image
+from both HEAD and the working copy. No change was made.
+
+**Tests.** `dockerfileBases.test.ts` (5) checks that:
+
+- the five build contexts are exactly compose's;
+- every `FROM` is pinned, with one digest per tag;
+- Dependabot covers each context;
+- npm is removed after its last use and before `USER`, and nothing after uses it;
+- pip is upgraded to at least 26.2 before the requirements.
+
+`imageScanWorkflow.test.ts` (7) checks that:
+
+- the workflow runs on a schedule and on demand;
+- its matrix is compose's build contexts;
+- it uses `scan.sh`'s grype;
+- both jobs fail on a fixable critical;
+- it uses no secrets and has `contents: read`;
+- it lists third-party images the way `scan.sh` does;
+- both verdicts, and only they, read the baseline, and baseline edits trigger the workflow;
+- every baseline rule names a vulnerability, a package name and version, and a reason with a finding id.
+
+Mutation 24 of 24. The mutants were:
+
+- an unpinned `FROM`;
+- a second digest for the same tag;
+- a context missing from Dependabot;
+- npm kept, removed after `USER`, or used after its removal;
+- pip not upgraded, upgraded below 26.2, or upgraded after the requirements;
+- no schedule;
+- an image missing from the matrix;
+- a different grype;
+- a third-party scan without `--fail-on`;
+- `contents: write`;
+- a secret in the build;
+- either verdict without the baseline, or the report run with it;
+- the baseline mounted but not read, or missing from the trigger paths;
+- a rule without a version, without a reason, with a reason naming no finding, or without a vulnerability.
+
 ### 2026-10-30 — The ontology header kept saying "draft has changes" after the draft matched again
 
 Found in the ontology's round 2 and noted then. After any save the header said "draft has changes", even

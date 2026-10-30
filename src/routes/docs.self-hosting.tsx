@@ -138,6 +138,13 @@ function SelfHostingPage() {
         kernel image keep the Python packages they were built with, security fixes included. The
         changelog says which images a release needs rebuilt.
       </Callout>
+      <P>
+        Each image starts from a base pinned by digest, so rebuilding alone never changes the
+        operating system underneath. A base&apos;s security update arrives as a Dependabot pull
+        request that moves the digest, and the repository&apos;s weekly image scan fails when an
+        image has a critical CVE with a fix, unless <C>.github/grype-baseline.yaml</C> lists it with
+        a reason. The running containers have no <C>npm</C>; run npm commands on the host.
+      </P>
       <H2 id="services">The services</H2>
       <Table
         headers={["Service", "Container", "What it adds"]}

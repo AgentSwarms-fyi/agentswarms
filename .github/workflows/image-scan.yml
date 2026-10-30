@@ -1,0 +1,141 @@
+name: Image scan
+
+# VA-2026-10-25-25. The images the stack runs carry OS packages and language
+# runtimes that collect CVEs without any change to this repository, so the scan
+# runs on a schedule as well as when an image's inputs change. It uses the same
+# pinned grype as docs/security/scripts/scan.sh, so a local run and CI agree.
+#
+# It fails on a critical finding that has a fixed version available: that is
+# always actionable (rebuild on a newer base, bump a pin). The exceptions are
+# in .github/grype-baseline.yaml, each with its package version, its reason
+# and the finding that tracks it; the verdict skips only those. Everything
+# else, high included, is in the uploaded report, and each run's summary shows
+# the counts by severity, so the weekly run is where new findings are read.
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - package-lock.json
+      - docker-compose.yml
+      - docgen-service/**
+      - docker/notebook-runtime/**
+      - services/notebook-gateway/**
+      - services/js-sandbox/**
+      - .github/workflows/image-scan.yml
+      - .github/scripts/grype-summary.py
+      - .github/grype-baseline.yaml
+
+# No secrets: images are built on the runner and never pushed.
+permissions:
+  contents: read
+
+concurrency:
+  group: image-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # One database download per job, shared by every grype run in it.
+  GRYPE: >-
+    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock
+    -v grype-db:/cache -e GRYPE_DB_CACHE_DIR=/cache anchore/grype:v0.120.1
+  # The verdict: the same grype, skipping only the baseline's known findings.
+  GRYPE_GATE: >-
+    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock
+    -v grype-db:/cache -e GRYPE_DB_CACHE_DIR=/cache
+    -v ${{ github.workspace }}/.github/grype-baseline.yaml:/baseline.yaml:ro
+    anchore/grype:v0.120.1 -c /baseline.yaml
+
+jobs:
+  first-party:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: app
+            context: .
+          - name: notebook-runtime
+            context: docker/notebook-runtime
+          - name: notebook-gateway
+            context: services/notebook-gateway
+          - name: docgen
+            context: docgen-service
+          - name: js-sandbox
+            context: services/js-sandbox
+    name: scan ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # The app's build arguments are inlined into the browser bundle; any
+      # value builds, and none is a secret.
+      - name: Build
+        run: >
+          docker build -t scan/${{ matrix.name }}:ci
+          --build-arg VITE_SUPABASE_URL=https://placeholder.supabase.co
+          --build-arg VITE_SUPABASE_PUBLISHABLE_KEY=placeholder-anon-key
+          ${{ matrix.context }}
+
+      - name: Scan
+        shell: bash
+        run: |
+          mkdir -p report
+          $GRYPE scan/${{ matrix.name }}:ci -o json > report/${{ matrix.name }}.json
+          python3 .github/scripts/grype-summary.py report/${{ matrix.name }}.json >> "$GITHUB_STEP_SUMMARY"
+          # The verdict: only findings with a fixed version, failing on a critical one.
+          set -o pipefail
+          $GRYPE_GATE scan/${{ matrix.name }}:ci --only-fixed --fail-on critical -o table \
+            | tee report/${{ matrix.name }}-fixable.txt
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: grype-${{ matrix.name }}
+          path: report/
+          if-no-files-found: ignore
+
+  third-party:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    name: scan third-party images
+    steps:
+      - uses: actions/checkout@v7
+
+      # Every image the compose stack runs that this repository does not
+      # build, pinned digests included, read from docker-compose.yml as
+      # scan.sh does. A fixable critical here means: bump that pin.
+      - name: Scan
+        shell: bash
+        run: |
+          mkdir -p report
+          status=0
+          for img in $(python3 .github/scripts/grype-summary.py --compose-images docker-compose.yml); do
+            safe="$(echo "$img" | tr '/:@' '___')"
+            echo "::group::$img"
+            # An image that cannot be pulled is a warning, not a scan failure:
+            # VA-2026-10-25-35 tracks the MinIO images that went private.
+            if ! $GRYPE "registry:$img" -o json > "report/$safe.json"; then
+              echo "::warning::could not pull $img to scan it"
+              echo "::endgroup::"
+              continue
+            fi
+            { echo "### $img"; python3 .github/scripts/grype-summary.py "report/$safe.json"; } >> "$GITHUB_STEP_SUMMARY"
+            $GRYPE_GATE "registry:$img" --only-fixed --fail-on critical -o table \
+              > "report/$safe-fixable.txt" || status=1
+            cat "report/$safe-fixable.txt"
+            echo "::endgroup::"
+          done
+          exit "$status"
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: grype-third-party
+          path: report/
+          if-no-files-found: ignore
