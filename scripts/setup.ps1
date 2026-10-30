@@ -96,6 +96,9 @@ if ([string]::IsNullOrEmpty((Get-EnvVar "SPARK_CONNECT_TOKEN")))   { Say "Genera
 # the key the app sends are two settings (an external Qdrant has only the
 # second), so the bundled one gets the same value in both.
 if ([string]::IsNullOrEmpty((Get-EnvVar "VALKEY_PASSWORD")))       { Say "Generating VALKEY_PASSWORD"; Set-EnvVar "VALKEY_PASSWORD" (New-Secret) }
+# The renderer's bearer token (R413), as setup-k8s.sh already generates: without
+# it anything on the Compose network can make LibreOffice render a document.
+if ([string]::IsNullOrEmpty((Get-EnvVar "DOCGEN_TOKEN")))          { Say "Generating DOCGEN_TOKEN"; Set-EnvVar "DOCGEN_TOKEN" (New-Secret) }
 if ([string]::IsNullOrEmpty((Get-EnvVar "QDRANT__SERVICE__API_KEY"))) {
   $qKey = Get-EnvVar "QDRANT_API_KEY"
   if ([string]::IsNullOrEmpty($qKey)) { $qKey = New-Secret; Set-EnvVar "QDRANT_API_KEY" $qKey }

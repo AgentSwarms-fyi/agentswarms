@@ -109,6 +109,35 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-30 — R413: the renderer took requests from anything on the Compose network (VA-43)
+
+**Finding** VA-2026-10-25-43, the last item of the spark-connect reach audit. The renderer checks
+`DOCGEN_TOKEN` on every render route when the token is set. `setup-k8s.sh` generates one; the Compose
+installers never did, so on Compose it was empty, and an empty token switches the check off. As `spark`,
+from `spark-connect`, `POST /render/docx` with no credentials returned a rendered file (200, 31 s). The
+exposure is LibreOffice parsing whatever arrives, and the CPU that takes.
+
+**Fix.** Both Compose installers generate `DOCGEN_TOKEN`. Compose already passed it to the renderer, and
+`docgenService.server.ts` already sends it as a bearer.
+
+**Live.** This install's `.env` was backed up and given a generated token. The renderer and the app were
+recreated, the app on a fresh image built from HEAD.
+
+- From `spark-connect`: 401 Unauthorized, and `/health` 200.
+- From inside the app, with its token: 200, a docx in 15 s. Without a token: 401. With a wrong one: 401.
+- From the UI: Agent Chat, Deep mode, Word, a short note. The app's render reached the renderer with the
+  token and the file came back.
+
+**Tests.** `composeServices.test.ts` +2 checks that:
+
+- both Compose installers generate the token, as `setup-k8s.sh` does;
+- Compose passes it to the renderer;
+- every POST route in `docgen-service/app.py` calls `_check_auth(authorization)` first;
+- the app's client sends `Authorization: Bearer`.
+
+Mutation 5 of 5. The mutants were: no generation in either installer; the workbook route skipping the
+check; Compose not passing the token; the client sending it without `Bearer`.
+
 ### 2026-10-30 — R412: the lakehouse catalog sat on the kernels' network for a reason that had gone (VA-42)
 
 **Finding** VA-2026-10-25-42, found reading the catalog's Compose block during the spark-connect reach

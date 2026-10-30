@@ -401,6 +401,16 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   stop and deploy any warm model endpoint again so it starts from the new
   kernel image. `docker compose exec agentswarms npm …` no longer works: run
   npm on the host.
+- **The document renderer requires a token on Compose installs too** (R413,
+  VA-2026-10-25-43). `setup-k8s.sh` has always generated `DOCGEN_TOKEN`, but
+  the Compose installers did not, so the renderer took requests from anything
+  on the Compose network. From `spark-connect`, where Spark pipelines' Python
+  UDFs run, it rendered a Word file with no credentials. Both Compose
+  installers now generate the token, and the app already sends it. Afterwards,
+  `spark-connect` gets 401, as does any request without the token or with a
+  wrong one, and the app's own request renders. **Upgrading:** re-run the
+  installer, or set `DOCGEN_TOKEN` in `.env`. Then run
+  `docker compose up -d docgen agentswarms`.
 - **Notebook kernels can no longer reach the lakehouse catalog** (R412,
   VA-2026-10-25-42). Compose put `lakehouse-catalog` on `nb-internal`, the
   kernels' network, from when an ETL kernel attached DuckLake itself with the

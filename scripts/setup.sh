@@ -97,6 +97,9 @@ gen_secret() {
 # the key the app sends are two settings (an external Qdrant has only the
 # second), so the bundled one gets the same value in both.
 [ -z "$(getenv VALKEY_PASSWORD)" ]       && { say "Generating VALKEY_PASSWORD"; setenv VALKEY_PASSWORD "$(gen_secret)"; }
+# The renderer's bearer token (R413), as setup-k8s.sh already generates: without
+# it anything on the Compose network can make LibreOffice render a document.
+[ -z "$(getenv DOCGEN_TOKEN)" ]          && { say "Generating DOCGEN_TOKEN"; setenv DOCGEN_TOKEN "$(gen_secret)"; }
 if [ -z "$(getenv QDRANT__SERVICE__API_KEY)" ]; then
   Q_KEY="$(getenv QDRANT_API_KEY)"
   [ -z "$Q_KEY" ] && { Q_KEY="$(gen_secret)"; setenv QDRANT_API_KEY "$Q_KEY"; }

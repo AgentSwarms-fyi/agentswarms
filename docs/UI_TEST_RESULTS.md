@@ -15,6 +15,20 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-30 — R413: the document renderer with a token
+
+Build: this install's `.env` backed up and given a generated `DOCGEN_TOKEN`. The renderer and the app
+were recreated, the app from a fresh image built at 4d0db553.
+
+| What was pressed                                                                               | Result                                                                                                                                                         |
+| ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Before**: `POST /render/docx` from `spark-connect`, no credentials                           | 200, a rendered docx, 31 s                                                                                                                                     |
+| **After**: the same                                                                            | 401 Unauthorized; `GET /health` 200                                                                                                                            |
+| From inside the app: with its token / without / with a wrong one                               | 200 (docx, 15 s) / 401 / 401                                                                                                                                   |
+| Agent Chat → **Deep · slow** → **Word** → "A one-page note titled R413 renderer check…" → send | the renderer logged the app (172.19.0.8) `POST /render/docx` 200; the chat: "Here's your Word — A-one-page-note-titled-R413-renderer-che.docx", "Word · ready" |
+
+Fixture kept: a new Agent Chat thread holding the R413 Word note.
+
 ## 2026-10-30 — R412: what a notebook kernel reaches of the lakehouse catalog
 
 The notebook "R406 kernel image check" gets a cell #8 that tries a TCP connection to port 5432 on both
