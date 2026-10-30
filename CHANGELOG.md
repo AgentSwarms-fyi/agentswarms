@@ -706,6 +706,18 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **Monitoring no longer says the scheduler has stopped while it runs.** With
+  the default eight workers, each pass runs in whichever worker takes the
+  scheduler lease. The Scheduler row read the last pass from the memory of the
+  worker that served the page. So it alternated between "Last pass 42 minutes
+  ago — the scheduler has stopped" and "No pass in the 18 minutes since this
+  process started", while another worker passed every minute. The same was
+  true of every instance but one behind a load balancer. It now reads when the
+  latest pass began anywhere, from the lease, as `/api/metrics` already did. It
+  says "stopped" only when no worker or instance has passed for five minutes.
+  A failure in this worker's own recent pass still shows. "Since this process
+  started" now counts from the process's start, not from the first visit to
+  Monitoring.
 - **An ontology's header stops saying "draft has changes" once the draft
   matches the published version again.** It stayed after any save until a
   reload: the page assumed every save made a change, and the server compared

@@ -58,22 +58,77 @@ export const SCHEDULER_STALE_MS = 5 * 60_000;
  * and this instance may legitimately never record one).
  *
  * R57 made the pass record its failures; this is where they are seen.
+ *
+ * `fleetLastPassAt` is when the latest pass began anywhere: the `scheduler`
+ * row of `cron_locks`, whose `updated_at` the winning runner sets. Each pass
+ * runs in whichever worker or instance takes that lease, so one process's
+ * memory cannot say whether the scheduler is running. Measured (R409): with
+ * the default eight workers, the page answered "the scheduler has stopped"
+ * from whichever worker served it while passes ran in another. When the row
+ * cannot be read the probe falls back to this process's memory.
  */
 export function schedulerProbe(input: {
   last: LastCronPass | null;
   now: Date;
   bootedAt: number;
   inProcessDisabled: boolean;
+  fleetLastPassAt?: string | null;
 }): ServiceProbe {
   const base = {
     id: "scheduler" as const,
     label: "Scheduler",
     purpose:
-      "Runs every schedule the platform has — BI refreshes, prep flows, crawls, ETL, retention — once a minute, in this process.",
+      "Runs every schedule the platform has — BI refreshes, prep flows, crawls, ETL, retention — once a minute, in whichever worker or instance holds the scheduler lease.",
     latencyMs: null,
     endpoint: null,
   };
   const minutes = (ms: number) => Math.max(1, Math.round(ms / 60_000));
+  if (input.fleetLastPassAt) {
+    const fleetAge = input.now.getTime() - new Date(input.fleetLastPassAt).getTime();
+    // This process's own pass, when recent, still carries its counts and failures.
+    const mine =
+      input.last && input.now.getTime() - new Date(input.last.at).getTime() <= SCHEDULER_STALE_MS
+        ? input.last
+        : null;
+    const detail = {
+      last_pass: `${Math.max(0, Math.round(fleetAge / 1000))} s ago`,
+      ...(mine
+        ? {
+            processed: mine.result.processed,
+            prep_flows: mine.result.prep_flows,
+            failures: mine.result.errors.length,
+          }
+        : {}),
+    };
+    if (fleetAge > SCHEDULER_STALE_MS) {
+      if (input.now.getTime() - input.bootedAt < SCHEDULER_STALE_MS) {
+        return {
+          ...base,
+          status: "up",
+          message: "No pass recorded yet — the first runs a minute after start.",
+        };
+      }
+      return {
+        ...base,
+        status: "degraded",
+        message: input.inProcessDisabled
+          ? `No pass for ${minutes(fleetAge)} minutes. The in-process scheduler is disabled here (DISABLE_INPROCESS_SCHEDULER), and the external cron has not called /api/bi/cron in that time.`
+          : `No pass in any worker or instance for ${minutes(fleetAge)} minutes — the scheduler has stopped.`,
+        detail,
+      };
+    }
+    if (mine && mine.result.errors.length > 0) {
+      const shown = mine.result.errors.slice(0, 3).join("; ");
+      const more = mine.result.errors.length - 3;
+      return {
+        ...base,
+        status: "degraded",
+        message: `Last pass had ${mine.result.errors.length} failure(s): ${shown}${more > 0 ? `; and ${more} more` : ""}`,
+        detail,
+      };
+    }
+    return { ...base, status: "up", detail };
+  }
   if (!input.last) {
     if (input.inProcessDisabled) {
       return {

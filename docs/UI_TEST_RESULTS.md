@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-30 — R409: Monitoring's Scheduler row, before and after
+
+Build: a hot deploy of the working copy, R409 included (`docker cp dist` then `docker restart`). The app
+runs eight workers. Observability → Monitoring, pressing **Refresh** (the page reports from whichever
+worker answers).
+
+| What was pressed                          | Result                                                                                                                                                                                                                                           |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Before:** Refresh, six times, 4 s apart | Scheduler **Degraded** every time, alternating "Last pass 42 minutes ago — the scheduler has stopped" and "No pass in the 18 minutes since this process started"; "1 needing attention". The app's log had lakehouse maintenance twice that hour |
+| **After:** Refresh, six times, 4 s apart  | **Healthy** every time, `last_pass` 31, 38, 42, 46, 50, 54 s ago; "No problems detected"                                                                                                                                                         |
+| Refresh again 30 s later                  | Healthy, `last_pass` 26 s ago: the next pass                                                                                                                                                                                                     |
+
+The same page, under the gate's load, had marked the gateway and Qdrant **Down** because their probes timed
+out. Quiet again, every service answered in about 30 ms. That is not this round's change.
+
 ## 2026-10-30 — R408: only the app reaches the Docker socket proxy
 
 The probes ran from inside each container, to `notebook-docker-proxy:2375/_ping` by name and to the proxy's

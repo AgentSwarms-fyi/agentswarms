@@ -109,6 +109,60 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-30 — R409: Monitoring said the scheduler had stopped while it ran
+
+Found checking Monitoring after R408. The Scheduler row was **Degraded**, and six presses of **Refresh**
+alternated between two answers. One was "Last pass 42 minutes ago — the scheduler has stopped". The other
+was "No pass in the 18 minutes since this process started". The scheduler was running: its hourly lakehouse
+maintenance, which only happens inside a pass, had logged twice in that hour, and no worker had restarted.
+
+**Cause.** `server.mjs` forks one worker per core, eight here, and every worker starts the scheduler. Each
+pass runs in whichever worker takes the `scheduler` lease in `cron_locks`. The row read `getLastCronPass()`,
+the last pass the worker serving the request had run. Its comment chose that on purpose ("a multi-instance
+deployment reads the one that answered"), but the same holds within one container. Every worker that did
+not win recent leases says the scheduler has stopped, and so does every instance but one behind a load
+balancer. `/api/metrics` already did this right: its heartbeat reads the lease row's `updated_at`, which
+`acquireCronLease` stamps when a pass claims it. Separately, "since this process started" counted from the
+monitoring module's first load, at the first visit to Monitoring, not from the process's start.
+
+**Fix.**
+
+- `lastCronLeaseClaimAt("scheduler")` reads the row's `updated_at`, when the latest pass began anywhere.
+- `schedulerProbe` judges by that first: up while it is under five minutes old, and "No pass in any worker
+  or instance for N minutes — the scheduler has stopped" past it. With the in-process scheduler disabled,
+  it says the external cron has not called.
+- A process that has just started still gets its grace period.
+- This worker's own pass, when recent, adds its counts and still turns the row degraded on a failure.
+- If the row cannot be read, the probe falls back to the old per-process answer.
+- `BOOTED_AT` is now `Date.now() - process.uptime()`.
+
+**From the UI, after a hot deploy.** Six presses of **Refresh**: Healthy every time, "last_pass" 31, 38, 42,
+46, 50 and 54 s ago, and "No problems detected". Thirty seconds later: 26 s ago, the next pass.
+
+**Not covered.** A failed step in a pass that another worker ran is still visible only from that worker.
+Showing it everywhere would mean storing the pass's result in the lease row, which this round does not do.
+
+**Tests.** `schedulerProbe.test.ts` +8 checks that:
+
+- a worker idle for 40 minutes, or one that never won a lease, is up when the fleet passed 30 s ago;
+- "stopped" means no pass anywhere;
+- a recent failure in this process still shows;
+- a young process gets its grace period;
+- the external cron is blamed when the in-process scheduler is off;
+- an unreadable lease falls back;
+- the handler reads `updated_at` of the `scheduler` row, passes it in, and takes boot time from the process.
+
+Mutation 8 of 8. The mutants were:
+
+- the fleet ignored;
+- a stale fleet never called stopped;
+- an old pass from this worker taken as current;
+- no grace period;
+- failures hidden;
+- the fleet value never passed;
+- the module's load time as boot time;
+- `locked_until` read instead of `updated_at`.
+
 ### 2026-10-30 — R408: only the app reaches the Docker socket proxy (VA-40)
 
 **Finding** VA-2026-10-25-40, found probing the proxy in R407. Its environment switches on whole API

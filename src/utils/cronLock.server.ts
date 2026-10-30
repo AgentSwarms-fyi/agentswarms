@@ -59,6 +59,27 @@ export async function acquireCronLease(
   return Array.isArray(data) && data.length > 0;
 }
 
+/**
+ * When the named lease was last claimed, by any runner: `acquireCronLease`
+ * stamps `updated_at` on the claim and nothing else writes it, so for the
+ * `scheduler` lease this is when the latest pass began anywhere. Null when it
+ * cannot be read (no table yet, a failed read); the caller then knows nothing
+ * fleet-wide and says so by falling back.
+ */
+export async function lastCronLeaseClaimAt(name: string): Promise<string | null> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("cron_locks")
+      .select("updated_at")
+      .eq("name", name)
+      .maybeSingle();
+    if (error || !data) return null;
+    return typeof data.updated_at === "string" ? data.updated_at : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Release the lease if (and only if) this process still holds it. */
 export async function releaseCronLease(name: string): Promise<void> {
   try {

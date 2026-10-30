@@ -67,11 +67,13 @@ function SelfHostingOperationsPage() {
       <P>
         Two things behave differently once workers multiply. The scheduler does <strong>not</strong>{" "}
         — it holds a fleet-wide lease, so exactly one sweep runs no matter how many workers or
-        replicas exist. The lakehouse query engine <strong>does</strong>: it lives in each process,
-        so its memory limit applies per worker. A 16-core host at <C>LAKEHOUSE_MEMORY_LIMIT=16GB</C>{" "}
-        is 256 GB of intent, not 16 — size that limit against host RAM divided by workers. It is a
-        ceiling rather than a reservation, so idle workers hold nothing, but the worst case is what
-        an out-of-memory kill needs.
+        replicas exist, and Monitoring&apos;s Scheduler row reads when the latest sweep began
+        anywhere, so whichever worker answers the page tells the same story. The lakehouse query
+        engine <strong>does</strong>: it lives in each process, so its memory limit applies per
+        worker. A 16-core host at <C>LAKEHOUSE_MEMORY_LIMIT=16GB</C> is 256 GB of intent, not 16 —
+        size that limit against host RAM divided by workers. It is a ceiling rather than a
+        reservation, so idle workers hold nothing, but the worst case is what an out-of-memory kill
+        needs.
       </P>
       <H3 id="scaling-analytics">Analytics-only nodes</H3>
       <P>

@@ -18,8 +18,11 @@ import {
 } from "@/lib/serviceHealth";
 
 // When this process started: a scheduler that has never passed is fine for
-// the first minutes after boot and a failure after that.
-const BOOTED_AT = Date.now();
+// the first minutes after boot and a failure after that. From the process's
+// uptime, not this module's load: the module loads on the first Monitoring
+// request, which is how a worker up for 46 minutes said "18 minutes since this
+// process started" (R409).
+const BOOTED_AT = Date.now() - Math.round(process.uptime() * 1000);
 import { resolveInternalOrigin } from "@/utils/internalOrigin.server";
 import { appRole } from "@/utils/appRole";
 
@@ -230,15 +233,19 @@ export const serviceHealth = createServerFn({ method: "POST" })
       }
     };
 
-    // The scheduler is a service like the others: it lives in this process,
-    // so its probe is the last pass it ran, not a port.
+    // The scheduler is a service like the others, probed by its passes, not a
+    // port: when the latest one began anywhere (the lease row), and what this
+    // process's own last pass did.
     const scheduler = async (): Promise<ServiceProbe> => {
       const { getLastCronPass } = await import("@/utils/bi/refresh.server");
+      const { lastCronLeaseClaimAt } = await import("@/utils/cronLock.server");
+      const fleetLastPassAt = await lastCronLeaseClaimAt("scheduler");
       return schedulerProbe({
         last: getLastCronPass(),
         now: new Date(),
         bootedAt: BOOTED_AT,
         inProcessDisabled: /^(1|true|yes)$/i.test(process.env.DISABLE_INPROCESS_SCHEDULER ?? ""),
+        fleetLastPassAt,
       });
     };
     const [app, db, ...rest] = await Promise.all([
