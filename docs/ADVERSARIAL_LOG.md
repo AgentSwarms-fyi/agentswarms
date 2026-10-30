@@ -109,6 +109,65 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-30 — R411: the feature store and the vector store took anyone's commands (VA-41)
+
+**Finding** VA-2026-10-25-41, from the audit of what code in `spark-connect` can reach. Its own
+environment holds only the Spark Connect token (R398's known residual). Its JVM runs as `spark`, and Spark
+runs never get catalog credentials. The lake credential they do get is scoped to their staging prefix
+(R230). Its neighbours on `default` were the problem. As `spark`, with no credentials:
+
+- valkey answered `DBSIZE` (0, nothing refreshed since its restart) and `SCAN`;
+- Qdrant listed `agentswarms_kb_chunks` (4 points) and returned one (payload `doc`, `kb`).
+
+Valkey has no `requirepass`. The installers generated no Qdrant key, and compose deliberately leaves
+Qdrant open without one. Both also publish a loopback port, which R408 showed answers from every routable
+network.
+
+**Fix.**
+
+- valkey: `--requirepass ${VALKEY_PASSWORD:-}`. An empty value means no password; measured on a throwaway
+  valkey, `--requirepass ""` answered `PING` with no AUTH.
+- valkey's health check: `valkey-cli` exits 0 on `NOAUTH`, so it signs in and greps for `PONG`. That line,
+  measured: right password 0, none configured 0, wrong password 1.
+- The client: `AUTH` first on a new socket, before any queued command, with its reply consumed there. The
+  password comes from the URL's userinfo, else `VALKEY_PASSWORD`, with an ACL user when the URL names one.
+  A refusal fails the connection with the server's words ("the store refused the credentials:
+  WRONGPASS..."), which never include the password.
+- The installers generate `VALKEY_PASSWORD`, and one Qdrant key for both the server and the app.
+- `.env.example`, ML.md, DEPLOYMENT.md and the in-app predictions page say how.
+
+**Live.** This install's `.env` was backed up, then given the three generated values, and valkey, Qdrant
+and the app were recreated. From `spark-connect`: `NOAUTH`, `NOAUTH`, 401, and `/readyz` 200. In the app,
+**Refresh** on `order_features` stored 836 keys in 6.4 s. With the password, `DBSIZE` was 837 (the rows
+and their meta). Looking up order 1177 took `keyspace_hits` from 4 to 6, so it came from valkey.
+
+**While deploying.** The first `docker cp` of the build timed out after 10 minutes, because Qdrant was
+recovering its collection from this disk at the same time. The app came up on the image's own code, which
+has no AUTH. With the disk quiet, the copy took 19 s.
+
+**Tests.** `featureStoreAuth.test.ts` (6) runs against a RESP server that demands a password like valkey.
+It checks that:
+
+- the URL's password is sent first;
+- `VALKEY_PASSWORD` is used when the URL has none;
+- an ACL user is sent;
+- a refused password opens the breaker, leaves the password out of the error, and lets nothing after AUTH
+  through;
+- no AUTH is sent when none is configured.
+
+`composeServices.test.ts` +3 checks `requirepass`, the health check, and what the installers and
+`.env.example` generate. Mutation 9 of 9. The mutants were:
+
+- no AUTH;
+- `VALKEY_PASSWORD` ignored;
+- the ACL user dropped;
+- a refusal taken as success;
+- no `requirepass`;
+- the exit-code health check;
+- no generation in `setup.sh`;
+- different Qdrant keys in `setup.ps1`;
+- `.env.example` without the line.
+
 ### 2026-10-30 — R410: `--dev` left notebooks without a Docker proxy, silently (R408 follow-up)
 
 Found reading the installers while auditing what spark-connect can reach. `setup.sh --dev` and

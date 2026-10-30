@@ -2096,7 +2096,9 @@ nothing but time: Postgres still holds every chunk.
 
 To require an API key, set `QDRANT__SERVICE__API_KEY` (the server's own
 setting, read by the StatefulSet) and `QDRANT_API_KEY` (what the app sends) to
-the same value in that secret. Leave both **unset** rather than empty — Qdrant
+the same value in that secret. In Compose the installers do this for the bundled
+Qdrant (R411): without a key, anything on the Compose network could read or
+delete every knowledge base's vectors, `spark-connect` included. Leave both **unset** rather than empty — Qdrant
 reads an empty key as "auth is on, and the key is the empty string", and then
 rejects every request.
 

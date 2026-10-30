@@ -43,16 +43,39 @@ export function featureStoreUrl(): string | null {
   return raw && raw.length > 0 ? raw : null;
 }
 
-function parseUrl(url: string): { host: string; port: number } | null {
+function parseUrl(
+  url: string,
+): { host: string; port: number; user: string; password: string } | null {
   try {
     // `redis://host:port` and `valkey://host:port` both parse; a bare
     // `host:port` is accepted too, because that is what an operator types.
     const withScheme = /:\/\//.test(url) ? url : `redis://${url}`;
     const u = new URL(withScheme);
-    return { host: u.hostname, port: Number(u.port || 6379) };
+    return {
+      host: u.hostname,
+      port: Number(u.port || 6379),
+      user: decodeURIComponent(u.username),
+      password: decodeURIComponent(u.password),
+    };
   } catch {
     return null;
   }
+}
+
+/**
+ * What to AUTH with: the URL's own credentials (`redis://:pw@host` or
+ * `redis://user:pw@host`, how a managed Redis is given), else VALKEY_PASSWORD,
+ * which the installers generate for the bundled valkey (R411). None means the
+ * server takes commands without a password.
+ *
+ * The bundled store had none: anything on the Compose network reached every
+ * user's online features, `spark-connect` included, where a Spark pipeline's
+ * Python UDFs run.
+ */
+function authCommand(addr: { user: string; password: string }): string[] | null {
+  const password = addr.password || process.env.VALKEY_PASSWORD?.trim() || "";
+  if (!password) return null;
+  return addr.user ? ["AUTH", addr.user, password] : ["AUTH", password];
 }
 
 function fail(why: string): void {
@@ -116,7 +139,34 @@ async function connect(): Promise<net.Socket | null> {
       });
       socket = s;
       lastError = null;
-      resolve(s);
+      const auth = authCommand(addr);
+      if (!auth) {
+        resolve(s);
+        return;
+      }
+      // AUTH before anything else. A server with a password answers every
+      // other command NOAUTH, which reads as a store that is down; and the
+      // reply must be consumed here, or it would be handed to the first caller.
+      queue.push({
+        want: 1,
+        got: [],
+        resolve: (replies) => {
+          const r = replies[0];
+          if (replies.length === 1 && !(r instanceof RespError)) {
+            resolve(s);
+            return;
+          }
+          // The server's words only: they never contain the password.
+          if (r instanceof RespError) fail(`the store refused the credentials: ${r.message}`);
+          resolve(null);
+        },
+        timer: setTimeout(() => {
+          fail(`no reply to AUTH within ${COMMAND_TIMEOUT_MS} ms`);
+        }, COMMAND_TIMEOUT_MS),
+      });
+      s.write(encodeCommand(auth), (err) => {
+        if (err) fail(err.message);
+      });
     });
     s.once("error", (e) => {
       clearTimeout(timer);

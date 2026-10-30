@@ -352,8 +352,12 @@ services:
   # that can be restored to a state the lake never had is worse than one that
   # starts empty, because empty is visibly empty.
   #
-  # Not published to the host, for the same reason the vector store is not: a
-  # feature store on a laptop's loopback is one anybody on that laptop can read.
+  # PASSWORD (R411, VA-41). It was open to anything on the Compose network,
+  # spark-connect included, where Spark pipelines' Python UDFs run: one pipeline
+  # author could read or overwrite every user's online features. The installers
+  # generate VALKEY_PASSWORD; the app sends it (FEATURE_STORE_URL's own
+  # credentials win, for a managed Redis). Left empty, valkey runs without one,
+  # as before. Published on loopback only, for an app on the host (--dev).
   valkey:
     image: valkey/valkey:8.1.11-alpine@sha256:2602ace2be6569bc2bbb06f873776516ab9089821525be34f4305c67eb9db02a
     ports:
@@ -376,12 +380,22 @@ services:
       # whole view says so rather than implying it is complete.
       - --maxmemory-policy
       - allkeys-lru
+      # Empty means no password: valkey treats `--requirepass ""` as none.
+      - --requirepass
+      - ${VALKEY_PASSWORD:-}
+    environment:
+      VALKEY_PASSWORD: ${VALKEY_PASSWORD:-}
     restart: unless-stopped
     # The image's own client, like the catalog's pg_isready — a check that
     # speaks the server's protocol is the only one that can tell "listening"
     # from "answering".
+    # PONG, not the exit code: valkey-cli exits 0 on a NOAUTH reply too.
     healthcheck:
-      test: ["CMD", "valkey-cli", "ping"]
+      test:
+        [
+          "CMD-SHELL",
+          'valkey-cli $${VALKEY_PASSWORD:+-a "$$VALKEY_PASSWORD" --no-auth-warning} ping | grep -q PONG',
+        ]
       interval: 15s
       timeout: 5s
       retries: 5

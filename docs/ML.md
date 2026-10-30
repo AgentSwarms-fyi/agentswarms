@@ -1288,6 +1288,15 @@ the lakehouse until the next refresh.
 no store and every lookup reads the lakehouse, which is what happened before
 this existed.
 
+The bundled valkey requires `VALKEY_PASSWORD`, which the installers generate,
+and the app sends it (R411, VA-41). Without a password, anything on the Compose
+network could read or overwrite every user's stored features, `spark-connect`
+included, where Spark pipelines' Python UDFs run. A Redis you run yourself takes
+its password in the URL: `redis://:PASSWORD@host:6379`, or
+`redis://user:PASSWORD@host:6379` for an ACL user. If the password is refused,
+the store reports it as unreachable, with the server's reason, and lookups read
+the lakehouse.
+
 It is **valkey** rather than Redis for a licensing reason rather than a
 technical one: Redis moved to RSALv2/SSPL, which this project cannot ship
 inside its own stack. Valkey is the BSD-3 fork of the same server and speaks

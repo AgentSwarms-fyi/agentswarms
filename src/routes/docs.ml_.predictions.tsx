@@ -427,7 +427,9 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
         that is the moment the difference matters. Start one with <C>docker compose up -d</C> and
         point <C>FEATURE_STORE_URL</C> at it. It is valkey rather than Redis for a licensing reason
         — Redis moved to RSALv2/SSPL, which this project cannot ship in its own stack — and the
-        protocol is the same, so that variable may name a Redis you already run.
+        protocol is the same, so that variable may name a Redis you already run. The bundled valkey
+        requires <C>VALKEY_PASSWORD</C>, which the installers generate and the app sends; a Redis of
+        your own takes its password in the URL (<C>redis://:PASSWORD@host:6379</C>).
       </P>
 
       <H3 id="point-in-time">Point-in-time training sets</H3>

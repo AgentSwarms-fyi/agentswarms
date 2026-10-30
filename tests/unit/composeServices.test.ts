@@ -109,6 +109,45 @@ describe("the Spark Connect server authenticates and does not run as root (VA-23
   });
 });
 
+describe("the feature store and the vector store take a password (VA-41)", () => {
+  // Both sit on `default` with spark-connect, where Spark pipelines' Python UDFs
+  // run; from there valkey answered DBSIZE and Qdrant listed its collections,
+  // with no credentials (R411).
+  const valkey = compose.services.valkey as unknown as {
+    command: string[];
+    environment: Record<string, string>;
+    healthcheck: { test: string[] };
+  };
+
+  it("starts valkey with requirepass from VALKEY_PASSWORD, which may be empty", () => {
+    const i = valkey.command.indexOf("--requirepass");
+    expect(i).toBeGreaterThan(-1);
+    expect(valkey.command[i + 1]).toBe("${VALKEY_PASSWORD:-}");
+    expect(valkey.environment.VALKEY_PASSWORD).toBe("${VALKEY_PASSWORD:-}");
+  });
+
+  it("checks valkey's health with the password and by its PONG, not by valkey-cli's exit code", () => {
+    // valkey-cli exits 0 on a NOAUTH reply, so a ping without the password
+    // would call a store that refuses everyone healthy.
+    const test = valkey.healthcheck.test.join(" ");
+    expect(test).toContain('$${VALKEY_PASSWORD:+-a "$$VALKEY_PASSWORD" --no-auth-warning}');
+    expect(test).toMatch(/ping \| grep -q PONG$/);
+  });
+
+  it("has the installers generate both, with the same Qdrant key on the server and the app", () => {
+    expect(setupSh).toContain('setenv VALKEY_PASSWORD "$(gen_secret)"');
+    expect(setupPs).toContain('Set-EnvVar "VALKEY_PASSWORD" (New-Secret)');
+    expect(setupSh).toMatch(
+      /Q_KEY="\$\(getenv QDRANT_API_KEY\)"[\s\S]*?setenv QDRANT_API_KEY "\$Q_KEY"[\s\S]*?setenv QDRANT__SERVICE__API_KEY "\$Q_KEY"/,
+    );
+    expect(setupPs).toMatch(
+      /\$qKey = Get-EnvVar "QDRANT_API_KEY"[\s\S]*?Set-EnvVar "QDRANT_API_KEY" \$qKey[\s\S]*?Set-EnvVar "QDRANT__SERVICE__API_KEY" \$qKey/,
+    );
+    const example = readFileSync(resolve(".env.example"), "utf-8");
+    expect(example).toMatch(/^VALKEY_PASSWORD=""$/m);
+  });
+});
+
 describe("only the app can reach the Docker socket proxy (VA-40)", () => {
   // The proxy's sections are coarse: with CONTAINERS and POST on, a caller can
   // create a privileged container or mount the host, which is the host. It sat

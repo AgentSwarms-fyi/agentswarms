@@ -90,6 +90,18 @@ if ([string]::IsNullOrEmpty((Get-EnvVar "INTERNAL_RUN_SECRET")))   { Set-EnvVar 
 # sends it to every run, so a kernel cannot drive the Spark driver unauthenticated.
 # A fresh install gets one; left blank, the server runs without auth.
 if ([string]::IsNullOrEmpty((Get-EnvVar "SPARK_CONNECT_TOKEN")))   { Say "Generating SPARK_CONNECT_TOKEN"; Set-EnvVar "SPARK_CONNECT_TOKEN" (New-Secret) }
+# The online feature store and the vector store take a password (VA-41). Both
+# sit on the Compose network with spark-connect, where pipelines' Python UDFs
+# run. valkey reads VALKEY_PASSWORD and so does the app. Qdrant's server key and
+# the key the app sends are two settings (an external Qdrant has only the
+# second), so the bundled one gets the same value in both.
+if ([string]::IsNullOrEmpty((Get-EnvVar "VALKEY_PASSWORD")))       { Say "Generating VALKEY_PASSWORD"; Set-EnvVar "VALKEY_PASSWORD" (New-Secret) }
+if ([string]::IsNullOrEmpty((Get-EnvVar "QDRANT__SERVICE__API_KEY"))) {
+  $qKey = Get-EnvVar "QDRANT_API_KEY"
+  if ([string]::IsNullOrEmpty($qKey)) { $qKey = New-Secret; Set-EnvVar "QDRANT_API_KEY" $qKey }
+  Say "Generating the vector store's API key"
+  Set-EnvVar "QDRANT__SERVICE__API_KEY" $qKey
+}
 
 # The lakehouse catalog's password lives in TWO places that must agree: the
 # container reads LAKEHOUSE_CATALOG_PASSWORD, the app reads it inside

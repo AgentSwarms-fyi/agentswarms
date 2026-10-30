@@ -91,6 +91,18 @@ gen_secret() {
 # sends it to every run, so a kernel cannot drive the Spark driver unauthenticated.
 # A fresh install gets one; left blank, the server runs without auth.
 [ -z "$(getenv SPARK_CONNECT_TOKEN)" ]   && { say "Generating SPARK_CONNECT_TOKEN"; setenv SPARK_CONNECT_TOKEN "$(gen_secret)"; }
+# The online feature store and the vector store take a password (VA-41). Both
+# sit on the Compose network with spark-connect, where pipelines' Python UDFs
+# run. valkey reads VALKEY_PASSWORD and so does the app. Qdrant's server key and
+# the key the app sends are two settings (an external Qdrant has only the
+# second), so the bundled one gets the same value in both.
+[ -z "$(getenv VALKEY_PASSWORD)" ]       && { say "Generating VALKEY_PASSWORD"; setenv VALKEY_PASSWORD "$(gen_secret)"; }
+if [ -z "$(getenv QDRANT__SERVICE__API_KEY)" ]; then
+  Q_KEY="$(getenv QDRANT_API_KEY)"
+  [ -z "$Q_KEY" ] && { Q_KEY="$(gen_secret)"; setenv QDRANT_API_KEY "$Q_KEY"; }
+  say "Generating the vector store's API key"
+  setenv QDRANT__SERVICE__API_KEY "$Q_KEY"
+fi
 
 # The lakehouse catalog's password lives in TWO places that must agree: the
 # container reads LAKEHOUSE_CATALOG_PASSWORD, the app reads it inside

@@ -401,6 +401,20 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   stop and deploy any warm model endpoint again so it starts from the new
   kernel image. `docker compose exec agentswarms npm …` no longer works: run
   npm on the host.
+- **The feature store and the vector store require a password** (R411,
+  VA-2026-10-25-41). The bundled valkey took commands from anyone, and Qdrant
+  ran without an API key. Both share the Compose network with `spark-connect`,
+  where Spark pipelines' Python UDFs run. From there, with no credentials,
+  valkey answered `DBSIZE` and Qdrant listed its collection. Any pipeline
+  author could read or overwrite every user's online features, or delete every
+  knowledge base's vectors. The installers now generate `VALKEY_PASSWORD`, and
+  one Qdrant key set as both the server's and the app's. The app sends `AUTH`
+  first on every connection, and refuses to use a store that rejects it,
+  falling back to the lakehouse. From `spark-connect` afterwards: `NOAUTH`, and 401. **Upgrading:** re-run `scripts/setup.sh` (or `setup.ps1`), or add
+  `VALKEY_PASSWORD`, `QDRANT__SERVICE__API_KEY` and `QDRANT_API_KEY` (the last
+  two the same value) to `.env`. Then run `docker compose up -d`, which
+  recreates valkey, Qdrant and the app. A Redis of your own takes its password
+  in `FEATURE_STORE_URL` (`redis://:PASSWORD@host:6379`).
 - **`setup.sh --dev` says how to start notebook kernels** (R410, a follow-up
   to R408). `--dev` runs the app on the host, and since R408 the host cannot
   reach the Compose Docker proxy. Notebooks started no kernel, and nothing said

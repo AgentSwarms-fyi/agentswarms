@@ -15,6 +15,23 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-30 — R411: the online feature store with a password
+
+Build: this install's `.env` backed up, then given a generated `VALKEY_PASSWORD` and one Qdrant key (as
+`QDRANT__SERVICE__API_KEY` and `QDRANT_API_KEY`). valkey, Qdrant and the app were recreated with
+`up -d --no-deps`, and the R411 build copied in. ML Models → **Feature views**.
+
+| What was pressed                                              | Result                                                                                                                                       |
+| ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Before**, from `spark-connect` as `spark`, no credentials   | valkey `DBSIZE` `:0`, `SCAN` answered; Qdrant `/collections` 200 `agentswarms_kb_chunks`                                                     |
+| **After**, the same                                           | valkey `NOAUTH Authentication required.` twice; Qdrant `/collections` 401 "Must provide an API key"; `/readyz` 200                           |
+| `order_features` → **Refresh** (it read "Nothing stored yet") | toast "order_features: 836 keys in 6.4s"; the card: "online · Serving 836 keys, refreshed just now."                                         |
+| valkey, with its password from inside its container           | `DBSIZE` 837; keys `fv:3bd22c4f…:k:["1163"]`…                                                                                                |
+| Look up `order_id` 1163, then 1177                            | both rows returned (1177: `net_usd` 196.88, APAC, enterprise); valkey `keyspace_hits` 4 → 6 for the second, `keyspace_misses` unchanged at 4 |
+
+Fixture changes kept: `order_features` now holds 836 keys in the store. This install's `.env` has the three
+new values; the backup taken before is in the session scratchpad.
+
 ## 2026-10-30 — R410: the dev-mode proxy command, run as printed
 
 No page changes in this round. The check is the command `setup.sh --dev` now prints.
