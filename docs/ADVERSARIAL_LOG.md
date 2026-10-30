@@ -109,6 +109,53 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-30 — R414: the lake's object store kept a published root password (VA-44)
+
+**Finding** VA-2026-10-25-44, from the same audit. `.env.example` ships
+`LAKEHOUSE_S3_SECRET="agentswarms-lake-dev"`, and Compose falls back to it for `MINIO_ROOT_PASSWORD`.
+`setup-k8s.sh` generates a secret; the Compose installers never did. The installers do replace the
+catalog's `change-me` on a fresh `.env`, but an install brought up from a copied `.env.example` keeps it.
+
+- From `spark-connect`: `minio:9000` open and `/minio/health/live` 200; port 5432 open on both catalogs.
+- On a throwaway MinIO the default pair is root: it created a bucket and wrote an object.
+
+So on an install that kept the default, a pipeline author's UDF could read and rewrite every table's
+files, outside every row and column policy. This install's own lake credentials are not the defaults,
+and no password was tried against them.
+
+**Fix.**
+
+- Both Compose installers replace a missing or default `LAKEHOUSE_S3_SECRET`, on an existing install
+  too.
+- Monitoring marks the object store or the catalog degraded while the app's own settings hold a
+  published default (`publishedDefaultWarnings` in `serviceHealth.ts`).
+- LAKEHOUSE.md says how to change both by hand.
+
+**Why replacing it on an existing install is safe.** A throwaway MinIO (`r414-*`) started with the
+defaults and got a bucket and an 11-byte object. Restarted on the same volume with a new password, the
+new pair listed `probe.txt` and read `probe-r414`. The old pair got "The request signature we
+calculated does not match". MinIO, `minio-init` and the app all read the one variable.
+
+**Not done here.**
+
+- The catalog block replaces `change-me` on every run, also where the catalog's volume already exists.
+  Postgres keeps the password it was created with, so the halves then disagree. That is R415.
+- Monitoring reads the app's settings, so it does not flag a catalog the app does not use. This
+  install's empty Compose twin is one, still on `change-me`.
+
+**Tests.** `lakeDefaults.test.ts` (6):
+
+- the defaults match `.env.example` and Compose's fallbacks;
+- `.env.example` is flagged for both;
+- other passwords, URL-encoded ones included, are not;
+- only a running service is relabelled;
+- Monitoring applies the warnings;
+- both installers replace the default secret.
+
+Mutation 6 of 6. The mutants were: the S3 default never flagged; the catalog checked against the user
+name; a down service relabelled degraded; Monitoring skipping the warnings; `setup.sh` replacing only an
+empty secret; `setup.ps1` never generating.
+
 ### 2026-10-30 — R413: the renderer took requests from anything on the Compose network (VA-43)
 
 **Finding** VA-2026-10-25-43, the last item of the spark-connect reach audit. The renderer checks

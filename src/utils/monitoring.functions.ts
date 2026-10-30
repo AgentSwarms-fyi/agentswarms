@@ -12,7 +12,9 @@ import { z } from "zod";
 import { requireSuperadmin } from "@/utils/iam.server";
 import {
   SERVICE_CATALOGUE,
+  publishedDefaultWarnings,
   schedulerProbe,
+  withPublishedDefaultWarnings,
   type ServiceProbe,
   type SystemMetrics,
 } from "@/lib/serviceHealth";
@@ -254,7 +256,13 @@ export const serviceHealth = createServerFn({ method: "POST" })
       scheduler(),
       ...SERVICE_CATALOGUE.map(probeOne),
     ]);
-    return { services: [app, db, ...rest], checkedAt: new Date().toISOString() };
+    // A lake service on a published default credential answers fine and is
+    // still not healthy (VA-44).
+    const services = withPublishedDefaultWarnings(
+      [app, db, ...rest],
+      publishedDefaultWarnings(process.env),
+    );
+    return { services, checkedAt: new Date().toISOString() };
   });
 
 // ── Hardware utilisation ────────────────────────────────────────────────────

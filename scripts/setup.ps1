@@ -106,6 +106,18 @@ if ([string]::IsNullOrEmpty((Get-EnvVar "QDRANT__SERVICE__API_KEY"))) {
   Set-EnvVar "QDRANT__SERVICE__API_KEY" $qKey
 }
 
+# The lake's object-store secret (VA-44, R414). .env.example ships
+# agentswarms-lake-dev, which on the bundled MinIO is the ROOT password, open to
+# anything on the Compose network. Replaced on an existing install too: MinIO
+# takes new root credentials at its next start and keeps its data (measured:
+# the bucket and an object were still there, and the old pair was refused), and
+# MinIO, minio-init and the app all read this one variable.
+$s3Secret = Get-EnvVar "LAKEHOUSE_S3_SECRET"
+if ([string]::IsNullOrEmpty($s3Secret) -or $s3Secret -eq "agentswarms-lake-dev") {
+  Say "Generating LAKEHOUSE_S3_SECRET (the lake's object-store password)"
+  Set-EnvVar "LAKEHOUSE_S3_SECRET" (New-Secret)
+}
+
 # The lakehouse catalog's password lives in TWO places that must agree: the
 # container reads LAKEHOUSE_CATALOG_PASSWORD, the app reads it inside
 # LAKEHOUSE_CATALOG_URL. Replace both together, once, on a fresh .env — halves

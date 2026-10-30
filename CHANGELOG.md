@@ -401,6 +401,24 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   stop and deploy any warm model endpoint again so it starts from the new
   kernel image. `docker compose exec agentswarms npm …` no longer works: run
   npm on the host.
+- **The lake's published default credentials are replaced, and flagged**
+  (R414, VA-2026-10-25-44). `.env.example` ships `agentswarms-lake-dev` as
+  `LAKEHOUSE_S3_SECRET`, and Compose uses the same value as the bundled
+  MinIO's root password. The Compose installers never replaced it
+  (`setup-k8s.sh` does), so the lake's object store kept a published root
+  password. From `spark-connect`, where Spark pipelines' Python UDFs run,
+  MinIO answered. On a throwaway MinIO the default pair created a bucket and
+  wrote an object. On an install that kept it, any pipeline author could read
+  and rewrite every table outside every policy. Both installers now replace a
+  missing or default secret, on an existing install too. MinIO takes new root
+  credentials when it starts and keeps its data: after a restart with a new
+  password, the bucket and its object were readable with the new pair, and the
+  old pair was refused. Observability → Monitoring marks the object store
+  degraded while the app runs on that default, and the catalog while its URL
+  holds `change-me`. **Upgrading:** put a new `LAKEHOUSE_S3_SECRET` in `.env`
+  and run `docker compose up -d minio agentswarms`. A catalog still on
+  `change-me`: change the password inside Postgres first, as LAKEHOUSE.md
+  shows, since Postgres keeps the one it was created with.
 - **The document renderer requires a token on Compose installs too** (R413,
   VA-2026-10-25-43). `setup-k8s.sh` has always generated `DOCGEN_TOKEN`, but
   the Compose installers did not, so the renderer took requests from anything

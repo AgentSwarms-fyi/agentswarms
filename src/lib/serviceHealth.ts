@@ -48,6 +48,60 @@ export type LastCronPass = {
   result: { ran: boolean; errors: string[]; processed: number; prep_flows: number };
 };
 
+/**
+ * The lake credentials this project publishes in `.env.example` and the
+ * Compose fallbacks (VA-2026-10-25-44, R414). On the bundled MinIO the S3
+ * secret is the ROOT password, and the catalog password owns the lakehouse's
+ * metadata. Both services sit on the Compose network with spark-connect, where
+ * pipelines' Python UDFs run, and publish a loopback port.
+ */
+export const PUBLISHED_LAKE_DEFAULTS = {
+  s3Secret: "agentswarms-lake-dev",
+  catalogPassword: "change-me",
+} as const;
+
+/** The password inside a postgres:// URL, decoded, or null. */
+function urlPassword(url: string | undefined): string | null {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    return u.password ? decodeURIComponent(u.password) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Which lake services run on a published default credential, read from the
+ * app's own configuration, never by trying one. Pure, for the health handler.
+ */
+export function publishedDefaultWarnings(
+  env: Record<string, string | undefined>,
+): Partial<Record<ServiceId, string>> {
+  const out: Partial<Record<ServiceId, string>> = {};
+  if (env.LAKEHOUSE_S3_SECRET?.trim() === PUBLISHED_LAKE_DEFAULTS.s3Secret) {
+    out.minio =
+      "Runs on the published default secret (LAKEHOUSE_S3_SECRET=agentswarms-lake-dev), MinIO's root password: anything on the Compose network can read and rewrite every table's files. Put a new LAKEHOUSE_S3_SECRET in .env and run `docker compose up -d minio agentswarms`; the data stays.";
+  }
+  if (urlPassword(env.LAKEHOUSE_CATALOG_URL) === PUBLISHED_LAKE_DEFAULTS.catalogPassword) {
+    out["lakehouse-catalog"] =
+      "Runs on the published default password (change-me): anything that reaches it controls the lakehouse's metadata. Rotate it with ALTER USER inside the catalog, then put the new password in LAKEHOUSE_CATALOG_PASSWORD and LAKEHOUSE_CATALOG_URL (docs/LAKEHOUSE.md).";
+  }
+  return out;
+}
+
+/** A service that answers but runs on a published default is degraded, and says why. */
+export function withPublishedDefaultWarnings(
+  probes: ServiceProbe[],
+  warnings: Partial<Record<ServiceId, string>>,
+): ServiceProbe[] {
+  return probes.map((p) => {
+    const why = warnings[p.id];
+    if (!why || p.status !== "up") return p;
+    return { ...p, status: "degraded", message: why };
+  });
+}
+
 /** A pass is expected every minute; five without one is a scheduler that stopped. */
 export const SCHEDULER_STALE_MS = 5 * 60_000;
 

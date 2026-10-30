@@ -107,6 +107,18 @@ if [ -z "$(getenv QDRANT__SERVICE__API_KEY)" ]; then
   setenv QDRANT__SERVICE__API_KEY "$Q_KEY"
 fi
 
+# The lake's object-store secret (VA-44, R414). .env.example ships
+# agentswarms-lake-dev, which on the bundled MinIO is the ROOT password, open to
+# anything on the Compose network. Replaced on an existing install too: MinIO
+# takes new root credentials at its next start and keeps its data (measured:
+# the bucket and an object were still there, and the old pair was refused), and
+# MinIO, minio-init and the app all read this one variable.
+S3_SECRET="$(getenv LAKEHOUSE_S3_SECRET)"
+if [ -z "$S3_SECRET" ] || [ "$S3_SECRET" = "agentswarms-lake-dev" ]; then
+  say "Generating LAKEHOUSE_S3_SECRET (the lake's object-store password)"
+  setenv LAKEHOUSE_S3_SECRET "$(gen_secret)"
+fi
+
 # The lakehouse catalog's password lives in TWO places that must agree: the
 # container reads LAKEHOUSE_CATALOG_PASSWORD, the app reads it inside
 # LAKEHOUSE_CATALOG_URL. .env.example ships "change-me" in both; replace both

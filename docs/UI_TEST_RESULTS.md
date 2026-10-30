@@ -15,6 +15,20 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-30 — R414: Monitoring and the lake's default credentials
+
+Build: R414 hot-deployed into the app (`docker cp` of `dist` and a restart; ready on the first poll).
+
+| What was checked                                                                                                                        | Result                                                                                                                                                   |
+| --------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| From `spark-connect`: TCP to `minio:9000`, `lakehouse-catalog:5432`, `agentswarms-lakehouse-catalog:5432`; `GET /minio/health/live`     | all three open; 200                                                                                                                                      |
+| A throwaway MinIO started with the published defaults: a bucket and an 11-byte object; restarted on the same volume with a new password | the new pair lists `probe.txt` and reads `probe-r414`; the old pair: "The request signature we calculated does not match"; containers and volume removed |
+| `setup.sh` on a copy of `.env.example`, twice                                                                                           | run 1: "Generating LAKEHOUSE_S3_SECRET (the lake's object-store password)", 64 hex characters; run 2: silent, the value kept; 924 non-empty lines both   |
+| Observability → **Monitoring** on this install, whose lake credentials are not the defaults                                             | "No problems detected"; Object store (MinIO) **Healthy**, Lakehouse catalog **Healthy**: no false warning                                                |
+
+The degraded state is pinned by `lakeDefaults.test.ts`. Showing it live would mean running this
+install's app on a published default. No fixtures.
+
 ## 2026-10-30 — R413: the document renderer with a token
 
 Build: this install's `.env` backed up and given a generated `DOCGEN_TOKEN`. The renderer and the app

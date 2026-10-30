@@ -468,6 +468,17 @@ function LakehouseDocsPage() {
         this page advised. If you attached one there, move it as <C>docs/LAKEHOUSE.md</C> shows.
       </Callout>
 
+      <Callout kind="warn" title="Replace the published default credentials">
+        The example settings ship <C>agentswarms-lake-dev</C> as the object store&apos;s secret,
+        which is the bundled MinIO&apos;s root password, and <C>change-me</C> as the catalog&apos;s.
+        Both services share a network with the Spark cluster, where pipelines&apos; Python code
+        runs, so on either default one pipeline author can read and rewrite every table outside
+        every policy. The installers replace the object store&apos;s secret, on an existing install
+        too; MinIO keeps its data across the change. Observability → Monitoring marks a lake service
+        degraded while the app runs on one. To change the catalog&apos;s, change it inside Postgres
+        first, as <C>docs/LAKEHOUSE.md</C> shows: Postgres keeps the password it was created with.
+      </Callout>
+
       <H2 id="use-cases">Use cases</H2>
       <H3 id="use-case-plain-language">A plain-language question, with the SQL kept</H3>
       <Steps

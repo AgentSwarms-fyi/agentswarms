@@ -82,6 +82,40 @@ must be reachable from the app's network and from nothing a kernel can reach.
 - **Kubernetes**: kernel pods may reach only the egress proxy, the app and Spark
   Connect (`kernels-default-deny`), never the catalog.
 
+### Replace the published default credentials
+
+`.env.example` ships two lake credentials that anyone can read: the object
+store's `LAKEHOUSE_S3_SECRET` (`agentswarms-lake-dev`, the bundled MinIO's
+**root** password) and the catalog's `change-me`. Both services share the
+Compose network with `spark-connect`, where Spark pipelines' Python UDFs run.
+On either default, one pipeline author can read and rewrite every table,
+outside every policy (VA-44). Observability → Monitoring marks a lake service
+running on one as degraded.
+
+**The object store.** The installers replace the default secret, on an existing
+install too. By hand: put a new value in `.env`, then
+
+```bash
+docker compose up -d minio agentswarms
+```
+
+MinIO takes new root credentials when it starts and keeps its data. Measured:
+after a restart with a new password, the bucket and an object were still there,
+readable with the new pair, and the old pair was refused. Anything else that
+used the old pair needs the new one.
+
+**The catalog.** Postgres reads its password only when its volume is created,
+so a changed `.env` alone leaves the database and the app disagreeing. Change it
+inside the database first, then in both places in `.env`:
+
+```bash
+docker compose exec lakehouse-catalog psql -U lakehouse -d lakehouse_catalog \
+  -c "ALTER USER lakehouse PASSWORD 'NEW_PASSWORD'"
+```
+
+Set `LAKEHOUSE_CATALOG_PASSWORD` to it, and the password inside
+`LAKEHOUSE_CATALOG_URL`, then run `docker compose up -d agentswarms`.
+
 ## What you get
 
 - **Warehouse SQL** — full DuckDB: joins, window functions, CTEs, `SUMMARIZE`,
