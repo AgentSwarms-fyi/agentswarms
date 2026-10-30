@@ -477,6 +477,8 @@ function LakehouseDocsPage() {
         too; MinIO keeps its data across the change. Observability → Monitoring marks a lake service
         degraded while the app runs on one. To change the catalog&apos;s, change it inside Postgres
         first, as <C>docs/LAKEHOUSE.md</C> shows: Postgres keeps the password it was created with.
+        The installers generate it only for a catalog with no data yet, and print those steps for
+        one that already holds data.
       </Callout>
 
       <H2 id="use-cases">Use cases</H2>

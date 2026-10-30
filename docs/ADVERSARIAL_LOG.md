@@ -109,6 +109,56 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-30 — R415: re-running the installer broke a catalog that started on change-me
+
+**Finding**, while writing R414's upgrade note. Both installers replaced a `change-me` (or empty)
+catalog password on every run. Postgres takes `POSTGRES_PASSWORD` only when it creates its volume, so on
+an install first brought up on the default, a re-run wrote a new password into `.env` that the database
+never took. On a throwaway project (`r415-probe`, a catalog only) the old block did exactly that: the
+app's URL from `.env` was refused and `change-me` still worked. The advice "re-run the installer to
+replace the defaults" would have turned a weak password into a lakehouse outage.
+
+**Fix.** Both installers ask Docker whether the project has a `lakehouse-catalog-data` volume:
+`docker compose config` for the project name, then `docker volume ls` by Compose's labels.
+
+- No volume: generate, as before.
+- A volume: leave `.env` alone, and print the `ALTER USER` steps from LAKEHOUSE.md.
+- Docker can't answer: leave `.env` alone, and say to run again with Docker up. Treating "can't say" as
+  "no volume" would bring the outage back whenever Docker is stopped.
+- A dev install with an empty password points at `change-me`, which is what Compose gives an empty one.
+
+**A second bug, found by running it.** `setup.ps1` first piped `docker compose config` into
+`Select-String … | Select-Object -First 1`. Select-Object stops the pipeline once it has its line, which
+stops Docker. `$LASTEXITCODE` then read -1 on five runs of five, against 0 when the output is captured
+first. So on Windows PowerShell every catalog read as "can't say", and a fresh install never got a
+password. The function now captures the output, then searches it.
+
+**Live** (`r415-probe`, Git Bash and Windows PowerShell 5.1 running the real blocks cut from the scripts,
+the PowerShell one under the script's `Stop`):
+
+- data on `change-me`: the warning, `.env` unchanged, the app's URL still authenticates (both);
+- no volume: generated 64 hex characters, and the new catalog accepts them and refuses `change-me` (both);
+- a fake `docker` that writes to stderr and fails: "could not say", `.env` unchanged (both);
+- dev mode, an empty password, data present: the loopback URL carries `change-me` (both);
+- the rotation as printed: `ALTER ROLE`, the new pair authenticates, `change-me` refused; then both
+  installers again: silent, `.env` unchanged.
+
+The PowerShell no-volume case first failed for a reason outside the installer. `.env` and
+`docker compose config` both held the new password, but the throwaway catalog's first start timed out in
+Postgres's end-of-init shutdown (`pg_ctl: server does not shut down`, 60 s on this disk). With
+`PGCTLTIMEOUT=600` in the throwaway project only, it accepted the password. The real service has
+`restart: unless-stopped`, which recovers from that on its existing data.
+
+**Tests.** `lakeDefaults.test.ts` +4:
+
+- both look up the volume Compose mounts, by project;
+- only the no-volume branch writes `.env`;
+- every failure of Docker reads as "can't say";
+- `setup.ps1` captures Docker's output before searching it;
+- the dev URL falls back to `change-me`.
+
+Mutation 10 of 10.
+
 ### 2026-10-30 — R414: the lake's object store kept a published root password (VA-44)
 
 **Finding** VA-2026-10-25-44, from the same audit. `.env.example` ships

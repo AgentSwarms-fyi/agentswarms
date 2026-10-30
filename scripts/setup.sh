@@ -124,11 +124,40 @@ fi
 # LAKEHOUSE_CATALOG_URL. .env.example ships "change-me" in both; replace both
 # together, once, on a fresh .env. A catalog whose halves disagree authenticates
 # nobody and reports it as a lakehouse outage.
-if [ "$(getenv LAKEHOUSE_CATALOG_PASSWORD)" = "change-me" ] || [ -z "$(getenv LAKEHOUSE_CATALOG_PASSWORD)" ]; then
-  say "Generating the lakehouse catalog password"
-  LH_PW="$(gen_secret)"
-  setenv LAKEHOUSE_CATALOG_PASSWORD "$LH_PW"
-  setenv LAKEHOUSE_CATALOG_URL "postgres://lakehouse:${LH_PW}@lakehouse-catalog:5432/lakehouse_catalog"
+#
+# Only while the catalog has no data volume (R415). Postgres takes
+# POSTGRES_PASSWORD when it creates its volume and never again, so a catalog
+# that started on change-me keeps it, and a new value in .env alone would be
+# exactly that outage. There the password is changed inside Postgres first.
+# catalog_volume: 0 = the volume exists, 1 = it does not, 2 = Docker can't say.
+catalog_volume() {
+  command -v docker >/dev/null 2>&1 || return 2
+  local project vols
+  project="$(docker compose config 2>/dev/null | sed -n 's/^name: //p')"
+  [ -n "$project" ] || return 2
+  vols="$(docker volume ls -q --filter "label=com.docker.compose.project=$project" \
+            --filter label=com.docker.compose.volume=lakehouse-catalog-data 2>/dev/null)" || return 2
+  [ -n "$vols" ]
+}
+LH_PW="$(getenv LAKEHOUSE_CATALOG_PASSWORD)"
+if [ "$LH_PW" = "change-me" ] || [ -z "$LH_PW" ]; then
+  rc=0; catalog_volume || rc=$?
+  if [ "$rc" -eq 1 ]; then
+    say "Generating the lakehouse catalog password"
+    LH_PW="$(gen_secret)"
+    setenv LAKEHOUSE_CATALOG_PASSWORD "$LH_PW"
+    setenv LAKEHOUSE_CATALOG_URL "postgres://lakehouse:${LH_PW}@lakehouse-catalog:5432/lakehouse_catalog"
+  elif [ "$rc" -eq 0 ]; then
+    warn "The lakehouse catalog runs on the published password change-me, and it already holds"
+    warn "data, so .env keeps it: Postgres would not follow a new one. Change it inside the catalog:"
+    echo "    docker compose exec lakehouse-catalog psql -U lakehouse -d lakehouse_catalog \\"
+    echo "      -c \"ALTER USER lakehouse PASSWORD 'NEW_PASSWORD'\""
+    echo "  then put it in LAKEHOUSE_CATALOG_PASSWORD and in LAKEHOUSE_CATALOG_URL, and run"
+    echo "    docker compose up -d agentswarms        (docs/LAKEHOUSE.md)"
+  else
+    warn "The lakehouse catalog password is change-me, and Docker could not say whether the catalog"
+    warn "already holds data, so .env keeps it. Start Docker and run this script again."
+  fi
 fi
 
 # The app runs on the HOST in --dev, where compose service names do not resolve.
@@ -141,8 +170,9 @@ if [ "$MODE" = "dev" ]; then
   setenv SPARK_CONNECT_URL "sc://127.0.0.1:15002"
   setenv LAKEHOUSE_S3_ENDPOINT "127.0.0.1:9000"
   setenv JS_SANDBOX_URL "http://127.0.0.1:8091"
+  # An empty password is Compose's change-me (R415: an existing catalog keeps it).
   LH_PW="$(getenv LAKEHOUSE_CATALOG_PASSWORD)"
-  setenv LAKEHOUSE_CATALOG_URL "postgres://lakehouse:${LH_PW}@127.0.0.1:55432/lakehouse_catalog"
+  setenv LAKEHOUSE_CATALOG_URL "postgres://lakehouse:${LH_PW:-change-me}@127.0.0.1:55432/lakehouse_catalog"
 fi
 
 # DOCGEN_SERVICE_URL is deliberately NOT set here: the app probes both the

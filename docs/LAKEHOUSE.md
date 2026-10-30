@@ -116,6 +116,10 @@ docker compose exec lakehouse-catalog psql -U lakehouse -d lakehouse_catalog \
 Set `LAKEHOUSE_CATALOG_PASSWORD` to it, and the password inside
 `LAKEHOUSE_CATALOG_URL`, then run `docker compose up -d agentswarms`.
 
+The installers generate the catalog's password only while it has no data
+volume. On a catalog that already holds data on `change-me`, they leave `.env`
+as it is and print these steps.
+
 ## What you get
 
 - **Warehouse SQL** — full DuckDB: joins, window functions, CTEs, `SUMMARIZE`,

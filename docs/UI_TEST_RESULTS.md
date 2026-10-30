@@ -15,6 +15,26 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-30 — R415: the installers on a catalog that already holds data
+
+No UI: the installers. A throwaway Compose project (`r415-probe`, a catalog only). Each case runs the
+real catalog block cut from `setup.sh` (Git Bash) and `setup.ps1` (Windows PowerShell 5.1, under the
+script's `Stop`), then checks the app's URL from `.env` against the catalog from another container.
+
+| Case                                                               | `setup.sh`                                                                     | `setup.ps1`                        |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------ | ---------------------------------- |
+| **Before**: the old block, data on `change-me`                     | "Generating…"; `.env` changed; app's URL refused; `change-me` still works      | (same block)                       |
+| Data on `change-me`                                                | warning; `.env` unchanged; app's URL authenticates                             | the same                           |
+| No volume yet                                                      | generated 64 hex; new catalog accepts it, refuses `change-me`                  | the same, after the fix below      |
+| A fake `docker` that writes to stderr and exits 1                  | "could not say"; `.env` unchanged                                              | the same                           |
+| Dev mode, empty password, data present                             | loopback URL carries `change-me`                                               | the same                           |
+| `ALTER USER` as printed, `.env` updated, then each installer again | `ALTER ROLE`; new pair in, `change-me` out; installer silent, `.env` unchanged | installer silent, `.env` unchanged |
+
+The first PowerShell run read every catalog as "can't say": `docker compose config` piped into
+`Select-Object -First 1` exits -1. Fixed by capturing the output first. The no-volume case then needed
+`PGCTLTIMEOUT=600` in the throwaway project: the catalog's first start outlasted `pg_ctl`'s 60 s on this
+disk. Throwaway containers and volumes removed; no fixtures.
+
 ## 2026-10-30 — R414: Monitoring and the lake's default credentials
 
 Build: R414 hot-deployed into the app (`docker cp` of `dist` and a restart; ready on the first poll).

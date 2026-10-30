@@ -122,13 +122,53 @@ if ([string]::IsNullOrEmpty($s3Secret) -or $s3Secret -eq "agentswarms-lake-dev")
 # container reads LAKEHOUSE_CATALOG_PASSWORD, the app reads it inside
 # LAKEHOUSE_CATALOG_URL. Replace both together, once, on a fresh .env — halves
 # that disagree authenticate nobody and read as a lakehouse outage.
+#
+# Only while the catalog has no data volume (R415). Postgres takes
+# POSTGRES_PASSWORD when it creates its volume and never again, so a catalog
+# that started on change-me keeps it, and a new value in .env alone would be
+# exactly that outage. There the password is changed inside Postgres first.
+# 0 = the volume exists, 1 = it does not, 2 = Docker can't say.
+function Get-CatalogVolumeState {
+  if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { return 2 }
+  # Local to this function: under "Stop", Windows PowerShell turns a native
+  # command's stderr into a terminating error even when it is discarded.
+  $ErrorActionPreference = "Continue"
+  try {
+    # Captured whole first: a Select-Object -First downstream stops docker
+    # mid-output, and $LASTEXITCODE is then -1 rather than docker's answer.
+    $config = docker compose config 2>$null
+    if ($LASTEXITCODE -ne 0) { return 2 }
+    $line = $config | Select-String -Pattern '^name: (.+)$' | Select-Object -First 1
+    if (-not $line) { return 2 }
+    $project = $line.Matches[0].Groups[1].Value.Trim()
+    $vols = docker volume ls -q --filter "label=com.docker.compose.project=$project" --filter "label=com.docker.compose.volume=lakehouse-catalog-data" 2>$null
+    if ($LASTEXITCODE -ne 0) { return 2 }
+    if ([string]::IsNullOrWhiteSpace(($vols | Out-String))) { return 1 }
+    return 0
+  } catch { return 2 }
+}
 $lhPw = Get-EnvVar "LAKEHOUSE_CATALOG_PASSWORD"
 if ([string]::IsNullOrEmpty($lhPw) -or $lhPw -eq "change-me") {
-  Say "Generating the lakehouse catalog password"
-  $lhPw = New-Secret
-  Set-EnvVar "LAKEHOUSE_CATALOG_PASSWORD" $lhPw
-  Set-EnvVar "LAKEHOUSE_CATALOG_URL" "postgres://lakehouse:$lhPw@lakehouse-catalog:5432/lakehouse_catalog"
+  $catalogVolume = Get-CatalogVolumeState
+  if ($catalogVolume -eq 1) {
+    Say "Generating the lakehouse catalog password"
+    $lhPw = New-Secret
+    Set-EnvVar "LAKEHOUSE_CATALOG_PASSWORD" $lhPw
+    Set-EnvVar "LAKEHOUSE_CATALOG_URL" "postgres://lakehouse:$lhPw@lakehouse-catalog:5432/lakehouse_catalog"
+  } elseif ($catalogVolume -eq 0) {
+    Warn "The lakehouse catalog runs on the published password change-me, and it already holds"
+    Warn "data, so .env keeps it: Postgres would not follow a new one. Change it inside the catalog:"
+    Write-Host '    docker compose exec lakehouse-catalog psql -U lakehouse -d lakehouse_catalog `'
+    Write-Host "      -c `"ALTER USER lakehouse PASSWORD 'NEW_PASSWORD'`""
+    Write-Host "  then put it in LAKEHOUSE_CATALOG_PASSWORD and in LAKEHOUSE_CATALOG_URL, and run"
+    Write-Host "    docker compose up -d agentswarms        (docs/LAKEHOUSE.md)"
+  } else {
+    Warn "The lakehouse catalog password is change-me, and Docker could not say whether the catalog"
+    Warn "already holds data, so .env keeps it. Start Docker and run this script again."
+  }
 }
+# An empty password is Compose's change-me (R415: an existing catalog keeps it).
+if ([string]::IsNullOrEmpty($lhPw)) { $lhPw = "change-me" }
 
 # The app runs on the HOST in -Dev, where compose service names do not resolve.
 # Every service publishes its port on loopback for exactly this, so development

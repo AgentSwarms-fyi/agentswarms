@@ -401,6 +401,21 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   stop and deploy any warm model endpoint again so it starts from the new
   kernel image. `docker compose exec agentswarms npm …` no longer works: run
   npm on the host.
+- **Re-running the installer no longer breaks a catalog that started on
+  `change-me`** (R415, follow-up to VA-2026-10-25-44). Both installers replaced
+  a `change-me` catalog password on every run, but Postgres takes its password
+  only when it creates its volume. On an install brought up on the default, a
+  re-run left `.env` and the database disagreeing. Measured on a throwaway
+  catalog: afterwards the app's URL from `.env` was refused and `change-me`
+  still worked. The installers now generate the password only when Docker
+  says the catalog has no volume yet. Where it has one, they leave `.env`
+  alone and print the `ALTER USER` steps LAKEHOUSE.md gives; where Docker
+  can't answer, they leave it alone and say so. On Windows PowerShell, piping
+  `docker compose config` into `Select-Object -First 1` stopped Docker
+  mid-output and read as a failure (exit -1, five runs of five), so the
+  installer captures the output first. **Upgrading:** re-running
+  `scripts/setup.sh` or `setup.ps1` is now safe on an existing install, and
+  replaces a default `LAKEHOUSE_S3_SECRET` (R414).
 - **The lake's published default credentials are replaced, and flagged**
   (R414, VA-2026-10-25-44). `.env.example` ships `agentswarms-lake-dev` as
   `LAKEHOUSE_S3_SECRET`, and Compose uses the same value as the bundled
