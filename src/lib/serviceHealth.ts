@@ -233,7 +233,10 @@ export const SERVICE_CATALOGUE: {
   },
   {
     id: "notebook-docker-proxy",
-    hostPublished: true,
+    // Not published (VA-40, R408): whoever reaches this proxy can start any
+    // container, so it shares an internal network with the app alone. The
+    // loopback candidate finds the proxy a host-run app starts for itself.
+    hostPublished: false,
     label: "Docker API proxy",
     purpose: "Least-privilege container control used to start notebook kernels.",
     candidates: ["http://notebook-docker-proxy:2375", "http://127.0.0.1:2375"],

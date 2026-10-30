@@ -109,6 +109,46 @@ describe("the Spark Connect server authenticates and does not run as root (VA-23
   });
 });
 
+describe("only the app can reach the Docker socket proxy (VA-40)", () => {
+  // The proxy's sections are coarse: with CONTAINERS and POST on, a caller can
+  // create a privileged container or mount the host, which is the host. It sat
+  // on `default`, where spark-connect (which runs Spark pipelines' Python UDFs
+  // and is on the kernels' network), the renderer and the gateway reached it.
+  type Svc = { networks?: string[] | Record<string, unknown>; ports?: string[] };
+  const svc = compose.services as Record<string, Svc>;
+  const nets = (s: Svc) => (Array.isArray(s.networks) ? s.networks : Object.keys(s.networks ?? {}));
+  const networks = (compose as unknown as { networks: Record<string, { internal?: boolean }> })
+    .networks;
+
+  it("puts the proxy on its own network, shared with the app and nothing else", () => {
+    expect(nets(svc["notebook-docker-proxy"])).toEqual(["docker-api"]);
+    const members = Object.entries(svc)
+      .filter(([, s]) => nets(s).includes("docker-api"))
+      .map(([name]) => name)
+      .sort();
+    expect(members).toEqual(["agentswarms", "notebook-docker-proxy"]);
+  });
+
+  it("publishes no port and keeps the network internal, because either opens it to every network", () => {
+    // Measured on Docker Desktop (R408): a container's published port, even one
+    // bound to 127.0.0.1, answered by IP from containers on other networks; an
+    // unpublished one, and anything on an internal network, did not.
+    expect(svc["notebook-docker-proxy"].ports ?? []).toEqual([]);
+    expect(networks["docker-api"]?.internal).toBe(true);
+  });
+
+  it("has verify-runtime.sh find the proxy through its container, since the host cannot reach it", () => {
+    // HEAD's check, run on this layout, reported the proxy missing.
+    const verify = readFileSync(resolve("deploy/notebooks/test/verify-runtime.sh"), "utf-8");
+    const fallback = verify.slice(verify.indexOf('if [ -z "$PROXY" ]; then'));
+    expect(fallback).toContain("--filter label=com.docker.compose.service=notebook-docker-proxy");
+    expect(fallback).toMatch(/"\$DOCKER" exec "\$pc" wget -qO- http:\/\/127\.0\.0\.1:2375\/_ping/);
+    // ...and a success there sets PROXY before the pass/fail line reads it.
+    const block = fallback.slice(0, fallback.indexOf('if [ -n "$PROXY" ]'));
+    expect(block).toMatch(/\n\s+PROXY="[^"]+"/);
+  });
+});
+
 describe("the installers", () => {
   it.each(LEGACY_FLAGS)("still accept --%s and do nothing with it", (flag) => {
     expect(setupSh, `setup.sh rejects --${flag}`).toMatch(

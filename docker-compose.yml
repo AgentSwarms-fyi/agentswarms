@@ -52,7 +52,7 @@ services:
       - "host.docker.internal:host-gateway"
     # nb-internal lets notebook kernels call back for governed model/KB access;
     # js-internal lets the app reach the (optional) JS sandbox by service name.
-    networks: [default, nb-internal, js-internal]
+    networks: [default, nb-internal, js-internal, docker-api]
     restart: unless-stopped
     # `restart` covers a process that EXITS. It does nothing for one that is
     # running and wedged, which is the failure an operator actually meets — so
@@ -118,20 +118,22 @@ services:
       # the kernel image and network exist). Everything else — exec, volumes,
       # swarm, secrets, system — stays denied by default.
       #
-      # Note this proxy is reachable ONLY by the app (loopback + the compose
-      # network); notebook kernels never touch it, which is the boundary that
-      # actually matters.
+      # These are coarse: with CONTAINERS and POST on, a caller can create a
+      # container with any settings (privileged, host mounts) and pull any
+      # image, which is the host. So what actually guards the socket is who can
+      # reach this proxy: the app, on the internal docker-api network, and
+      # nothing else (VA-40).
       CONTAINERS: "1"
       IMAGES: "1"
       NETWORKS: "1"
       POST: "1"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    # Bound to LOOPBACK ONLY (never 0.0.0.0) so an app running on the host with
-    # `npm run dev` can reach it, without exposing container control to the
-    # network. Inside compose the app uses the service name instead.
-    ports:
-      - "127.0.0.1:2375:2375"
+    # No published port, not even on loopback. Docker accepts traffic for a
+    # published port from every non-internal network, by the container's IP:
+    # with 127.0.0.1:2375 here, spark-connect reached the proxy by IP from
+    # `default` (measured, R408). An app on the host (`npm run dev`) starts
+    # its own proxy instead; DEPLOYMENT.md has the command.
     # Seen live: the proxy's HAProxy wedged a thread ("ha_stuck_warning" in its
     # own log) and answered nothing on either address, so every sandbox start
     # failed with "Cannot reach the Docker socket-proxy" until it was
@@ -144,7 +146,10 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-    networks: [default]
+    # Only the app shares this network. On `default` the proxy answered every
+    # service there, spark-connect included, which runs Spark pipelines'
+    # Python UDFs and is on the kernels' network (VA-40, R408).
+    networks: [docker-api]
     restart: unless-stopped
 
   # Every third-party image in this file is pinned as tag@sha256:<index digest>
@@ -572,6 +577,13 @@ networks:
   # gateway reachability, weaker egress isolation — dev only.
   nb-dev:
     name: agentswarms_nb-dev
+  # The Docker socket proxy and the app, and nothing else (VA-40). Internal,
+  # because only an internal network keeps other networks out: a container on
+  # a routable one was reachable by IP from other networks whenever it
+  # published a port (measured on Docker Desktop, R408).
+  docker-api:
+    name: agentswarms_docker-api
+    internal: true
 
 volumes:
   lakehouse-catalog-data:

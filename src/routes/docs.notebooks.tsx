@@ -281,6 +281,13 @@ function NotebooksDoc() {
         It launches kernel containers on the machine the app runs on. To spread kernels across
         nodes, use the k8s backend.
       </Callout>
+      <P>
+        The app starts those containers through a Docker socket proxy. Whoever can reach the proxy
+        can start any container, so in Compose it shares an internal network with the app alone and
+        publishes no port. If you run the app on the host with <C>npm run dev</C>, start a proxy on
+        the host&apos;s loopback yourself, on a development machine only. The command is in
+        DEPLOYMENT.md, under the Developer-workspace Python runtime.
+      </P>
 
       <H3 id="image-updates">Keeping the kernel image patched</H3>
       <P>

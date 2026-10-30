@@ -15,6 +15,34 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-30 — R408: only the app reaches the Docker socket proxy
+
+The probes ran from inside each container, to `notebook-docker-proxy:2375/_ping` by name and to the proxy's
+IP. They ran three times: on R407's layout (the proxy on `default`, `127.0.0.1:2375` published), on a
+first fix (its own routable network, port kept), and on the fix (an internal network, no port).
+
+| Caller             | R407 layout | Own routable network, port published | Internal network, no port |
+| ------------------ | ----------- | ------------------------------------ | ------------------------- |
+| the app            | 200         | 200                                  | 200 by name and IP        |
+| `spark-connect`    | 200         | name fails; **200 by IP**            | name fails; IP times out  |
+| the gateway        | 200         | ENOTFOUND; **200 by IP**             | ENOTFOUND; IP times out   |
+| the renderer       | 200         | name fails                           | name fails; IP times out  |
+| valkey             | OK          | name fails                           | fails by name and IP      |
+| js-sandbox         | EAI_AGAIN   | —                                    | EAI_AGAIN; ENETUNREACH    |
+| the host's `:2375` | 200         | 200                                  | closed (curl exit 7)      |
+
+| What was pressed                                                      | Result                                                                                                                               |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| The notebook "R406 kernel image check" → run cell #7                  | the proxy logged create, start and 4 inspects; output `26.2.2 13.0.0 6.6 1.5.6 3.12.16 13.7` in 3771 ms, first try                   |
+| **Stop the kernel**                                                   | `POST …/stop` 204, `DELETE …` 204, no `nb-` container left                                                                           |
+| `verify-runtime.sh`'s proxy check, cut from the file, run on the host | **HEAD:** FAIL "Docker socket-proxy — start it". **This round:** PASS "the notebook-docker-proxy container, reached by the app only" |
+
+The app's first recreate onto the new network stalled. Docker reported its process as a zombie that could not
+be killed, and `docker ps` hung for a few minutes. The app answered nothing until the old container exited by
+itself; the second `up -d` then went through. Its next cold start took about 9 minutes to become ready. The
+final network change was applied without recreating the app: the proxy was removed, the app disconnected,
+the network rebuilt, and the app reconnected.
+
 ## 2026-10-30 — R407: kernels start and stop through the rebuilt Docker socket proxy
 
 Build: `docker compose build notebook-docker-proxy` (`docker/socket-proxy/`: v0.5.0 plus `apk upgrade`),
@@ -26,7 +54,7 @@ then `up -d --no-deps notebook-docker-proxy`. It came up healthy: HAProxy 3.4.2,
 | The notebook "R406 kernel image check" → run cell #7         | the proxy logged `POST /containers/create?name=nb-84bb67e7…`, `POST …/start`, then `GET …/json` polls; the kernel came up, but the cell said **Kernel connect timed out**. The gateway's log reached "session ok … kernel websocket open — ready" only after the page had given up: the slow step was its session lookup, after the proxy's part had finished |
 | Run cell #7 again                                            | a second kernel (`nb-6652232c…`), output `26.2.2 13.0.0 6.6 1.5.6 3.12.16 13.7` in 618 ms                                                                                                                                                                                                                                                                     |
 | **Stop the kernel**                                          | the proxy logged `POST /containers/nb-6652232c…/stop` 204 and `DELETE …?force=true` 204; that container is gone                                                                                                                                                                                                                                               |
-| The first kernel, `nb-84bb67e7…`, from the timed-out attempt | still running after the stop; left for the idle reaper, to see whether it collects it                                                                                                                                                                                                                                                                         |
+| The first kernel, `nb-84bb67e7…`, from the timed-out attempt | still running after the stop. It was gone 20 minutes later, after the app had been recreated (R408); what removed it was not observed                                                                                                                                                                                                                         |
 
 During R406 a click meant to leave cell #5 landed on **Markdown cell** and added a cell #8 "Notes".
 It was deleted here. The notebook is kept as before.

@@ -2676,6 +2676,28 @@ bash deploy/notebooks/test/verify-runtime.sh
 Security model, scaling (Docker single-host vs. K8s pod-per-session), and the
 full test matrix: [DEVELOPER_WORKSPACE_RUNTIME.md](./DEVELOPER_WORKSPACE_RUNTIME.md).
 
+**Only the app can reach the Docker socket proxy** (VA-40, R408). The proxy
+lets its caller create containers with any settings, so whoever reaches it
+controls the host. It sits on the internal `docker-api` network with the app
+and nothing else, and it publishes no port. Docker accepts traffic for a
+published port from every non-internal network: with `127.0.0.1:2375` mapped,
+`spark-connect` reached the proxy by its IP from `default`.
+
+Running the app on the host with `npm run dev`? Then the app cannot reach the
+Compose proxy. Start one for it on the host's loopback. While this one runs,
+it is reachable the same way from containers on routable networks, so use it
+on a development machine only:
+
+```bash
+docker run -d --name agentswarms-dev-docker-proxy -p 127.0.0.1:2375:2375 \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -e CONTAINERS=1 -e IMAGES=1 -e NETWORKS=1 -e POST=1 \
+  agentswarms/docker-socket-proxy:latest
+```
+
+The app tries `http://127.0.0.1:2375` after the service name, so nothing needs
+configuring. `docker rm -f agentswarms-dev-docker-proxy` stops it.
+
 **If every run fails with "Cannot reach the Docker socket-proxy".** The
 message says which of two things happened. "Start the runtime services"
 means nothing answered at all — the proxy is not running. "Accepted the

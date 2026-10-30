@@ -109,6 +109,60 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-30 — R408: only the app reaches the Docker socket proxy (VA-40)
+
+**Finding** VA-2026-10-25-40, found probing the proxy in R407. Its environment switches on whole API
+sections. With `CONTAINERS` and `POST` on, as the orchestrator needs, `POST /containers/create` takes any
+settings (privileged, host mounts) and `POST /images/create` pulls any image. Both answered on v0.4.2 and
+on the rebuilt proxy. So whoever reaches the proxy controls the host. The compose comment said only the app
+does. In fact `GET /_ping` answered from `spark-connect`, the renderer, the gateway and valkey, all on
+`default` with it. `spark-connect` is also on the kernels' network, and it runs a Spark Connect client's
+Python UDFs in its own Python workers. Any Spark pipeline's code therefore had a path to a Docker API that
+starts privileged containers.
+
+**First attempt, measured and not enough.** A `docker-api` network shared by the proxy and the app only,
+still routable, so that `127.0.0.1:2375` kept working for an app on the host. By name, every other service
+now failed to resolve. By IP (`172.22.0.2:2375`) `spark-connect` and the gateway still got 200. Two
+throwaway busybox containers on fresh routable networks showed why. The one that published a port, bound
+to 127.0.0.1, answered `spark-connect` by IP; the unpublished one timed out. Docker accepts traffic for a
+published port from other networks, whatever host address the port is bound to. js-sandbox, alone on an
+internal network, was unreachable from `spark-connect` and itself had no route out.
+
+**Fix.** `docker-api` is `internal: true`, and the proxy publishes no port. After it, by name and by IP:
+
+- the app reaches it (200);
+- `spark-connect` and the gateway time out;
+- the renderer and valkey fail;
+- js-sandbox has no route;
+- the host's port 2375 is closed.
+
+To apply it without recreating the app (whose last recreate stalled on a process Docker could not kill),
+the network was rebuilt in place. The proxy was removed, the app disconnected and the network deleted.
+Compose then created the network and the proxy, and the app was reconnected with its service alias.
+
+**Who depended on the port.** An app on the host (`npm run dev`) used it, and so did `verify-runtime.sh`,
+which probes from the host. Run on the new layout, HEAD's check failed ("Docker socket-proxy — start
+it"). It now asks the proxy container through `docker exec` when no URL answers, and passes. DEPLOYMENT.md
+gives the `docker run` for a loopback proxy on a development machine, and says what it exposes. The
+in-app notebooks page says the same in a sentence.
+
+**Tests.** `composeServices.test.ts` +3 checks that:
+
+- the proxy's only network is `docker-api`, whose only members are the proxy and the app;
+- the proxy publishes no port, and `docker-api` is internal;
+- `verify-runtime.sh` falls back to the proxy container and sets `PROXY` there.
+
+Mutation 6 of 6, after one survivor. The first version of the last test compared `indexOf("PROXY=")` with
+the pass/fail line. With the assignment deleted, `indexOf` returned -1, which is "before" anything, so the
+test stayed green. It now requires the assignment inside the fallback block. The mutants were:
+
+- the proxy also on `default`;
+- the renderer on `docker-api`;
+- the loopback port restored;
+- `docker-api` routable;
+- the fallback's assignment deleted;
+- the fallback asking another service.
+
 ### 2026-10-30 — R407: the Docker socket proxy, built here with Alpine's updates (VA-39)
 
 **Finding** VA-2026-10-25-39, from R406's third-party scan. `notebook-docker-proxy` ran Tecnativa's v0.4.2

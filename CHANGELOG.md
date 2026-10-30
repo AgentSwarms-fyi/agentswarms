@@ -401,6 +401,20 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   stop and deploy any warm model endpoint again so it starts from the new
   kernel image. `docker compose exec agentswarms npm …` no longer works: run
   npm on the host.
+- **Only the app can reach the Docker socket proxy** (R408,
+  VA-2026-10-25-40). The proxy lets its caller create containers with any
+  settings and pull any image, so whoever reaches it controls the host. It was
+  on the Compose `default` network. `spark-connect`, the renderer, the gateway
+  and valkey all reached it, and `spark-connect` runs Spark pipelines' Python
+  UDFs. A network of its own was not enough. Docker accepts traffic for a
+  published port from every routable network, by the container's IP, and the
+  proxy published `127.0.0.1:2375`. It now shares an internal network,
+  `docker-api`, with the app alone and publishes no port. Every other service
+  fails to reach it, by name and by IP. `verify-runtime.sh` checks it through
+  the container instead of the host port.
+  **Upgrading:** `docker compose up -d`, which recreates the proxy and the app.
+  If you run the app on the host with `npm run dev`, start a proxy on loopback
+  yourself; DEPLOYMENT.md has the command.
 - **The Docker socket proxy is built here, with Alpine's security updates**
   (R407, VA-2026-10-25-39). Notebook kernels are started through
   `notebook-docker-proxy`, which ran Tecnativa's v0.4.2 image as published.

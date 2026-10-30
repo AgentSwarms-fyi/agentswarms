@@ -47,6 +47,14 @@ for c in "${DOCKER_PROXY_URL:-}" "http://127.0.0.1:2375" "http://notebook-docker
   [ -z "$c" ] && continue
   if curl -s -m 4 -o /dev/null "${c%/}/_ping" 2>/dev/null; then PROXY="${c%/}"; break; fi
 done
+# The Compose proxy publishes no port (VA-40): only the app can reach it, on an
+# internal network. From the host, ask the proxy container itself.
+if [ -z "$PROXY" ]; then
+  pc="$("$DOCKER" ps -q --filter label=com.docker.compose.service=notebook-docker-proxy | head -1)"
+  if [ -n "$pc" ] && "$DOCKER" exec "$pc" wget -qO- http://127.0.0.1:2375/_ping >/dev/null 2>&1; then
+    PROXY="the notebook-docker-proxy container, reached by the app only"
+  fi
+fi
 if [ -n "$PROXY" ]; then ok "Docker socket-proxy ($PROXY)"
 else bad "Docker socket-proxy" "start it: docker compose --profile notebooks up -d"; fi
 
