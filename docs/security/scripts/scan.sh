@@ -88,13 +88,14 @@ else
   # pinned digests included, so the scan covers exactly what runs.
   THIRD_PARTY="$(sed -n 's/^ *image: *\([^ #]*\).*/\1/p' "$REPO/docker-compose.yml" | grep -v '^agentswarms/')"
   # The bases, exactly as the Dockerfiles pin them (tag@sha256, R406).
-  BASES="$(cd "$REPO" && sed -n 's/^FROM \([^ ]*\).*/\1/p' Dockerfile docgen-service/Dockerfile docker/notebook-runtime/Dockerfile services/notebook-gateway/Dockerfile services/js-sandbox/Dockerfile | sort -u)"
+  BASES="$(cd "$REPO" && sed -n 's/^FROM \([^ ]*\).*/\1/p' Dockerfile docgen-service/Dockerfile docker/notebook-runtime/Dockerfile services/notebook-gateway/Dockerfile services/js-sandbox/Dockerfile docker/socket-proxy/Dockerfile | sort -u)"
   IMAGES="
     agentswarms-share-agentswarms:latest
     agentswarms/notebook-runtime:latest
     agentswarms/notebook-gateway:latest
     agentswarms/docgen:latest
     agentswarms/js-sandbox:latest
+    agentswarms/docker-socket-proxy:latest
     $BASES
     $THIRD_PARTY
   "

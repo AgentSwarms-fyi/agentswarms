@@ -53,6 +53,7 @@ updates:
       - "/docker/notebook-runtime"
       - "/services/notebook-gateway"
       - "/services/js-sandbox"
+      - "/docker/socket-proxy"
     schedule:
       interval: weekly
     ignore:

@@ -104,16 +104,14 @@ services:
     networks: [default, nb-internal, nb-dev]
     restart: unless-stopped
 
-  # Every third-party image in this file is pinned as tag@sha256:<index digest>
-  # (VA-24). The engine pulls by the digest, so the image cannot change under
-  # the same name; the tag is there for people. Dependabot proposes new pins
-  # (.github/dependabot.yml); a `:latest` would mean `docker compose pull` runs
-  # whatever was pushed last.
-  #
   # Least-privilege Docker API: only container create/inspect/logs + write verbs
-  # are exposed to the app (never the raw /var/run/docker.sock).
+  # are exposed to the app (never the raw /var/run/docker.sock). Built from
+  # tecnativa/docker-socket-proxy, pinned by digest, with Alpine's security
+  # updates on top (docker/socket-proxy/Dockerfile, R407).
   notebook-docker-proxy:
-    image: tecnativa/docker-socket-proxy:v0.4.2@sha256:1f3a6f303320723d199d2316a3e82b2e2685d86c275d5e3deeaf182573b47476
+    build:
+      context: ./docker/socket-proxy
+    image: agentswarms/docker-socket-proxy:latest
     environment:
       # Only the API sections the orchestrator needs: create/inspect/stop/remove
       # containers, plus read access to images and networks (preflight verifies
@@ -149,6 +147,12 @@ services:
     networks: [default]
     restart: unless-stopped
 
+  # Every third-party image in this file is pinned as tag@sha256:<index digest>
+  # (VA-24). The engine pulls by the digest, so the image cannot change under
+  # the same name; the tag is there for people. Dependabot proposes new pins
+  # (.github/dependabot.yml); a `:latest` would mean `docker compose pull` runs
+  # whatever was pushed last.
+  #
   # Default-deny egress proxy — the kernels' only route to the internet.
   notebook-egress:
     image: ubuntu/squid:6.6-24.04_beta@sha256:6a097f68bae708cedbabd6188d68c7e2e7a38cedd05a176e1cc0ba29e3bbe029

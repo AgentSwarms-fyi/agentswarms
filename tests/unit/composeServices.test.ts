@@ -188,7 +188,7 @@ describe("every third-party image is pinned by digest (VA-24)", () => {
 
   it("pins every image docker compose pulls", () => {
     const thirdParty = composeImages.filter(([, image]) => !firstParty(image));
-    expect(thirdParty.length).toBeGreaterThanOrEqual(8);
+    expect(thirdParty.length).toBeGreaterThanOrEqual(7);
     for (const [name, image] of thirdParty) {
       expect(image, `compose service ${name}`).toMatch(PINNED);
     }

@@ -364,7 +364,7 @@ Adds four services to `docker-compose.yml`, all opt-in behind a compose service 
 ```
 notebook-runtime-image  # builds the kernel image, then exits
 notebook-gateway        # ws proxy
-notebook-docker-proxy   # least-privilege container control (tecnativa/docker-socket-proxy)
+notebook-docker-proxy   # least-privilege container control (built from tecnativa/docker-socket-proxy, docker/socket-proxy/)
 notebook-egress         # filtering forward proxy (allowlist)
 # kernel containers are created on demand by the orchestrator (not long-running)
 ```

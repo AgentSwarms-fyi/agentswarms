@@ -2529,6 +2529,16 @@ it scans exactly the pinned builds. If you mirror images into a private
 registry, mirror by digest and keep the `@sha256:` suffix. If you override
 `SPARK_IMAGE`, keep its major.minor equal to the Connect server's.
 
+The images this repository builds pin their bases the same way, in each
+Dockerfile's `FROM` (R406). That includes the Docker socket proxy: since R407
+it is built here (`docker/socket-proxy/`) from Tecnativa's release, pinned by
+digest, with Alpine's security updates applied. The upstream image is rebuilt
+only when Tecnativa cuts a release, and between releases it falls behind: its
+v0.5.0 still shipped an OpenSSL with four fixable criticals. So
+`docker compose up -d --build` rebuilds the proxy too, and
+`.github/workflows/image-scan.yml` builds and scans it every week with the
+other five.
+
 ### Document renderer (Deep-mode Office exports)
 
 Agent Chat can generate PowerPoint, Word and Excel files two ways. **Browser ·

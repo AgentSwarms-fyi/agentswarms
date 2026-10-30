@@ -3,12 +3,14 @@
 // images drop npm once the build no longer needs it. Measured before: every
 // first-party image was built on a node:22-slim or python:3.12-slim pulled two
 // months earlier, because a bare tag is only resolved when nothing is cached.
+// R407 (VA-39) added a sixth: the Docker socket proxy, built from its upstream
+// release with Alpine's security updates applied.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import yaml from "js-yaml";
 
 const compose = yaml.load(readFileSync("docker-compose.yml", "utf8")) as {
-  services: Record<string, { build?: string | { context: string } }>;
+  services: Record<string, { build?: string | { context: string }; image?: string }>;
 };
 const contexts = Object.values(compose.services)
   .map((s) => (typeof s.build === "string" ? s.build : s.build?.context))
@@ -22,12 +24,13 @@ const froms = (text: string) =>
     .map((l) => l.split(/\s+/)[1]);
 
 describe("first-party image bases", () => {
-  it("covers the five images compose builds", () => {
+  it("covers the six images compose builds", () => {
     expect(contexts.sort()).toEqual(
       [
         ".",
         "docgen-service",
         "docker/notebook-runtime",
+        "docker/socket-proxy",
         "services/js-sandbox",
         "services/notebook-gateway",
       ].sort(),
@@ -90,6 +93,32 @@ describe("first-party image bases", () => {
       const floor = /"pip>=([\d.]+)"/.exec(lines[up])![1].split(".").map(Number);
       expect(floor[0] * 100 + (floor[1] ?? 0), `${ctx}: floor`).toBeGreaterThanOrEqual(2602);
       expect(up, `${ctx}: before the requirements`).toBeLessThan(req);
+    }
+  });
+
+  it("applies Alpine's security updates on top of the socket proxy's release", () => {
+    // v0.5.0 as published still had OpenSSL 3.5.7 (4 fixable criticals);
+    // `apk upgrade` at build time is what brings it to the fixed release.
+    const lines = dockerfile("docker/socket-proxy")
+      .split("\n")
+      .filter((l) => /^[A-Z]+\s/.test(l));
+    expect(lines).toEqual([
+      expect.stringMatching(/^FROM tecnativa\/docker-socket-proxy:v[\d.]+@sha256:[0-9a-f]{64}$/),
+      "RUN apk upgrade --no-cache",
+    ]);
+    const service = compose.services["notebook-docker-proxy"];
+    expect(service.image).toBe("agentswarms/docker-socket-proxy:latest");
+  });
+
+  it("has scan.sh scan every image compose builds, and every base", () => {
+    const scanSh = readFileSync("docs/security/scripts/scan.sh", "utf8");
+    const basesLine = /^ {2}BASES=.*$/m.exec(scanSh)![0];
+    for (const ctx of contexts) {
+      expect(basesLine, ctx).toContain(ctx === "." ? " Dockerfile " : ` ${ctx}/Dockerfile`);
+    }
+    const images = /^ {2}IMAGES="([^"]*)"/m.exec(scanSh)![1].split(/\s+/).filter(Boolean);
+    for (const [name, s] of Object.entries(compose.services)) {
+      if (s.build && s.image) expect(images, name).toContain(s.image);
     }
   });
 });

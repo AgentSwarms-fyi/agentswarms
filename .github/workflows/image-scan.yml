@@ -25,6 +25,7 @@ on:
       - docker/notebook-runtime/**
       - services/notebook-gateway/**
       - services/js-sandbox/**
+      - docker/socket-proxy/**
       - .github/workflows/image-scan.yml
       - .github/scripts/grype-summary.py
       - .github/grype-baseline.yaml
@@ -67,6 +68,8 @@ jobs:
             context: docgen-service
           - name: js-sandbox
             context: services/js-sandbox
+          - name: docker-socket-proxy
+            context: docker/socket-proxy
     name: scan ${{ matrix.name }}
     steps:
       - uses: actions/checkout@v7

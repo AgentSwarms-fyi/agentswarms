@@ -401,6 +401,17 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   stop and deploy any warm model endpoint again so it starts from the new
   kernel image. `docker compose exec agentswarms npm …` no longer works: run
   npm on the host.
+- **The Docker socket proxy is built here, with Alpine's security updates**
+  (R407, VA-2026-10-25-39). Notebook kernels are started through
+  `notebook-docker-proxy`, which ran Tecnativa's v0.4.2 image as published.
+  Grype found 12 fixable criticals in it, in OpenSSL, pcre2 and haproxy. Their
+  newest release, v0.5.0, still had 4, because the image is rebuilt only when
+  they cut a release. `docker/socket-proxy/Dockerfile` now takes v0.5.0, pinned
+  by digest, and applies Alpine's updates. The result has no critical or high
+  finding. It answers every API call exactly as v0.4.2 did, measured with the
+  same probes against both. The weekly image scan builds and scans it with the
+  other images, and the baseline loses its 12 proxy rules.
+  **Upgrading:** `docker compose up -d --build notebook-docker-proxy`.
 - **The Spark Connect server asks for a token and no longer runs as root**
   (R398, VA-2026-10-25-23). Notebook kernels share an internal network with the
   Compose `spark-connect` service; until now a kernel could connect to it and

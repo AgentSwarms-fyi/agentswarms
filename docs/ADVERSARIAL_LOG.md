@@ -109,6 +109,57 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-30 — R407: the Docker socket proxy, built here with Alpine's updates (VA-39)
+
+**Finding** VA-2026-10-25-39, from R406's third-party scan. `notebook-docker-proxy` ran Tecnativa's v0.4.2
+image as published, with 12 fixable criticals: Alpine's OpenSSL 3.5.1, pcre2 and haproxy 3.2.4. It is the
+component that guards the Docker socket.
+
+**What a pin bump would have done.** v0.5.0, the only later release, was scanned before deciding. It still
+had 4 fixable criticals (OpenSSL 3.5.7, fixed in 3.5.8) and 19 fixable highs (OpenSSL, pcre2, zlib).
+Tecnativa rebuilds the image only when they cut a release, so it falls behind in between. A simulated
+`apk upgrade` inside it brought OpenSSL to 3.5.9, pcre2 to 10.49 and zlib to 1.3.2-r1.
+
+**Fix.** `docker/socket-proxy/Dockerfile` is v0.5.0, pinned by digest, plus `RUN apk upgrade --no-cache`.
+The compose service builds it as `agentswarms/docker-socket-proxy:latest`. Dependabot watches its `FROM`,
+the image-scan workflow builds and scans it weekly, and `scan.sh` lists it. Grype on the built image: 0
+critical, 0 high, 3 mediums with no fix. The baseline drops the 12 v0.4.2 rules.
+
+**Behaviour, before and after.** The same probe script ran inside a throwaway v0.4.2 proxy and inside the
+rebuilt service, both with the compose environment (`CONTAINERS`, `IMAGES`, `NETWORKS`, `POST`), and
+every status matched:
+
+- `_ping`, `version`, `containers/json`, `images/json` and `networks`: 200;
+- `volumes`, `info`, `secrets` and `system/df`: 403;
+- `POST /containers/{id}/exec`: 201, then starting that exec: 403;
+- `POST /containers/create` with no body: 400, so the route is open;
+- `POST /images/create`: 200.
+
+From the UI a kernel started through it (create, start, inspect, all logged by the proxy), ran a cell, and
+was stopped and removed (204, 204).
+
+**Found while probing: VA-40.** The proxy's sections are coarse. With `CONTAINERS` and `POST` on, a caller
+can create any container (privileged, host mounts) and pull any image: root on the host. So the boundary
+that matters is who can reach it. It sat on the compose `default` network, and `GET /_ping` answered from
+`spark-connect`, the renderer, the gateway and valkey. `spark-connect` runs Spark Connect clients' Python
+UDFs and is on the kernels' network. Filed as VA-40, fixed next. The probes created two exec instances in
+valkey (never started) and pulled `busybox:latest` onto this host through the proxy, as the `images/create`
+check.
+
+**Tests.** `dockerfileBases.test.ts` +2 checks that:
+
+- the proxy's Dockerfile is a pinned `FROM` plus `apk upgrade`, and compose builds it;
+- `scan.sh` lists every compose build context's Dockerfile and every image compose builds.
+
+`composeServices.test.ts`'s third-party floor went from 8 to 7, because the proxy is now built here.
+Mutation 8 of 8. The mutants were:
+
+- no `apk upgrade`, or `apk update` instead of it;
+- compose pulling upstream again;
+- `scan.sh` missing the proxy's base or its image;
+- Dependabot or CI missing the proxy;
+- an unpinned `FROM`.
+
 ### 2026-10-30 — R406: images rebuilt on pinned bases, without npm, and scanned weekly (VA-25)
 
 **Finding** VA-2026-10-25-25. The October assessment could not scan images, because grype's database

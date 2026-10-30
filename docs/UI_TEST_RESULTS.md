@@ -15,6 +15,22 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-30 — R407: kernels start and stop through the rebuilt Docker socket proxy
+
+Build: `docker compose build notebook-docker-proxy` (`docker/socket-proxy/`: v0.5.0 plus `apk upgrade`),
+then `up -d --no-deps notebook-docker-proxy`. It came up healthy: HAProxy 3.4.2, libssl3 and libcrypto3
+3.5.9-r0, pcre2 10.49-r0, zlib 1.3.2-r1.
+
+| What was pressed                                             | Result                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The notebook "R406 kernel image check" → run cell #7         | the proxy logged `POST /containers/create?name=nb-84bb67e7…`, `POST …/start`, then `GET …/json` polls; the kernel came up, but the cell said **Kernel connect timed out**. The gateway's log reached "session ok … kernel websocket open — ready" only after the page had given up: the slow step was its session lookup, after the proxy's part had finished |
+| Run cell #7 again                                            | a second kernel (`nb-6652232c…`), output `26.2.2 13.0.0 6.6 1.5.6 3.12.16 13.7` in 618 ms                                                                                                                                                                                                                                                                     |
+| **Stop the kernel**                                          | the proxy logged `POST /containers/nb-6652232c…/stop` 204 and `DELETE …?force=true` 204; that container is gone                                                                                                                                                                                                                                               |
+| The first kernel, `nb-84bb67e7…`, from the timed-out attempt | still running after the stop; left for the idle reaper, to see whether it collects it                                                                                                                                                                                                                                                                         |
+
+During R406 a click meant to leave cell #5 landed on **Markdown cell** and added a cell #8 "Notes".
+It was deleted here. The notebook is kept as before.
+
 ## 2026-10-30 — R406: every service on its rebuilt image
 
 Builds:
