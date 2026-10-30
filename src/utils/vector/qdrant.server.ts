@@ -14,7 +14,11 @@
 //
 // Talked to over its REST API rather than through a client library: the six
 // calls used here are stable, and a dependency that has to be upgraded in step
-// with the server is a poor trade for saving forty lines.
+// with the server is a poor trade for saving forty lines. Stable is not
+// for ever, though: search goes through the Query API (R416). 1.17 announced
+// that the old search endpoints would go, and 1.19 took `points/search` out
+// of its API spec; 1.20.0 still answers it (measured), but nothing promises
+// the next release will.
 
 import {
   redactEndpoint,
@@ -231,7 +235,7 @@ export function qdrantStore(cfg: QdrantConfig): VectorStore {
       if (knowledgeBaseIds.length === 0 || limit <= 0) return [];
       await ensure();
       const body = {
-        vector: embedding,
+        query: embedding,
         limit,
         // THE ACL. Without this filter a search returns the nearest chunks in
         // the whole deployment, and the knowledge base a caller may read stops
@@ -240,11 +244,13 @@ export function qdrantStore(cfg: QdrantConfig): VectorStore {
         with_payload: false,
         with_vector: false,
       };
-      const res = (await call(cfg, `/collections/${cfg.collection}/points/search`, {
+      // `points/query`, which every Qdrant since 1.10 answers, so this works
+      // on both sides of an upgrade. Its matches are under `result.points`.
+      const res = (await call(cfg, `/collections/${cfg.collection}/points/query`, {
         method: "POST",
         body: JSON.stringify(body),
-      })) as { result?: { id?: string; score?: number }[] };
-      return (res.result ?? [])
+      })) as { result?: { points?: { id?: string; score?: number }[] } };
+      return (res.result?.points ?? [])
         .filter((r): r is { id: string; score?: number } => typeof r.id === "string")
         .map((r) => ({ id: r.id, score: r.score ?? 0 }));
     },

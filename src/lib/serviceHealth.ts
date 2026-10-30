@@ -102,6 +102,20 @@ export function withPublishedDefaultWarnings(
   });
 }
 
+/**
+ * What to add to "not answering" where `docker compose up -d` is not the fix.
+ *
+ * Qdrant (VA-2026-10-25-38, R416): its pin moved from 1.12.4 to 1.20.0, and a
+ * release opens storage from the previous minor only. Measured: 1.20.0 on a
+ * 1.12.4 volume panics while loading the first collection ("unknown variant
+ * `on_disk`") and exits 101, so `restart: unless-stopped` turns a skipped
+ * upgrade into a crash loop that `up -d` only restarts.
+ */
+export const DOWN_HINTS: Partial<Record<ServiceId, string>> = {
+  qdrant:
+    "If its log says a segment could not be read after an upgrade, its volume skipped a release: run `node scripts/upgrade-qdrant.mjs`, then `docker compose up -d qdrant`. Retrieval uses keyword search until then.",
+};
+
 /** A pass is expected every minute; five without one is a scheduler that stopped. */
 export const SCHEDULER_STALE_MS = 5 * 60_000;
 

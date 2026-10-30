@@ -215,6 +215,13 @@ if [ "$SKIP_MIGRATIONS" -eq 0 ]; then
   fi
 fi
 
+# ── 4a. the vector store's volume (VA-38, R416) ──────────────────────────────
+# Qdrant opens storage from the previous minor release only, and its pin moved
+# from 1.12.4 to 1.20.0. Started on an older volume, the new pin would leave
+# the vector store down, so the releases in between open it first. A fresh
+# install, or one already a minor away, has nothing to do.
+node scripts/upgrade-qdrant.mjs || die "The vector store's volume was not upgraded (see above); nothing was started."
+
 # ── 5. run ───────────────────────────────────────────────────────────────────
 say "Starting every service (first run builds images and pulls ~5 GB)"
 docker compose up -d --build

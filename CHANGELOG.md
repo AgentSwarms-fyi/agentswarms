@@ -401,6 +401,33 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   stop and deploy any warm model endpoint again so it starts from the new
   kernel image. `docker compose exec agentswarms npm …` no longer works: run
   npm on the host.
+- **The vector store moves to Qdrant 1.20.0, carried there one release at a
+  time** (R416, VA-2026-10-25-38). The bundled Qdrant was pinned at 1.12.4, a
+  2024 release on Debian 12 with 15 fixable criticals and 77 fixable highs
+  (OpenSSL 3.0.15, perl, GnuTLS). 1.20.0 is on Debian 13 and grype finds no
+  critical and nothing fixable; the baseline's 15 Qdrant rules are gone. Qdrant
+  opens storage from the previous minor release only. Measured: 1.20.0 started
+  on a 1.12.4 volume stops while loading it (`unknown variant 'on_disk'`) and
+  Compose restarts it for ever. So `scripts/upgrade-qdrant.mjs` runs 1.13.6,
+  1.14.1 … 1.19.2 on the volume first:
+  - each release runs unreachable, and is stopped once every collection is green;
+  - it reads where the volume stands from a marker it leaves after each release
+    and from containers that ran cleanly, never from a crash loop;
+  - it stops and asks for `QDRANT_FROM` rather than guess, because running an
+    older release than the volume's is a downgrade.
+
+  Both installers run it before `docker compose up`, and stop if it fails.
+  On a throwaway volume with 5200 vectors and an HNSW index, every point and
+  every ranked result came through unchanged; so did a run interrupted half way,
+  and a volume 1.20.0 had already crashed on eight times. Search moved to
+  Qdrant's Query API, which 1.12.4 and 1.20.0 both answer; 1.19 took
+  `points/search` out of its API spec. Monitoring names the script while
+  Qdrant is down. **Upgrading:** re-run `scripts/setup.sh` or `setup.ps1`, or run
+  `node scripts/upgrade-qdrant.mjs` before `docker compose up -d`. If Qdrant
+  already restarts in a loop, run it with `QDRANT_FROM=1.12.4`. On Kubernetes,
+  `node scripts/upgrade-qdrant.mjs --k8s` prints the rollouts to run before
+  applying the manifests.
+
 - **Re-running the installer no longer breaks a catalog that started on
   `change-me`** (R415, follow-up to VA-2026-10-25-44). Both installers replaced
   a `change-me` catalog password on every run, but Postgres takes its password

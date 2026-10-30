@@ -376,6 +376,16 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
         delete that happened while it was unreachable. It moves vectors that already exist; it does
         not re-embed, so a document that was never indexed stays keyword-only until it is.
       </P>
+      <Callout kind="warn" title="Upgrading the bundled Qdrant: one minor release at a time">
+        Qdrant opens storage from the previous minor release only, and its pin moved from 1.12.4 to
+        1.20.0. Started straight on a 1.12.4 volume, 1.20.0 stops while loading the first collection
+        and Compose restarts it for ever. The installers run <C>node scripts/upgrade-qdrant.mjs</C>{" "}
+        first, which loads the volume with each release in between, unreachable, and then lets
+        Compose start the pin. Upgrading by hand, run it before <C>docker compose up</C>. It stops
+        and asks for <C>QDRANT_FROM</C> rather than guess which release a volume is at, and with{" "}
+        <C>--k8s</C> it prints the steps for the StatefulSet. If a volume has already met the new
+        pin, the same command still carries it; Re-index is the other way out.
+      </Callout>
 
       {/* ── RETRIEVAL ── */}
       <H2 id="chunk-modes">Chunking modes</H2>

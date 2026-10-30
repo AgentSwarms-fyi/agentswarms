@@ -11,6 +11,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSuperadmin } from "@/utils/iam.server";
 import {
+  DOWN_HINTS,
   SERVICE_CATALOGUE,
   publishedDefaultWarnings,
   schedulerProbe,
@@ -161,7 +162,9 @@ async function probeOne(entry: (typeof SERVICE_CATALOGUE)[number]): Promise<Serv
     endpoint: lastEndpoint,
     // Every service ships with every install, so this is an outage rather
     // than a service somebody chose not to start: say what brings it back.
-    message: `Not answering. \`docker compose up -d\` starts it; \`docker compose logs ${entry.id}\` says why it stopped.`,
+    message:
+      `Not answering. \`docker compose up -d\` starts it; \`docker compose logs ${entry.id}\` says why it stopped.` +
+      (DOWN_HINTS[entry.id] ? ` ${DOWN_HINTS[entry.id]}` : ""),
   };
 }
 

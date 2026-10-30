@@ -15,6 +15,28 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-31 — R416: this install's Qdrant, from a crash loop to 1.20.0
+
+The app ran this round's build, from the main checkout. The live volume was copied to
+`agentswarms-share_qdrant-data-r416-backup` first, with Qdrant stopped for the copy, and that copy is kept.
+
+| Step                                                    | What it showed                                                                                                                                    |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `node scripts/upgrade-qdrant.mjs --dry-run`, pin 1.20.0 | "last opened by 1.12.4 (container d30f407e8db8)"; seven releases listed; Qdrant still running                                                     |
+| **The skipped upgrade**: `docker compose up -d qdrant`  | 1.20.0 restarted 7 times in 75 s, health `starting`, the `on_disk` panic                                                                          |
+| Observability → Monitoring                              | "1 needing attention"; **Vector store (Qdrant): Down**, "… its volume skipped a release: run `node scripts/upgrade-qdrant.mjs` …"                 |
+| The script, as the hint names it                        | stopped the loop, tried 1.20.0, refused (exit 1): "nothing on it says which release last did", with the `QDRANT_FROM=1.12.4` line for both shells |
+| `QDRANT_FROM=1.12.4 node scripts/upgrade-qdrant.mjs`    | seven releases, exit 0 in 454 s                                                                                                                   |
+| `docker compose up -d qdrant`                           | 1.20.0 healthy, 0 restarts; `agentswarms_kb_chunks` 4 points, green, payload index `kb`, `doc`; without the key, 401                              |
+| Monitoring again                                        | "No problems detected"; Vector store (Qdrant) Healthy, 37 ms                                                                                      |
+| Knowledge → RAG eval · Halvard Systems → RAG Settings   | choosing Qdrant says "Qdrant is not configured on this deployment": this install's app has no `QDRANT_URL`. Closed without saving; still pgvector |
+| `kbVectorStore.test.ts` against this Qdrant             | 6 of 6; Qdrant's log: 3 `POST …/points/query` 200, index ×2, upsert, delete ×2, no `points/search`; afterwards 4 points and 0 `__itest__` rows    |
+
+So the app's own search code is proven against 1.20.0 by the integration test, not by Agent Chat: Agent Chat
+on this install never reaches Qdrant. Switching this install to Qdrant (`QDRANT_URL` in `.env`) is the
+owner's choice, not this round's. The throwaway runs are in ADVERSARIAL_LOG R416; their containers,
+volumes and network are removed.
+
 ## 2026-10-30 — R415: the installers on a catalog that already holds data
 
 No UI: the installers. A throwaway Compose project (`r415-probe`, a catalog only). Each case runs the

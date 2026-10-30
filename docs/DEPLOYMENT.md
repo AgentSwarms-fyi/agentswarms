@@ -2728,9 +2728,19 @@ docker ps -a --filter name=nb-
 
 ### Upgrades
 
-Docker: `git pull && docker compose up -d --build`. Apply any new migrations
-with `npx supabase db push` (already-applied migrations are skipped; it's safe
-to re-run).
+Docker: `git pull`, then `node scripts/upgrade-qdrant.mjs`, then
+`docker compose up -d --build`. Apply any new migrations with
+`npx supabase db push` (already-applied migrations are skipped; it's safe to
+re-run). Re-running `scripts/setup.sh` or `setup.ps1` does all of this.
+
+**Qdrant before `up`.** Qdrant opens storage from the previous minor release
+only, and its pin moved from 1.12.4 to 1.20.0 (R416). 1.20.0 started on a
+1.12.4 volume stops while loading it and restarts for ever.
+`upgrade-qdrant.mjs` runs each release in between on the volume, unreachable,
+and is a no-op when there is nothing to do. On Kubernetes,
+`node scripts/upgrade-qdrant.mjs --k8s` prints the `kubectl` steps for the
+StatefulSet. Run them before applying the manifests. See
+[KNOWLEDGE_BASES.md](./KNOWLEDGE_BASES.md#upgrading-the-bundled-qdrant).
 
 **Rebuild everything, not just the app.** Several things the app orchestrates
 run inside OTHER images built by the same compose file — notably the

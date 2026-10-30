@@ -109,6 +109,63 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-31 — R416: Qdrant 1.12.4 to 1.20.0 (VA-38), and the eight releases in between
+
+**Finding** (R406's image scan). `qdrant/qdrant:v1.12.4`, a 2024 release on Debian 12.8, carries 15
+fixable criticals and 77 fixable highs: OpenSSL 3.0.15, perl-base and GnuTLS. 1.20.0, on Debian 13.7, has
+no critical and nothing fixable (54 highs, none with a fix). The pin was the whole fix on paper.
+
+**What moving it would have done.** Qdrant opens storage from the previous minor release only. On a
+throwaway volume written by 1.12.4, 1.20.0 panicked loading the first collection and exited 101 after
+12 s: `segment.json: unknown variant 'on_disk', expected 'mmap' or 'in_ram_mmap'`. The Compose service
+restarts unless stopped, so `git pull && docker compose up -d` would have left the vector store in a
+crash loop, and re-running the installer would too. On this install that loop ran 7 times in 75 s.
+
+**The path, measured.** On a copy of that volume (1200 points shaped like the app's collection, plus
+4000 with a built HNSW index), 1.13.6, 1.14.1, 1.15.5, 1.16.3, 1.17.1, 1.18.3 and 1.19.2 each opened it in
+turn, then 1.20.0. Each was ready in 28–201 s and stopped with exit 143, Qdrant's SIGTERM exit. On
+1.20.0 the counts, the 4000 indexed vectors, the payload index, and five filtered queries' ranked ids and
+scores matched 1.12.4 exactly. 1.16.3 logged `Migrating … payload storage from RocksDB into new format`
+while loading. From 1.15.5 on, the collections answered grey (optimizations pending, not running).
+
+**Fix.**
+
+- `scripts/upgrade-qdrant.mjs` runs each release in between on the volume, with `--network none`, and
+  stops it once every collection is green. A grey one gets Qdrant's documented nudge (an empty
+  `optimizers_config` update).
+- Nothing Qdrant writes says which release last opened a volume: every collection's `version.info` read
+  `0.4.2` before and after. So the script leaves a marker after each release that loads it, and also
+  trusts the image of a container that ran cleanly (healthy, or stopped with 0 or 143).
+- A crash loop is not trusted. While it runs, `State.ExitCode` reads 0, and only the health check tells.
+- When no healthy Qdrant vouches for the volume, it tries the pin first. If the pin cannot load it and
+  nothing says where it stands, it stops and asks for `QDRANT_FROM`, because a guess that is too low is a
+  downgrade.
+- Both installers run it before `docker compose up` and stop if it fails. `--k8s` prints the rollouts for
+  the StatefulSet.
+- Monitoring's "not answering" names the script for Qdrant.
+- The app searches through the Query API: 1.19 took `points/search` out of its API spec, though 1.20.0
+  still answers it.
+
+**The script, end to end** (a throwaway Compose project shaped like the real service):
+
+| Case                                   | Result                                                                                                                         |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Healthy 1.12.4, `--dry-run`            | the seven releases listed; the container still running; no marker                                                              |
+| Healthy 1.12.4                         | exit 0 in 571 s; marker 1.19.2; 1.20.0 healthy in 37 s, identical, both collections green; the app's six calls pass            |
+| Re-run on a healthy 1.20.0             | exit 0, silent                                                                                                                 |
+| After `docker compose down`            | "Checking that Qdrant 1.20.0 loads …", "It does; nothing to upgrade"; marker 1.20.0; identical                                 |
+| 1.20.0 crash-looping (8 restarts, 101) | refused, exit 1, naming `QDRANT_FROM=1.12.4` in both shells; with it, 412 s, identical                                         |
+| Killed during release 3                | marker 1.14.1; the re-run stopped the orphan, tried the pin, then ran the remaining five releases (264 s); identical           |
+| No volume                              | exit 0, silent                                                                                                                 |
+| `setup.sh` / `setup.ps1` lines         | crash loop: both exit 1 with their own message; `QDRANT_FROM`: carried on; already at 1.19.2: "nothing to upgrade", carried on |
+
+Mistakes on the way, both caught by running it: my first draft stopped each release at `/readyz`, which
+1.15.5 reached with collections grey; and its exit check refused 143, Qdrant's normal stop.
+
+**Tests.** `qdrantUpgrade.test.ts` (22): the plan, which release a volume is at, the pins and the path,
+the baseline, the installers' order and failure handling, the script's isolation and its wait for green,
+Monitoring's hint. `vectorStore.test.ts`: the search goes to `points/query`. Mutation 19 of 19.
+
 ### 2026-10-30 — R415: re-running the installer broke a catalog that started on change-me
 
 **Finding**, while writing R414's upgrade note. Both installers replaced a `change-me` (or empty)

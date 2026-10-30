@@ -302,6 +302,63 @@ not fail to start: the vectors are still in `kb_chunks` and retrieval still
 works. A collection asked for Qdrant on a deployment that has none falls back
 the same way, and the picker says so before it is saved.
 
+#### Upgrading the bundled Qdrant
+
+Qdrant opens storage written by the previous minor release only, so an upgrade
+that crosses several has to run each one in between. The pin moved from 1.12.4
+to 1.20.0 (R416), eight minors at once. Started straight on a 1.12.4 volume,
+1.20.0 stops while loading the first collection (`unknown variant 'on_disk'`)
+and Compose restarts it for ever.
+
+The installers handle it: `scripts/setup.sh` and `setup.ps1` run
+`node scripts/upgrade-qdrant.mjs` before they start anything. It stops the
+running Qdrant, and starts 1.13.6, 1.14.1 … 1.19.2 on the volume in turn. Each
+one runs with no network and is stopped once it has loaded every collection.
+Then Compose starts 1.20.0 as usual. Upgrading by hand, run it before
+`docker compose up`:
+
+```bash
+node scripts/upgrade-qdrant.mjs --dry-run
+node scripts/upgrade-qdrant.mjs
+docker compose up -d qdrant
+```
+
+Nothing Qdrant writes records which release last opened a volume, so the
+script works it out. It writes a marker (`.agentswarms-qdrant-release`) after
+each release that loads the volume, and reads the image of any container that
+ran on it cleanly, healthy or stopped the way Qdrant stops. A crash loop does
+not count. When no healthy Qdrant vouches for the volume, it tries the pin
+first; if that loads it, there is nothing to do. When the pin cannot load it
+and nothing says where it stands, it stops rather than guess, because running
+a release older than the volume's is a downgrade. Say which release it was:
+
+```bash
+QDRANT_FROM=1.12.4 node scripts/upgrade-qdrant.mjs
+```
+
+In PowerShell, `$env:QDRANT_FROM = "1.12.4"; node scripts/upgrade-qdrant.mjs`.
+Before R416 this repository only ever pinned 1.12.4.
+
+Each release is stopped once every collection is green, not merely once it
+answers: 1.15.5 answered with both collections grey, optimizations pending, so
+the script sends the empty `optimizers_config` update Qdrant documents for
+that. `QDRANT_UPGRADE_TIMEOUT_S` (default 1800) is how long each release may
+take. Nothing is deleted. A run that fails or is interrupted leaves the volume
+where the last good release left it, and running the script again carries on
+from the marker.
+
+A volume that already met 1.20.0 is still carried by the same command, with
+`QDRANT_FROM`. Measured: after eight crashes of 1.20.0 on a 1.12.4 volume, the
+stepped volume gave back every point and the same ranked results.
+Monitoring names the script while Qdrant is not answering. The other way out is
+the one the index always has: remove the volume, start Qdrant, and **Re-index**
+(Admin → Developer runtime → AI services), which copies the vectors back from
+Postgres without embedding anything again.
+
+On Kubernetes, `node scripts/upgrade-qdrant.mjs --k8s` reads the StatefulSet's
+image (in namespace `agentswarms`, or `QDRANT_NAMESPACE`) and prints a
+`kubectl set image` and `rollout status` for each release in between. Run them, one rollout at a time, before applying the new manifests.
+
 #### Moving one collection
 
 Changing **RAG Settings → Retrieval → Vector index** copies that collection's

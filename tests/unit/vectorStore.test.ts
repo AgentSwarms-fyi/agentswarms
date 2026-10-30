@@ -117,7 +117,11 @@ function fakeQdrant(opts: { collection?: unknown; search?: unknown[] } = {}) {
         ? json({ result: { config: { params: { vectors: { size: VECTOR_DIMS } } } } })
         : json(opts.collection);
     }
-    if (url.endsWith("/points/search")) return json({ result: opts.search ?? [] });
+    // The Query API's shape. `points/search` answers 404 here: 1.19 took it out
+    // of Qdrant's API spec, so a store that still used it is one release from
+    // finding nothing.
+    if (url.endsWith("/points/query")) return json({ result: { points: opts.search ?? [] } });
+    if (url.endsWith("/points/search")) return json({ status: { error: "Not found" } }, 404);
     return json({ result: true });
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -141,8 +145,11 @@ describe("an external store cannot widen what a caller can see", () => {
     });
     expect(hits).toEqual([{ id: "c1", score: 0.9 }]);
 
-    const search = calls.find((c) => c.url.endsWith("/points/search"));
+    const search = calls.find((c) => c.url.endsWith("/points/query"));
     expect(search, "no search was issued").toBeTruthy();
+    // The vector is the query, under the Query API's name for it.
+    expect(search!.body.query).toHaveLength(VECTOR_DIMS);
+    expect(calls.some((c) => c.url.endsWith("/points/search"))).toBe(false);
     const filter = search!.body.filter as { must?: { key?: string; match?: { any?: string[] } }[] };
     expect(filter?.must?.[0]?.key).toBe("kb");
     expect(filter?.must?.[0]?.match?.any).toEqual(["kb-a", "kb-b"]);
