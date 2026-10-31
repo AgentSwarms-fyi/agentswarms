@@ -1085,6 +1085,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "terms": [
       ".avro",
       ".csv",
+      ".privatelink",
       ".xlsx",
       "2024-03-01",
       "AwsDataCatalog",

@@ -35,6 +35,7 @@ import {
 } from "@/utils/warehouse/governor.server";
 
 import { connectorFetch } from "@/utils/http/connectorFetch.server";
+import { assertWarehouseNetwork } from "./network.server";
 
 import { getPool } from "./pool.server";
 import { FAMILY_DEFAULT_PORT, PROVIDER_FAMILY } from "./types";
@@ -1096,6 +1097,10 @@ export async function executeWarehouseQuery(
     // The built-in lakehouse routes through its own governed chokepoint —
     // schema grants, audit and history apply to BI exactly as to the UI.
     if (config.provider === "lakehouse") return lakehouseDriverQuery(config, safeSql, cappedRows);
+    // Before any connection is opened: the always-refused addresses for a wire
+    // protocol (its driver bypasses safeFetch), and the connection's own
+    // require-private rule (R424). Queries, tests and table listings all pass here.
+    await assertWarehouseNetwork(config);
     // Wire-compatible providers route to the driver for their family FIRST, so
     // adding CockroachDB or MariaDB never means adding a connection routine.
     const family = PROVIDER_FAMILY[config.provider];

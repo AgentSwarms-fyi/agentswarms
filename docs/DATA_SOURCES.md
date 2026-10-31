@@ -443,6 +443,21 @@ scheduled pass leaves the source alone (R315). A crawl that died leaves its
 claim; another may take it once the source has not changed for
 `CATALOG_CRAWL_LEASE_MINUTES` (60 by default).
 
+### Reaching a database or warehouse over a private path
+
+The **Network** box in a connection's form says how its engine is reached privately: RDS,
+Cloud SQL and Azure database private endpoints keep their own host names and resolve
+privately; Snowflake PrivateLink takes the account with `.privatelink`
+(`xy12345.us-east-1.privatelink`); Databricks and Synapse keep their names under a private DNS
+zone. **Test connection** reports how it was reached ("direct to 10.0.4.7 (private)").
+
+**Require a private network path** refuses every connection, before it is opened, unless the
+host resolves only to private addresses from the app server, or, for an engine called over
+HTTPS, the call leaves through the proxy. It covers queries, tests, table listings and ETL runs;
+a refusal from Test connection is audited (`warehouse.private_path.refused`). Separately, a
+Postgres, MySQL or SQL Server connection is now refused if its host is, or resolves to, the
+cloud metadata or a link-local address.
+
 ### Reaching a bucket over a private path
 
 Public is the default. A bucket may also be reached over a cloud private endpoint or a VPN, and

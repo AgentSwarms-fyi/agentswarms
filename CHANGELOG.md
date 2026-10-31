@@ -72,6 +72,18 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Databases and warehouses over private paths** (R424, private connectivity
+  Phase 3). A connection's **Network** box says how its engine is reached
+  privately: RDS, Cloud SQL and Azure private endpoints keep their names,
+  Snowflake PrivateLink takes the account with `.privatelink`, Databricks and
+  Synapse keep theirs under a private DNS zone. **Test connection** reports how
+  it was reached ("Reached direct to 10.0.4.7 (private)"). **Require a private
+  network path**, per connection and off by default, refuses every connection
+  before it is opened unless the host resolves only to private addresses; a
+  Postgres, MySQL or SQL Server connection is always direct, so the proxy does
+  not count for it, while an HTTPS engine's calls may leave through the proxy,
+  which does. It covers queries, tests, table listings and ETL runs; a refusal
+  from Test connection is audited (`warehouse.private_path.refused`).
 - **Object storage over private paths** (R422, private connectivity Phase 3).
   A catalog source's **Network** box says how each provider is reached
   privately: an S3 interface endpoint (AWS now takes an optional Endpoint
@@ -437,6 +449,17 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   stop and deploy any warm model endpoint again so it starts from the new
   kernel image. `docker compose exec agentswarms npm …` no longer works: run
   npm on the host.
+- **A database connection can no longer be aimed at the cloud metadata
+  address** (R424). The Postgres, MySQL and SQL Server drivers open their own
+  TCP connections, so none of the outbound-call checks reached them: a
+  connection's host could be `169.254.169.254`, or a name resolving there. The
+  host and every address it resolves to are now checked before the driver
+  connects, for queries, tests, table listings and ETL runs; private networks
+  stay allowed, as for every connector, `BLOCK_PRIVATE_NETWORK_FETCH`
+  included. A name that does not resolve from the app server is refused, with
+  a proxy set too, since the driver never uses one. The driver still resolves
+  the name again itself; pinning it to the checked address is recorded as the
+  remaining step.
 - **A secret shared with you goes only where its owner allows** (R419,
   VA-2026-10-25-29, -30). Sharing a secret promised "use it without seeing it",
   and in every config a colleague writes they choose where it goes: an HTTP

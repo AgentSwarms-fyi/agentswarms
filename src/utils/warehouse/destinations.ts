@@ -8,7 +8,7 @@
 // url, server) are not credentials: they take only a secret the owner owns.
 //
 // PURE: no driver imports.
-import type { WarehouseConfig } from "./types";
+import { PROVIDER_FAMILY, type WarehouseConfig, type WarehouseProvider } from "./types";
 
 const s = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 
@@ -68,3 +68,50 @@ export function warehouseCredentialFields(cfg: WarehouseConfig): string[] {
       return ["username", "password"];
   }
 }
+
+/**
+ * A wire-protocol database (the Postgres, MySQL and SQL Server families): its
+ * driver opens a TCP connection itself, never through the HTTP proxy, and none
+ * of safeFetch's checks apply to it (R424). Every other engine is called over
+ * HTTPS through connectorFetch, which uses the proxy and does its own checks.
+ */
+export function isWireProtocol(cfg: Pick<WarehouseConfig, "provider">): boolean {
+  return PROVIDER_FAMILY[cfg.provider] !== "own";
+}
+
+const VPN =
+  "Over a VPN, VPC peering or a cloud private endpoint, the host name stays and resolves to a " +
+  "private address.";
+
+/** How each engine is reached privately, for the connection form (R424). */
+export const WAREHOUSE_PRIVATE_PATH_HINT: Record<WarehouseProvider, string> = {
+  postgres: `${VPN} RDS, Cloud SQL and Azure private endpoints keep their own names.`,
+  cockroachdb: VPN,
+  timescaledb: VPN,
+  alloydb: `${VPN} AlloyDB is usually reached by its private IP.`,
+  greenplum: VPN,
+  yugabytedb: VPN,
+  mysql: `${VPN} RDS, Cloud SQL and Azure private endpoints keep their own names.`,
+  mariadb: VPN,
+  singlestore: VPN,
+  starrocks: VPN,
+  doris: VPN,
+  planetscale: VPN,
+  sqlserver: `${VPN} Azure SQL over Private Link keeps <server>.database.windows.net.`,
+  azure_synapse:
+    "Private Link keeps <workspace>.sql.azuresynapse.net; its DNS zone resolves it privately.",
+  snowflake:
+    "PrivateLink: enter the account with .privatelink, e.g. xy12345.us-east-1.privatelink, so " +
+    "calls go to <account>.privatelink.snowflakecomputing.com.",
+  databricks: "PrivateLink keeps the workspace URL; its DNS zone resolves it privately.",
+  bigquery:
+    "Private Google Access or a VPN: bigquery.googleapis.com and oauth2.googleapis.com resolve " +
+    "privately.",
+  redshift:
+    "A VPC interface endpoint for the Redshift Data API with private DNS keeps the regional name.",
+  athena: "A VPC interface endpoint for Athena with private DNS keeps the regional name.",
+  trino: VPN,
+  clickhouse: `${VPN} ClickHouse Cloud's private endpoints keep the service's name.`,
+  oracle: `${VPN} Autonomous Database private endpoints keep the ORDS host.`,
+  lakehouse: "Built in: it never leaves this deployment.",
+};

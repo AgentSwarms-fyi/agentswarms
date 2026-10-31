@@ -12,6 +12,7 @@ import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.se
 import { HOST_PORT_PROVIDERS } from "@/utils/warehouse/types";
 import type { WarehouseConfig, WarehouseConnectionSummary } from "@/utils/warehouse/types";
 import { auditEvent } from "@/utils/audit.server";
+import { assertWarehouseNetwork, warehousePath } from "@/utils/warehouse/network.server";
 import { callerFailure } from "@/utils/callerLookup.server";
 import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
@@ -36,7 +37,7 @@ async function requireUser(accessToken: string) {
   return { sb, userId: data.user.id };
 }
 
-const ConfigSchema = z.discriminatedUnion("provider", [
+const EngineConfigSchema = z.discriminatedUnion("provider", [
   // The built-in lakehouse needs no credentials — the server stamps the
   // owner at save time and the engine enforces that user's schema grants.
   z.object({ provider: z.literal("lakehouse") }),
@@ -162,6 +163,10 @@ const ConfigSchema = z.discriminatedUnion("provider", [
     }),
   ),
 ]);
+
+// Every engine's config, plus the require-private rule they all share (R424).
+// An intersection, so the rule survives each engine's own (stripping) schema.
+const ConfigSchema = EngineConfigSchema.and(z.object({ require_private: z.boolean().optional() }));
 
 export const listWarehouseConnections = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
@@ -296,38 +301,53 @@ export const testWarehouseConnectionFn = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), connection_id: z.string().uuid() }).parse(input),
   )
-  .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
-    let sb: ReturnType<typeof userClient> | null = null;
-    try {
-      const ctx = await requireUser(data.access_token);
-      sb = ctx.sb;
-      const conn = await loadWarehouseConnectionForUser(
-        sb,
-        { connectionId: data.connection_id },
-        ctx.userId,
-      );
-      await testWarehouseConnection(conn.config);
-      await sb
-        .from("data_warehouse_connections")
-        .update({
-          last_test_status: "ok",
-          last_test_error: null,
-          last_tested_at: new Date().toISOString(),
-        })
-        .eq("id", data.connection_id);
-      return { ok: true };
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "Connection test failed";
-      if (sb) {
+  .handler(
+    async ({ data }): Promise<{ ok: true; path?: string } | { ok: false; error: string }> => {
+      let sb: ReturnType<typeof userClient> | null = null;
+      try {
+        const ctx = await requireUser(data.access_token);
+        sb = ctx.sb;
+        const conn = await loadWarehouseConnectionForUser(
+          sb,
+          { connectionId: data.connection_id },
+          ctx.userId,
+        );
+        // A refusal of the connection's require-private rule is audited, like a
+        // model provider's (R424); the test then fails with the reason.
+        await assertWarehouseNetwork(conn.config, (detail) =>
+          auditEvent({
+            userId: ctx.userId,
+            action: "warehouse.private_path.refused",
+            resourceType: "warehouse_connection",
+            resourceId: data.connection_id,
+            resourceName: conn.name,
+            detail: { reason: detail },
+          }),
+        );
+        await testWarehouseConnection(conn.config);
+        const path = await warehousePath(conn.config);
         await sb
           .from("data_warehouse_connections")
           .update({
-            last_test_status: "error",
-            last_test_error: message.slice(0, 500),
+            last_test_status: "ok",
+            last_test_error: null,
             last_tested_at: new Date().toISOString(),
           })
           .eq("id", data.connection_id);
+        return { ok: true, ...(path ? { path } : {}) };
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Connection test failed";
+        if (sb) {
+          await sb
+            .from("data_warehouse_connections")
+            .update({
+              last_test_status: "error",
+              last_test_error: message.slice(0, 500),
+              last_tested_at: new Date().toISOString(),
+            })
+            .eq("id", data.connection_id);
+        }
+        return { ok: false, error: message };
       }
-      return { ok: false, error: message };
-    }
-  });
+    },
+  );

@@ -54,6 +54,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
   TableBody,
@@ -77,6 +78,7 @@ import {
   testWarehouseConnectionFn,
 } from "@/utils/warehouse.functions";
 import { providerInitials } from "./providerInitials";
+import { WAREHOUSE_PRIVATE_PATH_HINT } from "@/utils/warehouse/destinations";
 
 type Field = {
   key: string;
@@ -510,6 +512,8 @@ export function WarehousesTab() {
   const [dialogProvider, setDialogProvider] = useState<WarehouseProvider | null>(null);
   const [name, setName] = useState("");
   const [fields, setFields] = useState<Record<string, string>>({});
+  // Require a private network path (R424), per connection, off by default.
+  const [requirePrivate, setRequirePrivate] = useState(false);
   const [busy, setBusy] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
   // Pending disconnect confirmation: which connection rows would be removed
@@ -536,6 +540,7 @@ export function WarehousesTab() {
     setDialogProvider(provider);
     setName(`My ${WAREHOUSE_LABELS[provider].split(" ")[0]}`);
     setFields({});
+    setRequirePrivate(false);
   };
 
   const submit = async () => {
@@ -560,6 +565,7 @@ export function WarehousesTab() {
         const v = fields[f.key]?.trim();
         if (v) config[f.key] = f.key === "service_account_json" ? fields[f.key] : v;
       }
+      if (requirePrivate) (config as Record<string, unknown>).require_private = true;
       const saved = await saveFn({
         data: {
           access_token: token,
@@ -573,7 +579,10 @@ export function WarehousesTab() {
       // Immediately verify connectivity so the status badge is honest.
       toast.info("Saved — testing connection…");
       const test = await testFn({ data: { access_token: token, connection_id: saved.id } });
-      if (test.ok) toast.success("Connection verified — SELECT 1 succeeded");
+      if (test.ok)
+        toast.success("Connection verified — SELECT 1 succeeded", {
+          description: test.path ? `Reached ${test.path}.` : undefined,
+        });
       else toast.error(`Connection saved but the test failed: ${test.error}`);
       reload();
     } catch (e) {
@@ -590,7 +599,10 @@ export function WarehousesTab() {
     setTestingId(id);
     try {
       const res = await testFn({ data: { access_token: token, connection_id: id } });
-      if (res.ok) toast.success("Connection verified");
+      if (res.ok)
+        toast.success("Connection verified", {
+          description: res.path ? `Reached ${res.path}.` : undefined,
+        });
       else toast.error(res.error);
       reload();
     } catch (e) {
@@ -846,6 +858,30 @@ export function WarehousesTab() {
                 </div>
               ))}
               {meta.note ? <p className="text-xs text-muted-foreground">{meta.note}</p> : null}
+              {dialogProvider && dialogProvider !== "lakehouse" ? (
+                <div className="space-y-1.5 rounded-md border border-border bg-muted/30 px-3 py-2">
+                  <p className="text-xs font-medium">Network</p>
+                  <p className="text-xs text-muted-foreground">
+                    Public is the default. {WAREHOUSE_PRIVATE_PATH_HINT[dialogProvider]} The test
+                    shows which address it was reached at.
+                  </p>
+                  <label className="flex cursor-pointer items-start gap-2 text-xs">
+                    <Checkbox
+                      checked={requirePrivate}
+                      onCheckedChange={(v) => setRequirePrivate(v === true)}
+                      aria-label="Require a private network path"
+                    />
+                    <span>
+                      Require a private network path
+                      <span className="block text-xs text-muted-foreground">
+                        Every connection is refused, before it is opened, unless the host resolves
+                        to a private address from this server (or, for a warehouse called over
+                        HTTPS, leaves through the proxy).
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              ) : null}
             </div>
           ) : null}
           <DialogFooter>

@@ -185,7 +185,16 @@ export type HostPortConfig<P extends WarehouseProvider> = {
 };
 
 /** Per-provider connection config. Stored encrypted — never sent back to the client. */
-export type WarehouseConfig =
+export type WarehouseConfig = WarehouseConfigBody & {
+  /**
+   * Require a private network path (R424): every connection is refused, before
+   * it is opened, unless the host resolves only to private addresses here, or
+   * an HTTP-based warehouse's calls leave through the proxy. Off by default.
+   */
+  require_private?: boolean;
+};
+
+type WarehouseConfigBody =
   | HostPortConfig<"cockroachdb">
   | HostPortConfig<"timescaledb">
   | HostPortConfig<"alloydb">

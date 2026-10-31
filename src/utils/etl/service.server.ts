@@ -326,6 +326,10 @@ export async function resolveRunEnv(
           `you own. Ask its owner to run this pipeline, or to give you a connection of your own.`,
       );
     }
+    // The connection's network rules, checked from this server before the run
+    // starts: the sandbox reaches it over the same network (R424).
+    const { assertWarehouseNetwork } = await import("@/utils/warehouse/network.server");
+    await assertWarehouseNetwork(conn.config);
     const native = isTarget ? nativeWarehouseTarget(conn.config.provider) : null;
     if (native) {
       const payload = nativeDestCreds(conn.config);

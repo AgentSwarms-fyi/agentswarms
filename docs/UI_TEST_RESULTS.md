@@ -15,6 +15,33 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-01 — R424: databases and warehouses over private paths
+
+The R424 build from the main checkout, hot-deployed. A throwaway Postgres 16.15 container
+(`r424-pg-private`, alias `r424-pg`, test credentials made for it, a three-row `r424_orders` table) on
+the app's network stands in for a database behind a private endpoint: the app resolves `r424-pg` to
+172.19.0.12. Real cloud private endpoints cannot be made here. Toasts were read by a watcher on the
+page's toast list, with the time from the click.
+
+| Page / surface                                     | What was driven                                                     | Result                                                                                                                                                                                                                                                                                                                                                                                   |
+| -------------------------------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Integrations → Data Sources → PostgreSQL → Connect | the form                                                            | a **Network** box: "Public is the default. Over a VPN, VPC peering or a cloud private endpoint, the host name stays and resolves to a private address. RDS, Cloud SQL and Azure private endpoints keep their own names. …", and **Require a private network path**, unticked                                                                                                             |
+| … host `r424-pg`, rule on                          | **Save & test**, then the row's **Test**                            | "Connection verified — SELECT 1 succeeded · Reached direct to 172.19.0.12 (private)."; the row's Test: "Connection verified · Reached direct to 172.19.0.12 (private)." in 1.2 s; status **OK**                                                                                                                                                                                          |
+| … host `203.0.113.10`, rule on                     | **Save & test**                                                     | "Connection saved but the test failed: The connection to 203.0.113.10 is set to require a private network path, but 203.0.113.10 resolves to a public address (203.0.113.10) from this server, so the call was not sent. Check the database's private DNS zone or the route to it over the VPN or peering link." 1.2 s; the row's red status keeps it (its title holds the whole reason) |
+| … host `169.254.169.254`, port 80, rule **off**    | **Save & test**                                                     | "Connection saved but the test failed: Refusing to fetch link-local/metadata address: 169.254.169.254"                                                                                                                                                                                                                                                                                   |
+| Audit Log                                          | the newest rows                                                     | `warehouse.private_path.refused` · "R424 public Postgres refused - kept fixture" with the same reason                                                                                                                                                                                                                                                                                    |
+| Data Catalog → Workbench, source "R424 private …"  | `select region, amount from r424_orders order by id`, **Run Query** | 3 rows, 247 ms: north 120.5, south 88, west 301.25                                                                                                                                                                                                                                                                                                                                       |
+| … source "R424 metadata …"                         | picking it lists its tables                                         | `/api/warehouse/schema` → 400 and "Refusing to fetch link-local/metadata address: 169.254.169.254" 279 ms after the pick; the picker falls back to Local. Picking "R424 public …" earlier gave the private-path refusal the same way                                                                                                                                                     |
+
+The table listing runs through `executeWarehouseQuery`, so the workbench refusals are that path's own
+check, not Test connection's. The first Save & test after the restart answered after several seconds
+(the first connection in a fresh server); every later one took about a second. Seen, not this round's:
+the always-refused message says "fetch" for a database connection, and that refusal is not audited
+(both recorded in the ADVERSARIAL_LOG entry). The console showed only the PWA service-worker message
+earlier rounds note. Kept: the three "R424 … - kept fixture" connections and the audit row; the
+stand-in container is stopped, not removed (`docker start r424-pg-private` brings it back), so the
+private one's test fails until it is started.
+
 ## 2026-11-01 — R423: a catalog source name the server refuses, said in words
 
 Data Catalog → **Add** → Object storage bucket, Amazon S3, bucket `r423-probe`, made-up keys. Before: the

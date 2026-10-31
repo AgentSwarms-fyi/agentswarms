@@ -109,6 +109,46 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-01 — R424: a database connection could be aimed at the cloud metadata address
+
+**Finding** (found building private connectivity Phase 3; the VA-14 family). The Postgres, MySQL and
+SQL Server families' drivers (pg, mysql2, tedious) open their own TCP connections, so none of
+`safeFetch`'s checks applied to them: a connection's host could be `169.254.169.254`, or a name resolving
+there, and a query, a test, a table listing or an ETL run would connect. The HTTPS engines already had
+the check from `connectorFetch`. The reach is narrower than an HTTP fetch's, since each driver speaks its
+own binary protocol, but nothing stopped the connection, and not every link-local service is HTTP.
+
+**One more, found by the mutation run.** With a proxy configured, `assertPublicUrl` treats a name that
+does not resolve as resolved elsewhere, which is right for a proxied fetch. A driver never uses the
+proxy, so the first version let an unresolvable host through and the driver resolved it again: VA-21's
+"fail the first query, answer the second with the metadata address".
+
+**Fix.**
+
+- `assertWarehouseNetwork` (`src/utils/warehouse/network.server.ts`) holds a wire protocol's host, and
+  every address it resolves to, to the always-refused tier before the driver connects, resolving the
+  name on the app server (`resolvedElsewhere: false`). Private networks stay allowed, under
+  `BLOCK_PRIVATE_NETWORK_FETCH` too, as `connectorFetch` allows them for every connector. It runs in
+  `executeWarehouseQuery` (queries, tests, table listings) and in an ETL run's `databaseEnv`.
+- The same function applies a connection's **Require a private network path** rule (Phase 3): direct
+  for a wire protocol, so the proxy does not count; the proxy counts for an HTTPS engine. **Test
+  connection** audits a refusal (`warehouse.private_path.refused`) and reports the path it reached.
+
+**Proved.**
+
+| Check                                  | Result                                                                                                                                                                                                                    |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `warehousePrivatePath.test.ts` (new)   | 17: the metadata address by literal and by resolution, private allowed (with the block on too), unresolvable named (with a proxy set too), the rule for wire and HTTPS engines, the path, every wiring point              |
+| Neighbours                             | 45 files, 745 tests: `warehouse*`, `etl*`, `connectionGrants`, `sharedSecret*`, `storagePrivatePath`, `dataSideSsrfGuard`, `inAppDocsAccuracy`                                                                            |
+| Mutation                               | 13 of 13 (first run 10 of 13: the proxy hole above; `allowPrivate: false` survived because no test set the block; the lakehouse's early return was equivalent and is gone)                                                |
+| From the UI (R424 build, hot-deployed) | a private Postgres stand-in reached "direct to 172.19.0.12 (private)"; `203.0.113.10` refused under the rule and audited; `169.254.169.254` refused with no rule, by Test connection and by the workbench's table listing |
+
+**Residual.** The driver still resolves the name again itself after the check, so a resolver that
+answers the check with a safe address and the driver with the metadata address gets through; pinning
+each driver to the checked address, as `safeFetch` pins `fetch()`, is the remaining step. A refusal of
+the always-refused tier is not audited (the rule's refusal is), and its message says "fetch" for a
+connection.
+
 ### 2026-10-31 — R421: swarm run records are written only by the server (VA-31, -47, -48)
 
 **Finding** (VA-2026-10-25-31, the `swarm_runs` half of -13). `swarm_runs`, `swarm_run_steps` and

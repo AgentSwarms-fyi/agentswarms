@@ -198,6 +198,14 @@ function DataPage() {
         connection. A secret shared with you fills a password, token or key only toward the host the
         connection reaches, and only if its owner allowed that host; the host, account or region
         itself takes only your own secrets.
+        <br />
+        <br />
+        <strong>Over a private path:</strong> the form&rsquo;s <strong>Network</strong> box says how
+        each engine is reached privately (a cloud private endpoint keeping its name,
+        Snowflake&rsquo;s <C>.privatelink</C> account, a VPN). <strong>Test connection</strong>{" "}
+        reports the address it reached, and <strong>Require a private network path</strong> refuses
+        every connection that would not be private, before it is opened. A Postgres, MySQL or SQL
+        Server host that is, or resolves to, the cloud metadata address is always refused.
       </Callout>
 
       <Connector

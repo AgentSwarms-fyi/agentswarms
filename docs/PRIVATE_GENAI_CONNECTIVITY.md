@@ -352,6 +352,39 @@ network (UI_TEST_RESULTS, 2026-11-01): a public S3 name with the rule on was ref
 sending and audited; the private store connected and said "Reached direct to 172.19.0.12
 (private)".
 
+**Databases and warehouses, as built (R424):** one check before any connection is opened
+(`assertWarehouseNetwork`, `src/utils/warehouse/network.server.ts`), run for every query, test and
+table listing (`executeWarehouseQuery`) and at an ETL run's start.
+
+1. **The always-refused addresses for wire protocols.** The Postgres, MySQL and SQL Server
+   families' drivers open TCP themselves, so none of `safeFetch`'s checks reached them: a
+   connection could be aimed at the cloud metadata address, by name or by a name resolving
+   there. The host and every address it resolves to are now held to the always-refused tier;
+   private networks stay allowed, a database on the deployment's network being the normal case.
+   The HTTPS engines (Snowflake, Databricks, BigQuery, Redshift and Athena's APIs, Trino,
+   ClickHouse, Oracle ORDS) already had this from `connectorFetch`, per request and per hop.
+2. **The path, reported.** **Test connection** says how the connection was reached ("direct to
+   10.0.4.7 (private)"; the certificate for an HTTPS engine; "via proxy …" when its calls use
+   the proxy).
+3. **Require a private network path**, per connection, off by default (`require_private`). A
+   wire protocol is always direct, so the proxy does not count for it, and its refusal advises
+   the DNS zone or the VPN route; an HTTPS engine's calls may leave through the proxy, which
+   counts, as for the model providers. A refusal from **Test connection** is audited
+   (`warehouse.private_path.refused`).
+4. **How each engine is reached privately**, in the form's Network box
+   (the hints live in `src/utils/warehouse/destinations.ts`): RDS, Cloud SQL and Azure private endpoints keep their names;
+   Snowflake PrivateLink takes the account with `.privatelink`, so calls go to
+   `<account>.privatelink.snowflakecomputing.com`; Databricks and Synapse keep their names under a
+   private DNS zone; Redshift and Athena keep the regional names with private DNS on their
+   interface endpoints. Endpoint overrides for the engines whose API host is fixed (BigQuery's
+   Private Service Connect names, Redshift's and Athena's endpoint-specific names) are the next
+   step.
+
+Tested (`warehousePrivatePath.test.ts`): the metadata address refused by literal and by
+resolution, a private database allowed, an unresolvable name named; the rule for a wire protocol
+(private passes, public refused with the database's advice, the proxy not counting) and for an
+HTTPS engine (the proxy counting), a PrivateLink account's host; the path; and every wiring point.
+
 ### How it would be tested
 
 - **Proxy:** a throwaway Squid container on the app network as the only egress;
