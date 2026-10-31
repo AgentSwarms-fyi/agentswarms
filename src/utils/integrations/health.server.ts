@@ -22,6 +22,7 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { auditEvent } from "@/utils/audit.server";
 import { resolveIntegrationConfig } from "@/utils/providers/integrationConfig.server";
+import { integrationHosts } from "@/utils/providers/integrationHosts";
 import {
   TESTABLE_INTEGRATION_PROVIDERS,
   runProviderTest,
@@ -64,7 +65,13 @@ function stringConfig(cfg: Record<string, unknown>): Record<string, string> {
 async function runHealthTest(row: CandidateRow): Promise<TestResult> {
   // Decrypt `<field>_enc` + resolve {{secret:NAME}} refs — same read path the
   // runtime uses, so the test exercises exactly what an agent call would.
-  const cfg = stringConfig(await resolveIntegrationConfig(row.user_id, row.type, row.config ?? {}));
+  // A secret shared with the owner resolves toward the hosts the test calls,
+  // if its owner allowed them (R420); the tests use the same defaults.
+  const cfg = stringConfig(
+    await resolveIntegrationConfig(row.user_id, row.type, row.config ?? {}, {
+      sendTo: integrationHosts(row.type, row.provider),
+    }),
+  );
   switch (row.type) {
     case "llm_provider":
       return runProviderTest(row.provider ?? "", cfg);

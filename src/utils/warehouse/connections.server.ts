@@ -16,8 +16,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { decryptJson } from "@/utils/providers/crypto.server";
-import { resolveSecretRefsInObject } from "@/utils/secrets.server";
+import { resolveCredentialConfig, resolveSecretRefsInObject } from "@/utils/secrets.server";
 import type { WarehouseConfig, WarehouseProvider } from "./types";
+import { warehouseCredentialFields, warehouseHosts } from "./destinations";
 
 export type LoadedConnection = {
   id: string;
@@ -56,6 +57,8 @@ export async function loadWarehouseConnectionForUser(
   sb: SupabaseClient<Database>,
   ref: { connectionId?: string; name?: string },
   userId: string,
+  /** `into: "sandbox"`: the config goes to code its owner runs (loadWarehouseConnection). */
+  use?: { into?: "sandbox" },
 ): Promise<LoadedConnection> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { resolveGrantedResourceIds } = await import("@/utils/iam.server");
@@ -64,7 +67,7 @@ export async function loadWarehouseConnectionForUser(
   // design, since it holds the credential — so the row itself is fetched with
   // the service role once a grant has been established.
   const client = grantedIds.size > 0 ? supabaseAdmin : sb;
-  return loadWarehouseConnection(client, ref, userId, { grantedIds });
+  return loadWarehouseConnection(client, ref, userId, { grantedIds, into: use?.into });
 }
 
 export async function loadWarehouseConnection(
@@ -88,6 +91,12 @@ export async function loadWarehouseConnection(
      * receive the credential, and nothing here lets them edit or delete it.
      */
     grantedIds?: Iterable<string>;
+    /**
+     * "sandbox": the config is handed to code its owner runs (an ETL
+     * pipeline's environment), which could print it, so only secrets the
+     * owner owns resolve into it (R420, VA-2026-10-25-29).
+     */
+    into?: "sandbox";
   },
 ): Promise<LoadedConnection> {
   let query = sb
@@ -122,12 +131,25 @@ export async function loadWarehouseConnection(
   // would look up {{secret:PROD_PW}} in the GRANTEE's vault — finding either
   // nothing, or worse, a different secret that happens to share the name.
   // A shared connection runs as its owner; this is part of what that means.
+  //
+  // A secret SHARED with the owner fills only a credential field, and only
+  // toward the hosts the driver connects to, if its owner allowed them; the
+  // fields that pick the host take only the owner's own secrets (R420,
+  // VA-2026-10-25-30). Into a sandbox, nothing shared resolves at all.
   const secretScope = row.user_id ?? ownerUserId;
   if (secretScope) {
-    config = (await resolveSecretRefsInObject(
-      secretScope,
-      config as unknown as Record<string, unknown>,
-    )) as unknown as WarehouseConfig;
+    config =
+      opts?.into === "sandbox"
+        ? ((await resolveSecretRefsInObject(
+            secretScope,
+            config as unknown as Record<string, unknown>,
+          )) as unknown as WarehouseConfig)
+        : await resolveCredentialConfig(
+            secretScope,
+            config,
+            warehouseCredentialFields(config),
+            warehouseHosts,
+          );
   }
   return {
     id: row.id,

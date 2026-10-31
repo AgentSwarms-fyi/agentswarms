@@ -41,6 +41,7 @@ import type {
 // through the encrypted provider_credentials table. The chat route checks
 // the legacy table first, so the Integrations card takes precedence.
 import { resolveIntegrationConfig } from "./integrationConfig.server";
+import { integrationHosts } from "./integrationHosts";
 import { assertPrivatePath } from "./connectivityPath.server";
 import { auditEvent } from "@/utils/audit.server";
 import { type PrivatePathPolicy, withPrivatePathScope } from "@/utils/ssrfGuard.server";
@@ -77,8 +78,15 @@ async function loadLegacyConfig(userId: string, provider: ProviderId) {
 
   // Decrypt the at-rest-encrypted api_key (api_key_enc) and resolve any
   // {{secret:NAME}} references inside provider configs, per-user at use time.
+  // A secret shared with the user fills the key only toward the hosts the
+  // transports below send it to, if its owner allowed them (R420).
   const cfg = (row.config ?? {}) as Record<string, unknown>;
-  return { ...row, config: await resolveIntegrationConfig(userId, "llm_provider", cfg) };
+  return {
+    ...row,
+    config: await resolveIntegrationConfig(userId, "llm_provider", cfg, {
+      sendTo: integrationHosts("llm_provider", provider),
+    }),
+  };
 }
 
 // Optional override applied when an agent has tools.routeThroughGateway = true
@@ -118,6 +126,7 @@ export async function resolveUserGatewayOverride(
       userId,
       "llm_gateway",
       gw.config as Record<string, unknown>,
+      { sendTo: integrationHosts("llm_gateway") },
     )) as { base_url?: string; api_key?: string; provider?: string; route_all?: unknown };
     if (opts.requireRouteAll && cfg.route_all !== true) return null;
     if (!cfg.base_url || !cfg.api_key) return null;
@@ -175,6 +184,7 @@ async function loadGrantedLegacyConfig(userId: string, provider: ProviderId) {
       row.user_id,
       "llm_provider",
       (row.config ?? {}) as Record<string, unknown>,
+      { sendTo: integrationHosts("llm_provider", provider) },
     ),
   };
 }

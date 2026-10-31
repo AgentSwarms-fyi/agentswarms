@@ -195,8 +195,9 @@ function DataPage() {
       <Callout kind="info">
         Any field below can be filled from <DocLink to="/docs/secrets">Secrets</DocLink> instead of
         being typed in, so rotating a password is one edit rather than a hunt through every
-        connection. In this release a connection takes only secrets you own; one shared with you
-        resolves only where its owner allowed it to go, which connections do not name yet.
+        connection. A secret shared with you fills a password, token or key only toward the host the
+        connection reaches, and only if its owner allowed that host; the host, account or region
+        itself takes only your own secrets.
       </Callout>
 
       <Connector

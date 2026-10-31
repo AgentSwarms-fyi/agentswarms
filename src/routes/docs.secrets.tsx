@@ -221,7 +221,7 @@ function SecretsPage() {
         headers={["Where the reference is", "A secret you own", "A secret shared with you"]}
         rows={[
           [
-            "A credential sent to a server: an HTTP or A2A node's header, a gateway key under Test, a Data Catalog source's keys or token, an Iceberg catalog's token or client credentials",
+            "A credential sent to a server: a model provider's key, the LLM gateway's, n8n's or Firecrawl's; a warehouse connection's password, token or keys; an HTTP or A2A node's header; a Data Catalog source's keys or token; an Iceberg catalog's token or client credentials",
             "Resolves",
             "Resolves when its owner allowed that server's host",
           ],
@@ -235,11 +235,6 @@ function SecretsPage() {
             "Code you run: an MCP server's environment, an ETL pipeline's environment (its bindings, stream and target secrets, bucket keys)",
             "Resolves",
             "Never: the code can print what it is given",
-          ],
-          [
-            "Model providers, warehouse connections, notifications and other integrations",
-            "Resolves",
-            "Not in this release: they take only secrets you own until their hosts are wired",
           ],
         ]}
       />

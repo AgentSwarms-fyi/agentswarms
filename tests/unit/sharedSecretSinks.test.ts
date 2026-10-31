@@ -329,13 +329,19 @@ describe("the destination-naming sinks", () => {
     expect(files).toEqual(
       [
         "src/routes/api/a2a.ts",
+        "src/routes/api/chat.ts",
         "src/utils/catalog.functions.ts",
         "src/utils/catalog/crawler.server.ts",
         "src/utils/integrations.functions.ts",
+        "src/utils/integrations/health.server.ts",
         "src/utils/lakehouse/iceberg.server.ts",
+        "src/utils/providers/credentials.server.ts",
         "src/utils/providers/integrationConfig.server.ts",
+        "src/utils/providers/integrationHosts.ts",
         "src/utils/secrets.server.ts",
         "src/utils/swarmNodes.server.ts",
+        "src/utils/tools/registry.server.ts",
+        "src/utils/warehouse/connections.server.ts",
       ].sort(),
     );
   });

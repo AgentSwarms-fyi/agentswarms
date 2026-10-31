@@ -309,6 +309,7 @@ export async function resolveRunEnv(
       supabaseAdmin,
       { connectionId },
       pipeline.user_id,
+      { into: "sandbox" },
     );
     // A shared connection runs as its owner and its grantee never receives
     // the credential (IAM.md) — but this puts the credential in the run's

@@ -39,6 +39,7 @@ import { MCP_CONNECT_BUDGET_MS } from "@/utils/mcpApps/budgets";
 import { requestInSession, type McpSend } from "@/utils/mcpApps/session";
 import { parseJsonOrSse } from "@/utils/mcpApps/sse";
 import { resolveIntegrationConfig } from "@/utils/providers/integrationConfig.server";
+import { integrationHosts } from "@/utils/providers/integrationHosts";
 import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.server";
 import { executeWarehouseQuery, listWarehouseTables } from "@/utils/warehouse/drivers.server";
 import {
@@ -753,6 +754,7 @@ async function loadFirecrawlIntegrationKey(ctx: AgentToolContext): Promise<strin
       ctx.userId,
       "firecrawl",
       (data.config || {}) as Record<string, unknown>,
+      { sendTo: integrationHosts("firecrawl") },
     )) as { api_key?: string };
     return (cfg.api_key || "").trim() || null;
   } catch {
@@ -1278,6 +1280,7 @@ async function loadN8nIntegration(ctx: AgentToolContext) {
     ctx.userId,
     "n8n",
     (data.config || {}) as Record<string, unknown>,
+    { sendTo: integrationHosts("n8n") },
   )) as {
     instance_url?: string;
     webhook_token?: string;

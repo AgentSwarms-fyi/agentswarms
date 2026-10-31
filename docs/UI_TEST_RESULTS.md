@@ -15,6 +15,23 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-31 — R420: providers and connections name where a shared secret goes
+
+The R420 build from the main checkout, hot-deployed (healthy in 30 s; `connections.server` in the
+server bundle carries the Snowflake host expression). The paths this round changed are the saved-config
+reads every model call and warehouse query makes; with no secret shared on this install, the UI holds the
+regression half and `sharedSecretDestinations.test.ts` the sharing half (a shared key and a shared
+password through the real transport and loader).
+
+| Page / surface                                      | What was driven                                                       | Result                                                                                              |
+| --------------------------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Agent Chat → R293 budget probe 3 (OpenRouter)       | New chat, "R420 check: reply with the single word OK."                | the assistant answered "OK"                                                                         |
+| Data Catalog → Workbench, engine Lakehouse · AgentSwarms | `SELECT 420 AS round, current_date AS today`, **Run Query**      | 1 row in 1928 ms: `420`, `2026-10-31`; Recent queries "1 rows · Lakehouse · just now"               |
+| /docs/secrets#shared-hosts                          | read the table                                                        | the credential row lists a model provider's key, the gateway's, n8n's, Firecrawl's and a connection's password, token or keys; the "not in this release" row is gone |
+
+The Lakehouse connection holds no credential, so its query shows the loader still loads, not that a
+shared password resolves; that is the test's half. Kept: the R420 chat on R293 budget probe 3.
+
 ## 2026-10-31 — R419: a shared secret goes only where its owner allows
 
 The R419 build from the main checkout, hot-deployed (healthy in 27 s; the server bundle carries the

@@ -1521,10 +1521,12 @@ export const Route = createFileRoute("/api/chat")({
                   .eq("is_active", true)
                   .maybeSingle();
                 if (gw?.is_active && gw.config) {
+                  const { integrationHosts } = await import("@/utils/providers/integrationHosts");
                   const cfg = (await resolveIntegrationConfig(
                     userId,
                     "llm_gateway",
                     gw.config as Record<string, unknown>,
+                    { sendTo: integrationHosts("llm_gateway") },
                   )) as {
                     base_url?: string;
                     api_key?: string;
@@ -1549,10 +1551,14 @@ export const Route = createFileRoute("/api/chat")({
                   .eq("is_active", true)
                   .maybeSingle();
                 if (n8n?.is_active && n8n.config) {
+                  // In a chat the token goes only to this agent's webhook
+                  // (n8nNotify below), so that is its destination (R420).
+                  const webhook = agentN8nWebhookUrl;
                   n8nGlobal = (await resolveIntegrationConfig(
                     userId,
                     "n8n",
                     n8n.config as Record<string, unknown>,
+                    { sendTo: () => (webhook ? [webhook] : undefined) },
                   )) as unknown as typeof n8nGlobal;
                 }
               }

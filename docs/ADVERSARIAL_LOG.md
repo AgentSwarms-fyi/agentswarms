@@ -109,6 +109,39 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-31 — R420: providers, connections and integrations name where a shared secret goes (VA-30)
+
+**What was left** after R419: every resolver call that names no destination takes owned secrets only, by
+design, and the saved-config reads of model providers, the LLM gateway, n8n, Firecrawl and warehouse
+connections named none. A grantee's own provider or connection therefore could not use a shared secret
+at all until each said where its credential goes.
+
+**Fix.** Each names the hosts its requests really reach, built the way the code that sends them builds
+them.
+
+- `src/utils/providers/integrationHosts.ts`: a provider's key goes to its base URL (Ollama's
+  `endpoint`), else the provider's own API; Gemini's also to Google, since its native streaming calls
+  `generativelanguage.googleapis.com` whatever the base URL says; vLLM has no default, so with no base URL
+  nothing shared resolves. The gateway and n8n go to their URL, Firecrawl to Firecrawl, a notification's
+  webhook URL nowhere shared. Wired at the own and the granted provider reads, the gateway override, the
+  health check and the Firecrawl and n8n tools. In a chat the n8n token is posted to the agent's own
+  webhook, not the instance, so there that webhook is its destination.
+- `src/utils/warehouse/destinations.ts`: a connection's password, token or keys go to the host its
+  driver connects to (`<account>.snowflakecomputing.com`, `redshift-data.<region>…`,
+  `athena.<region>…`, BigQuery and Google's token endpoint, the connection's host for the wire-protocol
+  families). Host, account, region, URL and server are not credential fields, so they take only the
+  owner's own secrets. `loadWarehouseConnection` resolves through `resolveCredentialConfig`; ETL passes
+  `into: "sandbox"` and gets owned secrets only.
+
+**Proved.** `sharedSecretDestinations.test.ts` (16): a shared OpenAI key through the real
+`resolveOpenAICompatTransport` (resolved toward `api.openai.com`, refused toward a base URL elsewhere); a
+shared Postgres password through the real `loadWarehouseConnection` (resolved toward the allowed host,
+refused toward another, refused as the host, refused into a sandbox); every URL literal in the provider
+transports, adapters and health tests is a default `integrationHosts` knows; the drivers still build the
+hosts `warehouseHosts` names. Mutation 14 of 14. From the UI on the R420 build: an Agent Chat turn
+(OpenRouter) answered; a Workbench query through the Lakehouse connection returned its row; the in-app
+Secrets page lists providers and connections among the credentials a shared secret fills.
+
 ### 2026-10-31 — R419: a shared secret goes only where its owner allows (VA-29, -30, -45, -46)
 
 **Finding** (VA-2026-10-25-30, recorded in R382 as two caller-chooses-endpoint paths). Sharing a secret by

@@ -69,9 +69,14 @@ A secret **shared with you** resolves only toward the hosts its owner listed
 under **Secrets → Allowed hosts**, and only in a field that is a credential:
 whoever writes a connection chooses its host, so without the owner's list a
 host aimed at their own server would receive the value (R419,
-VA-2026-10-25-30). In this release a warehouse connection takes only secrets
-you own; the in-app Secrets page has the table of where a shared one fills a
-credential today.
+VA-2026-10-25-30). For a connection that means its password, token or keys,
+checked against the host the driver connects to (R420): the connection's
+host for a Postgres, MySQL or SQL Server family database,
+`<account>.snowflakecomputing.com` for Snowflake, `redshift-data.<region>` and
+`athena.<region>.amazonaws.com` for Redshift and Athena, BigQuery's and
+Google's token endpoint for BigQuery. The host, account and region fields
+themselves take only secrets you own, and an ETL pipeline's connections only
+secrets its owner owns.
 
 ## Sharing a connection with your team
 

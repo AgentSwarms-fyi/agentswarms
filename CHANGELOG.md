@@ -21,9 +21,10 @@ development branch and may be ahead of the latest tag.
   either order with the build is safe). Every secret allows no host until its
   owner adds some under **Secrets → edit → Allowed hosts**, so a colleague's
   use of a shared secret stops, with an error naming the host to add, until
-  then. Your own secrets are unaffected. In this release model providers,
-  warehouse connections, notifications and other integrations take only
-  secrets you own. An ETL pipeline no longer runs on a connection shared with
+  then. Your own secrets are unaffected. Model providers, the LLM gateway,
+  n8n, Firecrawl and warehouse connections check a shared secret against the
+  host they send it to (R420); a notification's webhook URL takes only a
+  secret you own. An ETL pipeline no longer runs on a connection shared with
   its owner: ask the connection's owner to run it, or to give you your own.
 - **The lake's object store is SILO now** (R418). MinIO's own images can no
   longer be pulled, so Compose and the Kubernetes manifests run SILO, its
@@ -430,6 +431,15 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   destination takes only secrets you own, so one nobody wired cannot leak. The
   Secrets page edits and shows the list; the IAM share dialog warns before
   sharing a secret that allows no host.
+- **Providers, connections and integrations name where a shared secret goes**
+  (R420, VA-2026-10-25-30). A model provider's key is checked against its base
+  URL, or the provider's own API when none is set (Gemini's also against
+  Google, which its native streaming always calls); the gateway's against its
+  URL; n8n's against its instance, or in a chat against the agent's webhook it
+  is posted to; Firecrawl's against Firecrawl. A warehouse connection's
+  password, token or keys are checked against the host its driver connects to,
+  built the way the driver builds it; the host, account and region take only
+  the owner's own secrets.
 - **A pipeline no longer hands a shared connection's password to its code**
   (R419, VA-2026-10-25-45). ETL wrote the connection URL, password included,
   into the run's environment, so a grantee of a shared connection could print
