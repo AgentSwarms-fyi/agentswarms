@@ -15,6 +15,22 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-01 — R419 and R421 after their migrations were pushed
+
+The operator pushed both; `supabase migration list --linked` shows `20261102000000` (secret allowed
+hosts) and `20261103000000` (swarm run lockdown) on both sides. The R421 build was live first, as its
+migration requires. The checks that waited on the push:
+
+| Page / surface                                       | What was driven                                                   | Result                                                                                                  |
+| ---------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| /secrets → R419_PROBE_KEY → edit                     | Allowed hosts `host.docker.internal`, **Save**                    | saved; the table's **Can be sent to** reads `host.docker.internal`, updated 1 Nov 2026                  |
+| /admin/iam → Access → Secret → R419_PROBE_KEY        | read the line under the pickers                                   | "R419_PROBE_KEY: May be sent to host.docker.internal. …" as a note, no longer the no-host warning       |
+| /swarms → R109 chat echo → Run                       | a canvas run against the locked tables                            | recorded: "Nov 01 00:05:40 · R109 chat echo · success · 2 · 0"; no request to `/rest/v1/swarm_run*`    |
+| /swarms → Embed E2E Mini Swarm → Run, then **Stop**  | Cancel against the locked tables                                  | "Nov 01 00:06:30 · Embed E2E Mini Swarm · cancelled · 3 · 1 · 52/34 · $0.000028"                        |
+
+The console's "An unknown error occurred when fetching the script" during these runs is the PWA service
+worker this browser pane never registers (the app catches it; see earlier rounds), not the run.
+
 ## 2026-10-31 — R421: canvas runs record through the server only
 
 The R421 build from the main checkout, hot-deployed. Migration `20261103000000` is **not pushed yet**, so
