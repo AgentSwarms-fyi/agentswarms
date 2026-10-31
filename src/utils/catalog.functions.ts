@@ -22,6 +22,12 @@ import {
 } from "@/utils/catalog/crawler.server";
 import { nextCrawlAt } from "@/utils/catalog/schedule.server";
 import {
+  SOURCE_NAME_MAX,
+  SOURCE_NAME_PATTERN,
+  SOURCE_NAME_RULE,
+  SOURCE_NAME_TOO_LONG,
+} from "@/utils/catalog/sourceName";
+import {
   assertStoragePath,
   objectStoreCredentialFields,
   objectStoreHosts,
@@ -147,11 +153,12 @@ export const catalogCreateSource = createServerFn({ method: "POST" })
     z
       .object({
         access_token: z.string().min(1),
+        // The wizard checks the same rule before Continue (sourceName.ts).
         name: z
           .string()
           .min(1)
-          .max(60)
-          .regex(/^[a-zA-Z0-9_\- .]+$/, "Letters, numbers, spaces, - _ . only"),
+          .max(SOURCE_NAME_MAX, SOURCE_NAME_TOO_LONG)
+          .regex(SOURCE_NAME_PATTERN, SOURCE_NAME_RULE),
         kind: z.enum(["warehouse", "object_storage", "iceberg_rest"]),
         connection_id: z.string().uuid().optional(),
         storage: StorageConfigSchema.optional(),

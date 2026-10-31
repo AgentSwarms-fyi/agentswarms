@@ -15,6 +15,28 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-01 — R423: a catalog source name the server refuses, said in words
+
+Data Catalog → **Add** → Object storage bucket, Amazon S3, bucket `r423-probe`, made-up keys. Before: the
+R422 build that was running. After: a build of the working copy with `src/utils/catalog/sourceName.ts` and
+`src/lib/validatorError.ts`, hot-deployed into the app container. The page's `/_serverFn/` replies were
+recorded by a fetch wrapper; for the forged row it also rewrote the name in the request body after the
+wizard had let a good one through, since the form no longer sends a bad one.
+
+| What was driven                                                 | Before (R422 build)                                                                                                                                                                       | After (this build)                                                                                                                                                  |
+| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Source name "R423 name probe (parentheses)", every field filled | no message; **Continue** enabled; the name's placeholder read "Data lake (raw)"                                                                                                           | "Letters, numbers, spaces, - _ . only" under the field (`role="alert"`, the input `aria-invalid` and described by it); **Continue** disabled and pressing it does nothing; placeholder "Data lake raw" |
+| Name changed to "R423 name probe - parentheses"                 | —                                                                                                                                                                                         | the message is gone, `aria-invalid="false"`, **Continue** enabled                                                                                                   |
+| **Connect & crawl** with the parenthesised name reaching the server | the reply is a `$TSR/Error` whose message is the issue JSON; the dialog read `Not saved: [ { "origin": "string", "code": "invalid_format", "format": "regex", … "message": "Letters, numbers, spaces, - _ . only" } ]` and the toast the same JSON | the same reply, byte for byte; the dialog reads "Not saved: Source name: Letters, numbers, spaces, - _ . only" and the toast "Source name: Letters, numbers, spaces, - _ . only" |
+| Good name, Endpoint URL `not a url`, **Connect & crawl**        | `Not saved: [ { "code": "invalid_format", "format": "url", "path": [ "storage", "endpoint" ], "message": "Invalid URL" } ]`                                                                  | "Not saved: Endpoint URL: Invalid URL", toast the same                                                                                                              |
+| Endpoint URL `https://r423-nowhere.invalid`, **Connect & crawl** | —                                                                                                                                                                                         | an error that is not a validator's is shown as it was: "Not saved: r423-probe.r423-nowhere.invalid does not resolve from this server (ENOTFOUND), so nothing was sent to it" |
+| Reload the catalog, read the sources rail                       | —                                                                                                                                                                                         | Local tables, MinIO local etl demo, Lakehouse catalog, R422 private store - kept fixture: no R423 source                                                            |
+
+zod 4.6 reported the malformed endpoint as the URL check's own issue, not as its `.or(z.literal(""))`
+union's "Invalid input", so the helper reads each issue's message and nothing else. The console showed
+only the 404 of a mistyped first URL and the PWA service-worker message earlier rounds note. Nothing was
+saved: every refusal came before the store was written, so this round created no fixtures.
+
 ## 2026-11-01 — R422: object storage over private paths
 
 The R422 build from the main checkout, hot-deployed. A throwaway SILO container (`r422-store`, test

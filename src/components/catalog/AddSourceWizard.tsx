@@ -41,7 +41,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
+import { validatorErrorText } from "@/lib/validatorError";
 import { catalogCreateSource, catalogCrawlSource } from "@/utils/catalog.functions";
+import { sourceNameProblem } from "@/utils/catalog/sourceName";
 import { PRIVATE_PATH_HINT } from "@/utils/catalog/storageNetwork";
 import { listWarehouseConnections } from "@/utils/warehouse.functions";
 import { WAREHOUSE_LABELS, type WarehouseConnectionSummary } from "@/utils/warehouse/types";
@@ -107,6 +109,26 @@ const STORAGE_PRESETS: Record<
     pathStyle: true,
   },
 };
+
+/**
+ * The form's labels for the fields catalogCreateSource's validator names by
+ * path, so a refusal says which field it means.
+ */
+function validatorLabels(provider: StorageProvider): Record<string, string> {
+  const azure = provider === "azure";
+  return {
+    name: "Source name",
+    "storage.region": "Region",
+    "storage.endpoint": "Endpoint URL",
+    "storage.bucket": azure ? "Container" : "Bucket",
+    "storage.prefix": "Prefix",
+    "storage.access_key_id": azure ? "Storage account name" : "Access key ID",
+    "storage.secret_access_key": azure ? "Account key or SAS token" : "Secret access key",
+    "iceberg.uri": "Catalog URI",
+    "iceberg.warehouse": "Warehouse",
+    "iceberg.token": "Bearer token",
+  };
+}
 
 type CrawlResult = {
   assets: number;
@@ -194,8 +216,11 @@ export function AddSourceWizard({
     setEndpoint(preset.endpoint); // fixed for GCS, empty prompt otherwise
   }
 
+  // The server's rule, checked here so it is read beside the field (sourceName.ts).
+  const nameProblem = sourceNameProblem(name);
   const configValid =
     name.trim().length > 0 &&
+    nameProblem === null &&
     (kind === "warehouse"
       ? connectionId !== ""
       : kind === "iceberg_rest"
@@ -261,8 +286,10 @@ export function AddSourceWizard({
       setPhase("done");
       onDone();
     } catch (e) {
-      toast.error((e as Error).message);
-      setConnectError((e as Error).message);
+      // A validator's refusal arrives as its issue JSON; show its sentence.
+      const message = validatorErrorText(e, validatorLabels(provider));
+      toast.error(message);
+      setConnectError(message);
       setPhase("idle");
     } finally {
       setBusy(false);
@@ -340,13 +367,23 @@ export function AddSourceWizard({
         {step === "configure" && (
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label className="text-xs">Source name</Label>
+              <Label className="text-xs" htmlFor="source-name">
+                Source name
+              </Label>
               <Input
+                id="source-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder={kind === "warehouse" ? "Production warehouse" : "Data lake (raw)"}
+                placeholder={kind === "warehouse" ? "Production warehouse" : "Data lake raw"}
                 className="h-9 text-sm"
+                aria-invalid={nameProblem !== null}
+                aria-describedby={nameProblem ? "source-name-problem" : undefined}
               />
+              {nameProblem ? (
+                <p id="source-name-problem" role="alert" className="text-[11px] text-destructive">
+                  {nameProblem}
+                </p>
+              ) : null}
             </div>
 
             {kind === "warehouse" ? (

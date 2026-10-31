@@ -910,6 +910,14 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **A Data Catalog source name the server refuses is said in words** (R423).
+  A name with parentheses passed the Add source wizard's Continue, and Connect
+  & crawl then showed the validator's issue JSON in the dialog. The wizard now
+  checks the server's own rule beside the name field ("Letters, numbers,
+  spaces, - _ . only", 60 characters at most) and holds Continue until it
+  passes, and a validator error that does reach the dialog is shown as its
+  message after the field's label. The name's placeholder, "Data lake (raw)",
+  was itself a name the server refuses; it is "Data lake raw" now.
 - **A Data Catalog Iceberg source with a `{{secret:NAME}}` token crawls**
   (R419). The token was resolved for the create-time test and stored as typed,
   so every crawl sent the literal braces as the bearer token. It resolves at

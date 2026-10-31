@@ -117,8 +117,9 @@ describe("the Add source wizard's last step", () => {
   it("keeps why the source was not saved in the dialog, after the toast is gone", () => {
     const run = WIZARD.slice(WIZARD.indexOf("async function connectAndCrawl() {"));
     expect(run.slice(0, 200)).toContain("setConnectError(null);");
+    // One message for both, a validator's issue JSON said as its sentence.
     expect(run).toMatch(
-      /\} catch \(e\) \{\s*toast\.error\(\(e as Error\)\.message\);\s*setConnectError\(\(e as Error\)\.message\);/,
+      /\} catch \(e\) \{[^}]*const message = validatorErrorText\(e, [^;]*\);\s*toast\.error\(message\);\s*setConnectError\(message\);/,
     );
     const step = WIZARD.slice(WIZARD.indexOf('{step === "crawl" && ('));
     expect(step).toMatch(
