@@ -41,7 +41,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { sampleObject, type ObjectStoreConfig } from "./objectStore.server";
+import { assertStoragePath, sampleObject, type ObjectStoreConfig } from "./objectStore.server";
 import { assertEndpointAllowed } from "./objectStoreRead.server";
 
 const run = promisify(execFile);
@@ -154,6 +154,7 @@ export async function runOrcIsolated(
   sqlFor: (localPath: string) => string,
 ): Promise<OrcResult> {
   await assertEndpointAllowed(cfg.endpoint);
+  await assertStoragePath(cfg);
 
   let tmp: { dir: string; file: string } | null = null;
   try {

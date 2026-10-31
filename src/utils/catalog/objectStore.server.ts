@@ -11,6 +11,8 @@ import {
   azureTestObjectStore,
 } from "./azureBlob.server";
 import { safeFetch } from "@/utils/ssrfGuard.server";
+import { assertPrivatePath } from "@/utils/providers/connectivityPath.server";
+import { isCloudStorageHost } from "./storageNetwork";
 import { cloudRegion } from "@/utils/providers/cloudRegion";
 import { createHash, createHmac } from "node:crypto";
 import zlib from "node:zlib";
@@ -38,6 +40,13 @@ export type ObjectStoreConfig = {
   path_style?: boolean;
   access_key_id: string;
   secret_access_key: string;
+  /**
+   * Require a private network path (R422): every request is refused, before it
+   * is made, unless the store's host resolves only to private addresses from
+   * this server. Off by default; a private endpoint or private DNS name is
+   * the deployment's choice, not an assumption.
+   */
+  require_private?: boolean;
 };
 
 export type StoredObject = { key: string; size: number; last_modified: string };
@@ -95,6 +104,29 @@ export function assertStorageNames(
 export function objectStoreHosts(cfg: ObjectStoreConfig): string[] {
   if (cfg.provider === "azure") return [new URL(azureOrigin(cfg)).hostname];
   return [new URL(resolveTarget(cfg).origin).hostname];
+}
+
+/**
+ * Refuse, before any request, a store set to require a private network path
+ * whose host would be reached at a public address, or not resolved at all
+ * (R422). Object-store requests go direct, not through the proxy, so the
+ * proxy is not a way round it. Every reader calls this: the signed S3 and
+ * Azure requests, the DuckDB reads, the lake mounts and an ETL run's start.
+ */
+export async function assertStoragePath(
+  cfg: ObjectStoreConfig,
+  onRefuse?: (detail: string) => void,
+): Promise<void> {
+  if (!cfg.require_private) return;
+  for (const host of objectStoreHosts(cfg)) {
+    await assertPrivatePath(`https://${host}`, `The object store "${cfg.bucket}"`, onRefuse, {
+      direct: true,
+      // Object-store requests never use the proxy, so it is not offered.
+      advice:
+        "Check the private endpoint's DNS zone, or enter the store's private endpoint as its " +
+        "Endpoint URL.",
+    });
+  }
 }
 
 /**
@@ -195,6 +227,7 @@ async function s3Get(
   query: Record<string, string>,
   extraHeaders: Record<string, string> = {},
 ): Promise<Response> {
+  await assertStoragePath(cfg);
   const { origin, host, basePath } = resolveTarget(cfg);
   const canonicalUri = awsUriEncode(`${basePath}/${keyPath}`.replace(/\/{2,}/g, "/"), false) || "/";
   const amzDate = new Date()
@@ -227,6 +260,9 @@ async function s3Get(
     method: "GET",
     headers: { ...sendHeaders, Authorization: authorization },
     signal: AbortSignal.timeout(30_000),
+    // A cloud's own storage name resolving privately is PrivateLink or a
+    // private DNS zone, allowed even under BLOCK_PRIVATE_NETWORK_FETCH (R422).
+    allowPrivateHost: isCloudStorageHost,
   });
 }
 

@@ -21,7 +21,12 @@
 // no predicate push-down into Parquet; the same bounded-materialisation shape
 // the warehouse and prep paths already use.
 import { azureConnectionString } from "./azureBlob.server";
-import { assertStorageNames, type ObjectStoreConfig } from "./objectStore.server";
+import {
+  assertStorageNames,
+  assertStoragePath,
+  type ObjectStoreConfig,
+} from "./objectStore.server";
+import { isCloudStorageHost } from "./storageNetwork";
 import { toJsValue } from "@/lib/duckdbValues";
 import { assertPublicUrl, isBlockedAlways, isPrivateNetwork } from "@/utils/ssrfGuard.server";
 
@@ -116,8 +121,12 @@ export async function assertEndpointAllowed(endpoint: string | undefined): Promi
   }
   // The checks above see the name as typed. DuckDB resolves it itself, so
   // resolve it here too: a public-looking name whose address is the metadata
-  // endpoint used to pass (R387). Same policy, applied to every address.
-  const resolved = await assertPublicUrl(url.toString());
+  // endpoint used to pass (R387). Same policy, applied to every address, except
+  // that a cloud's own storage name may resolve privately even under
+  // BLOCK_PRIVATE_NETWORK_FETCH: that is PrivateLink or a private DNS zone (R422).
+  const resolved = await assertPublicUrl(url.toString(), {
+    allowPrivate: isCloudStorageHost(url.hostname) || undefined,
+  });
   if (!resolved.ok) throw new Error(resolved.error);
 }
 
@@ -155,6 +164,7 @@ async function configure(
   cfg: ObjectStoreConfig,
 ): Promise<void> {
   await assertEndpointAllowed(cfg.endpoint);
+  await assertStoragePath(cfg);
   assertStorageNames(cfg);
   if (cfg.provider === "azure") {
     // Azure is read through DuckDB's azure extension, not httpfs. The secret

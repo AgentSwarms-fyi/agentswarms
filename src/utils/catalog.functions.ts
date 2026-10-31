@@ -22,11 +22,14 @@ import {
 } from "@/utils/catalog/crawler.server";
 import { nextCrawlAt } from "@/utils/catalog/schedule.server";
 import {
+  assertStoragePath,
   objectStoreCredentialFields,
   objectStoreHosts,
   testObjectStore,
   type ObjectStoreConfig,
 } from "@/utils/catalog/objectStore.server";
+import { describeConnectivity } from "@/utils/providers/connectivityPath.server";
+import { auditEvent } from "@/utils/audit.server";
 import type { ObjectStoreTable } from "@/utils/catalog/objectStoreQuery.server";
 import { callerFailure } from "@/utils/callerLookup.server";
 import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
@@ -61,6 +64,8 @@ const StorageConfigSchema = z.object({
   path_style: z.boolean().optional(),
   access_key_id: z.string().min(1).max(512),
   secret_access_key: z.string().min(1).max(512),
+  /** Require a private network path for every read of this store (R422). */
+  require_private: z.boolean().optional(),
 });
 
 type StorageConfigInput = z.infer<typeof StorageConfigSchema>;
@@ -81,7 +86,24 @@ function normalizeStorage(cfg: StorageConfigInput): ObjectStoreConfig {
     path_style: cfg.path_style ?? Boolean(cfg.endpoint),
     access_key_id: cfg.access_key_id.trim(),
     secret_access_key: cfg.secret_access_key,
+    ...(cfg.require_private ? { require_private: true } : {}),
   };
+}
+
+/**
+ * The path a store's requests take from this server, in one line for the
+ * person who just connected it: "direct to 10.0.4.7 (private); certificate
+ * for …". Object-store requests go direct, so the proxy is not part of it.
+ */
+async function storagePath(cfg: ObjectStoreConfig): Promise<string | undefined> {
+  try {
+    const host = objectStoreHosts(cfg)[0];
+    const base = cfg.endpoint ? new URL(cfg.endpoint) : null;
+    const url = `${base?.protocol ?? "https:"}//${host}${base?.port ? `:${base.port}` : ""}`;
+    return (await describeConnectivity(url, { tls: true, direct: true })).summary;
+  } catch {
+    return undefined;
+  }
 }
 
 type CatalogError = { ok: false; error: string };
@@ -137,84 +159,101 @@ export const catalogCreateSource = createServerFn({ method: "POST" })
       })
       .parse(input),
   )
-  .handler(async ({ data }): Promise<CatalogError | { ok: true; source_id: string }> => {
-    try {
-      const { sb, userId } = await requireUser(data.access_token);
+  .handler(
+    async ({ data }): Promise<CatalogError | { ok: true; source_id: string; path?: string }> => {
+      try {
+        const { sb, userId } = await requireUser(data.access_token);
 
-      let config: Json = {};
-      let credentials: Json | null = null;
-      let connectionId: string | null = null;
+        let config: Json = {};
+        let credentials: Json | null = null;
+        let connectionId: string | null = null;
+        let path: string | undefined;
 
-      if (data.kind === "warehouse") {
-        if (!data.connection_id) return { ok: false, error: "Pick a warehouse connection" };
-        // Validates ownership (RLS) + that credentials decrypt.
-        await loadWarehouseConnectionForUser(sb, { connectionId: data.connection_id }, userId);
-        connectionId = data.connection_id;
-      } else if (data.kind === "iceberg_rest") {
-        if (!data.iceberg) return { ok: false, error: "Iceberg catalog configuration is required" };
-        // Connectivity + auth check with the token resolved. The caller typed
-        // the URI, so a secret shared with them fills the token only toward a
-        // host its owner allowed, and never the URI or warehouse (R419).
-        const live = await resolveCredentialConfig(
-          userId,
-          data.iceberg as IcebergRestConfig,
-          ["token"],
-          (c) => [c.uri],
-        );
-        await testIcebergCatalog(live);
-        // Public config keeps uri + warehouse; the bearer token is encrypted.
-        config = { uri: data.iceberg.uri, warehouse: data.iceberg.warehouse ?? null } as Json;
-        credentials = data.iceberg.token
-          ? ((await encryptJson({ token: data.iceberg.token })) as unknown as Json)
-          : null;
-      } else {
-        if (!data.storage) return { ok: false, error: "Storage configuration is required" };
-        const cfg = normalizeStorage(data.storage);
-        if (!cfg.endpoint && cfg.provider !== "aws") {
-          return { ok: false, error: "This provider needs an endpoint URL" };
+        if (data.kind === "warehouse") {
+          if (!data.connection_id) return { ok: false, error: "Pick a warehouse connection" };
+          // Validates ownership (RLS) + that credentials decrypt.
+          await loadWarehouseConnectionForUser(sb, { connectionId: data.connection_id }, userId);
+          connectionId = data.connection_id;
+        } else if (data.kind === "iceberg_rest") {
+          if (!data.iceberg)
+            return { ok: false, error: "Iceberg catalog configuration is required" };
+          // Connectivity + auth check with the token resolved. The caller typed
+          // the URI, so a secret shared with them fills the token only toward a
+          // host its owner allowed, and never the URI or warehouse (R419).
+          const live = await resolveCredentialConfig(
+            userId,
+            data.iceberg as IcebergRestConfig,
+            ["token"],
+            (c) => [c.uri],
+          );
+          await testIcebergCatalog(live);
+          // Public config keeps uri + warehouse; the bearer token is encrypted.
+          config = { uri: data.iceberg.uri, warehouse: data.iceberg.warehouse ?? null } as Json;
+          credentials = data.iceberg.token
+            ? ((await encryptJson({ token: data.iceberg.token })) as unknown as Json)
+            : null;
+        } else {
+          if (!data.storage) return { ok: false, error: "Storage configuration is required" };
+          const cfg = normalizeStorage(data.storage);
+          if (!cfg.endpoint && cfg.provider !== "aws") {
+            return { ok: false, error: "This provider needs an endpoint URL" };
+          }
+          // Connectivity check before anything is stored. The caller typed the
+          // endpoint, so a secret shared with them fills only the keys, toward a
+          // host its owner allowed (R419, VA-2026-10-25-30); every crawl after
+          // this resolves the same way (loadStorageConfig).
+          const live = await resolveCredentialConfig(
+            userId,
+            cfg as ObjectStoreConfig,
+            objectStoreCredentialFields(cfg),
+            objectStoreHosts,
+          );
+          // A store set to require a private path is refused before the test
+          // sends anything when it would be reached publicly; that is audited,
+          // like a model provider's (R422).
+          await assertStoragePath(live, (detail) =>
+            auditEvent({
+              userId,
+              action: "storage.private_path.refused",
+              resourceType: "catalog_source",
+              resourceName: data.name,
+              detail: { reason: detail },
+            }),
+          );
+          await testObjectStore(live);
+          path = await storagePath(live);
+          const { access_key_id: _a, secret_access_key: _s, ...publicCfg } = cfg;
+          config = publicCfg as unknown as Json;
+          credentials = (await encryptJson(cfg)) as unknown as Json;
         }
-        // Connectivity check before anything is stored. The caller typed the
-        // endpoint, so a secret shared with them fills only the keys, toward a
-        // host its owner allowed (R419, VA-2026-10-25-30); every crawl after
-        // this resolves the same way (loadStorageConfig).
-        const live = await resolveCredentialConfig(
-          userId,
-          cfg as ObjectStoreConfig,
-          objectStoreCredentialFields(cfg),
-          objectStoreHosts,
-        );
-        await testObjectStore(live);
-        const { access_key_id: _a, secret_access_key: _s, ...publicCfg } = cfg;
-        config = publicCfg as unknown as Json;
-        credentials = (await encryptJson(cfg)) as unknown as Json;
-      }
 
-      const { data: row, error } = await sb
-        .from("catalog_sources")
-        .insert({
-          user_id: userId,
-          kind: data.kind,
-          name: data.name.trim(),
-          connection_id: connectionId,
-          config,
-          credentials,
-        })
-        .select("id")
-        .single();
-      if (error || !row) {
-        return {
-          ok: false,
-          error:
-            error?.code === "23505"
-              ? "A source with this name already exists"
-              : (error?.message ?? "Failed"),
-        };
+        const { data: row, error } = await sb
+          .from("catalog_sources")
+          .insert({
+            user_id: userId,
+            kind: data.kind,
+            name: data.name.trim(),
+            connection_id: connectionId,
+            config,
+            credentials,
+          })
+          .select("id")
+          .single();
+        if (error || !row) {
+          return {
+            ok: false,
+            error:
+              error?.code === "23505"
+                ? "A source with this name already exists"
+                : (error?.message ?? "Failed"),
+          };
+        }
+        return { ok: true, source_id: row.id, ...(path ? { path } : {}) };
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : "Failed" };
       }
-      return { ok: true, source_id: row.id };
-    } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : "Failed" };
-    }
-  });
+    },
+  );
 
 export const catalogCrawlSource = createServerFn({ method: "POST" })
   .validator((input: unknown) =>

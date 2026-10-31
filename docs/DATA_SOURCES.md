@@ -443,6 +443,25 @@ scheduled pass leaves the source alone (R315). A crawl that died leaves its
 claim; another may take it once the source has not changed for
 `CATALOG_CRAWL_LEASE_MINUTES` (60 by default).
 
+### Reaching a bucket over a private path
+
+Public is the default. A bucket may also be reached over a cloud private endpoint or a VPN, and
+the **Network** box in **Add source** says how, per provider: an S3 interface endpoint goes in
+the Endpoint URL (`https://vpce-….s3.<region>.vpce.amazonaws.com`; AWS's endpoint is optional),
+GCS Private Service Connect likewise (`https://storage-<endpoint>.p.googleapis.com`), and Azure
+Private Link keeps `<account>.blob.core.windows.net`, resolved privately by its DNS zone. The
+test then says how the store was reached ("Reached direct to 10.0.4.7 (private)").
+
+**Require a private network path** refuses every read, before it is sent, unless the store's
+host resolves only to private addresses from the app server, so a broken DNS zone fails loudly
+instead of reading over the internet. It covers crawls, queries, lake mounts and ETL runs, and a
+refusal when the source is added is audited (`storage.private_path.refused`).
+
+With `BLOCK_PRIVATE_NETWORK_FETCH=true`, the clouds' own storage names (S3, GCS and Azure
+Blob/Data Lake names, including their private endpoint forms) may still resolve to a private
+address; every other host, a self-hosted MinIO included, stays under the switch. Design and
+tests: [Private connectivity](./PRIVATE_GENAI_CONNECTIVITY.md#phase-3--data-sources-over-private-paths--planned-requested-2026-10-28).
+
 ## Staying connected
 
 Three things run underneath every connection. All are tuned by the operator —

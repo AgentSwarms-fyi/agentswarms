@@ -143,7 +143,8 @@ Cross-cutting:
   is one) and refuse only metadata/link-local, so private endpoints pass.
   Object-store reads honour `BLOCK_PRIVATE_NETWORK_FETCH`, which would also
   refuse an S3/Blob private endpoint — that is a data-source concern, not GenAI,
-  tracked separately.
+  tracked separately (closed in Phase 3, R422: a cloud's own storage names are
+  exempt).
 
 ## Gaps
 
@@ -307,6 +308,49 @@ It includes the object-store private-endpoint exemption from `BLOCK_PRIVATE_NETW
 VA-14 residual). Done when: per-connector tests and mutation checks, a UI round per connector
 family (real cloud connections cannot be made here; local stand-ins can), and the in-repo and
 in-app docs updated. The security campaign continues alongside it.
+
+Built family by family: **object storage (R422, done)**, then databases, warehouses, and the
+lakehouse's catalogs.
+
+**Object storage, as built (R422):**
+
+1. **Private endpoints.** AWS now has an optional Endpoint URL, so an S3 interface endpoint
+   (`https://vpce-….s3.<region>.vpce.amazonaws.com`, the bucket added in front unless path-style
+   is on) can be entered; GCS takes a Private Service Connect name
+   (`https://storage-<endpoint>.p.googleapis.com`); Azure Private Link keeps
+   `<account>.blob.core.windows.net` and resolves it privately; R2, Spaces, B2, MinIO and custom
+   endpoints are reached over the internet or a VPN. The form's **Network** box says which, per
+   provider (`PRIVATE_PATH_HINT`, `src/utils/catalog/storageNetwork.ts`).
+2. **The path, reported.** Adding a source tests it and says how it was reached: "Reached direct
+   to 172.19.0.12 (private)", with the certificate for an https endpoint. Object-store requests
+   go direct, never through the corporate proxy, so the report never says "via proxy".
+3. **Require a private network path**, per source, off by default (`require_private` on the
+   source's config). `assertStoragePath` refuses, before anything is sent, a store whose host
+   resolves to a public address or not at all from the app server, with advice for a store (its
+   DNS zone or its Endpoint URL; the proxy is no way round it). Every reader calls it: the signed
+   S3 and Azure requests, DuckDB's reads and ORC reads, a lake mount when it is made and when the
+   engine registers its secret, and an ETL run's start. A refusal while adding a source is audited
+   as `storage.private_path.refused`.
+4. **The `BLOCK_PRIVATE_NETWORK_FETCH` exemption (VA-14's residual).** With the switch on, a
+   cloud's own storage name may resolve to a private address: S3 names
+   (`s3.<region>.amazonaws.com`, a bucket in front, the dual-stack and FIPS forms, interface
+   endpoints), `storage.googleapis.com` and `storage-*.p.googleapis.com`, and Azure
+   `<account>.blob|dfs.core.windows.net`. A private address there is PrivateLink or a private DNS
+   zone, not an internal service. Not the whole cloud domain: an EC2 instance's public DNS name
+   ends in `amazonaws.com` and resolves to its private address inside a VPC, and an Azure SQL
+   server is `*.database.windows.net`. The exemption is decided per redirect hop
+   (`safeFetch`'s `allowPrivateHost`), so a storage name cannot hand a request on to an internal
+   host. A self-hosted MinIO stays under the switch.
+
+Tested (`storagePrivatePath.test.ts`, 14): the storage names and the look-alikes that must not
+count; the rule passing a private store, refusing a public or unresolved one with the store's
+advice, checking the virtual-hosted bucket's host, and ignoring `HTTPS_PROXY`; the exemption
+allowing a cloud name and refusing any other private host, per hop, in `safeFetch` and in
+DuckDB's guard; and every reader's call. Mutation 14 of 14 (the first run 13: no Azure negative
+case; `myserver.database.windows.net` now is one). From the UI with a throwaway SILO on the app
+network (UI_TEST_RESULTS, 2026-11-01): a public S3 name with the rule on was refused before
+sending and audited; the private store connected and said "Reached direct to 172.19.0.12
+(private)".
 
 ### How it would be tested
 

@@ -42,6 +42,7 @@ import {
 } from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
 import { catalogCreateSource, catalogCrawlSource } from "@/utils/catalog.functions";
+import { PRIVATE_PATH_HINT } from "@/utils/catalog/storageNetwork";
 import { listWarehouseConnections } from "@/utils/warehouse.functions";
 import { WAREHOUSE_LABELS, type WarehouseConnectionSummary } from "@/utils/warehouse/types";
 
@@ -139,6 +140,8 @@ export function AddSourceWizard({
   const [phase, setPhase] = useState<"idle" | "connecting" | "crawling" | "done">("idle");
   const [result, setResult] = useState<CrawlResult | null>(null);
   const [crawlError, setCrawlError] = useState<string | null>(null);
+  // The path the store's requests took when it was tested (R422).
+  const [reachedVia, setReachedVia] = useState<string | null>(null);
   // Why the source could not be saved, kept in the dialog (R368): a toast is
   // gone in seconds, and the dialog then showed nothing at all.
   const [connectError, setConnectError] = useState<string | null>(null);
@@ -156,6 +159,7 @@ export function AddSourceWizard({
   const [accessKey, setAccessKey] = useState("");
   const [secretKey, setSecretKey] = useState("");
   const [pathStyle, setPathStyle] = useState(false);
+  const [requirePrivate, setRequirePrivate] = useState(false);
 
   // Iceberg REST catalog config
   const [icebergUri, setIcebergUri] = useState("");
@@ -168,6 +172,8 @@ export function AddSourceWizard({
     setPhase("idle");
     setResult(null);
     setCrawlError(null);
+    setReachedVia(null);
+    setRequirePrivate(false);
     setName("");
     setBusy(false);
   }, [open]);
@@ -222,6 +228,7 @@ export function AddSourceWizard({
                   path_style: pathStyle,
                   access_key_id: accessKey.trim(),
                   secret_access_key: secretKey,
+                  require_private: requirePrivate || undefined,
                 }
               : undefined,
           iceberg:
@@ -235,6 +242,7 @@ export function AddSourceWizard({
         },
       });
       if (!created.ok) throw new Error(created.error);
+      setReachedVia(created.path ?? null);
       setPhase("crawling");
       const crawled = await crawlFn({
         data: { access_token: token, source_id: created.source_id },
@@ -444,17 +452,22 @@ export function AddSourceWizard({
                     />
                   </div>
                 </div>
-                {provider !== "aws" && (
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Endpoint URL</Label>
-                    <Input
-                      value={endpoint}
-                      onChange={(e) => setEndpoint(e.target.value)}
-                      className="h-9 font-mono text-xs"
-                      placeholder={STORAGE_PRESETS[provider].endpointHint}
-                    />
-                  </div>
-                )}
+                <div className="space-y-1.5">
+                  <Label className="text-xs" htmlFor="storage-endpoint">
+                    {provider === "aws" ? "Endpoint URL (optional)" : "Endpoint URL"}
+                  </Label>
+                  <Input
+                    id="storage-endpoint"
+                    value={endpoint}
+                    onChange={(e) => setEndpoint(e.target.value)}
+                    className="h-9 font-mono text-xs"
+                    placeholder={
+                      provider === "aws"
+                        ? "empty = s3.<region>.amazonaws.com, or an S3 interface endpoint"
+                        : STORAGE_PRESETS[provider].endpointHint
+                    }
+                  />
+                </div>
                 <div className="grid grid-cols-2 gap-2.5">
                   <div className="space-y-1.5">
                     <Label className="text-xs">
@@ -510,6 +523,28 @@ export function AddSourceWizard({
                   Path-style addressing (endpoint/bucket/key — required by MinIO, default for custom
                   endpoints)
                 </label>
+                <div className="space-y-1.5 rounded-md border border-border bg-muted/30 px-3 py-2">
+                  <p className="text-xs font-medium">Network</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Public is the default. {PRIVATE_PATH_HINT[provider]} The test shows which
+                    address it was reached at.
+                  </p>
+                  <label className="flex cursor-pointer items-start gap-2 text-xs">
+                    <Checkbox
+                      checked={requirePrivate}
+                      onCheckedChange={(v) => setRequirePrivate(v === true)}
+                      aria-label="Require a private network path"
+                    />
+                    <span>
+                      Require a private network path
+                      <span className="block text-[11px] text-muted-foreground">
+                        Every read is refused, before it is sent, unless the store resolves to a
+                        private address from this server — so a broken DNS zone fails loudly instead
+                        of reading over the internet.
+                      </span>
+                    </span>
+                  </label>
+                </div>
                 <p className="text-[11px] text-muted-foreground">
                   Tip: fields accept{" "}
                   <code className="rounded bg-muted px-1">{"{{secret:NAME}}"}</code> references from
@@ -582,6 +617,9 @@ export function AddSourceWizard({
                         {(result.duration_ms / 1000).toFixed(1)}s
                       </p>
                     )}
+                    {reachedVia ? (
+                      <p className="text-xs text-muted-foreground">Reached {reachedVia}.</p>
+                    ) : null}
                     {result?.unread ? (
                       <p className="text-xs text-amber-600 dark:text-amber-400">
                         {result.unread} part(s) of the catalog could not be read and are not listed

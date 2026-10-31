@@ -210,6 +210,10 @@ export async function resolveRunEnv(
     // Into the run's environment, which the pipeline's own code reads: only
     // secrets the owner owns resolve there (R419, VA-2026-10-25-29).
     const cfg = await loadStorageConfig(pipeline.user_id, src, { into: "sandbox" });
+    // A source that requires a private path is checked before the run starts,
+    // from this server: the sandbox reaches it through the same network (R422).
+    const { assertStoragePath } = await import("@/utils/catalog/objectStore.server");
+    await assertStoragePath(cfg);
     const keyPrefix = (cfg.prefix ?? "").replace(/^\/+|\/+$/g, "");
     const scoped = `${cfg.bucket}${keyPrefix ? `/${keyPrefix}` : ""}`;
     // Targets take a bucket URL (what the loader wants); sources take the

@@ -20,6 +20,10 @@
 //   endpoint          = optional override (Azurite, sovereign clouds)
 import { createHmac } from "node:crypto";
 import { safeFetch } from "@/utils/ssrfGuard.server";
+import { isCloudStorageHost } from "./storageNetwork";
+// Called at request time only, so the cycle with objectStore.server (which
+// dispatches to this module) never runs during loading.
+import { assertStoragePath } from "./objectStore.server";
 
 import type { ObjectStoreConfig, StoredObject } from "./objectStore.server";
 
@@ -131,6 +135,7 @@ async function azureGet(
   query: Record<string, string>,
   range?: string,
 ): Promise<Response> {
+  await assertStoragePath(cfg);
   const origin = azureOrigin(cfg);
   const resourcePath = `/${cfg.bucket}${blobPath ? `/${blobPath}` : ""}`;
   const headers: Record<string, string> = {
@@ -157,7 +162,14 @@ async function azureGet(
   }
 
   const url = `${origin}${encodePath(resourcePath)}${q.toString() ? `?${q}` : ""}`;
-  return safeFetch(url, { method: "GET", headers, signal: AbortSignal.timeout(30_000) });
+  // A private endpoint's name resolves privately; allowed under
+  // BLOCK_PRIVATE_NETWORK_FETCH for the account's own name only (R422).
+  return safeFetch(url, {
+    method: "GET",
+    headers,
+    signal: AbortSignal.timeout(30_000),
+    allowPrivateHost: isCloudStorageHost,
+  });
 }
 
 function tag(block: string, name: string): string | null {

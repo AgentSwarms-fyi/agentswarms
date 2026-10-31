@@ -253,6 +253,10 @@ export async function ensureLakeSecrets(c: DuckDBConnection): Promise<void> {
         .maybeSingle();
       if (!src) continue;
       const cfg = await loadStorageConfig(mount.user_id, src);
+      // A mount whose source requires a private path, reached publicly, gets
+      // no secret: its reads fail rather than travel over the internet (R422).
+      const { assertStoragePath } = await import("@/utils/catalog/objectStore.server");
+      await assertStoragePath(cfg);
       const cleanPrefix = cfg.prefix ? `/${cfg.prefix.replace(/^\/+|\/+$/g, "")}` : "";
       // SCOPE confines the credential to its own container/bucket and prefix,
       // whichever cloud it lives in. Azure mounts are read through the azure

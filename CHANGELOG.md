@@ -72,6 +72,18 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Object storage over private paths** (R422, private connectivity Phase 3).
+  A catalog source's **Network** box says how each provider is reached
+  privately: an S3 interface endpoint (AWS now takes an optional Endpoint
+  URL), a GCS Private Service Connect name, or Azure Private Link's own name
+  resolved privately. Adding a source reports how it was reached ("Reached
+  direct to 10.0.4.7 (private)"). **Require a private network path**, per
+  source and off by default, refuses every read before it is sent unless the
+  store resolves only to private addresses: crawls, queries, lake mounts and
+  ETL runs; a refusal while adding a source is audited
+  (`storage.private_path.refused`). With `BLOCK_PRIVATE_NETWORK_FETCH` on, the
+  clouds' own storage names may still resolve privately (a private endpoint),
+  decided per redirect hop; any other host stays under the switch.
 - **One default model, and a section's own model always first.** Every
   surface that calls a model — agent chat, swarm nodes, BI, Ask over an
   ontology, AI in SQL, the Sheets assistant, document reading, memory,

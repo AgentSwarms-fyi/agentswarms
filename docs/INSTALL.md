@@ -449,7 +449,9 @@ built-in fetcher — so it's routed through
 the same SSRF guard as swarm HTTP nodes and connector tests: cloud instance
 metadata / link-local addresses are always refused, and you can block all
 private/internal targets with `BLOCK_PRIVATE_NETWORK_FETCH=true` (recommended
-for public embeds / untrusted multi-tenant installs).
+for public embeds / untrusted multi-tenant installs). The clouds' own storage
+names are the exception: an S3, GCS or Azure Blob name resolving privately is a
+private endpoint, so a catalog source reached that way keeps working.
 
 ## 5. Run the app
 

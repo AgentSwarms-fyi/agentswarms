@@ -389,7 +389,7 @@ SITE_URL="https://your-domain.com"`}</Code>
         rows={[
           [
             <C key="a">BLOCK_PRIVATE_NETWORK_FETCH</C>,
-            "Refuse outbound requests to private, loopback and link-local addresses, including cloud metadata endpoints.",
+            "Refuse outbound requests to private, loopback and link-local addresses, including cloud metadata endpoints. A cloud's own object-storage name (S3, GCS, Azure Blob) may still resolve privately: that is a private endpoint.",
           ],
           [
             <C key="b">ALLOW_PRIVATE_NETWORK_FETCH</C>,

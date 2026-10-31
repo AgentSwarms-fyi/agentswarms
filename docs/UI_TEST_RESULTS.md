@@ -15,6 +15,25 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-01 — R422: object storage over private paths
+
+The R422 build from the main checkout, hot-deployed. A throwaway SILO container (`r422-store`, test
+credentials made for it, bucket `r422` with one CSV) on the app's network stands in for a private
+store: the app resolves `r422-store` to 172.19.0.12. Real cloud private endpoints cannot be made here.
+
+| Page / surface                                         | What was driven                                                                                     | Result                                                                                                                                                                                                                                            |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Data Catalog → Add → Object storage bucket (Amazon S3) | the form                                                                                            | an optional **Endpoint URL** for AWS ("empty = s3.<region>.amazonaws.com, or an S3 interface endpoint"), a **Network** box with the provider's hint, and **Require a private network path**                                                       |
+| … AWS, no endpoint, bucket `r422-public-probe`, rule on | made-up keys, **Connect & crawl**                                                                   | "Not saved: The object store "r422-public-probe" is set to require a private network path, but r422-public-probe.s3.us-east-1.amazonaws.com resolves to a public address (52.217.90.168, 16.15.252.183) from this server, so the call was not sent." |
+| Audit Log                                              | the newest rows                                                                                     | `storage.private_path.refused` · "R422 public endpoint refused" with the same reason                                                                                                                                                             |
+| … MinIO, `http://r422-store:9000`, bucket `r422`, rule on | **Connect & crawl**                                                                              | "Source connected — 1 assets cataloged · 3 columns · 1 files sampled · 0.5s · Reached direct to 172.19.0.12 (private)."                                                                                                                         |
+
+The first refusal's advice ended "or send model traffic through the proxy", the model providers' wording;
+object-store calls never use the proxy, so a store now gets its own advice (its DNS zone or its Endpoint
+URL), pinned in `storagePrivatePath.test.ts`; on the rebuilt R422 build the same refusal ends "Check the private endpoint's DNS zone, or enter the store's private endpoint as its Endpoint URL." Also seen: a source name with parentheses is refused with
+the validator's raw JSON in the dialog (filed separately; not this round's). Kept: the source "R422
+private store - kept fixture" (its container was removed, so a crawl now fails) and the audit row.
+
 ## 2026-11-01 — R419 and R421 after their migrations were pushed
 
 The operator pushed both; `supabase migration list --linked` shows `20261102000000` (secret allowed

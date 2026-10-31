@@ -302,6 +302,12 @@ export async function safeFetch(
     maxRedirects?: number;
     blockPrivate?: boolean;
     allowPrivate?: boolean;
+    /**
+     * Private addresses allowed for a hop whose host passes this, even under
+     * BLOCK_PRIVATE_NETWORK_FETCH: decided per hop, so a redirect to any other
+     * host is held to the switch (R422, the clouds' own storage names).
+     */
+    allowPrivateHost?: (host: string) => boolean;
     /** Route through HTTPS_PROXY / HTTP_PROXY unless NO_PROXY bypasses the hop. */
     useProxy?: boolean;
   } = {},
@@ -310,6 +316,7 @@ export async function safeFetch(
     maxRedirects = 5,
     blockPrivate,
     allowPrivate,
+    allowPrivateHost,
     useProxy,
     headers: initHeaders,
     method: initMethod,
@@ -342,9 +349,15 @@ export async function safeFetch(
     }
     // EVERY hop is re-validated, including the first. A public URL that 302s
     // to 169.254.169.254 is the whole reason this loop exists.
+    let hopHost = "";
+    try {
+      hopHost = new URL(current).hostname;
+    } catch {
+      /* the check below says it is not a URL */
+    }
     const check = await assertPublicUrl(current, {
       blockPrivate,
-      allowPrivate,
+      allowPrivate: allowPrivate ?? ((allowPrivateHost?.(hopHost) ?? false) || undefined),
       resolvedElsewhere: Boolean(dispatcher) || callerDispatcher,
     });
     // A provider set to require a private path: a hop that leaves through the
@@ -501,14 +514,24 @@ export function withPrivatePathScope<T>(fn: (policy: PrivatePathPolicy) => Promi
 }
 
 /** The refusal message, shared by the per-connection check and the preflight. */
-export function privatePathRefusal(label: string, host: string, addresses: string[]): string {
+export function privatePathRefusal(
+  label: string,
+  host: string,
+  addresses: string[],
+  /**
+   * What to check, for the person reading it. A model provider's call may go
+   * through the proxy; an object store's never does (R422), so the advice
+   * differs and is the caller's to give.
+   */
+  advice = "Check the private endpoint's DNS zone, set the provider's endpoint URL, or send " +
+    "model traffic through the proxy.",
+): string {
   const where = addresses.length
     ? `resolves to a public address (${addresses.slice(0, 2).join(", ")})`
     : "does not resolve";
   return (
     `${label} is set to require a private network path, but ${host} ${where} from this ` +
-    "server, so the call was not sent. Check the private endpoint's DNS zone, set the " +
-    "provider's endpoint URL, or send model traffic through the proxy."
+    `server, so the call was not sent. ${advice}`
   );
 }
 

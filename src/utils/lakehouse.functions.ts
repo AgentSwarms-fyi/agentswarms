@@ -750,6 +750,8 @@ export const mountLakeSource = createServerFn({ method: "POST" })
     const { loadStorageConfig } = await import("@/utils/catalog/crawler.server");
     const { ensureLakeSecrets } = await import("@/utils/lakehouse/core.server");
     const cfg = await loadStorageConfig(userId, src);
+    const { assertStoragePath } = await import("@/utils/catalog/objectStore.server");
+    await assertStoragePath(cfg);
     const c = await lakehouseConnection();
     let views = 0;
     let skipped = 0;

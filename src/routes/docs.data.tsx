@@ -522,6 +522,18 @@ function DataPage() {
         only.
       </P>
       <P>
+        <strong>A bucket can be reached over a private path.</strong> Public is the default. The{" "}
+        <strong>Network</strong> box in Add source says how each provider is reached privately: an
+        S3 interface endpoint or a GCS Private Service Connect name goes in the Endpoint URL
+        (optional for AWS), while Azure Private Link keeps the account&rsquo;s own name and resolves
+        it privately. The test reports how the store was reached, e.g. &ldquo;Reached direct to
+        10.0.4.7 (private)&rdquo;. <strong>Require a private network path</strong> refuses every
+        read, before it is sent, unless the store resolves only to private addresses from the
+        server; it covers crawls, queries, lake mounts and ETL runs, and a refusal is audited. With{" "}
+        <C>BLOCK_PRIVATE_NETWORK_FETCH</C> on, the clouds&rsquo; own storage names may still resolve
+        privately; any other host, a self-hosted MinIO included, stays under the switch.
+      </P>
+      <P>
         <strong>Parquet, CSV, JSON, NDJSON and ORC files are queryable.</strong> Press{" "}
         <strong>Query data</strong> on a file in the catalog and it opens in the Workbench with the
         bucket selected as the engine. The SQL name is the file&rsquo;s basename without its

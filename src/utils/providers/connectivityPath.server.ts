@@ -97,11 +97,12 @@ function readCertificate(host: string, address: string, port: number): Promise<T
  */
 export async function describeConnectivity(
   rawUrl: string,
-  opts: { tls?: boolean } = {},
+  /** `direct`: the caller does not use the proxy (object stores), so it is not reported. */
+  opts: { tls?: boolean; direct?: boolean } = {},
 ): Promise<PathReport> {
   const url = new URL(rawUrl);
   const host = url.hostname.replace(/^\[|\]$/g, "");
-  const proxyUrl = proxyForUrl(url);
+  const proxyUrl = opts.direct ? undefined : proxyForUrl(url);
   if (proxyUrl) {
     let proxy = "the configured proxy";
     try {
@@ -166,13 +167,15 @@ export async function assertPrivatePath(
   url: string,
   label: string,
   onRefuse?: (detail: string) => void,
+  opts: { direct?: boolean; advice?: string } = {},
 ): Promise<void> {
-  const path = await describeConnectivity(url);
+  const path = await describeConnectivity(url, { direct: opts.direct });
   if (path.proxied || path.privateAddress === true) return;
   const detail = privatePathRefusal(
     label,
     path.host,
     path.addresses.filter((a) => !isPrivateNetwork(a)),
+    opts.advice,
   );
   try {
     onRefuse?.(detail);

@@ -1088,6 +1088,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       ".xlsx",
       "2024-03-01",
       "AwsDataCatalog",
+      "BLOCK_PRIVATE_NETWORK_FETCH",
       "HTTPS_PROXY",
       "LAKEHOUSE_CATALOG_URL",
       "LIST",

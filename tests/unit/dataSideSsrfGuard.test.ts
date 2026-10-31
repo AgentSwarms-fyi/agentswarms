@@ -256,8 +256,10 @@ describe("no data-side call site fetches a user's URL raw", () => {
 
   it("the DuckDB readers await the endpoint check and validate names", () => {
     const read = readFileSync("src/utils/catalog/objectStoreRead.server.ts", "utf8");
+    // Since R422 the private-path rule sits between the two
+    // (storagePrivatePath.test.ts).
     expect(read).toMatch(
-      /await assertEndpointAllowed\(cfg\.endpoint\);\s*assertStorageNames\(cfg\);/,
+      /await assertEndpointAllowed\(cfg\.endpoint\);\s*await assertStoragePath\(cfg\);\s*assertStorageNames\(cfg\);/,
     );
     const orc = readFileSync("src/utils/catalog/orcIsolated.server.ts", "utf8");
     expect(orc).toMatch(/await assertEndpointAllowed\(cfg\.endpoint\);/);
