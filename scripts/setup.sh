@@ -108,11 +108,12 @@ if [ -z "$(getenv QDRANT__SERVICE__API_KEY)" ]; then
 fi
 
 # The lake's object-store secret (VA-44, R414). .env.example ships
-# agentswarms-lake-dev, which on the bundled MinIO is the ROOT password, open to
-# anything on the Compose network. Replaced on an existing install too: MinIO
-# takes new root credentials at its next start and keeps its data (measured:
-# the bucket and an object were still there, and the old pair was refused), and
-# MinIO, minio-init and the app all read this one variable.
+# agentswarms-lake-dev, which on the bundled store is the ROOT password, open to
+# anything on the Compose network. Replaced on an existing install too: the
+# store (SILO since R418, MinIO before; both behave so) takes new root
+# credentials at its next start and keeps its data (measured: the bucket and an
+# object were still there, and the old pair was refused), and the store,
+# minio-init and the app all read this one variable.
 S3_SECRET="$(getenv LAKEHOUSE_S3_SECRET)"
 if [ -z "$S3_SECRET" ] || [ "$S3_SECRET" = "agentswarms-lake-dev" ]; then
   say "Generating LAKEHOUSE_S3_SECRET (the lake's object-store password)"
@@ -158,6 +159,24 @@ if [ "$LH_PW" = "change-me" ] || [ -z "$LH_PW" ]; then
     warn "The lakehouse catalog password is change-me, and Docker could not say whether the catalog"
     warn "already holds data, so .env keeps it. Start Docker and run this script again."
   fi
+fi
+
+# The vector store, wired on an install that predates the wiring (R417).
+# .env.example has pointed a fresh install at the bundled Qdrant since
+# 2026-09-15; an .env made before that has neither line, so the Qdrant this
+# stack starts searched nothing and RAG Settings called it "not configured".
+# Added only when ABSENT: a value already there, VECTOR_STORE="pgvector" or an
+# empty QDRANT_URL included, is somebody's choice. Existing vectors are copied
+# from Postgres by the app itself, which searches Postgres's copy until they are.
+if ! grep -qE '^QDRANT_URL=' .env; then
+  say "Wiring the bundled vector store into .env (QDRANT_URL)"
+  setenv QDRANT_URL "http://qdrant:6333"
+fi
+if ! grep -qE '^VECTOR_STORE=' .env && [ -n "$(getenv QDRANT_URL)" ]; then
+  say "Knowledge bases now search the bundled Qdrant (VECTOR_STORE=qdrant)"
+  echo "  The app copies their vectors from Postgres on its first scheduler pass, and searches"
+  echo "  Postgres until it has. To keep searching Postgres, set VECTOR_STORE=\"pgvector\" in .env."
+  setenv VECTOR_STORE "qdrant"
 fi
 
 # The app runs on the HOST in --dev, where compose service names do not resolve.
@@ -233,7 +252,7 @@ else
 fi
 echo "  Verify every service: sign in as the admin and open Observability -> Monitoring."
 echo "  Office renderer (PPTX/Word/Excel): set OPENROUTER_API_KEY in .env for its verify loop."
-echo "  Lakehouse: catalog + MinIO are wired in .env; its console is http://localhost:9001"
+echo "  Lakehouse: the catalog and its object store (SILO) are wired in .env; the store's console is http://localhost:9001"
 echo "  Developer-workspace runtime: the containers are up, but running people's code"
 echo "    stays OFF until an admin turns it on in Admin -> Developer runtime ('Run preflight')."
 echo "  Spark: the first pipeline run downloads the connector jars. See docs/ETL_PIPELINES.md."

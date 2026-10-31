@@ -95,8 +95,10 @@ describe("how Monitoring shows it", () => {
 
   it("is applied to every answer the health handler gives", () => {
     const fn = readFileSync(resolve("src/utils/monitoring.functions.ts"), "utf-8");
+    // Since R417 merged with the vector store's wiring warning
+    // (vectorStoreWiring.test.ts); these still reach every answer.
     expect(fn).toMatch(
-      /const services = withPublishedDefaultWarnings\(\s*\[app, db, \.\.\.rest\],\s*publishedDefaultWarnings\(process\.env\),\s*\);\s*return \{ services,/,
+      /const services = withPublishedDefaultWarnings\(\s*\[app, db, \.\.\.rest\],\s*\{\s*\.\.\.publishedDefaultWarnings\(process\.env\),\s*\.\.\.wiringWarnings\(process\.env\),?\s*\}\s*\);\s*return \{ services,/,
     );
   });
 });

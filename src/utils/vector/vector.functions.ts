@@ -17,6 +17,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { auditEvent } from "@/utils/audit.server";
 import { requireSuperadmin } from "@/utils/iam.server";
 import {
+  externalIndex,
   externalStoreConfigured,
   selectedStoreKind,
   storeFor,
@@ -25,7 +26,8 @@ import {
   vectorStore,
   vectorStoreIsExternal,
 } from "./store.server";
-import { VECTOR_DIMS, type VectorPoint, type VectorStoreInfo } from "./types";
+import { indexReport, repairKnowledgeBase } from "./sync.server";
+import { parseEmbedding, VECTOR_DIMS, type VectorPoint, type VectorStoreInfo } from "./types";
 
 /** Rows read from `kb_chunks` per page while re-indexing. */
 const REINDEX_PAGE = 250;
@@ -37,8 +39,31 @@ export type VectorStoreStatus = {
   external: boolean;
   dims: number;
   info: VectorStoreInfo;
-  /** Chunks in Postgres — the number a healthy external store should match. */
+  /** Chunks in Postgres, embedded or not. */
   chunksInDatabase: number;
+  /**
+   * Where the external index stands against Postgres, per knowledge base on
+   * it (sync.server.ts). Null when this deployment has no external index.
+   * `expected` counts only the chunks that belong there — embedded ones in a
+   * collection that searches the index — which is the honest comparison:
+   * every chunk in the database never was.
+   */
+  index: {
+    knowledgeBases: number;
+    inStep: number;
+    expected: number;
+    held: number;
+    outOfStep: {
+      knowledgeBaseId: string;
+      name: string | null;
+      expected: number;
+      held: number;
+      error?: string;
+    }[];
+    repairing: number;
+    lastSweepAt: string | null;
+    error?: string;
+  } | null;
 };
 
 export const vectorStoreStatus = createServerFn({ method: "POST" })
@@ -49,9 +74,10 @@ export const vectorStoreStatus = createServerFn({ method: "POST" })
 
     const kind = selectedStoreKind();
     const store = vectorStore(supabaseAdmin);
-    const [info, counted] = await Promise.all([
+    const [info, counted, index] = await Promise.all([
       store.info(),
       supabaseAdmin.from("kb_chunks").select("id", { count: "exact", head: true }),
+      readIndexReport(),
     ]);
     return {
       selected: kind,
@@ -59,8 +85,58 @@ export const vectorStoreStatus = createServerFn({ method: "POST" })
       dims: VECTOR_DIMS,
       info,
       chunksInDatabase: counted.count ?? 0,
+      index,
     };
   });
+
+async function readIndexReport(): Promise<VectorStoreStatus["index"]> {
+  try {
+    const report = await indexReport();
+    if (!report) return null;
+    const shown = report.outOfStep.slice(0, 20);
+    // Names, because an id is not something an operator can act on. This is
+    // the superadmin's page; the service-role read is what it already uses.
+    const names = new Map<string, string>();
+    if (shown.length > 0) {
+      const { data: kbs } = await supabaseAdmin
+        .from("knowledge_bases")
+        .select("id, name")
+        .in(
+          "id",
+          shown.map((v) => v.knowledgeBaseId),
+        );
+      for (const k of (kbs ?? []) as { id: string; name: string | null }[]) {
+        if (k.name) names.set(k.id, k.name);
+      }
+    }
+    return {
+      knowledgeBases: report.knowledgeBases,
+      inStep: report.inStep,
+      expected: report.expected,
+      held: report.held,
+      outOfStep: shown.map((v) => ({
+        knowledgeBaseId: v.knowledgeBaseId,
+        name: names.get(v.knowledgeBaseId) ?? null,
+        expected: v.expected,
+        held: v.held,
+        ...(v.error ? { error: v.error } : {}),
+      })),
+      repairing: report.repairing,
+      lastSweepAt: report.lastSweep?.at ?? null,
+    };
+  } catch (e) {
+    return {
+      knowledgeBases: 0,
+      inStep: 0,
+      expected: 0,
+      held: 0,
+      outOfStep: [],
+      repairing: 0,
+      lastSweepAt: null,
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+}
 
 /**
  * Rebuild the external index from `kb_chunks`.
@@ -110,15 +186,18 @@ export const vectorStoreReindex = createServerFn({ method: "POST" })
       const external = kbIds.filter((id) => vectorStoreIsExternal(kinds.get(id) ?? kind));
       if (external.length === 0) return { ok: true, indexed: 0, skipped: true, kind };
       kbIds = external;
-      const store = storeFor(kinds.get(external[0]) ?? kind, supabaseAdmin);
+      const index = externalIndex();
+      if (!index) return { ok: true, indexed: 0, skipped: true, kind };
 
-      // Forget first. A chunk deleted while the store was unreachable has no
-      // row to re-write it, so writing without clearing would leave it there
-      // for ever — and an id that hydrates to nothing is dropped at query
-      // time, which hides the drift rather than fixing it.
-      await store.deleteByKnowledgeBases(kbIds);
-
-      const indexed = await copyChunksToStore(supabaseAdmin, kbIds, store);
+      // Every vector written again, and every point Postgres no longer has
+      // removed by id (R417). It used to forget the knowledge bases first,
+      // which removed the stale points too — a chunk deleted while the store
+      // was unreachable has no row to rewrite it — but left them empty, and
+      // searched as empty, until the copy caught up.
+      let indexed = 0;
+      for (const id of kbIds) {
+        indexed += (await repairKnowledgeBase(index, id, { rewrite: true })).copied;
+      }
 
       auditEvent({
         userId: guard.userId,
@@ -398,23 +477,6 @@ export const forgetVectors = createServerFn({ method: "POST" })
     return { ok: true, forgot };
   });
 
-/**
- * pgvector hands a `vector` column back as its text form, `[0.1,0.2,…]`.
- *
- * Parsed rather than trusted: a column that came back as something else is a
- * chunk to skip, not a crash in the middle of a re-index that has already
- * written half a collection.
- */
-export function parseEmbedding(raw: string | number[] | null): number[] | null {
-  if (Array.isArray(raw)) return raw.length === VECTOR_DIMS ? raw : null;
-  if (typeof raw !== "string") return null;
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed) || parsed.length !== VECTOR_DIMS) return null;
-    return parsed.every((n) => typeof n === "number" && Number.isFinite(n))
-      ? (parsed as number[])
-      : null;
-  } catch {
-    return null;
-  }
-}
+// In types.ts since R417, where the index sync reads it too; re-exported
+// here because this is where callers have always found it.
+export { parseEmbedding };

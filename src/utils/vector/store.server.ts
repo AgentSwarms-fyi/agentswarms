@@ -11,7 +11,12 @@ import type { Database } from "@/integrations/supabase/types";
 import { resolveRetrievalSettings, type VectorStoreChoice } from "@/lib/kbRag";
 import { pgvectorStore } from "./pgvector.server";
 import { qdrantConfig, qdrantStore } from "./qdrant.server";
-import { resolveStoreKind, type VectorStore, type VectorStoreKind } from "./types";
+import {
+  resolveStoreKind,
+  type IndexMaintenance,
+  type VectorStore,
+  type VectorStoreKind,
+} from "./types";
 
 type Client = SupabaseClient<Database>;
 
@@ -83,6 +88,16 @@ function configuredQdrant() {
  */
 export function externalStoreConfigured(): boolean {
   return configuredQdrant() !== null;
+}
+
+/**
+ * The external index with what keeping it in step needs, or null when this
+ * deployment has none. For the sync (sync.server.ts), which works on the index
+ * itself rather than on behalf of a caller, so it takes no client.
+ */
+export function externalIndex(): (VectorStore & IndexMaintenance) | null {
+  const cfg = configuredQdrant();
+  return cfg ? qdrantStore(cfg) : null;
 }
 
 export function vectorStoreIsExternal(kind: VectorStoreKind): boolean {

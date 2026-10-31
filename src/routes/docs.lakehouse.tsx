@@ -468,17 +468,30 @@ function LakehouseDocsPage() {
         this page advised. If you attached one there, move it as <C>docs/LAKEHOUSE.md</C> shows.
       </Callout>
 
+      <Callout kind="why" title="The bundled object store is SILO">
+        Compose and the Kubernetes manifests ship SILO (<C>pgsty/silo</C>), a maintained fork of the
+        MinIO server, since R418. MinIO stopped publishing images anyone can pull, so a fresh
+        install failed at the object store and the old build could never be patched. SILO keeps the
+        S3 API, the <C>MINIO_*</C> settings, the health paths and the on-disk format, so the service
+        is still <C>minio</C>, <C>minio:9000</C> still reaches it, and <C>docker compose up -d</C>{" "}
+        replaces the container in place on the same volume. On a volume MinIO wrote, SILO read back
+        every object, version, tag, policy, user and service account identically, answered the
+        lakehouse&apos;s own signed, presigned, scoped-credential and DuckDB calls, and MinIO could
+        still open the volume afterwards. Your own MinIO, if you run one, is unaffected: point{" "}
+        <C>LAKEHOUSE_S3_*</C> at it as before.
+      </Callout>
+
       <Callout kind="warn" title="Replace the published default credentials">
         The example settings ship <C>agentswarms-lake-dev</C> as the object store&apos;s secret,
-        which is the bundled MinIO&apos;s root password, and <C>change-me</C> as the catalog&apos;s.
+        which is the bundled store&apos;s root password, and <C>change-me</C> as the catalog&apos;s.
         Both services share a network with the Spark cluster, where pipelines&apos; Python code
         runs, so on either default one pipeline author can read and rewrite every table outside
         every policy. The installers replace the object store&apos;s secret, on an existing install
-        too; MinIO keeps its data across the change. Observability → Monitoring marks a lake service
-        degraded while the app runs on one. To change the catalog&apos;s, change it inside Postgres
-        first, as <C>docs/LAKEHOUSE.md</C> shows: Postgres keeps the password it was created with.
-        The installers generate it only for a catalog with no data yet, and print those steps for
-        one that already holds data.
+        too; the store keeps its data across the change. Observability → Monitoring marks a lake
+        service degraded while the app runs on one. To change the catalog&apos;s, change it inside
+        Postgres first, as <C>docs/LAKEHOUSE.md</C> shows: Postgres keeps the password it was
+        created with. The installers generate it only for a catalog with no data yet, and print
+        those steps for one that already holds data.
       </Callout>
 
       <H2 id="use-cases">Use cases</H2>

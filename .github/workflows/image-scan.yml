@@ -120,10 +120,13 @@ jobs:
           for img in $(python3 .github/scripts/grype-summary.py --compose-images docker-compose.yml); do
             safe="$(echo "$img" | tr '/:@' '___')"
             echo "::group::$img"
-            # An image that cannot be pulled is a warning, not a scan failure:
-            # VA-2026-10-25-35 tracks the MinIO images that went private.
+            # An image that cannot be pulled fails the scan. It was a warning
+            # while the MinIO pins could not be pulled by anyone; since R418
+            # the object store is SILO (VA-2026-10-25-35) and every image here
+            # pulls, so one that does not is an install that cannot start.
             if ! $GRYPE "registry:$img" -o json > "report/$safe.json"; then
-              echo "::warning::could not pull $img to scan it"
+              echo "::error::could not pull $img to scan it"
+              status=1
               echo "::endgroup::"
               continue
             fi

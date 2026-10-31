@@ -494,7 +494,7 @@ container costs you.
 | JS sandbox                  | `js-sandbox`        | Function and custom-component nodes work on the canvas but fail in deployed / scheduled swarm runs                                                          |
 | Developer-workspace runtime | `notebook-*`        | **Notebooks cannot run at all** — the editor shows a panel asking an admin to enable the runtime. ETL runs, ML training and MCP servers need it too         |
 | Lakehouse catalog           | `lakehouse-catalog` | A Postgres for the lakehouse's catalog; without one (this, or your own in `LAKEHOUSE_CATALOG_URL`) the lakehouse, SQL models and ML stay off                |
-| Object store (MinIO)        | `minio`             | Where lakehouse Parquet files live; without one (this, or your own in `LAKEHOUSE_S3_*`) a table has nowhere to write                                        |
+| Object store (SILO)         | `minio`             | Where lakehouse Parquet files live; without one (this, or your own in `LAKEHOUSE_S3_*`) a table has nowhere to write                                        |
 | Spark cluster               | `spark-connect`     | A Spark Connect endpoint for the ETL Spark engine and lakehouse queries on Spark; idle until `SPARK_CONNECT_URL` names it, ~1 GB image, jars on first use   |
 | Vector store (Qdrant)       | `qdrant`            | Somewhere other than Postgres to search knowledge-base embeddings; idle until `VECTOR_STORE=qdrant` names it, and retrieval stays on pgvector until it does |
 | Online feature store        | `valkey`            | Millisecond feature lookups for serving; idle until `FEATURE_STORE_URL` names it, and every lookup reads the lakehouse until it does — correct, ~60x slower |

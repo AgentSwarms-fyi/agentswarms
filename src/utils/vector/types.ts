@@ -115,6 +115,23 @@ export type VectorStore = {
 };
 
 /**
+ * What keeping an external index in step with Postgres needs, beyond the seam.
+ *
+ * pgvector has no use for it: its vector is a column on the row, so it cannot
+ * be missing one. An external index can (a volume lost or restored, a store
+ * switched on after documents were embedded, a delete made while it was
+ * down), and these three calls are enough to find out and to repair it.
+ */
+export type IndexMaintenance = {
+  /** Vectors held for one knowledge base, counted exactly. */
+  countByKnowledgeBase(knowledgeBaseId: string): Promise<number>;
+  /** Every point id held for one knowledge base. */
+  idsByKnowledgeBase(knowledgeBaseId: string): Promise<string[]>;
+  /** Forget these points, and nothing else. */
+  deleteByIds(ids: string[]): Promise<void>;
+};
+
+/**
  * Which store this deployment uses.
  *
  * Unset, misspelt or unknown all mean pgvector. An operator who types
@@ -124,6 +141,27 @@ export type VectorStore = {
 export function resolveStoreKind(raw: string | undefined): VectorStoreKind {
   const v = (raw ?? "").trim().toLowerCase();
   return (VECTOR_STORES as readonly string[]).includes(v) ? (v as VectorStoreKind) : "pgvector";
+}
+
+/**
+ * pgvector hands a `vector` column back as its text form, `[0.1,0.2,…]`.
+ *
+ * Parsed rather than trusted: a column that came back as something else is a
+ * chunk to skip, not a crash in the middle of a re-index that has already
+ * written half a collection.
+ */
+export function parseEmbedding(raw: string | number[] | null): number[] | null {
+  if (Array.isArray(raw)) return raw.length === VECTOR_DIMS ? raw : null;
+  if (typeof raw !== "string") return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed) || parsed.length !== VECTOR_DIMS) return null;
+    return parsed.every((n) => typeof n === "number" && Number.isFinite(n))
+      ? (parsed as number[])
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

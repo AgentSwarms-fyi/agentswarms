@@ -342,6 +342,73 @@ describe("the Qdrant collection", () => {
   });
 });
 
+describe("what keeping the index in step asks Qdrant (R417)", () => {
+  /** A fake whose count and scroll answer with real shapes. */
+  function fakeIndexQdrant(opts: { count?: number; pages?: string[][] } = {}) {
+    const calls: { url: string; body: Record<string, unknown> }[] = [];
+    let page = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit = {}) => {
+        const body = init.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
+        calls.push({ url, body });
+        const json = (v: unknown) =>
+          ({ ok: true, status: 200, json: async () => v, text: async () => "" }) as Response;
+        if (/\/collections\/[^/]+$/.test(url) && (init.method ?? "GET") === "GET") {
+          return json({ result: { config: { params: { vectors: { size: VECTOR_DIMS } } } } });
+        }
+        if (url.endsWith("/points/count")) return json({ result: { count: opts.count ?? 0 } });
+        if (url.endsWith("/points/scroll")) {
+          const pages = opts.pages ?? [[]];
+          const ids = pages[page] ?? [];
+          page += 1;
+          return json({
+            result: {
+              points: ids.map((id) => ({ id })),
+              next_page_offset: page < pages.length ? `offset-${page}` : null,
+            },
+          });
+        }
+        return json({ result: true });
+      }),
+    );
+    return calls;
+  }
+
+  it("counts one knowledge base exactly, never an estimate", async () => {
+    const calls = fakeIndexQdrant({ count: 42 });
+    expect(await qdrantStore(freshCfg()).countByKnowledgeBase("kb1")).toBe(42);
+    const c = calls.find((x) => x.url.endsWith("/points/count"))!;
+    expect(c.body.exact).toBe(true);
+    expect(c.body.filter).toEqual({ must: [{ key: "kb", match: { value: "kb1" } }] });
+  });
+
+  it("lists ids page by page, asking for no vectors and no payload", async () => {
+    const calls = fakeIndexQdrant({ pages: [["a", "b"], ["c"], ["d"]] });
+    expect(await qdrantStore(freshCfg()).idsByKnowledgeBase("kb1")).toEqual(["a", "b", "c", "d"]);
+    const scrolls = calls.filter((x) => x.url.endsWith("/points/scroll"));
+    expect(scrolls).toHaveLength(3);
+    expect(scrolls[0].body.offset).toBeUndefined();
+    expect(scrolls[1].body.offset).toBe("offset-1");
+    for (const s of scrolls) {
+      expect(s.body).toMatchObject({ with_payload: false, with_vector: false });
+    }
+  });
+
+  it("deletes by id only, in batches, and nothing when given nothing", async () => {
+    const calls = fakeIndexQdrant();
+    const store = qdrantStore(freshCfg());
+    await store.deleteByIds([]);
+    expect(calls.filter((x) => x.url.includes("/points/delete"))).toHaveLength(0);
+    const ids = Array.from({ length: 2500 }, (_, i) => `id-${i}`);
+    await store.deleteByIds(ids);
+    const deletes = calls.filter((x) => x.url.includes("/points/delete"));
+    expect(deletes.map((d) => (d.body.points as string[]).length)).toEqual([1000, 1000, 500]);
+    // By id, never by filter: a filter is how a whole collection goes.
+    for (const d of deletes) expect(d.body.filter).toBeUndefined();
+  });
+});
+
 describe("vectors read back out of Postgres", () => {
   it("takes the text form pgvector emits, and refuses anything else", () => {
     // A re-index reads `embedding` back over PostgREST, where a `vector`
@@ -406,15 +473,19 @@ describe("writes and deletes reach the store in the right order", () => {
     }
   });
 
-  it("re-indexes by clearing first, so a deleted chunk cannot survive", () => {
-    // Writing without clearing leaves a vector whose row is gone in the store
-    // for ever. It hydrates to nothing and is dropped at query time, which
-    // hides the drift rather than fixing it.
+  it("re-indexes by id, so a deleted chunk cannot survive and nothing is emptied first", () => {
+    // Writing without clearing used to leave a vector whose row is gone in
+    // the store for ever, so Re-index forgot each knowledge base first — and
+    // searched it as empty until the copy caught up. Since R417 it rewrites
+    // every vector and deletes, by id, the points Postgres no longer has
+    // (vectorIndexSync.test.ts runs that against a fake index).
     const fns = rd("src/utils/vector/vector.functions.ts");
-    const clear = fns.indexOf("await store.deleteByKnowledgeBases(kbIds)");
-    const write = fns.indexOf("await store.upsert(points)");
-    expect(clear).toBeGreaterThan(-1);
-    expect(write).toBeGreaterThan(clear);
+    const body = fns.slice(fns.indexOf("export const vectorStoreReindex"));
+    const handler = body.slice(0, body.indexOf("\n  );\n"));
+    expect(handler).toContain("repairKnowledgeBase(index, id, { rewrite: true })");
+    expect(handler).not.toContain("deleteByKnowledgeBases(kbIds)");
+    const sync = rd("src/utils/vector/sync.server.ts");
+    expect(sync).toContain("await index.deleteByIds(stale)");
   });
 
   it("records a re-index in the audit trail", () => {

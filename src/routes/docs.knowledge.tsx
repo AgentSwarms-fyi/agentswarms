@@ -357,24 +357,54 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
       <Callout kind="why" title="Qdrant holds vectors and two ids — that is all">
         The chunk text, the document it came from, the parent passage and who may read it stay in
         Postgres. So the keyword half of hybrid search is untouched; a Qdrant that loses its volume
-        costs a re-index rather than a restore; and the store cannot leak a document, because what
-        it returns is a list of ids that are then fetched through the caller&apos;s own database
-        client, where row-level security applies a second time.
+        fills itself again from Postgres rather than from a restore; and the store cannot leak a
+        document, because what it returns is a list of ids that are then fetched through the
+        caller&apos;s own database client, where row-level security applies a second time.
       </Callout>
       <P>
         <strong>One Qdrant node is not high availability.</strong> A single node is the right shape
-        for a small install, and losing it degrades retrieval to keyword search rather than breaking
-        it — but surviving the loss of a node means a Qdrant cluster with <C>QDRANT_REPLICATION</C>{" "}
-        at 2 or more. <strong>Admin → Developer runtime → AI services</strong> shows which store is
-        in use, whether it is answering, how many vectors it holds against how many chunks the
-        database has, and the replication the collection <em>actually</em> got.
+        for a small install, and losing it means searching Postgres&apos;s copy of the vectors until
+        it is back — but surviving the loss of a node means a Qdrant cluster with{" "}
+        <C>QDRANT_REPLICATION</C> at 2 or more.{" "}
+        <strong>Admin → Developer runtime → AI services</strong> shows which store is in use,
+        whether it is answering, how many vectors it should hold against how many it holds, how many
+        collections are in step, and the replication the collection <em>actually</em> got.
       </P>
+      <H3 id="index-in-step">The index keeps itself in step</H3>
       <P>
-        That same page has <strong>Re-index</strong>, which drops every vector in the store and
-        writes them back from the chunks. It is the answer to every way an external index can drift
-        — a restored-from-empty volume, a store switched on after documents were already embedded, a
-        delete that happened while it was unreachable. It moves vectors that already exist; it does
-        not re-embed, so a document that was never indexed stays keyword-only until it is.
+        An external index can fall behind Postgres: a volume lost or restored, a delete made while
+        it was down, or an install switched to Qdrant after its documents were embedded. That last
+        one is every install whose <C>.env</C> predates the wiring, where the bundled Qdrant ran and
+        nothing searched it; the installers now add <C>QDRANT_URL</C> and <C>VECTOR_STORE</C> when
+        they are absent, and keep any value you set. None of these needs anybody since R417:
+      </P>
+      <ul className="mb-4 list-disc space-y-1.5 pl-6 text-sm leading-relaxed text-muted-foreground">
+        <li>
+          <strong>Retrieval counts before it trusts.</strong> For each collection on the index it
+          compares the chunks with an embedding in Postgres against the vectors Qdrant holds, and
+          searches any collection whose counts differ in Postgres instead: the same vectors, so the
+          same answers. The count is remembered for <C>VECTOR_INDEX_CHECK_SECONDS</C> (300); one
+          that failed is tried again after 30 seconds.
+        </li>
+        <li>
+          <strong>Out of step is repaired, by id.</strong> Missing vectors are copied from Postgres,
+          never re-embedded, and points Postgres no longer has are deleted. The collection is never
+          emptied first.
+        </li>
+        <li>
+          <strong>The scheduler sweeps</strong> every collection on the index every{" "}
+          <C>VECTOR_INDEX_SYNC_MINUTES</C> (10), so one nobody is querying is caught too.
+        </li>
+        <li>
+          <strong>A search Qdrant does not answer</strong> is run in Postgres for that request.
+          Keyword-only is left for when Postgres itself cannot answer.
+        </li>
+      </ul>
+      <P>
+        <strong>Re-index</strong>, on the same admin page, writes every vector again from the chunks
+        and removes, by id, the ones the database no longer has, while retrieval keeps answering. It
+        moves vectors that already exist; it does not re-embed, so a document that was never indexed
+        stays keyword-only until it is.
       </P>
       <Callout kind="warn" title="Upgrading the bundled Qdrant: one minor release at a time">
         Qdrant opens storage from the previous minor release only, and its pin moved from 1.12.4 to
@@ -384,7 +414,7 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
         Compose start the pin. Upgrading by hand, run it before <C>docker compose up</C>. It stops
         and asks for <C>QDRANT_FROM</C> rather than guess which release a volume is at, and with{" "}
         <C>--k8s</C> it prints the steps for the StatefulSet. If a volume has already met the new
-        pin, the same command still carries it; Re-index is the other way out.
+        pin, the same command still carries it; an empty volume fills itself from Postgres.
       </Callout>
 
       {/* ── RETRIEVAL ── */}

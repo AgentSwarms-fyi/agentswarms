@@ -107,11 +107,12 @@ if ([string]::IsNullOrEmpty((Get-EnvVar "QDRANT__SERVICE__API_KEY"))) {
 }
 
 # The lake's object-store secret (VA-44, R414). .env.example ships
-# agentswarms-lake-dev, which on the bundled MinIO is the ROOT password, open to
-# anything on the Compose network. Replaced on an existing install too: MinIO
-# takes new root credentials at its next start and keeps its data (measured:
-# the bucket and an object were still there, and the old pair was refused), and
-# MinIO, minio-init and the app all read this one variable.
+# agentswarms-lake-dev, which on the bundled store is the ROOT password, open to
+# anything on the Compose network. Replaced on an existing install too: the
+# store (SILO since R418, MinIO before; both behave so) takes new root
+# credentials at its next start and keeps its data (measured: the bucket and an
+# object were still there, and the old pair was refused), and the store,
+# minio-init and the app all read this one variable.
 $s3Secret = Get-EnvVar "LAKEHOUSE_S3_SECRET"
 if ([string]::IsNullOrEmpty($s3Secret) -or $s3Secret -eq "agentswarms-lake-dev") {
   Say "Generating LAKEHOUSE_S3_SECRET (the lake's object-store password)"
@@ -169,6 +170,25 @@ if ([string]::IsNullOrEmpty($lhPw) -or $lhPw -eq "change-me") {
 }
 # An empty password is Compose's change-me (R415: an existing catalog keeps it).
 if ([string]::IsNullOrEmpty($lhPw)) { $lhPw = "change-me" }
+
+# The vector store, wired on an install that predates the wiring (R417).
+# .env.example has pointed a fresh install at the bundled Qdrant since
+# 2026-09-15; an .env made before that has neither line, so the Qdrant this
+# stack starts searched nothing and RAG Settings called it "not configured".
+# Added only when ABSENT: a value already there, VECTOR_STORE="pgvector" or an
+# empty QDRANT_URL included, is somebody's choice. Existing vectors are copied
+# from Postgres by the app itself, which searches Postgres's copy until they are.
+if (-not (Select-String -Path $envFile -Pattern '^QDRANT_URL=' -Quiet)) {
+  Say "Wiring the bundled vector store into .env (QDRANT_URL)"
+  Set-EnvVar "QDRANT_URL" "http://qdrant:6333"
+}
+if (-not (Select-String -Path $envFile -Pattern '^VECTOR_STORE=' -Quiet) -and
+    -not [string]::IsNullOrEmpty((Get-EnvVar "QDRANT_URL"))) {
+  Say "Knowledge bases now search the bundled Qdrant (VECTOR_STORE=qdrant)"
+  Write-Host "  The app copies their vectors from Postgres on its first scheduler pass, and searches"
+  Write-Host "  Postgres until it has. To keep searching Postgres, set VECTOR_STORE=`"pgvector`" in .env."
+  Set-EnvVar "VECTOR_STORE" "qdrant"
+}
 
 # The app runs on the HOST in -Dev, where compose service names do not resolve.
 # Every service publishes its port on loopback for exactly this, so development
@@ -233,7 +253,7 @@ if ($Dev) { Say "Services up. Starting the dev server (Ctrl+C to stop). Open htt
 else { Say "Up. Open http://localhost:8080" }
 Write-Host "  Verify every service: sign in as the admin and open Observability -> Monitoring."
 Write-Host "  Office renderer (PPTX/Word/Excel): set OPENROUTER_API_KEY in .env for its verify loop."
-Write-Host "  Lakehouse: the catalog and MinIO are wired in .env; the console is http://localhost:9001"
+Write-Host "  Lakehouse: the catalog and its object store (SILO) are wired in .env; the store's console is http://localhost:9001"
 Write-Host "  Developer-workspace runtime: the containers are up, but running people-authored code"
 Write-Host "    stays OFF until an admin turns it on in Admin -> Developer runtime ('Run preflight')."
 Write-Host "  Spark: the first pipeline run downloads the connector jars. See docs/ETL_PIPELINES.md."

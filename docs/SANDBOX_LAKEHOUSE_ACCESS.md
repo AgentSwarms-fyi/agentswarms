@@ -139,15 +139,17 @@ Spark query reads Parquet the app resolved before the query was planned.
 
 The store enforces the policy, so a cluster holding the credential cannot
 widen it and nothing running there has to be trusted to respect a prefix.
-Verified against this deployment's MinIO: a session scoped to one prefix read
-inside it and was refused outside it.
+Verified against this deployment's MinIO, and since R418 against SILO, the
+bundled store (`tests/unit/objectStoreLakeLive.test.ts`): a session scoped to
+one prefix read and wrote inside it and was refused outside it, a sibling whose
+name only starts the same way included.
 
-Stores differ. MinIO and AWS S3 answer AssumeRole; R2 and GCS's S3 endpoint do
+Stores differ. SILO, MinIO and AWS S3 answer AssumeRole; R2 and GCS's S3 endpoint do
 not. A deployment whose store has no STS keeps the lakehouse's own credentials
 for the cluster and says so in the log once per process;
 `LAKEHOUSE_STS_REQUIRED=true` makes that a refusal instead. AWS also needs a
-role to assume (`LAKEHOUSE_STS_ROLE_ARN`); MinIO derives the session from the
-calling key.
+role to assume (`LAKEHOUSE_STS_ROLE_ARN`); SILO and MinIO derive the session
+from the calling key.
 
 A scoped credential is not value-scrubbed out of a run's log the way the
 deployment's own secrets are: it is minted per session, so the code that

@@ -7,7 +7,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { providerFetch } from "@/utils/ssrfGuard.server";
 import type { Database } from "@/integrations/supabase/types";
 import { embedTexts } from "./embedding.server";
-import { storeFor, storeKindForChoice } from "@/utils/vector/store.server";
+import { pgvectorStore } from "@/utils/vector/pgvector.server";
+import { storeFor, storeKindForChoice, vectorStoreIsExternal } from "@/utils/vector/store.server";
+import { knowledgeBasesOutOfStep } from "@/utils/vector/sync.server";
 import type { VectorStoreKind } from "@/utils/vector/types";
 import {
   applyGroundingBudget,
@@ -543,19 +545,36 @@ export async function retrieveCitationsReport(opts: RetrievalOpts): Promise<Retr
       // its own collections and the lists are merged by score. The scores are
       // comparable (both are cosine similarity in 0..1), and the fusion below
       // normalises within the list anyway.
+      //
+      // A collection on the external index is searched there only once the
+      // index holds every vector Postgres has for it (sync.server.ts), and
+      // whenever the index does not answer, the same vectors are searched in
+      // Postgres instead. Every embedding is a column on its chunk row, so that
+      // search is never wrong, only slower; keyword-only is for when Postgres
+      // itself cannot answer (R417).
+      const routed = new Map<string, VectorStoreKind>(
+        kbIds.map((id) => [id, storeKindForChoice(storeOf.get(id))]),
+      );
+      const onIndex = kbIds.filter((id) => vectorStoreIsExternal(routed.get(id) ?? "pgvector"));
+      for (const id of await knowledgeBasesOutOfStep(onIndex)) routed.set(id, "pgvector");
       const byStore = new Map<VectorStoreKind, string[]>();
       for (const id of kbIds) {
-        const kind = storeKindForChoice(storeOf.get(id));
+        const kind = routed.get(id) ?? "pgvector";
         byStore.set(kind, [...(byStore.get(kind) ?? []), id]);
       }
       const perStore = await Promise.all(
-        [...byStore.entries()].map(([kind, ids]) =>
-          storeFor(kind, sb).search({
-            embedding: queryEmbedding,
-            knowledgeBaseIds: ids,
-            limit: wide,
-          }),
-        ),
+        [...byStore.entries()].map(([kind, ids]) => {
+          const args = { embedding: queryEmbedding, knowledgeBaseIds: ids, limit: wide };
+          const search = storeFor(kind, sb).search(args);
+          if (!vectorStoreIsExternal(kind)) return search;
+          return search.catch((e) => {
+            console.warn(
+              "[kb.server] the external vector index did not answer; searching Postgres's copy:",
+              e instanceof Error ? e.message : e,
+            );
+            return pgvectorStore(sb).search(args);
+          });
+        }),
       );
       const matches = perStore
         .flat()

@@ -134,9 +134,11 @@ describe("ingest and retrieval agree about where a collection's vectors are", ()
     expect(retrieval).toContain("storeKindForChoice");
     expect(retrieval).toMatch(/storeFor\(kind, sb\)\.search\(/);
     // `vectorStore(sb)` is the instance-wide adapter. Either path using it
-    // would ignore the collection's choice.
-    expect(retrieval).not.toMatch(/vectorStore\(sb\)\.search\(/);
-    expect(ingest).not.toMatch(/vectorStore\(sb\)\.upsert\(/);
+    // would ignore the collection's choice. The lookbehind is for
+    // `pgvectorStore(sb)`, which retrieval names on purpose since R417: it is
+    // Postgres's copy of every vector, searched when the index cannot answer.
+    expect(retrieval).not.toMatch(/(?<![A-Za-z])vectorStore\(sb\)\.search\(/);
+    expect(ingest).not.toMatch(/(?<![A-Za-z])vectorStore\(sb\)\.upsert\(/);
   });
 
   it("writes a mixed batch to more than one store", () => {

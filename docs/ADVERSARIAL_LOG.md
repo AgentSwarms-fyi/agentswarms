@@ -109,6 +109,110 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-31 — R418: the object store moves from MinIO to SILO (VA-35)
+
+**Finding** (R399, VA-2026-10-25-35). MinIO stopped publishing images anyone can pull. Docker Hub's
+`minio/minio` is gone and quay.io answers 401 to an anonymous pull, so `docker compose pull` failed and a
+fresh install stopped at the lakehouse's object store. Installs that had the image cached ran a build
+that could not be patched: grype v0.120.1 (DB 2026-10-30) finds 23 critical / 121 high in the server and
+4 / 44 in its client, every one with a fix.
+
+**Fix.** Compose and the Kubernetes manifests pin SILO (`pgsty/silo` and `pgsty/mc`,
+`RELEASE.2026-10-26T00-00-00Z`, multi-platform indexes, by digest), a maintained fork of both, AGPL-3.0
+like MinIO. Grype: 0 critical, 0 high in either. SILO's entrypoint maps `server …` to `silo server …` and
+ships its client as `mcli` with an `mc` alias, so the Compose command and the `mc ready local` health
+check are unchanged. The service keeps the name `minio`, its volume and its `MINIO_*` settings, so
+`minio:9000` in an existing `.env` still resolves and `docker compose up -d` replaces the container in
+place. A rename would have left the old MinIO running beside SILO on the same volume.
+
+**Measured on a throwaway volume MinIO wrote**, then opened by SILO:
+
+| Check                                                   | Result                                                                              |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Listing (8 objects, 2 versions), sizes, ETags, versions | identical, including a 40 MB three-part upload and a key with a space and an accent |
+| SHA-256 of every current object and the oldest version  | identical                                                                           |
+| Versioning, tags, public-read policy, user, policy, SA  | identical (the policy's arrays come back reordered; same sets)                      |
+| A read-only user                                        | lists; its write is refused ("Insufficient permissions") and nothing lands          |
+| Anonymous                                               | reads the public bucket, refused on `lakehouse`                                     |
+| Health paths, wrong password, `mc admin info`           | 200 / 200, refused, `online`                                                        |
+| SILO writes                                             | a 24 MB multipart object and a third version; a restart changes nothing             |
+| Back to MinIO on the SILO-written volume                | starts, reads SILO's object (same SHA-256)                                          |
+| New root password                                       | data kept, new pair reads, old pair refused                                         |
+| `objectStoreLakeLive.test.ts` (new)                     | passes on SILO and on MinIO: signed calls, presigned URLs, STS scope, DuckDB on S3  |
+| `objectStoreParquet.test.ts`                            | 37 pass on both; the same 12 ORC/crawl cases fail on both (fixtures it never seeds) |
+| Kubernetes pod settings (uid 1000, caps dropped)        | MinIO, then SILO, start on the same PVC; the bucket Job creates `lakehouse`         |
+
+**Found on the way.** The Kubernetes bucket Job had never worked. As uid 1000 `mc alias set` fails with
+`mkdir /.mc: permission denied`, with MinIO's client as with SILO's, and the Job's `until` loop retried
+it for ever: a cluster install never got its `lakehouse` bucket. It now sets `MC_CONFIG_DIR=/tmp/.mc`
+(measured: alias added, bucket created). And the weekly third-party scan only warned on an image it could
+not pull, which is how VA-35 sat beside a green check; it now fails.
+
+**This install.** Its lake is a standalone `agentswarms-minio` (on `192.168.1.85:19000`, also the
+Iceberg REST catalog's warehouse) plus Compose's twin. First SILO ran on a copy of the live volume: 509
+objects in `etl`, `iceberg` and `lakehouse`, listing and every SHA-256 identical. Then both volumes were
+copied to `…-r418-backup` (517 data files hash-identical), the old container stopped and renamed
+`agentswarms-minio-r418-old` (kept, restart off), and SILO started with the same name, ports, volume and
+credentials: 509 objects before and after. The UI rounds are in UI_TEST_RESULTS (R418).
+
+**Tests.** `objectStoreSilo.test.ts` (9): the pins, no MinIO image left, same service/volume/settings/
+health check, Compose and Kubernetes equal, the Job's `MC_CONFIG_DIR`, the scan failing on a pull,
+Monitoring's label, the docs. `objectStoreLakeLive.test.ts` (7, live, skipped without a server). Mutation:
+6 of 6 for R418.
+
+### 2026-10-31 — R417: the bundled Qdrant searched nothing on older installs
+
+**Finding** (this install). `.env.example` has selected the bundled Qdrant since 2026-09-15
+(`VECTOR_STORE`, `QDRANT_URL`), but the installers copy it only when there is no `.env`. An older `.env`
+had neither line, so Qdrant ran, healthy, and searched nothing; RAG Settings said "Qdrant is not
+configured on this deployment" and Monitoring said "No problems detected". Every install from before that
+date is in this state, and nothing told its owner.
+
+**Why the obvious fix is unsafe on its own.** A collection that follows the instance default is searched
+wherever the default points, and an index that was never written holds nothing: "a collection that
+returns nothing, with no error anywhere" (`store.server.ts`). Adding the two lines would have turned every
+such collection's semantic search into an empty one until somebody pressed Re-index.
+
+**Fix.**
+
+- **Retrieval counts before it trusts** (`utils/vector/sync.server.ts`). Per collection on the index, two
+  exact counts: chunks with an embedding in Postgres, points in Qdrant. A collection whose counts differ, or
+  cannot be counted, is searched in Postgres instead. Every embedding is a column on its chunk row, so that
+  search is the same vectors and the same answers. A verdict is kept `VECTOR_INDEX_CHECK_SECONDS` (300), a
+  failed one 30 s.
+- **Repairs by id.** Ids are compared on both sides; missing vectors are copied from Postgres (never
+  re-embedded), stale points deleted by id. Never emptied first, so a worker still trusting the collection
+  keeps finding what was there. Re-index uses the same path with every vector rewritten.
+- **A scheduler sweep** every `VECTOR_INDEX_SYNC_MINUTES` (10) checks every collection on the index; a
+  collection it cannot check is a failure in that pass, grouped by reason.
+- **A search Qdrant does not answer** is run against Postgres, not dropped to keyword-only.
+- **The installers** add `QDRANT_URL` and `VECTOR_STORE` only when absent; an explicit `pgvector` or an
+  empty `QDRANT_URL` is left alone. **Monitoring** marks an unwired Qdrant degraded.
+
+**Measured.**
+
+| Case                                                   | Result                                                                                                |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `setup.sh` (Git Bash) and `setup.ps1` (PowerShell 5.1) | 5 `.env` shapes each, 10 of 10: wired when absent, `pgvector` and an empty URL kept, `--dev` loopback |
+| This install, new build, before wiring                 | Monitoring "1 needing attention", Qdrant Degraded: "Running, but this deployment does not search it"  |
+| The installer's own lines on the live `.env`           | two lines added, nothing else changed                                                                 |
+| First scheduler pass after the restart                 | "brought 3 knowledge base(s) into step with Postgres: 105 vector(s) copied, 0 removed"                |
+| Admin → AI services                                    | 109 vectors expected, 109 held, 21 of 21 collections in step                                          |
+| Agent Chat, "Gold, Severity 1"                         | "30 minutes", the SLA document first; Qdrant counted 1 `points/query`                                 |
+| Qdrant stopped, "Platinum, Severity 1"                 | "15 minutes", same document first, no "keyword search only"; Monitoring Down with the new hint        |
+| Re-index                                               | "Re-indexed 109 vectors", 21 of 21 in step; Qdrant: 21 scrolls, 4 upserts, 0 deletes                  |
+
+Two refinements came from that run: a failed count used to bypass a recovered Qdrant for the whole
+five-minute window (now 30 s), and the sweep that ran during the outage put 21 identical lines on the
+scheduler row (now grouped by reason).
+
+**Tests.** `vectorIndexSync.test.ts` (19, a fake Postgres and a fake index): routing, background repair,
+by-id repair that never empties, no network call, keyword-only chunks not expected, paging past 2,000
+rows, the sweep's clock and its failures, and the wiring of retrieval and the scheduler.
+`vectorStoreWiring.test.ts` (7): the installers' conditions and order, Monitoring's flag.
+`vectorStore.test.ts`: exact counts, scroll paging, delete by id in batches, Re-index by id. Mutation:
+25 of 25 for R417.
+
 ### 2026-10-31 — R416: Qdrant 1.12.4 to 1.20.0 (VA-38), and the eight releases in between
 
 **Finding** (R406's image scan). `qdrant/qdrant:v1.12.4`, a 2024 release on Debian 12.8, carries 15

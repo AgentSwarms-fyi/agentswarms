@@ -1630,6 +1630,14 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
     await import("@/utils/kb/schedule.server")
       .then((m) => m.processDueKbSyncs(force))
       .catch((e) => fold("kb-sync", e));
+    // The external vector index, kept in step with Postgres (R417). Every
+    // VECTOR_INDEX_SYNC_MINUTES each knowledge base on it is counted, and one
+    // out of step gets its missing vectors copied from Postgres and its stale
+    // ones removed: a lost volume, or an install just switched to Qdrant,
+    // fills itself without anybody pressing Re-index.
+    await import("@/utils/vector/sync.server")
+      .then((m) => m.syncVectorIndex({ force }))
+      .catch((e) => fold("vector-index", e));
     // Traces recorded before their model had a known price re-resolve here —
     // an alias mapping or a price refresh corrects history, not just the
     // future, so budgets stop summing real spend as $0.

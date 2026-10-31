@@ -263,8 +263,8 @@ its own.
 It is **not** a way to survive losing Postgres. Every hit is hydrated from
 `kb_chunks`, so a database outage takes retrieval with it wherever the vectors
 live. The availability that is real runs the other way: losing **Qdrant**
-degrades retrieval to keyword search rather than breaking it, because the text
-never left Postgres.
+costs nothing but speed, because every vector is also a column on its chunk row
+in Postgres, and retrieval searches that copy while Qdrant is down (R417).
 
 **Qdrant holds vectors and two ids. That is all.** The chunk text, the document
 it came from, the parent passage and who may read it stay in Postgres. Three
@@ -273,26 +273,28 @@ things follow, and they are the reason the split is drawn here:
 - **Hybrid retrieval is unaffected.** The keyword half is Postgres full-text
   search over the same chunks, and it does not know or care where the vectors
   went.
-- **The index is disposable.** A Qdrant that loses its volume costs a re-index,
-  not a restore. There is no backup guidance for it because it is not a system
-  of record.
+- **The index is disposable.** A Qdrant that loses its volume fills itself
+  again from Postgres (below), not from a restore. There is no backup guidance
+  for it because it is not a system of record.
 - **An external store cannot leak a document.** A search returns ids, which are
   then fetched through the caller's own database client — so row-level security
   applies to the answer, not just to the question. A store that returned an id
   from somebody else's knowledge base gets nothing back.
 
-| Setting              | Default                 | What it does                                           |
-| -------------------- | ----------------------- | ------------------------------------------------------ |
-| `VECTOR_STORE`       | `pgvector`              | Default index for collections that have not chosen one |
-| `QDRANT_URL`         | —                       | e.g. `http://qdrant:6333`                              |
-| `QDRANT_API_KEY`     | —                       | Sent as `api-key`; omit if the server has none         |
-| `QDRANT_COLLECTION`  | `agentswarms_kb_chunks` | Created on first use, 1536-dim cosine                  |
-| `QDRANT_REPLICATION` | `1`                     | Copies per shard. **2+ for HA**, cluster only          |
-| `QDRANT_SHARDS`      | `1`                     | Shards per collection                                  |
+| Setting                      | Default                 | What it does                                                                               |
+| ---------------------------- | ----------------------- | ------------------------------------------------------------------------------------------ |
+| `VECTOR_STORE`               | `pgvector`              | Default index for collections that have not chosen one                                     |
+| `QDRANT_URL`                 | —                       | e.g. `http://qdrant:6333`                                                                  |
+| `QDRANT_API_KEY`             | —                       | Sent as `api-key`; omit if the server has none                                             |
+| `QDRANT_COLLECTION`          | `agentswarms_kb_chunks` | Created on first use, 1536-dim cosine                                                      |
+| `QDRANT_REPLICATION`         | `1`                     | Copies per shard. **2+ for HA**, cluster only                                              |
+| `QDRANT_SHARDS`              | `1`                     | Shards per collection                                                                      |
+| `VECTOR_INDEX_CHECK_SECONDS` | `300`                   | How long retrieval trusts a collection's last count; `0` trusts the index without counting |
+| `VECTOR_INDEX_SYNC_MINUTES`  | `10`                    | How often the scheduler checks every collection on the index; `0` turns the sweep off      |
 
 **One Qdrant node is not high availability.** A single node is the right shape
-for a laptop or a small install, and losing it degrades retrieval to keyword
-search rather than breaking it — but surviving the loss of a node means a Qdrant
+for a laptop or a small install, and losing it means searching Postgres's copy
+of the vectors until it is back — but surviving the loss of a node means a Qdrant
 cluster with `QDRANT_REPLICATION` at 2 or more. Admin → Developer runtime → AI services
 reports the replication the collection **actually** has, so the difference
 between what was asked for and what was placed is visible.
@@ -301,6 +303,50 @@ Selecting `qdrant` without `QDRANT_URL` logs an error and uses pgvector. It does
 not fail to start: the vectors are still in `kb_chunks` and retrieval still
 works. A collection asked for Qdrant on a deployment that has none falls back
 the same way, and the picker says so before it is saved.
+
+#### The index keeps itself in step
+
+An external index can fall behind Postgres: a volume lost or restored, a delete
+made while it was down, or an install switched to Qdrant after its documents
+were embedded. That last one is every install whose `.env` predates the wiring
+(2026-09-15): the bundled Qdrant ran and nothing searched it, and the installers
+now add `QDRANT_URL` and `VECTOR_STORE` to such an `.env` when they are absent.
+A collection that follows the default is then searched wherever the default
+points, so the index has to have its vectors first. Since R417 that needs
+nobody:
+
+- **Retrieval counts before it trusts.** For each collection on the index it
+  compares two exact counts, the chunks with an embedding in Postgres and the
+  vectors Qdrant holds for it, and remembers the answer for
+  `VECTOR_INDEX_CHECK_SECONDS`. A collection whose counts differ, or that cannot
+  be counted, is searched in Postgres instead. Same vectors, same answers;
+  slower only on a large collection. A count that failed is tried again after
+  30 seconds, so a Qdrant that comes back is used again within half a minute.
+- **Out of step is repaired, by id.** The ids on both sides are compared, the
+  missing vectors are copied from Postgres (never re-embedded) and the points
+  Postgres no longer has are deleted. The collection is never emptied first, so
+  a worker that still trusts it keeps finding everything that was there.
+- **The scheduler sweeps.** Every `VECTOR_INDEX_SYNC_MINUTES` the scheduler
+  pass checks every collection on the index and repairs the ones behind, so one
+  nobody is querying is caught too. A collection it could not check is a
+  failure in that pass, which Observability → Monitoring shows on the
+  scheduler's row.
+- **And if Qdrant does not answer** a search, the same collections are searched
+  in Postgres for that request. Keyword-only is left for when Postgres itself
+  cannot answer.
+
+Admin → Developer runtime → AI services shows where it stands: the vectors the
+index should hold (embedded chunks in the collections that search it), the
+vectors it holds, and how many collections are in step, naming the ones that
+are not. **Re-index** writes every vector again and removes the stale ones, by
+id, while retrieval keeps answering.
+
+On the install where this was found, Qdrant held 4 vectors, one collection's.
+After the installer's two lines and an app restart, the first scheduler pass
+logged three collections brought into step with 105 vectors copied, and the
+panel read 109 of 109 vectors, 21 of 21 collections in step. Qdrant counted the
+next question's search; with Qdrant stopped, the same agent still answered from
+the same document (UI_TEST_RESULTS, R417).
 
 #### Upgrading the bundled Qdrant
 

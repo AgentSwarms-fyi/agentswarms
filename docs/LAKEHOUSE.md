@@ -21,10 +21,10 @@ Two pieces of shared infrastructure, both named in `.env`:
 | --------------------------------------------- | ----------------------------------------------------------------- |
 | `LAKEHOUSE_CATALOG_URL`                       | Postgres every replica can reach (`postgres://u:p@host/db`)       |
 | `LAKEHOUSE_DATA_URL`                          | Object-storage prefix for table data (`s3://lakehouse/main`)      |
-| `LAKEHOUSE_S3_ENDPOINT`                       | `host:port` for MinIO/R2/etc.; omit for AWS S3                    |
+| `LAKEHOUSE_S3_ENDPOINT`                       | `host:port` for SILO/MinIO/R2/etc.; omit for AWS S3               |
 | `LAKEHOUSE_S3_KEY_ID` / `LAKEHOUSE_S3_SECRET` | Credentials for that prefix                                       |
-| `LAKEHOUSE_S3_URL_STYLE`                      | `path` for MinIO, `vhost` for AWS                                 |
-| `LAKEHOUSE_S3_USE_SSL`                        | `false` for plain-HTTP local MinIO                                |
+| `LAKEHOUSE_S3_URL_STYLE`                      | `path` for SILO and MinIO, `vhost` for AWS                        |
+| `LAKEHOUSE_S3_USE_SSL`                        | `false` for the plain-HTTP bundled store                          |
 | `LAKEHOUSE_CATALOG_CONNECTIONS`               | Catalog sessions one app worker may hold (default 8); see Scaling |
 
 Compose ships a catalog Postgres (`lakehouse-catalog`) and starts it with
@@ -38,6 +38,46 @@ pipeline writing a lakehouse table attaches it **from inside a notebook
 kernel**, which sits on a network with no route off it (see below). Unset
 variables leave the feature off — the page says so instead of
 half-working.
+
+### The bundled object store is SILO
+
+Compose and the Kubernetes manifests ship [SILO](https://github.com/pgsty/silo)
+(`pgsty/silo`, with its client `pgsty/mc`), a maintained fork of the MinIO
+server, AGPL-3.0 like MinIO itself. Until R418 they shipped MinIO, and MinIO
+stopped publishing images anyone can pull: Docker Hub's `minio/minio` is gone
+and quay.io answers 401 to an anonymous pull, so a fresh install failed at the
+object store, and the cached build could never be patched (VA-2026-10-25-35).
+
+SILO keeps the S3 API, the `MINIO_*` settings, the `/minio/health/*` paths and
+the on-disk format, so nothing about your install changes: the service is still
+called `minio`, `LAKEHOUSE_S3_ENDPOINT="minio:9000"` still points at it, and
+`docker compose pull && docker compose up -d` (or the installer) replaces the
+container in place on the same `lake-data` volume. On Kubernetes the StatefulSet
+keeps its name and its PVC, so the new image is a rolling restart.
+
+What was measured before the switch, on a volume MinIO wrote and then SILO
+opened (`pgsty/silo:RELEASE.2026-10-26T00-00-00Z`):
+
+- every object read back with the same size, ETag and SHA-256, including an
+  empty one, a 40 MB multipart one and a key with a space and an accent;
+- versioning, every version id, the oldest version's bytes, object tags and a
+  public-read bucket policy, all unchanged;
+- a user with a read-only policy could list and was refused a write, its
+  service account worked, a wrong password was refused, and `mc admin info`
+  answered;
+- SILO wrote new multipart objects and versions, and survived a restart;
+- going back works too: MinIO opened the volume SILO had written and read
+  SILO's objects;
+- the lakehouse's own calls, run by `tests/unit/objectStoreLakeLive.test.ts`
+  against SILO: signed PUT, HEAD, LIST (past one page) and DELETE, presigned
+  URLs refused for another method, another key or after expiry, STS AssumeRole
+  scoped to prefixes (refused outside them), and DuckDB writing and reading
+  Parquet with that scoped credential;
+- the Kubernetes pod settings (uid 1000, no capabilities): SILO started on a
+  PVC MinIO had written as uid 1000.
+
+If you run your own MinIO, nothing here applies to it: point `LAKEHOUSE_S3_*`
+at it as before.
 
 If a query against an HTTPS object store fails with **"Problem with the SSL
 CA cert (path? access rights?)"**, the container running the engine has no
@@ -85,7 +125,7 @@ must be reachable from the app's network and from nothing a kernel can reach.
 ### Replace the published default credentials
 
 `.env.example` ships two lake credentials that anyone can read: the object
-store's `LAKEHOUSE_S3_SECRET` (`agentswarms-lake-dev`, the bundled MinIO's
+store's `LAKEHOUSE_S3_SECRET` (`agentswarms-lake-dev`, the bundled store's
 **root** password) and the catalog's `change-me`. Both services share the
 Compose network with `spark-connect`, where Spark pipelines' Python UDFs run.
 On either default, one pipeline author can read and rewrite every table,
@@ -99,7 +139,8 @@ install too. By hand: put a new value in `.env`, then
 docker compose up -d minio agentswarms
 ```
 
-MinIO takes new root credentials when it starts and keeps its data. Measured:
+The store (SILO, as MinIO did) takes new root credentials when it starts and
+keeps its data. Measured:
 after a restart with a new password, the bucket and an object were still there,
 readable with the new pair, and the old pair was refused. Anything else that
 used the old pair needs the new one.

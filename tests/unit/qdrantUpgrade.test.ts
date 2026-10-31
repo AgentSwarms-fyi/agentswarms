@@ -250,7 +250,9 @@ describe("a volume that skipped the upgrade", () => {
     // and exits 101, so the service restarts for ever.
     const { DOWN_HINTS } = await import("@/lib/serviceHealth");
     expect(DOWN_HINTS.qdrant).toContain("node scripts/upgrade-qdrant.mjs");
-    expect(DOWN_HINTS.qdrant).toMatch(/keyword search/);
+    // And what retrieval does meanwhile: since R417 it searches Postgres's
+    // own copy of the vectors rather than dropping to keyword search.
+    expect(DOWN_HINTS.qdrant).toMatch(/searches Postgres's copy of the vectors/);
     const fns = rd("src/utils/monitoring.functions.ts");
     expect(fns).toMatch(/status: "down",[\s\S]{0,400}DOWN_HINTS\[entry\.id\]/);
   });

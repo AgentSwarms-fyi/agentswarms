@@ -2118,6 +2118,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "description": "Collections of documents an agent can search by meaning and quote with citations. This is how you stop an agent inventing your policies.",
     "terms": [
       "--k8s",
+      ".env",
       "/docs",
       "/embeddings",
       "/models",
@@ -2127,6 +2128,9 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "QDRANT_FROM",
       "QDRANT_REPLICATION",
       "QDRANT_URL",
+      "VECTOR_INDEX_CHECK_SECONDS",
+      "VECTOR_INDEX_SYNC_MINUTES",
+      "VECTOR_STORE",
       "VECTOR_STORE=qdrant",
       "dimensions",
       "error",
@@ -2198,6 +2202,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "vector-store",
         "text": "Where the vectors are searched",
+        "level": 3
+      },
+      {
+        "id": "index-in-step",
+        "text": "The index keeps itself in step",
         "level": 3
       },
       {
@@ -2317,10 +2326,12 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "LAKEHOUSE_CATALOG_URL",
       "LAKEHOUSE_CLUSTER_FILE_BYTES",
       "LAKEHOUSE_MEMORY_LIMIT",
+      "LAKEHOUSE_S3_*",
       "LAKEHOUSE_S3_PUBLIC_ENDPOINT",
       "LAKEHOUSE_SPARK_QUERY_MINUTES",
       "LAKEHOUSE_SPILL_LIMIT",
       "MERGE",
+      "MINIO_*",
       "SELECT",
       "SET",
       "SHARE_URL_EXPIRY_SECONDS",
@@ -2339,7 +2350,10 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "lakehouse.iceberg.mount",
       "lakehouse.iceberg.publish",
       "lakehouse.iceberg.refresh",
+      "minio",
+      "minio:9000",
       "orders",
+      "pgsty/silo",
       "pii",
       "range",
       "read_parquet",

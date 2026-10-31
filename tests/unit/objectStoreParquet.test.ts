@@ -6,13 +6,15 @@
 // FOOTER. So every Parquet asset was cataloged as a filename with a size and
 // no columns, and nothing could query it.
 //
-// These tests run against MinIO, which is the only way to prove SigV4 signing,
-// path-style addressing, a custom endpoint and DuckDB's httpfs all line up.
-// A fake would prove that the fake agrees with itself.
+// These tests run against a real S3 server, which is the only way to prove
+// SigV4 signing, path-style addressing, a custom endpoint and DuckDB's httpfs
+// all line up. A fake would prove that the fake agrees with itself. MinIO's
+// images can no longer be pulled, so the server is SILO, its maintained fork
+// and the bundled store since R418:
 //
 //   docker run -d --name as-minio-test -p 9010:9000 \
 //     -e MINIO_ROOT_USER=probeaccesskey -e MINIO_ROOT_PASSWORD=probesecretkey123 \
-//     minio/minio server /data
+//     pgsty/silo:RELEASE.2026-10-26T00-00-00Z server /data
 //
 // Skipped, loudly, when that is not running — a suite that silently passes
 // because its subject was absent is worse than one that fails.

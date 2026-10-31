@@ -50,7 +50,7 @@ export type LastCronPass = {
 
 /**
  * The lake credentials this project publishes in `.env.example` and the
- * Compose fallbacks (VA-2026-10-25-44, R414). On the bundled MinIO the S3
+ * Compose fallbacks (VA-2026-10-25-44, R414). On the bundled store the S3
  * secret is the ROOT password, and the catalog password owns the lakehouse's
  * metadata. Both services sit on the Compose network with spark-connect, where
  * pipelines' Python UDFs run, and publish a loopback port.
@@ -81,11 +81,31 @@ export function publishedDefaultWarnings(
   const out: Partial<Record<ServiceId, string>> = {};
   if (env.LAKEHOUSE_S3_SECRET?.trim() === PUBLISHED_LAKE_DEFAULTS.s3Secret) {
     out.minio =
-      "Runs on the published default secret (LAKEHOUSE_S3_SECRET=agentswarms-lake-dev), MinIO's root password: anything on the Compose network can read and rewrite every table's files. Put a new LAKEHOUSE_S3_SECRET in .env and run `docker compose up -d minio agentswarms`; the data stays.";
+      "Runs on the published default secret (LAKEHOUSE_S3_SECRET=agentswarms-lake-dev), the object store's root password: anything on the Compose network can read and rewrite every table's files. Put a new LAKEHOUSE_S3_SECRET in .env and run `docker compose up -d minio agentswarms`; the data stays.";
   }
   if (urlPassword(env.LAKEHOUSE_CATALOG_URL) === PUBLISHED_LAKE_DEFAULTS.catalogPassword) {
     out["lakehouse-catalog"] =
       "Runs on the published default password (change-me): anything that reaches it controls the lakehouse's metadata. Rotate it with ALTER USER inside the catalog, then put the new password in LAKEHOUSE_CATALOG_PASSWORD and LAKEHOUSE_CATALOG_URL (docs/LAKEHOUSE.md).";
+  }
+  return out;
+}
+
+/**
+ * A bundled service the app was never pointed at (R417). Measured on an
+ * install whose .env predated the wiring: Qdrant ran, healthy, and searched
+ * nothing, while RAG Settings said it was not configured and this page said
+ * "No problems detected". An explicit VECTOR_STORE="pgvector", or a
+ * QDRANT_URL set to nothing, is a choice and is not flagged; an .env with
+ * neither line is an install that missed the wiring.
+ */
+export function wiringWarnings(
+  env: Record<string, string | undefined>,
+): Partial<Record<ServiceId, string>> {
+  const out: Partial<Record<ServiceId, string>> = {};
+  const store = env.VECTOR_STORE?.trim().toLowerCase();
+  if (env.QDRANT_URL === undefined && store !== "pgvector") {
+    out.qdrant =
+      'Running, but this deployment does not search it: QDRANT_URL is not set, so knowledge bases search Postgres and RAG Settings cannot offer it. Re-run the installer (it wires an older .env), or add QDRANT_URL="http://qdrant:6333" and VECTOR_STORE="qdrant" to .env and run `docker compose up -d agentswarms`; the existing vectors are copied in by themselves.';
   }
   return out;
 }
@@ -113,7 +133,7 @@ export function withPublishedDefaultWarnings(
  */
 export const DOWN_HINTS: Partial<Record<ServiceId, string>> = {
   qdrant:
-    "If its log says a segment could not be read after an upgrade, its volume skipped a release: run `node scripts/upgrade-qdrant.mjs`, then `docker compose up -d qdrant`. Retrieval uses keyword search until then.",
+    "If its log says a segment could not be read after an upgrade, its volume skipped a release: run `node scripts/upgrade-qdrant.mjs`, then `docker compose up -d qdrant`. Retrieval searches Postgres's copy of the vectors until then.",
 };
 
 /** A pass is expected every minute; five without one is a scheduler that stopped. */
@@ -389,7 +409,7 @@ export const SERVICE_CATALOGUE: {
     hostPublished: true,
     label: "Vector store (Qdrant)",
     purpose:
-      "Where knowledge-base embeddings are searched when VECTOR_STORE=qdrant. Without it, retrieval falls back to keyword search over the same chunks — the text never leaves Postgres.",
+      "Where knowledge-base embeddings are searched when VECTOR_STORE=qdrant. Without it, retrieval searches Postgres's copy of the same vectors — slower on a large collection, the same answers.",
     candidates: ["http://qdrant:6333", "http://127.0.0.1:6333"],
     // /readyz, not /livez: "the process is up" is not the same claim as "it
     // can answer a search", and this page exists to tell them apart.
@@ -401,7 +421,9 @@ export const SERVICE_CATALOGUE: {
     // Published on loopback so a host-run app probes the same store the
     // containerised one writes to.
     hostPublished: true,
-    label: "Object store (MinIO)",
+    // SILO, the maintained MinIO fork, since R418. The id stays `minio`: it
+    // is the Compose service name, and saved state keys rows by it.
+    label: "Object store (SILO)",
     purpose:
       "Where the lakehouse's Parquet files live. Without it the catalog has nowhere to write and every table operation fails.",
     candidates: ["http://minio:9000", "http://127.0.0.1:9000"],

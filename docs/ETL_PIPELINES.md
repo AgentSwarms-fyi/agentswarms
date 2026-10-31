@@ -1098,17 +1098,23 @@ reconciliation recovers exactly the 25 missing / 12 mismatched / 6 duplicated
 payments the generator planted). `tests/unit/etlTemplates.test.ts` keeps the
 templates compiling and the datasets present.
 
-## Local development with MinIO
+## Local development with an S3 store
 
-The stack is testable end to end with nothing but a MinIO binary:
+The stack is testable end to end with nothing but one S3-compatible container.
+MinIO no longer publishes images anyone can pull, so this uses SILO, the
+maintained fork Compose bundles (R418); any S3-compatible store works the same
+way:
 
 ```bash
-# 1. Run MinIO (any S3-compatible store works the same way)
-minio server ./minio-data --address :9000
+# 1. Run SILO
+docker run -d --name dev-s3 -p 9000:9000 -v dev-s3-data:/data \
+  -e MINIO_ROOT_USER=devaccesskey -e MINIO_ROOT_PASSWORD=devsecretkey123 \
+  pgsty/silo:RELEASE.2026-10-26T00-00-00Z server /data
 
 # 2. In the app: Data Catalog → Sources → add an object-storage source
+#    (provider MinIO: SILO answers the same API)
 #    endpoint http://127.0.0.1:9000, bucket "etl", path-style on,
-#    credentials minioadmin/minioadmin (the dev defaults).
+#    credentials devaccesskey/devsecretkey123.
 
 # 3. ETL Pipelines → New pipeline → pick that source as destination → Run now.
 ```
@@ -1120,11 +1126,11 @@ it as catalog assets, and BI object-store queries can read it immediately.
 way):
 
 1. **The endpoint must be reachable from inside a container.** `127.0.0.1`
-   points at the sandbox itself — bind MinIO to `0.0.0.0` and use the host's
+   points at the sandbox itself — publish the store on `0.0.0.0` and use the host's
    LAN address (e.g. `http://192.168.1.10:19000`) in the catalog source, so the
    host-side crawler and the kernels resolve the same thing.
 2. **The kernel egress proxy must allow it.** Kernels reach the network only
-   through the default-deny squid proxy. Add the MinIO address under
+   through the default-deny squid proxy. Add the store's address under
    Admin → Developer runtime → Egress allowlist; raw IPs are written to a
    separate `allowed_ips` (squid `dst`) file because `dstdomain` never matches
    an IP-form URL, and squid's `Safe_ports` includes 9000/19000 for object

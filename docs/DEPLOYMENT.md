@@ -2137,10 +2137,12 @@ otherwise have to be on call for.
 Table data lives here, so it needs durability rather than replicas. S3, GCS,
 R2 and Azure Blob (as an S3 endpoint) are all durable by design.
 
-**MinIO in single-node mode is not** — it is one disk on one host, and it is
-what a local development box typically runs beside the Compose stack. It is right for development and wrong for
-production. Either run MinIO in distributed mode across four or more drives, or
-point `LAKEHOUSE_S3_ENDPOINT` at a cloud object store.
+**MinIO in single-node mode is not**, and neither is the bundled SILO (a
+maintained MinIO fork, since R418), which is one: one disk on one host, what a
+local development box typically runs beside the Compose stack. It is right for
+development and wrong for production. Either run SILO or MinIO in distributed
+mode across four or more drives, or point `LAKEHOUSE_S3_ENDPOINT` at a cloud
+object store.
 
 #### Per deployment model
 
@@ -2741,6 +2743,22 @@ and is a no-op when there is nothing to do. On Kubernetes,
 `node scripts/upgrade-qdrant.mjs --k8s` prints the `kubectl` steps for the
 StatefulSet. Run them before applying the manifests. See
 [KNOWLEDGE_BASES.md](./KNOWLEDGE_BASES.md#upgrading-the-bundled-qdrant).
+
+**The object store moves to SILO by itself.** Since R418 the `minio` service
+runs SILO, a maintained MinIO fork, because MinIO's own images can no longer be
+pulled. Same service name, same volume, same settings and on-disk format:
+`docker compose up -d` recreates the container on the new image and the data
+is there. Nothing to run first. See
+[LAKEHOUSE.md](./LAKEHOUSE.md#the-bundled-object-store-is-silo).
+
+**An older `.env` gets the vector store wired.** An `.env` made before
+2026-09-15 has no `QDRANT_URL` or `VECTOR_STORE`, so the bundled Qdrant ran
+and nothing searched it. Re-running the installer adds the two lines when they
+are absent (a value already there, `VECTOR_STORE="pgvector"` included, is
+kept), and the app then copies the existing vectors from Postgres into Qdrant
+by itself, searching Postgres until it has (R417; see
+[KNOWLEDGE_BASES.md](./KNOWLEDGE_BASES.md#the-index-keeps-itself-in-step)).
+Observability → Monitoring flags an install that is still unwired.
 
 **Rebuild everything, not just the app.** Several things the app orchestrates
 run inside OTHER images built by the same compose file — notably the

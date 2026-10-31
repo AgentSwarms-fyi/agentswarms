@@ -23,6 +23,7 @@
 import {
   redactEndpoint,
   VECTOR_DIMS,
+  type IndexMaintenance,
   type VectorMatch,
   type VectorPoint,
   type VectorStore,
@@ -224,9 +225,14 @@ function onceEnsured(cfg: QdrantConfig) {
 
 /** How many points to send in one request. */
 const UPSERT_BATCH = 256;
+/** Ids read per scroll page, and deleted per request. Ids only, so a page is small. */
+const ID_PAGE = 1000;
 
-export function qdrantStore(cfg: QdrantConfig): VectorStore {
+export function qdrantStore(cfg: QdrantConfig): VectorStore & IndexMaintenance {
   const ensure = onceEnsured(cfg);
+  const inKb = (knowledgeBaseId: string) => ({
+    must: [{ key: KB, match: { value: knowledgeBaseId } }],
+  });
 
   return {
     kind: "qdrant",
@@ -297,6 +303,52 @@ export function qdrantStore(cfg: QdrantConfig): VectorStore {
         method: "POST",
         body: JSON.stringify({ filter: { must: [{ key: KB, match: { any: knowledgeBaseIds } }] } }),
       });
+    },
+
+    async countByKnowledgeBase(knowledgeBaseId: string): Promise<number> {
+      await ensure();
+      // exact, not Qdrant's estimate: this number decides whether retrieval
+      // trusts the index, and an estimate is allowed to be off by enough to
+      // call a half-copied collection complete.
+      const res = (await call(cfg, `/collections/${cfg.collection}/points/count`, {
+        method: "POST",
+        body: JSON.stringify({ filter: inKb(knowledgeBaseId), exact: true }),
+      })) as { result?: { count?: number } };
+      const count = res.result?.count;
+      if (typeof count !== "number") throw new QdrantError("Qdrant answered a count without one");
+      return count;
+    },
+
+    async idsByKnowledgeBase(knowledgeBaseId: string): Promise<string[]> {
+      await ensure();
+      const ids: string[] = [];
+      let offset: unknown = undefined;
+      for (;;) {
+        const res = (await call(cfg, `/collections/${cfg.collection}/points/scroll`, {
+          method: "POST",
+          body: JSON.stringify({
+            filter: inKb(knowledgeBaseId),
+            limit: ID_PAGE,
+            with_payload: false,
+            with_vector: false,
+            ...(offset === undefined ? {} : { offset }),
+          }),
+        })) as { result?: { points?: { id?: unknown }[]; next_page_offset?: unknown } };
+        for (const p of res.result?.points ?? []) if (typeof p.id === "string") ids.push(p.id);
+        offset = res.result?.next_page_offset;
+        if (offset === null || offset === undefined) return ids;
+      }
+    },
+
+    async deleteByIds(ids: string[]): Promise<void> {
+      if (ids.length === 0) return;
+      await ensure();
+      for (let i = 0; i < ids.length; i += ID_PAGE) {
+        await call(cfg, `/collections/${cfg.collection}/points/delete?wait=true`, {
+          method: "POST",
+          body: JSON.stringify({ points: ids.slice(i, i + ID_PAGE) }),
+        });
+      }
     },
 
     async info(): Promise<VectorStoreInfo> {

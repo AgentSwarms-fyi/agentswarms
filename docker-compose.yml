@@ -224,38 +224,27 @@ services:
       retries: 5
       start_period: 300s
 
-  # ── Qdrant vector store ───────────────────────
-  # Where knowledge-base embeddings are searched when VECTOR_STORE=qdrant.
-  # Opt-in because it is not needed to run the platform: the default keeps
-  # vectors in Postgres beside the chunks, which is one fewer thing to operate
-  # and one fewer thing to back up.
-  #
-  # It holds VECTORS AND TWO IDS. The chunk text, the document and the
-  # permissions stay in Postgres, so a Qdrant that loses this volume costs a
-  # re-index (Admin -> Developer runtime -> AI services -> Re-index) and nothing else —
-  # which is why there is no backup guidance here and why losing it is not a
-  # data-loss event.
-  #
-  # ONE NODE IS NOT HIGH AVAILABILITY. This is the single-node shape for a
-  # laptop or a small install; a deployment that needs retrieval to survive
-  # losing a node runs a Qdrant cluster and sets QDRANT_REPLICATION to at
-  # least 2. The admin page reports the replication the collection ACTUALLY
-  # has, so the difference is visible rather than assumed.
   # ── Object store for the lakehouse ────────────────────────────────────────
   # The catalog (above) records which Parquet files make up a table; the files
   # themselves live here. Both are needed, which is why both start: a catalog
   # with nowhere to write is a lakehouse that fails on its first table.
   #
-  # quay.io, not Docker Hub: MinIO's Docker Hub repository is not publicly
-  # pullable (`pull access denied for minio/minio`), and quay.io is where they
-  # publish. Measured, not assumed — the first version of this file named the
-  # Hub and every install would have failed on the pull.
+  # SILO, a maintained fork of the MinIO server (github.com/pgsty/silo,
+  # AGPL-3.0, like MinIO itself), since R418. MinIO stopped publishing images
+  # anyone can pull: Docker Hub's minio/minio is gone and quay.io answers 401
+  # to an anonymous pull, so a fresh install failed here (VA-2026-10-25-35).
+  # SILO keeps the S3 API, the MINIO_* settings, the /minio/health paths and
+  # the on-disk format. Measured on a volume MinIO wrote (multipart objects,
+  # versions, tags, a public bucket, a user, a policy, a service account):
+  # SILO opened it and answered every one identically. The service keeps its
+  # name, `minio`, so `minio:9000` in an existing .env, the `lake-data`
+  # volume and `docker compose up -d` all carry on as they were.
   #
   # Any S3-compatible store replaces it — AWS S3, R2, GCS — by pointing
   # LAKEHOUSE_S3_* at that instead. This one is here so an install has a
   # working lakehouse without an account anywhere.
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    image: pgsty/silo:RELEASE.2026-10-26T00-00-00Z@sha256:7bb2aff6b89efe1cb1303c10fc21d579447434ed06649ac9ec05a5e2dbf30ad7
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
@@ -269,8 +258,9 @@ services:
     volumes:
       - lake-data:/data
     healthcheck:
-      # `mc ready local`, the server image's own client, so "healthy" means it
-      # answers rather than that a port is open.
+      # `mc ready local`, the server image's own client (SILO ships it as
+      # mcli with an `mc` alias), so "healthy" means it answers rather than
+      # that a port is open.
       #
       # The grace is wide because the FIRST start formats the pool, and the
       # first start of an AgentSwarms install is also when eleven other
@@ -288,7 +278,8 @@ services:
   # bucket surfaces as a write error on the first table, which is a poor way to
   # learn that a container never ran.
   minio-init:
-    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    # SILO's client, the fork of mc that goes with the server above.
+    image: pgsty/mc:RELEASE.2026-10-26T00-00-00Z@sha256:ce62c9053c69ce12a527a322345b5ad9f44b5f8a7b8189f82e516f2e3f30f1d8
     depends_on:
       minio: { condition: service_healthy }
     # MC_HOST_<alias> is mc's own way to carry a target's credentials. The first
@@ -300,6 +291,24 @@ services:
     entrypoint: ["mc", "mb", "--ignore-existing", "lake/lakehouse"]
     restart: "no"
 
+  # ── Qdrant vector store ───────────────────────
+  # Where knowledge-base embeddings are searched; .env.example selects it
+  # (VECTOR_STORE=qdrant), and the installers wire an older .env that predates
+  # that (R417). Postgres keeps every vector too, as a column on its chunk
+  # row, so the app fills this index from Postgres by itself — on a fresh
+  # volume, after a lost one, or on an install just switched to it — and
+  # searches Postgres's copy of a collection until the index has all of it.
+  #
+  # It holds VECTORS AND TWO IDS. The chunk text, the document and the
+  # permissions stay in Postgres, so a Qdrant that loses this volume costs a
+  # few minutes of copying and nothing else — which is why there is no backup
+  # guidance here and why losing it is not a data-loss event.
+  #
+  # ONE NODE IS NOT HIGH AVAILABILITY. This is the single-node shape for a
+  # laptop or a small install; a deployment that needs retrieval to survive
+  # losing a node runs a Qdrant cluster and sets QDRANT_REPLICATION to at
+  # least 2. The admin page reports the replication the collection ACTUALLY
+  # has, so the difference is visible rather than assumed.
   qdrant:
     # A release opens storage from the previous minor only: moving this pin
     # across minors needs `node scripts/upgrade-qdrant.mjs` first (the

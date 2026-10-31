@@ -15,6 +15,7 @@ import {
   SERVICE_CATALOGUE,
   publishedDefaultWarnings,
   schedulerProbe,
+  wiringWarnings,
   withPublishedDefaultWarnings,
   type ServiceProbe,
   type SystemMetrics,
@@ -261,10 +262,10 @@ export const serviceHealth = createServerFn({ method: "POST" })
     ]);
     // A lake service on a published default credential answers fine and is
     // still not healthy (VA-44).
-    const services = withPublishedDefaultWarnings(
-      [app, db, ...rest],
-      publishedDefaultWarnings(process.env),
-    );
+    const services = withPublishedDefaultWarnings([app, db, ...rest], {
+      ...publishedDefaultWarnings(process.env),
+      ...wiringWarnings(process.env),
+    });
     return { services, checkedAt: new Date().toISOString() };
   });
 

@@ -16,6 +16,15 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **The lake's object store is SILO now** (R418). MinIO's own images can no
+  longer be pulled, so Compose and the Kubernetes manifests run SILO, its
+  maintained fork, under the same service name, volume and settings.
+  `docker compose pull && docker compose up -d` replaces the container in place;
+  there is nothing to run first and nothing to migrate.
+- **Re-run the installer if your `.env` predates 2026-09-15** (R417). It adds
+  `QDRANT_URL` and `VECTOR_STORE` when they are absent, so the bundled Qdrant is
+  searched; the app copies your existing vectors into it by itself. Keep
+  `VECTOR_STORE="pgvector"` to stay on Postgres.
 - **Run the migrations** (`npx supabase db push`). One adds
   `ml_experiment_run_write`, which experiment logging now calls; until it
   exists, logging to a run answers 400. One adds `approvals.resumed_at`, which
@@ -401,6 +410,24 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   stop and deploy any warm model endpoint again so it starts from the new
   kernel image. `docker compose exec agentswarms npm …` no longer works: run
   npm on the host.
+- **The lakehouse's object store moves from MinIO to SILO** (R418,
+  VA-2026-10-25-35). MinIO stopped publishing images anyone can pull: Docker
+  Hub's `minio/minio` is gone and quay.io answers 401 to an anonymous pull, so a
+  fresh install failed at the object store, and the cached build could not be
+  patched (grype: 23 fixable criticals in the server, 4 in its client). Compose
+  and Kubernetes now pin SILO (`pgsty/silo`, `pgsty/mc`, AGPL-3.0 like MinIO),
+  a maintained fork with no critical or high finding. It keeps the S3 API, the
+  `MINIO_*` settings, the health paths and the on-disk format, so the service
+  stays `minio` on the same volume. Measured on a volume MinIO wrote: every
+  object, version, tag, policy, user and service account read back identically,
+  SILO answered the lakehouse's own signed, presigned, scoped-credential and
+  DuckDB calls (`tests/unit/objectStoreLakeLive.test.ts`), took a new root
+  password without losing data, and MinIO could still open the volume after.
+  On a copy of a real install's store, 509 objects compared byte for byte. Two
+  things the switch found: the Kubernetes bucket Job had never worked as uid
+  1000 (`mc` could not write its config and retried for ever, with MinIO's
+  client too), now fixed with `MC_CONFIG_DIR`; and the weekly image scan fails
+  on an image it cannot pull instead of warning.
 - **The vector store moves to Qdrant 1.20.0, carried there one release at a
   time** (R416, VA-2026-10-25-38). The bundled Qdrant was pinned at 1.12.4, a
   2024 release on Debian 12 with 15 fixable criticals and 77 fixable highs
@@ -810,6 +837,29 @@ and both of those are one advisory that cannot be triggered here (see
   TanStack's router plugin, so the rule is now off under `src/routes/` only.
 
 ### Fixed
+
+- **The bundled Qdrant is searched on every install, and keeps itself in step
+  with Postgres** (R417). Installs whose `.env` predated 2026-09-15 never got
+  `QDRANT_URL`: Qdrant ran and nothing searched it, RAG Settings called it "not
+  configured", and Monitoring said "No problems detected". The installers now
+  add `QDRANT_URL` and `VECTOR_STORE` when absent (a value already there is a
+  choice), and Monitoring marks an unwired Qdrant degraded. Switching is safe
+  because the index no longer has to be complete to be trusted blindly:
+  - retrieval counts each collection on the index against Postgres and searches
+    Postgres's own copy of the vectors for any that differ — the same vectors,
+    so the same answers;
+  - a collection out of step is repaired by id from Postgres, never emptied
+    and never re-embedded, at query time and by a scheduler sweep
+    (`VECTOR_INDEX_SYNC_MINUTES`, default 10);
+  - when Qdrant does not answer, retrieval searches Postgres instead of
+    dropping to keyword search;
+  - Re-index rewrites by id while retrieval keeps answering, and the admin
+    panel shows collections in step and vectors expected against held.
+
+  On the install where it was found, the first pass copied 105 vectors and the
+  panel read 21 of 21 collections in step; Qdrant counted the next question's
+  search, and with Qdrant stopped the agent still answered from the same
+  document.
 
 - **Monitoring no longer says the scheduler has stopped while it runs.** With
   the default eight workers, each pass runs in whichever worker takes the

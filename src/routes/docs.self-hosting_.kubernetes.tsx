@@ -214,8 +214,8 @@ kubectl -n agentswarms get pods -w`}</Code>
         Load Balancer Controller install with its IAM policy, the ACM certificate and the Ingress
         are in <C>docs/DEPLOYMENT.md</C>. The two that catch people: health-check{" "}
         <C>/api/health/ready</C> rather than <C>/api/health</C>, and leave{" "}
-        <C>LAKEHOUSE_S3_ENDPOINT</C> unset for real S3 — it exists for MinIO, and pointing it at an
-        AWS host is the usual reason a lakehouse cannot read its own Parquet.
+        <C>LAKEHOUSE_S3_ENDPOINT</C> unset for real S3 — it exists for SILO, MinIO and the like, and
+        pointing it at an AWS host is the usual reason a lakehouse cannot read its own Parquet.
       </P>
       <Code lang="bash">{`# 9-10. Managed Postgres for the catalog, S3 for the lake.
 aws rds create-db-instance --db-instance-identifier agentswarms-catalog --engine postgres \
@@ -295,8 +295,8 @@ az postgres flexible-server create --resource-group "$RG" --name agentswarms-cat
         Set <C>nginx.ingress.kubernetes.io/proxy-read-timeout: &quot;300&quot;</C> on the Ingress:
         an analyst turn takes 30–95 seconds and NGINX cuts it off at 60 with a 504. And{" "}
         <strong>Azure Blob is not S3-compatible</strong>, so the lakehouse&rsquo;s own storage is
-        either MinIO in the cluster or an S3 endpoint elsewhere. Mounting Blob or ADLS Gen2 as a
-        read-only <em>data lake</em> is a different feature and works natively.
+        either the bundled SILO in the cluster or an S3 endpoint elsewhere. Mounting Blob or ADLS
+        Gen2 as a read-only <em>data lake</em> is a different feature and works natively.
       </Callout>
 
       <H3 id="k8s-oke">Oracle OKE, step by step</H3>

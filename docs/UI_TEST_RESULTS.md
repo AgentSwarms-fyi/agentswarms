@@ -15,6 +15,55 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-31 — R418: this install's object stores, from MinIO to SILO
+
+The app ran this round's build from the main checkout, deployed before either store moved. This install's
+lake is the standalone `agentswarms-minio` that `.env` points at (`192.168.1.85:19000`, also the Iceberg
+REST catalog's warehouse) plus Compose's `minio` twin, which holds only an empty bucket.
+
+| Step                                                             | What it showed                                                                                                                                                                                                                                                           |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| SILO on a copy of the live volume                                | 509 objects in `etl`, `iceberg`, `lakehouse`: listing, ETags, versioning, policies and every SHA-256 identical to the live MinIO                                                                                                                                         |
+| The swap (`swap_live.py`)                                        | both volumes copied to `…-r418-backup` first (517 data files hash-identical); old container stopped, renamed `agentswarms-minio-r418-old`, restart off; SILO with the same name, ports (v4 and v6), volume, credentials and restart policy; 509 objects before and after |
+| Compose twin                                                     | `docker compose up -d minio` recreated it on SILO; `minio-init` exit 0, "Bucket created successfully `lake/lakehouse`"                                                                                                                                                   |
+| Lakehouse → Query, `CREATE TABLE analytics.r418_silo_probe AS …` | 250,000 rows in 7.2 s                                                                                                                                                                                                                                                    |
+| `INSERT` one row, then aggregates                                | 250,001 rows, `sum(id)` 31,250,125,000 (the closed form plus the row), last day 2026-10-31, the row's label                                                                                                                                                              |
+| Same `SELECT` on the **Spark cluster** engine                    | the same three numbers, 84 s (session start); no "scoped credentials … not available" in the app log                                                                                                                                                                     |
+| `ice_sales.revenue_facts` (Iceberg REST → `s3://iceberg`)        | `count(*)` 836, as the explorer says; three rows read                                                                                                                                                                                                                    |
+| ETL → `spark_live` → Run now                                     | Succeeded, 257 rows → 1 target in 1 m 38 s (its September runs on MinIO: 257). SILO's trace: 119 list, 48 head, 26 put, 16 copy, one multi-delete, and a 403 on the run's parent prefix, which only a credential scoped to the run's own prefix answers                  |
+| Data Catalog → MinIO local etl demo → Query data                 | `orders_reconciled_r183`'s rows (ORD-1000 …) read from the Parquet object                                                                                                                                                                                                |
+| … → Re-crawl                                                     | "Crawled "MinIO local etl demo" — 12 assets, 85 columns"                                                                                                                                                                                                                 |
+| Observability → Monitoring                                       | Object store (SILO) Healthy                                                                                                                                                                                                                                              |
+
+Kept for review: table `analytics.r418_silo_probe` (250,001 rows), the backup volumes
+`agentswarms-minio-data-r418-backup` and `agentswarms-share_lake-data-r418-backup`, and the stopped
+container `agentswarms-minio-r418-old` (to go back: stop and remove the new `agentswarms-minio`, rename the
+old one back, `docker update --restart=unless-stopped`, start it). The throwaway volumes, network and
+containers of the compatibility runs are removed.
+
+## 2026-10-31 — R417: this install's Qdrant, wired and filled from Postgres
+
+Same build. `.env` was copied aside first; the two lines were written by the installer's own block
+(`getenv`, `setenv` and the wiring cut from `setup.sh`), not by hand.
+
+| Step                                                     | What it showed                                                                                                                                                                        |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Monitoring, before wiring                                | "1 needing attention"; **Vector store (Qdrant): Degraded**, "Running, but this deployment does not search it: QDRANT_URL is not set …"                                                |
+| The installer's block on the live `.env`                 | "Wiring the bundled vector store…", "Knowledge bases now search the bundled Qdrant…"; two lines added, nothing else changed                                                           |
+| `docker compose up -d agentswarms`, build copied back in | healthy in 70 s; `VECTOR_STORE=qdrant`, `QDRANT_URL=http://qdrant:6333`; Qdrant held 4 points                                                                                         |
+| First scheduler pass                                     | "[vector] brought 3 knowledge base(s) into step with Postgres: 105 vector(s) copied, 0 removed"; Qdrant 109 points, green                                                             |
+| Admin → Developer runtime → AI services                  | qdrant · Reachable · v1.20.0; 109 vectors expected, 109 held; **Collections in step 21 of 21**                                                                                        |
+| Agent Chat, RAG eval · Halvard support: Gold Severity 1  | "30 minutes [1]", source 1 `02-support-sla-policy-v3.1-current.md`; Qdrant telemetry `points/query` 0 → 1                                                                             |
+| `docker stop` Qdrant; Platinum Severity 1                | "15 minutes [1]", the same document first, nothing about keyword-only search                                                                                                          |
+| Monitoring with Qdrant stopped                           | Down; "… Retrieval searches Postgres's copy of the vectors until then."                                                                                                               |
+| Qdrant started; Re-index → confirm                       | dialog "…retrieval keeps answering while it runs"; toast "Re-indexed 109 vectors"; 21 of 21 in step; Qdrant's log: 21 scroll, 4 upsert, 0 delete                                      |
+| Monitoring                                               | Vector store (Qdrant) Healthy, Object store (SILO) Healthy; the Scheduler row still carried the pass that ran while Qdrant was stopped, as 21 identical lines — now grouped by reason |
+
+The two refinements this run produced (a failed count retried after 30 s rather than five minutes, and
+the grouped scheduler message) are in the final build. `.env` now has the two lines; the copy taken
+before is in the scratchpad and was not needed. The two conversations on RAG eval · Halvard support are
+kept.
+
 ## 2026-10-31 — R416: this install's Qdrant, from a crash loop to 1.20.0
 
 The app ran this round's build, from the main checkout. The live volume was copied to

@@ -700,11 +700,18 @@ spec:
 # themselves live here. Both are installed, because a catalog with nowhere to
 # write is a lakehouse that fails on its first table.
 #
-# Replace it with the object store you already run — S3, GCS, R2, a MinIO
-# cluster — by pointing LAKEHOUSE_S3_ENDPOINT / _KEY_ID / _SECRET in the
+# SILO (github.com/pgsty/silo), a maintained fork of the MinIO server, since
+# R418: MinIO no longer publishes images anyone can pull (VA-2026-10-25-35).
+# Same S3 API, MINIO_* settings, health paths and on-disk format, so the
+# StatefulSet keeps its name and its PVC, and moving the image is a rolling
+# restart onto the same data.
+#
+# Replace it with the object store you already run — S3, GCS, R2, a MinIO or
+# SILO cluster — by pointing LAKEHOUSE_S3_ENDPOINT / _KEY_ID / _SECRET in the
 # agentswarms-env secret at that instead and deleting this section. One node
-# is not high availability; for that, run MinIO's own operator or a managed
-# bucket. What it IS, is a lakehouse that works the minute the install ends.
+# is not high availability; for that, run a distributed SILO or MinIO, or a
+# managed bucket. What it IS, is a lakehouse that works the minute the install
+# ends.
 apiVersion: v1
 kind: Service
 metadata:
@@ -758,7 +765,7 @@ spec:
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: minio
-          image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+          image: pgsty/silo:RELEASE.2026-10-26T00-00-00Z@sha256:7bb2aff6b89efe1cb1303c10fc21d579447434ed06649ac9ec05a5e2dbf30ad7
           args: ["server", "/data", "--console-address", ":9001"]
           env:
             - name: MINIO_ROOT_USER
@@ -824,7 +831,7 @@ spec:
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: mc
-          image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          image: pgsty/mc:RELEASE.2026-10-26T00-00-00Z@sha256:ce62c9053c69ce12a527a322345b5ad9f44b5f8a7b8189f82e516f2e3f30f1d8
           env:
             - name: S3_KEY_ID
               valueFrom:
@@ -832,6 +839,13 @@ spec:
             - name: S3_SECRET
               valueFrom:
                 secretKeyRef: { name: agentswarms-env, key: LAKEHOUSE_S3_SECRET }
+            # mc keeps its aliases under $HOME/.mc, and uid 1000 in this image
+            # has no writable home. Measured (R418), with MinIO's client and
+            # with SILO's: `mc alias set` failed with "mkdir /.mc: permission
+            # denied", and the loop below retried it for ever, so the bucket
+            # was never made. /tmp is writable (readOnlyRootFilesystem: false).
+            - name: MC_CONFIG_DIR
+              value: /tmp/.mc
           command: ["/bin/sh", "-c"]
           args:
             - >
