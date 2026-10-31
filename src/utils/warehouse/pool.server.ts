@@ -26,6 +26,7 @@
 
 import { createHash } from "node:crypto";
 
+import { connectionLookup, mysqlStream, pgStream } from "./network.server";
 import { FAMILY_DEFAULT_PORT } from "./types";
 
 type PgPool = import("pg").Pool;
@@ -74,6 +75,8 @@ export type PoolConnConfig = {
   username: string;
   password: string;
   ssl?: string;
+  /** Decides what a new socket may connect to (R425), so it is part of the key. */
+  require_private?: boolean;
 };
 
 type Entry = {
@@ -105,6 +108,9 @@ export function poolKey(family: string, cfg: PoolConnConfig): string {
     cfg.username,
     cfg.password,
     cfg.ssl ?? "",
+    // A pool's sockets connect through a lookup that enforces the rule it was
+    // built with; turning the rule on must build a new pool, not reuse one.
+    cfg.require_private === true ? "private" : "",
   ];
   // Length-prefixed so ("ab","c") and ("a","bc") cannot produce one string.
   const canonical = parts.map((p) => `${p.length}:${p}`).join("|");
@@ -161,6 +167,8 @@ async function createPgPool(cfg: PoolConnConfig): Promise<PgPool> {
     user: cfg.username,
     password: cfg.password,
     ssl: cfg.ssl === "require" ? { rejectUnauthorized: false } : undefined,
+    // Every socket resolves the host through the guarded lookup (R425).
+    stream: pgStream(connectionLookup(cfg)),
     max: maxPerPool(),
     idleTimeoutMillis: idleMs(),
     connectionTimeoutMillis: 15_000,
@@ -186,6 +194,8 @@ async function createMySqlPool(cfg: PoolConnConfig): Promise<MySqlPool> {
     user: cfg.username,
     password: cfg.password,
     ssl: cfg.ssl === "require" ? { rejectUnauthorized: false } : undefined,
+    // Every socket resolves the host through the guarded lookup (R425).
+    stream: mysqlStream(connectionLookup(cfg)),
     connectionLimit: maxPerPool(),
     idleTimeout: idleMs(),
     connectTimeout: 15_000,

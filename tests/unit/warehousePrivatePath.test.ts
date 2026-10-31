@@ -77,7 +77,10 @@ describe("which engines are wire protocols", () => {
 
 describe("the always-refused addresses, for a wire protocol", () => {
   it("refuses the metadata address, by literal and by a name resolving there", async () => {
-    await expect(assertWarehouseNetwork(pg({ host: "169.254.169.254" }))).rejects.toThrow();
+    // A driver connects; the refusal says so (R425), not "fetch".
+    await expect(assertWarehouseNetwork(pg({ host: "169.254.169.254" }))).rejects.toThrow(
+      /^Refusing to connect to link-local\/metadata address: 169\.254\.169\.254$/,
+    );
     answers["sneaky.corp.test"] = ["169.254.169.254"];
     await expect(assertWarehouseNetwork(pg({ host: "sneaky.corp.test" }))).rejects.toThrow();
   });

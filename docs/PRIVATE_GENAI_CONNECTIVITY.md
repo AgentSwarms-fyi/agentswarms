@@ -385,6 +385,25 @@ resolution, a private database allowed, an unresolvable name named; the rule for
 (private passes, public refused with the database's advice, the proxy not counting) and for an
 HTTPS engine (the proxy counting), a PrivateLink account's host; the path; and every wiring point.
 
+**Checked again as each socket connects (R425).** The check above runs before the driver connects,
+but the driver (pg, mysql2, tedious) then resolved the name again itself, so a resolver could answer
+the check with a safe address and the driver with the metadata address. Each driver now resolves
+through `guardedLookup` (`network.server.ts`): pg through a socket whose `connect(port, host)`
+carries the lookup, mysql2 through its `stream` factory, tedious through its `connector` (which it
+calls for an Azure gateway's redirect too). The lookup resolves the name, refuses the always-refused
+addresses and, when the connection requires a private path, any public one, and hands the socket
+exactly the addresses it checked. TLS still takes its server name from the configured host. A pool's later
+sockets pass the same check, so a failover that moves the name to a new address keeps working, and
+the rule is part of the pool key, so turning it on builds a new pool. Tested
+(`warehouseConnectPinning.test.ts`) with the real drivers over real sockets, against a local server
+reached through names only the test's resolver knows: each driver reaches the server through the
+lookup and is refused before connecting once the name answers with the metadata address, and a name
+that answers the check safely and the driver with the metadata address is refused for all three
+engines, pooled and not. **Not covered:** the HTTPS engines' requests are pinned to checked
+addresses by `safeFetch`, but their require-private rule is checked before each query rather than
+per request; a named SQL Server instance's port lookup (a UDP query to its host) resolves the name
+on its own; an ETL pipeline's code connects from its own runtime.
+
 ### How it would be tested
 
 - **Proxy:** a throwaway Squid container on the app network as the only egress;

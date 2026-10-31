@@ -15,6 +15,26 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-01 — R425: each database connection checked as it opens
+
+The R425 build from the main checkout, hot-deployed; R424's Postgres stand-in (`r424-pg-private`,
+172.19.0.12) started again for the round and stopped after. The case R425 closes, a name that
+answers the check with one address and the driver with another, cannot be staged from the app:
+its container resolves through Docker's DNS, and nothing outside can change an answer between the
+check and the connect. It is proved in `warehouseConnectPinning.test.ts` with the real drivers over
+real sockets. This round checks what a person sees: that connections still work through the new
+path, and the refusal's wording. Toasts were read by a watcher on the page's toast list.
+
+| Page / surface                                    | What was driven                                                     | Before (R424 build)                                                           | After (R425 build)                                                                                     |
+| ------------------------------------------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Integrations → Data Sources, "R424 private …"     | the row's **Test**                                                  | "Connection verified · Reached direct to 172.19.0.12 (private)."              | the same, in 1.6 s (the first connection after the restart), through the guarded socket; status **OK** |
+| … "R424 metadata …" (`169.254.169.254`, port 80)  | the row's **Test**                                                  | the row read "Refusing to fetch link-local/metadata address: 169.254.169.254" | "Refusing to connect to link-local/metadata address: 169.254.169.254", toast and row (1 Nov 03:34)     |
+| Data Catalog → Workbench, source "R424 private …" | `select region, amount from r424_orders order by id`, **Run Query** | 3 rows, 247 ms                                                                | 3 rows, 6 ms on the pooled connection the Test opened: north 120.5, south 88, west 301.25              |
+
+The app's log showed nothing for the window. MySQL and SQL Server are not in this round: no image
+for either is on this machine, and their drivers are exercised over real sockets in the test. Kept:
+the three "R424 … - kept fixture" connections; the stand-in container is stopped again.
+
 ## 2026-11-01 — R424: databases and warehouses over private paths
 
 The R424 build from the main checkout, hot-deployed. A throwaway Postgres 16.15 container

@@ -35,7 +35,13 @@ import {
 } from "@/utils/warehouse/governor.server";
 
 import { connectorFetch } from "@/utils/http/connectorFetch.server";
-import { assertWarehouseNetwork } from "./network.server";
+import {
+  assertWarehouseNetwork,
+  connectionLookup,
+  mysqlStream,
+  pgStream,
+  tdsConnector,
+} from "./network.server";
 
 import { getPool } from "./pool.server";
 import { FAMILY_DEFAULT_PORT, PROVIDER_FAMILY } from "./types";
@@ -643,6 +649,8 @@ async function tdsQuery(
         trustServerCertificate: isServer ? cfg.trust_server_certificate === "true" : false,
         requestTimeout: POLL_TIMEOUT_MS,
         connectTimeout: 20_000,
+        // The socket resolves the host through the guarded lookup (R425).
+        connector: tdsConnector(connectionLookup(cfg)),
       },
     });
     const columns: WarehouseColumn[] = [];
@@ -750,6 +758,7 @@ async function pgQuery(
     user: config.username,
     password: config.password,
     ssl: config.ssl === "require" ? { rejectUnauthorized: false } : undefined,
+    stream: pgStream(connectionLookup(config)),
     connectionTimeoutMillis: 15_000,
     query_timeout: 60_000,
   });
@@ -802,6 +811,7 @@ async function mysqlQuery(
     user: config.username,
     password: config.password,
     ssl: config.ssl === "require" ? { rejectUnauthorized: false } : undefined,
+    stream: mysqlStream(connectionLookup(config)),
     connectTimeout: 15_000,
   });
   try {

@@ -457,9 +457,10 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   connects, for queries, tests, table listings and ETL runs; private networks
   stay allowed, as for every connector, `BLOCK_PRIVATE_NETWORK_FETCH`
   included. A name that does not resolve from the app server is refused, with
-  a proxy set too, since the driver never uses one. The driver still resolves
-  the name again itself; pinning it to the checked address is recorded as the
-  remaining step.
+  a proxy set too, since the driver never uses one. Since R425 the check runs
+  again as each connection opens: every driver resolves through it, so a name
+  that answers the check with a safe address and the driver with the metadata
+  address is refused too, and a pool's later connections are held to it.
 - **A secret shared with you goes only where its owner allows** (R419,
   VA-2026-10-25-29, -30). Sharing a secret promised "use it without seeing it",
   and in every config a colleague writes they choose where it goes: an HTTP

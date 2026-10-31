@@ -205,7 +205,8 @@ function DataPage() {
         Snowflake&rsquo;s <C>.privatelink</C> account, a VPN). <strong>Test connection</strong>{" "}
         reports the address it reached, and <strong>Require a private network path</strong> refuses
         every connection that would not be private, before it is opened. A Postgres, MySQL or SQL
-        Server host that is, or resolves to, the cloud metadata address is always refused.
+        Server host that is, or resolves to, the cloud metadata address is always refused, and both
+        checks run again as each connection opens, on the address it then connects to.
       </Callout>
 
       <Connector

@@ -109,6 +109,43 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-01 — R425: a database driver connects only to an address that has just been checked
+
+**Finding** (R424's recorded residual). R424 checked a Postgres, MySQL or SQL Server host before the
+driver connected, but the driver then resolved the name again itself. A resolver that answers the
+check with a safe address and the driver with `169.254.169.254` got through; a pool's later sockets
+were never checked at all.
+
+**Fix.** `guardedLookup` (`src/utils/warehouse/network.server.ts`) is the lookup every wire-protocol
+socket now connects through: it resolves the name, refuses the always-refused addresses (and any
+public one when the connection requires a private path), and hands the socket exactly the
+addresses it checked. pg gets a socket whose `connect(port, host)` carries the lookup; mysql2 its
+`stream` factory, keeping no-delay and keep-alive; tedious its `connector`, which it calls with the
+host it would connect to, an Azure gateway's redirect included. TLS still takes its server name from
+the configured host. Both pools and the one-connection paths use it; `require_private` joins the
+pool key, so turning the rule on builds a new pool. Checking at connect time, rather than connecting
+to an address fixed at the check, keeps a failover that moves the name working. The pre-check's
+refusal now says "connect", not "fetch".
+
+**Proved.**
+
+| Check                                   | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `warehouseConnectPinning.test.ts` (new) | 17: the lookup (one address or all, the metadata address alone or among private ones, the rule, a resolver failure); pg, mysql2 and tedious each reaching a local server through a name only the test's resolver knows, then refused before connecting once it answers with the metadata address; the rebinding (check answered safely, driver with the metadata address) refused for all three engines, pooled and not, with no connection made; a strict pool refusing a public address; the rule in the key; every wiring point |
+| Neighbours                              | 47 files, 772 tests (`warehouse*`, `etl*`, `connectionGrants`, `sharedSecret*`, `storagePrivatePath`, `dataSideSsrfGuard`, `inAppDocsAccuracy`, `docsFreshness`)                                                                                                                                                                                                                                                                                                                                                                   |
+| Mutation                                | 15 of 15, baseline green before and after                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| From the UI (R425 build, hot-deployed)  | the private stand-in still connects (Test, then a workbench query on the pooled connection); the metadata connection's refusal now reads "Refusing to connect to …"                                                                                                                                                                                                                                                                                                                                                                |
+
+The first run of the new test timed out on the tedious case, and mysql2 took 5 s: both drivers were
+imported inside the tests, and a cold import on this disk outran the timeout. A probe outside vitest
+showed tedious and mysql2 noticing a dropped connection in milliseconds with the new socket code as
+with their own. The imports moved to module level.
+
+**Not covered.** The HTTPS engines' requests are pinned to checked addresses by `safeFetch`, so the
+metadata address is out of their reach, but their require-private rule is checked before each query
+rather than per request. A named SQL Server instance's port lookup (a UDP query to its host) resolves
+the name on its own. An ETL pipeline's code connects from its own runtime.
+
 ### 2026-11-01 — R424: a database connection could be aimed at the cloud metadata address
 
 **Finding** (found building private connectivity Phase 3; the VA-14 family). The Postgres, MySQL and

@@ -456,7 +456,9 @@ host resolves only to private addresses from the app server, or, for an engine c
 HTTPS, the call leaves through the proxy. It covers queries, tests, table listings and ETL runs;
 a refusal from Test connection is audited (`warehouse.private_path.refused`). Separately, a
 Postgres, MySQL or SQL Server connection is now refused if its host is, or resolves to, the
-cloud metadata or a link-local address.
+cloud metadata or a link-local address. Both checks run again as each connection opens, on the
+addresses the driver then connects to, so a host name that changes its answer after the check
+is refused too.
 
 ### Reaching a bucket over a private path
 
