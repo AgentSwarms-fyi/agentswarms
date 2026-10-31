@@ -65,6 +65,14 @@ the owning user, so you can rotate a password in one place and share a
 connection template without exposing the credential. Superadmins can share
 secrets with users/groups via **Admin → IAM**.
 
+A secret **shared with you** resolves only toward the hosts its owner listed
+under **Secrets → Allowed hosts**, and only in a field that is a credential:
+whoever writes a connection chooses its host, so without the owner's list a
+host aimed at their own server would receive the value (R419,
+VA-2026-10-25-30). In this release a warehouse connection takes only secrets
+you own; the in-app Secrets page has the table of where a shared one fills a
+credential today.
+
 ## Sharing a connection with your team
 
 A connection is owned by whoever created it. Rather than every analyst creating
@@ -82,11 +90,12 @@ Grant to a user or a group, like any other resource.
 a grantee has none of their own — so the owner's credential is decrypted
 server-side and the query runs against the owner's warehouse.
 
-| Grantee can                                                             | Grantee cannot                  |
-| ----------------------------------------------------------------------- | ------------------------------- |
-| Query it from the workbench, BI, prep flows, agents and semantic models | See the credential, in any form |
-| Test it, and see its health                                             | Edit or delete it               |
-| Trigger a sync on a shared app source                                   | Change what it points at        |
+| Grantee can                                                             | Grantee cannot                                        |
+| ----------------------------------------------------------------------- | ----------------------------------------------------- |
+| Query it from the workbench, BI, prep flows, agents and semantic models | See the credential, in any form                       |
+| Test it, and see its health                                             | Edit or delete it                                     |
+| Trigger a sync on a shared app source                                   | Change what it points at                              |
+|                                                                         | Use it in an ETL pipeline, whose code would receive it |
 
 The grantee's rows are never readable directly: unlike other shared resources,
 connection rows carry the encrypted credential, so there is deliberately **no

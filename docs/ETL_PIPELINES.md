@@ -971,15 +971,22 @@ carries egress policy in its own manifests).
 ## Credentials
 
 Connections are the ones the rest of the product governs: Data Catalog storage
-sources (AWS, MinIO, R2, Spaces, B2) and warehouse connections — including
-IAM-granted shared connections, resolved through the same
-`loadWarehouseConnectionForUser` path BI uses. Each graph node's credentials
+sources (AWS, MinIO, R2, Spaces, B2) and warehouse connections the pipeline's
+owner owns. A connection shared with them through IAM is refused at run start,
+saying so: everything below lands in the run's environment, where the
+pipeline's own code can print it, and a shared connection's grantee is never
+meant to receive its credential (R419, VA-2026-10-25-45; until then it loaded
+like any other through `loadWarehouseConnectionForUser`). Each graph node's credentials
 resolve at run start under its own env stem (`envKey(nodeId)` → `ETL_<NODE>_URL`,
 `ETL_<NODE>_ACCESS_KEY_ID`, …); storage access stays scoped to the source's
 configured bucket prefix. Code-mode pipelines keep the documented `ETL_DEST_*`
 contract from the pipeline-level destination. User bindings
 (`KEY={{secret:NAME}}`) ride along; one that fails to resolve is dropped rather
-than fatal, so the code that needed it reports a missing variable.
+than fatal, so the code that needed it reports a missing variable. Every secret
+that reaches the environment — bindings, stream and reverse-ETL secrets, the
+keys of a bucket whose source config holds a reference — resolves only if the
+pipeline's owner owns it: a secret merely shared with them never does, for the
+same reason (VA-2026-10-25-29).
 
 ## Scheduling and triggering
 

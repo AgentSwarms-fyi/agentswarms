@@ -109,6 +109,70 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-31 — R419: a shared secret goes only where its owner allows (VA-29, -30, -45, -46)
+
+**Finding** (VA-2026-10-25-30, recorded in R382 as two caller-chooses-endpoint paths). Sharing a secret by
+IAM grant promised "use it without seeing it". R380 made the three paths where the caller types the
+endpoint at call time owner-only. Reading every resolution site this round showed that was the narrow
+case: in every config a grantee writes, they choose the destination (an HTTP node URL, a provider base
+URL, a connection host, a catalog endpoint), and `resolveSecretRefsInObject` resolved URL fields too, so
+`https://their-host/{{secret:X}}` delivered the value with no auth header involved. The live Test buttons
+R380 closed sent nothing the saved config did not send to the same place.
+
+**Decision** (the operator's, asked in session: bind to hosts, owner-only everywhere, or only the two
+recorded paths). The owner lists where a secret may go; a shared secret resolves only toward those hosts,
+only in a credential field, and never into code the grantee runs.
+
+**Fix.**
+
+- `user_secrets.allowed_hosts` (migration `20261102000000`; empty means nobody but the owner). The
+  migration proves on apply that every policy able to write the row is owner-only: a policy letting a
+  grantee edit the list would let them allow their own server.
+- `resolveSecretRefs(user, input, { sendTo })`: a secret the caller owns resolves anywhere; a shared one
+  resolves only when `sendTo` names the destination hosts and the owner allowed every one. No `sendTo`
+  (or an unparseable one) means owner-only without consulting the grant: R380's `ownedOnly` became the
+  default, so a sink nobody wired fails closed. The row is read with `*`, so the code runs before the
+  migration (a shared secret then has no allowed host).
+- `resolveCredentialConfig`: a config's non-credential fields resolve owner-only first (endpoint, host,
+  bucket, region, Azure account, webhook URL), then its credentials against the hosts they will reach,
+  computed from the resolved config by the code that makes the requests (`objectStoreHosts` uses
+  `resolveTarget`, so a virtual-hosted bucket is checked as `bucket.host`).
+- Wired: the HTTP node (headers toward the URL; URL and body owner-only), a2a, the gateway Test, catalog
+  create and every stored-source load, the Iceberg crawl, lakehouse Iceberg catalogs (token toward the
+  catalog, client credentials toward the token server). Owner-only: the MCP sandbox, every value in an
+  ETL run's environment (VA-29), notification webhook URLs. Providers, warehouse connections and the
+  other integrations stay owner-only until R420 names their hosts.
+
+**Two more, found on the way.** **VA-45:** ETL's `databaseEnv` accepted a connection shared with the
+pipeline's owner and wrote its URL, password included, into the environment their code reads; a pipeline
+now runs only on connections its owner owns. **VA-46:** `safeFetch` follows redirects itself (R387) and
+re-sent the caller's whole `init` to every hop: `Authorization`, `x-api-key`, a POST body with a client
+secret followed a 302 or 307 anywhere, which also made host-binding one redirect deep. A hop to another
+origin now keeps only headers that cannot carry a credential and never re-sends a body (refused); 303,
+and 301/302 after a POST, become a bodiless GET as in `fetch()`. The first hop is byte-identical to
+before; the first version rebuilt it as a `Headers` object and eight provider tests that read
+`init.headers` as the caller's object failed, so it was kept as given. Also fixed: the Iceberg crawl never
+resolved a token reference (the literal braces went out as the bearer).
+
+**Proved.**
+
+| Check                                     | Result                                                                                                 |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `secretsOwnedOnly.test.ts` (rewritten)    | 25: owned anywhere; shared refused with no or an unparseable destination, grant never consulted        |
+| `sharedSecretSinks.test.ts` (new)         | 20: HTTP node and stored sources run for real (loopback server, real resolver); sinks pinned           |
+| `secretHosts.test.ts` (new)               | 10: `*.com`, mid-name wildcards, look-alikes (`evilapi…`), `api.openai.com@evil.test`, punycode        |
+| `safeFetchRedirectCredentials.test.ts`    | 6: two loopback servers on different ports; five credential headers dropped, body refused, 303 → GET    |
+| Migration, throwaway Postgres 16.15       | applies, re-applies; owner sets the list; grantee sees it and updates 0 rows; stranger sees nothing    |
+| … its bounds and self-check               | 51 entries, a NULL, 13 001 characters refused; a grantee UPDATE policy and an `OR true` stop the apply |
+| Mutation                                  | 27 of 27 (first run 25: one mutant was equivalent, one test refused for the wrong reason; both fixed)  |
+
+**From the UI** (R419 build, hot-deployed): the Secrets editor refuses `*.com` inline and on submit; a
+valid list is answered with the migration it needs (not pushed yet); a swarm HTTP node with an owned
+secret in `Authorization` and `X-Api-Key`, aimed at a server that 302s to another port, arrived with
+neither, and the same-origin control with both; the IAM share dialog warns for a secret with no host; the
+catalog re-crawl and an object query are unchanged. **Not driven from the UI:** the grantee path, which
+needs a second account (sign-in is hosted); the tests above run it against the real resolver.
+
 ### 2026-10-31 — R418: the object store moves from MinIO to SILO (VA-35)
 
 **Finding** (R399, VA-2026-10-25-35). MinIO stopped publishing images anyone can pull. Docker Hub's

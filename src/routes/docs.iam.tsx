@@ -337,6 +337,14 @@ function IamPage() {
         against the grantee's own vault.
       </P>
       <P>
+        One use is refused: an <DocLink to="/docs/etl">ETL pipeline</DocLink>. A pipeline&apos;s
+        code runs with every connection&apos;s credential in its environment, where it could print
+        it, so a pipeline runs only on connections its owner owns, and says so when one is shared. A
+        shared <strong>secret</strong> is held to the same idea: it resolves only toward the hosts
+        its owner allowed, and never into code the grantee runs (
+        <DocLink to="/docs/secrets">Secrets → where a shared secret may go</DocLink>).
+      </P>
+      <P>
         A shared <strong>app source</strong> syncs as its owner, into the owner's datasets — so a
         grantee re-running a stale sync refreshes the real datasets rather than building a parallel
         copy under their own account. Sharing the source lets someone keep it healthy; to let them

@@ -306,8 +306,22 @@ export async function safeFetch(
     useProxy?: boolean;
   } = {},
 ): Promise<Response> {
-  const { maxRedirects = 5, blockPrivate, allowPrivate, useProxy, ...rest } = init;
+  const {
+    maxRedirects = 5,
+    blockPrivate,
+    allowPrivate,
+    useProxy,
+    headers: initHeaders,
+    method: initMethod,
+    body: initBody,
+    ...rest
+  } = init;
   let current = rawUrl;
+  // The first hop sends exactly what the caller gave; only a redirect
+  // rebuilds the request (redirectedRequest).
+  let headers: HeadersInit | undefined = initHeaders;
+  let method: string | undefined = initMethod;
+  let body = initBody;
   const callerDispatcher = "dispatcher" in rest;
   for (let hop = 0; hop <= maxRedirects; hop++) {
     // The proxy is chosen per hop (NO_PROXY may send one hop direct and the
@@ -353,14 +367,83 @@ export async function safeFetch(
     }
     const res = await fetch(check.url, {
       ...rest,
+      ...(method !== undefined ? { method } : {}),
+      ...(headers !== undefined ? { headers } : {}),
+      ...(body !== undefined && body !== null ? { body } : {}),
       ...(dispatcher ? ({ dispatcher } as Record<string, unknown>) : {}),
       redirect: "manual",
     });
     const isRedirect = res.status >= 300 && res.status < 400 && res.headers.has("location");
     if (!isRedirect) return res;
-    current = new URL(res.headers.get("location")!, check.url).toString();
+    const next = new URL(res.headers.get("location")!, check.url);
+    await res.body?.cancel().catch(() => {});
+    ({ method, headers, body } = redirectedRequest(res.status, check.url, next, {
+      method,
+      headers,
+      body,
+    }));
+    current = next.toString();
   }
   throw new Error("Too many redirects");
+}
+
+/** Headers that cannot carry a credential, the only ones kept across origins. */
+const CROSS_ORIGIN_SAFE_HEADERS = new Set([
+  "accept",
+  "accept-encoding",
+  "accept-language",
+  "cache-control",
+  "pragma",
+  "user-agent",
+]);
+
+/** Headers that describe a body, dropped with it. */
+const BODY_HEADERS = ["content-encoding", "content-language", "content-location", "content-type"];
+
+/**
+ * The request safeFetch sends to a redirect's target: what fetch() itself does
+ * (WHATWG Fetch, "HTTP-redirect fetch"), which a manual loop has to do by
+ * hand, and stricter on one point.
+ *
+ * - 303, and 301/302 after a POST, become a GET without the body.
+ * - A hop to ANOTHER ORIGIN keeps only headers that cannot carry a credential.
+ *   fetch() drops `Authorization` there; the callers here put credentials in
+ *   other headers too (`x-api-key`, `api-key`, an HTTP node's own headers), so
+ *   everything else goes. Until R419 this loop re-sent every header to every
+ *   hop: a key meant for one server followed a 302 to any other, which is also
+ *   the way a secret shared toward an allowed host could have left it.
+ * - A body is never re-sent to another origin (307/308): it can hold a
+ *   credential as well, and the caller chose where it went, not the server.
+ */
+export function redirectedRequest(
+  status: number,
+  from: URL,
+  to: URL,
+  req: { method?: string; headers?: HeadersInit; body: RequestInit["body"] },
+): { method: string; headers: Headers; body: RequestInit["body"] } {
+  let method = (req.method ?? "GET").toUpperCase();
+  let body = req.body;
+  const headers = new Headers(req.headers);
+  if (
+    (status === 303 && method !== "HEAD") ||
+    ((status === 301 || status === 302) && method === "POST")
+  ) {
+    method = "GET";
+    body = undefined;
+    for (const h of BODY_HEADERS) headers.delete(h);
+  }
+  if (to.origin !== from.origin) {
+    if (body !== undefined && body !== null) {
+      throw new SsrfRefusedError(
+        `Refusing to re-send a request body to ${to.origin}: ${from.origin} answered ${status}, ` +
+          `and a body is never forwarded to another server.`,
+      );
+    }
+    for (const name of [...headers.keys()]) {
+      if (!CROSS_ORIGIN_SAFE_HEADERS.has(name.toLowerCase())) headers.delete(name);
+    }
+  }
+  return { method, headers, body };
 }
 
 /**

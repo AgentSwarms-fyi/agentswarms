@@ -7,6 +7,7 @@ import { z } from "zod";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { generateScimToken, hashScimToken, scimTokenPrefix } from "@/lib/scim";
 import { USER_ATTR_TOKEN_RE } from "@/lib/semanticPolicy";
+import { sharedUseNote } from "@/lib/secretHosts";
 import { auditEvent } from "@/utils/audit.server";
 import {
   isBootstrapAdmin,
@@ -82,6 +83,8 @@ export type IamGrantRow = {
   row_filter: { column: string; values: string[] } | null;
   /** BI dashboards only: columns hidden from the grantee. */
   column_mask: string[];
+  /** Secrets only: where the grantee may send it (R419), in sharedUseNote's words. */
+  resource_note?: string;
 };
 
 export type IamResourceOption = {
@@ -103,6 +106,19 @@ export type IamResourceOption = {
   id: string;
   name: string;
   owner_user_id: string | null;
+  /** Secrets only: where a grantee could send it (R419), shown under the picker. */
+  note?: string;
+  /** Secrets only: it allows no host, so a share would give nothing usable. */
+  warn?: boolean;
+};
+
+/**
+ * A secret's allowed hosts from a `*` row: absent until migration
+ * 20261102000000, which is why these reads name no columns.
+ */
+const hostsOf = (row: unknown): string[] => {
+  const h = (row as { allowed_hosts?: unknown }).allowed_hosts;
+  return Array.isArray(h) ? h.filter((x): x is string => typeof x === "string") : [];
 };
 
 const BAN_DURATION = "87600h"; // ~10 years; "none" lifts the ban.
@@ -794,7 +810,9 @@ export const iamListGrantableResources = createServerFn({ method: "POST" })
         .select("id, name, user_id, is_sample")
         .eq("is_sample", false)
         .order("name"),
-      supabaseAdmin.from("user_secrets").select("id, name, user_id").order("name"),
+      // `*` (the ciphertext stays on this server; only id, name, owner and
+      // hosts are mapped out): allowed_hosts may not exist yet, see hostsOf.
+      supabaseAdmin.from("user_secrets").select("*").order("name"),
       supabaseAdmin.from("bi_dashboards").select("id, name, user_id").order("name"),
       supabaseAdmin.from("semantic_models").select("id, name, label, user_id").order("name"),
       supabaseAdmin.from("catalog_sources").select("id, name, user_id").order("name"),
@@ -836,6 +854,8 @@ export const iamListGrantableResources = createServerFn({ method: "POST" })
         id: s.id,
         name: s.name,
         owner_user_id: s.user_id,
+        note: sharedUseNote(hostsOf(s)),
+        warn: hostsOf(s).length === 0,
       })),
       ...(dashboards ?? []).map((d) => ({
         resource_type: "bi_dashboard" as const,
@@ -977,8 +997,10 @@ export const iamListGrants = createServerFn({ method: "POST" })
         ? supabaseAdmin.from("user_data_tables").select("id, name, user_id").in("id", tableIds)
         : Promise.resolve({ data: [] as { id: string; name: string; user_id: string | null }[] }),
       secretIds.length
-        ? supabaseAdmin.from("user_secrets").select("id, name, user_id").in("id", secretIds)
-        : Promise.resolve({ data: [] as { id: string; name: string; user_id: string }[] }),
+        ? supabaseAdmin.from("user_secrets").select("*").in("id", secretIds)
+        : Promise.resolve({
+            data: [] as { id: string; name: string; user_id: string; allowed_hosts?: string[] }[],
+          }),
       dashboardIds.length
         ? supabaseAdmin.from("bi_dashboards").select("id, name, user_id").in("id", dashboardIds)
         : Promise.resolve({ data: [] as { id: string; name: string; user_id: string }[] }),
@@ -1087,6 +1109,9 @@ export const iamListGrants = createServerFn({ method: "POST" })
               ? { column: rf.column, values: rf.values.map(String) }
               : null,
           column_mask: Array.isArray(g.column_mask) ? g.column_mask.map(String) : [],
+          ...(g.resource_type === "secret" && res
+            ? { resource_note: sharedUseNote(hostsOf(res)) }
+            : {}),
         };
       }),
     };

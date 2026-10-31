@@ -981,7 +981,8 @@ describe("the secrets page describes the resolver that exists", () => {
     // true of any node but the HTTP one.
     const nodes = readFileSync("src/utils/swarmNodes.server.ts", "utf8");
     expect(nodes).toContain("resolveSecretRefs(userId, p.url)");
-    expect(nodes).toContain("resolveSecretRefs(userId, h.value)");
+    // Since R419 a header names where it goes (sharedSecretSinks.test.ts).
+    expect(nodes).toContain("resolveSecretRefs(userId, h.value, { sendTo: [url] })");
     expect(page, "the over-broad any-field claim came back").not.toMatch(
       /any templated field on a[\s\S]{0,40}swarm node/,
     );

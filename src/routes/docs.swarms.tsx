@@ -343,13 +343,17 @@ return rows
         headers={["Field", "Values", "Notes"]}
         rows={[
           [<C key="a">httpMethod</C>, "GET / POST / PUT / PATCH / DELETE", "—"],
-          [<C key="b">httpUrl</C>, "template", "Supports {{var}} and {{secret:NAME}}"],
+          [
+            <C key="b">httpUrl</C>,
+            "template",
+            "Supports {{var}} and {{secret:NAME}} — a secret you own",
+          ],
           [
             <C key="c">httpHeaders</C>,
             "{key, value}[]",
-            "Same templating — put tokens in {{secret:…}}",
+            "Same templating — put tokens in {{secret:…}}; one shared with you resolves only toward a host its owner allowed",
           ],
-          [<C key="d">httpBody</C>, "template", "—"],
+          [<C key="d">httpBody</C>, "template", "{{secret:NAME}} — a secret you own"],
           [
             <C key="e">httpResponsePath</C>,
             "JSON path",
@@ -365,8 +369,13 @@ Headers: Authorization: Bearer {{secret:SUPPORT_API_TOKEN}}
 Body:    {"subject": "{{summary}}", "body": "{{input}}", "priority": "{{priority}}"}
 Path:    data.id`}</Code>
       <Callout kind="warn">
-        Requests to private, loopback and link-local addresses — including cloud metadata endpoints
-        — are refused, so a templated URL cannot be steered into your internal network.
+        Link-local addresses, cloud metadata endpoints included, are always refused, by name, by
+        resolved address and at every redirect hop. Private and loopback addresses are allowed,
+        since internal APIs are what many swarms call, unless the operator sets{" "}
+        <C>BLOCK_PRIVATE_NETWORK_FETCH=true</C>. A redirect to another origin keeps no header that
+        can carry a credential and never re-sends the body, so a token meant for one server does not
+        follow a 302 to another (
+        <DocLink to="/docs/secrets">Secrets → where a shared secret may go</DocLink>).
       </Callout>
 
       <H3 id="n-tool">tool</H3>

@@ -3505,6 +3505,9 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "Secrets",
     "description": "A vault for the credentials the platform uses on your behalf. Store once, reference by name, rotate in one place.",
     "terms": [
+      "*.",
+      "*.snowflakecomputing.com",
+      "10.0.0.5",
       "200",
       "2captcha_key",
       "BILLING_STRIPE_KEY",
@@ -3514,9 +3517,10 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "STRIPE_KEY",
       "SUPPORT_STRIPE_KEY",
       "^[A-Za-z][A-Za-z0-9_]*$",
+      "api.stripe.com",
+      "bucket.endpoint-host",
       "jiraToken",
       "key2",
-      "os.environ",
       "snowflake-analytics-ro",
       "snowflake_analytics_ro",
       "stripe_live_key"
@@ -3545,6 +3549,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "resolution-failures",
         "text": "When a reference cannot be resolved",
+        "level": 3
+      },
+      {
+        "id": "shared-hosts",
+        "text": "Where a shared secret may go",
         "level": 3
       },
       {
@@ -4462,6 +4471,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "Swarm Canvas",
     "description": "A swarm is a directed graph of nodes. Output flows along the edges, shared state flows through all of them. This page documents all eighteen node kinds and every field on each.",
     "terms": [
+      "BLOCK_PRIVATE_NETWORK_FETCH=true",
       "a2aAgentCard",
       "a2aAuthHeader",
       "a2aEndpoint",

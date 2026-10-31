@@ -195,7 +195,8 @@ function DataPage() {
       <Callout kind="info">
         Any field below can be filled from <DocLink to="/docs/secrets">Secrets</DocLink> instead of
         being typed in, so rotating a password is one edit rather than a hunt through every
-        connection.
+        connection. In this release a connection takes only secrets you own; one shared with you
+        resolves only where its owner allowed it to go, which connections do not name yet.
       </Callout>
 
       <Connector
@@ -631,7 +632,8 @@ function DataPage() {
         server-side and the query runs against the owner's warehouse. A grantee can query it, test
         it and see its health; they cannot see the credential, edit it or delete it.{" "}
         <C>{`{{secret:NAME}}`}</C> references resolve as the owner, never against the grantee's own
-        vault.
+        vault. A grantee cannot use it in an <DocLink to="/docs/etl">ETL pipeline</DocLink>, whose
+        code would receive the credential: pipelines run only on connections their owner owns.
       </P>
       <Callout kind="warn" title="Revocation takes effect on the next use">
         Grants are resolved fresh on every call, including scheduled refreshes, so nothing keeps

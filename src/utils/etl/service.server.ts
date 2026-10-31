@@ -207,7 +207,9 @@ export async function resolveRunEnv(
     if (src.kind !== "object_storage") {
       throw new Error(`Catalog source "${src.name}" is not an object-storage source`);
     }
-    const cfg = await loadStorageConfig(pipeline.user_id, src);
+    // Into the run's environment, which the pipeline's own code reads: only
+    // secrets the owner owns resolve there (R419, VA-2026-10-25-29).
+    const cfg = await loadStorageConfig(pipeline.user_id, src, { into: "sandbox" });
     const keyPrefix = (cfg.prefix ?? "").replace(/^\/+|\/+$/g, "");
     const scoped = `${cfg.bucket}${keyPrefix ? `/${keyPrefix}` : ""}`;
     // Targets take a bucket URL (what the loader wants); sources take the
@@ -284,7 +286,14 @@ export async function resolveRunEnv(
       env[`${stem}_TOPIC`] = cfg.topic.trim();
     }
     for (const { env: name, secret } of streamSecretEnv(stem, cfg)) {
-      const value = await resolveSecretRefs(pipeline.user_id, `{{secret:${secret}}}`);
+      // The run's environment is readable by the pipeline's own code, so this
+      // names no destination: only a secret the owner owns resolves (R419,
+      // VA-2026-10-25-29; a shared one fails here, saying so).
+      const value = await resolveSecretRefs(pipeline.user_id, `{{secret:${secret}}}`).catch(
+        (e: Error) => {
+          throw new Error(`Node "${node.label || node.id}": ${e.message}`);
+        },
+      );
       if (!value || value === `{{secret:${secret}}}`) {
         throw new Error(
           `Node "${node.label || node.id}": the secret "${secret}" is not set for this account (Settings → Secrets).`,
@@ -301,6 +310,17 @@ export async function resolveRunEnv(
       { connectionId },
       pipeline.user_id,
     );
+    // A shared connection runs as its owner and its grantee never receives
+    // the credential (IAM.md) — but this puts the credential in the run's
+    // environment, where the pipeline's code can print it. So a pipeline runs
+    // only on connections its owner owns (R419, VA-2026-10-25-45).
+    if (conn.shared) {
+      throw new Error(
+        `The connection "${conn.name}" is shared with you, and a pipeline's code receives ` +
+          `the credential of every connection it uses, so pipelines run only on connections ` +
+          `you own. Ask its owner to run this pipeline, or to give you a connection of your own.`,
+      );
+    }
     const native = isTarget ? nativeWarehouseTarget(conn.config.provider) : null;
     if (native) {
       const payload = nativeDestCreds(conn.config);
@@ -394,7 +414,12 @@ export async function resolveRunEnv(
     }
     // A reverse-ETL target's bearer token, picked as a secret on the node.
     if (node.kind === "target" && c.type === "http_api" && c.auth_secret) {
-      const value = await resolveSecretRefs(pipeline.user_id, `{{secret:${c.auth_secret}}}`);
+      // Owner-only, like every value bound into the run's environment (R419).
+      const value = await resolveSecretRefs(pipeline.user_id, `{{secret:${c.auth_secret}}}`).catch(
+        (e: Error) => {
+          throw new Error(`Node "${(node as EtlNode).label || node.id}": ${e.message}`);
+        },
+      );
       if (!value || value === `{{secret:${c.auth_secret}}}`) {
         throw new Error(
           `Node "${(node as EtlNode).label || node.id}": the secret "${c.auth_secret}" is not set for this account (Settings → Secrets).`,
@@ -611,10 +636,13 @@ export async function resolveRunEnv(
     await storageEnv(pipeline.dest_catalog_source_id, "ETL_DEST", "target");
   }
 
-  // User bindings: KEY={{secret:NAME}} lines, resolved as the owner. A binding
-  // that fails to resolve is dropped, not fatal — the run proceeds and the
-  // code that needed it reports a missing variable (the MCP rule, for the same
-  // diagnosability reason).
+  // User bindings: KEY={{secret:NAME}} lines, resolved as the owner and
+  // owner-only: the pipeline's code reads its environment, so a secret merely
+  // shared with the owner never resolves into it (R419, VA-2026-10-25-29; the
+  // MCP sandbox has had the same rule since R382). A binding that fails to
+  // resolve is dropped, not fatal — the run proceeds and the code that needed
+  // it reports a missing variable (the MCP rule, for the same diagnosability
+  // reason).
   for (const line of (pipeline.secret_refs ?? "").split("\n")) {
     const m = line.trim().match(SECRET_BINDING_RE);
     if (!m) continue;

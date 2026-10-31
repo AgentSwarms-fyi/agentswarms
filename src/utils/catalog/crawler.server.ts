@@ -19,7 +19,12 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { auditEvent } from "@/utils/audit.server";
 import { decryptJson } from "@/utils/providers/crypto.server";
 import { isBlockedAlways, safeFetch, SsrfRefusedError } from "@/utils/ssrfGuard.server";
-import { resolveSecretRefsInObject } from "@/utils/secrets.server";
+import {
+  containsSecretRef,
+  resolveCredentialConfig,
+  resolveSecretRefs,
+  resolveSecretRefsInObject,
+} from "@/utils/secrets.server";
 import { executeWarehouseQuery, listWarehouseTables } from "@/utils/warehouse/drivers.server";
 import type { WarehouseConfig } from "@/utils/warehouse/types";
 import {
@@ -28,6 +33,8 @@ import {
   inferColumns,
   listObjects,
   objectExt,
+  objectStoreCredentialFields,
+  objectStoreHosts,
   sampleObject,
   type InferredColumn,
   type ObjectStoreConfig,
@@ -772,20 +779,31 @@ export async function persistAssets(
   return changes;
 }
 
-/** Resolve {{secret:NAME}} refs and decrypt a stored bucket config. */
+/**
+ * Decrypt a stored bucket config and resolve its {{secret:NAME}} refs as
+ * `userId`, the source's owner. The owner chose the endpoint, so a secret
+ * shared with them fills only the keys, and only toward a host its owner
+ * allowed (R419, VA-2026-10-25-30). `into: "sandbox"` is for config handed to
+ * code the owner runs (an ETL pipeline's environment): there a shared secret
+ * never resolves, since the code can print what it is given.
+ */
 export async function loadStorageConfig(
   userId: string,
   source: { credentials: Json | null; name: string },
+  opts?: { into?: "sandbox" },
 ): Promise<ObjectStoreConfig> {
   const enc = source.credentials as { ciphertext?: string; iv?: string } | null;
   if (!enc?.ciphertext || !enc?.iv) {
     throw new Error(`Source "${source.name}" has no stored credentials`);
   }
   const cfg = await decryptJson<ObjectStoreConfig>(enc.ciphertext, enc.iv);
-  return (await resolveSecretRefsInObject(
-    userId,
-    cfg as unknown as Record<string, unknown>,
-  )) as unknown as ObjectStoreConfig;
+  if (opts?.into === "sandbox") {
+    return (await resolveSecretRefsInObject(
+      userId,
+      cfg as unknown as Record<string, unknown>,
+    )) as unknown as ObjectStoreConfig;
+  }
+  return resolveCredentialConfig(userId, cfg, objectStoreCredentialFields(cfg), objectStoreHosts);
 }
 
 export type CatalogSourceRow = Database["public"]["Tables"]["catalog_sources"]["Row"];
@@ -1167,7 +1185,13 @@ export async function crawlIcebergRest(
   return { assets, sampled: 0, unread };
 }
 
-/** Decrypt an Iceberg source's stored config + bearer token. */
+/**
+ * Decrypt an Iceberg source's stored config + bearer token, resolving a
+ * {{secret:NAME}} token as the source's owner toward the catalog's host
+ * (R419). Before R419 a token reference was stored as typed and never
+ * resolved here: the create-time test passed with the secret, and every crawl
+ * then sent the literal `{{secret:NAME}}` as the bearer.
+ */
 export async function loadIcebergConfig(source: CatalogSourceRow): Promise<IcebergRestConfig> {
   const cfg = (source.config ?? {}) as { uri?: string; warehouse?: string };
   if (!cfg.uri) throw new Error(`Source "${source.name}" has no catalog URI`);
@@ -1176,6 +1200,9 @@ export async function loadIcebergConfig(source: CatalogSourceRow): Promise<Icebe
   if (enc?.ciphertext && enc?.iv) {
     const dec = await decryptJson<{ token?: string }>(enc.ciphertext, enc.iv);
     token = dec.token;
+  }
+  if (token && containsSecretRef(token)) {
+    token = await resolveSecretRefs(source.user_id, token, { sendTo: [cfg.uri] });
   }
   return { uri: cfg.uri, warehouse: cfg.warehouse, token };
 }

@@ -43,10 +43,16 @@ export async function runHttpNodeCore(
   const headers: Record<string, string> = {};
   let body: string | undefined;
   try {
+    // Whoever builds the node writes the URL, so a secret shared with them
+    // fills only a HEADER, and only toward a host its owner allowed (R419,
+    // VA-2026-10-25-30). The URL and the body take secrets they own: a shared
+    // one there would travel in a path, a query or a payload to wherever they
+    // pointed it. A redirect to another origin keeps none of these headers
+    // (safeFetch).
     url = await resolveSecretRefs(userId, p.url);
     for (const h of p.headers ?? []) {
       if (!h.key.trim()) continue;
-      headers[h.key.trim()] = await resolveSecretRefs(userId, h.value);
+      headers[h.key.trim()] = await resolveSecretRefs(userId, h.value, { sendTo: [url] });
     }
     body = p.body ? await resolveSecretRefs(userId, p.body) : undefined;
   } catch (e) {

@@ -30,7 +30,8 @@ function SecretsPage() {
           <CardTitle className="text-base">Your secrets</CardTitle>
           <CardDescription>
             Sharing with other users or groups is managed by superadmins under Admin → IAM → Access.
-            Shared secrets are usable in references but never readable.
+            Shared secrets are usable in references but never readable, and go only to the hosts
+            their owner allows.
           </CardDescription>
         </CardHeader>
         <CardContent>

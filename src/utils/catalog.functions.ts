@@ -10,7 +10,7 @@ import { z } from "zod";
 
 import type { Database, Json } from "@/integrations/supabase/types";
 import { encryptJson } from "@/utils/providers/crypto.server";
-import { resolveSecretRefsInObject } from "@/utils/secrets.server";
+import { resolveCredentialConfig } from "@/utils/secrets.server";
 import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.server";
 import {
   loadStorageConfig,
@@ -21,7 +21,12 @@ import {
   type IcebergRestConfig,
 } from "@/utils/catalog/crawler.server";
 import { nextCrawlAt } from "@/utils/catalog/schedule.server";
-import { testObjectStore, type ObjectStoreConfig } from "@/utils/catalog/objectStore.server";
+import {
+  objectStoreCredentialFields,
+  objectStoreHosts,
+  testObjectStore,
+  type ObjectStoreConfig,
+} from "@/utils/catalog/objectStore.server";
 import type { ObjectStoreTable } from "@/utils/catalog/objectStoreQuery.server";
 import { callerFailure } from "@/utils/callerLookup.server";
 import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
@@ -147,11 +152,15 @@ export const catalogCreateSource = createServerFn({ method: "POST" })
         connectionId = data.connection_id;
       } else if (data.kind === "iceberg_rest") {
         if (!data.iceberg) return { ok: false, error: "Iceberg catalog configuration is required" };
-        // Connectivity + auth check with the token resolved (secret refs allowed).
-        const live = (await resolveSecretRefsInObject(
+        // Connectivity + auth check with the token resolved. The caller typed
+        // the URI, so a secret shared with them fills the token only toward a
+        // host its owner allowed, and never the URI or warehouse (R419).
+        const live = await resolveCredentialConfig(
           userId,
-          data.iceberg as unknown as Record<string, unknown>,
-        )) as unknown as IcebergRestConfig;
+          data.iceberg as IcebergRestConfig,
+          ["token"],
+          (c) => [c.uri],
+        );
         await testIcebergCatalog(live);
         // Public config keeps uri + warehouse; the bearer token is encrypted.
         config = { uri: data.iceberg.uri, warehouse: data.iceberg.warehouse ?? null } as Json;
@@ -164,11 +173,16 @@ export const catalogCreateSource = createServerFn({ method: "POST" })
         if (!cfg.endpoint && cfg.provider !== "aws") {
           return { ok: false, error: "This provider needs an endpoint URL" };
         }
-        // Connectivity check before anything is stored (secret refs resolved).
-        const live = (await resolveSecretRefsInObject(
+        // Connectivity check before anything is stored. The caller typed the
+        // endpoint, so a secret shared with them fills only the keys, toward a
+        // host its owner allowed (R419, VA-2026-10-25-30); every crawl after
+        // this resolves the same way (loadStorageConfig).
+        const live = await resolveCredentialConfig(
           userId,
-          cfg as unknown as Record<string, unknown>,
-        )) as unknown as ObjectStoreConfig;
+          cfg as ObjectStoreConfig,
+          objectStoreCredentialFields(cfg),
+          objectStoreHosts,
+        );
         await testObjectStore(live);
         const { access_key_id: _a, secret_access_key: _s, ...publicCfg } = cfg;
         config = publicCfg as unknown as Json;

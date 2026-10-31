@@ -1238,6 +1238,9 @@ function AccessTab({
     { value: "ontology", label: "🕸️ Ontology" },
   ];
   const shareableOfType = resources.filter((r) => r.resource_type === shareResourceType);
+  // A secret is usable by a grantee only toward the hosts its owner allowed
+  // (R419), so the dialog says where before anyone shares it.
+  const sharePicked = shareableOfType.find((r) => r.id === shareResourceId);
 
   const principalName = (type: string, id: string) =>
     type === "group"
@@ -1397,9 +1400,10 @@ function AccessTab({
             semantic model, catalog source, LLM key or credential, database / app connection, AI
             analyst, lakehouse schema, ML model or ontology. Everything is shared{" "}
             <strong>read-only</strong>. Credentials are never exposed: secrets become usable via{" "}
-            <code className="text-xs">{"{{secret:NAME}}"}</code> references, and a shared connection
-            runs as its owner — the grantee's queries hit the owner's warehouse, and a shared app
-            source syncs into the owner's datasets.
+            <code className="text-xs">{"{{secret:NAME}}"}</code> references, sent only to the hosts
+            each secret's owner allows, and a shared connection runs as its owner — the grantee's
+            queries hit the owner's warehouse, and a shared app source syncs into the owner's
+            datasets.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -1521,6 +1525,16 @@ function AccessTab({
             </Button>
           </div>
 
+          {sharePicked?.note ? (
+            <p
+              role={sharePicked.warn ? "alert" : undefined}
+              className={`text-xs ${sharePicked.warn ? "text-warning" : "text-muted-foreground"}`}
+            >
+              {sharePicked.name}: {sharePicked.note}. Its owner sets where it may go under Secrets →
+              Allowed hosts.
+            </p>
+          ) : null}
+
           {shareIsDashboard && (
             <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2">
               <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -1610,6 +1624,11 @@ function AccessTab({
                           {g.resource_name ?? "(deleted)"}
                         </span>
                       </div>
+                      {g.resource_note ? (
+                        <p className="mt-0.5 pl-6 text-[11px] text-muted-foreground">
+                          {g.resource_note}
+                        </p>
+                      ) : null}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       {g.resource_owner_id

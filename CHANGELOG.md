@@ -16,6 +16,15 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **A secret shared with you now goes only where its owner allows** (R419).
+  Run the migrations (`20261102000000` adds `user_secrets.allowed_hosts`;
+  either order with the build is safe). Every secret allows no host until its
+  owner adds some under **Secrets → edit → Allowed hosts**, so a colleague's
+  use of a shared secret stops, with an error naming the host to add, until
+  then. Your own secrets are unaffected. In this release model providers,
+  warehouse connections, notifications and other integrations take only
+  secrets you own. An ETL pipeline no longer runs on a connection shared with
+  its owner: ask the connection's owner to run it, or to give you your own.
 - **The lake's object store is SILO now** (R418). MinIO's own images can no
   longer be pulled, so Compose and the Kubernetes manifests run SILO, its
   maintained fork, under the same service name, volume and settings.
@@ -410,6 +419,28 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   stop and deploy any warm model endpoint again so it starts from the new
   kernel image. `docker compose exec agentswarms npm …` no longer works: run
   npm on the host.
+- **A secret shared with you goes only where its owner allows** (R419,
+  VA-2026-10-25-29, -30). Sharing a secret promised "use it without seeing it",
+  and in every config a colleague writes they choose where it goes: an HTTP
+  node's URL, a provider's base URL, a connection's host, a catalog endpoint,
+  even `https://their-host/{{secret:X}}` in a URL field. The owner now lists the
+  hosts a secret may be sent to, and a shared secret resolves only toward
+  those, only in a credential field, and never into code the grantee runs (an
+  MCP server's or an ETL pipeline's environment). A path that names no
+  destination takes only secrets you own, so one nobody wired cannot leak. The
+  Secrets page edits and shows the list; the IAM share dialog warns before
+  sharing a secret that allows no host.
+- **A pipeline no longer hands a shared connection's password to its code**
+  (R419, VA-2026-10-25-45). ETL wrote the connection URL, password included,
+  into the run's environment, so a grantee of a shared connection could print
+  the owner's credential. A pipeline now runs only on connections its owner
+  owns, and says so.
+- **A redirect no longer carries credentials to another server** (R419,
+  VA-2026-10-25-46). The SSRF guard follows redirects itself and re-sent every
+  header, and the body, to every hop: a provider key or an HTTP node's
+  `Authorization` followed a 302 anywhere. A hop to another origin now keeps
+  only headers that cannot hold a credential and never re-sends a body; 303,
+  and 301/302 after a POST, become a GET as they do in `fetch()`.
 - **The lakehouse's object store moves from MinIO to SILO** (R418,
   VA-2026-10-25-35). MinIO stopped publishing images anyone can pull: Docker
   Hub's `minio/minio` is gone and quay.io answers 401 to an anonymous pull, so a
@@ -838,6 +869,13 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **A Data Catalog Iceberg source with a `{{secret:NAME}}` token crawls**
+  (R419). The token was resolved for the create-time test and stored as typed,
+  so every crawl sent the literal braces as the bearer token. It resolves at
+  crawl time now, as the source's owner.
+- **The swarm docs said private addresses are refused by the HTTP node**
+  (R419). They are allowed unless `BLOCK_PRIVATE_NETWORK_FETCH=true`; only
+  link-local and cloud-metadata addresses are always refused. The page says so.
 - **The bundled Qdrant is searched on every install, and keeps itself in step
   with Postgres** (R417). Installs whose `.env` predated 2026-09-15 never got
   `QDRANT_URL`: Qdrant ran and nothing searched it, RAG Settings called it "not

@@ -385,7 +385,10 @@ function EtlDocsPage() {
       <P>
         Anything else the code needs — an API token, a password for a system without a stored
         connection — is bound under Settings as <C>{"KEY={{secret:NAME}}"}</C> lines referencing{" "}
-        <DocLink to="/docs/secrets">Secrets</DocLink>, and arrives the same way. A binding that
+        <DocLink to="/docs/secrets">Secrets</DocLink>, and arrives the same way. Everything in a
+        run&apos;s environment is readable by the pipeline&apos;s own code, so only secrets the
+        pipeline&apos;s owner owns resolve into it, and a connection shared with them is refused
+        with a message saying so: a pipeline runs only on connections its owner owns. A binding that
         fails to resolve is dropped rather than failing the run, so the code that needed it reports
         a missing variable — far easier to diagnose than a run that never starts.
       </P>

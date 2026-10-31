@@ -180,10 +180,11 @@ function SecretsPage() {
       <H3 id="resolution-failures">When a reference cannot be resolved</H3>
       <P>
         On a swarm HTTP or A2A node, a connection or an integration it fails loudly: a missing
-        secret, or one you have not been granted, stops the call with an explicit error naming the
-        secret. It is never quietly replaced with an empty string, which would turn a credential
-        problem into an unauthenticated request that some APIs answer with a <C>200</C> and an empty
-        result.
+        secret, one you have not been granted, or a shared one its owner has not allowed toward that
+        host stops the call with an explicit error naming the secret (and, for the last, the host
+        and the hosts it may go to). It is never quietly replaced with an empty string, which would
+        turn a credential problem into an unauthenticated request that some APIs answer with a{" "}
+        <C>200</C> and an empty result.
       </P>
       <Callout kind="warn" title="MCP environment bindings are the exception">
         A binding whose secret is missing or revoked is <em>skipped</em> rather than raised, so the
@@ -196,9 +197,9 @@ function SecretsPage() {
       </Callout>
       <Callout kind="warn" title="Your own secret wins, and two shared ones collide">
         Names are resolved per user, in this order: a secret you own with that name is used first;
-        otherwise a secret shared with you — except on the owner-only paths below, where a merely
-        shared secret does not resolve at all. If <em>two different</em> shared secrets both carry
-        the name, the call fails as ambiguous rather than picking one.
+        otherwise a secret shared with you, where it is allowed to go (below). If{" "}
+        <em>two different</em> shared secrets both carry the name, the call fails as ambiguous
+        rather than picking one.
         <br />
         <br />
         This is the practical argument for qualifying names in a shared workspace —{" "}
@@ -207,21 +208,56 @@ function SecretsPage() {
         for themselves simply by owning one of the same name, which is useful deliberately and
         surprising accidentally.
       </Callout>
-      <Callout
-        kind="warn"
-        title="Where you choose the endpoint — or run the code — only a secret you own resolves"
-      >
-        Sharing is meant to let you <em>use</em> a secret, not <em>see</em> it, and that holds only
-        where you control neither the destination nor the code the value reaches. Two shapes do, and
-        there a <C>{"{{secret:NAME}}"}</C> resolves only when you <em>own</em> the secret; one
-        merely shared with you is refused or skipped. First, you supply the destination at call
-        time: the <strong>A2A node</strong>'s auth header, and the live <strong>Test</strong>{" "}
-        buttons for an <strong>LLM gateway</strong> and a <strong>notification channel</strong> —
-        aim one at your own server and the value comes back. Second, you supply the code that runs
-        with the value in scope: an <strong>MCP server</strong>'s environment bindings start a
-        container running source you wrote, where <C>os.environ</C> would reveal the plaintext.
-        Using that same shared secret the ordinary way — a chat or swarm that routes through the
-        gateway, a saved connection, a notification that actually fires — is unchanged.
+      <H3 id="shared-hosts">Where a shared secret may go</H3>
+      <P>
+        Sharing is meant to let a colleague <em>use</em> a secret without <em>seeing</em> it. That
+        holds only while they cannot choose where the value goes, and in every config they write
+        they do choose it: a base URL, a host, an endpoint. Aimed at their own server, the value
+        would arrive there in the clear. So the secret&apos;s owner lists the hosts it may be sent
+        to, under <strong>Secrets → edit → Allowed hosts</strong>, and a secret shared with you
+        resolves only toward those. Your own secrets are never limited.
+      </P>
+      <Table
+        headers={["Where the reference is", "A secret you own", "A secret shared with you"]}
+        rows={[
+          [
+            "A credential sent to a server: an HTTP or A2A node's header, a gateway key under Test, a Data Catalog source's keys or token, an Iceberg catalog's token or client credentials",
+            "Resolves",
+            "Resolves when its owner allowed that server's host",
+          ],
+          [
+            "What decides the destination: a URL, a host, an endpoint, a bucket, an Azure account, a webhook URL",
+            "Resolves",
+            "Never: it would let the destination be chosen around the list",
+          ],
+          ["A request body", "Resolves", "Never"],
+          [
+            "Code you run: an MCP server's environment, an ETL pipeline's environment (its bindings, stream and target secrets, bucket keys)",
+            "Resolves",
+            "Never: the code can print what it is given",
+          ],
+          [
+            "Model providers, warehouse connections, notifications and other integrations",
+            "Resolves",
+            "Not in this release: they take only secrets you own until their hosts are wired",
+          ],
+        ]}
+      />
+      <P>
+        An entry is a host (<C>api.stripe.com</C>, <C>10.0.0.5</C>) or <C>*.</C> and a domain of at
+        least two parts (<C>*.snowflakecomputing.com</C>), which matches every name under it but not
+        the domain itself. A URL typed there is kept as its host. Hosts are matched exactly as the
+        request goes out: a bucket addressed virtual-host style is reached at{" "}
+        <C>bucket.endpoint-host</C>, so list that name or a wildcard over it. An empty list means
+        nobody but you can use the secret; the Secrets table shows where each one may go, and the
+        IAM share dialog warns before you share one that allows no host.
+      </P>
+      <Callout kind="warn" title="Allow a service's own API, not a host that answers anything">
+        The list is a promise about where the value travels, not about what the server does with it.
+        A host that echoes requests back (a debugging endpoint, a request bin) would show the value
+        to whoever made the request. And a redirect does not carry it further: when a server answers
+        with a redirect to <em>another</em> origin, the request that follows keeps no header that
+        can hold a credential and never re-sends the body.
       </Callout>
 
       <H3 id="rotating">Worked example — rotating a warehouse password</H3>
@@ -276,7 +312,8 @@ function SecretsPage() {
       <P>
         Secrets are private to their owner. An administrator can grant a user or group access from{" "}
         <DocLink to="/docs/iam">Access control</DocLink>, which lets a colleague <em>use</em> a
-        secret in a connector without ever seeing its value.
+        secret without ever seeing its value, toward the hosts you allowed (
+        <a href="#shared-hosts">above</a>).
       </P>
       <Callout kind="info">
         Granting access to a secret grants the ability to use it, which is effectively access to

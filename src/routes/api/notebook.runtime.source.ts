@@ -28,9 +28,10 @@ const SECRET_BINDING_RE = /^([A-Za-z_][A-Za-z0-9_]*)=(\{\{\s*secret:[A-Za-z][A-Z
  * Code + requirements + resolved secret env for one MCP server.
  *
  * Secret resolution runs as the app's OWNER (the token's subject — the session
- * row was matched on user_id above) and with `ownedOnly`: only secrets the
- * owner actually OWNS resolve here, never ones merely shared with them by an
- * IAM grant. The owner writes this app's source_code, so they control the
+ * row was matched on user_id above) and names no destination, so only secrets
+ * the owner actually OWNS resolve here, never ones merely shared with them by
+ * an IAM grant (a shared secret needs a host its owner allowed, R419, and a
+ * sandbox is not one). The owner writes this app's source_code, so they control the
  * sandbox that receives this env, where `print(os.environ)` reveals every value
  * verbatim. "A grantee may USE a shared secret but never SEE it" is therefore
  * not enforceable in a sandbox at all — so a shared `{{secret:NAME}}` is refused
@@ -56,7 +57,7 @@ async function mcpAppBundle(appId: string, userId: string): Promise<Response> {
     const m = SECRET_BINDING_RE.exec(String(binding).trim());
     if (!m) continue;
     try {
-      env[m[1]] = await resolveSecretRefs(userId, m[2], { ownedOnly: true });
+      env[m[1]] = await resolveSecretRefs(userId, m[2]);
     } catch {
       /* missing or revoked secret — surfaced inside the tool, not here */
     }

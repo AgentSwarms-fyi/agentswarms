@@ -11,7 +11,11 @@
 // reference is a pointer (resolved per-user at read time), not a secret at rest,
 // so it is stored as-is and never encrypted.
 import { encryptJson, decryptJson } from "./crypto.server";
-import { containsSecretRef, resolveSecretRefsInObject } from "@/utils/secrets.server";
+import {
+  containsSecretRef,
+  resolveCredentialConfig,
+  resolveSecretRefsInObject,
+} from "@/utils/secrets.server";
 
 /** Which config fields hold a secret, per integration `type`. */
 const SECRET_FIELDS: Record<string, string[]> = {
@@ -24,10 +28,26 @@ const SECRET_FIELDS: Record<string, string[]> = {
   notification: ["webhook_url"],
 };
 
+/**
+ * Which secret fields a secret SHARED with the config's owner may fill (R419):
+ * credentials sent to a server, never the URL that names the server. A
+ * notification's webhook URL is both, so it takes only a secret you own.
+ */
+const SHAREABLE_FIELDS: Record<string, string[]> = {
+  llm_provider: ["api_key"],
+  llm_gateway: ["api_key"],
+  n8n: ["webhook_token"],
+  firecrawl: ["api_key"],
+};
+
 type EncBlob = { ciphertext?: string; iv?: string };
 
 export function integrationSecretFields(type: string): string[] {
   return SECRET_FIELDS[type] ?? [];
+}
+
+export function integrationShareableFields(type: string): string[] {
+  return SHAREABLE_FIELDS[type] ?? [];
 }
 
 /**
@@ -88,7 +108,14 @@ export async function resolveIntegrationConfig(
   userId: string,
   type: string,
   config: Record<string, unknown>,
-  opts?: { ownedOnly?: boolean },
+  opts?: {
+    /**
+     * The hosts this config's credentials will be sent to, read from the
+     * config once its other fields have resolved. Without it, every
+     * {{secret:NAME}} must be one the owner owns.
+     */
+    sendTo?: (resolved: Record<string, unknown>) => readonly string[] | undefined;
+  },
 ): Promise<Record<string, unknown>> {
   let out: Record<string, unknown> = { ...config };
   for (const f of integrationSecretFields(type)) {
@@ -103,10 +130,12 @@ export async function resolveIntegrationConfig(
     }
   }
   if (Object.values(out).some((v) => typeof v === "string" && containsSecretRef(v))) {
-    // ownedOnly is passed through on caller-chooses-the-endpoint paths (a live
-    // test against a caller-supplied URL), so a {{secret:NAME}} the caller only
-    // has shared access to is refused rather than resolved and sent out.
-    out = await resolveSecretRefsInObject(userId, out, opts);
+    // A {{secret:NAME}} the owner only has shared access to fills a
+    // credential field, toward hosts its owner allowed; anywhere else (a base
+    // URL, a webhook URL) it is refused rather than resolved and sent out.
+    out = opts?.sendTo
+      ? await resolveCredentialConfig(userId, out, integrationShareableFields(type), opts.sendTo)
+      : await resolveSecretRefsInObject(userId, out);
   }
   return out;
 }

@@ -15,6 +15,36 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-31 — R419: a shared secret goes only where its owner allows
+
+The R419 build from the main checkout, hot-deployed (healthy in 27 s; the server bundle carries the
+redirect rule's refusal text, the client bundle the Allowed hosts field). Migration `20261102000000` is
+**not pushed yet**: that push is the operator's. A throwaway `python:3.12-slim` container on the app's
+network (`r419-redirect`) answered `:8001/away` with a 302 to `:8002` (another origin) and `:8001/same`
+with a 302 to `/final`; `:8002` and `/final` echo the request they got, and log it.
+
+| Page / surface                                               | What was driven                                                                                                       | Result                                                                                                                                                                         |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| /secrets                                                     | loaded (database without the new column)                                                                              | the table lists, with a **Can be sent to** column: "Only you" on both existing secrets                                                                                         |
+| /secrets → New secret                                        | Allowed hosts `*.com`                                                                                                 | inline: "`*.com` would match every com name: name a domain, as in \*.example.com"; **Create secret** keeps the dialog open                                                    |
+| … same dialog                                                | Allowed hosts `host.docker.internal`, **Create secret**                                                               | the server: "Allowed hosts need database migration 20261102000000_secret_allowed_hosts. Ask your operator to run `supabase db push`, then save again."                          |
+| … same dialog                                                | hosts cleared, **Create secret** (`R419_PROBE_KEY`, a test value)                                                     | created; listed as Yours · Only you                                                                                                                                            |
+| /swarms → New Swarm → Input → HTTP Request → Output          | HTTP node GET `http://r419-redirect:8001/away`, headers `Authorization: Bearer {{secret:R419_PROBE_KEY}}`, `X-Api-Key` | **Test this node → Run node**: the output is `:8002`'s echo of `/landed` with `accept`, `user-agent` and the rest, and **no `authorization`, no `x-api-key`** (the fixture's log agrees) |
+| … same node, URL `…:8001/same`                               | **Run node**                                                                                                          | `:8001`'s echo of `/final` with `authorization: Bearer r419-probe-value` and `x-api-key: r419-probe-value`: an owned secret resolves, and a same-origin redirect keeps both    |
+| /admin/iam → Access                                          | read the Resource shares text; type Secret, then `R419_PROBE_KEY`                                                     | "sent only to the hosts each secret's owner allows"; under the pickers, as an alert: "R419_PROBE_KEY: Allows no host yet, so people it is shared with cannot use it. …" No share created |
+| /data-sql → MinIO local etl demo → Re-crawl                  | the stored-source loader, rewritten this round                                                                        | "Crawled "MinIO local etl demo" — 12 assets, 85 columns", as in R418                                                                                                           |
+| … → orders_reconciled_r183 → Query data                      | read through the same loader, server-side                                                                             | 10 rows in 1792 ms, ORD-1000 / C043 first                                                                                                                                      |
+
+**Not driven from the UI:** a colleague using a shared secret. All three secrets on this install are the
+operator's own, and a second account would mean signing up on the hosted auth service; the refusal, the
+allowed path, the wildcard and the every-host rule run against the real resolver in
+`secretsOwnedOnly.test.ts` and `sharedSecretSinks.test.ts`, and the row-level side in a throwaway
+Postgres (ADVERSARIAL_LOG, R419). Saving a host list waits for the migration; re-run the second and
+third rows after the push.
+
+Kept for review: the secret `R419_PROBE_KEY` (a test value, no hosts) and the swarm "R419 redirect probe
+(kept fixture)". The `r419-redirect` container was removed.
+
 ## 2026-10-31 — R418: this install's object stores, from MinIO to SILO
 
 The app ran this round's build from the main checkout, deployed before either store moved. This install's

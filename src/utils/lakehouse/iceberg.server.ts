@@ -65,9 +65,16 @@ async function catalogSecrets(
   cfg: IcebergCatalogConfig,
 ): Promise<{ token?: string; client_id?: string; client_secret?: string }> {
   const out: { token?: string; client_id?: string; client_secret?: string } = {};
+  // The owner typed both URLs, so a secret shared with them resolves only
+  // toward the host that receives it, if its owner allowed that host (R419,
+  // VA-2026-10-25-30): the bearer token goes to the catalog, OAuth2 client
+  // credentials to the token server (the catalog's own when none is set).
+  const tokenServer = cfg.oauth2_server_uri?.trim() || cfg.endpoint;
   for (const { key, secret } of icebergSecretNames(cfg)) {
     const ref = `{{secret:${secret}}}`;
-    const value = await resolveSecretRefs(userId, ref);
+    const value = await resolveSecretRefs(userId, ref, {
+      sendTo: [key === "token" ? cfg.endpoint : tokenServer],
+    });
     if (!value || value === ref) {
       throw new Error(`The secret "${secret}" is not set for this account (Settings → Secrets).`);
     }

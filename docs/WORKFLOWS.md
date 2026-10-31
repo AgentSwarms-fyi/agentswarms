@@ -49,7 +49,7 @@ because it is about the graph rather than about any one system.
 
 | Kind     | What it does                                                                                                                                   |
 | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `http`   | One request through `safeFetch`, with SSRF guards and `{{secret:NAME}}` resolved server-side. Any 2xx is success unless you name the statuses. |
+| `http`   | One request through `safeFetch`, with SSRF guards and `{{secret:NAME}}` resolved server-side (a secret shared with you only in a header, toward a host its owner allowed). Any 2xx is success unless you name the statuses. |
 | `notify` | An in-app notification, mirrored to whatever notification integrations are connected.                                                          |
 
 ### Control flow

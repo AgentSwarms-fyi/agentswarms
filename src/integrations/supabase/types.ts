@@ -8588,6 +8588,7 @@ export type Database = {
       };
       user_secrets: {
         Row: {
+          allowed_hosts: string[];
           created_at: string;
           description: string | null;
           id: string;
@@ -8597,6 +8598,7 @@ export type Database = {
           value: Json;
         };
         Insert: {
+          allowed_hosts?: string[];
           created_at?: string;
           description?: string | null;
           id?: string;
@@ -8606,6 +8608,7 @@ export type Database = {
           value?: Json;
         };
         Update: {
+          allowed_hosts?: string[];
           created_at?: string;
           description?: string | null;
           id?: string;

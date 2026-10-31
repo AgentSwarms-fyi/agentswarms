@@ -4,7 +4,12 @@
 // Spaces, Backblaze B2 and any other S3-compatible endpoint.
 // Only the two read operations the crawler needs: ListObjectsV2 and
 // ranged GetObject (for schema sampling).
-import { azureListObjects, azureSampleObject, azureTestObjectStore } from "./azureBlob.server";
+import {
+  azureListObjects,
+  azureOrigin,
+  azureSampleObject,
+  azureTestObjectStore,
+} from "./azureBlob.server";
 import { safeFetch } from "@/utils/ssrfGuard.server";
 import { cloudRegion } from "@/utils/providers/cloudRegion";
 import { createHash, createHmac } from "node:crypto";
@@ -79,6 +84,26 @@ export function assertStorageNames(
   } else {
     cloudRegion(cfg.region || "us-east-1", "Region");
   }
+}
+
+/**
+ * Every host a request for this config goes to: where its credentials are
+ * sent, which is what a shared secret's allowed hosts are checked against
+ * (R419). The derivation the requests themselves use, so the two cannot
+ * disagree.
+ */
+export function objectStoreHosts(cfg: ObjectStoreConfig): string[] {
+  if (cfg.provider === "azure") return [new URL(azureOrigin(cfg)).hostname];
+  return [new URL(resolveTarget(cfg).origin).hostname];
+}
+
+/**
+ * The fields of a config that are credentials, the only ones a shared secret
+ * may fill. For Azure `access_key_id` is the storage account, which becomes
+ * the host, so like the endpoint and region it takes only a secret you own.
+ */
+export function objectStoreCredentialFields(cfg: Pick<ObjectStoreConfig, "provider">): string[] {
+  return cfg.provider === "azure" ? ["secret_access_key"] : ["access_key_id", "secret_access_key"];
 }
 
 function resolveTarget(cfg: ObjectStoreConfig): { origin: string; host: string; basePath: string } {

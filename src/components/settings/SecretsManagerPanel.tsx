@@ -3,9 +3,10 @@
 // Store credentials once, reference them anywhere a connection form accepts
 // a value: {{secret:NAME}}. Values are encrypted server-side and write-only
 // — they can be replaced but never viewed. Sharing is superadmin-controlled
-// from /admin/iam → Access.
+// from /admin/iam → Access; where a shared secret may be SENT is the owner's
+// call, made here as its allowed hosts (R419).
 import { confirmAsk } from "@/components/ui/confirm-dialog";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { listClaim } from "@/lib/listClaim";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
@@ -43,6 +44,63 @@ import {
   type SecretSummary,
 } from "@/utils/secrets.functions";
 import { reportFailure } from "@/lib/silentFailureNet";
+import { parseAllowedHosts, sharedUseNote } from "@/lib/secretHosts";
+
+/** One host per line (commas too), as typed. */
+const hostLines = (text: string) => text.split(/[\n,]+/).map((l) => l.trim());
+
+/**
+ * Where colleagues it is shared with may send this secret. Your own use is
+ * never limited; the field is about other people.
+ */
+function AllowedHostsField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const parsed = useMemo(() => parseAllowedHosts(hostLines(value)), [value]);
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor="secret-allowed-hosts">Allowed hosts (for people it is shared with)</Label>
+      <Textarea
+        id="secret-allowed-hosts"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        rows={3}
+        className="font-mono text-xs"
+        placeholder={"acme.snowflakecomputing.com\n*.openai.azure.com"}
+        aria-invalid={!parsed.ok}
+        aria-describedby="secret-allowed-hosts-help"
+      />
+      {!parsed.ok ? (
+        <p role="alert" className="text-xs text-destructive">
+          {parsed.error}
+        </p>
+      ) : null}
+      <p id="secret-allowed-hosts-help" className="text-xs text-muted-foreground">
+        One per line. Someone this secret is shared with can send it only to these hosts, and only
+        as a credential: never in a URL or request body, never into code they run. Your own use is
+        not limited. Left empty, only you can use it.
+      </p>
+    </div>
+  );
+}
+
+/** The Secrets table's "Can be sent to" cell. */
+function HostsCell({ hosts, mine }: { hosts: string[]; mine: boolean }) {
+  if (hosts.length === 0) {
+    return (
+      <span className="text-xs text-muted-foreground">
+        {mine ? "Only you" : "Nowhere yet: ask its owner"}
+      </span>
+    );
+  }
+  const shown = hosts.slice(0, 2);
+  return (
+    <span className="font-mono text-[11px]" title={sharedUseNote(hosts)}>
+      {shown.join(", ")}
+      {hosts.length > shown.length ? (
+        <span className="text-muted-foreground"> +{hosts.length - shown.length} more</span>
+      ) : null}
+    </span>
+  );
+}
 
 export function SecretsManagerPanel() {
   const { session } = useAuth();
@@ -59,10 +117,12 @@ export function SecretsManagerPanel() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [value, setValue] = useState("");
+  const [hosts, setHosts] = useState("");
   const [busy, setBusy] = useState(false);
   const [editTarget, setEditTarget] = useState<SecretSummary | null>(null);
   const [editValue, setEditValue] = useState("");
   const [editDescription, setEditDescription] = useState("");
+  const [editHosts, setEditHosts] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   // Why the list could not be read, or null. Held in state rather than only
   // raised in a toast: the toast is the one element guaranteed to be gone by
@@ -106,6 +166,8 @@ export function SecretsManagerPanel() {
     if (!token) return;
     if (!name.trim()) return toast.error("Name is required");
     if (!value) return toast.error("Value is required");
+    const allowed = parseAllowedHosts(hostLines(hosts));
+    if (!allowed.ok) return toast.error(allowed.error);
     setBusy(true);
     try {
       const res = await createFn({
@@ -114,6 +176,7 @@ export function SecretsManagerPanel() {
           name: name.trim(),
           description: description.trim() || undefined,
           value,
+          allowed_hosts: allowed.hosts,
         },
       });
       if (!res.ok) return toast.error(res.error);
@@ -122,6 +185,7 @@ export function SecretsManagerPanel() {
       setName("");
       setDescription("");
       setValue("");
+      setHosts("");
       reload();
     } catch (e) {
       reportFailure("create the secret", e);
@@ -132,6 +196,8 @@ export function SecretsManagerPanel() {
 
   const submitEdit = async () => {
     if (!token || !editTarget) return;
+    const allowed = parseAllowedHosts(hostLines(editHosts));
+    if (!allowed.ok) return toast.error(allowed.error);
     setBusy(true);
     try {
       const res = await updateFn({
@@ -140,6 +206,7 @@ export function SecretsManagerPanel() {
           secret_id: editTarget.id,
           description: editDescription,
           value: editValue || undefined,
+          allowed_hosts: allowed.hosts,
         },
       });
       if (!res.ok) return toast.error(res.error);
@@ -175,7 +242,8 @@ export function SecretsManagerPanel() {
           Store credentials once and reference them anywhere a connection form accepts a value —
           warehouse connections, provider API keys — as{" "}
           <code className="text-[11px]">{"{{secret:NAME}}"}</code>. Values are encrypted, resolved
-          server-side at use time, and can never be viewed again.
+          server-side at use time, and can never be viewed again. A secret shared with a colleague
+          goes only to the hosts you allow.
         </p>
         <Button size="sm" className="shrink-0 gap-1.5" onClick={() => setCreateOpen(true)}>
           <Plus className="h-3.5 w-3.5" /> New secret
@@ -214,6 +282,7 @@ export function SecretsManagerPanel() {
                 <TableHead>Name</TableHead>
                 <TableHead>Description</TableHead>
                 <TableHead>Access</TableHead>
+                <TableHead>Can be sent to</TableHead>
                 <TableHead>Updated</TableHead>
                 <TableHead className="w-28" />
               </TableRow>
@@ -252,6 +321,9 @@ export function SecretsManagerPanel() {
                         </Badge>
                       )}
                     </TableCell>
+                    <TableCell className="max-w-56">
+                      <HostsCell hosts={s.allowed_hosts ?? []} mine={mine} />
+                    </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       {format(new Date(s.updated_at), "d MMM yyyy")}
                     </TableCell>
@@ -262,10 +334,11 @@ export function SecretsManagerPanel() {
                             size="sm"
                             variant="ghost"
                             className="h-7 w-7 p-0"
-                            title="Replace value / edit description"
+                            title="Replace value / edit description and allowed hosts"
                             onClick={() => {
                               setEditTarget(s);
                               setEditDescription(s.description ?? "");
+                              setEditHosts((s.allowed_hosts ?? []).join("\n"));
                               setEditValue("");
                             }}
                           >
@@ -328,6 +401,7 @@ export function SecretsManagerPanel() {
                 placeholder="The API key / token / password to store"
               />
             </div>
+            <AllowedHostsField value={hosts} onChange={setHosts} />
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setCreateOpen(false)}>
@@ -364,6 +438,7 @@ export function SecretsManagerPanel() {
                 placeholder="••••••••  (unchanged if left empty)"
               />
             </div>
+            <AllowedHostsField value={editHosts} onChange={setEditHosts} />
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setEditTarget(null)}>

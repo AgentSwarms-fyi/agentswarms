@@ -269,7 +269,9 @@ describe("the wiring", () => {
       "schemaRow.lake_source_id || schemaRow.iceberg_catalog_id",
     );
     const server = rd("src/utils/lakehouse/iceberg.server.ts");
-    expect(server).toContain("await resolveSecretRefs(userId, ref)");
+    // As the owner; since R419 a shared secret only toward the host that
+    // receives it (sharedSecretSinks.test.ts).
+    expect(server).toMatch(/await resolveSecretRefs\(userId, ref, \{\s*sendTo:/);
     expect(server).toContain("is not set for this account (Settings → Secrets)");
   });
 

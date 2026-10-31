@@ -230,15 +230,16 @@ export const testLlmGateway = createServerFn({ method: "POST" })
         .maybeSingle();
       if (row?.config) {
         try {
-          // ownedOnly: the test sends this key to data.base_url, which the
-          // caller supplies, so a {{secret:NAME}} the caller only has shared
-          // access to must be refused here rather than resolved and forwarded
-          // to a server they could control (VA-2026-10-25-11).
+          // The test sends this key to data.base_url, which the caller
+          // supplies, so a {{secret:NAME}} the caller only has shared access
+          // to resolves only when its owner allowed that host (R419), rather
+          // than being forwarded to a server they could control
+          // (VA-2026-10-25-11).
           const cfg = (await resolveIntegrationConfig(
             auth.userId,
             "llm_gateway",
             row.config as Record<string, unknown>,
-            { ownedOnly: true },
+            { sendTo: () => [data.base_url] },
           )) as { api_key?: string };
           apiKey = (cfg.api_key ?? "").trim();
         } catch (e) {
@@ -287,15 +288,15 @@ export const testNotificationChannel = createServerFn({ method: "POST" })
         .maybeSingle();
       if (row?.config) {
         try {
-          // ownedOnly: the test posts to data.webhook_url, which the caller
-          // supplies, so a saved webhook_url built from a {{secret:NAME}} the
-          // caller only has shared access to must not resolve here — that would
-          // send the secret to an endpoint they choose (VA-2026-10-25-11).
+          // A webhook URL is the destination and the credential at once, so a
+          // {{secret:NAME}} in it resolves only if the caller owns the secret:
+          // a shared one would be sent wherever they point the test
+          // (VA-2026-10-25-11). Notification configs have no field a shared
+          // secret may fill (integrationConfig.server.ts).
           const cfg = (await resolveIntegrationConfig(
             auth.userId,
             "notification",
             row.config as Record<string, unknown>,
-            { ownedOnly: true },
           )) as { webhook_url?: string };
           url = (cfg.webhook_url ?? "").trim();
         } catch (e) {

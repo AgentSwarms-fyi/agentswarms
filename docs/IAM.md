@@ -60,7 +60,13 @@ It manages:
   **connection** runs as its OWNER: the owner's credential is decrypted
   server-side and the grantee's queries run against the owner's warehouse, so
   a grantee gains the use of a connection without ever receiving its
-  credential — see [Data sources](./DATA_SOURCES.md#sharing-a-connection-with-your-team). An
+  credential — see [Data sources](./DATA_SOURCES.md#sharing-a-connection-with-your-team).
+  The one use refused is an ETL pipeline, whose code runs with every
+  connection's credential in its environment (R419, VA-2026-10-25-45). A
+  shared **secret** resolves only toward the hosts its owner lists under
+  **Secrets → Allowed hosts**, only in a credential field, and never into code
+  the grantee runs (VA-2026-10-25-30); the share dialog warns when a secret
+  allows no host, since sharing it would then give nothing usable. An
   **ontology** grant gives its published version: the grantee explores, asks,
   proposes and requests actions as themselves, and its row filter
   (`Type.property`) and mask (`Customer.email`) apply in every query — see
