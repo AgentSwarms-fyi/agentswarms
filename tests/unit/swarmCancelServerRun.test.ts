@@ -119,12 +119,16 @@ describe("executeSwarmServer", () => {
 
 describe("the browser run's close", () => {
   it("lands only on a run still running, and keeps the numbers of one cancelled meanwhile", () => {
-    const close = browserTracer.slice(browserTracer.indexOf("async finish(args)"));
+    // Since R421 the close is the server's (swarmTraceStore.server.ts, run in
+    // swarmRunWriteLockdown.test.ts); the page only asks for it.
+    expect(browserTracer).toMatch(/await finishSwarmRun\(\{/);
+    const store = readFileSync("src/utils/observability/swarmTraceStore.server.ts", "utf8");
+    const close = store.slice(store.indexOf("export async function finishRun"));
     expect(close).toMatch(
-      /\.eq\("id", runId\)\s*\.eq\("user_id", userId\)\s*\.eq\("status", "running"\)\s*\.select\("id"\);/,
+      /\.eq\("id", data\.runId\)\s*\.eq\("status", "running"\)\s*\.select\("id"\);/,
     );
     expect(close).toMatch(
-      /if \(!closeErr && !closed\?\.length\) \{\s*await supabase\s*\.from\("swarm_runs"\)\s*\.update\(numbers\)/,
+      /\.update\(numbers\)\s*\.eq\("id", data\.runId\)\s*\.eq\("status", "cancelled"\);/,
     );
   });
 });

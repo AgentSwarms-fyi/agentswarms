@@ -217,6 +217,15 @@ function AnalyticsDoc() {
         ]}
       />
 
+      <P>
+        A run&apos;s record is written by the server, never from the page: its owner can read it but
+        not edit or delete it, a step or a run that has finished is never rewritten, and a
+        run&apos;s totals are summed from its own steps. A parked run&apos;s resume state is equally
+        out of reach, so what an approver approved is what runs after the approval. With{" "}
+        <C>PERSIST_PROMPT_BODIES=false</C>, canvas runs keep the same skeleton as every other trace
+        and drop the text.
+      </P>
+
       <Note>
         The workflow that pays off: after any interesting swarm run, open its timeline and find the
         slowest and the most expensive step. Those two nodes are nearly always the next thing worth

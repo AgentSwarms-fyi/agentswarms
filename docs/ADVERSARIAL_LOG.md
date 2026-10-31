@@ -109,6 +109,53 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-31 — R421: swarm run records are written only by the server (VA-31, -47, -48)
+
+**Finding** (VA-2026-10-25-31, the `swarm_runs` half of -13). `swarm_runs`, `swarm_run_steps` and
+`swarm_run_edges` were `FOR ALL` to their owner because the canvas tracer wrote them from the browser:
+a user could delete a run, zero its `total_cost_usd` or rewrite a step's tokens and output at any time,
+and the Traces page, the audit counts and evals reported what they wrote.
+
+**Two more, found doing it.** **VA-48:** `swarm_run_checkpoints`, the state a run parked at an approval
+resumes from, was `FOR ALL` to its owner too although only the executor writes it. Between an approver's
+decision and the resume the owner could rewrite `ctx`, so the approved step sent values nobody approved;
+in a throwaway Postgres the owner changed a checkpoint's `amount` from 100 to 999999. **VA-47:**
+`PERSIST_PROMPT_BODIES=false` is documented as dropping node inputs, outputs and thinking from swarm-run
+steps, and `redaction.server.ts` said every writer was server-side; the canvas tracer wrote from the
+browser, past the gate.
+
+**Fix.**
+
+- `swarmTraceStore.server.ts` holds the rules, as the service role: the caller owns the run (and the
+  step); nothing is added to a run that is not running; a step finishes once, from `running` or
+  `awaiting_approval`, and that condition is in the UPDATE itself so a race cannot rewrite a finished
+  step; a run's totals are summed from its steps and it closes once (the close is conditional on
+  `running`); a cancelled run keeps "cancelled" and still gets its numbers (R309); a Cancel marks only a
+  run still running. Bodies pass the `PERSIST_PROMPT_BODIES` gate.
+- `swarmTrace.functions.ts` (it existed, unused) wraps those with `requireSupabaseAuth`; the canvas
+  tracer and both Cancel paths call it. The Recent-runs Cancel reports a failure instead of throwing into
+  the click.
+- Migration `20261103000000`: owner SELECT only on all four tables, INSERT/UPDATE/DELETE revoked from
+  `anon` and `authenticated`, and a self-check per table (no write policy, one owner-only SELECT policy,
+  no client write grant). The R421 build has to be live first.
+
+**Proved.**
+
+| Check                                    | Result                                                                                                       |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `swarmRunWriteLockdown.test.ts` (new)    | 16: ownership, finish-once, closed runs, totals, Cancel, the body gate, two races staged with a stale read  |
+| … source pins                            | every write to the four tables in `src` goes through `supabaseAdmin`; the tracer holds no client             |
+| Throwaway Postgres 16.15, before         | the owner sets a run's cost to 0 and a checkpoint's `amount` to 999999                                       |
+| … after the migration (applied twice)    | reads work; seven writes refused (permission denied); rows unchanged; the service role writes; purge runs  |
+| … mutants                                | a kept grant, an extra UPDATE policy and an `OR true` SELECT each stop the apply                             |
+| Mutation                                 | 13 of 13 (first run 10 of 14; a redundant pre-check removed, three race and ordering tests added)           |
+
+**From the UI** (R421 build, before the migration is pushed): a canvas run of "R109 chat echo" and a
+cancelled run of "Embed E2E Mini Swarm" each recorded through `/_serverFn` calls only, none to
+`/rest/v1/swarm_run*`; Swarm Observability lists them as "success · 2 steps" and "cancelled · 3 steps ·
+$0.000024". **Residual:** a live in-page run's per-step tokens and cost are what the browser measured;
+the budget cap is held to `execution_traces`, server-written since R383.
+
 ### 2026-10-31 — R420: providers, connections and integrations name where a shared secret goes (VA-30)
 
 **What was left** after R419: every resolver call that names no destination takes owned secrets only, by

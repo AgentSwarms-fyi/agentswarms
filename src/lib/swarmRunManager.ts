@@ -15,6 +15,8 @@
 // row stays "running" in the DB and can be cleared from the Recent runs tab.
 import type { Node, Edge } from "@xyflow/react";
 import { supabase } from "@/integrations/supabase/client";
+import { reportFailure } from "@/lib/silentFailureNet";
+import { cancelSwarmRun } from "@/utils/observability/swarmTrace.functions";
 import { runSwarm, type SwarmNodeData, type SwarmRunEvent } from "@/lib/swarmRuntime";
 
 export type RunStatus = "running" | "waiting" | "success" | "error" | "cancelled";
@@ -302,27 +304,16 @@ export function cancelRun(runId: string) {
   stopCancelWatch(run);
   patch(run, { status: "cancelled", finishedAt: run.view.finishedAt ?? Date.now() });
   emit();
-  // Signal + record the cancellation in the DB (best-effort).
-  //
-  // The terminal .then is what ISSUES this. A PostgREST builder is lazy: the
-  // request goes out inside .then(), so discarding one with `void` and no
-  // .then evaluates an object and calls nothing — this row was never written,
-  // so a cancelled run stayed "running" in the database and the flag another
-  // tab watches for was never set. The second handler keeps a network failure
-  // from surfacing as an unhandled rejection, since this is best-effort.
+  // Signal + record the cancellation in the DB (best-effort), through the
+  // server: since R421 a browser cannot write swarm_runs. The server marks
+  // only a run still running, so a late click cannot turn a finished run
+  // into a cancelled one. The second handler keeps a network failure from
+  // surfacing as an unhandled rejection, since this is best-effort.
   if (run.view.dbRunId) {
-    void supabase
-      .from("swarm_runs")
-      .update({
-        cancel_requested: true,
-        status: "cancelled",
-        finished_at: new Date().toISOString(),
-      })
-      .eq("id", run.view.dbRunId)
-      .then(
-        () => {},
-        () => {},
-      );
+    void cancelSwarmRun({ data: { runId: run.view.dbRunId } }).then(
+      () => {},
+      () => {},
+    );
   }
 }
 
@@ -339,11 +330,13 @@ export async function cancelByDbRunId(dbRunId: string) {
       return;
     }
   }
-  await supabase
-    .from("swarm_runs")
-    .update({ cancel_requested: true, status: "cancelled", finished_at: new Date().toISOString() })
-    .eq("id", dbRunId)
-    .in("status", ["running"]);
+  // Through the server (R421), which marks only a run of the caller's that is
+  // still running. A failure is reported, not thrown into the click handler.
+  try {
+    await cancelSwarmRun({ data: { runId: dbRunId } });
+  } catch (e) {
+    reportFailure("cancel the run", e);
+  }
 }
 
 /** The newest active (running/waiting) run for a given swarm, if any. */

@@ -16,6 +16,11 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Start this build before applying `20261103000000`** (R421). The migration
+  makes swarm run records (`swarm_runs`, its steps, edges and checkpoints)
+  read-only to signed-in clients; the previous build wrote canvas runs from
+  the browser, which the new policy refuses, so in between canvas runs would
+  go untraced and Cancel would not record. It proves itself on apply.
 - **A secret shared with you now goes only where its owner allows** (R419).
   Run the migrations (`20261102000000` adds `user_secrets.allowed_hosts`;
   either order with the build is safe). Every secret allows no host until its
@@ -431,6 +436,20 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   destination takes only secrets you own, so one nobody wired cannot leak. The
   Secrets page edits and shows the list; the IAM share dialog warns before
   sharing a secret that allows no host.
+- **A swarm run's record can no longer be rewritten by its owner** (R421,
+  VA-2026-10-25-31). Runs, steps and edges were writable by their owner over
+  the API, so a run could be deleted, its cost zeroed or a step rewritten after
+  the fact. The canvas tracer and Cancel now go through server functions that
+  check the run is the caller's and still open; a finished step or run is
+  never rewritten, a run's totals are summed from its steps, and a late Cancel
+  cannot turn a finished run into a cancelled one.
+- **What a parked run resumes from is out of its owner's reach** (R421,
+  VA-2026-10-25-48). The checkpoint a run awaiting approval resumes from was
+  writable by the run's owner, who could change the values an approved step
+  went on to send. Only the server writes it now.
+- **`PERSIST_PROMPT_BODIES=false` covers canvas swarm runs** (R421,
+  VA-2026-10-25-47). They were written from the browser, past the setting, so
+  their prompts, node inputs and outputs and thinking were stored anyway.
 - **Providers, connections and integrations name where a shared secret goes**
   (R420, VA-2026-10-25-30). A model provider's key is checked against its base
   URL, or the provider's own API when none is set (Gemini's also against

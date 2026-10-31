@@ -15,6 +15,24 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-31 — R421: canvas runs record through the server only
+
+The R421 build from the main checkout, hot-deployed. Migration `20261103000000` is **not pushed yet**, so
+the database would still accept a browser write; what the round shows is that the page makes none. The
+network log of the canvas page was read after each run (`/rest/v1/swarm_run*` and `/_serverFn/*`).
+
+| Page / surface                                         | What was driven                                     | Result                                                                                                                                       |
+| ------------------------------------------------------ | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| /swarms → R109 chat echo → Run ("R421 trace check")    | a full canvas run, trace on                         | six `POST /_serverFn/…` (start run, two step starts, two finishes, close), all 200; no request to `/rest/v1/swarm_run*`                      |
+| Observability → Swarm Traces                           | the newest row                                      | "Oct 31 23:20:55 · R109 chat echo · success · 2 · 0 · 1ms · 0/0 · $0.00"                                                                     |
+| /swarms → Embed E2E Mini Swarm → Run, then **Stop**    | Cancel from the tab that owns the run               | server-function calls only, among them one not in the first run (the cancel); no request to `/rest/v1/swarm_run*`                           |
+| Observability → Swarm Traces                           | the newest row                                      | "Oct 31 23:21:56 · Embed E2E Mini Swarm · cancelled · 3 · 1 · 6658ms · 50/27 · $0.000024": still cancelled, with the numbers its steps spent |
+| server bundle / client bundle                          | grep                                                | `swarmTraceStore.server` is in the server bundle; no client chunk carries its code                                                          |
+
+Also: the R419 fixture swarm's rename had not saved (it still read "Swarm 23"); renamed again and read
+back after a reload as "R419 redirect probe (kept fixture)". Kept: both R421 runs. After the migration is
+pushed, re-run a canvas run and a Cancel; they should read the same.
+
 ## 2026-10-31 — R420: providers and connections name where a shared secret goes
 
 The R420 build from the main checkout, hot-deployed (healthy in 30 s; `connections.server` in the

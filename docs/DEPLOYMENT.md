@@ -2322,7 +2322,11 @@ background job on the scheduler pass streams:
 
 - **swarm runs → distributed traces** — a root span per run and a child span per
   node (nested by sub-swarm), so a multi-agent run renders as a waterfall you
-  can drill into for latency and errors.
+  can drill into for latency and errors. Since R421 every run record, canvas
+  runs included, is written by the server (`swarmTraceStore.server.ts`): a
+  user reads their runs but cannot edit or delete one, a finished step or run
+  is never rewritten, and `PERSIST_PROMPT_BODIES=false` applies to canvas runs
+  as it always did to the rest.
 - **LLM calls → spans** — one per `execution_traces` row (playground, saved
   agents, BI agent, KB, memory), tagged with OpenTelemetry GenAI
   `gen_ai.*` attributes (`gen_ai.system`, `gen_ai.request.model`,

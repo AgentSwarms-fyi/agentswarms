@@ -199,6 +199,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "AUDIT_ARCHIVE_ON_PURGE",
       "ENFORCE_BUDGET_CAP",
       "PERSIST_PROMPT_BODIES",
+      "PERSIST_PROMPT_BODIES=false",
       "audit_events",
       "audit_retention_days",
       "execution_traces",
