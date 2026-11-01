@@ -38,6 +38,8 @@ export type IcebergCatalogConfig = {
   oauth2_server_uri: string;
   /** vended: the catalog hands out storage credentials; lakehouse: the lakehouse's own S3 secret reads the files. */
   storage: IcebergStorageMode;
+  /** Attach only when the endpoint and token server resolve to private addresses (R428). */
+  require_private?: boolean;
 };
 
 export const ICEBERG_NAME = /^[a-z][a-z0-9_]{0,62}$/;
@@ -55,6 +57,7 @@ export function defaultIcebergCatalog(): IcebergCatalogConfig {
     client_secret_secret: "",
     oauth2_server_uri: "",
     storage: "vended",
+    require_private: false,
   };
 }
 

@@ -188,8 +188,10 @@ describe("Iceberg catalogs the lakehouse attaches", () => {
   it("is checked on every attach, not only on save", () => {
     const src = readFileSync("src/utils/lakehouse/iceberg.server.ts", "utf8");
     const fn = src.slice(src.indexOf("export async function attachIcebergCatalog("));
-    expect(fn.indexOf("await assertIcebergUrlsAllowed(cfg);")).toBeGreaterThan(-1);
-    expect(fn.indexOf("await assertIcebergUrlsAllowed(cfg);")).toBeLessThan(fn.indexOf("c.run("));
+    // Since R428 it also hears private-path refusals, for the audit log.
+    const check = "await assertIcebergUrlsAllowed(cfg, auditRefusal(userId, cfg));";
+    expect(fn.indexOf(check)).toBeGreaterThan(-1);
+    expect(fn.indexOf(check)).toBeLessThan(fn.indexOf("c.run("));
   });
 });
 

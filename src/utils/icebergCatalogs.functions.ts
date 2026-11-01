@@ -36,7 +36,24 @@ const configSchema = z.object({
   client_secret_secret: z.string().trim().max(120).default(""),
   oauth2_server_uri: z.string().trim().max(500).default(""),
   storage: z.enum(ICEBERG_STORAGE_MODES).default("vended"),
+  require_private: z.boolean().default(false),
 });
+
+/**
+ * The database has no require_private column until migration
+ * 20261104000000 runs (R428): a write naming it is refused by PostgREST
+ * (PGRST204) or Postgres (42703). Said in words, with what to do.
+ */
+function missingRuleColumn(error: { code?: string; message?: string } | null): boolean {
+  return (
+    !!error &&
+    (error.code === "PGRST204" || error.code === "42703") &&
+    /require_private/.test(error.message ?? "")
+  );
+}
+const NEEDS_MIGRATION =
+  "Require a private network path needs the database migration " +
+  "20261104000000_iceberg_catalog_require_private. Apply it, or add the catalog without the rule.";
 
 const NAME = /^[a-z][a-z0-9_]{0,62}$/;
 const NAMESPACE = /^[A-Za-z0-9_]{1,128}$/;
@@ -100,7 +117,14 @@ export const icebergCatalogCreate = createServerFn({ method: "POST" })
       const { probeIcebergCatalog } = await import("@/utils/lakehouse/iceberg.server");
       namespaces = await probeIcebergCatalog(caller.userId, cfg);
     } catch (e) {
-      return { ok: false, error: `The catalog did not answer: ${(e as Error).message}` };
+      const err = e as Error;
+      // Refused before anything was sent to it (R428): the catalog was not asked.
+      const refused =
+        err.name === "IcebergCatalogRefused" || err.name === "PrivatePathRequiredError";
+      return {
+        ok: false,
+        error: refused ? err.message : `The catalog did not answer: ${err.message}`,
+      };
     }
     const { data: row, error } = await supabaseAdmin
       .from("iceberg_catalogs")
@@ -115,9 +139,13 @@ export const icebergCatalogCreate = createServerFn({ method: "POST" })
         client_secret_secret: cfg.client_secret_secret || null,
         oauth2_server_uri: cfg.oauth2_server_uri || null,
         storage: cfg.storage,
+        // Named only when on, so a database without the column still saves
+        // every catalog that does not ask for the rule.
+        ...(cfg.require_private ? { require_private: true } : {}),
       })
       .select("id")
       .single();
+    if (missingRuleColumn(error)) return { ok: false, error: NEEDS_MIGRATION };
     if (error || !row) {
       return {
         ok: false,
@@ -128,6 +156,103 @@ export const icebergCatalogCreate = createServerFn({ method: "POST" })
       };
     }
     return { ok: true, id: row.id, namespaces };
+  });
+
+const urlSchema = z
+  .string()
+  .trim()
+  .max(500)
+  .refine((v) => v === "" || /^https?:\/\/\S+$/i.test(v), "must be an http(s) URL");
+
+/**
+ * Which way the engine would reach a catalog's endpoint and token server,
+ * before it is saved: the addresses each name resolves to from this server,
+ * private or public, and the certificate of an https name. Sends nothing to
+ * the catalog beyond a TLS handshake.
+ */
+export const icebergCatalogNetworkPath = createServerFn({ method: "POST" })
+  .validator((input: unknown) =>
+    z
+      .object({
+        access_token: z.string().min(1),
+        endpoint: urlSchema,
+        oauth2_server_uri: urlSchema.default(""),
+      })
+      .parse(input),
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<
+      { ok: true; lines: { label: string; summary: string; private: boolean }[] } | Fail
+    > => {
+      const caller = await resolveCaller(data.access_token);
+      if (!caller.ok) return caller;
+      if (!data.endpoint) return { ok: false, error: "Enter the REST endpoint first." };
+      try {
+        const { icebergCatalogPath } = await import("@/utils/lakehouse/iceberg.server");
+        return { ok: true, lines: await icebergCatalogPath(data) };
+      } catch (e) {
+        return { ok: false, error: (e as Error).message };
+      }
+    },
+  );
+
+/**
+ * Turn a catalog's "require a private network path" on or off. Turning it on
+ * checks the path first and refuses, saying why, when the catalog would not
+ * attach under it; from then on every attach and every engine sync checks it.
+ */
+export const icebergCatalogSetRequirePrivate = createServerFn({ method: "POST" })
+  .validator((input: unknown) =>
+    z
+      .object({
+        access_token: z.string().min(1),
+        id: z.string().uuid(),
+        require_private: z.boolean(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }): Promise<{ ok: true } | Fail> => {
+    const caller = await resolveCaller(data.access_token);
+    if (!caller.ok) return caller;
+    const row = await ownCatalog(caller.userId, data.id);
+    if (!row) return { ok: false, error: "Catalog not found" };
+    if (data.require_private) {
+      const { assertIcebergUrlsAllowed, configOf } =
+        await import("@/utils/lakehouse/iceberg.server");
+      const cfg = { ...configOf(row), require_private: true };
+      try {
+        await assertIcebergUrlsAllowed(cfg, (detail) =>
+          auditEvent({
+            userId: caller.userId,
+            action: "lakehouse.iceberg.private_path.refused",
+            resourceType: "iceberg_catalog",
+            resourceId: row.id,
+            resourceName: row.name,
+            detail: { reason: detail },
+          }),
+        );
+      } catch (e) {
+        return { ok: false, error: (e as Error).message };
+      }
+    }
+    const { error } = await supabaseAdmin
+      .from("iceberg_catalogs")
+      .update({ require_private: data.require_private })
+      .eq("id", row.id)
+      .eq("user_id", caller.userId);
+    if (missingRuleColumn(error)) return { ok: false, error: NEEDS_MIGRATION };
+    if (error) return { ok: false, error: error.message };
+    auditEvent({
+      userId: caller.userId,
+      action: "lakehouse.iceberg.network_rule",
+      resourceType: "iceberg_catalog",
+      resourceId: row.id,
+      resourceName: row.name,
+      detail: { require_private: data.require_private },
+    });
+    return { ok: true };
   });
 
 /** Remove a catalog: its mounted schemas go first (engine and rows), then the catalog, then the attachment. */

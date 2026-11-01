@@ -8,6 +8,7 @@
 // an attached catalog directly (the guard refuses every catalog but `lake`).
 // Publishing and importing run here, as the caller, after ownership checks.
 import type { DuckDBConnection } from "@duckdb/node-api";
+import { assertPrivatePath, describeConnectivity } from "@/utils/providers/connectivityPath.server";
 import { assertPublicUrl } from "@/utils/ssrfGuard.server";
 import { randomBytes } from "node:crypto";
 
@@ -56,6 +57,8 @@ export function configOf(row: IcebergCatalogRow): IcebergCatalogConfig {
     client_secret_secret: row.client_secret_secret ?? "",
     oauth2_server_uri: row.oauth2_server_uri ?? "",
     storage: row.storage as IcebergCatalogConfig["storage"],
+    // Absent until migration 20261104000000 runs: no rule.
+    require_private: row.require_private === true,
   };
 }
 
@@ -84,22 +87,102 @@ async function catalogSecrets(
 }
 
 /**
+ * A catalog refused before anything was sent to it: its endpoint or token
+ * server is in the always-refused tier. Named so a caller does not report it
+ * as a catalog that failed to answer (a private-path refusal is a
+ * PrivatePathRequiredError, named likewise).
+ */
+export class IcebergCatalogRefused extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "IcebergCatalogRefused";
+  }
+}
+
+/** The URLs the engine calls for a catalog: its endpoint, and its token server when it names one. */
+function catalogUrls(
+  cfg: IcebergCatalogConfig,
+): (readonly ["endpoint" | "OAuth2 server URI", string])[] {
+  return (
+    [
+      ["endpoint", cfg.endpoint],
+      ["OAuth2 server URI", cfg.oauth2_server_uri],
+    ] as const
+  ).filter(([, raw]) => Boolean(raw?.trim()));
+}
+
+const PRIVATE_PATH_ADVICE =
+  "Check the catalog's private DNS zone, or the route to it over the VPN or peering link. A proxy " +
+  "does not count here: the lakehouse engine decides itself whether to use one.";
+
+/**
  * The catalog's endpoint and token URL are user-supplied, and DuckDB's iceberg
  * extension calls them itself, from the shared engine — nothing on that path
  * goes through safeFetch. Every attach (the save's probe, the sync, a remount)
  * checks both first: metadata and link-local are refused by name and by every
  * address the name resolves to. Private addresses stay allowed, as for the
  * crawler: a self-hosted REST catalog on the deployment's network is normal (R387).
+ *
+ * A catalog that requires a private network path (R428) must also resolve,
+ * from this server, only to private addresses, both names. A proxy is not
+ * counted, as it is for a model provider: the engine reads the proxy from the
+ * environment itself (HTTP_PROXY, HTTPS_PROXY, NO_PROXY), so this server
+ * cannot vouch for which way a call goes. `onRefuse` hears a private-path
+ * refusal, for the audit log.
  */
-export async function assertIcebergUrlsAllowed(cfg: IcebergCatalogConfig): Promise<void> {
-  for (const [label, raw] of [
-    ["endpoint", cfg.endpoint],
-    ["OAuth2 server URI", cfg.oauth2_server_uri],
-  ] as const) {
-    if (!raw) continue;
+export async function assertIcebergUrlsAllowed(
+  cfg: IcebergCatalogConfig,
+  onRefuse?: (detail: string) => void,
+): Promise<void> {
+  for (const [label, raw] of catalogUrls(cfg)) {
     const r = await assertPublicUrl(raw, { allowPrivate: true });
-    if (!r.ok) throw new Error(`Iceberg catalog ${label}: ${r.error}`);
+    if (!r.ok) throw new IcebergCatalogRefused(`Iceberg catalog ${label}: ${r.error}`);
+    if (cfg.require_private) {
+      await assertPrivatePath(raw, `The Iceberg catalog "${cfg.name}"`, onRefuse, {
+        direct: true,
+        advice: PRIVATE_PATH_ADVICE,
+      });
+    }
   }
+}
+
+/** A private-path refusal, for the audit log. */
+function auditRefusal(userId: string, cfg: IcebergCatalogConfig) {
+  return (detail: string) =>
+    auditEvent({
+      userId,
+      action: "lakehouse.iceberg.private_path.refused",
+      resourceType: "iceberg_catalog",
+      resourceName: cfg.name,
+      detail: { reason: detail },
+    });
+}
+
+/**
+ * How the engine would reach each of the catalog's names, one line each, for
+ * the person adding it: the addresses the name resolves to from this server
+ * and whether they are private, with the TLS certificate for an https name.
+ * The proxy is noted, not assumed: the engine decides from the environment.
+ */
+export async function icebergCatalogPath(
+  cfg: Pick<IcebergCatalogConfig, "endpoint" | "oauth2_server_uri">,
+): Promise<{ label: string; summary: string; private: boolean }[]> {
+  const out: { label: string; summary: string; private: boolean }[] = [];
+  for (const [label, raw] of catalogUrls(cfg as IcebergCatalogConfig)) {
+    const r = await assertPublicUrl(raw, { allowPrivate: true });
+    if (!r.ok) throw new IcebergCatalogRefused(`Iceberg catalog ${label}: ${r.error}`);
+    const tls = new URL(raw).protocol === "https:";
+    const path = await describeConnectivity(raw, { tls, direct: true });
+    const proxy = process.env.HTTP_PROXY || process.env.HTTPS_PROXY;
+    out.push({
+      label,
+      summary: proxy
+        ? `${path.summary}; with a proxy set, the engine uses it unless NO_PROXY names the host`
+        : path.summary,
+      private: path.privateAddress === true,
+    });
+  }
+  return out;
 }
 
 /** CREATE SECRET (when the auth needs one) then ATTACH, under the given alias. */
@@ -109,7 +192,7 @@ export async function attachIcebergCatalog(
   cfg: IcebergCatalogConfig,
   alias: string,
 ): Promise<void> {
-  await assertIcebergUrlsAllowed(cfg);
+  await assertIcebergUrlsAllowed(cfg, auditRefusal(userId, cfg));
   const secretSql = icebergSecretSql(alias, cfg, await catalogSecrets(userId, cfg));
   if (secretSql) await c.run(secretSql);
   await c.run(icebergAttachSql(alias, cfg));
@@ -162,7 +245,28 @@ export async function ensureIcebergCatalogs(c: DuckDBConnection, force = false):
   const live = new Set<string>();
   for (const row of (rows ?? []) as IcebergCatalogRow[]) {
     live.add(row.id);
-    if (attached.has(row.id)) continue;
+    if (attached.has(row.id)) {
+      // A catalog that requires a private path is checked again at every
+      // sync, not only when it attached: a private DNS zone that goes
+      // missing later must not leave the engine calling a public address.
+      if (row.require_private === true) {
+        try {
+          await assertIcebergUrlsAllowed(configOf(row), auditRefusal(row.user_id, configOf(row)));
+        } catch (e) {
+          await c.run(icebergDetachSql(icebergAlias(row.id))).catch(() => undefined);
+          attached.delete(row.id);
+          failedAt.set(row.id, Date.now());
+          const message = (e as Error).message.slice(0, 500);
+          console.warn(`[lakehouse] iceberg catalog "${row.name}" detached:`, message);
+          await supabaseAdmin
+            .from("iceberg_catalogs")
+            .update({ last_error: message })
+            .eq("id", row.id)
+            .then(() => undefined);
+        }
+      }
+      continue;
+    }
     if (!force && now - (failedAt.get(row.id) ?? 0) < RETRY_FAILED_MS) continue;
     try {
       await attachIcebergCatalog(c, row.user_id, configOf(row), icebergAlias(row.id));

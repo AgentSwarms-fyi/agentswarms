@@ -485,7 +485,7 @@ refusal when the source is added is audited (`storage.private_path.refused`).
 With `BLOCK_PRIVATE_NETWORK_FETCH=true`, the clouds' own storage names (S3, GCS and Azure
 Blob/Data Lake names, including their private endpoint forms) may still resolve to a private
 address; every other host, a self-hosted MinIO included, stays under the switch. Design and
-tests: [Private connectivity](./PRIVATE_GENAI_CONNECTIVITY.md#phase-3--data-sources-over-private-paths--planned-requested-2026-10-28).
+tests: [Private connectivity](./PRIVATE_GENAI_CONNECTIVITY.md#phase-3--data-sources-over-private-paths--done-2026-11-01).
 
 ## Staying connected
 

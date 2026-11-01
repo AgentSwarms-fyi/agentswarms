@@ -9,6 +9,7 @@ import { publishFailureHelp } from "@/lib/icebergPublishHelp";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import {
   Dialog,
@@ -24,6 +25,8 @@ import { useAuth } from "@/hooks/use-auth";
 import {
   icebergCatalogCreate,
   icebergCatalogDelete,
+  icebergCatalogNetworkPath,
+  icebergCatalogSetRequirePrivate,
   icebergCatalogsList,
   icebergMount,
   icebergNamespacesList,
@@ -82,6 +85,14 @@ export function IcebergCatalogsDialog({ onChanged }: { onChanged: () => void }) 
   const deleteFn = useServerFn(icebergCatalogDelete);
   const namespacesFn = useServerFn(icebergNamespacesList);
   const mountFn = useServerFn(icebergMount);
+  const pathFn = useServerFn(icebergCatalogNetworkPath);
+  const ruleFn = useServerFn(icebergCatalogSetRequirePrivate);
+
+  // Which way the engine would reach the form's catalog (R428).
+  const [path, setPath] = useState<{ label: string; summary: string; private: boolean }[]>([]);
+  const [pathError, setPathError] = useState("");
+  const [checkingPath, setCheckingPath] = useState(false);
+  const [ruleBusy, setRuleBusy] = useState("");
 
   const [form, setForm] = useState<IcebergCatalogConfig>(defaultIcebergCatalog());
   const [adding, setAdding] = useState(false);
@@ -93,8 +104,53 @@ export function IcebergCatalogsDialog({ onChanged }: { onChanged: () => void }) 
   const [schemaName, setSchemaName] = useState("");
   const [mounting, setMounting] = useState(false);
 
-  const set = <K extends keyof IcebergCatalogConfig>(k: K, v: IcebergCatalogConfig[K]) =>
+  const set = <K extends keyof IcebergCatalogConfig>(k: K, v: IcebergCatalogConfig[K]) => {
     setForm((f) => ({ ...f, [k]: v }));
+    // A report about other addresses would mislead.
+    if (k === "endpoint" || k === "oauth2_server_uri") {
+      setPath([]);
+      setPathError("");
+    }
+  };
+
+  async function checkPath() {
+    setCheckingPath(true);
+    setPath([]);
+    setPathError("");
+    try {
+      const r = await pathFn({
+        data: {
+          access_token: token,
+          endpoint: form.endpoint,
+          oauth2_server_uri: form.auth_type === "oauth2" ? form.oauth2_server_uri : "",
+        },
+      });
+      if (r.ok) setPath(r.lines);
+      else setPathError(r.error);
+    } catch (e) {
+      reportFailure("check the network path", e);
+    } finally {
+      setCheckingPath(false);
+    }
+  }
+
+  async function setRule(c: IcebergCatalogView, on: boolean) {
+    setRuleBusy(c.id);
+    try {
+      const r = await ruleFn({ data: { access_token: token, id: c.id, require_private: on } });
+      if (!r.ok) return toast.error(r.error);
+      toast.success(
+        on
+          ? `${c.name} now requires a private network path`
+          : `${c.name} no longer requires a private network path`,
+      );
+      await reload();
+    } catch (e) {
+      reportFailure("change the network rule", e);
+    } finally {
+      setRuleBusy("");
+    }
+  }
   const problem = adding ? validateIcebergCatalog(form) : null;
 
   async function loadNamespaces(id: string) {
@@ -158,6 +214,11 @@ export function IcebergCatalogsDialog({ onChanged }: { onChanged: () => void }) 
                           {ICEBERG_AUTH_LABELS[c.auth_type as keyof typeof ICEBERG_AUTH_LABELS] ??
                             c.auth_type}
                         </Badge>
+                        {c.require_private && (
+                          <Badge variant="outline" className="text-[10px]">
+                            private path required
+                          </Badge>
+                        )}
                         {c.last_error && (
                           <Badge variant="destructive" className="text-[10px]" title={c.last_error}>
                             not attached
@@ -167,6 +228,20 @@ export function IcebergCatalogsDialog({ onChanged }: { onChanged: () => void }) 
                       <p className="truncate text-xs text-muted-foreground">
                         {describeIcebergEndpoint(c.endpoint)} · warehouse {c.warehouse}
                       </p>
+                      {c.last_error && (
+                        <p className="text-xs text-destructive" data-testid="iceberg-last-error">
+                          {c.last_error}
+                        </p>
+                      )}
+                      <label className="mt-1 flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+                        <Checkbox
+                          checked={c.require_private === true}
+                          disabled={ruleBusy === c.id}
+                          onCheckedChange={(v) => void setRule(c, v === true)}
+                          aria-label={`Require a private network path for ${c.name}`}
+                        />
+                        Require a private network path
+                      </label>
                       {c.mounts.length > 0 && (
                         <p className="text-xs text-muted-foreground">
                           Mounted: {c.mounts.map((m) => `${m.name} ← ${m.namespace}`).join(", ")}
@@ -301,6 +376,59 @@ export function IcebergCatalogsDialog({ onChanged }: { onChanged: () => void }) 
                     </div>
                   </>
                 )}
+                <div
+                  className="space-y-1.5 rounded-md border border-border bg-muted/30 px-3 py-2 sm:col-span-2"
+                  data-testid="iceberg-network"
+                >
+                  <p className="text-xs font-medium">Network</p>
+                  <p className="text-xs text-muted-foreground">
+                    The lakehouse engine calls the catalog itself. A catalog on a private endpoint
+                    keeps its name and resolves privately from this server (private DNS, a VPN or a
+                    peering link); there is nothing else to enter.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs"
+                      disabled={checkingPath || !form.endpoint.trim()}
+                      onClick={() => void checkPath()}
+                    >
+                      {checkingPath ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                      Check network path
+                    </Button>
+                  </div>
+                  {path.length > 0 && (
+                    <ul className="space-y-0.5 text-xs" data-testid="iceberg-network-path">
+                      {path.map((l) => (
+                        <li key={l.label}>
+                          <span className="font-medium">{l.label}:</span> {l.summary}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {pathError && (
+                    <p className="text-xs text-destructive" data-testid="iceberg-network-path">
+                      {pathError}
+                    </p>
+                  )}
+                  <label className="flex cursor-pointer items-start gap-2 text-xs">
+                    <Checkbox
+                      checked={form.require_private === true}
+                      onCheckedChange={(v) => set("require_private", v === true)}
+                      aria-label="Require a private network path"
+                    />
+                    <span>
+                      Require a private network path
+                      <span className="block text-xs text-muted-foreground">
+                        The catalog is attached only when its endpoint, and its OAuth2 server,
+                        resolve to private addresses from this server, checked again at every engine
+                        sync. The table files are read where the catalog points; this rule does not
+                        reach them.
+                      </span>
+                    </span>
+                  </label>
+                </div>
                 {problem && <p className="text-xs text-destructive sm:col-span-2">{problem}</p>}
                 <div className="sm:col-span-2">
                   <Button

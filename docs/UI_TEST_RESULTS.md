@@ -15,6 +15,34 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-01 — R428: Iceberg catalogs over a private path
+
+The R428 build from the main checkout, hot-deployed twice: the second build added the wording fix
+found in this round. The database has not had migration `20261104000000` yet, so this round
+covers everything that works without it, and the saves that need it say so. The private catalog
+is the account's own REST catalog at `http://192.168.1.85:8181` (the host's LAN address, private).
+The public name is `example.com`: the app only resolves it and sends it nothing. Toasts were read
+by a watcher on the page's toast list.
+
+| Page / surface                                                                   | What was driven                         | Result                                                                                                                                                                                                                                                                                                                                                                            |
+| -------------------------------------------------------------------------------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Lakehouse → Iceberg → Add catalog                                                | the form                                | a **Network** box: "The lakehouse engine calls the catalog itself…", **Check network path**, and **Require a private network path** with its hint (attached only when both names resolve privately, checked again at every engine sync; the table files are not reached)                                                                                                          |
+| … `r428_public`, endpoint `http://example.com/api/catalog`                       | **Check network path**                  | "endpoint: direct to 172.66.147.243, 104.20.23.154 (public)"                                                                                                                                                                                                                                                                                                                      |
+| … the rule ticked                                                                | **Test and save**                       | first build: "The catalog did not answer: The Iceberg catalog "r428_public" is set to require a private network path, but example.com resolves to a public address (…) from this server, so the call was not sent. …". The catalog was never asked, so the prefix was wrong: fixed, and on the second build the toast is the refusal alone. The list still held only `local_rest` |
+| … `r428_private`, endpoint `http://192.168.1.85:8181`, warehouse `s3://iceberg/` | **Check network path**                  | "endpoint: direct to 192.168.1.85 (private)"                                                                                                                                                                                                                                                                                                                                      |
+| … the rule ticked                                                                | **Test and save**                       | the probe attached and listed the namespaces; the save: "Require a private network path needs the database migration 20261104000000_iceberg_catalog_require_private. Apply it, or add the catalog without the rule."; nothing stored                                                                                                                                              |
+| … the rule unticked                                                              | **Test and save**                       | "Registered r428_private: 3 namespaces"; its row shows the checkbox, unticked                                                                                                                                                                                                                                                                                                     |
+| the `r428_private` row                                                           | tick **Require a private network path** | the same migration message; the box stayed unticked                                                                                                                                                                                                                                                                                                                               |
+| Docs → Lakehouse → Iceberg interop                                               | read                                    | "Over a private path." with the rule, the sync re-check and the proxy; the audit line names `lakehouse.iceberg.network_rule` and `lakehouse.iceberg.private_path.refused`                                                                                                                                                                                                         |
+
+The migration was proved in a throwaway `postgres:16.15` container (removed): applied twice over a
+table with a row, the second run skipped with a notice; the existing row and a new one read
+`false`, the column is NOT NULL with default `false`, a null is refused.
+
+**Waits on the push of `20261104000000`:** a save with the rule on, turning it on from a row, and
+an attached catalog detached at the next engine sync once its name stops resolving privately.
+Kept: the catalog `r428_private` (the account's REST catalog, under a second name).
+
 ## 2026-11-01 — R427: AWS model-provider endpoints held to the service's own names
 
 The R427 build from the main checkout, hot-deployed. R426's stand-in (`r426-tls-standin`, a

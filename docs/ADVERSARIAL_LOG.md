@@ -109,6 +109,53 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-01 — R428: Iceberg catalogs over a private path, and the engine's own proxy
+
+**Feature** (private connectivity Phase 3, its last family). DuckDB's iceberg extension calls a
+catalog's REST endpoint and OAuth2 token server itself; the app never makes those requests. A
+catalog may now require a private network path (`require_private`, migration `20261104000000`).
+`assertIcebergUrlsAllowed` holds both names to private addresses as resolved from the app server,
+at every attach, and `ensureIcebergCatalogs` checks an attached catalog again at every sync,
+detaching it with the reason on its row. The add-catalog form reports the path. The rule can be
+turned on from a saved catalog's row, after a check. Refusals and changes are audited.
+
+**Measured: the engine's proxy is not the app's.** On the running image (DuckDB 1.5.5), probed
+with a dead proxy and the lake's own store as the target:
+
+- `HTTP_PROXY` (upper case only) becomes the engine's `http_proxy` setting and is used for https
+  requests too;
+- `HTTPS_PROXY` is honoured by its HTTP client for https;
+- `NO_PROXY` is honoured.
+
+The app's own calls use `HTTPS_PROXY` for https. With only `HTTP_PROXY` set, the app goes direct
+and the engine through the proxy. My first reading, that the engine ignored `NO_PROXY` and would
+send the lake's own store through any proxy, was wrong: measured, a store named in `NO_PROXY` was
+read directly. Consequence for the rule: a proxy is not counted for a catalog, as it is for a
+model provider. The app cannot vouch for the engine's route, so the names must resolve
+privately. The path report notes a proxy instead of assuming one.
+
+**Found from the UI, fixed.** Adding a catalog refused by the new rule toasted "The catalog did
+not answer: …". The catalog was never asked, and the same was true of the existing metadata
+refusal. A refusal before anything is sent now has its own class (`IcebergCatalogRefused`, or
+`PrivatePathRequiredError`) and reads alone. An engine that really failed to reach the catalog
+still says it did not answer.
+
+**Not covered.** The table files: the catalog gives their locations, and with vended credentials
+their store, only when a table is read, so the rule cannot check them beforehand. The engine
+also resolves the name again itself after the check (VA-14's DuckDB residual). For a catalog with
+the rule, the sync narrows that window to one sync.
+
+**Proved.**
+
+| Check                              | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `icebergPrivatePath.test.ts` (new) | 24: the rule at every attach (endpoint, token server, a mixed answer, a proxy set, the metadata address with and without it); a row before the migration; the sync detaching, keeping out through the backoff, attaching again; adding (refused before saving, saved with the rule, the column not named without it, the migration message, refusal wording, an engine failure); the toggle (checked first, owner-pinned, audited, the migration message); the path report |
+| `dataSideSsrfGuard.test.ts`        | its pin now holds the audited call                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| neighbours                         | the Iceberg files: 10 files, 104 tests                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| mutation                           | 20 of 20                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| migration                          | proved in a throwaway Postgres: idempotent, existing rows `false`, NOT NULL                                                                                                                                                                                                                                                                                                                                                                                                |
+| UI                                 | part one, before the migration (UI_TEST_RESULTS); part two waits on its push                                                                                                                                                                                                                                                                                                                                                                                               |
+
 ### 2026-11-01 — R427: the AWS model providers' endpoint override, held to the service's own names
 
 **Finding, fixed** (recorded in R426). The Bedrock endpoint override accepted any

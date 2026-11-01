@@ -16,6 +16,11 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Apply `20261104000000` to require a private path for an Iceberg catalog**
+  (R428). It adds `iceberg_catalogs.require_private`, off for every existing
+  catalog. Either order with the build is safe: until it runs, every catalog
+  reads as not requiring the rule, catalogs save as before, and asking for
+  the rule says which migration to apply.
 - **Check a Bedrock or Claude Platform on AWS private endpoint** (R427). The
   override must now be the service's own name in the integration's region:
   `bedrock-runtime.<region>.amazonaws.com` (or its FIPS or dual-stack name) or
@@ -80,6 +85,22 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Iceberg catalogs over private paths** (R428, private connectivity
+  Phase 3, its last family). The lakehouse engine calls a catalog itself, so
+  a catalog on a private endpoint keeps its name and resolves privately. The
+  add-catalog form's **Network** box has **Check network path**: where the
+  endpoint and the OAuth2 server resolve from the app server, private or
+  public, with the certificate of an https name. **Require a private network
+  path**, per catalog and off by default, attaches the catalog only when
+  both names resolve only to private addresses. It is checked at every attach
+  and again at every engine sync, which detaches a catalog whose name stops
+  resolving privately and shows the reason on its row. It can be turned on
+  from a saved catalog's row, which checks first. Refusals and changes are
+  audited. A proxy does not count: measured on the running image, the engine
+  takes `HTTP_PROXY` for every request, https included, while the app's own
+  calls use `HTTPS_PROXY` for https. A catalog refused before anything is sent
+  (the metadata address, or this rule) no longer reads "The catalog did not
+  answer".
 - **Private endpoints for BigQuery, Redshift and Athena** (R426, private
   connectivity Phase 3). These engines are called at a host the app builds;
   when private DNS does not resolve it privately, a connection's new

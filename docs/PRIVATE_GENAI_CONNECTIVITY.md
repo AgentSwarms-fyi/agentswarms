@@ -296,7 +296,7 @@ the switch on, an agent on it, and a chat: refused before sending, with
 `provider.private_path.refused` in the audit log; with the switch off, the real endpoint answered
 the made-up key with a 401 `authentication_error` (UI_TEST_RESULTS).
 
-### Phase 3 — data sources over private paths — **planned (requested 2026-10-28)**
+### Phase 3 — data sources over private paths — **DONE (2026-11-01)**
 
 The same choice for everything the platform reads data from: object storage (S3, GCS, Azure Blob,
 MinIO and other S3-compatible stores), databases (Postgres, MySQL, SQL Server, Oracle, MongoDB and
@@ -309,8 +309,8 @@ VA-14 residual). Done when: per-connector tests and mutation checks, a UI round 
 family (real cloud connections cannot be made here; local stand-ins can), and the in-repo and
 in-app docs updated. The security campaign continues alongside it.
 
-Built family by family: **object storage (R422, done)**, then databases, warehouses, and the
-lakehouse's catalogs.
+Built family by family: object storage (R422), databases and warehouses (R424, R425), the
+fixed-host warehouses' private endpoints (R426), and the lakehouse's Iceberg catalogs (R428).
 
 **Object storage, as built (R422):**
 
@@ -455,6 +455,52 @@ Tested (`providerEndpointAws.test.ts`): the accepted names, zonal interface endp
 refused ones (API Gateway, its dual-stack name, AppSync, an S3 bucket, another account's endpoint
 service, another Bedrock service, look-alikes, another region); the adapters send nothing to a
 refused name; and a save stores nothing.
+
+**The lakehouse's Iceberg catalogs, as built (R428).** The engine (DuckDB's iceberg extension)
+calls a catalog's REST endpoint, and its OAuth2 token server, itself, from the shared engine; the
+app never makes those requests. A catalog on a private endpoint keeps its name and resolves
+privately, so there is no endpoint to override. What is new:
+
+1. **The path, reported.** The add-catalog form's **Network** box has **Check network path**: for
+   the endpoint and the token server, the addresses each name resolves to from the app server,
+   private or public, and the certificate of an https name. Nothing is sent but a TLS handshake.
+2. **Require a private network path**, per catalog, off by default (`require_private`, migration
+   `20261104000000`). The catalog attaches only when both names resolve only to private
+   addresses: checked at every attach (the save's probe, a mount, a publish, the sync) and again
+   at every engine sync for a catalog already attached, which is detached, with the reason on its
+   row, when its name stops resolving privately. A proxy does not count, unlike a model
+   provider's. The engine reads the proxy settings from the environment itself, so the app
+   cannot vouch for which way a call goes (below). A refusal is audited
+   (`lakehouse.iceberg.private_path.refused`). The rule can be turned on for a saved catalog from
+   its row, and turning it on checks the path first. A change is audited
+   (`lakehouse.iceberg.network_rule`).
+3. **Before the migration**, every catalog reads as not requiring the rule, a catalog without it
+   saves as before, and asking for it says which migration to apply.
+
+**Found doing it: the engine's proxy.** Measured on the running image (DuckDB 1.5.5), the engine
+takes `HTTP_PROXY` (upper case only) as its `http_proxy` setting for every request, https
+included. Its HTTP client also honours `HTTPS_PROXY` for https, and it honours `NO_PROXY`. The
+app's own calls use `HTTPS_PROXY` for https. So with only `HTTP_PROXY` set, the app's calls go
+direct and the engine's through the proxy. That is why the rule does not count a proxy for a
+catalog, and why the path report notes a proxy rather than assuming one.
+
+**Not covered:** the table files. A catalog points the engine at its data files (and, with vended
+credentials, at the store holding them) only when a table is read, so the rule cannot check
+their path beforehand. The lakehouse's own store already has R422's rule. The engine also
+resolves the catalog's name again itself after the check (VA-14's DuckDB residual), so the check
+narrows that window to one sync rather than closing it.
+
+Tested (`icebergPrivatePath.test.ts`):
+
+- the rule at every attach: the endpoint and the token server, a mixed answer, a proxy set, the
+  metadata address with and without the rule;
+- the sync: a catalog detached when its name turns public, with its reason and an audit; kept
+  out through the retry backoff; attached again once the name resolves privately;
+- saving and toggling, before and after the migration;
+- the path report.
+
+The migration was proved in a throwaway Postgres: applied twice over an existing row, which reads
+false.
 
 ### How it would be tested
 

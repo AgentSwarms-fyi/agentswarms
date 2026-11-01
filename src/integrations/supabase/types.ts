@@ -3624,6 +3624,7 @@ export type Database = {
           last_error: string | null;
           name: string;
           oauth2_server_uri: string | null;
+          require_private: boolean;
           storage: string;
           token_secret: string | null;
           updated_at: string;
@@ -3641,6 +3642,7 @@ export type Database = {
           last_error?: string | null;
           name: string;
           oauth2_server_uri?: string | null;
+          require_private?: boolean;
           storage?: string;
           token_secret?: string | null;
           updated_at?: string;
@@ -3658,6 +3660,7 @@ export type Database = {
           last_error?: string | null;
           name?: string;
           oauth2_server_uri?: string | null;
+          require_private?: boolean;
           storage?: string;
           token_secret?: string | null;
           updated_at?: string;

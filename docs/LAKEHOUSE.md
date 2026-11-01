@@ -616,6 +616,21 @@ answers. Table files are read with the credentials the
 catalog vends, or with the lakehouse's own storage credentials when both live
 in one object store.
 
+**Over a private path** (R428). The engine calls the catalog itself, so a
+catalog on a private endpoint keeps its name and resolves privately from the
+app server: there is nothing else to enter. The form's **Network** box has
+**Check network path**, which says where the endpoint and the OAuth2 server
+resolve, private or public. **Require a private network path**, per catalog
+and off by default, attaches the catalog only when both names resolve only to
+private addresses. It is checked at every attach and again at every engine
+sync, and a catalog whose name stops resolving privately is detached with the
+reason on its row. A proxy does not count: the engine takes `HTTP_PROXY`,
+`HTTPS_PROXY` and `NO_PROXY` from the environment itself, so the app cannot
+vouch for its route. The table files are read wherever the catalog points, and
+the rule does not reach them. The rule needs migration `20261104000000`; until
+it runs, asking for it says so. See
+[PRIVATE_GENAI_CONNECTIVITY.md](./PRIVATE_GENAI_CONNECTIVITY.md).
+
 **Mount a namespace.** A namespace becomes a lakehouse schema: one
 read-only view per table, owned by you, shareable through IAM like any
 schema, and read through the per-user statement guard like any table.

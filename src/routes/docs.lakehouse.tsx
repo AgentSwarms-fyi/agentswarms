@@ -390,6 +390,16 @@ function LakehouseDocsPage() {
           and one that fails is marked on its row and skipped, then tried again every five minutes.
         </li>
         <li>
+          <strong>Over a private path.</strong> The engine calls the catalog itself, so a catalog on
+          a private endpoint keeps its name and resolves privately; there is nothing else to enter.{" "}
+          <em>Check network path</em> says where the endpoint and the OAuth2 server resolve, private
+          or public. <em>Require a private network path</em>, per catalog, attaches it only when
+          both resolve only to private addresses: checked at every attach and at every engine sync,
+          which detaches a catalog whose name stops resolving privately and says why on its row. A
+          proxy does not count, since the engine reads the proxy settings itself. The table files
+          are read where the catalog points; the rule does not reach them.
+        </li>
+        <li>
           <strong>Mount a namespace.</strong> A namespace becomes a lakehouse schema: one read-only
           view per table, owned by you, shareable through IAM, read through the per-user statement
           guard. Nothing is copied. <em>Refresh</em> brings the views level with the namespace. A
@@ -413,7 +423,8 @@ function LakehouseDocsPage() {
           <strong>Audited:</strong> catalog definitions through the <C>iceberg_catalog</C> row
           trigger; <C>lakehouse.iceberg.mount</C>, <C>lakehouse.iceberg.refresh</C>,{" "}
           <C>lakehouse.iceberg.publish</C> and <C>lakehouse.iceberg.import</C> with the catalog,
-          namespace, table and row counts.
+          namespace, table and row counts; <C>lakehouse.iceberg.network_rule</C> and{" "}
+          <C>lakehouse.iceberg.private_path.refused</C> for the private-path rule.
         </li>
       </UL>
 

@@ -2352,6 +2352,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "iceberg_catalog",
       "lakehouse.iceberg.import",
       "lakehouse.iceberg.mount",
+      "lakehouse.iceberg.network_rule",
+      "lakehouse.iceberg.private_path.refused",
       "lakehouse.iceberg.publish",
       "lakehouse.iceberg.refresh",
       "minio",
