@@ -15,6 +15,24 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-01 — R432: changing key providers
+
+The R432 build, hot-deployed as in R431, with the same `r431-lowkey` stand-in. Before: the AWS
+fixture data key `931a2e0606b3` (R429) is the only row in `encryption_keys`, active and not in
+use; the env key `30dc47ce45e7` holds all 18 values.
+
+| Setting                                                                                                             | What was driven                                  | Result                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Azure Key Vault configured (`KMS_KEY_REF=https://r431kv.vault.azure.net/keys/credential-kek`), `KMS_PROVIDER` unset | opened the card                                  | "Also kept: the AWS KMS data key 931a2e0606b3, read only with KMS_PROVIDER=aws." in place of R431's "Creating it retires the AWS KMS data key"; **Create a data key in Azure Key Vault**; the Azure facts as in R431                                                                                                                                                                                            |
+| same                                                                                                                | pressed **Create a data key in Azure Key Vault** | **Not done, again:** the session's permission check refused the click ("Modify Shared Resources"), after the user had said to do what was best. The row it would write, and the AWS row it now keeps, are covered by `kmsProviderSwitch.test.ts`                                                                                                                                                                |
+| original environment                                                                                                | recreate, opened the card                        | "Also kept: the AWS KMS data key 931a2e0606b3, read only with KMS_PROVIDER=aws." (it read "Data key 931a2e0606b3 wrapped by AWS KMS … not in use until KMS_PROVIDER=aws is set" before); "No external key provider configured … Azure Key Vault: the key identifier, and a managed or workload identity or AZURE_* variables"; env key, 18 values, 18 on it. Environment identical to the compose configuration |
+| Docs → Install & deploy → Configuration                                                                             | read                                             | **Changing key providers**, after the Azure callout: keep the key and federate the identity when moving clouds; `env` to a provider is a rotation; between two providers a re-key, the card counting and naming what is left on the old key                                                                                                                                                                     |
+
+Not shown in the browser: the red "on a key this server does not hold" count, which needs a
+value written under a data key this server does not load. Writing one would leave a credential
+in the live database that only an emulator's in-memory key can read, so it is proved by
+`keyEncryptionStatus.test.ts` and `keyRotation.test.ts` instead.
+
 ## 2026-11-01 — R431: Azure Key Vault as a key provider
 
 The R431 build from the main checkout, hot-deployed (`dist`, `server.mjs`, `serverWorkers.mjs`)

@@ -21,7 +21,8 @@ see [SECURITY.md](../SECURITY.md#credential-encryption).
 | `VAULT_NAMESPACE`                                                   | Vault Enterprise namespaces only                                                                                                                                                                                          |
 
 **Switching a running deployment to Vault**, which is a rotation and not a
-cutover:
+cutover (from `env`; from another external provider it is a re-key, see
+[Changing key providers](#changing-key-providers)):
 
 1. Create a transit key in Vault (`vault secrets enable transit`,
    `vault write -f transit/keys/agentswarms`) and a policy that allows
@@ -310,6 +311,72 @@ metadata service, over TLS under a real `*.vault.azure.net` name; the comment
 at its top gives the commands. lowkey-vault wraps with RSA keys only, so AES
 key wrap (Managed HSM) is covered by the unit tests.
 
+## Changing key providers
+
+Three different changes, in the order they are usually needed.
+
+**Rotating within a provider.** The common one, and transparent. AWS KMS
+automatic rotation, a new Key Vault key version and `vault write -f
+transit/keys/<name>/rotate` change nothing for the app: the provider unwraps
+what its older key material wrapped. To move to a different key in the same
+provider, point `KMS_KEY_REF` at it, restart, use **Rotate the data key**, and
+run **Re-encrypt to current key**.
+
+**Moving the app to another cloud, keeping the key.** Usually the right answer
+when the deployment moves, say from AWS to Azure: the key-encrypting key does
+not have to move with the workload. The app keeps calling the key provider it
+uses today, as its own identity, from wherever it now runs:
+
+- **AWS KMS from AKS, GKE or any cluster with an OIDC issuer:** create an IAM
+  OIDC identity provider for the cluster's issuer and a role that trusts it
+  for the app's service account, mount a projected service account token with
+  the audience `sts.amazonaws.com`, and set `AWS_WEB_IDENTITY_TOKEN_FILE` and
+  `AWS_ROLE_ARN` (the web identity source above).
+- **Azure Key Vault from EKS, GKE or any cluster with an OIDC issuer:** add a
+  federated identity credential to the app registration or user-assigned
+  identity, trusting the cluster's issuer and the service account, mount a
+  projected token with the audience `api://AzureADTokenExchange`, and set
+  `AZURE_FEDERATED_TOKEN_FILE`, `AZURE_CLIENT_ID` and `AZURE_TENANT_ID` (the
+  workload identity source above).
+- **Vault Transit:** anywhere `VAULT_ADDR` is reachable.
+
+Nothing is re-encrypted and no data key changes. The key provider calls then
+cross clouds: to its public endpoint (`KMS_REQUIRE_PRIVATE` refuses that),
+through `HTTPS_PROXY`, or over a private interconnect whose DNS gives the
+provider's name a private address. There is one unwrap per process start and
+no key provider call on the request path, so the distance costs nothing while
+the app runs.
+
+**Moving the key to another provider.** From `env` to a provider this is the
+rotation described above, because `PROVIDER_CREDS_SECRET` stays readable
+until the sweep has moved every value. **Between two external providers it is
+a re-key, not a rotation, in this release.** The keyring holds one
+provider's data keys at a time, so values on the old provider's data key do
+not decrypt under the new one, and a sweep cannot move them. Plan it:
+
+1. Note what is stored. **Admin → IAM → Settings → Credential encryption
+   key** counts the values; they are model provider keys, warehouse
+   connections, stored secrets, integrations, Data Catalog sources, Git
+   export, knowledge base sources and MCP servers.
+2. Restart with `KMS_PROVIDER` unset, `KMS_KEY_REF` set to the new key and
+   the new provider's identity, and create the data key there. The old
+   provider's data key is kept, not retired: the card lists it as "Also
+   kept", read only with its own `KMS_PROVIDER`. Until the next step, values
+   on it do not decrypt.
+3. Set `KMS_PROVIDER` to the new provider and restart. The card counts the
+   values "on a key this server does not hold" and names that key.
+4. Enter each of those credentials again (every save writes it under the new
+   data key) until the count is 0, then run **Re-encrypt to current key** for
+   whatever is left on the `env` key.
+5. Only then disable the old provider's key. Until the count reaches 0, the
+   way back is the old `KMS_PROVIDER` and `KMS_KEY_REF`: its data key was
+   kept, so values not yet entered again still read there. Values already
+   entered under the new key do not read on the way back.
+
+A provider-to-provider rotation in the app (holding both providers' data keys
+while a sweep moves the values) is a possible later change. It is not built,
+because moving clouds rarely needs the key to move with it.
+
 ---
 
 ## Why the current design is not simply wrong
@@ -427,14 +494,14 @@ because it runs anywhere and needs no cloud account to test.
 This is the part that decides whether the feature is safe, so it is specified
 before any code.
 
-| Situation                                                     | Behaviour                                                                                                                                                                                       |
-| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| KMS unreachable **at startup**                                | **Refuse to start.** Serving with no ability to decrypt credentials would surface as hundreds of confusing per-feature errors. Fail once, loudly, with the provider and key ref in the message. |
-| KMS unreachable **while running**                             | Keep serving. The DEK is already in memory; no KMS call is on the request path. Surface a warning on the health page.                                                                           |
-| Permission revoked mid-run                                    | Same as above until restart. The next restart fails closed.                                                                                                                                     |
-| Wrapped DEK missing or corrupt                                | Refuse to start. Never silently generate a new DEK — that would leave every existing credential unreadable while looking healthy.                                                               |
-| Provider misconfigured (`KMS_PROVIDER=aws`, no `KMS_KEY_REF`) | Refuse to start, naming the missing variable.                                                                                                                                                   |
-| Switching provider                                            | Treated as a **rotation**: unwrap with the old provider, generate a new DEK, wrap with the new one, run the existing re-encrypt sweep.                                                          |
+| Situation                                                     | Behaviour                                                                                                                                                                                                                                                                                |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| KMS unreachable **at startup**                                | **Refuse to start.** Serving with no ability to decrypt credentials would surface as hundreds of confusing per-feature errors. Fail once, loudly, with the provider and key ref in the message.                                                                                          |
+| KMS unreachable **while running**                             | Keep serving. The DEK is already in memory; no KMS call is on the request path. Surface a warning on the health page.                                                                                                                                                                    |
+| Permission revoked mid-run                                    | Same as above until restart. The next restart fails closed.                                                                                                                                                                                                                              |
+| Wrapped DEK missing or corrupt                                | Refuse to start. Never silently generate a new DEK — that would leave every existing credential unreadable while looking healthy.                                                                                                                                                        |
+| Provider misconfigured (`KMS_PROVIDER=aws`, no `KMS_KEY_REF`) | Refuse to start, naming the missing variable.                                                                                                                                                                                                                                            |
+| Switching provider                                            | From `env`: a **rotation** (create the data key, switch, run the re-encrypt sweep). Between two external providers: a **re-key**, not a rotation in this release ([Changing key providers](#changing-key-providers)). The old provider's data key is kept, never retired by the new one. |
 
 The DEK is held **in memory only** — never written to disk, never logged, and
 excluded from error serialisation.

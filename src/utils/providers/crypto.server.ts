@@ -216,28 +216,50 @@ export async function reEncryptDeep<T>(value: T): Promise<DeepReEncryptResult<T>
   return { value: out, migrated, alreadyCurrent, failed };
 }
 
-/** Count the blobs in a value and how many are already on the current key. */
-export async function blobKeyStatus(
-  value: unknown,
-): Promise<{ total: number; onCurrent: number; onOther: number; legacy: number }> {
-  const cur = await currentKid();
+export type BlobKeyStatus = {
+  total: number;
+  onCurrent: number;
+  /** On an older key this server still holds: it decrypts, and a sweep moves it. */
+  onOther: number;
+  /**
+   * On a key this server does not hold — a secret dropped from
+   * PROVIDER_CREDS_SECRET_OLD, or another key provider's data key after a
+   * switch. It does not decrypt here, and a sweep reports it and leaves it.
+   * These used to count as "older" under "These still decrypt" (R432).
+   */
+  unreadable: number;
+  /** The fingerprints those are on, so the card can name the key. */
+  unreadableKids: string[];
+  legacy: number;
+};
+
+/** Count the blobs in a value, by the key each is on. */
+export async function blobKeyStatus(value: unknown): Promise<BlobKeyStatus> {
+  const { current: cur, previous } = await keyringFingerprints();
+  const held = new Set(previous);
   let total = 0;
   let onCurrent = 0;
   let onOther = 0;
+  let unreadable = 0;
+  const unreadableKids = new Set<string>();
   let legacy = 0;
   function walk(v: unknown): void {
     if (isEncryptedBlob(v)) {
       total++;
       if (!v.kid) legacy++;
       else if (v.kid === cur) onCurrent++;
-      else onOther++;
+      else if (held.has(v.kid)) onOther++;
+      else {
+        unreadable++;
+        unreadableKids.add(v.kid);
+      }
       return;
     }
     if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === "object") Object.values(v).forEach(walk);
   }
   walk(value);
-  return { total, onCurrent, onOther, legacy };
+  return { total, onCurrent, onOther, unreadable, unreadableKids: [...unreadableKids], legacy };
 }
 
 // Mask a secret for display: show last 4 chars only.

@@ -36,7 +36,11 @@ export type TableStatus = {
   rows: number;
   blobs: number;
   onCurrent: number;
+  /** On an older key this server holds: a sweep moves it. */
   onOther: number;
+  /** On a key this server does not hold: a sweep cannot move it (R432). */
+  unreadable: number;
+  unreadableKids: string[];
   legacy: number;
   error?: string;
 };
@@ -71,6 +75,8 @@ export async function keyEncryptionStatus(): Promise<TableStatus[]> {
         blobs: 0,
         onCurrent: 0,
         onOther: 0,
+        unreadable: 0,
+        unreadableKids: [],
         legacy: 0,
         error: error.message,
       });
@@ -79,6 +85,8 @@ export async function keyEncryptionStatus(): Promise<TableStatus[]> {
     let blobs = 0;
     let onCurrent = 0;
     let onOther = 0;
+    let unreadable = 0;
+    const unreadableKids = new Set<string>();
     let legacy = 0;
     for (const row of data ?? []) {
       for (const val of Object.values(row)) {
@@ -86,12 +94,48 @@ export async function keyEncryptionStatus(): Promise<TableStatus[]> {
         blobs += s.total;
         onCurrent += s.onCurrent;
         onOther += s.onOther;
+        unreadable += s.unreadable;
+        for (const k of s.unreadableKids) unreadableKids.add(k);
         legacy += s.legacy;
       }
     }
-    out.push({ table, rows: (data ?? []).length, blobs, onCurrent, onOther, legacy });
+    out.push({
+      table,
+      rows: (data ?? []).length,
+      blobs,
+      onCurrent,
+      onOther,
+      unreadable,
+      unreadableKids: [...unreadableKids],
+      legacy,
+    });
   }
   return out;
+}
+
+export type StatusTotals = Omit<TableStatus, "table" | "rows" | "error">;
+
+/** The tables' counts added up; the unreadable keys once each, sorted. */
+export function statusTotals(tables: TableStatus[]): StatusTotals {
+  const kids = new Set<string>();
+  const t: StatusTotals = {
+    blobs: 0,
+    onCurrent: 0,
+    onOther: 0,
+    unreadable: 0,
+    unreadableKids: [],
+    legacy: 0,
+  };
+  for (const s of tables) {
+    t.blobs += s.blobs;
+    t.onCurrent += s.onCurrent;
+    t.onOther += s.onOther;
+    t.unreadable += s.unreadable;
+    t.legacy += s.legacy;
+    for (const k of s.unreadableKids) kids.add(k);
+  }
+  t.unreadableKids = [...kids].sort();
+  return t;
 }
 
 /**

@@ -1991,6 +1991,23 @@ function CredentialKeyCard({ token }: { token: string }) {
                     .
                   </p>
                 ) : null}
+                {kms.otherDeks.length > 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    {/* Kept, not retired, by a data key made for another
+                        provider (R432): each reads only under its own
+                        KMS_PROVIDER, which is the way back. */}
+                    Also kept:{" "}
+                    {kms.otherDeks.map((d, i) => (
+                      <Fragment key={d.kid}>
+                        {i > 0 ? "; " : ""}
+                        the {externalName(d.provider)} data key{" "}
+                        <code className="font-mono">{d.kid}</code>, read only with{" "}
+                        <code className="font-mono">KMS_PROVIDER={d.provider}</code>
+                      </Fragment>
+                    ))}
+                    .
+                  </p>
+                ) : null}
                 {external ? (
                   <div className="flex flex-wrap items-center gap-2 text-xs">
                     <span className="text-muted-foreground">
@@ -2020,20 +2037,12 @@ function CredentialKeyCard({ token }: { token: string }) {
                       ) : (
                         <KeyRound className="mr-1.5 h-3.5 w-3.5" />
                       )}
-                      {/* Rotate only this provider's own key: another
-                          provider's active key is replaced, not rotated
-                          (found from the UI, R431). */}
+                      {/* Rotate only this provider's own key (R431). Another
+                          provider's is kept, not replaced (R432). */}
                       {kms.activeDek?.provider === external.id
                         ? `Rotate the data key in ${externalName(external.id)}`
                         : `Create a data key in ${externalName(external.id)}`}
                     </Button>
-                    {kms.activeDek && kms.activeDek.provider !== external.id ? (
-                      <span className="basis-full text-muted-foreground">
-                        Creating it retires the {externalName(kms.activeDek.provider)} data key{" "}
-                        <code className="font-mono">{kms.activeDek.kid}</code>
-                        {externalInUse ? "." : ", which is not in use."}
-                      </span>
-                    ) : null}
                   </div>
                 ) : (
                   <p className="text-xs text-muted-foreground">
@@ -2103,11 +2112,36 @@ function CredentialKeyCard({ token }: { token: string }) {
                         {totals.legacy} unstamped (written before key ids)
                       </span>
                     )}
+                    {totals.unreadable > 0 && (
+                      <span className="text-destructive">
+                        {totals.unreadable} on a key this server does not hold
+                      </span>
+                    )}
                   </div>
                   {pending > 0 && (
                     <p className="mt-2 text-xs text-muted-foreground">
                       These still decrypt. Sweeping moves them onto the current key so the old
                       secret can be retired.
+                    </p>
+                  )}
+                  {totals.unreadable > 0 && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {/* They used to be counted as "older" under "These still
+                          decrypt", which a provider switch made untrue (R432). */}
+                      Those do not decrypt here, and a sweep leaves them as they are.
+                      {totals.unreadableKids.map((kid) => {
+                        const dek = kms?.otherDeks.find((d) => d.kid === kid);
+                        return (
+                          <Fragment key={kid}>
+                            {" "}
+                            <code className="font-mono">{kid}</code>
+                            {dek
+                              ? ` is the ${externalName(dek.provider)} data key: they read with KMS_PROVIDER=${dek.provider}.`
+                              : " is not a key this server has: put its secret back in PROVIDER_CREDS_SECRET_OLD, or enter those credentials again."}
+                          </Fragment>
+                        );
+                      })}{" "}
+                      Changing key providers is described in docs/KEY_MANAGEMENT.md.
                     </p>
                   )}
                 </div>

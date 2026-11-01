@@ -1032,6 +1032,18 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **A data key made for one key provider no longer retires another's**
+  (R432, found from the UI in R431). Creating an Azure Key Vault data key
+  retired the AWS KMS one, so going back to `KMS_PROVIDER=aws` would have
+  refused to start with no data key. Each provider's data key is now kept;
+  the settings card lists the others ("Also kept", read only with their own
+  `KMS_PROVIDER`). The card also stopped saying "These still decrypt" about
+  values on a key the server does not hold (another provider's data key, or
+  a secret dropped from `PROVIDER_CREDS_SECRET_OLD`): it counts them apart,
+  in red, and names the key. KEY_MANAGEMENT has a new section, Changing key
+  providers: rotating within a provider, moving the app to another cloud
+  while keeping the key (workload identity federation), and moving the key
+  between two external providers, which is a re-key in this release.
 - **A key provider that cannot unwrap at boot now stops the server** (R430,
   found from the UI). With `KMS_PROVIDER=vault` or `aws` and the provider out
   of reach, every worker refused to start and the primary replaced it at once,

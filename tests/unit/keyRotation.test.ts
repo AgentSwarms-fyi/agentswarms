@@ -215,6 +215,28 @@ describe("status counts tell an operator what a sweep would do", () => {
     expect(s.legacy).toBe(1);
   });
 
+  it("counts a blob on a key this server does not hold as unreadable, not as older", async () => {
+    // R432: after a switch between key providers, or with a secret dropped
+    // from PROVIDER_CREDS_SECRET_OLD, these were "on an older key" under
+    // "These still decrypt". They do not, and a sweep cannot move them.
+    useKeys(KEY_C);
+    const orphan = await encryptJson("on C");
+    useKeys(KEY_A);
+    const old = await encryptJson("on A");
+    useKeys(KEY_B, [KEY_A]);
+    const fresh = await encryptJson("on B");
+
+    const s = await blobKeyStatus({ orphan, nested: { old, more: [orphan] }, fresh });
+    expect(s).toEqual({
+      total: 4,
+      onCurrent: 1,
+      onOther: 1,
+      unreadable: 2,
+      unreadableKids: [orphan.kid],
+      legacy: 0,
+    });
+  });
+
   it("recognises a stored blob by shape", () => {
     expect(isEncryptedBlob({ ciphertext: "a", iv: "b" })).toBe(true);
     expect(isEncryptedBlob({ ciphertext: "a" })).toBe(false);

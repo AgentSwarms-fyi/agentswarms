@@ -710,6 +710,17 @@ AUDIT_ARCHIVE_ON_PURGE="1"
         held to that rule.
       </Callout>
 
+      <Callout kind="warn" title="Changing key providers">
+        Moving the app to another cloud does not mean moving the key: it can keep using the key
+        provider it has, signing in from the new cloud with workload identity federation (an AWS
+        role trusting the cluster&apos;s OIDC issuer, or an Entra ID federated credential). From{" "}
+        <C>env</C> to a provider is a rotation and nothing becomes unreadable. Between two external
+        providers it is a re-key: values on the old provider&apos;s data key do not decrypt under
+        the new one. <strong>Credential encryption key</strong> counts them and names the key, the
+        old data key is kept so the way back works, and they are entered again. The steps are in{" "}
+        <C>docs/KEY_MANAGEMENT.md</C>, under Changing key providers.
+      </Callout>
+
       <H3 id="recipe-fleet">Autoscaled behind a load balancer</H3>
       <P>
         Several app instances against one Supabase project. Rate limits and concurrency slots are

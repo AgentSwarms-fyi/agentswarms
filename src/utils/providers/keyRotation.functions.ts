@@ -17,6 +17,8 @@ import { keyringFingerprints, resetKeyringCache } from "./crypto.server";
 import {
   keyEncryptionStatus,
   reEncryptAllToCurrentKey,
+  statusTotals,
+  type StatusTotals,
   type TableStatus,
   type TableRotation,
 } from "./keyRotation.server";
@@ -26,7 +28,8 @@ export type KeyStatusPayload = {
   current: string;
   previous: string[];
   tables: TableStatus[];
-  totals: { blobs: number; onCurrent: number; onOther: number; legacy: number };
+  /** Including values on a key this server does not hold, and which keys (R432). */
+  totals: StatusTotals;
   /** Which key provider is in use, which one is configured, and the data key. */
   kms: KmsStatus;
 };
@@ -44,15 +47,7 @@ export const getKeyEncryptionStatus = createServerFn({ method: "POST" })
         keyEncryptionStatus(),
         kmsStatus(),
       ]);
-      const totals = tables.reduce(
-        (a, t) => ({
-          blobs: a.blobs + t.blobs,
-          onCurrent: a.onCurrent + t.onCurrent,
-          onOther: a.onOther + t.onOther,
-          legacy: a.legacy + t.legacy,
-        }),
-        { blobs: 0, onCurrent: 0, onOther: 0, legacy: 0 },
-      );
+      const totals = statusTotals(tables);
       return { ok: true, current: fp.current, previous: fp.previous, tables, totals, kms };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : "Status failed" };

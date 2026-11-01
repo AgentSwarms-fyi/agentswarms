@@ -18,12 +18,25 @@ vi.mock("node:dns/promises", () => ({
 }));
 
 // The data key's row: a recording stand-in for the table.
-const db = vi.hoisted(() => ({ ops: [] as Array<{ op: string; payload?: unknown }> }));
+const db = vi.hoisted(() => ({
+  ops: [] as Array<{ op: string; payload?: unknown; filters?: unknown[][] }>,
+}));
 vi.mock("@/integrations/supabase/client.server", () => {
   const table = {
     update(payload: unknown) {
-      db.ops.push({ op: "update", payload });
-      return { is: async () => ({ error: null }) };
+      const op = { op: "update", payload, filters: [] as unknown[][] };
+      db.ops.push(op);
+      const chain = {
+        eq(column: string, value: unknown) {
+          op.filters.push(["eq", column, value]);
+          return chain;
+        },
+        async is(column: string, value: unknown) {
+          op.filters.push(["is", column, value]);
+          return { error: null };
+        },
+      };
+      return chain;
     },
     insert(payload: Record<string, unknown>) {
       db.ops.push({ op: "insert", payload });
@@ -661,6 +674,11 @@ describe("creating a data key with AWS KMS", () => {
       "TrentService.Decrypt",
     ]);
     expect(db.ops.map((o) => o.op)).toEqual(["update", "insert"]);
+    // Only AWS KMS's own active row is retired; another provider's is kept (R432).
+    expect(db.ops[0].filters).toEqual([
+      ["eq", "provider", "aws"],
+      ["is", "retired_at", null],
+    ]);
     expect(db.ops[1].payload).toEqual({
       provider: "aws",
       key_ref: ARN,

@@ -3769,6 +3769,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "agentswarms:purpose=credential-data-key",
       "docs/KEY_MANAGEMENT.md",
       "email_send_log",
+      "env",
       "eval",
       "function",
       "http://127.0.0.1:8091",

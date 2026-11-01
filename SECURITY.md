@@ -379,6 +379,15 @@ Stated plainly because you will ask:
   without an external provider the master key is an environment variable. AWS
   KMS and Azure Key Vault have been tested against emulators (the AWS signing
   against the published SigV4 vectors), not yet against a real cloud account.
+- **Moving between two external key providers is a re-key.** From the
+  default `env` key to a provider is a rotation: everything stays readable
+  while the sweep moves it. From one provider to another (Vault, AWS KMS,
+  Azure Key Vault), values on the old provider's data key do not decrypt
+  under the new one; the settings card counts them and names the key, the
+  old data key is kept so the way back works, and they are entered again.
+  Moving the app to another cloud does not require it: the key can stay where
+  it is, reached through workload identity federation. See
+  [`docs/KEY_MANAGEMENT.md`](./docs/KEY_MANAGEMENT.md#changing-key-providers).
 - **Hardware-backed keys only through a provider.** AWS KMS keeps keys in
   its HSMs, or in your CloudHSM cluster or external key manager through a
   custom key store. Azure keeps an `RSA-HSM` key in a Premium vault's HSMs,

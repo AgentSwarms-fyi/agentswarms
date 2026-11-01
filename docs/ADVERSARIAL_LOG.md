@@ -109,6 +109,65 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-01 — R432: changing key providers, safely and said plainly
+
+**What R431 found.** `createDataKey` retired every active data key, of any provider, and the
+keyring loads only the configured provider's. So a data key made for Azure Key Vault retired the
+AWS KMS one, and a deployment that tried Azure and went back would find `KMS_PROVIDER=aws`
+refusing to start with no data key. And moving between two external providers was not the
+rotation KEY_MANAGEMENT's failure-mode table promised: values on the old provider's data key do
+not decrypt under the new one.
+
+**The user's call** (2026-11-01): moving clouds is usually the operator's own undertaking, so no
+in-app provider-to-provider migration; make it safe, and write the guidance.
+
+**Fixed.**
+
+- **A data key retires only its own provider's.** The old provider's data key is kept, so the way
+  back (the old `KMS_PROVIDER` and `KMS_KEY_REF`) still starts and still reads what was not
+  touched since.
+- **The card's status is about the configured provider.** Its data key, its retired keys, and the
+  other providers' keys listed apart as "Also kept: the AWS KMS data key 931a…, read only with
+  KMS_PROVIDER=aws". R431's "Creating it retires the AWS KMS data key" is gone, because it no
+  longer does.
+- **"These still decrypt" was not always true.** Every value not on the current key counted as
+  "on an older key", including values on a key the server does not hold: another provider's
+  data key after a switch, or a secret dropped from `PROVIDER_CREDS_SECRET_OLD`. Those do not
+  decrypt and a sweep cannot move them. They are counted apart now, in red ("on a key this
+  server does not hold"), and the card names each key: another provider's data key with the
+  `KMS_PROVIDER` that reads it, or an unknown key with what to do (put the secret back, or enter
+  the credentials again). The totals moved into `statusTotals`, which a test can reach.
+
+**The guidance** (KEY_MANAGEMENT, Changing key providers; SECURITY; the in-app configuration
+docs):
+
+- **Rotating within a provider:** transparent.
+- **Moving the app to another cloud, keeping the key:** usually the right answer. AWS KMS from
+  AKS or GKE through an IAM OIDC provider and the web identity source; Azure Key Vault from EKS
+  or GKE through an Entra ID federated credential and the workload identity source. Both chains
+  were built in R429 and R431. One unwrap per process start, so the distance costs nothing while
+  the app runs.
+- **Moving the key between two external providers:** a re-key in this release. Steps: note what
+  is stored; create the new provider's data key with `KMS_PROVIDER` unset; switch; enter again
+  what the card counts on the old key; disable the old key only when that count is 0.
+
+**Proved.**
+
+| Check                                     | Result                                                                                                                                                                                                                                                                                                   |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `kmsProviderSwitch.test.ts` (new)         | 4: an Azure data key keeps the AWS one active, and a second Azure one retires only the first; the status under `env` with Azure being set up (its key, its retired count, the AWS key listed, an older retired AWS key not counted); with Azure in use; with nothing configured, every active key listed |
+| `keyEncryptionStatus.test.ts` (new)       | 1: per table, current / held / not held with its key / unstamped, nested values, a table that cannot be read; the totals with the keys once each, sorted                                                                                                                                                 |
+| `keyRotation.test.ts`                     | a value on a key not held is unreadable, not older                                                                                                                                                                                                                                                       |
+| `awsKms.test.ts`, `azureKeyVault.test.ts` | the retire is filtered to the provider                                                                                                                                                                                                                                                                   |
+| mutation                                  | 12 of 12 (one survivor killed by a case where the other provider's key is newer)                                                                                                                                                                                                                         |
+| UI                                        | UI_TEST_RESULTS, R432                                                                                                                                                                                                                                                                                    |
+
+**Not covered.** No in-app migration between two external providers, by the user's decision; a
+later change could hold both providers' data keys while a sweep moves the values.
+Pressing **Create a data key in Azure Key Vault** against the stand-in: the session's permission
+check refused it twice, so the row it writes and the AWS row it keeps are proved by the unit
+tests, not the browser.
+
 ### 2026-11-01 — R431: Azure Key Vault as a key provider, and the app's own Entra ID identity
 
 **Feature.** `KMS_PROVIDER=azure` keeps the credential key-encrypting key in Azure Key Vault or
