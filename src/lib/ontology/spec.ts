@@ -488,6 +488,15 @@ export function titleOf(type: ObjectType): string {
   return type.label?.trim() || splitCamel(type.name);
 }
 
+/**
+ * An object's title as a person reads it. A title that is only a number (an
+ * order line's key) says what it numbers: "Order line 271", not "271". The
+ * graph did this and the object panel did not (R433).
+ */
+export function displayTitle(type: ObjectType | undefined, title: string): string {
+  return type && /^[\d.,-]+$/.test(title) ? `${titleOf(type)} ${title}` : title;
+}
+
 export function pluralTitleOf(type: ObjectType): string {
   if (type.pluralLabel?.trim()) return type.pluralLabel.trim();
   const t = titleOf(type);

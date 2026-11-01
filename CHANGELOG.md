@@ -85,6 +85,15 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **An Enterprise Ontology guide and a modelling guide** (R433). In the app,
+  `/docs/ontology/guide` (what an ontology is, how it differs from a semantic
+  layer and a knowledge graph, a first hour with the sample, reading the
+  graph) and `/docs/ontology/modelling` (object types, derived properties,
+  value types, links and cardinality, metrics and the worked double-count
+  example, rules, actions, writing for AI, patterns, common mistakes, a
+  glossary); in the repository, `docs/ONTOLOGY_GUIDE.md`. Every expression
+  they teach with is run on the sample by a test and must appear in both as
+  printed.
 - **The credential key can live in Azure Key Vault or an Azure Managed HSM**
   (R431). `KMS_PROVIDER=azure` with `KMS_KEY_REF` set to the key identifier
   (`https://<vault>.vault.azure.net/keys/<name>`) keeps the key-encrypting
@@ -1032,6 +1041,24 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **The ontology graph is laid out, complete and readable** (R433, found from
+  the UI). New objects were spread round a ring about the start, so an
+  order's lines landed on the far side of the customer and edges crossed the
+  middle, and expanding a second order stacked its objects exactly on top of
+  the first's. A link between two objects on screen was drawn only if one of
+  them had been expanded (an order line and its product had nothing between
+  them). A click always grew the graph and a double-click grew it twice. The
+  start picker said "No objects" while loading and when the lookup failed,
+  and two customers with one name looked the same. Now: objects drawn stay
+  put and new ones appear beside the object they came from, with nothing
+  overlapping; every link among the objects shown is drawn; a click selects
+  an object and lists its relationships named from its side (a customer's
+  orders), a double-click or Expand grows the graph, Shift-click shows the
+  path between two objects; 1, 2 or 3 steps out; Hide, Start here and All
+  labels; which objects have more links than shown, and any link that could
+  not be followed, are named. The walk asks once per type and link at each
+  step instead of once per object, and the object panel says "Order line
+  271", not "271".
 - **A data key made for one key provider no longer retires another's**
   (R432, found from the UI in R431). Creating an Azure Key Vault data key
   retired the AWS KMS one, so going back to `KMS_PROVIDER=aws` would have

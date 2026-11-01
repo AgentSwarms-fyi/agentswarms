@@ -4,7 +4,11 @@
 
 The business described once — the things it deals in, how they connect, what is measured, what
 must hold true and what may be changed — on top of lakehouse tables. Find it under **Data & BI →
-Enterprise Ontology**; the in-app guide is at `/docs/ontology`.
+Enterprise Ontology**; the in-app reference is at `/docs/ontology`.
+
+**New to it?** [ONTOLOGY_GUIDE.md](./ONTOLOGY_GUIDE.md) explains what an ontology is, walks through
+the sample, and teaches modelling with examples (in the app: `/docs/ontology/guide` and
+`/docs/ontology/modelling`). This document is how it is built.
 
 ## Why it exists
 
@@ -80,6 +84,35 @@ their schema grants, the tables' tag policies and row filters apply, and the sta
 their Lakehouse → History as the SQL it compiled to. Its audit-log entry (`lakehouse.select`, or the
 write's kind) says where it came from in `via`: `ontology:<what>` (`explore`, `object`, `graph`,
 `metric`, `rule`, `profile`, `ask`, `action`, `draft`, `sample`).
+
+## The graph
+
+The Graph tab's walk is `src/lib/ontology/graph.ts` (`neighborhood`), pure apart from the runner it
+is given; the server function `ontologyNeighborhood` runs it as the caller, `via: ontology:graph`.
+
+- **One query per type and link at each step.** `compileLinkedBatch` returns, for every object of a
+  type on the frontier, its first `perLink` neighbours over a link by key, plus one more so the walk
+  knows there are more (`ROW_NUMBER()` over each start object). Three steps out from a customer is a
+  handful of queries, not one per object and link.
+- **Every link among the objects shown.** After the walk, `compileLinkPairs` asks, once per link
+  type, which of the objects shown (the walk's and those the client already draws, `known`, up to 300) the link joins. An order line and its product, both on screen, are joined though neither was
+  expanded.
+- **What it could not show is named**: `cappedLinks` (an object and the link, named as it reads from
+  that object), and `skipped` (a link that failed: a table the caller cannot read, a hidden key),
+  instead of a silent omission. At most 3 steps (`GRAPH_MAX_DEPTH`) and 150 objects
+  (`GRAPH_MAX_NODES`).
+- Each edge carries the link's name read both ways (`label`, `inverseLabel`), so the object panel
+  and the path read from whichever end.
+
+The client's view logic is `src/lib/ontology/graphView.ts`: `layoutGraph` keeps objects already
+drawn where they are, seeds each new one beside the object it was reached from (a fan pointing away
+from that object's own parent, as wide as its children need), and runs a fixed number of
+`d3-force` ticks with the old objects pinned and the new ones held near their seed and a collision shaped like the pills (wide, short rectangles, not d3's circles), so the result is
+deterministic and nothing overlaps; `mergeGraph`, `shortestPath`, `relationshipsOf` and `hideNode`
+are the rest. Found from the UI (R433): new objects were spread round a ring about the start (an
+order's lines on the far side of the customer, a second expansion stacked on the first), links
+between two unexpanded objects were missing, a click always expanded and a double-click expanded
+twice, and the starting-object picker said "No objects" while it was loading and when it failed.
 
 ## Access, sharing and policy
 
@@ -196,6 +229,15 @@ quantities and two orders in an unknown status.
   caller, grantees get the published version, RLS and the IAM type, the agent tool's allow-list.
 - `tests/unit/ontologyOssie.test.ts` — Ossie mirrors against the official schemas, official
   examples imported, lossless round trips.
+- `tests/unit/ontologyGraph.test.ts` — the graph walk on the sample in DuckDB against
+  hand-written SQL: two steps out, every link among the objects shown, the query bound, caps and
+  skipped links named, objects the caller sent, a grantee's row filter.
+- `tests/unit/ontologyGraphView.test.ts` — the layout (neighbours beside their parent, nothing
+  moved, no overlaps up to over a hundred objects, deterministic), merging, paths, relationships,
+  hiding.
+- `tests/unit/ontologyDocsExamples.test.ts` — every expression ONTOLOGY_GUIDE.md and the in-app
+  modelling page teach with, run on the sample and found in both documents as printed; a link from
+  a type to itself.
 - `tests/unit/enterpriseOntologyUi.test.ts` — what the screens offer and how they label it:
   groupings never step straight back, suggested questions group by categories (never an e-mail),
   periods read "Jan 2024", keys print as labels ("1063", not "1,063").

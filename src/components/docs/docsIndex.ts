@@ -3335,6 +3335,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 2
       },
       {
+        "id": "graph",
+        "text": "The graph",
+        "level": 2
+      },
+      {
         "id": "metrics",
         "text": "Metrics that cannot double count",
         "level": 2
@@ -3377,6 +3382,129 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "limits",
         "text": "Limits",
+        "level": 2
+      },
+      {
+        "id": "related",
+        "text": "Related",
+        "level": 3
+      }
+    ]
+  },
+  {
+    "route": "/docs/ontology/guide",
+    "title": "A guide to the ontology",
+    "description": "What an ontology is, when to use one, a first hour with the sample business, and how to read the graph of how things connect. For modelling your own business, with examples, see the modelling guide.",
+    "terms": [
+      "SUM(total_amount)",
+      "customers",
+      "order_lines",
+      "orders"
+    ],
+    "headings": [
+      {
+        "id": "what",
+        "text": "What an ontology is",
+        "level": 2
+      },
+      {
+        "id": "compare",
+        "text": "Ontology, semantic layer, knowledge graph",
+        "level": 2
+      },
+      {
+        "id": "first-hour",
+        "text": "Your first hour: the Northwind Outfitters sample",
+        "level": 2
+      },
+      {
+        "id": "graph",
+        "text": "Reading the graph",
+        "level": 2
+      },
+      {
+        "id": "next",
+        "text": "Next",
+        "level": 3
+      }
+    ]
+  },
+  {
+    "route": "/docs/ontology/modelling",
+    "title": "Modelling a business",
+    "description": "How to choose object types, properties, links, metrics, rules and actions, with examples from the Northwind Outfitters sample. Every expression here has been run on the sample, so what you copy works.",
+    "terms": [
+      "CASE",
+      "contains",
+      "customer_id",
+      "direct_reports",
+      "manager_id",
+      "order_id",
+      "order_lines",
+      "orders",
+      "placed_by",
+      "product",
+      "reports_to"
+    ],
+    "headings": [
+      {
+        "id": "types",
+        "text": "Object types: the nouns",
+        "level": 2
+      },
+      {
+        "id": "properties",
+        "text": "Properties: what is known about each object",
+        "level": 2
+      },
+      {
+        "id": "value-types",
+        "text": "Value types and interfaces",
+        "level": 2
+      },
+      {
+        "id": "links",
+        "text": "Links: how things relate",
+        "level": 2
+      },
+      {
+        "id": "metrics",
+        "text": "Metrics: what is measured",
+        "level": 2
+      },
+      {
+        "id": "double-count",
+        "text": "A metric that would double count",
+        "level": 3
+      },
+      {
+        "id": "rules",
+        "text": "Rules: what must hold true",
+        "level": 2
+      },
+      {
+        "id": "actions",
+        "text": "Actions: how data changes",
+        "level": 2
+      },
+      {
+        "id": "words",
+        "text": "Writing for people and AI",
+        "level": 2
+      },
+      {
+        "id": "patterns",
+        "text": "Patterns",
+        "level": 2
+      },
+      {
+        "id": "mistakes",
+        "text": "Common mistakes",
+        "level": 2
+      },
+      {
+        "id": "glossary",
+        "text": "Glossary",
         "level": 2
       },
       {

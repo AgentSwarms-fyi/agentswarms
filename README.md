@@ -386,7 +386,8 @@ One focused guide per topic in [`docs/`](./docs):
   [ETL pipelines](./docs/ETL_PIPELINES.md) · [Workflows](./docs/WORKFLOWS.md) ·
   [Lakehouse](./docs/LAKEHOUSE.md) ·
   [SQL models](./docs/SQL_MODELS.md) ·
-  [Semantic layer](./docs/SEMANTIC_LAYER.md) · [Enterprise Ontology](./docs/ENTERPRISE_ONTOLOGY.md) ·
+  [Semantic layer](./docs/SEMANTIC_LAYER.md) · [Enterprise Ontology](./docs/ENTERPRISE_ONTOLOGY.md)
+  ([guide](./docs/ONTOLOGY_GUIDE.md)) ·
   [Business intelligence](./docs/BUSINESS_INTELLIGENCE.md) ·
   [Machine learning](./docs/ML.md) · [Data monitors](./docs/DATA_MONITORS.md) · [AI in SQL](./docs/AI_SQL.md) · [Sheets](./docs/SHEETS.md) ·
   [End to end: data and AI](./docs/END_TO_END_DATA_AND_AI.md), a worked

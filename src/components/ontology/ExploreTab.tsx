@@ -48,6 +48,7 @@ import {
 import type { Filter, FilterOp, PathStep } from "@/lib/ontology/compile";
 import {
   allProperties,
+  displayTitle,
   findObjectType,
   findValueType,
   linkReading,
@@ -765,7 +766,7 @@ export function ObjectPanel(props: {
                               }
                               className="flex w-full items-center justify-between px-3 py-1.5 text-left text-sm hover:bg-muted/40"
                             >
-                              <span className="truncate">{x.title}</span>
+                              <span className="truncate">{displayTitle(ot, x.title)}</span>
                               <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
                             </button>
                           </li>

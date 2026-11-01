@@ -48,6 +48,12 @@ import {
 } from "@/lib/ontology/compile";
 import { compileExpr, quoteIdent, sqlString } from "@/lib/ontology/expr";
 import {
+  GRAPH_MAX_DEPTH,
+  GRAPH_MAX_KNOWN,
+  neighborhood,
+  type Neighborhood,
+} from "@/lib/ontology/graph";
+import {
   allProperties,
   baseTypeOf,
   findObjectType,
@@ -411,15 +417,20 @@ export const ontologyObject = createServerFn({ method: "POST" })
   });
 
 // ── The neighbourhood graph ─────────────────────────────────────────────────
+// The walk lives in src/lib/ontology/graph.ts (tested against DuckDB); this
+// only checks access and runs it as the caller, governed.
 
-export type GraphNode = {
-  id: string;
-  objectType: string;
-  key: Record<string, Cell>;
-  title: string;
-  depth: number;
-};
-export type GraphEdge = { from: string; to: string; link: string; label: string };
+export type { CappedLink, GraphEdge, GraphNode, SkippedLink } from "@/lib/ontology/graph";
+
+const graphKnown = z
+  .array(
+    z.object({
+      objectType: z.string().min(1).max(64),
+      key: z.record(z.string().max(64), z.union([scalar, z.null()])),
+    }),
+  )
+  .max(GRAPH_MAX_KNOWN)
+  .default([]);
 
 export const ontologyNeighborhood = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
@@ -429,101 +440,33 @@ export const ontologyNeighborhood = createServerFn({ method: "POST" })
         id,
         objectType: z.string().min(1).max(64),
         key: keySchema,
-        depth: z.number().int().min(1).max(2).default(1),
+        depth: z.number().int().min(1).max(GRAPH_MAX_DEPTH).default(1),
         perLink: z.number().int().min(1).max(25).default(8),
+        known: graphKnown,
       })
       .parse(input),
   )
-  .handler(
-    async ({
-      data,
-    }): Promise<{ ok: true; nodes: GraphNode[]; edges: GraphEdge[]; capped: boolean } | Fail> => {
-      const ctx = await access(data.access_token, data.id);
-      if (isFail(ctx)) return ctx;
-      const { spec } = ctx.a;
-      const start = findObjectType(spec, data.objectType);
-      if (!start) return { ok: false, error: `Unknown object type ${data.objectType}` };
-      const nid = (type: string, key: Record<string, unknown>) => `${type}:${JSON.stringify(key)}`;
-      const nodes = new Map<string, GraphNode>();
-      const edges = new Map<string, GraphEdge>();
-      let capped = false;
-      const MAX_NODES = 120;
-      try {
-        const c = compileGetObject(spec, start.name, data.key as Record<string, Scalar>, ctx.opts);
-        const got = await runRows(ctx.userId, c.sql, c.columns, {
-          rowCap: 1,
-          via: "ontology:graph",
-        });
-        if (!got.rows.length) return { ok: false, error: "That object was not found" };
-        const root = {
-          id: nid(start.name, keyOf(start, got.rows[0])),
-          objectType: start.name,
-          key: keyOf(start, got.rows[0]),
-          title: titleFor(start, got.rows[0]),
-          depth: 0,
-        };
-        nodes.set(root.id, root);
-        let frontier = [root];
-        for (let d = 1; d <= data.depth; d++) {
-          const next: GraphNode[] = [];
-          for (const n of frontier) {
-            const t = findObjectType(spec, n.objectType)!;
-            for (const { link, direction, other } of linksOf(spec, t.name)) {
-              if (nodes.size >= MAX_NODES) {
-                capped = true;
-                break;
-              }
-              const ot = findObjectType(spec, other);
-              if (!ot?.source) continue;
-              const reading = linkReading(link, direction);
-              try {
-                const lc = compileLinked(
-                  spec,
-                  t.name,
-                  n.key as Record<string, Scalar>,
-                  { link: reading, direction },
-                  { ...ctx.opts, limit: data.perLink },
-                );
-                const rows = await runRows(ctx.userId, lc.sql, lc.columns, {
-                  rowCap: data.perLink,
-                  via: "ontology:graph",
-                });
-                if (rows.rows.length >= data.perLink) capped = true;
-                for (const r of rows.rows) {
-                  const key = keyOf(ot, r);
-                  const id2 = nid(ot.name, key);
-                  if (!nodes.has(id2)) {
-                    const node = {
-                      id: id2,
-                      objectType: ot.name,
-                      key,
-                      title: titleFor(ot, r),
-                      depth: d,
-                    };
-                    nodes.set(id2, node);
-                    next.push(node);
-                  }
-                  const [from, to] = direction === "forward" ? [n.id, id2] : [id2, n.id];
-                  edges.set(`${from}|${link.name}|${to}`, {
-                    from,
-                    to,
-                    link: link.name,
-                    label: link.label ?? link.name.replace(/_/g, " "),
-                  });
-                }
-              } catch {
-                /* a link the caller cannot follow (masked key, missing table) is skipped */
-              }
-            }
-          }
-          frontier = next;
-        }
-        return { ok: true, nodes: [...nodes.values()], edges: [...edges.values()], capped };
-      } catch (e) {
-        return failFrom(e);
-      }
-    },
-  );
+  .handler(async ({ data }): Promise<({ ok: true } & Neighborhood) | Fail> => {
+    const ctx = await access(data.access_token, data.id);
+    if (isFail(ctx)) return ctx;
+    try {
+      const res = await neighborhood({
+        spec: ctx.a.spec,
+        objectType: data.objectType,
+        key: data.key as Record<string, Scalar>,
+        depth: data.depth,
+        perLink: data.perLink,
+        known: data.known,
+        opts: ctx.opts,
+        run: async (sql, columns, rowCap) =>
+          (await runRows(ctx.userId, sql, columns, { rowCap, via: "ontology:graph" })).rows,
+      });
+      if ("notFound" in res) return { ok: false, error: "That object was not found" };
+      return { ok: true, ...res };
+    } catch (e) {
+      return failFrom(e);
+    }
+  });
 
 // ── Metrics ─────────────────────────────────────────────────────────────────
 

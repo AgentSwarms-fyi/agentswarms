@@ -567,6 +567,118 @@ export function compileLinked(
   );
 }
 
+/** The aliased type's key is one of these: `k IN (…)`, or an OR of ANDs for a compound key. */
+function keyInSql(
+  spec: OntologySpec,
+  t: ObjectType,
+  alias: string,
+  keys: Record<string, Scalar | null>[],
+): string {
+  if (!keys.length) return "FALSE";
+  const lit = (k: string, v: Scalar | null | undefined) => {
+    if (v === undefined) throw new CompileError(`A ${t.name} key needs \`${k}\``);
+    return typedLiteral(baseTypeOf(spec, propOrThrow(spec, t, k).type) ?? "string", v);
+  };
+  if (t.primaryKey.length === 1) {
+    const k = t.primaryKey[0];
+    return `${propertySql(spec, t, k, alias)} IN (${keys.map((key) => lit(k, key[k])).join(", ")})`;
+  }
+  const one = (key: Record<string, Scalar | null>) =>
+    `(${t.primaryKey.map((k) => `${propertySql(spec, t, k, alias)} = ${lit(k, key[k])}`).join(" AND ")})`;
+  return `(${keys.map(one).join(" OR ")})`;
+}
+
+/** The column a batched query carries a start object's key in. */
+export const fromKeyColumn = (k: string) => `__from_${k}`;
+
+/**
+ * The objects one link away from SEVERAL objects of one type, in one query:
+ * for each start object, its first `perLink` neighbours by key, and one more
+ * so the caller can tell that there are more. The graph asked once per object
+ * and link, a dozen queries for two steps from one customer (R433).
+ */
+export function compileLinkedBatch(
+  spec: OntologySpec,
+  typeName: string,
+  keys: Record<string, Scalar | null>[],
+  step: PathStep,
+  perLink: number,
+  opts: CompileOpts,
+): Compiled {
+  const start = typeOrThrow(spec, typeName);
+  if (!start.primaryKey.length) throw new CompileError(`${start.name} has no key`);
+  if (!Number.isInteger(perLink) || perLink < 1)
+    throw new CompileError("The per-link limit must be a positive whole number");
+  const { link, next } = resolveStep(spec, start, step);
+  const where: string[] = [keyInSql(spec, start, "t0", keys)];
+  const f0 = sourceFilterSql(start, "t0");
+  if (f0) where.push(f0);
+  where.push(...policyWhere(spec, start, "t0", opts), ...policyWhere(spec, next, "t1", opts));
+  const join = joinSql(spec, link, step.direction, start, "t0", next, "t1", "JOIN");
+  const { sql: cols, columns } = selectList(spec, next, "t1", undefined, opts);
+  const fromCols = start.primaryKey.map((k) => quoteIdent(fromKeyColumn(k)));
+  const inner =
+    `SELECT DISTINCT ${start.primaryKey
+      .map((k) => `${propertySql(spec, start, k, "t0")} AS ${quoteIdent(fromKeyColumn(k))}`)
+      .join(", ")}, ${cols.join(", ")} ` +
+    `FROM ${tableSql(start)} AS t0 ${join} WHERE ${where.join(" AND ")}`;
+  const order = next.primaryKey.map(quoteIdent).join(", ");
+  const ranked = `SELECT d.*, ROW_NUMBER() OVER (PARTITION BY ${fromCols.map((c) => `d.${c}`).join(", ")} ORDER BY ${next.primaryKey.map((k) => `d.${quoteIdent(k)}`).join(", ")}) AS "__rank" FROM (${inner}) AS d`;
+  const sql = `SELECT * FROM (${ranked}) AS w WHERE "__rank" <= ${perLink + 1} ORDER BY ${fromCols.join(", ")}, ${order}`;
+  const fromMeta: ColumnMeta[] = start.primaryKey.map((k) => ({
+    key: fromKeyColumn(k),
+    property: k,
+    objectType: start.name,
+    base: baseTypeOf(spec, propOrThrow(spec, start, k).type) ?? "string",
+    masked: false,
+    isKey: true,
+  }));
+  return { sql, columns: [...fromMeta, ...columns] };
+}
+
+/**
+ * Which of the given objects a link joins: one query per link, both ends held
+ * to the keys given, returning key pairs (`a_<key>`, `b_<key>`). The graph
+ * draws every relationship among the objects it shows, not only those of the
+ * objects someone expanded: an order line and its product, both on screen,
+ * had no line between them (found from the UI, R433).
+ */
+export function compileLinkPairs(
+  spec: OntologySpec,
+  linkName: string,
+  fromKeys: Record<string, Scalar | null>[],
+  toKeys: Record<string, Scalar | null>[],
+  opts: CompileOpts,
+): Compiled {
+  const link = spec.linkTypes.find((l) => l.name === linkName);
+  if (!link) throw new CompileError(`Unknown link \`${linkName}\``);
+  const a = typeOrThrow(spec, link.from);
+  const b = typeOrThrow(spec, link.to);
+  const where: string[] = [keyInSql(spec, a, "t0", fromKeys), keyInSql(spec, b, "t1", toKeys)];
+  const f0 = sourceFilterSql(a, "t0");
+  if (f0) where.push(f0);
+  where.push(...policyWhere(spec, a, "t0", opts), ...policyWhere(spec, b, "t1", opts));
+  const join = joinSql(spec, link, "forward", a, "t0", b, "t1", "JOIN");
+  const meta = (t: ObjectType, side: "a" | "b"): ColumnMeta[] =>
+    t.primaryKey.map((k) => ({
+      key: `${side}_${k}`,
+      property: k,
+      objectType: t.name,
+      base: baseTypeOf(spec, propOrThrow(spec, t, k).type) ?? "string",
+      masked: false,
+      isKey: true,
+    }));
+  const cols = [
+    ...a.primaryKey.map((k) => `${propertySql(spec, a, k, "t0")} AS ${quoteIdent(`a_${k}`)}`),
+    ...b.primaryKey.map((k) => `${propertySql(spec, b, k, "t1")} AS ${quoteIdent(`b_${k}`)}`),
+  ];
+  const limit = clampLimit(Math.max(1, fromKeys.length * toKeys.length), opts);
+  return {
+    sql: `SELECT DISTINCT ${cols.join(", ")} FROM ${tableSql(a)} AS t0 ${join} WHERE ${where.join(" AND ")} LIMIT ${limit}`,
+    columns: [...meta(a, "a"), ...meta(b, "b")],
+  };
+}
+
 // ── Metrics ─────────────────────────────────────────────────────────────────
 
 export function metricSqlFor(

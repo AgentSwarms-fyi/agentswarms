@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   C,
   Callout,
+  CardGrid,
   DocLink,
   DocsHeader,
   H2,
@@ -61,6 +62,20 @@ function OntologyDocsPage() {
         click), draft a model from tables you already have, import Apache Ossie documents, or start
         blank.
       </P>
+      <CardGrid
+        items={[
+          {
+            to: "/docs/ontology/guide",
+            title: "New to ontologies? Start with the guide",
+            body: "What an ontology is and how it differs from a semantic layer or a knowledge graph, a first hour with the sample, and how to read the graph.",
+          },
+          {
+            to: "/docs/ontology/modelling",
+            title: "Modelling a business",
+            body: "Choosing types, properties, links, metrics, rules and actions, with worked examples, patterns and common mistakes.",
+          },
+        ]}
+      />
 
       <H2 id="concepts">What a model holds</H2>
       <Table
@@ -144,7 +159,7 @@ function OntologyDocsPage() {
           ],
           [
             "Graph",
-            "One object's neighbourhood, drawn; click a node to grow the graph from it. A crowded graph names only the links of the object under the pointer.",
+            "One object's neighbourhood, up to three steps out. Click an object for its relationships, double-click to expand it, Shift-click another for the path between them. Every link among the objects shown is drawn; an object with more links than shown says so.",
           ],
           [
             "Metrics",
@@ -196,6 +211,19 @@ function OntologyDocsPage() {
         <strong>Search around</strong> walks links from that set — up to four steps — and shows the
         objects at the end: start at delivered Orders, walk <C>placed_by</C>, and you have the
         customers with a delivered order. A link through a join table works the same way.
+      </P>
+
+      <H2 id="graph">The graph</H2>
+      <P>
+        The Graph tab asks once per type and link at each step, not once per object, so three steps
+        out from a customer is a handful of queries. Every link among the objects on screen is then
+        drawn, including between two objects neither of which was expanded. Like everything else it
+        runs as you: your row filters and hidden properties hold, and a link it could not follow is
+        named rather than left out. How to read it:{" "}
+        <DocLink to="/docs/ontology/guide" hash="graph">
+          Reading the graph
+        </DocLink>
+        .
       </P>
 
       <H2 id="metrics">Metrics that cannot double count</H2>
@@ -346,11 +374,17 @@ function OntologyDocsPage() {
       />
       <P>
         A search around walks at most four links; a metric groups by at most four things; the graph
-        shows at most 120 objects and says when it was capped.
+        walks at most three steps, draws 8 objects per link from each object and at most 150 in all,
+        and says where it stopped.
       </P>
 
       <H3 id="related">Related</H3>
       <UL>
+        <li>
+          <DocLink to="/docs/ontology/guide">Guide</DocLink> and{" "}
+          <DocLink to="/docs/ontology/modelling">Modelling</DocLink> — learning the ontology, with
+          examples.
+        </li>
         <li>
           <DocLink to="/docs/lakehouse">Lakehouse</DocLink> — the tables an ontology is bound to.
         </li>

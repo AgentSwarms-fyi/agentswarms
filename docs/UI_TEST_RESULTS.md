@@ -15,6 +15,38 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-02 — R433: the ontology graph, and the ontology guide
+
+Fixture: ontology `33883aa4-…` "Northwind Outfitters 2" (v3 published), on a 1440×900 viewport,
+hot-deployed builds. Positions read from the DOM (`.react-flow__node` transforms), overlaps from
+the rendered boxes.
+
+**Before (the R432 build).**
+
+| What was driven           | Result                                                                                                                                                                                            |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Graph → Customers         | "No objects" for about five seconds, then the list; two "Liam Kowalski" and two "Noah Byrne" rows, nothing to tell them apart                                                                     |
+| started from Ava Byrne    | 4 objects: her three orders, "placed by"                                                                                                                                                          |
+| clicked Order 1271        | 10 objects, 9 links. Its children spread round the outer ring: Canyon Hammock at (0, 440), below the customer, edges crossing through her. Lines and products on screen with no link between them |
+| clicked Order 1344        | 14 objects; line 344 at (0, -440) exactly on line 1471, Coastal Gloves exactly on Canyon Hammock                                                                                                  |
+| Two steps out             | 18 objects, 17 links: no line → product links; each ring sorted by type, every order's children scattered; past 16 links no labels                                                                |
+| double-clicked Order 1271 | the object panel opened, and the graph grew twice; the panel listed lines as "271 871 1471"                                                                                                       |
+
+**After (R433).**
+
+| What was driven                                      | Result                                                                                                                                                                                                                                                                                                                                |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Graph → Customers                                    | "Loading", then rows like "Liam Kowalski · Customer ID 8 · liam.8@example.com" and "… ID 9 · liam.9@…"                                                                                                                                                                                                                                |
+| started from Ava Byrne                               | selected; the panel: "orders · 3" (named from her side)                                                                                                                                                                                                                                                                               |
+| Order 1271 → Expand                                  | 10 objects, **12** links: the three line → product links drawn (871 → 39, 1471 → 29, 271 → 34); all six new objects above Order 1271 (y < -221), none below the customer                                                                                                                                                              |
+| double-clicked Order 1344                            | 14 objects, 18 links; its children to its right; closest pair 98 apart, none overlapping; one expansion, not two                                                                                                                                                                                                                      |
+| clicked Canyon Hammock, Shift-clicked Coastal Gloves | "Path, 4 links: Canyon Hammock → ordered in → Order 1271 → placed by → Ava Byrne → orders → Order 1344 → contains → Coastal Gloves", the path lit, the rest dimmed                                                                                                                                                                    |
+| Steps out 3                                          | 125 objects, 170 links in about 5 s; **0** overlapping boxes; "More linked objects than shown (8 per link): Coastal Gloves (…); Harbor Boots (…); … 3 more"                                                                                                                                                                           |
+| Docs → Enterprise Ontology → Guide, Modelling        | both listed under Enterprise Ontology in the sidebar. Guide: What an ontology is, the comparison, Your first hour, Reading the graph. Modelling: eleven sections, from Object types to the Glossary; the size-band and metric examples as printed; the double-count example and its callout. No two words run together on either page |
+| Steps out 2 and 3, the final build                   | 18 objects, 24 links (17 before: the line → product links), and 125 objects, 170 links; **0** overlapping boxes at both, measured from the rendered rectangles                                                                                                                                                                        |
+
+Fixtures kept: the ontology as it was (nothing in it was changed by this round).
+
 ## 2026-11-01 — R432: changing key providers
 
 The R432 build, hot-deployed as in R431, with the same `r431-lowkey` stand-in. Before: the AWS

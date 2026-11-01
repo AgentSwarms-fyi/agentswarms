@@ -109,6 +109,81 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-02 — R433: the ontology graph, and the ontology's guide
+
+**How it was found.** The user: "the graph traversal seemed a bit weird ... clicking on nodes and
+seeing relationships at multiple depths", and the ontology documentation "needs to be more broad
+with examples and educational content". Played with the Northwind Outfitters 2 fixture on a
+1440×900 viewport and measured node positions from the DOM.
+
+**Found in the graph.**
+
+1. **Layout.** New objects were placed evenly round a ring per depth about the start object. Order
+   1271 sat at the top (0, -220); its six lines and products went round the whole depth-2 ring,
+   Canyon Hammock at (0, 440) on the far side of the customer, with every edge crossing the
+   middle. Expanding Order 1344 put its line 344 at exactly (0, -440) on top of line 1471, and
+   Coastal Gloves on top of Canyon Hammock: two objects hidden. "Two steps out" sorted each ring by
+   type, scattering every order's children.
+2. **Missing relationships.** Links were fetched only from expanded objects, so lines and products
+   both on screen had no line between them: which product each line was for was invisible.
+3. **Interaction.** A click always expanded; a double-click (meant to open) expanded twice and
+   opened. There was no way to see an object's relationships without growing the graph, no path
+   between two objects, no depth beyond two, nothing to hide or recentre.
+4. **What it did not say.** "Some links have more objects than shown" reflected only the last
+   request and named nothing; a link that failed was dropped without a word; past 16 links every
+   label vanished.
+5. **The picker.** "No objects" while the lookup loaded and when it failed; two Liam Kowalskis and
+   two Noah Byrnes were indistinguishable.
+6. **Slow by design.** One query per object and link: about a dozen for two steps out.
+7. **Elsewhere:** the object panel listed order lines as bare "271", the graph as "Order line 271".
+
+**Fixed.**
+
+- The walk is `src/lib/ontology/graph.ts`, pure apart from its runner and tested against DuckDB.
+  `compileLinkedBatch` asks once per type and link at each step (each start object's first N by
+  key plus one, ranked); `compileLinkPairs` then finds every link among the objects shown, the
+  client's earlier ones included (`known`). Capped objects and links are named as they read from
+  that object; failed links are named. Up to 3 steps and 150 objects.
+- The view logic is `src/lib/ontology/graphView.ts`. Drawn objects stay put; a new one is seeded
+  beside the object it came from, in a fan pointing away from that object's own parent and wide
+  enough for its children, then a fixed number of `d3-force` ticks run with old objects pinned and
+  new ones held near their seed. Measured on the way: the plain simulation pulled a fan in round
+  its parent's far side (a line nearer another order than its own), so the hold and the fan-wide
+  link distance were added; the layout first sized pills by the raw title ("271"), which left
+  10 pairs overlapping at three steps out, so it is sized by the drawn title; and d3's circular
+  collision, as wide as a pill, left no room between two rows of pinned objects 170 apart where a
+  34-pixel pill fits, so the collision is now pill-shaped (rectangles, pushed apart along the axis
+  they overlap least). Positions are centres; the tab places each node's corner from them.
+- The tab: click selects (neighbours lit, the rest dimmed, relationships listed and named from its
+  side: a customer's **orders**), double-click or Expand grows, Shift-click gives the path (read in
+  the walking direction), Hide, Start here, 1/2/3 steps out, All labels, a legend, a dashed border
+  until an object is expanded, a "more" badge on capped objects. One walk at a time; the walk reads
+  what is shown when it returns.
+- The picker shows Loading, the error, and each row's key and one more value.
+- `displayTitle` in `spec.ts` names a bare-number title for both the graph and the object panel.
+
+**The documentation.** `docs/ONTOLOGY_GUIDE.md`, and two in-app pages under Enterprise Ontology:
+**Guide** (what an ontology is, against a semantic layer and a knowledge graph, when to use one, a
+first hour with the sample, reading the graph) and **Modelling** (types, derived properties, value
+types and interfaces, links and cardinality including a link to the same type, metrics with the
+worked double-count example and its fix at the line's grain, rules, actions, writing for AI,
+patterns, common mistakes, a glossary). The reference page links them and describes the graph.
+`tests/unit/ontologyDocsExamples.test.ts` runs every expression they teach on the sample against
+hand-written SQL, and fails if one is missing from either document as printed.
+
+**Proved.**
+
+| Check                                | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ontologyGraph.test.ts` (new)        | 10 on the sample in DuckDB: two steps out matches the raw tables; each line's product drawn though neither was expanded; the query bound (a fixed number per type and link, below the old per-object count); a capped object and link named as read from it ("orders"); a failed link named while the rest is drawn; the node cap; notFound; links among objects the caller sent; the pair query through a join table; a grantee's row filter            |
+| `ontologyGraphView.test.ts` (new)    | 13: the start at the centre, neighbours beside their parent and nothing drawn moved, a second expansion stacking nothing, no overlaps at over a hundred objects, two fans meeting, new objects among a crowd of pinned ones, deterministic, no loop for objects without a drawn parent; merge depths; the path and which way each step reads; relationships named from each side; hiding; `displayTitle`                                                 |
+| `ontologyDocsExamples.test.ts` (new) | 14: eight expressions in both documents; derived properties, metrics, the refused fan-out and the right revenue by product, a rule predicate, a link to the same type walked both ways                                                                                                                                                                                                                                                                   |
+| mutation                             | 18 + 3: every one killed but one, which is equivalent (a pinned object's share of a push: d3 holds a pinned object where it is anyway, so the split changes only how fast the other gets clear). Two first-pass survivors led to fixes: a reversed edge was hidden by the pass that redraws every link (now the exact edges are asserted), and removing d3's circle collision changed nothing, which led to the pill-shaped one; removing that is caught |
+| UI                                   | UI_TEST_RESULTS, R433                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+
+**Not covered.** A layout for thousands of objects: the graph stops at 150 and points to Search
+around for sets.
+
 ### 2026-11-01 — R432: changing key providers, safely and said plainly
 
 **What R431 found.** `createDataKey` retired every active data key, of any provider, and the

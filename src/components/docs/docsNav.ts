@@ -73,6 +73,13 @@ export const DOCS_GROUPS: DocGroup[] = [
       { to: "/docs/sql-models", label: "SQL Models", icon: Blocks },
       { to: "/docs/semantics", label: "Semantic Layer", icon: Layers },
       { to: "/docs/ontology", label: "Enterprise Ontology", icon: Shapes },
+      { to: "/docs/ontology/guide", label: "Guide", icon: Shapes, parent: "/docs/ontology" },
+      {
+        to: "/docs/ontology/modelling",
+        label: "Modelling",
+        icon: Shapes,
+        parent: "/docs/ontology",
+      },
       { to: "/docs/bi", label: "BI Workspace", icon: PieChart },
       { to: "/docs/ml", label: "ML Models", icon: Brain },
       { to: "/docs/ml/training", label: "Training", icon: Brain, parent: "/docs/ml" },
