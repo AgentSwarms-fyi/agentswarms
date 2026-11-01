@@ -510,6 +510,12 @@ makes, that would go directly to a public address. `AWS_ENDPOINT_URL_KMS` takes 
 endpoint's name when private DNS is off. See
 [KEY_MANAGEMENT.md](./KEY_MANAGEMENT.md#over-a-private-path).
 
+Azure Key Vault takes the same rule (R431): with `KMS_REQUIRE_PRIVATE=true` a Key Vault call that
+would go directly to a public address is refused. A vault's private endpoint keeps the vault's own
+name (the `privatelink.vaultcore.azure.net` zone), so `KMS_KEY_REF` does not change. The Entra ID
+sign-in has no private endpoint and is not held to the rule; a managed identity's token never
+leaves the host. See [KEY_MANAGEMENT.md](./KEY_MANAGEMENT.md#over-a-private-endpoint).
+
 ### How it would be tested
 
 - **Proxy:** a throwaway Squid container on the app network as the only egress;

@@ -13,7 +13,7 @@ export const KMS_PROVIDERS = ["env", "vault", "aws", "gcp", "azure", "oci"] as c
 export type KmsProviderId = (typeof KMS_PROVIDERS)[number];
 
 /** The providers this build can actually talk to. The rest are designed, not built. */
-export const IMPLEMENTED_KMS_PROVIDERS: readonly KmsProviderId[] = ["env", "vault", "aws"];
+export const IMPLEMENTED_KMS_PROVIDERS: readonly KmsProviderId[] = ["env", "vault", "aws", "azure"];
 
 export type WrappedDek = {
   provider: KmsProviderId;
@@ -137,11 +137,95 @@ export function parseAwsKeyRef(keyRef: string): AwsKeyRef {
   return { kind, region: arn ? arn[1] : null };
 }
 
+export type AzureKeyRef = {
+  /** The key identifier, normalised: https://<vault>.vault.azure.net/keys/<name>[/<version>]. */
+  keyRef: string;
+  /** The vault's, or the Managed HSM's, origin. */
+  vault: string;
+  name: string;
+  /** Pinned by the reference, or null for the key's current version. */
+  version: string | null;
+  kind: "vault" | "managed-hsm";
+  /** The Entra ID scope a token for it needs. */
+  scope: string;
+};
+
+// The Key Vault and Managed HSM domains of each Azure cloud. A key elsewhere is
+// refused: the scope a token is asked for comes from the domain, and a
+// private endpoint keeps the public name (privatelink DNS), so there is no
+// legitimate other host to allow.
+const AZURE_KEY_HOSTS: ReadonlyArray<[suffix: string, kind: AzureKeyRef["kind"]]> = [
+  ["vault.azure.net", "vault"],
+  ["vault.azure.cn", "vault"],
+  ["vault.usgovcloudapi.net", "vault"],
+  ["managedhsm.azure.net", "managed-hsm"],
+  ["managedhsm.azure.cn", "managed-hsm"],
+  ["managedhsm.usgovcloudapi.net", "managed-hsm"],
+];
+// 3–24 letters, digits and single hyphens, from a letter to a letter or digit.
+const AZURE_VAULT_NAME = /^(?=.{3,24}$)[a-z](?:[a-z0-9]|-(?!-))*[a-z0-9]$/;
+const AZURE_KEY_NAME = /^[A-Za-z0-9-]{1,127}$/;
+const AZURE_KEY_VERSION = /^[0-9A-Za-z]{1,64}$/;
+
+/**
+ * An Azure Key Vault or Managed HSM key identifier, as the portal shows it:
+ * https://<vault>.vault.azure.net/keys/<name>, optionally with a version.
+ */
+export function parseAzureKeyRef(keyRef: string): AzureKeyRef {
+  const raw = keyRef.trim();
+  const usage =
+    `KMS_KEY_REF for Azure Key Vault must be a key identifier, https://<vault>.vault.azure.net/keys/<name> ` +
+    `(or a Managed HSM's, https://<pool>.managedhsm.azure.net/keys/<name>), optionally with a version, not "${keyRef}"`;
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    throw new KmsConfigError(usage);
+  }
+  if (u.protocol !== "https:" || u.port || u.username || u.password || u.search || u.hash) {
+    throw new KmsConfigError(usage);
+  }
+  const host = u.hostname.toLowerCase();
+  const match = AZURE_KEY_HOSTS.find(([suffix]) => host.endsWith(`.${suffix}`));
+  if (!match || !AZURE_VAULT_NAME.test(host.slice(0, -(match[0].length + 1)))) {
+    throw new KmsConfigError(usage);
+  }
+  const parts = u.pathname.replace(/\/+$/, "").split("/");
+  const [lead, keys, name, version] = parts;
+  if (
+    parts.length < 3 ||
+    parts.length > 4 ||
+    lead !== "" ||
+    keys !== "keys" ||
+    !AZURE_KEY_NAME.test(name) ||
+    (version !== undefined && !AZURE_KEY_VERSION.test(version))
+  ) {
+    throw new KmsConfigError(usage);
+  }
+  const vault = `https://${host}`;
+  return {
+    keyRef: `${vault}/keys/${name}${version ? `/${version}` : ""}`,
+    vault,
+    name,
+    version: version ?? null,
+    kind: match[1],
+    scope: `https://${match[0]}/.default`,
+  };
+}
+
 /** Which provider a key reference belongs to, by its shape. */
-export function keyRefProvider(keyRef: string): "vault" | "aws" | null {
+export function keyRefProvider(keyRef: string): "vault" | "aws" | "azure" | null {
   const ref = keyRef.trim();
   if (/^[A-Za-z0-9_.-]+\/keys\/[A-Za-z0-9_.-]+$/.test(ref)) return "vault";
   if (ref.startsWith("arn:") || ref.startsWith("alias/") || AWS_KEY_ID.test(ref)) return "aws";
+  if (/^https:\/\//i.test(ref)) {
+    try {
+      parseAzureKeyRef(ref);
+      return "azure";
+    } catch {
+      return null;
+    }
+  }
   return null;
 }
 

@@ -1903,7 +1903,13 @@ function CredentialKeyCard({ token }: { token: string }) {
   const external = kms?.external ?? null;
   const externalInUse = !!kms && kms.provider !== "env";
   const externalName = (id: string) =>
-    id === "vault" ? "Vault Transit" : id === "aws" ? "AWS KMS" : id.toUpperCase();
+    id === "vault"
+      ? "Vault Transit"
+      : id === "aws"
+        ? "AWS KMS"
+        : id === "azure"
+          ? "Azure Key Vault"
+          : id.toUpperCase();
 
   const createKey = async () => {
     setCreating(true);
@@ -2014,10 +2020,20 @@ function CredentialKeyCard({ token }: { token: string }) {
                       ) : (
                         <KeyRound className="mr-1.5 h-3.5 w-3.5" />
                       )}
-                      {kms.activeDek
+                      {/* Rotate only this provider's own key: another
+                          provider's active key is replaced, not rotated
+                          (found from the UI, R431). */}
+                      {kms.activeDek?.provider === external.id
                         ? `Rotate the data key in ${externalName(external.id)}`
                         : `Create a data key in ${externalName(external.id)}`}
                     </Button>
+                    {kms.activeDek && kms.activeDek.provider !== external.id ? (
+                      <span className="basis-full text-muted-foreground">
+                        Creating it retires the {externalName(kms.activeDek.provider)} data key{" "}
+                        <code className="font-mono">{kms.activeDek.kid}</code>
+                        {externalInUse ? "." : ", which is not in use."}
+                      </span>
+                    ) : null}
                   </div>
                 ) : (
                   <p className="text-xs text-muted-foreground">
@@ -2025,8 +2041,10 @@ function CredentialKeyCard({ token }: { token: string }) {
                     <code className="font-mono">KMS_KEY_REF</code> and the provider&apos;s variables
                     (Vault: <code className="font-mono">VAULT_ADDR</code> and a token or Kubernetes
                     role; AWS KMS: the key&apos;s ARN or alias, and a role or{" "}
-                    <code className="font-mono">AWS_*</code> keys), restart, and the option to wrap
-                    a data key appears here.
+                    <code className="font-mono">AWS_*</code> keys; Azure Key Vault: the key
+                    identifier, and a managed or workload identity or{" "}
+                    <code className="font-mono">AZURE_*</code> variables), restart, and the option
+                    to wrap a data key appears here.
                   </p>
                 )}
                 {external?.probe.facts?.length ? (

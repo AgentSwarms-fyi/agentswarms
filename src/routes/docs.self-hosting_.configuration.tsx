@@ -695,6 +695,21 @@ AUDIT_ARCHIVE_ON_PURGE="1"
         nothing different. The settings card shows where the key material is kept.
       </Callout>
 
+      <Callout kind="info" title="Or in Azure Key Vault">
+        <C>KMS_PROVIDER=azure</C> does the same with a Key Vault or Managed HSM key: set{" "}
+        <C>KMS_KEY_REF</C> to the key identifier (
+        <C>https://&lt;vault&gt;.vault.azure.net/keys/&lt;name&gt;</C>) and give the app&apos;s
+        identity the <strong>Key Vault Crypto Service Encryption User</strong> role on the key. A
+        Premium vault&apos;s <C>RSA-HSM</C> key, or a Managed HSM, keeps the key in HSMs. Turn on
+        purge protection: a purged key takes every credential it wraps with it. The app signs in as
+        its own identity: a managed identity, AKS workload identity (
+        <C>AZURE_FEDERATED_TOKEN_FILE</C>), or outside Azure a service principal with a certificate
+        (<C>AZURE_CLIENT_CERTIFICATE_PATH</C>) or a secret. With a private endpoint the vault&apos;s
+        own name resolves privately, and <C>KMS_REQUIRE_PRIVATE=true</C> refuses any Key Vault call
+        that would go to a public address. Entra ID has no private endpoint, so its sign-in is not
+        held to that rule.
+      </Callout>
+
       <H3 id="recipe-fleet">Autoscaled behind a load balancer</H3>
       <P>
         Several app instances against one Supabase project. Rate limits and concurrency slots are

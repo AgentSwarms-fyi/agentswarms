@@ -212,7 +212,7 @@ counted by hand and re-checked when the feature changes.
   per table or per tag, deny-by-default model access, SAML SSO with SCIM 2.0
   provisioning from Okta or Entra (a superadmin can never be deactivated by
   the IdP), stored credentials envelope-encrypted under a key that can live
-  in Vault Transit or AWS KMS, and a hash-chained audit log that survives user deletion
+  in Vault Transit, AWS KMS or Azure Key Vault, and a hash-chained audit log that survives user deletion
   ([IAM.md](./docs/IAM.md), [LAKEHOUSE.md](./docs/LAKEHOUSE.md#policies-by-tag),
   [KEY_MANAGEMENT.md](./docs/KEY_MANAGEMENT.md)).
 - **One graph from ingest to model** — a pipeline's success builds the SQL

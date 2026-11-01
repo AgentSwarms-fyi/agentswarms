@@ -109,6 +109,90 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-01 — R431: Azure Key Vault as a key provider, and the app's own Entra ID identity
+
+**Feature.** `KMS_PROVIDER=azure` keeps the credential key-encrypting key in Azure Key Vault or
+an Azure Managed HSM (`src/utils/kms/azure.server.ts`), behind the same `KeyProvider` contract.
+Key Vault has no data-key operation, so the keyring makes the 32 bytes and the provider wraps
+them: `wrapKey` with RSA-OAEP-256 for an RSA key, A256KW for a Managed HSM AES key. The data key
+is stored only after `unwrapKey` gave back the same bytes. `KMS_KEY_REF` is the key identifier,
+and only on Azure's own vault domains (public, China, Government; vault and Managed HSM): the
+token scope comes from the domain, and a private endpoint keeps the public name, so no other host
+is legitimate. The stored data key names the **key version** that wrapped it, and unwrap asks that
+version, so a key rotated in Key Vault keeps unwrapping what its older versions wrapped. Unwrap
+refuses a stored key identifier that is not a version of the row's own key, before anything is
+sent: a rewritten row cannot point the app at another vault. A key id the vault itself answers
+with is held to the same check. The card shows the version, what protects the key (software, a
+Premium vault's HSMs, a Managed HSM pool), its size, its recovery level with a warning while
+purge protection is off, the endpoint and its network path, and who the app signs in as. Create
+is enabled only for an enabled key that may wrap and unwrap, inside its activation and expiry
+dates.
+
+**The app's own Entra ID identity** (`src/utils/azure/credentials.server.ts`), in
+`DefaultAzureCredential`'s order: a client secret, a client certificate, workload identity, a
+managed identity. The first configured source is the source, its failure the error.
+
+- **Certificate:** an RS256 assertion naming the certificate by its SHA-1 thumbprint (`x5t`), the
+  form Microsoft documents. The key is checked to belong to the certificate first (Entra ID's
+  own answer to a mismatch is AADSTS700027). The file is re-read at every exchange.
+- **Workload identity:** the projected token is re-read at every exchange.
+- **Managed identity:** the instance metadata service or App Service's loopback endpoint, by a
+  direct client with no proxy and no redirects, like the AWS chain's. An `IDENTITY_ENDPOINT`
+  over plain http only to the loopback or a link-local address; an `IDENTITY_HEADER` with a line
+  break is refused.
+- **The private path:** `KMS_REQUIRE_PRIVATE` holds every Key Vault call to it. The Entra ID
+  sign-in is not covered, **by decision**: Entra ID offers no private endpoint, so holding it
+  would make the rule unusable with a service principal or workload identity unless a proxy is
+  in the way. It carries the app's credential, never key material, and a managed identity's
+  token never leaves the host. The card says so beside the rule.
+
+**No Azure SDK.** `@azure/identity` is a dependency (for SQL Server) with an accepted
+`msal-node` advisory; this provider uses none of it.
+
+**Found while testing, fixed.**
+
+- **From the emulator:** the card said "RSA 2056-bit". lowkey-vault sends the modulus with a
+  leading zero byte (Java's signed encoding), and counting bytes counted it. The size is now read
+  from the number itself.
+- **From mutation:** a host check written with `includes` instead of `endsWith` survived the first
+  pass, because the vault-name rule caught every case in the test's list. `evilvault.azure.netx`
+  passes both; it is in the list now.
+- **From the UI:** with the AWS fixture's data key active and Azure configured, the button read
+  **Rotate the data key in Azure Key Vault**. There was no Azure data key to rotate: creating
+  one retires the other provider's. It reads **Create**, and says which data key it retires.
+
+**Found, not fixed: switching between two external providers.** `createDataKey` retires every
+active row, of any provider, and the keyring loads only the configured provider's rows. So moving
+from one external provider to another (Vault to AWS, AWS to Azure) is not the rotation the
+failure-mode table describes: values under the old provider's data key would not decrypt under
+the new one, and there is no way back to the env key to go round. From `env` to any provider it
+works as documented. Recorded as the next round.
+
+**The emulator.** lowkey-vault 7.3.127, on the app network under the Docker alias
+`r431kv.vault.azure.net` and listening on 443, with a certificate for `*.vault.azure.net` from a
+throwaway CA, so the app's real TLS check and real name are exercised, as through a private
+endpoint. Its managed identity endpoint stands in for the metadata service. Measured
+differences from Azure: RSA wrapping only; `unwrapKey` also wants the key's encrypt/decrypt
+operations; errors are HTTP 500 with a Java exception's name instead of Azure's codes; a missing
+key is a 404 in both.
+
+**Proved.**
+
+| Check                                              | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `azureCredentials.test.ts` (new)                   | 16: the order and no fall-through; half a configuration named; tenant and client id shapes; the authority https-only; the secret exchange (form, scope, cache, refresh margin, Entra ID's error text, unreachable, a guard refusal reads alone); the certificate assertion verified with the certificate's public key, a foreign key, no certificate, a bad key; workload identity re-read; managed identity (IMDS, user-assigned, App Service, the endpoint rules, a header line break); the direct client refusing redirects                                                                                                                                                                                                         |
+| `azureKeyVault.test.ts` (new)                      | 24: key references (vault, Managed HSM, China, Government, a pinned version, case) and 15 refused shapes; the stored key id checked against the row; algorithms; wrap with the current version, unwrap with the stored one; AES key wrap; foreign kid, algorithm, material, provider refused without a call; refusal hints; retries with Retry-After capped; the probe (facts, HSM and Managed HSM, recovery warning, disabled, expired, not yet active, not allowed to wrap, EC, a foreign kid in the answer, a sign-in failure); `KMS_REQUIRE_PRIVATE` through the real guarded fetch (public refused, private sent, Entra ID sign-in not held, audited as `system:kms`); `createDataKey` with it, and storing nothing on a mismatch |
+| `kms.test.ts`                                      | `azure` is built; the not-built message lists it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `azureKeyVaultEmulator.test.ts` (new, integration) | 5 against lowkey-vault over TLS under `agentswarms-it.vault.azure.net`, the token from its managed identity endpoint: wrap and unwrap, a key rotated (new version wraps, old still unwraps), tampered material refused, the probe and a disabled key, a missing key                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| mutation                                           | 33 of 33 (one survivor killed by a new case)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| UI                                                 | UI_TEST_RESULTS, R431                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+
+**Not covered.** Pressing **Create** against the stand-in from the UI, and the
+`KMS_PROVIDER=azure` restart that needs its row: the session's permission check refused the click,
+which writes to the live database, so both wait on the user (the integration test ran the same
+wrap and unwrap against the same emulator). No real Azure subscription. Not read: the Azure CLI's or an IDE's sign-in, Arc
+and Service Fabric managed identity. Per-tenant keys come after GCP and OCI, by the user's order.
+
 ### 2026-11-01 — R430: what the AWS KMS card found, against LocalStack (R429 part two)
 
 **How it was found.** R429's UI round part two, with the user's permission: the live app

@@ -1,23 +1,24 @@
 # Key management and external KMS
 
-**Status: envelope encryption is built, with three providers.** `env` (the
+**Status: envelope encryption is built, with four providers.** `env` (the
 default) derives the key from `PROVIDER_CREDS_SECRET` exactly as before,
-`vault` keeps the key-encrypting key in HashiCorp Vault Transit, and `aws`
-keeps it in AWS KMS ([below](#aws-kms)). GCP KMS, Azure Key Vault and OCI
-Vault are designed behind the same interface and not yet built;
-`KMS_PROVIDER` refuses them by name rather than pretending.
+`vault` keeps the key-encrypting key in HashiCorp Vault Transit, `aws` in AWS
+KMS ([below](#aws-kms)), and `azure` in Azure Key Vault or an Azure Managed
+HSM ([below](#azure-key-vault)). GCP KMS and OCI Vault are designed behind the
+same interface and not yet built; `KMS_PROVIDER` refuses them by name rather
+than pretending.
 
 For what exists now — AES-256-GCM, key fingerprints, and the rotation sweep —
 see [SECURITY.md](../SECURITY.md#credential-encryption).
 
 ## What exists
 
-| Variable                                                            | Meaning                                                                                                                                                |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `KMS_PROVIDER`                                                      | `env` (default), `vault` or `aws`                                                                                                                      |
-| `KMS_KEY_REF`                                                       | The provider's reference for the key-encrypting key. Vault: `transit/keys/<name>`. AWS KMS: a key ARN, an alias ARN, `alias/<name>` or a key id        |
-| `VAULT_ADDR`, `VAULT_TOKEN` / `VAULT_TOKEN_FILE` / `VAULT_K8S_ROLE` | Where Vault is and how to authenticate: a token, a mounted token file, or a Kubernetes service-account login (`VAULT_K8S_MOUNT`, default `kubernetes`) |
-| `VAULT_NAMESPACE`                                                   | Vault Enterprise namespaces only                                                                                                                       |
+| Variable                                                            | Meaning                                                                                                                                                                                                                   |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `KMS_PROVIDER`                                                      | `env` (default), `vault`, `aws` or `azure`                                                                                                                                                                                |
+| `KMS_KEY_REF`                                                       | The provider's reference for the key-encrypting key. Vault: `transit/keys/<name>`. AWS KMS: a key ARN, an alias ARN, `alias/<name>` or a key id. Azure: the key identifier, `https://<vault>.vault.azure.net/keys/<name>` |
+| `VAULT_ADDR`, `VAULT_TOKEN` / `VAULT_TOKEN_FILE` / `VAULT_K8S_ROLE` | Where Vault is and how to authenticate: a token, a mounted token file, or a Kubernetes service-account login (`VAULT_K8S_MOUNT`, default `kubernetes`)                                                                    |
+| `VAULT_NAMESPACE`                                                   | Vault Enterprise namespaces only                                                                                                                                                                                          |
 
 **Switching a running deployment to Vault**, which is a rotation and not a
 cutover:
@@ -201,6 +202,114 @@ drives the real provider against an emulator over HTTP; the comment at its top
 gives the commands. LocalStack's community image does not check signatures.
 The signer is proved by the AWS test suite instead.
 
+## Azure Key Vault
+
+`KMS_PROVIDER=azure` keeps the key-encrypting key in Azure Key Vault, or in an
+Azure Managed HSM. Key Vault has no data-key operation, so the data key is 32
+random bytes the app makes, wrapped with `wrapKey` and stored only after
+`unwrapKey` has given back the same bytes. An RSA key wraps with
+RSA-OAEP-256: a Standard vault keeps RSA keys in software, a Premium vault
+keeps `RSA-HSM` keys in its HSMs. A Managed HSM keeps the key in your own
+single-tenant HSM pool, and its AES keys (`oct-HSM`) wrap with A256KW, AES key
+wrap. There is no Azure SDK: the Key Vault REST API (version 7.4) with a
+Microsoft Entra ID token.
+
+| Variable               | Meaning                                                                                                                                                                                                                                                                                                              |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `KMS_KEY_REF`          | The key identifier, as the portal shows it: `https://<vault>.vault.azure.net/keys/<name>`, or a Managed HSM's `https://<pool>.managedhsm.azure.net/keys/<name>`. The Azure China and Azure Government domains are accepted, and no other host. Without a version, the key's current version wraps; a version pins it |
+| `KMS_REQUIRE_PRIVATE`  | `true`: every Key Vault call must take a private network path ([below](#over-a-private-endpoint))                                                                                                                                                                                                                    |
+| `AZURE_AUTHORITY_HOST` | The Entra ID authority for a sovereign cloud, e.g. `https://login.microsoftonline.us`. Default `https://login.microsoftonline.com`                                                                                                                                                                                   |
+| the identity variables | The app's own Entra ID identity, [below](#the-apps-entra-id-identity)                                                                                                                                                                                                                                                |
+
+**Switching to Azure Key Vault** is the same rotation as for Vault:
+
+1. Create the key with the permitted operations `wrapKey` and `unwrapKey`: RSA
+   3072 in a vault (`RSA-HSM` in a Premium vault, for a key in HSMs), or an
+   `RSA-HSM` or AES-256 key in a Managed HSM. **Turn on purge protection**: a
+   purged key takes every credential it wraps with it, and the settings card
+   warns while it is off. Give the app's identity the **Key Vault Crypto
+   Service Encryption User** role on the key (it allows `get`, `wrapKey` and
+   `unwrapKey`), or, in a vault on the access-policy model, an access policy
+   with the key permissions Get, Wrap Key and Unwrap Key. In a Managed HSM,
+   the local role **Managed HSM Crypto Service Encryption User**, scoped to
+   the key.
+2. Set `KMS_KEY_REF` to the key identifier, give the app its identity, leave
+   `KMS_PROVIDER` unset and restart. **Admin → IAM → Settings → Credential
+   encryption key** shows the key's version, what protects it, its recovery
+   level, the endpoint and its network path, and who the app signs in as.
+   **Create a data key in Azure Key Vault** is enabled only for an enabled key
+   that may wrap and unwrap, within its activation and expiry dates.
+3. Create the data key.
+4. Set `KMS_PROVIDER=azure`, restart, and run **Re-encrypt to current key**.
+
+The stored data key names the **key version** that wrapped it, and unwrap asks
+that version. Rotating the key in Key Vault (a new version, by hand or by a
+rotation policy) changes nothing for data keys already stored, as long as the
+older versions stay enabled; **Rotate the data key** wraps a new one with the
+current version. Unwrap refuses a stored data key whose key identifier is not
+a version of the row's own key, before anything is sent: a database row an
+attacker rewrote cannot point the app at another vault.
+
+### The app's Entra ID identity
+
+The token the app presents when it calls Azure as itself
+(`src/utils/azure/credentials.server.ts`). The order is
+`DefaultAzureCredential`'s, and the first source whose variables are set is
+the source. If that source fails, the call fails: it never falls through to
+another identity.
+
+| Source             | Variables                                                                                                                            | Typical deployment                                 |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------- |
+| Client secret      | `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`                                                                          | Outside Azure; prefer a certificate or an identity |
+| Client certificate | `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_CERTIFICATE_PATH`, optionally `AZURE_CLIENT_CERTIFICATE_PASSWORD`                | Outside Azure                                      |
+| Workload identity  | `AZURE_FEDERATED_TOKEN_FILE`, `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`                                                                   | AKS workload identity, or any federated credential |
+| Managed identity   | none; `AZURE_CLIENT_ID` picks a user-assigned identity. App Service and Container Apps set `IDENTITY_ENDPOINT` and `IDENTITY_HEADER` | VMs, scale sets, App Service, Container Apps       |
+
+- **A certificate** is a PEM holding the private key and the certificate (from
+  a `.pfx`: `openssl pkcs12 -in app.pfx -out app.pem -nodes`). The app signs
+  an assertion with it (RS256, the certificate's SHA-1 thumbprint as `x5t`),
+  checks first that the key belongs to the certificate, and reads the file
+  again at every exchange, so a renewed certificate is picked up.
+- **Workload identity** reads the projected token again at every exchange,
+  because the kubelet rotates it. On AKS, give the web Deployment in
+  `deploy/k8s/app/agentswarms.yaml` a ServiceAccount annotated with
+  `azure.workload.identity/client-id` and the pod label
+  `azure.workload.identity/use: "true"`: the webhook mounts the token and
+  sets the variables. `automountServiceAccountToken: false` stays.
+- **Managed identity** asks the instance metadata service
+  (`169.254.169.254`), or App Service's loopback endpoint, directly: never
+  through the proxy and never following a redirect, the same kind of client
+  the AWS chain uses. An `IDENTITY_ENDPOINT` over plain http may only be the
+  loopback or a link-local address. `AZURE_POD_IDENTITY_AUTHORITY_HOST` moves
+  the metadata service (an emulator, a pod identity proxy).
+- Tokens are cached until five minutes before they expire.
+- Not read: the Azure CLI's or an IDE's sign-in, Azure Arc and Service Fabric
+  managed identity.
+
+### Over a private endpoint
+
+Key Vault calls go the way every outbound call goes: the SSRF guard's
+always-blocked tier, and the proxy. With a private endpoint for the vault and
+the `privatelink.vaultcore.azure.net` zone (`privatelink.managedhsm.azure.net`
+for a Managed HSM) linked to the app's network, the vault's own name resolves
+to the private endpoint, with no change to `KMS_KEY_REF`.
+`KMS_REQUIRE_PRIVATE=true` makes that a rule: a Key Vault call that would go
+directly to a public address is refused before anything is sent, audited as
+`security.kms.private_path.refused` with `system:kms` as the actor, and the
+process refuses to start on it. **The Entra ID sign-in is not covered:**
+Entra ID offers no private endpoint, so a client secret, certificate or
+workload identity exchange goes to `AZURE_AUTHORITY_HOST` directly or through
+`HTTPS_PROXY`. It carries the app's credential, never key material. A managed
+identity's token comes from the metadata endpoint on the host and never
+leaves it.
+
+**Testing without an Azure account.**
+`tests/integration/azureKeyVaultEmulator.test.ts` drives the real provider
+against lowkey-vault, whose managed identity token endpoint stands in for the
+metadata service, over TLS under a real `*.vault.azure.net` name; the comment
+at its top gives the commands. lowkey-vault wraps with RSA keys only, so AES
+key wrap (Managed HSM) is covered by the unit tests.
+
 ---
 
 ## Why the current design is not simply wrong
@@ -340,7 +449,7 @@ Deliberately incremental. Each step is shippable and reversible.
    change, done with no external dependency to debug alongside it.
 2. **Add `KeyProvider` and the Vault Transit implementation.** Testable in CI
    with a Vault dev container — no cloud account needed.
-3. **Add AWS (done), then Azure, GCP, OCI**, each behind the same interface,
+3. **Add AWS (done), Azure (done), then GCP, OCI**, each behind the same interface,
    each with an integration test that is skipped when its emulator or
    credentials are absent.
 4. **Add a provider-switch flow** to the existing Settings card, reusing the

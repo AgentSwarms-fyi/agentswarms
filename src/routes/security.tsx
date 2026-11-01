@@ -127,7 +127,7 @@ const NOT_CLAIMED: Item[] = [
   },
   {
     title: "By default the master key lives in your environment",
-    body: "Unless you configure an external key provider, PROVIDER_CREDS_SECRET is an environment variable you set and back up. HashiCorp Vault Transit and AWS KMS are built: the data key is wrapped by a key that never leaves them, and the app holds a permission to unwrap it. GCP KMS, Azure Key Vault and OCI Vault are designed in docs/KEY_MANAGEMENT.md and not built. AWS KMS has been tested against an emulator, not yet a real AWS account. Rotation is supported and operator-initiated: the app never rotates on a schedule by itself.",
+    body: "Unless you configure an external key provider, PROVIDER_CREDS_SECRET is an environment variable you set and back up. HashiCorp Vault Transit, AWS KMS and Azure Key Vault (or an Azure Managed HSM) are built: the data key is wrapped by a key that never leaves them, and the app holds a permission to unwrap it. GCP KMS and OCI Vault are designed in docs/KEY_MANAGEMENT.md and not built. AWS KMS and Azure Key Vault have been tested against emulators, not yet a real cloud account. Rotation is supported and operator-initiated: the app never rotates on a schedule by itself.",
   },
   {
     title: "Encryption at rest is not end-to-end",
@@ -135,7 +135,7 @@ const NOT_CLAIMED: Item[] = [
   },
   {
     title: "Hardware-backed keys only through a provider",
-    body: "With the env provider the key is derived in software from an environment variable. With AWS KMS it is kept in the KMS HSMs, or in your own CloudHSM cluster or external key manager through a custom key store. The app does not talk to an HSM directly (no PKCS#11 or KMIP), and there is no secure-enclave path.",
+    body: "With the env provider the key is derived in software from an environment variable. With AWS KMS it is kept in the KMS HSMs, or in your own CloudHSM cluster or external key manager through a custom key store. With Azure, an RSA-HSM key is kept in a Premium vault's HSMs, and any key in a Managed HSM in your own single-tenant pool. The app does not talk to an HSM directly (no PKCS#11 or KMIP), and there is no secure-enclave path.",
   },
 ];
 

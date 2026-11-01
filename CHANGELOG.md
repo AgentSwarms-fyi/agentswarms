@@ -85,6 +85,27 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **The credential key can live in Azure Key Vault or an Azure Managed HSM**
+  (R431). `KMS_PROVIDER=azure` with `KMS_KEY_REF` set to the key identifier
+  (`https://<vault>.vault.azure.net/keys/<name>`) keeps the key-encrypting
+  key in Key Vault, and switching is the same rotation as for Vault and AWS
+  KMS. The data key is wrapped with `wrapKey` (RSA-OAEP-256 for an RSA key,
+  A256KW for a Managed HSM AES key) and stored only after `unwrapKey` has
+  given back the same bytes. The stored data key names the key version that
+  wrapped it, so a key rotated in Key Vault keeps unwrapping what its older
+  versions wrapped, and unwrap refuses a key identifier that is not a version
+  of the row's own key. The app signs in as its own Entra ID identity, in
+  `DefaultAzureCredential`'s order: a client secret, a client certificate,
+  AKS workload identity, or a managed identity (the instance metadata service,
+  or App Service and Container Apps). The first source that is configured is
+  used. No Azure SDK. The settings card shows the key's version, what
+  protects it (software, a Premium vault's HSMs, a Managed HSM pool), its
+  recovery level with a warning while purge protection is off, the endpoint
+  and its network path, and who the app signs in as. `KMS_REQUIRE_PRIVATE`
+  refuses a Key Vault call that would go to a public address; the Entra ID
+  sign-in, which has no private endpoint, is not held to it. Tested against
+  the lowkey-vault emulator over TLS under a real `*.vault.azure.net` name,
+  not yet against a real Azure subscription.
 - **The credential key can live in AWS KMS** (R429). `KMS_PROVIDER=aws`
   with `KMS_KEY_REF` naming a KMS key keeps the key-encrypting key in AWS
   KMS, as `vault` does in Vault Transit, and switching is the same rotation.
