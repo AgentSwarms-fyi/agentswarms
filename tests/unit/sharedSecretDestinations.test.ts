@@ -221,10 +221,11 @@ describe("where a connection's credential goes", () => {
     expect(d).toContain("const base = `https://${cfg.account}.snowflakecomputing.com`;");
     expect(d).toContain('const service = "redshift-data";');
     expect(d).toContain('const service = "athena";');
-    expect(
-      d.match(/const host = `\$\{service\}\.\$\{cfg\.region\}\.amazonaws\.com`;/g),
-    ).toHaveLength(2);
-    expect(d).toContain("https://bigquery.googleapis.com/bigquery/v2/projects/");
+    // Since R426 the drivers and warehouseHosts take Redshift's, Athena's and
+    // BigQuery's host from one function, the private endpoint included.
+    expect(d.match(/const host = new URL\(warehouseApiOrigin\(cfg\)\)\.host;/g)).toHaveLength(2);
+    expect(d).toContain("const base = warehouseApiOrigin(cfg);");
+    expect(d).toContain("`${base}/bigquery/v2/projects/");
     expect(d).toContain('const base = cfg.host.replace(/\\/+$/, "");');
     expect(d).toContain('const base = cfg.url.replace(/\\/+$/, "");');
     expect(d).toContain('const base = cfg.ords_url.trim().replace(/\\/+$/, "");');

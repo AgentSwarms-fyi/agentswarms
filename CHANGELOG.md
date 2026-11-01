@@ -72,6 +72,16 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Private endpoints for BigQuery, Redshift and Athena** (R426, private
+  connectivity Phase 3). These engines are called at a host the app builds;
+  when private DNS does not resolve it privately, a connection's new
+  **Private endpoint** names the endpoint itself: a Private Service Connect
+  name for BigQuery (the token is fetched through the same endpoint), or an
+  interface endpoint's `vpce-…` name for Redshift's Data API or Athena. Only
+  that engine's own names in the connection's region are accepted, since the
+  requests are signed; a save naming anything else is refused with an
+  example. The path report, **Require a private network path** and the
+  shared-secret host check all follow the endpoint.
 - **Databases and warehouses over private paths** (R424, private connectivity
   Phase 3). A connection's **Network** box says how its engine is reached
   privately: RDS, Cloud SQL and Azure private endpoints keep their names,
@@ -449,6 +459,11 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   stop and deploy any warm model endpoint again so it starts from the new
   kernel image. `docker compose exec agentswarms npm …` no longer works: run
   npm on the host.
+- **A Redshift connection's region can no longer move its host** (R426). The
+  region goes into the Data API's host and was accepted as typed, so
+  `x.attacker.test/` sent the signed request to `redshift-data.x.attacker.test`
+  (the signature and access key ID, not the secret key). It is now held to a
+  region name, as Athena's and the model providers' already were (R386).
 - **A database connection can no longer be aimed at the cloud metadata
   address** (R424). The Postgres, MySQL and SQL Server drivers open their own
   TCP connections, so none of the outbound-call checks reached them: a

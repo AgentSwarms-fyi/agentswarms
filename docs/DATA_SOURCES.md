@@ -451,6 +451,14 @@ privately; Snowflake PrivateLink takes the account with `.privatelink`
 (`xy12345.us-east-1.privatelink`); Databricks and Synapse keep their names under a private DNS
 zone. **Test connection** reports how it was reached ("direct to 10.0.4.7 (private)").
 
+BigQuery, Redshift and Athena are called at a host the app builds. When private DNS resolves it
+privately, nothing else is needed. Otherwise enter the endpoint's own name as the connection's
+**Private endpoint**: a Private Service Connect name for BigQuery
+(`https://bigquery-myendpoint.p.googleapis.com`; the sign-in token goes through the same
+endpoint), or an interface endpoint's name for Redshift's Data API or Athena
+(`https://vpce-….athena.us-east-1.vpce.amazonaws.com`). Only that engine's own names, in the
+connection's region, are accepted.
+
 **Require a private network path** refuses every connection, before it is opened, unless the
 host resolves only to private addresses from the app server, or, for an engine called over
 HTTPS, the call leaves through the proxy. It covers queries, tests, table listings and ETL runs;

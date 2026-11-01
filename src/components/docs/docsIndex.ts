@@ -1160,6 +1160,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "url",
       "us-central1",
       "username",
+      "vpce-…",
       "warehouse",
       "warehouse_id",
       "workgroup",

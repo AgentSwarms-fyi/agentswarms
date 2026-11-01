@@ -235,6 +235,8 @@ type WarehouseConfigBody =
       workgroup_name?: string;
       cluster_identifier?: string;
       db_user?: string;
+      /** Optional interface endpoint for the Data API (R426, see endpoints.ts). */
+      endpoint?: string;
     }
   | {
       provider: "snowflake";
@@ -267,6 +269,8 @@ type WarehouseConfigBody =
       location?: string;
       /** Optional: restrict table browsing to one dataset. */
       dataset?: string;
+      /** Optional Private Service Connect endpoint (R426, see endpoints.ts). */
+      endpoint?: string;
     }
   | {
       provider: "azure_synapse";
@@ -330,6 +334,8 @@ type WarehouseConfigBody =
       workgroup?: string;
       /** s3://bucket/prefix/ for query results — required unless the workgroup sets one. */
       output_location?: string;
+      /** Optional interface endpoint (R426, see endpoints.ts). */
+      endpoint?: string;
     }
   | {
       provider: "oracle";

@@ -64,7 +64,16 @@ export function parseServiceAccount(json: string, label: string): Required<Servi
  */
 export async function googleAccessToken(
   serviceAccountJson: string,
-  opts: { scope: string; label: string },
+  opts: {
+    scope: string;
+    label: string;
+    /**
+     * Where to send the token request instead of the key's token URI: over
+     * Private Service Connect, the endpoint's own oauth2 name (R426). The
+     * JWT's audience stays the key's token URI, as with Vertex.
+     */
+    tokenUrl?: string;
+  },
 ): Promise<string> {
   const sa = parseServiceAccount(serviceAccountJson, opts.label);
   const now = Math.floor(Date.now() / 1000);
@@ -91,7 +100,7 @@ export async function googleAccessToken(
     new TextEncoder().encode(`${header}.${claims}`),
   );
   const jwt = `${header}.${claims}.${b64url(new Uint8Array(sig))}`;
-  const res = await connectorFetch(sa.token_uri, {
+  const res = await connectorFetch(opts.tokenUrl ?? sa.token_uri, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${encodeURIComponent(jwt)}`,

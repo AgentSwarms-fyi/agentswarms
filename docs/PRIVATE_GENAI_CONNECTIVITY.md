@@ -376,9 +376,8 @@ table listing (`executeWarehouseQuery`) and at an ETL run's start.
    Snowflake PrivateLink takes the account with `.privatelink`, so calls go to
    `<account>.privatelink.snowflakecomputing.com`; Databricks and Synapse keep their names under a
    private DNS zone; Redshift and Athena keep the regional names with private DNS on their
-   interface endpoints. Endpoint overrides for the engines whose API host is fixed (BigQuery's
-   Private Service Connect names, Redshift's and Athena's endpoint-specific names) are the next
-   step.
+   interface endpoints. The engines whose API host is fixed take an endpoint override since
+   R426 (below).
 
 Tested (`warehousePrivatePath.test.ts`): the metadata address refused by literal and by
 resolution, a private database allowed, an unresolvable name named; the rule for a wire protocol
@@ -403,6 +402,31 @@ engines, pooled and not. **Not covered:** the HTTPS engines' requests are pinned
 addresses by `safeFetch`, but their require-private rule is checked before each query rather than
 per request; a named SQL Server instance's port lookup (a UDP query to its host) resolves the name
 on its own; an ETL pipeline's code connects from its own runtime.
+
+**Endpoint overrides for the fixed-host engines (R426).** BigQuery, Redshift's Data API and Athena
+are called at a host the app builds. With private DNS (Private Google Access, or an interface
+endpoint with private DNS enabled) that host resolves privately and needs nothing. Without it, the
+connection's optional **Private endpoint** names the endpoint itself (`src/utils/warehouse/endpoints.ts`):
+
+| Engine   | Accepted                                                                                 | Also used for                                                           |
+| -------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| BigQuery | `https://bigquery-<endpoint>.p.googleapis.com` (a PSC endpoint's name)                   | the token: `oauth2-<endpoint>.p.googleapis.com`, JWT audience unchanged |
+| Redshift | `https://vpce-….redshift-data.<region>.vpce.amazonaws.com`, or the regional or FIPS name | every Data API call, signed for that host                               |
+| Athena   | `https://vpce-….athena.<region>.vpce.amazonaws.com`, or the regional or FIPS name        | every call, signed for that host, session token included                |
+
+The override must be that engine's own name, in the connection's region, as an address alone
+(https, no port, path or credentials). These requests carry a signature (and Athena's may carry a
+session token), so nothing broader is accepted: not another service's endpoint, not another
+region's, and not the names under `amazonaws.com` or `googleapis.com` that customers control (an
+EC2 instance's public name, a load balancer, an S3 website). A save that names anything else is
+refused with the field and an example. The drivers, the network check (path report and
+**Require a private network path**) and the shared-secret check (R420) take the host from the same
+function, so each sees the host the calls use. A Redshift connection's region is now checked
+before it goes into the host: anything was accepted, and `x.attacker.test/` made the host
+`redshift-data.x.attacker.test`. Tested (`warehouseEndpoints.test.ts`): the accepted and refused
+names; the hosts each check sees; and each driver run with the fetch layer replaced, reading back
+what it sent: every call to the endpoint, an AWS signature recomputed from the request as sent,
+BigQuery's token through the PSC name with Google's audience.
 
 ### How it would be tested
 

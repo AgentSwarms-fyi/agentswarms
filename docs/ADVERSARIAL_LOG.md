@@ -109,6 +109,43 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-01 — R426: private endpoints for the fixed-host warehouses, and a Redshift region that moved the host
+
+**Feature** (private connectivity Phase 3). BigQuery, Redshift's Data API and Athena are called at a
+host the app builds. A connection's optional **Private endpoint** now names a Private Service
+Connect endpoint (BigQuery; the token through the same endpoint, the JWT's audience unchanged) or
+an interface endpoint without private DNS (Redshift, Athena). `src/utils/warehouse/endpoints.ts`
+accepts only that engine's own names in the connection's region, as an address alone, since these
+requests are signed; the drivers, the network check and the shared-secret host check (R420) all
+take the host from it.
+
+**Finding, fixed.** A Redshift connection's region went into the Data API's host as typed (the
+schema took any string, and unlike Athena's driver nothing checked it), so `x.attacker.test/` made
+the host `redshift-data.x.attacker.test`: the signed request (access key ID, signature, body; not
+the secret key) went off AWS. R386 had held the model providers' regions to a region name; it had
+not reached Redshift. Now it has.
+
+**Finding, recorded, not fixed.** The model providers' Bedrock endpoint override (Phase 2,
+`src/utils/providers/privateEndpoint.ts`) accepts any `*.amazonaws.com` host, and Claude on AWS any
+`*.api.aws`. Under `amazonaws.com` sit names customers control: an EC2 instance's public name, a
+load balancer, an S3 website. The module says an override can never re-aim signed traffic
+elsewhere, and for those names it can. The warehouses' rules here are exact; the providers' should
+be made the same.
+
+**Proved.**
+
+| Check                              | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `warehouseEndpoints.test.ts` (new) | 14: the public hosts unchanged; each engine's private names accepted; refused: another host, customer-controlled AWS names, another service's endpoint, another region's, a lookalike suffix, non-PSC Google names, http, a port, a path, credentials; the Redshift region; the hosts each check sees; each driver run with the fetch layer replaced and its requests read back (every call to the endpoint, an AWS signature recomputed from the request as sent, BigQuery's token through the PSC name with Google's audience); the save's check before anything is stored |
+| `sharedSecretDestinations.test.ts` | its pin now holds the drivers and `warehouseHosts` to the one function                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Neighbours                         | 136 files, 2,634 tests (warehouse, ETL, shared secrets, Google, Sheets, private endpoints, region)                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Mutation                           | 21 of 21, baseline green before and after                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| From the UI (R426 build)           | the field and hints; an EC2 name and a host-moving Redshift region refused before saving; a stand-in answering the endpoint names on the app's network saw the app's TLS connections arrive with SNI `vpce-….athena.us-east-1.vpce.amazonaws.com` and, for BigQuery, `oauth2-r426ep.p.googleapis.com`, each handshake abandoned by the app at the stand-in's certificate: no request bytes sent                                                                                                                                                                              |
+
+**Not covered.** A failed warehouse request says only "fetch failed" though the cause is known
+(offered as a separate task). Regional BigQuery endpoints (`bigquery.<region>.rep.googleapis.com`)
+are not accepted; a deployment that needs them can resolve the usual name privately instead.
+
 ### 2026-11-01 — R425: a database driver connects only to an address that has just been checked
 
 **Finding** (R424's recorded residual). R424 checked a Postgres, MySQL or SQL Server host before the

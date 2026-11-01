@@ -8,6 +8,7 @@
 // url, server) are not credentials: they take only a secret the owner owns.
 //
 // PURE: no driver imports.
+import { bigqueryTokenUrl, warehouseApiOrigin } from "./endpoints";
 import { PROVIDER_FAMILY, type WarehouseConfig, type WarehouseProvider } from "./types";
 
 const s = (v: unknown) => (typeof v === "string" ? v.trim() : "");
@@ -22,14 +23,22 @@ export function warehouseHosts(cfg: WarehouseConfig): string[] {
       return [`https://${s(c.account)}.snowflakecomputing.com`];
     case "databricks":
       return [s(c.host)];
-    case "bigquery":
+    case "bigquery": {
       // The service-account JWT goes to Google's token endpoint, the queries
-      // to BigQuery; the key itself never leaves.
-      return ["https://bigquery.googleapis.com", "https://oauth2.googleapis.com"];
+      // to BigQuery; the key itself never leaves. Over Private Service Connect
+      // both go through the endpoint (R426).
+      const token = bigqueryTokenUrl(s(c.endpoint));
+      return [
+        warehouseApiOrigin({ provider: "bigquery", endpoint: s(c.endpoint) }),
+        token ? new URL(token).origin : "https://oauth2.googleapis.com",
+      ];
+    }
     case "redshift":
-      return [`https://redshift-data.${s(c.region)}.amazonaws.com`];
     case "athena":
-      return [`https://athena.${s(c.region)}.amazonaws.com`];
+      // The interface endpoint when one is set, else the regional name (R426).
+      return [
+        warehouseApiOrigin({ provider: c.provider, region: s(c.region), endpoint: s(c.endpoint) }),
+      ];
     case "clickhouse":
       return [s(c.url)];
     case "oracle":
@@ -106,10 +115,14 @@ export const WAREHOUSE_PRIVATE_PATH_HINT: Record<WarehouseProvider, string> = {
   databricks: "PrivateLink keeps the workspace URL; its DNS zone resolves it privately.",
   bigquery:
     "Private Google Access or a VPN: bigquery.googleapis.com and oauth2.googleapis.com resolve " +
-    "privately.",
+    "privately. Private Service Connect: enter the endpoint's BigQuery name as the Private " +
+    "endpoint; the token is fetched through the same endpoint.",
   redshift:
-    "A VPC interface endpoint for the Redshift Data API with private DNS keeps the regional name.",
-  athena: "A VPC interface endpoint for Athena with private DNS keeps the regional name.",
+    "A VPC interface endpoint for the Redshift Data API with private DNS keeps the regional " +
+    "name. Without private DNS, enter the endpoint's own vpce-… name as the Private endpoint.",
+  athena:
+    "A VPC interface endpoint for Athena with private DNS keeps the regional name. Without " +
+    "private DNS, enter the endpoint's own vpce-… name as the Private endpoint.",
   trino: VPN,
   clickhouse: `${VPN} ClickHouse Cloud's private endpoints keep the service's name.`,
   oracle: `${VPN} Autonomous Database private endpoints keep the ORDS host.`,

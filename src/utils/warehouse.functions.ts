@@ -13,6 +13,7 @@ import { HOST_PORT_PROVIDERS } from "@/utils/warehouse/types";
 import type { WarehouseConfig, WarehouseConnectionSummary } from "@/utils/warehouse/types";
 import { auditEvent } from "@/utils/audit.server";
 import { assertWarehouseNetwork, warehousePath } from "@/utils/warehouse/network.server";
+import { warehouseEndpointProblem } from "@/utils/warehouse/endpoints";
 import { callerFailure } from "@/utils/callerLookup.server";
 import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
@@ -50,6 +51,7 @@ const EngineConfigSchema = z.discriminatedUnion("provider", [
     workgroup_name: z.string().optional(),
     cluster_identifier: z.string().optional(),
     db_user: z.string().optional(),
+    endpoint: z.string().optional(),
   }),
   z.object({
     provider: z.literal("snowflake"),
@@ -74,6 +76,7 @@ const EngineConfigSchema = z.discriminatedUnion("provider", [
     service_account_json: z.string().min(2),
     location: z.string().optional(),
     dataset: z.string().optional(),
+    endpoint: z.string().optional(),
   }),
   z.object({
     provider: z.literal("azure_synapse"),
@@ -121,6 +124,7 @@ const EngineConfigSchema = z.discriminatedUnion("provider", [
     catalog: z.string().optional(),
     workgroup: z.string().optional(),
     output_location: z.string().optional(),
+    endpoint: z.string().optional(),
   }),
   z.object({
     provider: z.literal("oracle"),
@@ -237,6 +241,10 @@ export const saveWarehouseConnection = createServerFn({ method: "POST" })
         data.config.provider === "lakehouse"
           ? { provider: "lakehouse", user_id: userId }
           : (data.config as WarehouseConfig);
+      // A private endpoint (or a region) that would aim signed calls at another
+      // host is refused here, in words, before anything is stored (R426).
+      const endpointProblem = warehouseEndpointProblem(config);
+      if (endpointProblem) return { ok: false, error: endpointProblem };
       const encrypted = await encryptJson(config);
       const { data: row, error } = await sb
         .from("data_warehouse_connections")

@@ -35,6 +35,8 @@ import {
 } from "@/utils/warehouse/governor.server";
 
 import { connectorFetch } from "@/utils/http/connectorFetch.server";
+import { cloudRegion } from "@/utils/providers/cloudRegion";
+import { bigqueryTokenUrl, warehouseApiOrigin } from "./endpoints";
 import {
   assertWarehouseNetwork,
   connectionLookup,
@@ -280,10 +282,12 @@ function pemToArrayBuffer(pem: string): ArrayBuffer {
 
 /** BigQuery's access token. The signing itself lives in utils/google so the
  *  Sheets connector uses the same implementation rather than a second copy. */
-function googleAccessToken(serviceAccountJson: string): Promise<string> {
+function googleAccessToken(serviceAccountJson: string, endpoint?: string): Promise<string> {
   return googleServiceAccountToken(serviceAccountJson, {
     scope: GOOGLE_SCOPES.bigquery,
     label: "BigQuery",
+    // Over Private Service Connect the token comes through the same endpoint (R426).
+    tokenUrl: bigqueryTokenUrl(endpoint),
   });
 }
 
@@ -292,7 +296,8 @@ async function bigqueryQuery(
   sql: string,
   maxRows: number,
 ): Promise<{ columns: WarehouseColumn[]; data: unknown[][]; truncated: boolean }> {
-  const token = await googleAccessToken(cfg.service_account_json);
+  const base = warehouseApiOrigin(cfg);
+  const token = await googleAccessToken(cfg.service_account_json, cfg.endpoint);
   const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
   type BqResponse = {
     jobComplete?: boolean;
@@ -304,7 +309,7 @@ async function bigqueryQuery(
   };
   let body: BqResponse;
   const res = await connectorFetch(
-    `https://bigquery.googleapis.com/bigquery/v2/projects/${encodeURIComponent(cfg.project_id)}/queries`,
+    `${base}/bigquery/v2/projects/${encodeURIComponent(cfg.project_id)}/queries`,
     {
       method: "POST",
       headers,
@@ -327,7 +332,7 @@ async function bigqueryQuery(
     if (!jobId) throw new Error("BigQuery: job did not return an id");
     await sleep(POLL_INTERVAL_MS);
     const poll = await connectorFetch(
-      `https://bigquery.googleapis.com/bigquery/v2/projects/${encodeURIComponent(cfg.project_id)}/queries/${jobId}?maxResults=${maxRows}${cfg.location ? `&location=${encodeURIComponent(cfg.location)}` : ""}`,
+      `${base}/bigquery/v2/projects/${encodeURIComponent(cfg.project_id)}/queries/${jobId}?maxResults=${maxRows}${cfg.location ? `&location=${encodeURIComponent(cfg.location)}` : ""}`,
       { headers },
     );
     if (!poll.ok) throw new Error(await readError(poll, "BigQuery"));
@@ -368,7 +373,10 @@ async function redshiftDataApi(
   payload: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
   const service = "redshift-data";
-  const host = `${service}.${cfg.region}.amazonaws.com`;
+  // The interface endpoint when one is set, else the regional name; the region
+  // is checked before it goes into either (R426).
+  const host = new URL(warehouseApiOrigin(cfg)).host;
+  const region = cloudRegion(cfg.region, "Redshift region");
   const body = JSON.stringify(payload);
   const now = new Date();
   const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
@@ -377,11 +385,11 @@ async function redshiftDataApi(
   const canonicalHeaders = `content-type:application/x-amz-json-1.1\nhost:${host}\nx-amz-date:${amzDate}\nx-amz-target:RedshiftData.${target}\n`;
   const signedHeaders = "content-type;host;x-amz-date;x-amz-target";
   const canonicalRequest = `POST\n/\n\n${canonicalHeaders}\n${signedHeaders}\n${await sha256Hex(body)}`;
-  const credentialScope = `${dateStamp}/${cfg.region}/${service}/aws4_request`;
+  const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
   const stringToSign = `AWS4-HMAC-SHA256\n${amzDate}\n${credentialScope}\n${await sha256Hex(canonicalRequest)}`;
 
   const kDate = await hmac(new TextEncoder().encode(`AWS4${cfg.secret_access_key}`), dateStamp);
-  const kRegion = await hmac(kDate, cfg.region);
+  const kRegion = await hmac(kDate, region);
   const kService = await hmac(kRegion, service);
   const kSigning = await hmac(kService, "aws4_request");
   const signature = [...(await hmac(kSigning, stringToSign))]
@@ -470,7 +478,8 @@ async function athenaApi(
   const service = "athena";
   // region flows into the host + credential scope — keep it strictly [a-z0-9-].
   if (!/^[a-z0-9-]+$/.test(cfg.region)) throw new Error("Athena: invalid region");
-  const host = `${service}.${cfg.region}.amazonaws.com`;
+  // The interface endpoint when one is set, else the regional name (R426).
+  const host = new URL(warehouseApiOrigin(cfg)).host;
   const body = JSON.stringify(payload);
   const now = new Date();
   const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, "");

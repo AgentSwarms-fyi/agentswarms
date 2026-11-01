@@ -79,6 +79,7 @@ import {
 } from "@/utils/warehouse.functions";
 import { providerInitials } from "./providerInitials";
 import { WAREHOUSE_PRIVATE_PATH_HINT } from "@/utils/warehouse/destinations";
+import { WAREHOUSE_ENDPOINT_EXAMPLE } from "@/utils/warehouse/endpoints";
 
 type Field = {
   key: string;
@@ -364,6 +365,13 @@ const PROVIDER_META: Record<
       },
       { key: "cluster_identifier", label: "Cluster identifier (provisioned)", optional: true },
       { key: "db_user", label: "DB user (provisioned)", optional: true },
+      {
+        key: "endpoint",
+        label: "Private endpoint",
+        optional: true,
+        placeholder: WAREHOUSE_ENDPOINT_EXAMPLE.redshift,
+        hint: "An interface endpoint without private DNS, in the same region. Empty: the regional name.",
+      },
     ],
     note: "The IAM user needs redshift-data:* and redshift:GetClusterCredentials (provisioned) permissions.",
   },
@@ -413,6 +421,13 @@ const PROVIDER_META: Record<
         label: "Dataset (limit browsing)",
         optional: true,
         hint: "Leave empty to browse every dataset in the region.",
+      },
+      {
+        key: "endpoint",
+        label: "Private endpoint",
+        optional: true,
+        placeholder: WAREHOUSE_ENDPOINT_EXAMPLE.bigquery,
+        hint: "A Private Service Connect endpoint's BigQuery name. Empty: bigquery.googleapis.com.",
       },
     ],
   },
@@ -494,6 +509,13 @@ const PROVIDER_META: Record<
       },
       { key: "workgroup", label: "Workgroup", placeholder: "primary", optional: true },
       { key: "catalog", label: "Data catalog", placeholder: "AwsDataCatalog", optional: true },
+      {
+        key: "endpoint",
+        label: "Private endpoint",
+        optional: true,
+        placeholder: WAREHOUSE_ENDPOINT_EXAMPLE.athena,
+        hint: "An interface endpoint without private DNS, in the same region. Empty: the regional name.",
+      },
     ],
     note: "The IAM user needs athena:StartQueryExecution/GetQueryExecution/GetQueryResults, Glue read, and s3:GetObject/PutObject on the results location.",
   },

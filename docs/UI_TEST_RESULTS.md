@@ -15,6 +15,30 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-01 — R426: private endpoints for BigQuery, Redshift and Athena
+
+The R426 build from the main checkout, hot-deployed. The overrides accept only real cloud names, so
+a stand-in cannot be named directly; instead a throwaway `python:3.12-slim` container
+(`r426-tls-standin`) on the app's network carries those names as Docker network aliases, which the
+app's resolver answers with its address (172.19.0.12, private), and nothing outside that network
+sees. It listens on 443 with a self-signed certificate and logs each connection's source, the name
+the client asked for (SNI) and how the handshake ended. Made-up AWS keys and a service-account key
+generated for the round. Toasts were read by a watcher on the page's toast list.
+
+| Page / surface                                                                       | What was driven                  | Result                                                                                                                                                                                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------ | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Integrations → Data Sources → Amazon Athena                                          | the form                         | a **Private endpoint** field (optional), placeholder `https://vpce-0abc123-xyz.athena.us-east-1.vpce.amazonaws.com`, hint "An interface endpoint without private DNS, in the same region. Empty: the regional name."; the Network box: "… Without private DNS, enter the endpoint's own vpce-… name as the Private endpoint."          |
+| … endpoint `https://ec2-52-1-2-3.compute-1.amazonaws.com`                            | **Save & test**                  | "Athena endpoint must be athena's own address in us-east-1 — expected something like https://vpce-0abc123-xyz.athena.us-east-1.vpce.amazonaws.com"; the dialog stays open; nothing saved                                                                                                                                               |
+| … endpoint `https://vpce-0r426test-abc.athena.us-east-1.vpce.amazonaws.com`, rule on | **Save & test**                  | saved; the rule passed (the name resolves to 172.19.0.12); the test: "Connection saved but the test failed: fetch failed". The stand-in: three connections from the app (172.19.0.4), each with SNI `vpce-0r426test-abc.athena.us-east-1.vpce.amazonaws.com`, each handshake abandoned by the app at the certificate, no request bytes |
+| Google BigQuery, endpoint `https://bigquery-r426ep.p.googleapis.com`                 | a generated key, **Save & test** | saved; "… the test failed: fetch failed". The stand-in: three connections, SNI `oauth2-r426ep.p.googleapis.com`: the token request goes through the PSC endpoint, not `oauth2.googleapis.com`; refused at the certificate, nothing sent                                                                                                |
+| Amazon Redshift, region `x.attacker.test/`                                           | made-up keys, **Save & test**    | "Redshift region "x.attacker.test/" is not a region name — expected something like us-east-1."; nothing saved                                                                                                                                                                                                                          |
+| The connections list                                                                 | after the round                  | only the two kept connections, each with "fetch failed" as its status; neither refused probe was stored                                                                                                                                                                                                                                |
+
+Seen, not this round's: when a warehouse request fails at the network level the test says only
+"fetch failed", though the cause here (a certificate not accepted) is known; offered as a separate
+task. Kept: "R426 Athena private endpoint - kept fixture" and "R426 BigQuery PSC - kept fixture";
+the stand-in container is stopped, not removed (`docker start r426-tls-standin`).
+
 ## 2026-11-01 — R425: each database connection checked as it opens
 
 The R425 build from the main checkout, hot-deployed; R424's Postgres stand-in (`r424-pg-private`,

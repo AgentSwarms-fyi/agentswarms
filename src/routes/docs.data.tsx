@@ -206,7 +206,11 @@ function DataPage() {
         reports the address it reached, and <strong>Require a private network path</strong> refuses
         every connection that would not be private, before it is opened. A Postgres, MySQL or SQL
         Server host that is, or resolves to, the cloud metadata address is always refused, and both
-        checks run again as each connection opens, on the address it then connects to.
+        checks run again as each connection opens, on the address it then connects to. BigQuery,
+        Redshift and Athena also take a <strong>Private endpoint</strong> for when private DNS does
+        not resolve their usual host privately: a Private Service Connect name (
+        <C>bigquery-&lt;endpoint&gt;.p.googleapis.com</C>) or an interface endpoint&rsquo;s{" "}
+        <C>vpce-…</C> name, in the connection&rsquo;s region.
       </Callout>
 
       <Connector
