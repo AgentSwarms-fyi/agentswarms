@@ -141,7 +141,8 @@ function ModelsPage() {
               The session token is only for temporary STS credentials — leave it blank for a
               long-lived IAM user. <C key="pe3">endpoint</C> is an optional private endpoint, e.g. a
               PrivateLink <C key="pe4">vpce-….bedrock-runtime.us-east-1.vpce.amazonaws.com</C>{" "}
-              address; see <a href="#private-connectivity">private connectivity</a>.
+              address in the integration&apos;s region; see{" "}
+              <a href="#private-connectivity">private connectivity</a>.
             </>,
           ],
           [
@@ -197,7 +198,9 @@ function ModelsPage() {
               another region is rejected. The workspace ID looks like{" "}
               <C key="ca10">wrkspc_01AbCdEf23GhIj</C>. Model ids are the plain Claude ids, e.g.{" "}
               <C key="ca11">claude-sonnet-5-5</C>. AWS PrivateLink is supported:{" "}
-              <C key="ca12">endpoint</C> takes the private endpoint&apos;s address.
+              <C key="ca12">endpoint</C> takes the interface endpoint&apos;s{" "}
+              <C key="ca13">vpce-….aws-external-anthropic.&lt;region&gt;.vpce.amazonaws.com</C>{" "}
+              name, in the workspace&apos;s region.
             </>,
           ],
           [
@@ -244,7 +247,7 @@ function ModelsPage() {
           ],
           [
             "A private endpoint with its own name",
-            "Private endpoint URL, under Network, on Bedrock, Vertex AI, OCI or Claude Platform on AWS. The dialog lists the hosts it accepts: an https address on the provider's own domain, with no path. Requests are signed for it.",
+            "Private endpoint URL, under Network, on Bedrock, Vertex AI, OCI or Claude Platform on AWS. The dialog lists the hosts it accepts, as an https address with no path. On Bedrock and Claude Platform on AWS that is the service's own name in the integration's region: the regional, FIPS or dual-stack name, or the interface endpoint's vpce-… name. A name under amazonaws.com that someone else owns, such as an API Gateway stage, is refused. On Vertex AI and OCI it is an address on the provider's domain. Requests are signed for it.",
           ],
           [
             "Proof of which path a call takes",

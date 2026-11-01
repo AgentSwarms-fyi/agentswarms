@@ -1441,7 +1441,8 @@ function ProviderConfigDialog({
                   disabled={testing}
                 />
                 <p className="text-xs text-muted-foreground">
-                  An https address, with no path, on {endpointHosts(override).join(", ")}.
+                  An https address, with no path, on{" "}
+                  {endpointHosts(override, config.region).join(" or ")}.
                 </p>
               </div>
             )}

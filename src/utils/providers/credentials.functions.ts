@@ -193,7 +193,7 @@ export const saveProviderCredential = createServerFn({ method: "POST" })
         } satisfies BedrockCreds;
         configPayload = {
           region: data.bedrock.region,
-          endpoint: providerEndpoint("bedrock", data.bedrock.endpoint),
+          endpoint: providerEndpoint("bedrock", data.bedrock.endpoint, data.bedrock.region),
           requirePrivate: data.bedrock.requirePrivate ?? requirePrivateDefault(),
         } satisfies BedrockConfig;
         break;
@@ -271,7 +271,7 @@ export const saveProviderCredential = createServerFn({ method: "POST" })
         configPayload = {
           region: cloudRegion(c.region, "Claude Platform on AWS region"),
           workspaceId: c.workspaceId,
-          endpoint: providerEndpoint("claude_aws", c.endpoint),
+          endpoint: providerEndpoint("claude_aws", c.endpoint, c.region),
           requirePrivate: c.requirePrivate ?? requirePrivateDefault(),
         } satisfies ClaudeAwsConfig;
         break;

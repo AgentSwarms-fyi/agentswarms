@@ -15,6 +15,33 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-01 — R427: AWS model-provider endpoints held to the service's own names
+
+The R427 build from the main checkout, hot-deployed. R426's stand-in (`r426-tls-standin`, a
+throwaway `python:3.12-slim` TLS server on the app's network, 172.19.0.12, logging each
+connection's SNI) was started again with two more Docker network aliases:
+`vpce-0r427test-abc.bedrock-runtime.eu-west-1.vpce.amazonaws.com` and
+`vpce-0r427test-abc.aws-external-anthropic.us-west-2.vpce.amazonaws.com`. Neither provider had a
+saved credential before the round, so a save could not overwrite one. The keys, workspace ID and
+API key were made up. Toasts were read by a watcher on the page's toast list.
+
+| Page / surface                                                                                       | What was driven        | Result                                                                                                                                                                                                                     |
+| ---------------------------------------------------------------------------------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Integrations → LLM Providers → AWS Bedrock → Configure, region `eu-west-1`, **Private endpoint URL** | the form               | hint "An https address, with no path, on bedrock-runtime.eu-west-1.amazonaws.com or vpce-….bedrock-runtime.eu-west-1.vpce.amazonaws.com." (it followed the typed region)                                                   |
+| … endpoint `https://a1b2c3d4e5.execute-api.eu-west-1.amazonaws.com`                                  | **Check network path** | "Bedrock endpoint must be bedrock-runtime's own address in eu-west-1 — expected something like https://vpce-0abc123.bedrock-runtime.eu-west-1.vpce.amazonaws.com"                                                          |
+| … the same, made-up access keys                                                                      | **Save**               | toast "Could not save: Bedrock endpoint must be bedrock-runtime's own address in eu-west-1 — …"; the dialog stayed open                                                                                                    |
+| … endpoint `https://vpce-0r427test-abc.bedrock-runtime.us-east-1.vpce.amazonaws.com`                 | **Check network path** | the same refusal: another region's name                                                                                                                                                                                    |
+| … endpoint `https://vpce-0r427test-abc.bedrock-runtime.eu-west-1.vpce.amazonaws.com`                 | **Check network path** | "… — direct to 172.19.0.12 (private); certificate for r426-standin from r426-standin — not valid for this name (DEPTH_ZERO_SELF_SIGNED_CERT) …". The stand-in: one connection, SNI that name, abandoned at the certificate |
+| Claude Platform on AWS, `us-west-2`, a workspace ID, an API key, **Private endpoint URL**            | the form               | hint "… on aws-external-anthropic.us-west-2.api.aws or vpce-….aws-external-anthropic.us-west-2.vpce.amazonaws.com."                                                                                                        |
+| … endpoint `https://a1b2c3d4e5.execute-api.us-west-2.api.aws`                                        | **Save**               | toast "Could not save: Claude Platform on AWS endpoint must be aws-external-anthropic's own address in us-west-2 — expected something like https://vpce-0abc123.aws-external-anthropic.us-west-2.vpce.amazonaws.com"       |
+| … endpoint `https://vpce-0r427test-abc.aws-external-anthropic.us-west-2.vpce.amazonaws.com`          | **Check network path** | direct to 172.19.0.12 (private), the stand-in's certificate flagged; the stand-in: one connection, SNI that name                                                                                                           |
+| The provider list, reloaded                                                                          | after the round        | neither AWS Bedrock nor Claude Platform on AWS connected: no refused save was stored, and the accepted names were only checked                                                                                             |
+| Docs → Models & providers → Private connectivity                                                     | read                   | the table row and both provider rows say the service's own name in the region, and that an API Gateway stage is refused                                                                                                    |
+
+The stand-in saw exactly two connections this round, one per accepted name, and no request bytes
+after either handshake. Nothing new kept: the round saved nothing. The stand-in is stopped, not
+removed (`docker start r426-tls-standin`).
+
 ## 2026-11-01 — R426: private endpoints for BigQuery, Redshift and Athena
 
 The R426 build from the main checkout, hot-deployed. The overrides accept only real cloud names, so

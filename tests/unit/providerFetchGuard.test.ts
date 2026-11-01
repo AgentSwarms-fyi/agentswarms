@@ -207,9 +207,12 @@ describe("no provider call site fetches a configured URL raw", () => {
       /providerOrigin\("oci_genai", \{ region/,
     );
     const origin = readFileSync("src/utils/providers/privateEndpoint.ts", "utf8");
-    for (const label of ["Bedrock region", "Vertex location", "OCI region"]) {
+    for (const label of ["Vertex location", "OCI region"]) {
       expect(origin, label).toContain(`"${label}")`);
     }
+    // Bedrock and Claude Platform on AWS check theirs through awsRegion (R427).
+    expect(origin).toMatch(/regionLabel: "Bedrock region"/);
+    expect(origin).toMatch(/awsRegion\("bedrock", cfg\.region\)/);
     expect(readFileSync("src/utils/providers/adapters/vertex.server.ts", "utf8")).toMatch(
       /const location = cloudRegion\(/,
     );

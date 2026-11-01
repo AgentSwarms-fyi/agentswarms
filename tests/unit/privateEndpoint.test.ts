@@ -113,13 +113,26 @@ describe("vertexTokenUrl follows the API endpoint over PSC", () => {
 });
 
 describe("endpointHosts is what the dialog shows as accepted", () => {
-  it("lists each provider's domains as wildcards", () => {
-    expect(endpointHosts("bedrock")).toEqual([
-      "*.vpce.amazonaws.com",
-      "*.amazonaws.com",
-      "*.api.aws",
+  it("lists the AWS services' own names in the region, and the other domains as wildcards", () => {
+    // Since R427 an AWS override is the service's own name, not the domain.
+    expect(endpointHosts("bedrock", "eu-west-1")).toEqual([
+      "bedrock-runtime.eu-west-1.amazonaws.com",
+      "vpce-….bedrock-runtime.eu-west-1.vpce.amazonaws.com",
     ]);
-    expect(endpointHosts("claude_aws")).toEqual(["*.api.aws", "*.vpce.amazonaws.com"]);
+    // Bedrock's default region until one is typed; Claude Platform has none.
+    expect(endpointHosts("bedrock")[0]).toBe("bedrock-runtime.us-east-1.amazonaws.com");
+    expect(endpointHosts("claude_aws", "us-west-2")).toEqual([
+      "aws-external-anthropic.us-west-2.api.aws",
+      "vpce-….aws-external-anthropic.us-west-2.vpce.amazonaws.com",
+    ]);
+    expect(endpointHosts("claude_aws")).toEqual([
+      "aws-external-anthropic.<region>.api.aws",
+      "vpce-….aws-external-anthropic.<region>.vpce.amazonaws.com",
+    ]);
+    // A region that is not one yet is not echoed into the hint.
+    expect(endpointHosts("bedrock", "x.attacker.test/")[0]).toBe(
+      "bedrock-runtime.<region>.amazonaws.com",
+    );
     expect(endpointHosts("vertex")).toEqual(["*.googleapis.com"]);
     expect(endpointHosts("oci_genai")).toEqual(["*.oci.oraclecloud.com"]);
   });

@@ -109,6 +109,39 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-01 — R427: the AWS model providers' endpoint override, held to the service's own names
+
+**Finding, fixed** (recorded in R426). The Bedrock endpoint override accepted any
+`*.vpce.amazonaws.com`, `*.amazonaws.com` or `*.api.aws` host; Claude Platform on AWS any
+`*.api.aws` or `*.vpce.amazonaws.com` one. R426 named an EC2 instance, a load balancer and an S3
+website as the customer-controlled names. Measured again, those are the wrong examples: none can
+present a valid certificate for its own name, and the app verifies TLS, so the request stops at the
+handshake. The name that matters is an API Gateway stage, `<id>.execute-api.<region>.amazonaws.com`.
+It carries AWS's valid wildcard certificate and hands the whole request, headers included, to its
+owner's integration. A Bedrock call aimed there would have carried its SigV4 signature, session
+token and prompt; a Claude Platform call its API key. The stage's reply would have come back as the
+model's, into an agent that may act on it. The module's own header said an override could never
+re-aim signed traffic elsewhere.
+
+**Fix.** `src/utils/providers/privateEndpoint.ts` now holds the two AWS providers to the warehouses'
+R426 rule: the service's own names in the region the request is signed for. That is the public
+name, its `-fips` name, Bedrock's dual-stack `api.aws` names, and an interface endpoint's
+`vpce-….<service>.<region>.vpce.amazonaws.com` name (one label, zonal names included). The save
+passes the integration's region, so another region's name is refused before anything is stored.
+The path check and the adapters use the same rule. The dialog's hint lists the names for the region
+typed. Vertex AI and OCI keep their domain rule. Their private names include ones the customer
+picks, and no name under `googleapis.com` or `oci.oraclecloud.com` is known to hand a request to a
+customer. That is a judgement, not a measurement, so it is recorded here.
+
+**Proved.**
+
+| Check                               | Result                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `providerEndpointAws.test.ts` (new) | 37: the accepted names, zonal and FIPS included; refused, with the region and an example in it: API Gateway (and its dual-stack name), AppSync, an S3 bucket, another account's endpoint service, an EC2 name, another Bedrock service, look-alikes, an extra label, another region; the adapters send nothing to a refused name (Claude Platform's API key goes nowhere); a save stores nothing; the path check answers without resolving |
+| neighbours                          | `privateEndpoint`, `claudeAwsProvider` and `providerFetchGuard` pins updated to the new rule; 8 files, 115 tests                                                                                                                                                                                                                                                                                                                           |
+| mutation                            | 16 of 17 killed. The 17th, dropping `toLowerCase()` on the host, is equivalent: the URL parser already lowercases host names                                                                                                                                                                                                                                                                                                               |
+| UI                                  | refused on save and in the path check; the real names checked privately against a stand-in that saw one handshake each and no request (UI_TEST_RESULTS)                                                                                                                                                                                                                                                                                    |
+
 ### 2026-11-01 — R426: private endpoints for the fixed-host warehouses, and a Redshift region that moved the host
 
 **Feature** (private connectivity Phase 3). BigQuery, Redshift's Data API and Athena are called at a

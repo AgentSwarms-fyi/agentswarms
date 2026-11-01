@@ -200,10 +200,15 @@ describe("registered everywhere a provider must be", () => {
     expect(providerOrigin("claude_aws", { region: "us-west-2" })).toBe(
       "https://aws-external-anthropic.us-west-2.api.aws",
     );
-    expect(providerEndpoint("claude_aws", "https://aws-external-anthropic.us-west-2.api.aws")).toBe(
-      "https://aws-external-anthropic.us-west-2.api.aws",
-    );
-    expect(() => providerEndpoint("claude_aws", "https://example.com")).toThrow();
+    // Since R427 the rule is the service's own names in the workspace's region.
+    expect(
+      providerEndpoint(
+        "claude_aws",
+        "https://aws-external-anthropic.us-west-2.api.aws",
+        "us-west-2",
+      ),
+    ).toBe("https://aws-external-anthropic.us-west-2.api.aws");
+    expect(() => providerEndpoint("claude_aws", "https://example.com", "us-west-2")).toThrow();
   });
 
   it("is a provider id, a gateway prefix, a chat provider, and a dispatch case", () => {

@@ -16,6 +16,14 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Check a Bedrock or Claude Platform on AWS private endpoint** (R427). The
+  override must now be the service's own name in the integration's region:
+  `bedrock-runtime.<region>.amazonaws.com` (or its FIPS or dual-stack name) or
+  `vpce-….bedrock-runtime.<region>.vpce.amazonaws.com`;
+  `aws-external-anthropic.<region>.api.aws` or its `vpce-…` name. An override
+  saved before that is any other host now fails its next call with a message
+  naming the expected name; save the integration again with that name, or
+  choose **Public** or **Private DNS**. Nothing to migrate.
 - **Start this build before applying `20261103000000`** (R421). The migration
   makes swarm run records (`swarm_runs`, its steps, edges and checkpoints)
   read-only to signed-in clients; the previous build wrote canvas runs from
@@ -459,6 +467,18 @@ dated report under `docs/security/assessments/`. SECURITY.md links it.
   stop and deploy any warm model endpoint again so it starts from the new
   kernel image. `docker compose exec agentswarms npm …` no longer works: run
   npm on the host.
+- **A Bedrock or Claude Platform on AWS endpoint override can no longer name
+  someone else's server** (R427). The Bedrock override accepted any
+  `*.amazonaws.com` or `*.api.aws` host, Claude Platform's any `*.api.aws` or
+  `*.vpce.amazonaws.com` one. That admitted an API Gateway stage someone else
+  owns (`<id>.execute-api.<region>.amazonaws.com`), which carries AWS's valid
+  certificate and hands the whole request to its owner. A call aimed there
+  would have sent its SigV4 signature and session token or Claude Platform's
+  API key, and the prompt, and its answer would have come back as the model's.
+  The override is now held to the service's own names in the region the
+  request is signed for, on save, in **Check network path** and in the
+  adapters, as the warehouses' have been since R426. The dialog's hint lists
+  them for the region typed.
 - **A Redshift connection's region can no longer move its host** (R426). The
   region goes into the Data API's host and was accepted as typed, so
   `x.attacker.test/` sent the signed request to `redshift-data.x.attacker.test`

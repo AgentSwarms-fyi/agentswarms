@@ -179,7 +179,7 @@ cover. Remaining:
 
    | Provider     | New / wired field                                         | Accepted host                                                   |
    | ------------ | --------------------------------------------------------- | --------------------------------------------------------------- |
-   | Bedrock      | Runtime endpoint URL (new)                                | `*.vpce.amazonaws.com`, `*.amazonaws.com`, `*.api.aws`          |
+   | Bedrock      | Runtime endpoint URL (new)                                | since R427, `bedrock-runtime`'s own names in the region (below) |
    | Vertex       | Custom Endpoint (wire it through)                         | `*.googleapis.com` (incl. `*.p.googleapis.com`)                 |
    | OCI          | Service Endpoint (wire it through)                        | `*.oci.oraclecloud.com` (incl. `*.pe.inference.generativeai.*`) |
    | Vertex token | token URI follows the endpoint's PSC name when one is set | `*.googleapis.com`                                              |
@@ -417,8 +417,11 @@ connection's optional **Private endpoint** names the endpoint itself (`src/utils
 The override must be that engine's own name, in the connection's region, as an address alone
 (https, no port, path or credentials). These requests carry a signature (and Athena's may carry a
 session token), so nothing broader is accepted: not another service's endpoint, not another
-region's, and not the names under `amazonaws.com` or `googleapis.com` that customers control (an
-EC2 instance's public name, a load balancer, an S3 website). A save that names anything else is
+region's, and not the names under `amazonaws.com` that customers control. The ones that matter
+carry AWS's own valid certificate and hand the whole request to their owner, such as an API Gateway
+stage, `<id>.execute-api.<region>.amazonaws.com`. (An EC2 instance's or a load balancer's name is
+customer-controlled too, but cannot present a valid certificate for itself, so TLS stops the
+request first.) A save that names anything else is
 refused with the field and an example. The drivers, the network check (path report and
 **Require a private network path**) and the shared-secret check (R420) take the host from the same
 function, so each sees the host the calls use. A Redshift connection's region is now checked
@@ -427,6 +430,31 @@ before it goes into the host: anything was accepted, and `x.attacker.test/` made
 names; the hosts each check sees; and each driver run with the fetch layer replaced, reading back
 what it sent: every call to the endpoint, an AWS signature recomputed from the request as sent,
 BigQuery's token through the PSC name with Google's audience.
+
+**Exact names for the AWS model providers (R427).** Phase 1's Bedrock override accepted any
+`*.vpce.amazonaws.com`, `*.amazonaws.com` or `*.api.aws` host, and Claude Platform on AWS any
+`*.api.aws` or `*.vpce.amazonaws.com` host. That admitted an API Gateway stage someone else owns. A
+Bedrock call aimed there would have carried its signature, session token and prompt, and a Claude
+Platform call its API key. The stage's answer would have come back as the model's. The two
+overrides now follow the warehouses' rule (`src/utils/providers/privateEndpoint.ts`): the service's
+own name, in the region the request is signed for.
+
+| Provider               | Accepted                                                                                                                                                    |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bedrock                | `bedrock-runtime.<region>.amazonaws.com`, its `-fips` name, the dual-stack `….<region>.api.aws` names, `vpce-….bedrock-runtime.<region>.vpce.amazonaws.com` |
+| Claude Platform on AWS | `aws-external-anthropic.<region>.api.aws`, `vpce-….aws-external-anthropic.<region>.vpce.amazonaws.com`                                                      |
+
+Another region's name is refused too. The request is signed for the connection's region, so the
+message names that region, with an example in it. The dialog's hint lists the names for the region
+typed so far. The save, the **Check network path** button and the adapters all use the same rule,
+so a saved override that the rule now refuses fails its next call with that message, and is
+re-saved with the right name. Vertex AI and OCI keep their domain rule (`*.googleapis.com`,
+`*.oci.oraclecloud.com`). Their private names include ones the customer picks: a PSC endpoint name,
+an OCI private endpoint prefix. No name under those domains is known to hand a request to its owner.
+Tested (`providerEndpointAws.test.ts`): the accepted names, zonal interface endpoints included; the
+refused ones (API Gateway, its dual-stack name, AppSync, an S3 bucket, another account's endpoint
+service, another Bedrock service, look-alikes, another region); the adapters send nothing to a
+refused name; and a save stores nothing.
 
 ### How it would be tested
 

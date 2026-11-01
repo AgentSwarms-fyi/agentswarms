@@ -16,8 +16,8 @@
 // Each override must be exactly that engine's name for that region. These
 // requests carry a signed Authorization (and Athena's may carry a session
 // token), so an override can never aim them at another host, even one under
-// amazonaws.com or googleapis.com that a customer controls (an EC2 instance's
-// public name, a load balancer).
+// amazonaws.com that a customer controls and that carries AWS's own valid
+// certificate (an API Gateway stage, `<id>.execute-api.<region>.amazonaws.com`).
 //
 // The region of a Redshift connection is checked here too: it is put into the
 // host, and until R426 anything was accepted (`x.attacker.test/` made the host

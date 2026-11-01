@@ -7,56 +7,127 @@
 // it empty keeps the provider's public hostname (which also covers private DNS
 // and on-premises VPN setups, where that hostname resolves privately).
 //
-// A signed request is only ever sent to a host of the provider's own domain:
-// the override must be an https origin whose host ends in one of the suffixes
-// below. That keeps an override from re-aiming signed traffic elsewhere — the
-// same principle as cloudRegion().
+// The override must be an https origin. For Bedrock and Claude Platform on AWS
+// it must be exactly the service's own name in the region the request is signed
+// for (R427): the public name, the FIPS or dual-stack name, or an interface
+// endpoint's `vpce-…` name. Until R427 any `*.amazonaws.com` or `*.api.aws` host
+// was accepted, and under amazonaws.com sit names a customer controls that carry
+// a valid certificate and hand the whole request to their owner — an API Gateway
+// stage, `<id>.execute-api.<region>.amazonaws.com`. A request sent there would
+// have carried the signature and session token (or Claude Platform's API key)
+// and the prompt, and its answer would have come back as the model's.
+//
+// Vertex and OCI keep a domain rule (`*.googleapis.com`, `*.oci.oraclecloud.com`):
+// their private names include ones the customer picks (a PSC endpoint name, an
+// OCI private endpoint prefix), and no name under those domains is known to hand
+// a request to a customer. Same principle as cloudRegion().
 
 import { cloudRegion } from "./cloudRegion";
 
 export type EndpointProvider = "bedrock" | "vertex" | "oci_genai" | "claude_aws";
 
-const RULES: Record<EndpointProvider, { label: string; suffixes: string[]; example: string }> = {
-  bedrock: {
-    label: "Bedrock endpoint",
-    suffixes: [".vpce.amazonaws.com", ".amazonaws.com", ".api.aws"],
-    example: "https://vpce-0abc123.bedrock-runtime.us-east-1.vpce.amazonaws.com",
-  },
-  vertex: {
-    label: "Vertex AI endpoint",
-    suffixes: [".googleapis.com"],
-    example: "https://aiplatform-myendpoint.p.googleapis.com",
-  },
-  claude_aws: {
-    label: "Claude Platform on AWS endpoint",
-    suffixes: [".api.aws", ".vpce.amazonaws.com"],
-    example: "https://vpce-0abc123.aws-external-anthropic.us-west-2.vpce.amazonaws.com",
-  },
+type AwsProvider = "bedrock" | "claude_aws";
+
+const LABEL: Record<EndpointProvider, string> = {
+  bedrock: "Bedrock endpoint",
+  vertex: "Vertex AI endpoint",
+  claude_aws: "Claude Platform on AWS endpoint",
+  oci_genai: "OCI Generative AI endpoint",
+};
+
+const DOMAIN_RULES: Record<
+  Exclude<EndpointProvider, AwsProvider>,
+  { suffix: string; example: string }
+> = {
+  vertex: { suffix: ".googleapis.com", example: "https://aiplatform-myendpoint.p.googleapis.com" },
   oci_genai: {
-    label: "OCI Generative AI endpoint",
-    suffixes: [".oci.oraclecloud.com"],
+    suffix: ".oci.oraclecloud.com",
     example: "https://myprefix.pe.inference.generativeai.us-chicago-1.oci.oraclecloud.com",
   },
 };
 
-/** The hosts an override may name, as shown to a person: `*.vpce.amazonaws.com`. */
-export function endpointHosts(provider: EndpointProvider): string[] {
-  return RULES[provider].suffixes.map((s) => `*${s}`);
+const AWS_RULES: Record<
+  AwsProvider,
+  { service: string; regionLabel: string; defaultRegion: string; publicNames: string }
+> = {
+  // bedrock-runtime.<region>.amazonaws.com, its -fips name, and the dual-stack
+  // api.aws names.
+  bedrock: {
+    service: "bedrock-runtime",
+    regionLabel: "Bedrock region",
+    defaultRegion: "us-east-1",
+    publicNames: "bedrock-runtime(?:-fips)?\\.{region}\\.(?:amazonaws\\.com|api\\.aws)",
+  },
+  // aws-external-anthropic.<region>.api.aws; there is no default region.
+  claude_aws: {
+    service: "aws-external-anthropic",
+    regionLabel: "Claude Platform on AWS region",
+    defaultRegion: "",
+    publicNames: "aws-external-anthropic\\.{region}\\.api\\.aws",
+  },
+};
+
+function isAws(provider: EndpointProvider): provider is AwsProvider {
+  return provider === "bedrock" || provider === "claude_aws";
+}
+
+/** The region an AWS provider's request is signed for, checked. */
+function awsRegion(provider: AwsProvider, region: string | undefined): string {
+  const rule = AWS_RULES[provider];
+  return cloudRegion(region || rule.defaultRegion, rule.regionLabel);
+}
+
+/** The service's own names in one region: public, FIPS, dual-stack, or an interface endpoint's. */
+function awsHostPattern(provider: AwsProvider, region: string): RegExp {
+  const { service, publicNames } = AWS_RULES[provider];
+  return new RegExp(
+    `^(?:${publicNames.replace("{region}", region)}` +
+      `|vpce-[a-z0-9]+(?:-[a-z0-9]+)*\\.${service}\\.${region}\\.vpce\\.amazonaws\\.com)$`,
+  );
+}
+
+function example(provider: EndpointProvider, region: string): string {
+  if (!isAws(provider)) return DOMAIN_RULES[provider].example;
+  return `https://vpce-0abc123.${AWS_RULES[provider].service}.${region}.vpce.amazonaws.com`;
+}
+
+/**
+ * The hosts an override may name, as shown to a person. For Bedrock and Claude
+ * Platform on AWS these are the service's names in the region typed so far
+ * (`<region>` before one is); for Vertex and OCI, the domain as a wildcard.
+ */
+export function endpointHosts(provider: EndpointProvider, region?: string): string[] {
+  if (!isAws(provider)) return [`*${DOMAIN_RULES[provider].suffix}`];
+  const { service } = AWS_RULES[provider];
+  let r = "<region>";
+  try {
+    r = awsRegion(provider, region);
+  } catch {
+    /* not a region yet: keep the placeholder */
+  }
+  const publicName =
+    provider === "bedrock" ? `${service}.${r}.amazonaws.com` : `${service}.${r}.api.aws`;
+  return [publicName, `vpce-….${service}.${r}.vpce.amazonaws.com`];
 }
 
 /**
  * The override as an https origin (`https://host[:port]`), or undefined when
  * none was given. Throws a message naming the field and an accepted example.
+ * For Bedrock and Claude Platform on AWS, `region` is the region the request is
+ * signed for; the override must be that region's name for the service.
  */
 export function providerEndpoint(
   provider: EndpointProvider,
   raw: string | undefined | null,
+  region?: string,
 ): string | undefined {
   const value = (raw ?? "").trim();
   if (!value) return undefined;
-  const rule = RULES[provider];
+  const signedFor = isAws(provider) ? awsRegion(provider, region) : "";
   const refuse = (why: string): never => {
-    throw new Error(`${rule.label} ${why} — expected something like ${rule.example}`);
+    throw new Error(
+      `${LABEL[provider]} ${why} — expected something like ${example(provider, signedFor)}`,
+    );
   };
   let url: URL;
   try {
@@ -69,11 +140,16 @@ export function providerEndpoint(
   if ((url.pathname && url.pathname !== "/") || url.search || url.hash) {
     refuse("must be the endpoint's address only, with no path");
   }
-  // Each suffix begins with a dot, so endsWith already requires a label before
-  // it (`googleapis.com` does not end with `.googleapis.com`).
   const host = url.hostname.toLowerCase();
-  if (!rule.suffixes.some((s) => host.endsWith(s))) {
-    refuse(`must be a ${rule.suffixes.map((s) => `*${s}`).join(" or ")} address`);
+  if (isAws(provider)) {
+    if (!awsHostPattern(provider, signedFor).test(host)) {
+      refuse(`must be ${AWS_RULES[provider].service}'s own address in ${signedFor}`);
+    }
+  } else {
+    // The suffix begins with a dot, so endsWith already requires a label before
+    // it (`googleapis.com` does not end with `.googleapis.com`).
+    const { suffix } = DOMAIN_RULES[provider];
+    if (!host.endsWith(suffix)) refuse(`must be a *${suffix} address`);
   }
   return url.origin;
 }
@@ -128,15 +204,15 @@ export function providerOrigin(
   provider: EndpointProvider,
   cfg: { region?: string; endpoint?: string | null },
 ): string {
-  const override = providerEndpoint(provider, cfg.endpoint);
+  const override = providerEndpoint(provider, cfg.endpoint, cfg.region);
   if (override) return override;
   switch (provider) {
     case "bedrock":
-      return `https://bedrock-runtime.${cloudRegion(cfg.region || "us-east-1", "Bedrock region")}.amazonaws.com`;
+      return `https://bedrock-runtime.${awsRegion("bedrock", cfg.region)}.amazonaws.com`;
     case "vertex":
       return `https://${cloudRegion(cfg.region || "us-central1", "Vertex location")}-aiplatform.googleapis.com`;
     case "claude_aws":
-      return `https://aws-external-anthropic.${cloudRegion(cfg.region ?? "", "Claude Platform on AWS region")}.api.aws`;
+      return `https://aws-external-anthropic.${awsRegion("claude_aws", cfg.region)}.api.aws`;
     case "oci_genai":
       return `https://inference.generativeai.${cloudRegion(cfg.region ?? "", "OCI region")}.oci.oraclecloud.com`;
   }
