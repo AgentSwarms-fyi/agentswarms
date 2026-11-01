@@ -88,6 +88,9 @@ export const createKmsDataKey = createServerFn({ method: "POST" })
         actorEmail: guard.email,
         action: "security.kms.data_key.create",
         resourceType: "security",
+        // The key that wrapped it, so the audit page's Resource column names
+        // something (it read "—").
+        resourceName: row.key_ref,
         resourceId: row.id,
         detail: { provider: row.provider, key_ref: row.key_ref, kid: row.kid },
       });

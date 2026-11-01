@@ -31,6 +31,12 @@ import {
 
 export const AWS_KMS_ENCRYPTION_CONTEXT = { "agentswarms:purpose": "credential-data-key" } as const;
 
+/** What a KMS_REQUIRE_PRIVATE refusal tells the operator to check. */
+export const KMS_PRIVATE_PATH_ADVICE =
+  "Point AWS_ENDPOINT_URL_KMS (and AWS_ENDPOINT_URL_STS, for web identity) at a VPC endpoint " +
+  "this server resolves to a private address, turn on the endpoint's private DNS, or send the " +
+  "call through HTTPS_PROXY.";
+
 export type AwsKmsConfig = {
   keyRef: string;
   /** The key's region: from its ARN, else AWS_REGION / AWS_DEFAULT_REGION. */
@@ -178,6 +184,7 @@ export function createAwsKmsProvider(config: AwsKmsConfig, deps: AwsKmsDeps = {}
     return withPrivatePathScope((policy) => {
       policy.required = config.requirePrivate;
       policy.label = "AWS KMS";
+      policy.advice = KMS_PRIVATE_PATH_ADVICE;
       policy.onRefuse = deps.onRefuse;
       return fn();
     });
@@ -341,7 +348,9 @@ export function createAwsKmsProvider(config: AwsKmsConfig, deps: AwsKmsDeps = {}
             facts,
           };
         }
-        return { ok: true, detail: `${arn} (${config.region}) is enabled for encryption.`, facts };
+        // The key's name is in the facts; repeating it here put the ARN on
+        // the card five times (found from the UI, R430).
+        return { ok: true, detail: `Enabled for encryption, in ${config.region}.`, facts };
       } catch (e) {
         return { ok: false, detail: (e as Error).message, facts };
       }

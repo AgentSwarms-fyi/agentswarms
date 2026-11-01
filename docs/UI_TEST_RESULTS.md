@@ -15,6 +15,42 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-01 — R429 part two and R430: the AWS KMS card against LocalStack
+
+With the user's permission ("do both parts"), the live app was recreated with test KMS
+variables, one set at a time, from compose override files that add only those variables (the
+recreated container's environment was compared with the compose configuration before and after:
+identical apart from them). The stand-in is `r429-localstack` (LocalStack 4.14.0) on the app
+network, with one symmetric key,
+`arn:aws:kms:eu-west-1:000000000000:key/f5db41f4-a0f0-4287-8c63-781105ab2a4b`. The AWS keys are
+the integration test's emulator values. No real AWS account was used. Before: the env key
+`30dc47ce45e7`, 18 encrypted values, 18 on it.
+
+**Part two, on the R429 build.**
+
+| Setting                                                                                                                       | What was driven                          | Result                                                                                                                                                                                                                                                                                                                                                                      |
+| ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `KMS_KEY_REF` = the key, `AWS_ENDPOINT_URL_KMS=http://r429-localstack:4566`, `KMS_REQUIRE_PRIVATE=true`, `KMS_PROVIDER` unset | opened the card                          | "AWS KMS … is enabled for encryption", Endpoint `http://r429-localstack:4566 (AWS_ENDPOINT_URL_KMS) · direct to 172.19.0.12 (private)`, Network rule private path required, Signed as `access key AKIA…ST01 (AWS_ACCESS_KEY_ID)`, Key material "generated and kept in AWS KMS's HSMs", State Enabled                                                                        |
+| same                                                                                                                          | pressed **Create a data key in AWS KMS** | toast "Data key 931a2e0606b3 wrapped by AWS KMS"; the card: "Data key 931a2e0606b3 … not in use until KMS_PROVIDER=aws is set"; the button became **Rotate**. LocalStack's log: DescribeKey ×2 (each card load), GenerateDataKey ×1, Decrypt ×1 (the proof before storing). Audit: `security.kms.data_key.create` by the user                                               |
+| no endpoint override (`kms.eu-west-1.amazonaws.com`), `KMS_REQUIRE_PRIVATE=true`                                              | opened the card                          | "AWS KMS is set to require a private network path, but kms.eu-west-1.amazonaws.com resolves to a public address (3.253.220.239, 3.253.219.141) from this server, so the call was not sent"; Rotate disabled; audit `security.kms.private_path.refused`. **Found:** the advice ended "send model traffic through the proxy", and the audit row's user read "deleted account" |
+| `KMS_PROVIDER=aws`, the LocalStack endpoint                                                                                   | restart                                  | every worker: "credential keyring loaded from aws"; LocalStack: Decrypt ×8, one per process. The card: provider AWS KMS, current key `931a2e0606b3`, also accepting `30dc47ce45e7`, 18 values on an older key. **Re-encrypt was not pressed**: nothing moved. **Found:** the key's ARN five times on the card                                                               |
+| same, LocalStack disconnected from the app network                                                                            | restart                                  | each worker "refusing to start … Could not unwrap the data key (aws, …, kid 931a2e0606b3)". **Found:** the primary replaced each one at once, for ever, behind a container Docker reported as running; and a worker bound the port before its check                                                                                                                         |
+| original environment                                                                                                          | recreate                                 | no `KMS_*` or `AWS_*` variables; the card: env key `30dc47ce45e7`, 18 values, **18 on it**: nothing was written under the AWS-wrapped key in the window                                                                                                                                                                                                                     |
+
+**R430, the fixes, on the R430 build (hot-deployed: `dist`, `server.mjs`, `serverWorkers.mjs`).**
+
+| Setting                                         | What was driven                     | Result                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ----------------------------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| the LocalStack endpoint, `KMS_PROVIDER` unset   | opened the card                     | the ARN once, in the Key row ("AWS KMS: Enabled for encryption, in eu-west-1."); "Data key 931a2e0606b3 wrapped by AWS KMS, about 1 hour ago — not in use until KMS_PROVIDER=aws is set"                                                                                                                                                                                                                                                |
+| the public endpoint, `KMS_REQUIRE_PRIVATE=true` | opened the card, then **Audit Log** | "… so the call was not sent. Point AWS_ENDPOINT_URL_KMS (and AWS_ENDPOINT_URL_STS, for web identity) at a VPC endpoint this server resolves to a private address, turn on the endpoint's private DNS, or send the call through HTTPS_PROXY." The audit row: user **system:kms**, resource the key's ARN, detail the reason. The R429 rows keep what they stored ("deleted account"); the data-key row now shows "data key 931a2e0606b3" |
+| `KMS_PROVIDER=aws`, LocalStack disconnected     | recreate                            | `docker ps`: **Restarting (78)**; the log: one "refusing to start" per start, then "no worker could load the credential keyring; stopping with exit code 78 so the container runtime restarts it"; **0** "listening on" lines (no worker bound the port); Docker's back-off between starts (12 restarts in the window)                                                                                                                  |
+| original environment                            | recreate                            | environment identical to the compose configuration; env key, 18 of 18 on it                                                                                                                                                                                                                                                                                                                                                             |
+
+**Kept, for review:** `r429-localstack` (running; its key lives in memory and is gone if it
+stops), and the `encryption_keys` row for data key `931a2e0606b3`, wrapped by that key and not in
+use. It shows on the card as "not in use until KMS_PROVIDER=aws is set". Creating a data key under
+another provider retires it.
+
 ## 2026-11-01 — R429: AWS KMS as a key provider (part one)
 
 The R429 build from the main checkout, hot-deployed; `/api/health/ready` answered
@@ -31,10 +67,9 @@ from the integration test instead (ADVERSARIAL_LOG R429).
 | Docs → Install & deploy → Configuration            | read                              | **Or in AWS KMS**, after the Vault callout. It read "the key policy can allowkms:GenerateDataKey": a JSX line break dropped the space. Fixed. The same page's "SMTP_PORT,SMTP_USER" was the same bug, older, and is fixed too. About 28 more on other pages were offered as a separate task                                                                          |
 | /security                                          | read                              | "By default the master key lives in your environment" names Vault Transit and AWS KMS as built, and AWS KMS as tested against an emulator only; "Hardware-backed keys only through a provider" names the KMS HSMs, CloudHSM and an external key store, and no PKCS#11 or KMIP. The old "There is no external KMS integration yet" is gone                            |
 
-**Waits on permission:** the AWS card against LocalStack on the app network (the facts list,
-**Create a data key in AWS KMS**, the row it stores), `KMS_REQUIRE_PRIVATE` refusing a public KMS
-name on the card, and a restart with `KMS_PROVIDER=aws` (the boot unwrap, and the refusal to
-start once the emulator is gone). Kept: the stopped-or-running `r429-localstack` container.
+**Part two**, with the user's permission, is the section above: the AWS card against LocalStack
+on the app network, **Create a data key in AWS KMS**, `KMS_REQUIRE_PRIVATE` refusing a public KMS
+name, and a restart with `KMS_PROVIDER=aws`, with what it found fixed in R430.
 
 ## 2026-11-01 — R428: Iceberg catalogs over a private path
 

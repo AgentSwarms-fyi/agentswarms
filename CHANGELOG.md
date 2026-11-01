@@ -1011,6 +1011,25 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **A key provider that cannot unwrap at boot now stops the server** (R430,
+  found from the UI). With `KMS_PROVIDER=vault` or `aws` and the provider out
+  of reach, every worker refused to start and the primary replaced it at once,
+  for ever, while Docker reported the container as running; and a worker
+  bound the port before its keyring check, so it took requests until the
+  check failed. The check now runs before the port is bound, a refusing
+  process exits with code 78 (`EX_CONFIG`), and when no worker has come up
+  the whole server stops with that code, so Docker shows `Restarting (78)` and
+  Kubernetes `CrashLoopBackOff`, with their back-off. A replacement worker
+  that meets an outage while the others serve waits instead, from one second
+  to a minute, and the serving workers carry on.
+- **A `KMS_REQUIRE_PRIVATE` refusal says what to check for KMS** (R430). It
+  ended "send model traffic through the proxy", the model providers' advice;
+  it now names `AWS_ENDPOINT_URL_KMS`, the endpoint's private DNS and
+  `HTTPS_PROXY`. The audit log named the refusal's user as "deleted account";
+  the app itself is the actor now (`system:kms`), and the Detail column shows
+  the reason. A data key's creation names its key and fingerprint there too.
+- **The credential key card names the key once** (R430). Under
+  `KMS_PROVIDER=aws` the key's ARN appeared five times.
 - **A Data Catalog source name the server refuses is said in words** (R423).
   A name with parentheses passed the Add source wizard's Continue, and Connect
   & crawl then showed the validator's issue JSON in the dialog. The wizard now

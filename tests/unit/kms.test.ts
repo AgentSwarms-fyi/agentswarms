@@ -402,7 +402,16 @@ describe("the wiring", () => {
     const boot = readFileSync("server.mjs", "utf8");
     expect(boot).toContain('if (kmsProvider && kmsProvider !== "env")');
     expect(boot).toContain("body?.checks?.keys === false");
-    expect(boot).toContain("process.exit(1)");
+    expect(boot).toContain("process.exit(EXIT_KEYRING)");
+    // Before the port is bound (R430): a worker that listened first took
+    // requests until its unwrap failed, then exited under them.
+    const check = boot.indexOf('if (kmsProvider && kmsProvider !== "env")');
+    expect(check).toBeGreaterThan(boot.indexOf("async function startWorker()"));
+    expect(check).toBeLessThan(boot.indexOf("const server = serve({"));
+    // And the primary hears that a worker is serving only once it is.
+    expect(boot.indexOf("reportListening()")).toBeGreaterThan(
+      boot.indexOf("await server.ready?.()"),
+    );
   });
 
   it("the data key is created only by a superadmin, audited, and the cache dropped", () => {
@@ -410,6 +419,8 @@ describe("the wiring", () => {
     expect(fn).toContain("export const createKmsDataKey");
     expect(fn).toContain("await requireSuperadmin(data.access_token)");
     expect(fn).toContain('action: "security.kms.data_key.create"');
+    // Named in the audit page's Resource column (R430: it read "—").
+    expect(fn).toContain("resourceName: row.key_ref,");
     expect(fn).toContain("resetKeyringCache()");
   });
 

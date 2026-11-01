@@ -50,7 +50,13 @@ its key, and the stored material names the version it was wrapped with.
 What the readiness probe and the boot check do: `/api/health/ready` reports
 `checks.keys` — whether the keyring loaded — beside the database, so a pod
 without its KMS permission is held out of rotation; `server.mjs` calls it
-before taking traffic under an external provider and exits when it says no.
+under an external provider before a process binds the port, and a process
+whose keyring does not load exits with code 78 (EX_CONFIG, from sysexits.h). When no worker
+has come up yet, the whole server stops with that code, so Docker shows the
+container as exited and Kubernetes as `CrashLoopBackOff`, and their restart
+back-off applies. A replacement worker that meets a KMS outage while the
+others serve does not take them down: it waits and tries again, from one
+second up to a minute.
 No KMS call is on the request path: the unwrap happens once and is cached;
 Vault being unreachable while the process runs changes nothing until the next
 restart, exactly as the failure-mode table below asks.
@@ -184,7 +190,7 @@ host by `NO_PROXY`). With an interface VPC endpoint for KMS and private DNS,
 without any change. `KMS_REQUIRE_PRIVATE=true` makes that a rule, like a model
 provider's **Require a private network path**: a call that would go directly
 to a public address is refused before anything is sent, and audited as
-`security.kms.private_path.refused`. A call through the proxy counts as the
+`security.kms.private_path.refused`, with `system:kms` as the actor. A call through the proxy counts as the
 egress you chose. The STS exchange that web identity makes is held to the
 same rule. The rule refuses at boot too, so a process whose KMS is not
 reached privately does not start. Vault calls go straight to `VAULT_ADDR` and

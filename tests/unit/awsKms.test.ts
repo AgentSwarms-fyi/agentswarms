@@ -45,6 +45,7 @@ import type { AwsCredentialChain } from "@/utils/aws/credentials.server";
 import {
   AWS_KMS_ENCRYPTION_CONTEXT,
   AwsKmsError,
+  KMS_PRIVATE_PATH_ADVICE,
   awsKmsConfigFromEnv,
   createAwsKmsProvider,
   type AwsKmsConfig,
@@ -453,6 +454,8 @@ describe("the probe", () => {
       fetch: fetchImpl,
     }).probe();
     expect(r.ok).toBe(true);
+    // The key is named once, in the facts (R430: the card showed it five times).
+    expect(r.detail).toBe("Enabled for encryption, in eu-west-1.");
     expect(calls.map((c) => c.target)).toEqual(["TrentService.DescribeKey"]);
     expect(facts(r)).toMatchObject({
       Key: ARN,
@@ -614,14 +617,37 @@ describe("KMS_REQUIRE_PRIVATE, through the real guarded fetch", () => {
     expect(vi.mocked(auditEvent)).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: null,
+        // The app is the actor (R430): with no user and no label, the audit
+        // page called it a "deleted account".
+        actorEmail: "system:kms",
         action: "security.kms.private_path.refused",
+        resourceName: ARN,
         detail: expect.objectContaining({
           provider: "aws",
           key_ref: ARN,
           endpoint: "https://kms.eu-west-1.amazonaws.com",
+          // `reason`, the key every private-path refusal uses and the audit
+          // page shows.
+          reason: expect.stringMatching(/^AWS KMS is set to require a private network path/),
         }),
       }),
     );
+  });
+
+  it("tells the operator what to check for KMS, not for model traffic", async () => {
+    const p = createAwsKmsProvider(config({ requirePrivate: true }), { credentials: staticCreds });
+    const err = (await p
+      .unwrapDek({ provider: "aws", keyRef: ARN, material: "x" })
+      .catch((e: unknown) => e)) as Error;
+    expect(err).toBeInstanceOf(PrivatePathRequiredError);
+    expect(err.message).toBe(
+      "AWS KMS is set to require a private network path, but kms.eu-west-1.amazonaws.com " +
+        "resolves to a public address (52.94.0.10) from this server, so the call was not sent. " +
+        KMS_PRIVATE_PATH_ADVICE,
+    );
+    expect(err.message).not.toMatch(/model traffic/);
+    expect(KMS_PRIVATE_PATH_ADVICE).toMatch(/AWS_ENDPOINT_URL_KMS/);
+    expect(sent).toEqual([]);
   });
 });
 

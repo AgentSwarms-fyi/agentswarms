@@ -501,6 +501,12 @@ export type PrivatePathPolicy = {
   required: boolean;
   /** Names the provider in the refusal, e.g. "AWS Bedrock". */
   label: string;
+  /**
+   * What to check, when a model provider's advice does not fit: the KMS
+   * refusal used to tell an operator to "send model traffic through the
+   * proxy" (found from the UI, R430).
+   */
+  advice?: string;
   /** Records a refusal (the audit trail); never throws. */
   onRefuse?: (detail: string) => void;
 };
@@ -552,6 +558,7 @@ function assertPrivateTarget(
     policy.label,
     host,
     addresses.filter((a) => !isPrivateNetwork(a)),
+    policy.advice,
   );
   try {
     policy.onRefuse?.(detail);

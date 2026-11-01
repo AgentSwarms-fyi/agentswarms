@@ -109,6 +109,66 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-01 — R430: what the AWS KMS card found, against LocalStack (R429 part two)
+
+**How it was found.** R429's UI round part two, with the user's permission: the live app
+recreated with test KMS variables, one set at a time, against `r429-localstack` on the app
+network (UI_TEST_RESULTS). Creating the data key, the boot unwrap and the private-path refusal
+all worked as built. Four things did not read or behave as the docs said.
+
+**1. "Refuses to start" was a respawn loop behind a running container.** With
+`KMS_PROVIDER=aws` and the KMS out of reach, every worker logged "refusing to start" and exited,
+and the primary replaced it at once, for ever. Docker reported the container as running; the
+log scrolled one refusal after another. KEY_MANAGEMENT's failure-mode table says **refuse to
+start**. Worse, each worker had already bound the port (`reusePort`) before its check, so it
+took requests for as long as the unwrap took, then exited under them. The comment above the
+check said "BEFORE this process takes traffic"; the code ran it after `serve()`. Fixed:
+
+- the check runs before `serve()` (it is the app's own handler, called in-process);
+- a refusing worker exits with 78 (`EX_CONFIG`), a code of its own;
+- the primary's pool (`serverWorkers.mjs`, new): before any worker has reported listening, one
+  refusal stops the whole process with 78, so the runtime's restart policy and back-off apply
+  and the state is visible (`Restarting (78)`, `CrashLoopBackOff`). After one has, a refusal is
+  a replacement meeting an outage while the others serve with the key they unwrapped at boot;
+  taking them down would turn a KMS blip into an outage of ours (the failure-mode table:
+  unreachable while running changes nothing), so the replacement waits, 1 s doubling to 60 s,
+  reset when a worker comes up. A crash for any other reason is replaced at once, as before.
+
+**2. The refusal's advice was the model providers'.** "… so the call was not sent. Check the
+private endpoint's DNS zone, set the provider's endpoint URL, or send model traffic through the
+proxy." `PrivatePathPolicy` takes the caller's `advice` now, and KMS names
+`AWS_ENDPOINT_URL_KMS` / `AWS_ENDPOINT_URL_STS`, the endpoint's private DNS and `HTTPS_PROXY`.
+
+**3. The audit row said "deleted account".** The refusal has no user (it may be the boot), and
+the audit page renders a row with neither a user nor a label that way, which reads as a person
+who was removed. The app is the actor: `actor_email` = `system:kms`, the same convention SCIM
+(`scim:<label>`) and shares (`share:<label>`) use. Its detail key is `reason`, like every other
+private-path refusal, so the page's Detail column shows it; the data key's creation names its
+key as the resource and its fingerprint in the detail. Rows written before keep what they
+stored.
+
+**4. The key's ARN five times on the card.** The provider line, the data key line, "AWS KMS at
+…", the probe's own sentence and the Key fact. Now the Key fact names it; "at …" only when the
+probe got no Key row; the data key line names its key only when it differs from the configured
+one (a rotation between keys); the probe says "Enabled for encryption, in eu-west-1."
+
+**Also.** The toast and card wrote `KMS_PROVIDER="aws"`; the docs and the variable say
+`KMS_PROVIDER=aws`.
+
+**Proved.**
+
+| Check                         | Result                                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `serverWorkers.test.ts` (new) | 8: a crash replaced at once; nothing refilled in shutdown; a boot refusal stops the process (78, the others killed, no replacement); after a worker serves, a refusal waits 1, 2, 4 … 60 s and serving resets it; a replacement due after shutdown is not started; only the listening report counts; and with a real `node:cluster`, three refusing workers end the process with 78 |
+| `kms.test.ts`                 | the boot check before `serve()`, exit 78, the listening report after `server.ready`; the data key's audit names its key                                                                                                                                                                                                                                                             |
+| `awsKms.test.ts`              | the audit actor and `reason`; the KMS advice, exact; the probe's sentence without the ARN                                                                                                                                                                                                                                                                                           |
+| `productionServer.test.ts`    | `server.mjs` uses the pool                                                                                                                                                                                                                                                                                                                                                          |
+| mutation                      | 17 of 17                                                                                                                                                                                                                                                                                                                                                                            |
+| UI                            | UI_TEST_RESULTS, "R429 part two and R430": the ARN once, the advice, `system:kms` with its reason, `Restarting (78)` with no worker ever listening                                                                                                                                                                                                                                  |
+
+**Not covered.** The audit page's rendering of a row with no user and no label is unchanged:
+older rows, and any future system event written without a label, still read "deleted account".
+
 ### 2026-11-01 — R429: AWS KMS as a key provider, and the app's own AWS identity
 
 **Feature.** `KMS_PROVIDER=aws` keeps the credential key-encrypting key in AWS

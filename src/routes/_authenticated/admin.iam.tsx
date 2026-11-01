@@ -1914,7 +1914,7 @@ function CredentialKeyCard({ token }: { token: string }) {
       toast.success(
         externalInUse
           ? `Data key ${res.kid} created and active after the next restart.`
-          : `Data key ${res.kid} wrapped by ${externalName(res.provider)}. Set KMS_PROVIDER="${res.provider}" and restart to switch.`,
+          : `Data key ${res.kid} wrapped by ${externalName(res.provider)}. Set KMS_PROVIDER=${res.provider} and restart to switch.`,
         { id: t, duration: 8000 },
       );
       await load();
@@ -1969,13 +1969,18 @@ function CredentialKeyCard({ token }: { token: string }) {
                 {kms.activeDek ? (
                   <p className="text-xs text-muted-foreground">
                     Data key <code className="font-mono">{kms.activeDek.kid}</code> wrapped by{" "}
-                    {externalName(kms.activeDek.provider)} ({kms.activeDek.keyRef}),{" "}
-                    {formatDistanceToNow(new Date(kms.activeDek.createdAt), { addSuffix: true })}
+                    {externalName(kms.activeDek.provider)}
+                    {/* Its key only when it is not the configured one (a rotation
+                        between keys); otherwise the ARN is already on the card. */}
+                    {kms.activeDek.keyRef !== (external?.keyRef ?? kms.keyRef)
+                      ? ` (${kms.activeDek.keyRef})`
+                      : ""}
+                    , {formatDistanceToNow(new Date(kms.activeDek.createdAt), { addSuffix: true })}
                     {kms.retiredDeks > 0
                       ? `; ${kms.retiredDeks} retired data key${kms.retiredDeks === 1 ? "" : "s"} still accepted for reading`
                       : ""}
                     {!externalInUse
-                      ? ` — not in use until KMS_PROVIDER="${kms.activeDek.provider}" is set and the app restarts`
+                      ? ` — not in use until KMS_PROVIDER=${kms.activeDek.provider} is set and the app restarts`
                       : ""}
                     .
                   </p>
@@ -1983,7 +1988,11 @@ function CredentialKeyCard({ token }: { token: string }) {
                 {external ? (
                   <div className="flex flex-wrap items-center gap-2 text-xs">
                     <span className="text-muted-foreground">
-                      {externalName(external.id)} at {external.keyRef}:
+                      {externalName(external.id)}
+                      {external.probe.facts?.some((f) => f.label === "Key")
+                        ? ""
+                        : ` at ${external.keyRef}`}
+                      :
                     </span>
                     <span
                       className={

@@ -25,6 +25,7 @@ import path from "node:path";
 import { installServerGuards, quietClientGone, rememberClientAborts } from "./serverGuards.mjs";
 import { compressStatic } from "./serverCompression.mjs";
 import { securityHeaders } from "./serverSecurityHeaders.mjs";
+import { EXIT_KEYRING, reportListening, superviseWorkers } from "./serverWorkers.mjs";
 
 // Before anything else, in the primary and in every worker: undici can throw
 // from a microtask when it closes a response stream twice, which used to end
@@ -145,6 +146,38 @@ async function startWorker() {
     );
   }
 
+  const who = cluster.isWorker ? `worker ${process.pid}` : `single process ${process.pid}`;
+
+  // With an external key provider, prove the data key unwraps BEFORE this
+  // process takes traffic. Serving without it would surface as hundreds of
+  // per-feature credential errors; failing once here, naming the provider,
+  // is the honest shape. The env provider has nothing to reach, so it is
+  // not checked — a missing PROVIDER_CREDS_SECRET fails at first use as before.
+  //
+  // Before serve(), not after: every worker shares the port (reusePort), so
+  // one that listened first took requests for as long as the unwrap took and
+  // then exited under them (found from the UI, R430). The check is the app's
+  // own handler, called in-process; nothing needs to be listening for it.
+  const kmsProvider = (process.env.KMS_PROVIDER ?? "env").trim().toLowerCase();
+  if (kmsProvider && kmsProvider !== "env") {
+    let refusal = null;
+    try {
+      const res = await app.fetch(new Request(`http://${HOSTNAME}:${PORT}/api/health/ready`));
+      const body = await res.json().catch(() => ({}));
+      if (body?.checks?.keys === false) {
+        refusal = `the credential keyring did not load under KMS_PROVIDER=${kmsProvider} — ${body.error ?? "no detail"}`;
+      }
+    } catch (e) {
+      refusal = `keyring check failed — ${e?.message ?? e}`;
+    }
+    if (refusal) {
+      console.error(`[agentswarms] ${who} refusing to start: ${refusal}`);
+      // A code of its own, so the primary can tell a refusal from a crash.
+      process.exit(EXIT_KEYRING);
+    }
+    console.log(`[agentswarms] ${who} credential keyring loaded from ${kmsProvider}`);
+  }
+
   // A browser that leaves mid-request is not a server fault, and is not
   // printed as one (R362). See serverGuards.mjs.
   quietClientGone();
@@ -168,31 +201,8 @@ async function startWorker() {
   });
 
   await server.ready?.();
-  const who = cluster.isWorker ? `worker ${process.pid}` : `single process ${process.pid}`;
   console.log(`[agentswarms] ${who} listening on http://${HOSTNAME}:${PORT}`);
-
-  // With an external key provider, prove the data key unwraps BEFORE this
-  // process takes traffic. Serving without it would surface as hundreds of
-  // per-feature credential errors; failing once here, naming the provider,
-  // is the honest shape. The env provider has nothing to reach, so it is
-  // not checked — a missing PROVIDER_CREDS_SECRET fails at first use as before.
-  const kmsProvider = (process.env.KMS_PROVIDER ?? "env").trim().toLowerCase();
-  if (kmsProvider && kmsProvider !== "env") {
-    try {
-      const res = await app.fetch(new Request(`http://${HOSTNAME}:${PORT}/api/health/ready`));
-      const body = await res.json().catch(() => ({}));
-      if (body?.checks?.keys === false) {
-        console.error(
-          `[agentswarms] refusing to start: the credential keyring did not load under KMS_PROVIDER=${kmsProvider} — ${body.error ?? "no detail"}`,
-        );
-        process.exit(1);
-      }
-      console.log(`[agentswarms] ${who} credential keyring loaded from ${kmsProvider}`);
-    } catch (e) {
-      console.error(`[agentswarms] refusing to start: keyring check failed — ${e?.message ?? e}`);
-      process.exit(1);
-    }
-  }
+  if (cluster.isWorker) reportListening();
 
   // FOUND FROM THE SURVEY (R95). Start the scheduler now, as this worker comes
   // up. It used to wait for the notification bell: ensureScheduler() is only
@@ -267,25 +277,12 @@ if (workers > 1 && cluster.isPrimary) {
     `[agentswarms] primary ${process.pid} forking ${workers} workers ` +
       `(WEB_CONCURRENCY to override; 1 = no cluster)`,
   );
+  // A worker that dies takes its share of traffic with it, so it is replaced;
+  // one that refuses for the keyring is not, while no worker has come up yet.
+  // See serverWorkers.mjs.
+  const pool = superviseWorkers({ cluster });
   for (let i = 0; i < workers; i++) cluster.fork();
-
-  // A worker that dies takes its share of traffic with it, so replace it —
-  // except during shutdown, where refilling the pool would stop the container
-  // from ever exiting.
-  let shuttingDown = false;
-  cluster.on("exit", (worker, code, signal) => {
-    if (shuttingDown) return;
-    console.warn(
-      `[agentswarms] worker ${worker.process.pid} exited (${signal || code}) — restarting`,
-    );
-    cluster.fork();
-  });
-  for (const signal of ["SIGTERM", "SIGINT"]) {
-    process.on(signal, () => {
-      shuttingDown = true;
-      for (const w of Object.values(cluster.workers ?? {})) w?.kill(signal);
-    });
-  }
+  for (const signal of ["SIGTERM", "SIGINT"]) process.on(signal, () => pool.shutdown(signal));
 } else {
   await startWorker();
 }

@@ -58,8 +58,13 @@ describe("production server entry", () => {
 
   it("restarts a dead worker, but not while shutting down", () => {
     // Refilling the pool during shutdown stops the container ever exiting.
-    expect(server).toContain('cluster.on("exit"');
-    expect(server).toContain("if (shuttingDown) return;");
+    // The supervisor lives in serverWorkers.mjs since R430, and
+    // serverWorkers.test.ts drives it; this pins that server.mjs uses it.
+    expect(server).toContain("const pool = superviseWorkers({ cluster });");
+    expect(server).toContain("process.on(signal, () => pool.shutdown(signal))");
+    expect(server.indexOf("superviseWorkers({ cluster })")).toBeLessThan(
+      server.indexOf("cluster.fork()"),
+    );
   });
 
   it("drains on SIGTERM instead of cutting live requests", () => {

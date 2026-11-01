@@ -672,7 +672,9 @@ AUDIT_ARCHIVE_ON_PURGE="1"
         With <C>KMS_PROVIDER=vault</C> the key that encrypts credentials is a data key wrapped by a
         HashiCorp Vault Transit key that never leaves Vault, unwrapped once per process start — the
         app holds a permission to decrypt, not the key, and a process that cannot unwrap refuses to
-        start. Set <C>KMS_KEY_REF</C> and the <C>VAULT_*</C> variables, create the data key on{" "}
+        start: it exits with code 78 before it takes any traffic, so the container shows as stopped
+        and your orchestrator&apos;s restart back-off applies. Set <C>KMS_KEY_REF</C> and the{" "}
+        <C>VAULT_*</C> variables, create the data key on{" "}
         <strong>Admin → IAM → Settings → Credential encryption key</strong>, then switch the
         provider and run the same re-encrypt sweep; the env secret keeps decrypting old rows until
         it has moved them. Details and the failure modes in <C>docs/KEY_MANAGEMENT.md</C>.
