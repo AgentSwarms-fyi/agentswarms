@@ -15,6 +15,27 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-01 — R429: AWS KMS as a key provider (part one)
+
+The R429 build from the main checkout, hot-deployed; `/api/health/ready` answered
+`{"status":"ready","checks":{"db":true,"keys":true}}` after the restart. This install's
+environment sets no KMS variables, so part one covers what the build shows without them. The
+AWS card itself needs `KMS_KEY_REF` and the AWS variables in the app's environment, and creating
+a data key writes a row to `encryption_keys`. Both change this install's configuration, so they
+wait on the user's permission (part two). The provider was driven against LocalStack 4.14.0
+from the integration test instead (ADVERSARIAL_LOG R429).
+
+| Page / surface                                     | What was driven                   | Result                                                                                                                                                                                                                                                                                                                                                               |
+| -------------------------------------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Admin → IAM → Settings → Credential encryption key | opened (the server's status call) | "Key provider env (PROVIDER_CREDS_SECRET) · keyring loaded"; "No external key provider configured. Set KMS_KEY_REF and the provider's variables (Vault: VAULT_ADDR and a token or Kubernetes role; AWS KMS: the key's ARN or alias, and a role or AWS_* keys), restart, and the option to wrap a data key appears here."; 18 encrypted values, 18 on the current key |
+| Docs → Install & deploy → Configuration            | read                              | **Or in AWS KMS**, after the Vault callout. It read "the key policy can allowkms:GenerateDataKey": a JSX line break dropped the space. Fixed. The same page's "SMTP_PORT,SMTP_USER" was the same bug, older, and is fixed too. About 28 more on other pages were offered as a separate task                                                                          |
+| /security                                          | read                              | "By default the master key lives in your environment" names Vault Transit and AWS KMS as built, and AWS KMS as tested against an emulator only; "Hardware-backed keys only through a provider" names the KMS HSMs, CloudHSM and an external key store, and no PKCS#11 or KMIP. The old "There is no external KMS integration yet" is gone                            |
+
+**Waits on permission:** the AWS card against LocalStack on the app network (the facts list,
+**Create a data key in AWS KMS**, the row it stores), `KMS_REQUIRE_PRIVATE` refusing a public KMS
+name on the card, and a restart with `KMS_PROVIDER=aws` (the boot unwrap, and the refusal to
+start once the emulator is gone). Kept: the stopped-or-running `r429-localstack` container.
+
 ## 2026-11-01 — R428: Iceberg catalogs over a private path
 
 The R428 build from the main checkout, hot-deployed twice: the second build added the wording fix

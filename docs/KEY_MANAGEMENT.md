@@ -1,11 +1,11 @@
 # Key management and external KMS
 
-**Status: envelope encryption is built, with two providers.** `env` (the
-default) derives the key from `PROVIDER_CREDS_SECRET` exactly as before, and
-`vault` keeps the key-encrypting key in HashiCorp Vault Transit. AWS KMS, GCP
-KMS, Azure Key Vault and OCI Vault are designed below behind the same
-interface and not yet built; `KMS_PROVIDER` refuses them by name rather than
-pretending.
+**Status: envelope encryption is built, with three providers.** `env` (the
+default) derives the key from `PROVIDER_CREDS_SECRET` exactly as before,
+`vault` keeps the key-encrypting key in HashiCorp Vault Transit, and `aws`
+keeps it in AWS KMS ([below](#aws-kms)). GCP KMS, Azure Key Vault and OCI
+Vault are designed behind the same interface and not yet built;
+`KMS_PROVIDER` refuses them by name rather than pretending.
 
 For what exists now — AES-256-GCM, key fingerprints, and the rotation sweep —
 see [SECURITY.md](../SECURITY.md#credential-encryption).
@@ -14,8 +14,8 @@ see [SECURITY.md](../SECURITY.md#credential-encryption).
 
 | Variable                                                            | Meaning                                                                                                                                                |
 | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `KMS_PROVIDER`                                                      | `env` (default) or `vault`                                                                                                                             |
-| `KMS_KEY_REF`                                                       | The provider's reference for the key-encrypting key. Vault: `transit/keys/<name>`                                                                      |
+| `KMS_PROVIDER`                                                      | `env` (default), `vault` or `aws`                                                                                                                      |
+| `KMS_KEY_REF`                                                       | The provider's reference for the key-encrypting key. Vault: `transit/keys/<name>`. AWS KMS: a key ARN, an alias ARN, `alias/<name>` or a key id        |
 | `VAULT_ADDR`, `VAULT_TOKEN` / `VAULT_TOKEN_FILE` / `VAULT_K8S_ROLE` | Where Vault is and how to authenticate: a token, a mounted token file, or a Kubernetes service-account login (`VAULT_K8S_MOUNT`, default `kubernetes`) |
 | `VAULT_NAMESPACE`                                                   | Vault Enterprise namespaces only                                                                                                                       |
 
@@ -59,6 +59,141 @@ The open questions at the end are answered: the wrapped data key lives in a
 database row (replicas share it, it backs up with the data, and a dump without
 the provider's permission opens nothing); there is one data key per instance;
 `probe()` runs when the settings card is opened, not on a timer.
+
+## AWS KMS
+
+`KMS_PROVIDER=aws` keeps the key-encrypting key in AWS KMS. The data key is
+made by AWS KMS itself (`GenerateDataKey`, AES-256), so its bytes come from
+the KMS HSMs, or from your CloudHSM cluster when the key lives in a custom key
+store. It is stored wrapped and unwrapped once per process start with
+`Decrypt`. There is no AWS SDK: the JSON API is signed with SigV4 by
+`src/utils/aws/sigv4.ts`, which is checked against the published AWS SigV4
+test suite.
+
+| Variable                                    | Meaning                                                                                                                                                                                         |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `KMS_KEY_REF`                               | The key: `arn:aws:kms:<region>:<account>:key/<id>` (preferred), an alias ARN, `alias/<name>`, or a key id. AWS-managed aliases (`alias/aws/…`) are refused: only their own service can use them |
+| `AWS_REGION` / `AWS_DEFAULT_REGION`         | The key's region, when `KMS_KEY_REF` is not an ARN. An ARN's region wins                                                                                                                        |
+| `AWS_USE_FIPS_ENDPOINT`                     | `true`: call `kms-fips.<region>.amazonaws.com`                                                                                                                                                  |
+| `AWS_ENDPOINT_URL_KMS` / `AWS_ENDPOINT_URL` | An endpoint of your own: a VPC endpoint's DNS name, or an emulator. An origin only (scheme, host, port)                                                                                         |
+| `AWS_ENDPOINT_URL_STS`                      | The STS endpoint for web identity, e.g. its VPC endpoint. Default: `sts.<region>.amazonaws.com`                                                                                                 |
+| `KMS_REQUIRE_PRIVATE`                       | `true`: every KMS and STS call must take a private network path ([below](#over-a-private-path))                                                                                                 |
+| the credential variables                    | The app's own AWS identity, [below](#the-apps-aws-identity)                                                                                                                                     |
+
+**Switching to AWS KMS** is the same rotation as for Vault:
+
+1. Create a symmetric encryption key (`SYMMETRIC_DEFAULT`, `ENCRYPT_DECRYPT`)
+   and give the app's role `kms:GenerateDataKey`, `kms:Decrypt` and
+   `kms:DescribeKey` on it, in both the role's policy and the key policy. Every
+   call carries the encryption context
+   `agentswarms:purpose=credential-data-key`, so the key policy can allow this
+   use and nothing else:
+
+   ```json
+   {
+     "Sid": "AgentSwarmsCredentialKey",
+     "Effect": "Allow",
+     "Principal": { "AWS": "arn:aws:iam::111122223333:role/agentswarms" },
+     "Action": ["kms:GenerateDataKey", "kms:Decrypt"],
+     "Resource": "*",
+     "Condition": {
+       "StringEquals": { "kms:EncryptionContext:agentswarms:purpose": "credential-data-key" }
+     }
+   }
+   ```
+
+   Add a second statement for `kms:DescribeKey`, without the condition:
+   `DescribeKey` takes no encryption context, and the settings card uses it.
+
+2. Set `KMS_KEY_REF` to the key's ARN, give the app its identity, leave
+   `KMS_PROVIDER` unset and restart. **Admin → IAM → Settings → Credential
+   encryption key** shows AWS KMS with what `DescribeKey` returned: the key,
+   its state, where the key material is kept, the endpoint and its network
+   path, and the identity the app signs as. **Create a data key in AWS KMS**
+   is enabled only when the key is enabled and is a symmetric encryption key.
+3. Create the data key. AWS KMS generates it and returns it plain and wrapped.
+   The app unwraps the wrapped copy and compares the bytes, and only then
+   stores it. A role that may generate but not decrypt stores nothing.
+4. Set `KMS_PROVIDER=aws`, restart, and run **Re-encrypt to current key**, as
+   for Vault.
+
+`Decrypt` names the key it expects: the stored data key row's own key
+reference. A wrapped data key from any other KMS key is refused by AWS
+(`IncorrectKeyException`), and so is one wrapped under another encryption
+context (`InvalidCiphertextException`). A database row an attacker rewrote
+cannot point the app at their own key.
+
+**Rotation.** AWS KMS automatic key rotation is transparent: the key ARN
+stays the same and AWS decrypts under the older key material. To move to a
+different KMS key, point `KMS_KEY_REF` at it, restart and use **Rotate the
+data key in AWS KMS**. The retired data key keeps decrypting under its own key
+reference, in the same region, for as long as the role may still use that
+key. Prefer key ARNs to
+aliases: an alias moved to another key no longer decrypts what the old key
+wrapped.
+
+**HSMs.** The AWS KMS HSMs are FIPS 140-3 validated. For keys in hardware you
+operate, create the KMS key in a **CloudHSM custom key store**, or in an
+**external key store** (XKS) in front of your own HSM. The app needs nothing
+different: the card shows "kept in your AWS CloudHSM cluster (custom key store
+cks-…)" or "kept in your external key manager, through an XKS proxy".
+
+### The app's AWS identity
+
+The credentials the app signs with when it calls AWS as itself
+(`src/utils/aws/credentials.server.ts`). A connection a user configures carries
+its own keys and is not affected. The order is the AWS SDKs' order, and the
+first source whose variables are set is the source. If that source fails, the
+call fails: it never falls through to another identity.
+
+| Source           | Variables                                                                                                                       | Typical deployment                                   |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| Keys             | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, optionally `AWS_SESSION_TOKEN`                                                    | Outside AWS; prefer a role where there is one        |
+| Web identity     | `AWS_WEB_IDENTITY_TOKEN_FILE`, `AWS_ROLE_ARN`, optionally `AWS_ROLE_SESSION_NAME` (default `agentswarms-kms`)                   | EKS with IRSA, or any OIDC federation to an IAM role |
+| Container        | `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`, or `AWS_CONTAINER_CREDENTIALS_FULL_URI` with `AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE` | ECS task role; EKS Pod Identity                      |
+| Instance profile | none; `AWS_EC2_METADATA_DISABLED=true` turns it off, `AWS_EC2_METADATA_SERVICE_ENDPOINT` / `_MODE` move it                      | EC2                                                  |
+
+- **Web identity** exchanges the token at STS (`AssumeRoleWithWebIdentity`,
+  an unsigned call) and reads the token file again at every exchange, because
+  the kubelet rotates it. On EKS, give the web Deployment in
+  `deploy/k8s/app/agentswarms.yaml` a ServiceAccount annotated with
+  `eks.amazonaws.com/role-arn`: the EKS webhook mounts the token and sets both
+  variables. `automountServiceAccountToken: false` stays, because the AWS
+  token is a volume of its own.
+- **Container credentials** over http go only to the loopback or the ECS / EKS
+  Pod Identity agent addresses; any other host must be https. The
+  authorization token is read from its file every time.
+- **Instance profile** uses IMDSv2 only, a session token first. There is no
+  fall-back to IMDSv1, whose plain GET requests are what an SSRF against an
+  instance reaches. In a container on EC2, the instance's hop limit must allow
+  the token response to reach the container (2).
+- Credentials are cached until five minutes before they expire.
+- The metadata endpoints are link-local addresses that the SSRF guard refuses
+  for every other caller. The credential chain reaches them only at fixed
+  URLs, or ones you set, through a direct connection that never uses the
+  proxy and never follows a redirect.
+- Not read: the shared `~/.aws/config` and `credentials` files, profiles, and
+  SSO. Give the container a role or the variables.
+
+### Over a private path
+
+The KMS and STS calls go the way every outbound call from the app goes: the
+SSRF guard's always-blocked tier, and the proxy (`HTTPS_PROXY`, bypassed per
+host by `NO_PROXY`). With an interface VPC endpoint for KMS and private DNS,
+`kms.<region>.amazonaws.com` resolves to the endpoint's private addresses
+without any change. `KMS_REQUIRE_PRIVATE=true` makes that a rule, like a model
+provider's **Require a private network path**: a call that would go directly
+to a public address is refused before anything is sent, and audited as
+`security.kms.private_path.refused`. A call through the proxy counts as the
+egress you chose. The STS exchange that web identity makes is held to the
+same rule. The rule refuses at boot too, so a process whose KMS is not
+reached privately does not start. Vault calls go straight to `VAULT_ADDR` and
+are not covered.
+
+**Testing without an AWS account.** `tests/integration/awsKmsEmulator.test.ts`
+drives the real provider against an emulator over HTTP; the comment at its top
+gives the commands. LocalStack's community image does not check signatures.
+The signer is proved by the AWS test suite instead.
 
 ---
 
@@ -199,8 +334,9 @@ Deliberately incremental. Each step is shippable and reversible.
    change, done with no external dependency to debug alongside it.
 2. **Add `KeyProvider` and the Vault Transit implementation.** Testable in CI
    with a Vault dev container — no cloud account needed.
-3. **Add AWS, then GCP, Azure, OCI**, each behind the same interface, each with
-   an integration test that is skipped when credentials are absent.
+3. **Add AWS (done), then Azure, GCP, OCI**, each behind the same interface,
+   each with an integration test that is skipped when its emulator or
+   credentials are absent.
 4. **Add a provider-switch flow** to the existing Settings card, reusing the
    re-encrypt sweep already built.
 

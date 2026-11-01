@@ -1,7 +1,7 @@
 // Identity & Access Management console (superadmin-only).
 // Users · Groups · Access (model rules + resource shares) · Settings.
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { format, formatDistanceToNow } from "date-fns";
@@ -1902,7 +1902,8 @@ function CredentialKeyCard({ token }: { token: string }) {
   const kms = status?.kms ?? null;
   const external = kms?.external ?? null;
   const externalInUse = !!kms && kms.provider !== "env";
-  const externalName = (id: string) => (id === "vault" ? "Vault Transit" : id.toUpperCase());
+  const externalName = (id: string) =>
+    id === "vault" ? "Vault Transit" : id === "aws" ? "AWS KMS" : id.toUpperCase();
 
   const createKey = async () => {
     setCreating(true);
@@ -2014,9 +2015,21 @@ function CredentialKeyCard({ token }: { token: string }) {
                     No external key provider configured. Set{" "}
                     <code className="font-mono">KMS_KEY_REF</code> and the provider&apos;s variables
                     (Vault: <code className="font-mono">VAULT_ADDR</code> and a token or Kubernetes
-                    role), restart, and the option to wrap a data key appears here.
+                    role; AWS KMS: the key&apos;s ARN or alias, and a role or{" "}
+                    <code className="font-mono">AWS_*</code> keys), restart, and the option to wrap
+                    a data key appears here.
                   </p>
                 )}
+                {external?.probe.facts?.length ? (
+                  <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-xs">
+                    {external.probe.facts.map((f) => (
+                      <Fragment key={f.label}>
+                        <dt className="text-muted-foreground">{f.label}</dt>
+                        <dd className="break-all font-mono">{f.value}</dd>
+                      </Fragment>
+                    ))}
+                  </dl>
+                ) : null}
               </div>
             ) : null}
             <div className="flex flex-wrap items-center gap-2 text-xs">

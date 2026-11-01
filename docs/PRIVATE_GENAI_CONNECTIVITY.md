@@ -502,6 +502,14 @@ Tested (`icebergPrivatePath.test.ts`):
 The migration was proved in a throwaway Postgres: applied twice over an existing row, which reads
 false.
 
+#### And the credential key provider (R429)
+
+AWS KMS, as the provider of the key that encrypts stored credentials, takes the same rule from
+the environment: `KMS_REQUIRE_PRIVATE=true` refuses a KMS call, and the STS exchange web identity
+makes, that would go directly to a public address. `AWS_ENDPOINT_URL_KMS` takes the KMS VPC
+endpoint's name when private DNS is off. See
+[KEY_MANAGEMENT.md](./KEY_MANAGEMENT.md#over-a-private-path).
+
 ### How it would be tested
 
 - **Proxy:** a throwaway Squid container on the app network as the only egress;

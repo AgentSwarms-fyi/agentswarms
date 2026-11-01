@@ -39,17 +39,19 @@ Provider API keys, warehouse and database passwords, SaaS connector
 credentials, MCP bearer tokens, Git tokens and everything stored in **Secrets**
 are encrypted at rest before they reach the database.
 
-| Property       | Value                                                                                                                                                                          |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Algorithm      | **AES-256-GCM** (authenticated — tampering fails, never silently)                                                                                                              |
-| Key            | `KMS_PROVIDER=env` (default): `SHA-256(PROVIDER_CREDS_SECRET)`. `KMS_PROVIDER=vault`: a random 32-byte data key, stored wrapped by a Vault Transit key that never leaves Vault |
-| IV             | 12 random bytes, fresh per encryption                                                                                                                                          |
-| Stored shape   | `{ ciphertext, iv, kid }`, base64                                                                                                                                              |
-| Implementation | `src/utils/providers/crypto.server.ts` (the cipher), `src/utils/kms/` (the keyring and providers) — server-only, never imported client-side                                    |
+| Property       | Value                                                                                                                                                                                                  |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Algorithm      | **AES-256-GCM** (authenticated — tampering fails, never silently)                                                                                                                                      |
+| Key            | `KMS_PROVIDER=env` (default): `SHA-256(PROVIDER_CREDS_SECRET)`. `KMS_PROVIDER=vault` or `aws`: a random 32-byte data key, stored wrapped by a Vault Transit key or an AWS KMS key that never leaves it |
+| IV             | 12 random bytes, fresh per encryption                                                                                                                                                                  |
+| Stored shape   | `{ ciphertext, iv, kid }`, base64                                                                                                                                                                      |
+| Implementation | `src/utils/providers/crypto.server.ts` (the cipher), `src/utils/kms/` (the keyring and providers) — server-only, never imported client-side                                                            |
 
 With an external provider the app holds a **permission to unwrap** the data
 key, not the key: the unwrap happens once per process start, a process that
-cannot unwrap refuses to start, and Vault logs every use. The stored ciphertext
+cannot unwrap refuses to start, and Vault's audit log or CloudTrail records
+every use (AWS KMS calls carry the encryption context
+`agentswarms:purpose=credential-data-key`, which a key policy can require). The stored ciphertext
 is the same either way, so switching is a rotation — the env secret stays
 accepted for reading until the sweep has moved every row. Setup and the
 failure modes are in [KEY_MANAGEMENT.md](./docs/KEY_MANAGEMENT.md).
@@ -369,12 +371,17 @@ Stated plainly because you will ask:
 
 - **No third-party certification.** Not SOC 2, ISO 27001 or HIPAA certified,
   and there is no penetration-test report to share.
-- **Only one external KMS provider.** HashiCorp Vault is built: with
-  `KMS_PROVIDER=vault` the data key is wrapped by a Vault Transit key that
-  never leaves Vault. AWS KMS, GCP KMS, Azure Key Vault and OCI Vault are
+- **Two external KMS providers.** HashiCorp Vault and AWS KMS are built: with
+  `KMS_PROVIDER=vault` or `aws` the data key is wrapped by a key that never
+  leaves Vault Transit or AWS KMS. GCP KMS, Azure Key Vault and OCI Vault are
   designed in [`docs/KEY_MANAGEMENT.md`](./docs/KEY_MANAGEMENT.md) and not yet
-  built; without Vault the master key is an environment variable.
-- **No hardware-backed key storage**, and no automatic re-encryption on a
-  schedule — rotation is operator-initiated.
+  built; without an external provider the master key is an environment
+  variable. AWS KMS has been tested against an emulator and the published
+  SigV4 vectors, not yet against a real AWS account.
+- **Hardware-backed keys only through a provider.** AWS KMS keeps keys in
+  its HSMs, or in your CloudHSM cluster or external key manager through a
+  custom key store. The app does not talk to an HSM directly (PKCS#11, KMIP).
+  There is no automatic re-encryption on a schedule: rotation is
+  operator-initiated.
 - **Encryption at rest is not end-to-end.** The server decrypts credentials in
   order to use them, so a compromised server process can read them in memory.

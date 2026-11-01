@@ -78,7 +78,7 @@ export const createKmsDataKey = createServerFn({ method: "POST" })
         return {
           ok: false,
           error:
-            "No external key provider is configured: set KMS_KEY_REF and the provider's variables (for Vault: VAULT_ADDR and a token or Kubernetes role), restart, then try again.",
+            "No external key provider is configured: set KMS_KEY_REF and the provider's variables (for Vault: VAULT_ADDR and a token or Kubernetes role; for AWS KMS: the key's ARN or alias, and a role or AWS_* keys), restart, then try again.",
         };
       }
       const row = await createDataKey({ provider, createdBy: guard.userId });

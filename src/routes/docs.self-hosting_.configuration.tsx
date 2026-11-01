@@ -173,7 +173,7 @@ function SelfHostingConfigurationPage() {
       <P>
         <strong>No third-party account is required.</strong> SMTP is built in — nodemailer is a
         dependency of the app, not something to install — so any relay you already have works with
-        four variables and nothing signed up for. Set <C>SMTP_HOST</C>, <C>SMTP_PORT</C>,
+        four variables and nothing signed up for. Set <C>SMTP_HOST</C>, <C>SMTP_PORT</C>,{" "}
         <C>SMTP_USER</C> and <C>SMTP_PASS</C>, plus <C>EMAIL_FROM</C>. Port 587 with STARTTLS is the
         default; 465 turns on implicit TLS automatically. Leave <C>SMTP_USER</C> empty for a relay
         that authenticates by IP.
@@ -676,6 +676,21 @@ AUDIT_ARCHIVE_ON_PURGE="1"
         <strong>Admin → IAM → Settings → Credential encryption key</strong>, then switch the
         provider and run the same re-encrypt sweep; the env secret keeps decrypting old rows until
         it has moved them. Details and the failure modes in <C>docs/KEY_MANAGEMENT.md</C>.
+      </Callout>
+
+      <Callout kind="info" title="Or in AWS KMS">
+        <C>KMS_PROVIDER=aws</C> does the same with an AWS KMS key: set <C>KMS_KEY_REF</C> to the
+        key&apos;s ARN. AWS KMS generates the data key, and every call carries the encryption
+        context <C>agentswarms:purpose=credential-data-key</C>, so the key policy can allow{" "}
+        <C>kms:GenerateDataKey</C> and <C>kms:Decrypt</C> for this use only (and{" "}
+        <C>kms:DescribeKey</C>, which the settings card uses). The app signs as its own role: EKS
+        IRSA (<C>AWS_WEB_IDENTITY_TOKEN_FILE</C>, <C>AWS_ROLE_ARN</C>), an ECS task role or EKS Pod
+        Identity, or an EC2 instance profile over IMDSv2; outside AWS, <C>AWS_ACCESS_KEY_ID</C> and{" "}
+        <C>AWS_SECRET_ACCESS_KEY</C>. The first source that is configured is used, never a
+        fall-back. <C>AWS_ENDPOINT_URL_KMS</C> takes a VPC endpoint, <C>AWS_USE_FIPS_ENDPOINT</C>{" "}
+        the FIPS one, and <C>KMS_REQUIRE_PRIVATE=true</C> refuses any KMS or STS call that would go
+        to a public address. A key in a CloudHSM custom key store or an external key store needs
+        nothing different. The settings card shows where the key material is kept.
       </Callout>
 
       <H3 id="recipe-fleet">Autoscaled behind a load balancer</H3>
