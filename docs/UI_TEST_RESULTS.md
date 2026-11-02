@@ -15,6 +15,38 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-02 — R436: Iceberg catalogs over a private path, with the migration in (R428, part two)
+
+The user pushed `20261104000000`, so the three checks R428 left waiting were driven. Stand-in:
+`r428-alias`, a throwaway `python:3.12-slim` TCP forwarder from its port 80 to the account's REST
+catalog (`192.168.1.85:8181`), on the app network with the network alias `example.com`. Connected,
+`example.com` resolves from the app to 172.19.0.15 (private); disconnected, to 172.66.147.243 and
+104.20.23.154 (public). Toasts were read by a watcher on the page's toast list. The first pass ran on
+the R435 build and found the gap below; the second ran on the R436 build, hot-deployed.
+
+| Page / surface | What was driven | Result |
+| --- | --- | --- |
+| Lakehouse → Iceberg, the `r428_private` row | tick **Require a private network path** | toast "r428_private now requires a private network path"; a **private path required** badge; still ticked after five page loads |
+| … Add catalog `r428_flip`, endpoint `http://example.com`, warehouse `s3://iceberg/` | **Check network path** | "endpoint: direct to 172.19.0.15 (private)" |
+| … the rule ticked | **Test and save** | "Registered r428_flip: 3 namespaces"; the row with the badge and the box ticked. The stand-in's log: `GET /v1/config?warehouse=s3%3A%2F%2Ficeberg%2F` from the app |
+| … mount `sales` as `ice_r428_flip` | **Mount** | "Mounted 1 table"; `ice_r428_flip.revenue_facts` (836 rows) |
+| Query: `SELECT count(*) … FROM ice_r428_flip.revenue_facts` | Ctrl+Enter | 836 at 13:23:24 UTC |
+| The alias disconnected (13:23:39) | the same query, after the 15 s sync interval, then 8 more | first build: `Binder Error: Catalog "ice_432b320b0b484d7d8b477add293da19d" does not exist!` every time. Server log: one "detached" (the worker that held it) and ten "did not attach" (the others), each "example.com resolves to a public address (172.66.147.243, 104.20.23.154) from this server, so the call was not sent." **The gap:** the query named neither the catalog nor the rule |
+| Iceberg dialog | read | `r428_flip`: **not attached** badge and the refusal in full; still ticked |
+| Audit log | read | 11 × `lakehouse.iceberg.private_path.refused` · r428_flip · the refusal; `lakehouse.iceberg.mount`; `iceberg_catalog.create`; `lakehouse.iceberg.network_rule` · r428_private |
+| The alias reconnected | the same query | 836 at 13:26:20: the forced sync attached it again |
+| R436 build: the query while private | Ctrl+Enter | 836 at 13:42:43 |
+| … the alias disconnected (13:42:59) | 25 queries, some after page loads so they reached other workers | the 1st, 7th, 15th and 25th answers, read off the page: "This statement reads the Iceberg catalog "r428_flip", which is not attached: The Iceberg catalog "r428_flip" is set to require a private network path, but example.com resolves to a public address (172.66.147.243, 104.20.23.154) from this server, so the call was not sent. …". Server log: one "detached", 30 "did not attach" |
+| … the alias reconnected (13:47:40) | the query; the Iceberg dialog | 836; `r428_flip` no longer marked **not attached** |
+
+Not driven: the answer to someone reading a shared mount of the catalog (the catalog's name, not its
+endpoint). It needs a second account, and this install signs in through the hosted auth service; it
+is covered by `icebergPrivatePath.test.ts`.
+
+Kept: `r428-alias` (running, connected, so `example.com` from the app network reaches the account's
+REST catalog: `docker rm -f r428-alias` gives the name back), the catalog `r428_flip` with the rule and
+its mount `ice_r428_flip`, and `r428_private` now with the rule on.
+
 ## 2026-11-02 — R435: Google Cloud KMS on the credential key card
 
 Stand-in: `r435-floci-gcp` (floci-gcp 0.11.0, pinned by digest) on the app network, key

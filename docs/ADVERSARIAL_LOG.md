@@ -109,6 +109,42 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-02 — R436: R428's private-path rule, with the migration in; a detached catalog's query says why
+
+**Context.** The user pushed `20261104000000` (`iceberg_catalogs.require_private`), so R428's UI
+round could finish: a save with the rule on, the rule turned on from a row, and an attached catalog
+detached at an engine sync once its name stops resolving privately.
+
+**The stand-in.** `r428-alias`, a throwaway `python:3.12-slim` container running a TCP forwarder
+from its port 80 to the account's REST catalog (`192.168.1.85:8181`), joined to the app network
+with the Docker network alias `example.com`. While it is connected, `example.com` resolves from
+the app to the forwarder's private address (172.19.0.15); disconnected, to the name's public ones.
+The catalog `r428_flip` (endpoint `http://example.com`) is the one whose name flips.
+
+**What held.** All three waiting checks passed in the UI (UI_TEST_RESULTS, R436). The sync on the
+worker that held the catalog detached it ("detached: … resolves to a public address"), every other
+worker refused to attach it, each refusal was audited, and the row said why. Reconnecting the alias
+let the next query attach it again.
+
+**Found.** The query on the catalog's mount answered with the engine's text, `Binder Error:
+Catalog "ice_432b320b0b484d7d8b477add293da19d" does not exist!`, naming neither the catalog nor the
+rule; the reason was only on the catalog's row, in a dialog the person querying had no cause to
+open. The app runs one engine per worker, so most queries land on a worker that never attached the
+catalog: there the forced sync refuses the attach and the retry meets the same missing catalog.
+**Fixed:** the sync keeps, per instance, why each catalog is not attached (the refusal, or the
+endpoint's own failure), cleared when it attaches; the statement's retry, when it still meets the
+missing catalog, says "This statement reads the Iceberg catalog "r428_flip", which is not attached:"
+and that reason. Someone reading a shared mount is told the catalog's name and that its owner can
+see why, not the endpoint or the addresses it resolves to.
+
+**Proved.**
+
+| Check | Result |
+| --- | --- |
+| `icebergPrivatePath.test.ts` | 3 new (27 in all): the detached catalog's reason for the owner, the name only for anyone else, nothing for another catalog's alias or another error, nothing once it attaches again; an endpoint that failed gives the engine's reason; the query's retry asks for it |
+| mutation | 8 of 8 killed: no reason recorded at the detach, none at a failed attach, the reason kept after a re-attach, everyone or nobody treated as the owner, any alias matching, any message matching, the retry not asking |
+| UI | UI_TEST_RESULTS, R436: before and after the fix, on the hot-deployed build |
+
 ### 2026-11-02 — R435: Google Cloud KMS as a key provider, and the app's own Google identity
 
 **Feature.** `KMS_PROVIDER=gcp` keeps the credential key-encrypting key in Cloud KMS, in the order

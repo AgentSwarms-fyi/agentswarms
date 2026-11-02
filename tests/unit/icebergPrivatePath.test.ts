@@ -9,6 +9,7 @@
 // is a column (migration 20261104000000); until it runs, every catalog reads
 // as not requiring it and a save that asks for it says which migration to
 // apply. A path report says which way the engine would go, before saving.
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => {
@@ -120,6 +121,7 @@ import {
   assertIcebergUrlsAllowed,
   configOf,
   ensureIcebergCatalogs,
+  explainMissingIcebergCatalog,
   type IcebergCatalogRow,
 } from "@/utils/lakehouse/iceberg.server";
 import type { IcebergCatalogConfig } from "@/utils/lakehouse/iceberg";
@@ -286,6 +288,65 @@ describe("every engine sync checks an attached catalog again", () => {
     await ensureIcebergCatalogs(h.conn as never, true);
     expect(h.sqls.filter((s) => s.startsWith("ATTACH"))).toHaveLength(1);
     clock.mockRestore();
+  });
+
+  // FOUND IN R428's second UI round: a query on a mount of a catalog the sync
+  // had detached answered `Catalog "ice_…" does not exist!`, naming neither the
+  // catalog nor the rule. The statement's retry now asks for the reason.
+  it("a statement that meets the detached catalog hears which one and why", async () => {
+    const id = "dddddddd-2222-4333-8444-555555555555";
+    const missing = 'Binder Error: Catalog "ice_dddddddd222243338444555555555555" does not exist!';
+    h.state.rows = [row(id, true)];
+    await ensureIcebergCatalogs(h.conn as never, true);
+    expect(explainMissingIcebergCatalog(missing, "u1")).toBeNull();
+
+    h.answers["catalog.corp.test"] = ["203.0.113.9"];
+    await ensureIcebergCatalogs(h.conn as never, true);
+    expect(explainMissingIcebergCatalog(missing, "u1")).toBe(
+      `This statement reads the Iceberg catalog "lake_cat", which is not attached: ${REFUSED_PUBLIC}`,
+    );
+    // Someone reading a shared mount hears the name, not the endpoint.
+    expect(explainMissingIcebergCatalog(missing, "u2")).toBe(
+      'This statement reads the Iceberg catalog "lake_cat", which is not attached on this server; its owner can see why under Lakehouse → Iceberg.',
+    );
+    // Another catalog's alias, or another error, is left to the engine's words.
+    expect(
+      explainMissingIcebergCatalog(
+        'Binder Error: Catalog "ice_eeeeeeee222243338444555555555555" does not exist!',
+        "u1",
+      ),
+    ).toBeNull();
+    expect(
+      explainMissingIcebergCatalog("Catalog Error: Table with name x does not exist!", "u1"),
+    ).toBeNull();
+
+    // Attached again: no reason is left to give.
+    h.answers["catalog.corp.test"] = ["10.0.12.34"];
+    await ensureIcebergCatalogs(h.conn as never, true);
+    expect(explainMissingIcebergCatalog(missing, "u1")).toBeNull();
+  });
+
+  it("a catalog that did not attach gives the engine's reason", async () => {
+    const id = "ffffffff-2222-4333-8444-555555555555";
+    h.state.rows = [row(id, false)];
+    h.state.attachError = "IO Error: Could not connect to catalog.corp.test: connection refused";
+    await ensureIcebergCatalogs(h.conn as never, true);
+    expect(
+      explainMissingIcebergCatalog(
+        'Binder Error: Catalog "ice_ffffffff222243338444555555555555" does not exist!',
+        "u1",
+      ),
+    ).toBe(
+      'This statement reads the Iceberg catalog "lake_cat", which is not attached: IO Error: Could not connect to catalog.corp.test: connection refused',
+    );
+  });
+
+  it("the query retries through it after the forced sync", () => {
+    const core = readFileSync("src/utils/lakehouse/core.server.ts", "utf8");
+    const retry = core.slice(core.indexOf("await ice.ensureIcebergCatalogs(conn, true);"));
+    expect(retry.slice(0, 400)).toContain(
+      "ice.explainMissingIcebergCatalog((again as Error).message, userId)",
+    );
   });
 
   it("leaves a catalog without the rule attached when its name turns public", async () => {

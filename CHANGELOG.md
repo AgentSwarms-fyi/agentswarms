@@ -1057,6 +1057,16 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **A query on a mount of a catalog that is not attached says which catalog
+  and why** (R436, found in R428's second UI round). A catalog detached
+  because its name had stopped resolving privately answered a query on its
+  mount with the engine's `Catalog "ice_432b…" does not exist!`, naming
+  neither the catalog nor the rule. After the sync and retry the statement
+  already made, it now says "This statement reads the Iceberg catalog
+  "r428_flip", which is not attached:" and the reason shown on the catalog's
+  row (the private-path refusal, or the endpoint's own failure). Someone
+  reading a shared mount hears the catalog's name and that its owner can see
+  why, not its endpoint.
 - **Explore's search box and Filter narrow the objects listed, at every step
   of a search around** (R434, found from the UI). After **Search around →
   orders** the box still said "Search customers", and it and Filter still

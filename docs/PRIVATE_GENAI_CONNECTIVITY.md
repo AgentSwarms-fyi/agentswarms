@@ -468,7 +468,10 @@ privately, so there is no endpoint to override. What is new:
    `20261104000000`). The catalog attaches only when both names resolve only to private
    addresses: checked at every attach (the save's probe, a mount, a publish, the sync) and again
    at every engine sync for a catalog already attached, which is detached, with the reason on its
-   row, when its name stops resolving privately. A proxy does not count, unlike a model
+   row, when its name stops resolving privately. A query on one of its mounts then names the
+   catalog and gives that reason (R436; to the owner, while someone reading a shared mount hears
+   only the catalog's name), and the first query after the name resolves privately again attaches
+   it. A proxy does not count, unlike a model
    provider's. The engine reads the proxy settings from the environment itself, so the app
    cannot vouch for which way a call goes (below). A refusal is audited
    (`lakehouse.iceberg.private_path.refused`). The rule can be turned on for a saved catalog from

@@ -1421,7 +1421,11 @@ export async function runLakehouseStatement(
           const ice = await import("@/utils/lakehouse/iceberg.server");
           if (!icebergLoaded || !ice.isMissingIcebergCatalogError((e as Error).message)) throw e;
           await ice.ensureIcebergCatalogs(conn, true);
-          return execute();
+          return execute().catch((again) => {
+            // Still missing after the sync: say which catalog, and why.
+            const why = ice.explainMissingIcebergCatalog((again as Error).message, userId);
+            throw why ? new Error(why) : again;
+          });
         });
         const names = reader.columnNames();
         const types = reader.columnTypes();

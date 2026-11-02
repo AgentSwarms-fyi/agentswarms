@@ -395,9 +395,11 @@ function LakehouseDocsPage() {
           <em>Check network path</em> says where the endpoint and the OAuth2 server resolve, private
           or public. <em>Require a private network path</em>, per catalog, attaches it only when
           both resolve only to private addresses: checked at every attach and at every engine sync,
-          which detaches a catalog whose name stops resolving privately and says why on its row. A
-          proxy does not count, since the engine reads the proxy settings itself. The table files
-          are read where the catalog points; the rule does not reach them.
+          which detaches a catalog whose name stops resolving privately and says why on its row; a
+          query on one of its mounts then names the catalog and gives that reason. It attaches again
+          at the first query after its name resolves privately again. A proxy does not count, since
+          the engine reads the proxy settings itself. The table files are read where the catalog
+          points; the rule does not reach them.
         </li>
         <li>
           <strong>Mount a namespace.</strong> A namespace becomes a lakehouse schema: one read-only

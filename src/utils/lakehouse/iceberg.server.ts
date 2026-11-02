@@ -217,6 +217,8 @@ const SYNC_MS = 15_000;
  */
 const failedAt = new Map<string, number>();
 const RETRY_FAILED_MS = 5 * 60_000;
+/** Why a catalog is not attached on this instance, for a statement that meets it. */
+const notAttached = new Map<string, { name: string; owner: string; reason: string }>();
 
 /**
  * Attach every active catalog this instance lacks, detach the ones removed.
@@ -257,6 +259,7 @@ export async function ensureIcebergCatalogs(c: DuckDBConnection, force = false):
           attached.delete(row.id);
           failedAt.set(row.id, Date.now());
           const message = (e as Error).message.slice(0, 500);
+          notAttached.set(row.id, { name: row.name, owner: row.user_id, reason: message });
           console.warn(`[lakehouse] iceberg catalog "${row.name}" detached:`, message);
           await supabaseAdmin
             .from("iceberg_catalogs")
@@ -272,12 +275,14 @@ export async function ensureIcebergCatalogs(c: DuckDBConnection, force = false):
       await attachIcebergCatalog(c, row.user_id, configOf(row), icebergAlias(row.id));
       attached.add(row.id);
       failedAt.delete(row.id);
+      notAttached.delete(row.id);
       if (row.last_error) {
         await supabaseAdmin.from("iceberg_catalogs").update({ last_error: null }).eq("id", row.id);
       }
     } catch (e) {
       failedAt.set(row.id, Date.now());
       const message = (e as Error).message.slice(0, 500);
+      notAttached.set(row.id, { name: row.name, owner: row.user_id, reason: message });
       console.warn(`[lakehouse] iceberg catalog "${row.name}" did not attach:`, message);
       await supabaseAdmin
         .from("iceberg_catalogs")
@@ -296,6 +301,28 @@ export async function ensureIcebergCatalogs(c: DuckDBConnection, force = false):
 /** The engine's own words for a statement that met a catalog this instance has not attached. */
 export function isMissingIcebergCatalogError(message: string): boolean {
   return /Catalog "ice_[0-9a-f]{32}" does not exist/.test(message);
+}
+
+/**
+ * What to say when a statement still meets a missing catalog after a forced
+ * sync: which catalog, and why this instance could not attach it. FOUND IN
+ * R428's second UI round: a catalog detached because its name had stopped
+ * resolving privately answered a query with the engine's `Catalog
+ * "ice_432b…" does not exist!`, which names neither the catalog nor the rule.
+ * The owner hears the reason on the catalog's row; anyone else, who may read
+ * a shared mount, hears the catalog's name and not its endpoint. Null when
+ * this instance knows no reason.
+ */
+export function explainMissingIcebergCatalog(message: string, userId: string): string | null {
+  const alias = /Catalog "(ice_[0-9a-f]{32})" does not exist/.exec(message)?.[1];
+  if (!alias) return null;
+  for (const [id, why] of notAttached) {
+    if (icebergAlias(id) !== alias) continue;
+    return why.owner === userId
+      ? `This statement reads the Iceberg catalog "${why.name}", which is not attached: ${why.reason}`
+      : `This statement reads the Iceberg catalog "${why.name}", which is not attached on this server; its owner can see why under Lakehouse → Iceberg.`;
+  }
+  return null;
 }
 
 const NO_EXTENSION =
