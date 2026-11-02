@@ -39,9 +39,15 @@ let generateViewerSecret: () => string;
 let decideViewerScope: typeof import("@/utils/embedViewer.server").decideViewerScope;
 let encryptViewerSecret: typeof import("@/utils/embedViewer.server").encryptViewerSecret;
 
+// The embed key's owner: the viewer secret goes under their user key (R438).
+const OWNER = "00000000-0000-4000-8000-0000000000e1";
+
 beforeAll(async () => {
   // The secret store needs an envelope key, like every other credential.
   process.env.PROVIDER_CREDS_SECRET ??= "test-envelope-key-for-viewer-secrets";
+  const { memoryKeyStore } = await import("../fixtures/keyStores");
+  const { __setKeyHierarchyForTests } = await import("@/utils/providers/crypto.server");
+  __setKeyHierarchyForTests(memoryKeyStore().store);
   const mod = await import("@/utils/embedViewer.server");
   hmacFor = mod.hmacFor;
   safeEquals = mod.safeEquals;
@@ -130,7 +136,7 @@ describe("deciding what a request's viewer may see", () => {
   const scopedKey = async (over: Record<string, unknown> = {}) => ({
     require_signed_viewer: true,
     viewer_attributes: ["tenant"],
-    viewer_secret: await encryptViewerSecret(SECRET),
+    viewer_secret: await encryptViewerSecret(SECRET, OWNER),
     ...over,
   });
 

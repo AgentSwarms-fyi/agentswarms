@@ -27,6 +27,7 @@ import {
 } from "@/lib/scim";
 import { auditEvent } from "@/utils/audit.server";
 import { isProtectedAccount } from "@/utils/iam.server";
+import { groupMembershipChanged } from "@/utils/kms/membershipChanged.server";
 import { envInt, rateLimitedGlobal } from "@/utils/rateLimit.server";
 
 const BAN_DURATION = "87600h"; // the same ~10 years the IAM page uses
@@ -728,6 +729,8 @@ async function writeMembers(
       .in("user_id", remove);
     if (error) throw new ScimError(500, error.message);
   }
+  // A customer key assigned to this group now covers different users (R438).
+  groupMembershipChanged([...add, ...remove], "a SCIM group change");
 }
 
 export async function createScimGroup(body: unknown, actor: ScimActor, baseUrl: string) {
@@ -841,8 +844,18 @@ export async function patchScimGroup(id: string, body: unknown, actor: ScimActor
 
 export async function deleteScimGroup(id: string, actor: ScimActor): Promise<void> {
   const g = await getGroupRow(id);
+  // Its members, read first: a customer key assigned to it stops covering them.
+  const { data: had, error: hadErr } = await supabaseAdmin
+    .from("iam_group_members")
+    .select("user_id")
+    .eq("group_id", g.id);
+  if (hadErr) throw unreadable("the group's members", hadErr);
   const { error } = await supabaseAdmin.from("iam_groups").delete().eq("id", g.id);
   if (error) throw new ScimError(500, error.message);
+  groupMembershipChanged(
+    (had ?? []).map((m) => m.user_id as string),
+    "deleting a group over SCIM",
+  );
   audit(actor, "scim.group.delete", {
     resourceType: "iam_group",
     resourceId: g.id,

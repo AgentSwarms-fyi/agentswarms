@@ -89,7 +89,7 @@ export const embedSetSignedViewer = createServerFn({ method: "POST" })
         .update({
           require_signed_viewer: data.enabled,
           viewer_attributes: attributes,
-          ...(secret ? { viewer_secret: await encryptViewerSecret(secret) } : {}),
+          ...(secret ? { viewer_secret: await encryptViewerSecret(secret, row.user_id) } : {}),
         })
         .eq("id", data.embedKeyId);
       if (error) throw new Error(error.message);

@@ -121,11 +121,11 @@ export async function loadWarehouseConnection(
   if (!row) throw new Error("Warehouse connection not found");
   if (!row.is_active) throw new Error(`Warehouse connection "${row.name}" is disabled`);
 
-  const enc = row.credentials as { ciphertext?: string; iv?: string };
+  const enc = row.credentials as { ciphertext?: string; iv?: string; kid?: string };
   if (!enc?.ciphertext || !enc?.iv) {
     throw new Error(`Warehouse connection "${row.name}" has no stored credentials`);
   }
-  let config = await decryptJson<WarehouseConfig>(enc.ciphertext, enc.iv);
+  let config = await decryptJson<WarehouseConfig>(enc.ciphertext, enc.iv, enc.kid);
   // Secret references resolve as the connection's OWNER, not the caller.
   // On a shared connection those two differ, and resolving as the caller
   // would look up {{secret:PROD_PW}} in the GRANTEE's vault — finding either

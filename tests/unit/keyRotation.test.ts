@@ -47,7 +47,7 @@ afterEach(() => {
 describe("key fingerprints identify a key without exposing it", () => {
   it("stamps new ciphertext with the writing key's fingerprint", async () => {
     useKeys(KEY_A);
-    const blob = await encryptJson("hello");
+    const blob = await encryptJson("hello", { owner: null });
     expect(blob.kid).toBe(await currentKid());
   });
 
@@ -96,7 +96,7 @@ describe("key fingerprints identify a key without exposing it", () => {
 describe("decryption spans the keyring", () => {
   it("reads a blob written under a previous key", async () => {
     useKeys(KEY_A);
-    const blob = await encryptJson({ token: "secret-value" });
+    const blob = await encryptJson({ token: "secret-value" }, { owner: null });
     useKeys(KEY_B, [KEY_A]);
     expect(await decryptJson(blob.ciphertext, blob.iv, blob.kid)).toEqual({
       token: "secret-value",
@@ -104,17 +104,17 @@ describe("decryption spans the keyring", () => {
   });
 
   it("still works for callers that pass no kid at all", async () => {
-    // Every pre-existing call site is decryptJson(ciphertext, iv). Those must
+    // Every pre-existing call site is decryptJson(ciphertext, iv, undefined). Those must
     // keep working, which is why kid is advisory rather than required.
     useKeys(KEY_A);
-    const blob = await encryptJson("legacy");
+    const blob = await encryptJson("legacy", { owner: null });
     useKeys(KEY_B, [KEY_A]);
-    expect(await decryptJson(blob.ciphertext, blob.iv)).toBe("legacy");
+    expect(await decryptJson(blob.ciphertext, blob.iv, undefined)).toBe("legacy");
   });
 
   it("refuses when no configured key can read it", async () => {
     useKeys(KEY_A);
-    const blob = await encryptJson("x");
+    const blob = await encryptJson("x", { owner: null });
     useKeys(KEY_C);
     await expect(decryptJson(blob.ciphertext, blob.iv, blob.kid)).rejects.toThrow();
   });
@@ -123,18 +123,18 @@ describe("decryption spans the keyring", () => {
     // AES-GCM authenticates, so a wrong key fails loudly. Without that, rotation
     // could quietly replace a credential with nonsense.
     useKeys(KEY_A);
-    const blob = await encryptJson("real");
+    const blob = await encryptJson("real", { owner: null });
     useKeys(KEY_B);
-    await expect(decryptJson(blob.ciphertext, blob.iv)).rejects.toThrow();
+    await expect(decryptJson(blob.ciphertext, blob.iv, undefined)).rejects.toThrow();
   });
 });
 
 describe("re-encryption moves a blob onto the current key", () => {
   it("rewrites a blob from an old key and keeps the plaintext", async () => {
     useKeys(KEY_A);
-    const blob = await encryptJson({ a: 1 });
+    const blob = await encryptJson({ a: 1 }, { owner: null });
     useKeys(KEY_B, [KEY_A]);
-    const { blob: next, changed } = await reEncryptBlob(blob);
+    const { blob: next, changed } = await reEncryptBlob(blob, { owner: null });
     expect(changed).toBe(true);
     expect(next.kid).toBe(await currentKid());
     expect(next.ciphertext).not.toBe(blob.ciphertext);
@@ -146,8 +146,8 @@ describe("re-encryption moves a blob onto the current key", () => {
 
   it("skips a blob already on the current key", async () => {
     useKeys(KEY_A);
-    const blob = await encryptJson("x");
-    const { blob: same, changed } = await reEncryptBlob(blob);
+    const blob = await encryptJson("x", { owner: null });
+    const { blob: same, changed } = await reEncryptBlob(blob, { owner: null });
     expect(changed).toBe(false);
     expect(same.ciphertext).toBe(blob.ciphertext);
   });
@@ -158,29 +158,29 @@ describe("re-encryption moves a blob onto the current key", () => {
     useKeys(KEY_A);
     const nested = {
       name: "conn",
-      config: { api_key_enc: await encryptJson("k1"), plain: "not-a-secret" },
-      list: [{ tok: await encryptJson("k2") }],
+      config: { api_key_enc: await encryptJson("k1", { owner: null }), plain: "not-a-secret" },
+      list: [{ tok: await encryptJson("k2", { owner: null }) }],
     };
     useKeys(KEY_B, [KEY_A]);
-    const r = await reEncryptDeep(nested);
+    const r = await reEncryptDeep(nested, { owner: null });
     expect(r.migrated).toBe(2);
     expect(r.failed).toBe(0);
 
     useKeys(KEY_B);
     const out = r.value as typeof nested;
-    expect(await decryptJson(out.config.api_key_enc.ciphertext, out.config.api_key_enc.iv)).toBe(
-      "k1",
-    );
-    expect(await decryptJson(out.list[0].tok.ciphertext, out.list[0].tok.iv)).toBe("k2");
+    expect(
+      await decryptJson(out.config.api_key_enc.ciphertext, out.config.api_key_enc.iv, undefined),
+    ).toBe("k1");
+    expect(await decryptJson(out.list[0].tok.ciphertext, out.list[0].tok.iv, undefined)).toBe("k2");
     expect(out.config.plain).toBe("not-a-secret");
   });
 
   it("is idempotent — a second pass migrates nothing", async () => {
     useKeys(KEY_A);
-    const v = { s: await encryptJson("x") };
+    const v = { s: await encryptJson("x", { owner: null }) };
     useKeys(KEY_B, [KEY_A]);
-    const first = await reEncryptDeep(v);
-    const second = await reEncryptDeep(first.value);
+    const first = await reEncryptDeep(v, { owner: null });
+    const second = await reEncryptDeep(first.value, { owner: null });
     expect(first.migrated).toBe(1);
     expect(second.migrated).toBe(0);
     expect(second.alreadyCurrent).toBe(1);
@@ -191,9 +191,9 @@ describe("re-encryption moves a blob onto the current key", () => {
     // reported, never replaced — otherwise a misconfigured keyring destroys
     // credentials instead of failing.
     useKeys(KEY_A);
-    const orphan = await encryptJson("unreachable");
+    const orphan = await encryptJson("unreachable", { owner: null });
     useKeys(KEY_C);
-    const r = await reEncryptDeep({ orphan });
+    const r = await reEncryptDeep({ orphan }, { owner: null });
     expect(r.failed).toBe(1);
     expect(r.migrated).toBe(0);
     expect((r.value as { orphan: typeof orphan }).orphan).toEqual(orphan);
@@ -203,10 +203,10 @@ describe("re-encryption moves a blob onto the current key", () => {
 describe("status counts tell an operator what a sweep would do", () => {
   it("separates current, older and unstamped blobs", async () => {
     useKeys(KEY_A);
-    const old = await encryptJson("old");
+    const old = await encryptJson("old", { owner: null });
     const legacy = { ciphertext: old.ciphertext, iv: old.iv }; // no kid
     useKeys(KEY_B, [KEY_A]);
-    const fresh = await encryptJson("new");
+    const fresh = await encryptJson("new", { owner: null });
 
     const s = await blobKeyStatus({ old, legacy, fresh });
     expect(s.total).toBe(3);
@@ -220,11 +220,11 @@ describe("status counts tell an operator what a sweep would do", () => {
     // from PROVIDER_CREDS_SECRET_OLD, these were "on an older key" under
     // "These still decrypt". They do not, and a sweep cannot move them.
     useKeys(KEY_C);
-    const orphan = await encryptJson("on C");
+    const orphan = await encryptJson("on C", { owner: null });
     useKeys(KEY_A);
-    const old = await encryptJson("on A");
+    const old = await encryptJson("on A", { owner: null });
     useKeys(KEY_B, [KEY_A]);
-    const fresh = await encryptJson("on B");
+    const fresh = await encryptJson("on B", { owner: null });
 
     const s = await blobKeyStatus({ orphan, nested: { old, more: [orphan] }, fresh });
     expect(s).toEqual({

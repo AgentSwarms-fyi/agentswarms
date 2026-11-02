@@ -109,6 +109,75 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-02 — R438: customer keys and user keys
+
+**Feature.** The last item in the user's KMS order ("per-customer keys after the cloud
+providers"), shaped by the user's two choices: customer keys AND a key per user; credentials now,
+the data beyond them designed only. The app has no organisation table, so a customer is a key that
+IAM groups and users are assigned to. `src/utils/kms/keyHierarchy.server.ts` (the layer, pure over a
+store, the deployment keyring and the customer's provider), `keyStore.server.ts` (the tables),
+`customerKeys.functions.ts` (the card's functions), `CustomerKeysCard.tsx`, migration
+`20261105000000_customer_keys.sql`; `encryptJson` takes the owner at every call site (17), and every
+decrypt passes the value's `kid` (19).
+
+**Designed against what can go wrong.**
+
+- **A member's value written under the deployment's key while looking fine.** The only fallback is
+  "the tables are not there yet" (`KeyStoreMissingError`, PGRST205/42P01); any other failure to get
+  the owner's key fails the save. A customer KMS that refuses, a destroyed key, a conflict: an error
+  naming why, never another key.
+- **The boot depending on every customer's KMS.** The deployment keyring is unchanged and alone on
+  the startup path and in `/api/health/ready`; a customer key is unwrapped at a member's first read
+  and kept for `DATA_KEY_CACHE_SECONDS`, so one customer's revocation stops their members' values
+  and nothing else.
+- **A revoked key that keeps working.** Every process forgets an unwrapped key after the cache time
+  (default 300 s, 0 = never kept); the process that erased or destroyed it forgets at once. A KMS
+  that is down is not asked again for 15 s per key, so a read storm is not a KMS storm.
+- **Moving a user re-encrypting everything they own.** A move re-wraps the one user key
+  (compare-and-set on its wrapper, so two processes cannot both move it); no value is touched.
+  Assignment changes move the users they cover at once; group membership changes in Admin and over
+  SCIM move them in the background; the sweep moves anything left.
+- **A guess between two customers.** A user whose groups name two customer keys is refused a save,
+  naming both keys and groups; an assignment that would cause it is refused, naming the other key; a
+  direct assignment wins and settles it.
+- **A rotation orphaning user keys.** Rotating the deployment key re-wraps user keys and app-held
+  customer keys in the sweep; a user key wrapped by a deployment key the server no longer holds is
+  "unheld" with the key named, and a save for that user is refused rather than make a new key that
+  would orphan the old values.
+- **Wrapped keys moved between rows.** Each wrapped user key is bound (AES-GCM associated data) to
+  its user and fingerprint, each app-held customer key to its row and fingerprint; a customer key's
+  KMS answer is checked against its fingerprint.
+- **Erasure claimed where it does not hold.** Deleting a key row does not reach a backup taken
+  before; the docs, the card and SECURITY.md say so, and that a customer key deleted in its own KMS
+  does.
+
+**Found.**
+
+- **Three tables the rotation sweep never covered.** `ENCRYPTED_TABLES` said it was derived from
+  every call site, but Slack workspaces, Teams bots and signed embed viewers had been added since:
+  their secrets stayed on a retired key and uncounted, and broke when the old secret was removed.
+  **Fixed:** listed, and `encryptedTables.test.ts` holds the list to the files that write
+  ciphertext and to every table with an `_enc` column.
+- **`kb_sources.user_id` is nullable.** A row without an owner is written and swept under the
+  deployment's key; stated in the guard test.
+
+**Proved.**
+
+| Check | Result |
+| --- | --- |
+| `customerKeys.test.ts` (new) | 26, through the real crypto module over an in-memory store and a revocable fake KMS: one key per owner (racing first saves too), not the deployment's; bound to its user; erasure says why and the next save gets a new key; the cache time across processes; a rotation re-wraps, values untouched; an unheld wrapper refused without a new key; before the migration and on any other store error; app-held keys destroyed and re-wrapped; a customer revocation stops only its members, and saves for them write nothing; one KMS call per cache period and a backoff when it is down; a KMS answering other bytes; moves both ways with the same key; groups, conflicts, a direct assignment; a destroyed key's members refused; the sweep's per-owner re-encryption; a fingerprint the deployment uses never given to a user key |
+| `customerKeySweep.test.ts` (new) | 10, the real store and sweep over an in-memory PostgREST with the migration's unique constraints: conflicts and compare-and-set; memberships with names; a missing table told from other failures; who is under which key; the card's counts with an erased key named; the sweep over all 12 tables, after a rotation, with moves, app-held customer keys and a conflict reported; one owner's sweep touches nobody else |
+| `customerKeyFunctions.test.ts` (new) | 8, the card's server functions over the same: create (app-held, KMS, refused references and the deployment's own key), Check with the provider's facts and a revocation, assign and unassign moving what members stored, a clash refused naming the other key, destroy by name and erase by email with the cache on, the migration-missing state |
+| `encryptedTables.test.ts` (new) | 3: every ciphertext writer's tables, every `_enc` column's table, an owner column on each |
+| migration proof | `postgres:16.15` (throwaway, removed): 24 checks (one live key per user, unique fingerprints, the CHECKs, the live-name index, assignment rules, RESTRICT on a key with user keys, `destroy_customer_key` erasing only its own and refusing twice, cascades, EXECUTE revoked from the API roles, RLS with no policies against a client granted the tables); 3 SQL mutants (the REVOKE, the partial index, the assignment delete) each fail a check |
+| existing suites | `credentialEncryption`, `embedViewerServer` (on user keys now), `keyRotation`, `kms`, `keyEncryptionStatus`, `scim`, `scimMembershipReadFailure` (a new read checked like the others) |
+| UI | UI_TEST_RESULTS, R438 part one (before the migration): the boot and readiness unchanged, the card's new text, the migration message, a secret saved under the deployment key with the fallback logged once; part two waits on the push |
+| mutation | 31 of 31 killed (one survivor first, "a direct assignment wins", whose test had Bob's direct key equal his group's; strengthened): both associated data bindings, the cache time, the backoff, conflicts, direct-first, re-wrap on rotation and on a move, both fingerprint checks, creation proven, the deployment-fingerprint rule, forgetting on destroy and erase, the fallback rule, the user-key read, a mislabelled provider, the keyring change, owner-less writes, a dropped table, the counts, the sweep's three steps and its scope, compare-and-set, the missing-table test, the card's four refusals |
+
+**Not covered.** No real customer KMS account (the providers are R429–R437's, tested against
+emulators); a grant across AWS accounts, Entra tenants or OCI tenancies is documented, not
+exercised. Chat history, documents and lakehouse files: designed in KEY_MANAGEMENT.md, not built.
+
 ### 2026-11-02 — R437: OCI Vault as a key provider, the app's own OCI identity, one OCI signer
 
 **Feature.** `KMS_PROVIDER=oci` keeps the credential key-encrypting key in OCI Vault, the last of the

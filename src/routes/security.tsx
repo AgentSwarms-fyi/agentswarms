@@ -130,6 +130,10 @@ const NOT_CLAIMED: Item[] = [
     body: "Unless you configure an external key provider, PROVIDER_CREDS_SECRET is an environment variable you set and back up. HashiCorp Vault Transit, AWS KMS, Azure Key Vault (or an Azure Managed HSM), Google Cloud KMS and OCI Vault are built: the data key is wrapped by a key that never leaves them, and the app holds a permission to unwrap it. AWS KMS, Azure Key Vault, Cloud KMS and OCI Vault have been tested against emulators, not yet a real cloud account. Rotation is supported and operator-initiated: the app never rotates on a schedule by itself.",
   },
   {
+    title: "Customer keys cover credentials, not yet data",
+    body: "Every user's stored credentials are under their own key, and a customer key, held by the app or in the customer's own KMS, wraps the keys of the users and groups assigned to it: erasing or revoking it leaves only their credentials unreadable. Chat history, knowledge-base documents and lakehouse files are encrypted by their storage, under your keys, not yet per customer; that design is written, not built. Erasing a key in the app does not reach database backups taken before it; a customer key deleted in the customer's own KMS does.",
+  },
+  {
     title: "Encryption at rest is not end-to-end",
     body: "The server decrypts credentials in order to use them, so a compromised server process can read them in memory. Encryption at rest protects a stolen database dump; it is not a defence against code running on your own host.",
   },

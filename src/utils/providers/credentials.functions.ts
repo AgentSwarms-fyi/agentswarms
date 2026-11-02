@@ -286,7 +286,7 @@ export const saveProviderCredential = createServerFn({ method: "POST" })
       }
     }
 
-    const enc = await encryptJson(credsPayload);
+    const enc = await encryptJson(credsPayload, { owner: userId });
 
     const { error } = await supabaseAdmin.from("provider_credentials").upsert(
       {

@@ -16,6 +16,17 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Apply `20261105000000` for user keys and customer keys** (R438). It adds
+  `user_keys`, `customer_keys`, `customer_key_members` and the
+  `destroy_customer_key` function, server-only (RLS on, no policies; the
+  function is the service role's alone). Either order with the build is safe:
+  until it runs, every credential is written under the deployment's key as
+  before and the Customer keys card says the migration is needed. After it,
+  each user gets a key at their next save; run **Re-encrypt to current key**
+  once to move what was stored before onto its owners' keys. A deployment
+  that rotates `PROVIDER_CREDS_SECRET` should run the sweep before removing
+  the old secret from `PROVIDER_CREDS_SECRET_OLD`, as before: it now re-wraps
+  the user keys instead of re-encrypting every value.
 - **Apply `20261104000000` to require a private path for an Iceberg catalog**
   (R428). It adds `iceberg_catalogs.require_private`, off for every existing
   catalog. Either order with the build is safe: until it runs, every catalog
@@ -85,6 +96,26 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Customer keys and user keys** (R438). Every user's stored credentials are
+  now under that user's own key, wrapped by the deployment's key, and **Admin
+  → IAM → Settings → Customer keys** creates a key per customer: held by the
+  app, or a key in the customer's own AWS KMS, Azure Key Vault or Managed
+  HSM, Cloud KMS, OCI Vault or Vault Transit, which the app calls as its own
+  identity. Assign IAM groups or users to it and their user keys are wrapped
+  by it at once; a change to a group's members (in Admin or over SCIM) moves
+  them too. **Erase a user's key**, **Destroy** a customer key (by typing its
+  name), or the customer revoking their own key, and what those users stored
+  becomes unreadable, nobody else's, within `DATA_KEY_CACHE_SECONDS` (300 by
+  default). Moving a user between customers re-wraps one key; no value is
+  re-encrypted. A user whose groups name two customer keys is refused a save
+  rather than guessed at, and an assignment that would cause it is refused,
+  naming the other key. A key that cannot be had is an error saying why
+  (erased, destroyed, refused by the customer's KMS); a value is never
+  written under another key in its place. No customer's KMS is on the
+  startup path. Erasure in the app does not reach a backup taken before it;
+  a customer key deleted in its own KMS does. Chat history, documents and
+  lakehouse files are not under these keys yet: KEY_MANAGEMENT.md has the
+  design. Needs migration `20261105000000`.
 - **The credential key can live in OCI Vault** (R437). `KMS_PROVIDER=oci` with
   `KMS_KEY_REF` set to a key's OCID and `OCI_KMS_CRYPTO_ENDPOINT` to its
   vault's cryptographic endpoint: the data key is encrypted by the key's
@@ -1074,6 +1105,14 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **Slack workspaces, Teams bots and signed embed viewers were left out of
+  key rotation** (R438). The re-encrypt sweep and the credential key card's
+  counts work from a list of the tables that hold ciphertext, said to be
+  derived from every call site; the three had been added since without it.
+  After a rotation, a Slack bot token or signing secret, a Teams app password
+  and an embed viewer secret stayed on the old key, uncounted, and stopped
+  working when the old secret was removed. They are swept and counted now,
+  and a test holds the list to the code that writes ciphertext.
 - **OCI Generative AI requests could not be sent** (R437, found by the
   emulator test). The adapter signed its requests correctly but also set
   `content-length` as a header, which Node's fetch refuses ("invalid

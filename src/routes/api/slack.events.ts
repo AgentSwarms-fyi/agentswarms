@@ -266,10 +266,10 @@ async function anyWorkspaceVerifies(args: {
   const { decryptJson } = await import("@/utils/providers/crypto.server");
   const nowSeconds = Math.floor(Date.now() / 1000);
   for (const row of data ?? []) {
-    const enc = row.signing_secret_enc as { ciphertext?: string; iv?: string } | null;
+    const enc = row.signing_secret_enc as { ciphertext?: string; iv?: string; kid?: string } | null;
     if (!enc?.ciphertext || !enc?.iv) continue;
     try {
-      const { secret } = await decryptJson<{ secret: string }>(enc.ciphertext, enc.iv);
+      const { secret } = await decryptJson<{ secret: string }>(enc.ciphertext, enc.iv, enc.kid);
       if (!secret) continue;
       const verdict = verifySlackRequest({ ...args, signingSecret: secret, nowSeconds });
       if (verdict.ok) return true;

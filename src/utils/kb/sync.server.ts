@@ -102,7 +102,7 @@ export async function syncKbSource(
   }
   const connector = KB_CONNECTORS[source.kind];
 
-  const enc = source.credentials as { ciphertext?: string; iv?: string } | null;
+  const enc = source.credentials as { ciphertext?: string; iv?: string; kid?: string } | null;
   let creds: Record<string, string> = {};
   if (!enc?.ciphertext || !enc?.iv) {
     // A website needs nothing pasted. For every other connector an absent
@@ -113,7 +113,7 @@ export async function syncKbSource(
     }
   } else {
     try {
-      creds = await decryptJson<Record<string, string>>(enc.ciphertext, enc.iv);
+      creds = await decryptJson<Record<string, string>>(enc.ciphertext, enc.iv, enc.kid);
     } catch {
       return fail("Stored credentials no longer decrypt — re-save this source.");
     }

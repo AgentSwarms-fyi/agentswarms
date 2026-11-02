@@ -240,6 +240,10 @@ describe("loads that replace what the user edits do not follow the token", () =>
  * raise the count here.
  */
 const REVIEWED: Record<string, number> = {
+  // R438: re-reads the customer keys and user keys the card lists. The new-key
+  // form, the assignment pickers and the typed name and email confirmations are
+  // their own state, which the reload never sets.
+  "src/components/admin/CustomerKeysCard.tsx": 1,
   "src/components/admin/GroupBudgetsTab.tsx": 1,
   // R346: moved out of SourcePickers.tsx; re-reads the secret names a picker lists.
   "src/hooks/use-secret-names.ts": 1,

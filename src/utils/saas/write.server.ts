@@ -90,9 +90,9 @@ export async function loadWritableConnection(
     .maybeSingle();
   if (!row) throw new Error("that SaaS connection does not exist for this account");
   if (!row.is_active) throw new Error(`the SaaS connection "${row.name}" is disabled`);
-  const enc = row.config as { ciphertext?: string; iv?: string };
+  const enc = row.config as { ciphertext?: string; iv?: string; kid?: string };
   if (!enc?.ciphertext || !enc?.iv) {
     throw new Error(`the SaaS connection "${row.name}" has no stored credentials`);
   }
-  return { name: row.name, config: await decryptJson<SaasConfig>(enc.ciphertext, enc.iv) };
+  return { name: row.name, config: await decryptJson<SaasConfig>(enc.ciphertext, enc.iv, enc.kid) };
 }

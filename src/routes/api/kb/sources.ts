@@ -155,10 +155,14 @@ export const Route = createFileRoute("/api/kb/sources")({
           }
           existing = row;
           if (!creds) {
-            const enc = row.credentials as { ciphertext?: string; iv?: string } | null;
+            const enc = row.credentials as {
+              ciphertext?: string;
+              iv?: string;
+              kid?: string;
+            } | null;
             if (enc?.ciphertext && enc?.iv) {
               try {
-                creds = await decryptJson<Record<string, string>>(enc.ciphertext, enc.iv);
+                creds = await decryptJson<Record<string, string>>(enc.ciphertext, enc.iv, enc.kid);
               } catch {
                 return Response.json(
                   { error: "Stored credentials no longer decrypt — paste them again." },
@@ -178,7 +182,7 @@ export const Route = createFileRoute("/api/kb/sources")({
         const invalid = connector.validate(body.config, creds);
         if (invalid) return Response.json({ error: invalid }, { status: 400 });
 
-        const encrypted = await encryptJson(creds);
+        const encrypted = await encryptJson(creds, { owner: user.id });
         const scheduleFields = {
           sync_schedule: body.sync_schedule,
           next_sync_at: nextSyncAt(body.sync_schedule),

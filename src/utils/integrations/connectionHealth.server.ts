@@ -116,12 +116,12 @@ async function probe(kind: Kind, row: ConnRow): Promise<{ ok: boolean; detail: s
         // under the service role, so the id alone is not a tenant boundary.
         .eq("user_id", row.user_id)
         .maybeSingle();
-      const enc = data?.config as { ciphertext?: string; iv?: string } | undefined;
+      const enc = data?.config as { ciphertext?: string; iv?: string; kid?: string } | undefined;
       if (!enc?.ciphertext || !enc?.iv) return { ok: false, detail: "No stored credentials" };
       // Decrypt then probe — exactly what discoverSaasStreams does. App source
       // configs hold literal credentials; unlike warehouses they have no
       // {{secret:NAME}} indirection to resolve.
-      const cfg = await decryptJson<SaasConfig>(enc.ciphertext, enc.iv);
+      const cfg = await decryptJson<SaasConfig>(enc.ciphertext, enc.iv, enc.kid);
       await listSaasStreams(cfg);
     }
     return { ok: true, detail: "OK" };

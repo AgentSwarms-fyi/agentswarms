@@ -197,7 +197,10 @@ export const catalogCreateSource = createServerFn({ method: "POST" })
           // Public config keeps uri + warehouse; the bearer token is encrypted.
           config = { uri: data.iceberg.uri, warehouse: data.iceberg.warehouse ?? null } as Json;
           credentials = data.iceberg.token
-            ? ((await encryptJson({ token: data.iceberg.token })) as unknown as Json)
+            ? ((await encryptJson(
+                { token: data.iceberg.token },
+                { owner: userId },
+              )) as unknown as Json)
             : null;
         } else {
           if (!data.storage) return { ok: false, error: "Storage configuration is required" };
@@ -231,7 +234,7 @@ export const catalogCreateSource = createServerFn({ method: "POST" })
           path = await storagePath(live);
           const { access_key_id: _a, secret_access_key: _s, ...publicCfg } = cfg;
           config = publicCfg as unknown as Json;
-          credentials = (await encryptJson(cfg)) as unknown as Json;
+          credentials = (await encryptJson(cfg, { owner: userId })) as unknown as Json;
         }
 
         const { data: row, error } = await sb

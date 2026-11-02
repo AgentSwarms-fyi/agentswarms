@@ -222,10 +222,13 @@ export const saveSlackWorkspace = createServerFn({ method: "POST" })
     // `null` for an omitted field would silently disarm the endpoint on every
     // unrelated edit — change the analyst, lose the ability to authenticate.
     if (data.signing_secret) {
-      row.signing_secret_enc = await encryptJson({ secret: data.signing_secret });
+      row.signing_secret_enc = await encryptJson(
+        { secret: data.signing_secret },
+        { owner: userId },
+      );
     }
     if (data.bot_token) {
-      row.bot_token_enc = await encryptJson({ token: data.bot_token });
+      row.bot_token_enc = await encryptJson({ token: data.bot_token }, { owner: userId });
     }
 
     if (data.id) {

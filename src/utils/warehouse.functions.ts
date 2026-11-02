@@ -245,7 +245,7 @@ export const saveWarehouseConnection = createServerFn({ method: "POST" })
       // host is refused here, in words, before anything is stored (R426).
       const endpointProblem = warehouseEndpointProblem(config);
       if (endpointProblem) return { ok: false, error: endpointProblem };
-      const encrypted = await encryptJson(config);
+      const encrypted = await encryptJson(config, { owner: userId });
       const { data: row, error } = await sb
         .from("data_warehouse_connections")
         .upsert(

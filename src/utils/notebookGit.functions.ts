@@ -72,11 +72,11 @@ async function resolveGitConfig(
   if (error) return { ok: false, error: error.message };
   if (!row) return { ok: false, error: "Connect a Git repository first" };
 
-  const enc = row.token_enc as { ciphertext?: string; iv?: string } | null;
+  const enc = row.token_enc as { ciphertext?: string; iv?: string; kid?: string } | null;
   if (!enc?.ciphertext || !enc?.iv) {
     return { ok: false, error: "No access token stored — add one in the Git settings" };
   }
-  const { token } = await decryptJson<{ token: string }>(enc.ciphertext, enc.iv);
+  const { token } = await decryptJson<{ token: string }>(enc.ciphertext, enc.iv, enc.kid);
   return {
     ok: true,
     token,

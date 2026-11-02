@@ -6,6 +6,11 @@ default) derives the key from `PROVIDER_CREDS_SECRET` exactly as before,
 KMS ([below](#aws-kms)), `azure` in Azure Key Vault or an Azure Managed HSM
 ([below](#azure-key-vault)), and `gcp` in Google Cloud KMS
 ([below](#google-cloud-kms)), and `oci` in OCI Vault ([below](#oci-vault)).
+Under that key, every user's credentials are under their own key, and a
+**customer key**, held by the app or in a customer's own KMS, can wrap the
+keys of the users and groups assigned to it
+([below](#customer-keys-and-user-keys)). Encrypting the data beyond
+credentials is [designed](#data-beyond-credentials-design), not built.
 
 For what exists now — AES-256-GCM, key fingerprints, and the rotation sweep —
 see [SECURITY.md](../SECURITY.md#credential-encryption).
@@ -617,6 +622,165 @@ A provider-to-provider rotation in the app (holding both providers' data keys
 while a sweep moves the values) is a possible later change. It is not built,
 because moving clouds rarely needs the key to move with it.
 
+## Customer keys and user keys
+
+Every user's stored credentials are under that **user's own key**, and a
+**customer key** can wrap the user keys of the users and groups assigned to
+it. A customer key is held by the app, or it is a key in the customer's own
+KMS, which the customer controls and can revoke.
+
+```
+   deployment key (KMS_PROVIDER, or PROVIDER_CREDS_SECRET)      customer's own KMS key
+        │ wraps                                                     │ wraps (in their KMS)
+        ├──────────▶ customer key, held by the app                  ▼
+        │                      │                         customer key, in their KMS
+        │                      └──────────┬──────────────────────────┘
+        │                                 │ wraps the user keys of its members
+        ▼                                 ▼
+   user key  ◀────────────────────────────┘
+        │ AES-256-GCM
+   the user's stored values: model keys, warehouse and SaaS connections,
+   secrets, integrations, catalog and knowledge-base sources, Git export,
+   MCP servers, Slack workspaces, Teams bots, signed embed viewers
+```
+
+What each layer gives you:
+
+- **A user key per user.** It is made at the user's first save, 32 random
+  bytes, wrapped (AES-256-GCM, here) by the deployment's current key, or by
+  their customer key. Every value the user stores is encrypted under it and
+  stamped with its fingerprint. **Erasing** it (Admin → IAM → Settings →
+  Customer keys → Erase a user's key) leaves everything they stored
+  unreadable at once; their next save makes them a new key. Deleting the
+  account deletes the key with it.
+- **A customer key per customer.** An admin creates one and assigns IAM
+  groups or users to it; every member's user key is then wrapped by it.
+  **Destroying** it (the card's **Destroy**, by typing its name) erases every
+  user key it wraps, in one database transaction, and removes its
+  assignments. A customer who **revokes** their own KMS key (disables it,
+  removes the app's grant, or deletes it) stops the app reading what their
+  members stored, and nobody else's, within `DATA_KEY_CACHE_SECONDS`.
+- **Moving a user** between customers, or out of one, re-wraps that user's
+  one key. No value is re-encrypted, so it is instant however much the user
+  stored. Assigning or removing a group, or a user, moves everyone it covers
+  at once; so does a change to a group's members (Admin → IAM, or SCIM), in
+  the background, and the next sweep catches anything that was missed.
+- **Rotating the deployment key** re-wraps user keys and the app-held customer
+  keys; the values under them are untouched. **Re-encrypt to current key**
+  does it, and moves any value still on the deployment key itself onto its
+  owner's user key.
+
+The deployment's own keyring does not change: values on it read as before,
+the boot check and `/api/health/ready` depend only on it, and no customer's
+KMS is on the startup path. A customer whose KMS is down or who revoked their
+key affects their members' reads and saves, and nothing else.
+
+**Turning it on.** Apply `supabase/migrations/20261105000000_customer_keys.sql`.
+Until then the card says the migration is needed and every value is written
+under the deployment's key, as before. Once it is applied, user keys are made
+as users save; run **Re-encrypt to current key** once to move what was stored
+before onto its owners' keys.
+
+### Creating a customer key
+
+| Where the key is          | What it means                                                                                                                                                                                                                                                      | What the customer does                                                           |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| **Held by the app**       | 32 random bytes, wrapped by the deployment's current key and stored. Destroying it in the card erases its members' data.                                                                                                                                           | Nothing: it is the operator's key, kept per customer.                            |
+| **In the customer's KMS** | The customer key is wrapped by a key in the customer's own AWS KMS, Azure Key Vault or Managed HSM, Cloud KMS, OCI Vault or Vault Transit; the app unwraps it as its own identity when a member's value is first read, then keeps it for `DATA_KEY_CACHE_SECONDS`. | Grants the app's identity encrypt and decrypt on that key, and can take it away. |
+
+The key reference is the same form as `KMS_KEY_REF`'s, and the provider is
+told by its shape. The app calls the customer's key as **its own identity**
+(the one [above](#aws-kms) for each provider), with `KMS_REQUIRE_PRIVATE`
+applying the same way, so the grant the customer writes names that identity:
+
+| Customer's KMS                | The grant, in the customer's account                                                                                                                                                                                                                                                                                          |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AWS KMS                       | A key policy statement allowing `kms:GenerateDataKey`, `kms:Decrypt` and `kms:DescribeKey` to the app's role ARN, with the encryption-context condition [above](#aws-kms). Cross-account works: the role also needs those actions on the key's ARN in its own policy.                                                         |
+| Azure Key Vault / Managed HSM | **Key Vault Crypto Service Encryption User** on the key (or Get, Wrap Key and Unwrap Key in an access policy; in a Managed HSM, **Managed HSM Crypto Service Encryption User**), to the app's identity. In another Entra tenant, the app registration must be multi-tenant with a service principal in the customer's tenant. |
+| Cloud KMS                     | **Cloud KMS CryptoKey Encrypter/Decrypter** (`roles/cloudkms.cryptoKeyEncrypterDecrypter`) on the key, to the app's service account.                                                                                                                                                                                          |
+| OCI Vault                     | `use keys` on the key for the app's dynamic group (or user), as [above](#oci-vault); from another tenancy, with the matching `endorse` statement in the app's tenancy and `admit` in the customer's. Also enter the vault's cryptographic endpoint.                                                                           |
+| Vault Transit                 | A policy allowing `encrypt` and `decrypt` on `transit/encrypt/<name>` and `transit/decrypt/<name>` to the app's token or role; the same `VAULT_ADDR`.                                                                                                                                                                         |
+
+Creating it proves the round trip before anything is stored (the key is
+wrapped, unwrapped, and compared). **Check** unwraps it again past the cache
+and, for a KMS key, lists what the provider says about it. The deployment's
+own `KMS_KEY_REF` is refused as a customer key: it is the operator's key, not
+the customer's; choose **Held by the app** instead.
+
+### Who is under which key
+
+- A user is assigned directly, or through an IAM group. **A direct
+  assignment wins** over any group's.
+- A user or a group belongs to one customer key at most (the database
+  enforces it).
+- A user whose groups name two different customer keys is a **conflict**: the
+  app does not guess. Nothing new is stored for them, and the save says which
+  keys and groups; values they already have stay readable where they are. The
+  card lists conflicts; assign the user directly to one key to settle it. An
+  assignment that would create a conflict is refused, naming the other key.
+
+### Failure modes
+
+| Situation                                                                                                  | What happens                                                                                                                                                                                                         |
+| ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The customer's KMS refuses or is down                                                                      | That customer's members' values do not read, and saves for them fail, naming the customer key and the provider's answer. Nobody else is affected; the app keeps serving. Never written under another key instead.    |
+| A customer key is destroyed                                                                                | Its user keys are erased with it. Its members' values do not read ("erased on <date>; enter it again"). Their next save is under a new user key, wrapped by the deployment's key unless they are assigned elsewhere. |
+| A user key is erased                                                                                       | That user's values do not read; the next save makes a new key.                                                                                                                                                       |
+| A user's groups name two keys                                                                              | Nothing new is stored for that user until an admin assigns them directly.                                                                                                                                            |
+| The deployment key a user key is wrapped by is gone (`PROVIDER_CREDS_SECRET_OLD` dropped before the sweep) | That user's values do not read, and a save for them is refused rather than make a new key that would orphan them. Put the old secret back, run the sweep, then retire it.                                            |
+| A wrapped key's stored form is changed (copied to another row, another key's material)                     | Refused: each wrapped key is bound to its own row and fingerprint.                                                                                                                                                   |
+| The migration is not applied                                                                               | Everything is under the deployment's key, as before; the card says so.                                                                                                                                               |
+
+`DATA_KEY_CACHE_SECONDS` (default 300) is how long a process keeps an
+unwrapped user key or customer key before reading it again. A key erased,
+destroyed or revoked elsewhere stops working in every process within that
+long; in the process that erased or destroyed it, at once. With a customer's
+KMS that is down, a failed unwrap is not asked again for 15 seconds, so the
+KMS is not called on every read. `0` keeps nothing: every read of a member's
+value calls their KMS.
+
+### What erasure covers, and what it does not
+
+A key erased or destroyed **in the app** is gone from the live database, but a
+database **backup taken before** still holds it, wrapped by the deployment's
+key or the customer key that wrapped it, and so does a restore of that
+backup. Erasure that reaches backups needs one of:
+
+- the backup to expire under your retention, or
+- a customer key in the customer's own KMS, **deleted in that KMS**: every
+  backup's copy of its wrapped key is then unreadable too, and so is every
+  member's data in every backup. This is the strongest guarantee, and the one
+  enterprise customers usually mean by "bring your own key".
+
+Customer keys cover what the app encrypts: stored credentials and secrets.
+The data a customer's users work with is not under these keys yet; see the
+next section.
+
+## Data beyond credentials (design)
+
+**Status: designed, not built.** The app encrypts credentials itself. The
+data a customer's users bring and make is stored in places the app does not
+encrypt today: Postgres rows (chat history, knowledge-base documents and
+chunks, agent memory, notebooks, BI definitions), the object store
+(lakehouse files, uploads, generated documents) and the vector store. Those
+rely on the storage's own encryption at rest, under the operator's keys. For
+"a customer's data is unreadable once their key is gone" to cover them, each
+store needs its own scheme, under the same customer key:
+
+| Data                                         | Where                                                 | Proposed scheme                                                                                                                                                                                                                                                                                              | What it costs                                                                                                                                                                      |
+| -------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Chat messages, agent memory, notebook source | Postgres text and JSON columns                        | Application-level AES-GCM under the owner's user key, as credentials are: a value is encrypted on write and decrypted on read in the server.                                                                                                                                                                 | Postgres can no longer search, sort or index those columns: the chat search and memory recall would move to the server or to the vector store.                                     |
+| Knowledge-base documents and chunks          | Postgres (`kb_chunks`, its text) and the vector store | The chunk text encrypted as above; the embeddings left in clear, since search needs them, and stated as such (an embedding reveals something about its text). Or a vector store per customer.                                                                                                                | Keyword search over chunk text (Postgres full text) stops working unless it moves to the server; embeddings are a known residual.                                                  |
+| Lakehouse tables and uploaded files          | The object store (SILO, MinIO, S3, Azure Blob, GCS)   | A storage prefix or bucket per customer, with the store's own server-side encryption under the customer's KMS key (S3 SSE-KMS, Azure Blob customer-managed keys, GCS CMEK); the app passes the key per request, or the bucket is configured with it. Revoking the key stops the store serving those objects. | Per-customer storage layout; SILO and MinIO need their KMS integration (MinIO KES) configured; DuckLake's catalog and DuckDB reads must carry the per-customer key or credentials. |
+| The lakehouse catalog                        | Postgres (DuckLake metadata)                          | Metadata only (names, statistics, file paths); left under the database's encryption, documented.                                                                                                                                                                                                             | —                                                                                                                                                                                  |
+| Generated documents, exports                 | The object store                                      | As lakehouse files.                                                                                                                                                                                                                                                                                          | —                                                                                                                                                                                  |
+
+**Order, if built:** lakehouse files first (the largest and most sensitive,
+and the store does the encryption, so search and queries are unaffected),
+then chat and memory text, then knowledge-base text. Each is its own round
+with a measured cost, and none is started without a decision on what may
+stop working.
+
 ---
 
 ## Why the current design is not simply wrong
@@ -782,8 +946,10 @@ Genuinely undecided, listed rather than guessed:
   with the data — but then a database dump plus KMS access is enough, slightly
   weakening the separation. A file on disk or a second env var keeps them apart
   at the cost of another thing to deploy.
-- **One DEK per instance, or per tenant?** Per-tenant enables per-tenant
-  revocation and crypto-shredding on delete, at the cost of many more KMS calls
-  and a more complex rotation.
+- **One DEK per instance, or per tenant?** Answered in R438: one data key per
+  instance, a user key per user under it, and a customer key per customer that
+  wants its own ([Customer keys and user keys](#customer-keys-and-user-keys)).
+  The KMS calls stay few: a user key is wrapped here, and a customer's KMS is
+  called once per process per `DATA_KEY_CACHE_SECONDS`.
 - **Should `probe()` run on the health page?** It proves the permission is live,
   but adds a periodic billable KMS call.

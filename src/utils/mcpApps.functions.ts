@@ -671,7 +671,7 @@ export const mcpAppRegisterInternal = createServerFn({ method: "POST" })
     if (keyErr) return { ok: false, error: keyErr.message };
 
     const { encryptMcpAuthToken } = await import("@/lib/mcp/auth.server");
-    const enc = await encryptMcpAuthToken(plaintext);
+    const enc = await encryptMcpAuthToken(plaintext, context.userId);
 
     const payload = {
       user_id: context.userId,

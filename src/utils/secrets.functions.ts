@@ -135,7 +135,7 @@ export const createSecret = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<{ ok: true; id: string } | { ok: false; error: string }> => {
     try {
       const { sb, userId } = await requireUser(data.access_token);
-      const encrypted = await encryptJson(data.value);
+      const encrypted = await encryptJson(data.value, { owner: userId });
       const { data: row, error } = await sb
         .from("user_secrets")
         .insert({
@@ -192,7 +192,7 @@ export const updateSecret = createServerFn({ method: "POST" })
         allowed_hosts?: string[];
       } = {};
       if (data.description !== undefined) patch.description = data.description.trim() || null;
-      if (data.value !== undefined) patch.value = await encryptJson(data.value);
+      if (data.value !== undefined) patch.value = await encryptJson(data.value, { owner: userId });
       // Only the owner's UPDATE policy matches (below), so only the owner
       // decides where colleagues may send it.
       if (data.allowed_hosts !== undefined) patch.allowed_hosts = data.allowed_hosts;

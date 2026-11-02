@@ -37,7 +37,8 @@ long-term support matrix.
 
 Provider API keys, warehouse and database passwords, SaaS connector
 credentials, MCP bearer tokens, Git tokens and everything stored in **Secrets**
-are encrypted at rest before they reach the database.
+are encrypted at rest before they reach the database, each user's under that
+user's own key.
 
 | Property       | Value                                                                                                                                                                                                                                                         |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -55,6 +56,20 @@ Vault's diagnostic logs record every use (AWS KMS calls carry the encryption con
 is the same either way, so switching is a rotation — the env secret stays
 accepted for reading until the sweep has moved every row. Setup and the
 failure modes are in [KEY_MANAGEMENT.md](./docs/KEY_MANAGEMENT.md).
+
+**User keys and customer keys.** Under that key, every user's values are
+under a key of their own, and a **customer key** (held by the app, or a key in
+the customer's own AWS KMS, Azure Key Vault, Cloud KMS, OCI Vault or Vault
+Transit) wraps the user keys of the users and IAM groups assigned to it.
+Erasing a user's key, destroying a customer key, or the customer revoking
+theirs leaves what those users stored unreadable, and nobody else's, within
+`DATA_KEY_CACHE_SECONDS` (300 by default) in every process. A key that cannot
+be had is an error that says why; a value is never written under another key
+in its place. Erasure in the app does not reach a database backup taken
+before it; deleting a customer key in the customer's own KMS does. These keys
+cover the credentials above; the data users work with (chats, documents,
+lakehouse files) is not under them yet, and the design for it is in
+[KEY_MANAGEMENT.md](./docs/KEY_MANAGEMENT.md#data-beyond-credentials-design).
 
 `PROVIDER_CREDS_SECRET` has **no default**. If it is missing the code throws
 rather than falling back to a built-in key, so a misconfigured deployment fails
@@ -379,6 +394,12 @@ Stated plainly because you will ask:
   variable. AWS KMS, Azure Key Vault, Cloud KMS and OCI Vault have been tested
   against emulators (the AWS signing against the published SigV4 vectors, the
   OCI signing against the OCI Go SDK's), not yet against a real cloud account.
+- **Customer keys cover credentials, not yet data.** Per-customer keys
+  (each customer's stored credentials under a key it can hold in its own KMS
+  and revoke) are built. Chat history, knowledge-base documents and lakehouse
+  files are encrypted only by their storage, under the operator's keys; the
+  per-customer design for them is written, not built. Erasing a key in the
+  app does not reach backups taken before it.
 - **Moving between two external key providers is a re-key.** From the
   default `env` key to a provider is a rotation: everything stays readable
   while the sweep moves it. From one provider to another (Vault, AWS KMS,

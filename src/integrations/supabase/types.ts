@@ -2036,6 +2036,96 @@ export type Database = {
         };
         Relationships: [];
       };
+      customer_key_members: {
+        Row: {
+          added_by: string | null;
+          created_at: string;
+          customer_key_id: string;
+          group_id: string | null;
+          id: string;
+          user_id: string | null;
+        };
+        Insert: {
+          added_by?: string | null;
+          created_at?: string;
+          customer_key_id: string;
+          group_id?: string | null;
+          id?: string;
+          user_id?: string | null;
+        };
+        Update: {
+          added_by?: string | null;
+          created_at?: string;
+          customer_key_id?: string;
+          group_id?: string | null;
+          id?: string;
+          user_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "customer_key_members_customer_key_id_fkey";
+            columns: ["customer_key_id"];
+            isOneToOne: false;
+            referencedRelation: "customer_keys";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "customer_key_members_group_id_fkey";
+            columns: ["group_id"];
+            isOneToOne: false;
+            referencedRelation: "iam_groups";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      customer_keys: {
+        Row: {
+          created_at: string;
+          created_by: string | null;
+          destroyed_at: string | null;
+          destroyed_by: string | null;
+          endpoint: string | null;
+          id: string;
+          iv: string | null;
+          key_ref: string | null;
+          kid: string;
+          material: string | null;
+          name: string;
+          provider: string;
+          wrapped_by: string | null;
+        };
+        Insert: {
+          created_at?: string;
+          created_by?: string | null;
+          destroyed_at?: string | null;
+          destroyed_by?: string | null;
+          endpoint?: string | null;
+          id?: string;
+          iv?: string | null;
+          key_ref?: string | null;
+          kid: string;
+          material?: string | null;
+          name: string;
+          provider: string;
+          wrapped_by?: string | null;
+        };
+        Update: {
+          created_at?: string;
+          created_by?: string | null;
+          destroyed_at?: string | null;
+          destroyed_by?: string | null;
+          endpoint?: string | null;
+          id?: string;
+          iv?: string | null;
+          key_ref?: string | null;
+          kid?: string;
+          material?: string | null;
+          name?: string;
+          provider?: string;
+          wrapped_by?: string | null;
+        };
+        Relationships: [];
+      };
       data_incidents: {
         Row: {
           acknowledged_at: string | null;
@@ -8407,6 +8497,53 @@ export type Database = {
           },
         ];
       };
+      user_keys: {
+        Row: {
+          created_at: string;
+          customer_key_id: string | null;
+          erased_at: string | null;
+          erased_by: string | null;
+          id: string;
+          iv: string | null;
+          kid: string;
+          material: string | null;
+          user_id: string;
+          wrapped_by: string;
+        };
+        Insert: {
+          created_at?: string;
+          customer_key_id?: string | null;
+          erased_at?: string | null;
+          erased_by?: string | null;
+          id?: string;
+          iv?: string | null;
+          kid: string;
+          material?: string | null;
+          user_id: string;
+          wrapped_by: string;
+        };
+        Update: {
+          created_at?: string;
+          customer_key_id?: string | null;
+          erased_at?: string | null;
+          erased_by?: string | null;
+          id?: string;
+          iv?: string | null;
+          kid?: string;
+          material?: string | null;
+          user_id?: string;
+          wrapped_by?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "user_keys_customer_key_id_fkey";
+            columns: ["customer_key_id"];
+            isOneToOne: false;
+            referencedRelation: "customer_keys";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       user_prep_flows: {
         Row: {
           config: Json;
@@ -8680,6 +8817,7 @@ export type Database = {
         Args: { uid: string };
         Returns: Database["public"]["Tables"]["lakehouse_schemas"]["Row"][];
       };
+      destroy_customer_key: { Args: { p_by: string; p_id: string }; Returns: number };
       has_resource_access: {
         Args: { rid: string; rtype: string; uid: string };
         Returns: boolean;

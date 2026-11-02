@@ -86,7 +86,7 @@ describe.skipIf(!hasSupabase)("Slack channel endpoints", () => {
         user_id: agent.user_id,
         team_id: TEAM_ID,
         team_name: `${TEST_PREFIX}slack`,
-        signing_secret_enc: await encryptJson({ secret: SIGNING_SECRET }),
+        signing_secret_enc: await encryptJson({ secret: SIGNING_SECRET }, { owner: null }),
         is_active: true,
       })
       .select("id")

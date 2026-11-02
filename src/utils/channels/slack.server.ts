@@ -19,8 +19,8 @@ export type SlackWorkspaceRow = {
   mention_target_type: "agent" | "analyst" | null;
   mention_target_id: string | null;
   is_active: boolean;
-  signing_secret_enc: { ciphertext?: string; iv?: string } | null;
-  bot_token_enc: { ciphertext?: string; iv?: string } | null;
+  signing_secret_enc: { ciphertext?: string; iv?: string; kid?: string } | null;
+  bot_token_enc: { ciphertext?: string; iv?: string; kid?: string } | null;
 };
 
 const WORKSPACE_COLUMNS =
@@ -51,7 +51,7 @@ export async function slackSigningSecret(row: SlackWorkspaceRow): Promise<string
   const enc = row.signing_secret_enc;
   if (!enc?.ciphertext || !enc?.iv) return null;
   try {
-    const { secret } = await decryptJson<{ secret: string }>(enc.ciphertext, enc.iv);
+    const { secret } = await decryptJson<{ secret: string }>(enc.ciphertext, enc.iv, enc.kid);
     return secret || null;
   } catch {
     return null;
@@ -63,7 +63,7 @@ export async function slackBotToken(row: SlackWorkspaceRow): Promise<string | nu
   const enc = row.bot_token_enc;
   if (!enc?.ciphertext || !enc?.iv) return null;
   try {
-    const { token } = await decryptJson<{ token: string }>(enc.ciphertext, enc.iv);
+    const { token } = await decryptJson<{ token: string }>(enc.ciphertext, enc.iv, enc.kid);
     return token || null;
   } catch {
     return null;

@@ -40,7 +40,7 @@ const SHAREABLE_FIELDS: Record<string, string[]> = {
   firecrawl: ["api_key"],
 };
 
-type EncBlob = { ciphertext?: string; iv?: string };
+type EncBlob = { ciphertext?: string; iv?: string; kid?: string };
 
 export function integrationSecretFields(type: string): string[] {
   return SECRET_FIELDS[type] ?? [];
@@ -60,13 +60,15 @@ export function integrationShareableFields(type: string): string[] {
 export async function encryptIntegrationConfig(
   type: string,
   config: Record<string, unknown>,
+  /** The integrations row's user_id: its secrets go under that user's key. */
+  owner: string,
 ): Promise<Record<string, unknown>> {
   const out: Record<string, unknown> = { ...config };
   for (const f of integrationSecretFields(type)) {
     const v = out[f];
     delete out[`${f}_enc`]; // clear any stale ciphertext
     if (typeof v === "string" && v.length > 0 && !containsSecretRef(v)) {
-      out[`${f}_enc`] = await encryptJson(v);
+      out[`${f}_enc`] = await encryptJson(v, { owner });
       delete out[f];
     } else if (typeof v === "string" && v.length === 0) {
       delete out[f];
@@ -122,7 +124,7 @@ export async function resolveIntegrationConfig(
     const enc = out[`${f}_enc`] as EncBlob | undefined;
     if (enc && enc.ciphertext && enc.iv) {
       try {
-        out[f] = await decryptJson<string>(enc.ciphertext, enc.iv);
+        out[f] = await decryptJson<string>(enc.ciphertext, enc.iv, enc.kid);
       } catch {
         /* leave unresolved rather than failing the whole read */
       }

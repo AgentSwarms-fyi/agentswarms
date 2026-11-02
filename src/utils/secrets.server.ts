@@ -109,9 +109,9 @@ async function lookupSecretValue(
 }
 
 async function decrypt(row: SecretRow, name: string): Promise<string> {
-  const enc = row.value as { ciphertext?: string; iv?: string } | null;
+  const enc = row.value as { ciphertext?: string; iv?: string; kid?: string } | null;
   if (!enc?.ciphertext || !enc?.iv) throw new Error(`Secret "${name}" has no stored value`);
-  return decryptJson<string>(enc.ciphertext, enc.iv);
+  return decryptJson<string>(enc.ciphertext, enc.iv, enc.kid);
 }
 
 /**

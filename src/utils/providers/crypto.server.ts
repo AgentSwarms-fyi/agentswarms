@@ -7,13 +7,30 @@
 // data-encryption key the provider unwraps once per process. This module
 // only knows a current key to write with and a list of keys to read under.
 //
+// WHOSE KEY: a value is written under its owner's user key
+// (src/utils/kms/keyHierarchy.server.ts), which the deployment's key wraps,
+// or a customer key does when the owner is a customer's member. Every caller
+// says who owns what it encrypts; `owner: null` is the deployment's key
+// itself. Reading needs no owner: the value's `kid` names its key.
+//
 // Every ciphertext is stamped with a `kid` — a short fingerprint of the key that
 // wrote it. The fingerprint is a DOMAIN-SEPARATED hash, never key material, so
 // publishing it in the row (and the admin UI) leaks nothing. Decryption picks
 // the key whose kid matches and, failing that, tries every configured key — so
 // blobs written before this scheme existed (no kid) and callers that pass only
 // (ciphertext, iv) keep working unchanged.
-import { resolveKeyring, type Keyring } from "@/utils/kms/keyring.server";
+import { providerForKeyRef, resolveKeyring, type Keyring } from "@/utils/kms/keyring.server";
+import {
+  createKeyHierarchy,
+  dataKeyCacheMs,
+  DataKeyUnavailableError,
+  KeyStoreMissingError,
+  type CustomerKeyRow,
+  type DataKey,
+  type KeyHierarchy,
+  type KeyStore,
+} from "@/utils/kms/keyHierarchy.server";
+import { keyRefProvider, type KeyProvider } from "@/utils/kms/types";
 
 const ALGO = "AES-GCM";
 
@@ -42,6 +59,9 @@ async function keyring(): Promise<Keyring> {
   if (loaderOverride) return loaderOverride();
   const sig = signature();
   if (cached && cached.signature === sig) return cached.keyring;
+  // The deployment's keys wrap the user keys: a different keyring means the
+  // unwrapped user keys kept from the old one are not to be trusted either.
+  hierarchy?.forgetAll();
   const next = { signature: sig, keyring: resolveKeyring() };
   cached = next;
   // A failed load must not be remembered: the next call retries, so a KMS
@@ -55,12 +75,131 @@ async function keyring(): Promise<Keyring> {
 /** Forget the resolved keyring — after a data key is created, or in tests. */
 export function resetKeyringCache(): void {
   cached = null;
+  hierarchy?.forgetAll();
 }
 
 /** Tests only: route the keyring through a fake provider and rows. */
 export function __setKeyringLoaderForTests(loader: (() => Promise<Keyring>) | null): void {
   loaderOverride = loader;
   cached = null;
+  hierarchy = null;
+}
+
+// ── User keys and customer keys ──────────────────────────────────────────────
+
+let hierarchy: KeyHierarchy | null = null;
+let storeOverride: KeyStore | null = null;
+let customerProviderOverride: ((row: CustomerKeyRow) => KeyProvider) | null = null;
+const customerProviders = new Map<string, KeyProvider>();
+
+/**
+ * A customer key's own KMS, called as the app's identity: the provider its
+ * key reference names, built like KMS_KEY_REF's, with the customer vault's
+ * endpoint for OCI. Kept per key, so its credentials are fetched once.
+ */
+export function customerKeyProvider(row: CustomerKeyRow): KeyProvider {
+  if (customerProviderOverride) return customerProviderOverride(row);
+  const ref = row.key_ref ?? "";
+  const cacheKey = `${ref}|${row.endpoint ?? ""}`;
+  const hit = customerProviders.get(cacheKey);
+  if (hit) return hit;
+  if (keyRefProvider(ref) !== row.provider) {
+    throw new Error(
+      `The customer key "${row.name}" names ${ref}, which is not a ${row.provider} key`,
+    );
+  }
+  const env =
+    row.provider === "oci"
+      ? {
+          ...process.env,
+          OCI_KMS_CRYPTO_ENDPOINT: row.endpoint ?? "",
+          OCI_KMS_MANAGEMENT_ENDPOINT: "",
+        }
+      : process.env;
+  const provider = providerForKeyRef(ref, env);
+  if (!provider) {
+    throw new Error(
+      `The customer key "${row.name}" names ${ref}, which this server cannot reach: its provider's variables are not set`,
+    );
+  }
+  customerProviders.set(cacheKey, provider);
+  return provider;
+}
+
+/** The user and customer key layer, over the database. */
+export function keyHierarchy(): KeyHierarchy {
+  if (!hierarchy) {
+    hierarchy = createKeyHierarchy({
+      store: storeOverride ?? lazyStore(),
+      instance: keyring,
+      customerProvider: customerKeyProvider,
+      cacheMs: () => dataKeyCacheMs(),
+    });
+  }
+  return hierarchy;
+}
+
+// The database store is imported when first used, so a test that never
+// touches user keys does not need a database client.
+function lazyStore(): KeyStore {
+  let real: Promise<KeyStore> | null = null;
+  const get = () =>
+    (real ??= import("@/utils/kms/keyStore.server").then((m) => m.supabaseKeyStore()));
+  return {
+    userKeyByKid: async (kid) => (await get()).userKeyByKid(kid),
+    activeUserKey: async (id) => (await get()).activeUserKey(id),
+    insertUserKey: async (row) => (await get()).insertUserKey(row),
+    rewrapUserKey: async (id, from, to) => (await get()).rewrapUserKey(id, from, to),
+    customerKey: async (id) => (await get()).customerKey(id),
+    memberships: async (id) => (await get()).memberships(id),
+  };
+}
+
+/** Tests only: user and customer keys over a fake store and fake customer KMS. */
+export function __setKeyHierarchyForTests(
+  store: KeyStore | null,
+  customerProvider: ((row: CustomerKeyRow) => KeyProvider) | null = null,
+): void {
+  storeOverride = store;
+  customerProviderOverride = customerProvider;
+  customerProviders.clear();
+  hierarchy = null;
+}
+
+let warnedMissing = false;
+
+/** Whose key a value is written with: its owner's user key, or the deployment's. */
+export type EncryptFor = { owner: string | null };
+
+/**
+ * The key a value of `owner` is written with. The deployment's current key
+ * when there is no owner, or before the user-key tables exist; otherwise the
+ * owner's user key, and an error when that cannot be had. Never the
+ * deployment's key in place of a user key that failed: a customer member's
+ * value would leave the customer's control without anyone seeing it.
+ */
+export async function writeKeyFor(owner: string | null): Promise<DataKey> {
+  if (!owner) return (await keyring()).current;
+  try {
+    return await keyHierarchy().writeKey(owner);
+  } catch (e) {
+    if (!(e instanceof KeyStoreMissingError)) throw e;
+    if (!warnedMissing) {
+      warnedMissing = true;
+      console.warn(`[kms] ${e.message}; values are written under the deployment's key until then`);
+    }
+    return (await keyring()).current;
+  }
+}
+
+/** The user key with this fingerprint, or null when no user key has it (or there are none yet). */
+async function readUserKey(kid: string): Promise<DataKey | null> {
+  try {
+    return await keyHierarchy().readKey(kid);
+  } catch (e) {
+    if (e instanceof KeyStoreMissingError) return null;
+    throw e;
+  }
 }
 
 /** Fingerprint of the key new ciphertext is written with. */
@@ -97,28 +236,45 @@ function base64ToBytes(b64: string): Uint8Array {
   return bytes;
 }
 
-export async function encryptJson(payload: unknown): Promise<EncryptedBlob> {
-  const { current } = await keyring();
+async function encryptWith(k: DataKey, payload: unknown): Promise<EncryptedBlob> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const data = new TextEncoder().encode(JSON.stringify(payload));
-  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: ALGO, iv }, current.key, data));
-  return { ciphertext: bytesToBase64(ct), iv: bytesToBase64(iv), kid: current.kid };
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: ALGO, iv }, k.key, data));
+  return { ciphertext: bytesToBase64(ct), iv: bytesToBase64(iv), kid: k.kid };
 }
 
 /**
- * Decrypt a blob. `kid` is optional and advisory: when given, the key with that
- * fingerprint is tried first; either way every configured key is attempted, and
- * because GCM authenticates, a wrong key throws rather than returning garbage.
- * So a two-argument call still works, and a blob written under any accepted key
- * (current or previous) decrypts.
+ * Encrypt a value for storage under its owner's key. `owner` is the user the
+ * stored row belongs to (its `user_id`), not necessarily who is saving it.
+ */
+export async function encryptJson(payload: unknown, opts: EncryptFor): Promise<EncryptedBlob> {
+  return encryptWith(await writeKeyFor(opts.owner), payload);
+}
+
+/**
+ * Decrypt a blob. The `kid` it carries names its key: a user key's opens it
+ * with that key alone. Otherwise the deployment key with that fingerprint is
+ * tried first and every other one after it, and because GCM authenticates, a
+ * wrong key throws rather than returning garbage, so a blob written before
+ * key ids, or under any accepted key (current or previous), decrypts.
+ *
+ * `kid` is a required argument, undefined for a blob without one: a call
+ * without it could not find a user key, and would fail on every value
+ * written since user keys exist.
  */
 export async function decryptJson<T = unknown>(
   ciphertext: string,
   iv: string,
-  kid?: string,
+  kid: string | undefined,
 ): Promise<T> {
   const k = await keyring();
   const entries = [k.current, ...k.previous];
+  if (kid && !entries.some((e) => e.kid === kid)) {
+    // Throws DataKeyUnavailableError for an erased, destroyed or refused key:
+    // its message is what the caller shows.
+    const user = await readUserKey(kid);
+    if (user) return decryptWithKey<T>(user.key, ciphertext, iv);
+  }
   const ordered = kid
     ? [...entries.filter((e) => e.kid === kid), ...entries.filter((e) => e.kid !== kid)]
     : entries;
@@ -140,9 +296,37 @@ export async function decryptJson<T = unknown>(
       lastErr = err;
     }
   }
+  if (kid && !entries.some((e) => e.kid === kid)) {
+    throw new DataKeyUnavailableError(
+      `This value is on the key ${kid}, which this server does not hold`,
+      "unheld",
+    );
+  }
   throw lastErr instanceof Error
     ? lastErr
     : new Error("Decryption failed under every configured key");
+}
+
+async function decryptWithKey<T>(key: CryptoKey, ciphertext: string, iv: string): Promise<T> {
+  const ct = base64ToBytes(ciphertext);
+  const ivBytes = base64ToBytes(iv);
+  const plain = await crypto.subtle.decrypt(
+    {
+      name: ALGO,
+      iv: ivBytes.buffer.slice(
+        ivBytes.byteOffset,
+        ivBytes.byteOffset + ivBytes.byteLength,
+      ) as ArrayBuffer,
+    },
+    key,
+    ct.buffer.slice(ct.byteOffset, ct.byteOffset + ct.byteLength) as ArrayBuffer,
+  );
+  return JSON.parse(new TextDecoder().decode(plain)) as T;
+}
+
+/** Decrypt a stored blob, by the key its `kid` names. */
+export async function decryptBlob<T = unknown>(blob: EncryptedBlob): Promise<T> {
+  return decryptJson<T>(blob.ciphertext, blob.iv, blob.kid);
 }
 
 /** Whether a value is one of our stored ciphertext blobs. */
@@ -156,16 +340,24 @@ export function isEncryptedBlob(v: unknown): v is EncryptedBlob {
 }
 
 /**
- * Re-encrypt one blob to the current key. A blob already on the current kid is
- * returned unchanged, so this is safe to run repeatedly.
+ * Re-encrypt one blob to its owner's current key (the deployment's when
+ * `owner` is null). A blob already on that key is returned unchanged, so this
+ * is safe to run repeatedly.
  */
 export async function reEncryptBlob(
   blob: EncryptedBlob,
+  opts: EncryptFor,
 ): Promise<{ blob: EncryptedBlob; changed: boolean }> {
-  const cur = await currentKid();
-  if (blob.kid && blob.kid === cur) return { blob, changed: false };
+  return reEncryptUnder(blob, await writeKeyFor(opts.owner));
+}
+
+async function reEncryptUnder(
+  blob: EncryptedBlob,
+  target: DataKey,
+): Promise<{ blob: EncryptedBlob; changed: boolean }> {
+  if (blob.kid && blob.kid === target.kid) return { blob, changed: false };
   const payload = await decryptJson<unknown>(blob.ciphertext, blob.iv, blob.kid);
-  return { blob: await encryptJson(payload), changed: true };
+  return { blob: await encryptWith(target, payload), changed: true };
 }
 
 export type DeepReEncryptResult<T> = {
@@ -177,20 +369,34 @@ export type DeepReEncryptResult<T> = {
 
 /**
  * Walk any JSON value and re-encrypt every ciphertext blob found at any depth to
- * the current key. Used by rotation: the same walker handles a whole-column blob
- * (`user_secrets.value`), a nested one (`integrations.config.api_key_enc`) and a
- * blob inside an object (`{ token: {...} }`) without knowing the shape in
- * advance.
+ * its owner's current key. Used by rotation: the same walker handles a
+ * whole-column blob (`user_secrets.value`), a nested one
+ * (`integrations.config.api_key_enc`) and a blob inside an object
+ * (`{ token: {...} }`) without knowing the shape in advance. The owner's key
+ * is looked up once for the value; when it cannot be had, nothing is
+ * re-encrypted and every blob counts as failed.
  */
-export async function reEncryptDeep<T>(value: T): Promise<DeepReEncryptResult<T>> {
+export async function reEncryptDeep<T>(
+  value: T,
+  opts: EncryptFor | { target: () => Promise<DataKey> },
+): Promise<DeepReEncryptResult<T>> {
   let migrated = 0;
   let alreadyCurrent = 0;
   let failed = 0;
+  // Looked up at the first blob, so a value with none makes no user key.
+  let pending: Promise<DataKey | null> | null = null;
+  const targetKey = () =>
+    (pending ??= ("target" in opts ? opts.target() : writeKeyFor(opts.owner)).catch(() => null));
 
   async function walk(v: unknown): Promise<unknown> {
     if (isEncryptedBlob(v)) {
+      const target = await targetKey();
+      if (!target) {
+        failed++;
+        return v;
+      }
       try {
-        const r = await reEncryptBlob(v);
+        const r = await reEncryptUnder(v, target);
         if (r.changed) migrated++;
         else alreadyCurrent++;
         return r.blob;
@@ -233,10 +439,19 @@ export type BlobKeyStatus = {
   legacy: number;
 };
 
-/** Count the blobs in a value, by the key each is on. */
-export async function blobKeyStatus(value: unknown): Promise<BlobKeyStatus> {
-  const { current: cur, previous } = await keyringFingerprints();
-  const held = new Set(previous);
+/**
+ * Count the blobs in a value, by the key each is on. `keys` says which key is
+ * current for this value (its owner's user key, null before the owner has
+ * one) and which ones this server can read; without it, the deployment
+ * keyring's.
+ */
+export async function blobKeyStatus(
+  value: unknown,
+  keys?: { current: string | null; held: ReadonlySet<string> },
+): Promise<BlobKeyStatus> {
+  const ring = keys ? null : await keyringFingerprints();
+  const cur = keys ? keys.current : ring!.current;
+  const held: ReadonlySet<string> = keys ? keys.held : new Set(ring!.previous);
   let total = 0;
   let onCurrent = 0;
   let onOther = 0;

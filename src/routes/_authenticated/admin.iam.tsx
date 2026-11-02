@@ -34,6 +34,7 @@ import {
   Brain,
   Network,
 } from "lucide-react";
+import { CustomerKeysCard } from "@/components/admin/CustomerKeysCard";
 import { GroupBudgetsTab } from "@/components/admin/GroupBudgetsTab";
 
 import { Badge } from "@/components/ui/badge";
@@ -383,7 +384,13 @@ function AdminIamPage() {
           />
         </TabsContent>
         <TabsContent value="settings" className="mt-4">
-          <SettingsTab token={token!} users={users} settings={settings} setSettings={setSettings} />
+          <SettingsTab
+            token={token!}
+            users={users}
+            groups={groups}
+            settings={settings}
+            setSettings={setSettings}
+          />
         </TabsContent>
       </Tabs>
     </div>
@@ -1699,11 +1706,13 @@ function AccessTab({
 function SettingsTab({
   token,
   users,
+  groups,
   settings,
   setSettings,
 }: {
   token: string;
   users: IamUserRow[];
+  groups: IamGroupRow[];
   settings: IamSettings | null;
   setSettings: (v: IamSettings) => void;
 }) {
@@ -1842,6 +1851,8 @@ function SettingsTab({
 
       <CredentialKeyCard token={token} />
 
+      <CustomerKeysCard token={token} users={users} groups={groups} />
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Superadmins</CardTitle>
@@ -1940,13 +1951,15 @@ function CredentialKeyCard({ token }: { token: string }) {
       <CardHeader>
         <CardTitle className="text-base">Credential encryption key</CardTitle>
         <CardDescription>
-          Provider keys, warehouse passwords and stored secrets are encrypted with AES-256-GCM. The
-          key comes from <code className="text-xs">PROVIDER_CREDS_SECRET</code> by default, or from
-          a data key wrapped by an external key provider (
-          <code className="text-xs">KMS_PROVIDER</code>) that never leaves it. To rotate an env
-          secret: put the new one in <code className="text-xs">PROVIDER_CREDS_SECRET</code>, move
-          the old one to <code className="text-xs">PROVIDER_CREDS_SECRET_OLD</code>, restart, then
-          run the sweep below. Both keys decrypt in the meantime, so nothing breaks mid-rotation.
+          Provider keys, warehouse passwords and stored secrets are encrypted with AES-256-GCM, each
+          user&apos;s under that user&apos;s own key, which this deployment key wraps (or a customer
+          key, below). The deployment key comes from{" "}
+          <code className="text-xs">PROVIDER_CREDS_SECRET</code> by default, or from a data key
+          wrapped by an external key provider (<code className="text-xs">KMS_PROVIDER</code>) that
+          never leaves it. To rotate an env secret: put the new one in{" "}
+          <code className="text-xs">PROVIDER_CREDS_SECRET</code>, move the old one to{" "}
+          <code className="text-xs">PROVIDER_CREDS_SECRET_OLD</code>, restart, then run the sweep
+          below. Both keys decrypt in the meantime, so nothing breaks mid-rotation.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -2129,8 +2142,8 @@ function CredentialKeyCard({ token }: { token: string }) {
                   </div>
                   {pending > 0 && (
                     <p className="mt-2 text-xs text-muted-foreground">
-                      These still decrypt. Sweeping moves them onto the current key so the old
-                      secret can be retired.
+                      These still decrypt. Sweeping moves them onto their owners&apos; keys, under
+                      the current key, so the old secret can be retired.
                     </p>
                   )}
                   {totals.unreadable > 0 && (
@@ -2146,7 +2159,9 @@ function CredentialKeyCard({ token }: { token: string }) {
                             <code className="font-mono">{kid}</code>
                             {dek
                               ? ` is the ${externalName(dek.provider)} data key: they read with KMS_PROVIDER=${dek.provider}.`
-                              : " is not a key this server has: put its secret back in PROVIDER_CREDS_SECRET_OLD, or enter those credentials again."}
+                              : status.userKeys.notes[kid]
+                                ? ` is ${status.userKeys.notes[kid]}: enter those credentials again.`
+                                : " is not a key this server has: put its secret back in PROVIDER_CREDS_SECRET_OLD, or enter those credentials again."}
                           </Fragment>
                         );
                       })}{" "}
@@ -2174,15 +2189,26 @@ function CredentialKeyCard({ token }: { token: string }) {
                       toast.error(res.error, { id: t });
                       return;
                     }
-                    if (res.totalFailed > 0) {
+                    const rewrapped =
+                      res.userKeysRewrapped + res.customerKeysRewrapped > 0
+                        ? `; re-wrapped ${res.userKeysRewrapped} user key(s) and ${res.customerKeysRewrapped} customer key(s)`
+                        : "";
+                    if (res.ownerFailures.length > 0) {
                       toast.error(
-                        `Re-encrypted ${res.totalMigrated}; ${res.totalFailed} could not be read with any configured key — they were left untouched.`,
+                        `Re-encrypted ${res.totalMigrated}${rewrapped}; ${res.ownerFailures.length} user(s) could not be moved: ${res.ownerFailures[0].error}`,
+                        { id: t, duration: 12000 },
+                      );
+                    } else if (res.totalFailed > 0) {
+                      toast.error(
+                        `Re-encrypted ${res.totalMigrated}${rewrapped}; ${res.totalFailed} could not be read with any configured key — they were left untouched.`,
                         { id: t },
                       );
-                    } else if (res.totalMigrated === 0) {
+                    } else if (res.totalMigrated === 0 && !rewrapped) {
                       toast.success("Everything is already on the current key.", { id: t });
                     } else {
-                      toast.success(`Re-encrypted ${res.totalMigrated} value(s).`, { id: t });
+                      toast.success(`Re-encrypted ${res.totalMigrated} value(s)${rewrapped}.`, {
+                        id: t,
+                      });
                     }
                     await load();
                   } catch (e) {

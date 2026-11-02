@@ -758,6 +758,22 @@ AUDIT_ARCHIVE_ON_PURGE="1"
         again. The steps are in <C>docs/KEY_MANAGEMENT.md</C>, under Changing key providers.
       </Callout>
 
+      <Callout kind="info" title="Customer keys and user keys">
+        Under the deployment&apos;s key, every user&apos;s credentials are under a key of their own,
+        and <strong>Admin → IAM → Settings → Customer keys</strong> creates a key per customer: held
+        by the app, or a key in the customer&apos;s own AWS KMS, Azure Key Vault, Cloud KMS, OCI
+        Vault or Vault Transit, which the app calls as its own identity, so the customer grants that
+        identity encrypt and decrypt on it. Assign IAM groups or users to it and their keys are
+        wrapped by it at once. Erasing a user&apos;s key, destroying a customer key, or the customer
+        revoking theirs leaves only those users&apos; credentials unreadable, within{" "}
+        <C>DATA_KEY_CACHE_SECONDS</C> (300 by default) in every process. Needs the migration{" "}
+        <C>20261105000000_customer_keys.sql</C>; until it is applied everything stays under the
+        deployment&apos;s key. A database backup taken before an erasure still holds the erased key:
+        only a customer key deleted in its own KMS reaches backups. Chat history, documents and
+        lakehouse files are not under these keys yet (the design is in <C>docs/KEY_MANAGEMENT.md</C>
+        ).
+      </Callout>
+
       <H3 id="recipe-fleet">Autoscaled behind a load balancer</H3>
       <P>
         Several app instances against one Supabase project. Rate limits and concurrency slots are

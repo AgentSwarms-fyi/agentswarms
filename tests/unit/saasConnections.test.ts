@@ -86,7 +86,7 @@ describe("the table is scoped to its owner", () => {
 
 describe("credentials never leave the server", () => {
   it("encrypts the config before storing it", () => {
-    expect(functionsSrc).toContain("encryptJson(data.config)");
+    expect(functionsSrc).toContain("encryptJson(data.config, { owner: userId })");
   });
 
   it("does NOT select config when listing connections", () => {

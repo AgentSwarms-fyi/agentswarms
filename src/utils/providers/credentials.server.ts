@@ -872,7 +872,11 @@ async function streamWithProviderScoped(
     throw new Error(
       `The stored ${provider} credentials cannot be read. Save them again in Provider Integrations.`,
     );
-  const decrypted = await decryptJson<Record<string, unknown>>(stored.ciphertext, stored.iv);
+  const decrypted = await decryptJson<Record<string, unknown>>(
+    stored.ciphertext,
+    stored.iv,
+    typeof stored.kid === "string" ? stored.kid : undefined,
+  );
   const config = row.config as Record<string, unknown>;
   markPrivatePath(policy, userId, provider, config);
 

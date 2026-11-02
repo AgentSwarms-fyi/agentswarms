@@ -96,7 +96,7 @@ export async function processDueSaasSyncs(force = false): Promise<number> {
       ran++;
 
       try {
-        const enc = row.config as { ciphertext?: string; iv?: string };
+        const enc = row.config as { ciphertext?: string; iv?: string; kid?: string };
         if (!enc?.ciphertext || !enc?.iv) {
           throw new Error("no stored credentials — re-save this source");
         }
@@ -111,7 +111,7 @@ export async function processDueSaasSyncs(force = false): Promise<number> {
           id: row.id,
           userId: row.user_id,
           name: row.name,
-          config: await decryptJson<SaasConfig>(enc.ciphertext, enc.iv),
+          config: await decryptJson<SaasConfig>(enc.ciphertext, enc.iv, enc.kid),
           streamIds,
         });
 

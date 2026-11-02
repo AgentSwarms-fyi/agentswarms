@@ -17,6 +17,7 @@ import {
   type SuperadminRoleRow,
 } from "@/utils/iam.server";
 import { deleteKeepingAtLeastOne } from "@/utils/lastOneGuard";
+import { groupMembershipChanged } from "@/utils/kms/membershipChanged.server";
 
 /**
  * A row-filter value is either a plain literal or a WELL-FORMED attribute
@@ -526,6 +527,19 @@ export const iamUpdateGroup = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+/** A group's members, for the key hierarchy; none when they cannot be read. */
+async function groupUserIds(groupId: string): Promise<string[]> {
+  try {
+    const { data } = await supabaseAdmin
+      .from("iam_group_members")
+      .select("user_id")
+      .eq("group_id", groupId);
+    return (data ?? []).map((m) => m.user_id as string);
+  } catch {
+    return [];
+  }
+}
+
 export const iamDeleteGroup = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), group_id: z.string().uuid() }).parse(input),
@@ -533,6 +547,9 @@ export const iamDeleteGroup = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<IamError | { ok: true }> => {
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) return guard;
+    // Who the group had, read first: a customer key assigned to it stops
+    // covering them, and their user keys move (R438).
+    const members = await groupUserIds(data.group_id);
     // Memberships cascade via FK; clean up rules/grants pointing at the group.
     const [{ error }] = await Promise.all([
       supabaseAdmin.from("iam_groups").delete().eq("id", data.group_id),
@@ -548,6 +565,7 @@ export const iamDeleteGroup = createServerFn({ method: "POST" })
         .eq("principal_id", data.group_id),
     ]);
     if (error) return { ok: false, error: error.message };
+    groupMembershipChanged(members, "deleting a group");
     auditEvent({
       userId: guard.userId,
       action: "iam.group.delete",
@@ -577,6 +595,7 @@ export const iamAddGroupMember = createServerFn({ method: "POST" })
         { onConflict: "group_id,user_id", ignoreDuplicates: true },
       );
     if (error) return { ok: false, error: error.message };
+    groupMembershipChanged([data.user_id], "adding a group member");
     auditEvent({
       userId: guard.userId,
       action: "iam.group.add_member",
@@ -606,6 +625,7 @@ export const iamRemoveGroupMember = createServerFn({ method: "POST" })
       .eq("group_id", data.group_id)
       .eq("user_id", data.user_id);
     if (error) return { ok: false, error: error.message };
+    groupMembershipChanged([data.user_id], "removing a group member");
     auditEvent({
       userId: guard.userId,
       action: "iam.group.remove_member",

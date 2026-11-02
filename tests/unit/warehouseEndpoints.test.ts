@@ -340,7 +340,7 @@ describe("where it is wired", () => {
     const save = f.slice(f.indexOf("export const saveWarehouseConnection"));
     const check = save.indexOf("const endpointProblem = warehouseEndpointProblem(config);");
     expect(check).toBeGreaterThan(0);
-    expect(check).toBeLessThan(save.indexOf("await encryptJson(config)"));
+    expect(check).toBeLessThan(save.indexOf("await encryptJson(config, { owner: userId })"));
     expect(save).toContain("if (endpointProblem) return { ok: false, error: endpointProblem };");
   });
 

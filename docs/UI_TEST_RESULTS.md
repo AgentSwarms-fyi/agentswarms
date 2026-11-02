@@ -15,6 +15,28 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-02 — R438: customer keys and user keys (part one, before the migration)
+
+The build hot-deployed from the main checkout, before `20261105000000` is applied, on the
+deployment's own key (`env`, `PROVIDER_CREDS_SECRET`). What this part proves is that the release is
+safe to run ahead of the migration, which is the order the user's push puts it in. Everything that
+needs the tables (creating, assigning, checking, destroying, erasing) waits for part two.
+
+| Page / surface | What was driven | Result |
+| --- | --- | --- |
+| `/api/health/ready` after the restart | read | `{"status":"ready","checks":{"db":true,"keys":true}}`: the boot does not touch the new tables |
+| Admin → IAM → Settings → Credential encryption key | read | the new description ("each user's under that user's own key, which this deployment key wraps (or a customer key, below)"); "18 encrypted values · 18 on the current key"; the AWS data key still listed under "Also kept" |
+| … Customer keys | read | "Needs the database migration 20261105000000_customer_keys.sql (npx supabase db push). Until then every credential is under the deployment's key, as before." |
+| Secrets → New secret R438_PRE_MIGRATION (a dummy value) | **Create secret** | saved; listed "Yours · Only you · 2 Nov 2026". Server log, once: "[kms] The user and customer key tables are not in the database yet (migration 20261105000000_customer_keys.sql): Could not find the table 'public.customer_key_members' in the schema cache; values are written under the deployment's key until then" (the live PostgREST's answer is the one the fallback recognises) |
+| Credential encryption key, reloaded | read | "19 encrypted values · 19 on the current key": the new secret is on the deployment key |
+| Browser console on the current bundle | read | no errors |
+
+Not pressed: **Re-encrypt to current key** (the permission classifier refused the click: it
+rewrites every user's stored values; the sweep is covered by `customerKeySweep.test.ts`).
+Fixture kept: the secret R438_PRE_MIGRATION (a dummy value). Part two, after the push: create a
+key held by the app and one in a KMS stand-in, assign a group and a user, Check, a conflict, revoke
+the stand-in's key, destroy, erase.
+
 ## 2026-11-02 — R437: OCI Vault on the credential key card
 
 Stand-in: `r437-floci-oci` (floci-oci 0.5.0, pinned by digest, signatures required) on the app

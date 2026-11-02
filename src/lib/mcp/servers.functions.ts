@@ -25,7 +25,8 @@ export const saveMcpServer = createServerFn({ method: "POST" })
       const { encryptMcpAuthToken } = await import("./auth.server");
 
       // Only encrypt+store a token when the server actually uses bearer auth.
-      const enc = data.auth_type === "token" ? await encryptMcpAuthToken(data.auth_token) : null;
+      const enc =
+        data.auth_type === "token" ? await encryptMcpAuthToken(data.auth_token, userId) : null;
 
       const { data: row, error } = await supabase
         .from("mcp_servers")

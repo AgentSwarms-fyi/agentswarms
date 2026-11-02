@@ -235,7 +235,7 @@ describe("the keyring under an external provider", () => {
     process.env.PROVIDER_CREDS_SECRET = SECRET_A;
     delete process.env.KMS_PROVIDER;
     resetKeyringCache();
-    const underEnv = await encryptJson({ token: "sk-live" });
+    const underEnv = await encryptJson({ token: "sk-live" }, { owner: null });
     expect(underEnv.kid).toBe(await kidOfSecret(SECRET_A));
 
     const provider = fakeProvider();
@@ -248,10 +248,12 @@ describe("the keyring under an external provider", () => {
     expect(await decryptJson(underEnv.ciphertext, underEnv.iv, underEnv.kid)).toEqual({
       token: "sk-live",
     });
-    const moved = await reEncryptBlob(underEnv);
+    const moved = await reEncryptBlob(underEnv, { owner: null });
     expect(moved.changed).toBe(true);
     expect(moved.blob.kid).toBe(await kidOfDek(dek));
-    expect(await decryptJson(moved.blob.ciphertext, moved.blob.iv)).toEqual({ token: "sk-live" });
+    expect(await decryptJson(moved.blob.ciphertext, moved.blob.iv, undefined)).toEqual({
+      token: "sk-live",
+    });
     const fp = await keyringFingerprints();
     expect(fp.previous).toContain(await kidOfSecret(SECRET_A));
     expect(await keyringReady()).toEqual({ ok: true });

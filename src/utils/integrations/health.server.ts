@@ -251,7 +251,7 @@ export async function sweepPlaintextSecrets(force = false): Promise<number> {
     const { containsSecretRef } = await import("@/utils/secrets.server");
     const { data: rows, error } = await supabaseAdmin
       .from("integrations")
-      .select("id, type, config")
+      .select("id, user_id, type, config")
       .in("type", SWEEP_TYPES)
       .limit(500);
     if (error || !rows) return 0;
@@ -266,7 +266,7 @@ export async function sweepPlaintextSecrets(force = false): Promise<number> {
         return typeof v === "string" && v.length > 0 && !containsSecretRef(v);
       });
       if (!needs) continue;
-      let next = await encryptIntegrationConfig(r.type, cfg);
+      let next = await encryptIntegrationConfig(r.type, cfg, r.user_id);
       // Belt-and-braces: restore ciphertext for any secret field that had no
       // plaintext value, so the sweep can never lose a stored key.
       next = preserveBlankSecrets(r.type, next, cfg);

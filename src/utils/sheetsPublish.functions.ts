@@ -66,7 +66,10 @@ async function lakehouseCatalogSource(userId: string) {
   if (existing.error) throw new Error(`Could not read your connections: ${existing.error.message}`);
   let conn = existing.data;
   if (!conn) {
-    const credentials = (await encryptJson({ provider: "lakehouse", user_id: userId })) as Json;
+    const credentials = (await encryptJson(
+      { provider: "lakehouse", user_id: userId },
+      { owner: userId },
+    )) as Json;
     for (const name of ["Lakehouse", "Lakehouse (Sheets)", `Lakehouse ${Date.now() % 100000}`]) {
       const ins = await supabaseAdmin
         .from("data_warehouse_connections")

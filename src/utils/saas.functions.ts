@@ -86,13 +86,13 @@ async function loadConnection(
   if (!row) throw new Error("Data source not found");
   if (!row.is_active) throw new Error(`Data source "${row.name}" is disabled`);
 
-  const enc = row.config as { ciphertext?: string; iv?: string };
+  const enc = row.config as { ciphertext?: string; iv?: string; kid?: string };
   if (!enc?.ciphertext || !enc?.iv) {
     throw new Error(`Data source "${row.name}" has no stored credentials`);
   }
   return {
     name: row.name,
-    config: await decryptJson<SaasConfig>(enc.ciphertext, enc.iv),
+    config: await decryptJson<SaasConfig>(enc.ciphertext, enc.iv, enc.kid),
     streams: Array.isArray(row.streams) ? (row.streams as string[]) : [],
     ownerUserId: row.user_id,
   };
@@ -235,7 +235,7 @@ export const saveSaasConnection = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }): Promise<{ id: string }> => {
     const { sb, userId } = await requireUser(data.access_token);
-    const encrypted = await encryptJson(data.config);
+    const encrypted = await encryptJson(data.config, { owner: userId });
 
     const row = {
       user_id: userId,

@@ -15,12 +15,14 @@ import {
 } from "@/utils/kms/keyring.server";
 import { keyringFingerprints, resetKeyringCache } from "./crypto.server";
 import {
+  keyContext,
   keyEncryptionStatus,
   reEncryptAllToCurrentKey,
   statusTotals,
   type StatusTotals,
+  type SweepResult,
   type TableStatus,
-  type TableRotation,
+  type UserKeySummary,
 } from "./keyRotation.server";
 
 export type KeyStatusPayload = {
@@ -32,6 +34,8 @@ export type KeyStatusPayload = {
   totals: StatusTotals;
   /** Which key provider is in use, which one is configured, and the data key. */
   kms: KmsStatus;
+  /** User keys and customer keys (R438): counts, and why a fingerprint does not read. */
+  userKeys: UserKeySummary;
 };
 export type KeyRotationError = { ok: false; error: string };
 
@@ -42,13 +46,22 @@ export const getKeyEncryptionStatus = createServerFn({ method: "POST" })
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) return { ok: false, error: guard.error };
     try {
+      const ctx = await keyContext();
       const [fp, tables, kms] = await Promise.all([
         keyringFingerprints(),
-        keyEncryptionStatus(),
+        keyEncryptionStatus(ctx),
         kmsStatus(),
       ]);
       const totals = statusTotals(tables);
-      return { ok: true, current: fp.current, previous: fp.previous, tables, totals, kms };
+      return {
+        ok: true,
+        current: fp.current,
+        previous: fp.previous,
+        tables,
+        totals,
+        kms,
+        userKeys: ctx.summary,
+      };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : "Status failed" };
     }
@@ -95,12 +108,7 @@ export const createKmsDataKey = createServerFn({ method: "POST" })
     }
   });
 
-export type RotatePayload = {
-  ok: true;
-  tables: TableRotation[];
-  totalMigrated: number;
-  totalFailed: number;
-};
+export type RotatePayload = { ok: true } & SweepResult;
 
 /** Re-encrypt every stored credential onto the current key. Idempotent. */
 export const reEncryptCredentials = createServerFn({ method: "POST" })
@@ -117,6 +125,9 @@ export const reEncryptCredentials = createServerFn({ method: "POST" })
         detail: {
           migrated: result.totalMigrated,
           failed: result.totalFailed,
+          user_keys_rewrapped: result.userKeysRewrapped,
+          customer_keys_rewrapped: result.customerKeysRewrapped,
+          owners_failed: result.ownerFailures.length,
           tables: result.tables
             .filter((t) => t.migrated > 0 || t.failed > 0 || t.error)
             .map((t) => ({

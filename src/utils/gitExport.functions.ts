@@ -123,9 +123,10 @@ export const gitSaveConfig = createServerFn({ method: "POST" })
       let token_enc = existing?.token_enc ?? null;
       if (data.token !== undefined) {
         token_enc = data.token
-          ? ((await encryptJson({
-              token: data.token,
-            })) as unknown as Database["public"]["Tables"]["git_export_config"]["Row"]["token_enc"])
+          ? ((await encryptJson(
+              { token: data.token },
+              { owner: userId },
+            )) as unknown as Database["public"]["Tables"]["git_export_config"]["Row"]["token_enc"])
           : null;
       }
 
@@ -162,11 +163,11 @@ export const gitExportNow = createServerFn({ method: "POST" })
         if (error) return { ok: false, error: error.message };
         if (!row) return { ok: false, error: "Configure a Git repository first" };
 
-        const enc = row.token_enc as { ciphertext?: string; iv?: string } | null;
+        const enc = row.token_enc as { ciphertext?: string; iv?: string; kid?: string } | null;
         if (!enc?.ciphertext || !enc?.iv) {
           return { ok: false, error: "No access token stored — add one in the Git settings" };
         }
-        const { token } = await decryptJson<{ token: string }>(enc.ciphertext, enc.iv);
+        const { token } = await decryptJson<{ token: string }>(enc.ciphertext, enc.iv, enc.kid);
 
         const cfg: GitExportConfig = {
           provider: row.provider as GitExportConfig["provider"],

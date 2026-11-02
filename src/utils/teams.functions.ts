@@ -115,7 +115,10 @@ export const saveTeamsBot = createServerFn({ method: "POST" })
       is_active: data.is_active ?? true,
     };
     if (data.app_password) {
-      row.app_password_enc = (await encryptJson({ password: data.app_password })) as Json;
+      row.app_password_enc = (await encryptJson(
+        { password: data.app_password },
+        { owner: userId },
+      )) as Json;
     }
 
     const q = data.id

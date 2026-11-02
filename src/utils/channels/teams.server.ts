@@ -22,7 +22,7 @@ export type TeamsBotRow = {
   target_type: "agent" | "analyst" | null;
   target_id: string | null;
   is_active: boolean;
-  app_password_enc: { ciphertext?: string; iv?: string } | null;
+  app_password_enc: { ciphertext?: string; iv?: string; kid?: string } | null;
 };
 
 const BOT_COLUMNS =
@@ -53,7 +53,7 @@ export async function teamsAppPassword(bot: TeamsBotRow): Promise<string | null>
   try {
     // The same envelope shape the Slack workspace uses, so both credentials
     // are stored and read one way.
-    const { password } = await decryptJson<{ password: string }>(enc.ciphertext, enc.iv);
+    const { password } = await decryptJson<{ password: string }>(enc.ciphertext, enc.iv, enc.kid);
     return password || null;
   } catch {
     return null;

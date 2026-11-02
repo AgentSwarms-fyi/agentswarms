@@ -55,8 +55,9 @@ export function generateViewerSecret(): string {
   return `evs_${b64url(randomBytes(32))}`;
 }
 
-export async function encryptViewerSecret(secret: string) {
-  return encryptJson(secret);
+/** Under the embed key owner's key (the embed_keys row's user_id). */
+export async function encryptViewerSecret(secret: string, owner: string) {
+  return encryptJson(secret, { owner });
 }
 
 /** The stored secret in the clear, or null when the key has none. */

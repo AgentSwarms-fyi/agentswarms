@@ -490,7 +490,11 @@ export async function saveIntegrationForUser(
     integrationSecretFields(data.type),
   );
 
-  let cfg = await encryptIntegrationConfig(data.type, data.config as Record<string, unknown>);
+  let cfg = await encryptIntegrationConfig(
+    data.type,
+    data.config as Record<string, unknown>,
+    userId,
+  );
   cfg = preserveBlankSecrets(data.type, cfg, existingConfig);
 
   const row = {
@@ -534,7 +538,11 @@ export async function saveIntegrationForUser(
             ...row,
             config: preserveBlankSecrets(
               data.type,
-              await encryptIntegrationConfig(data.type, data.config as Record<string, unknown>),
+              await encryptIntegrationConfig(
+                data.type,
+                data.config as Record<string, unknown>,
+                userId,
+              ),
               (winner.config ?? null) as Record<string, unknown> | null,
             ),
           };

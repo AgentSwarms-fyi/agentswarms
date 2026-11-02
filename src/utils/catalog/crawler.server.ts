@@ -792,11 +792,11 @@ export async function loadStorageConfig(
   source: { credentials: Json | null; name: string },
   opts?: { into?: "sandbox" },
 ): Promise<ObjectStoreConfig> {
-  const enc = source.credentials as { ciphertext?: string; iv?: string } | null;
+  const enc = source.credentials as { ciphertext?: string; iv?: string; kid?: string } | null;
   if (!enc?.ciphertext || !enc?.iv) {
     throw new Error(`Source "${source.name}" has no stored credentials`);
   }
-  const cfg = await decryptJson<ObjectStoreConfig>(enc.ciphertext, enc.iv);
+  const cfg = await decryptJson<ObjectStoreConfig>(enc.ciphertext, enc.iv, enc.kid);
   if (opts?.into === "sandbox") {
     return (await resolveSecretRefsInObject(
       userId,
@@ -1196,9 +1196,9 @@ export async function loadIcebergConfig(source: CatalogSourceRow): Promise<Icebe
   const cfg = (source.config ?? {}) as { uri?: string; warehouse?: string };
   if (!cfg.uri) throw new Error(`Source "${source.name}" has no catalog URI`);
   let token: string | undefined;
-  const enc = source.credentials as { ciphertext?: string; iv?: string } | null;
+  const enc = source.credentials as { ciphertext?: string; iv?: string; kid?: string } | null;
   if (enc?.ciphertext && enc?.iv) {
-    const dec = await decryptJson<{ token?: string }>(enc.ciphertext, enc.iv);
+    const dec = await decryptJson<{ token?: string }>(enc.ciphertext, enc.iv, enc.kid);
     token = dec.token;
   }
   if (token && containsSecretRef(token)) {

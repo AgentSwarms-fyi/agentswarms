@@ -6,15 +6,19 @@
 // is present — new saves encrypt, old rows keep working until re-saved.
 import { encryptJson, decryptJson } from "@/utils/providers/crypto.server";
 
-type EncBlob = { ciphertext?: string; iv?: string } | null | undefined;
+type EncBlob = { ciphertext?: string; iv?: string; kid?: string } | null | undefined;
 
-/** Encrypt a token for storage. Returns null for an empty/absent token. */
+/**
+ * Encrypt a token for storage under its owner's key (the mcp_servers row's
+ * user_id). Returns null for an empty/absent token.
+ */
 export async function encryptMcpAuthToken(
   token: string | null | undefined,
-): Promise<{ ciphertext: string; iv: string } | null> {
+  owner: string,
+): Promise<{ ciphertext: string; iv: string; kid?: string } | null> {
   const t = (token ?? "").trim();
   if (!t) return null;
-  return encryptJson(t);
+  return encryptJson(t, { owner });
 }
 
 /**
@@ -30,7 +34,7 @@ export async function resolveMcpAuthToken(row: {
   const enc = row.auth_token_enc as EncBlob;
   if (enc && typeof enc === "object" && enc.ciphertext && enc.iv) {
     try {
-      return await decryptJson<string>(enc.ciphertext, enc.iv);
+      return await decryptJson<string>(enc.ciphertext, enc.iv, enc.kid);
     } catch {
       return null;
     }
