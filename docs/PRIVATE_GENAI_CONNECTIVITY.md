@@ -516,6 +516,14 @@ name (the `privatelink.vaultcore.azure.net` zone), so `KMS_KEY_REF` does not cha
 sign-in has no private endpoint and is not held to the rule; a managed identity's token never
 leaves the host. See [KEY_MANAGEMENT.md](./KEY_MANAGEMENT.md#over-a-private-endpoint).
 
+Google Cloud KMS takes the same rule (R435): with `KMS_REQUIRE_PRIVATE=true` a Cloud KMS call that
+would go directly to a public address is refused. A Private Service Connect endpoint is reached by
+setting `GCP_KMS_ENDPOINT` to its `cloudkms-<endpoint>.p.googleapis.com` name (the token is then
+fetched from `oauth2-<endpoint>.p.googleapis.com`), or by giving `cloudkms.googleapis.com` the
+endpoint's address in private DNS. `private.googleapis.com` and `restricted.googleapis.com` are
+public addresses routed privately, and the rule refuses them. See
+[KEY_MANAGEMENT.md](./KEY_MANAGEMENT.md#over-private-service-connect).
+
 ### How it would be tested
 
 - **Proxy:** a throwaway Squid container on the app network as the only egress;

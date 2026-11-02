@@ -1,24 +1,24 @@
 # Key management and external KMS
 
-**Status: envelope encryption is built, with four providers.** `env` (the
+**Status: envelope encryption is built, with five providers.** `env` (the
 default) derives the key from `PROVIDER_CREDS_SECRET` exactly as before,
 `vault` keeps the key-encrypting key in HashiCorp Vault Transit, `aws` in AWS
-KMS ([below](#aws-kms)), and `azure` in Azure Key Vault or an Azure Managed
-HSM ([below](#azure-key-vault)). GCP KMS and OCI Vault are designed behind the
-same interface and not yet built; `KMS_PROVIDER` refuses them by name rather
-than pretending.
+KMS ([below](#aws-kms)), `azure` in Azure Key Vault or an Azure Managed HSM
+([below](#azure-key-vault)), and `gcp` in Google Cloud KMS
+([below](#google-cloud-kms)). OCI Vault is designed behind the same interface
+and not yet built; `KMS_PROVIDER` refuses it by name rather than pretending.
 
 For what exists now — AES-256-GCM, key fingerprints, and the rotation sweep —
 see [SECURITY.md](../SECURITY.md#credential-encryption).
 
 ## What exists
 
-| Variable                                                            | Meaning                                                                                                                                                                                                                   |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `KMS_PROVIDER`                                                      | `env` (default), `vault`, `aws` or `azure`                                                                                                                                                                                |
-| `KMS_KEY_REF`                                                       | The provider's reference for the key-encrypting key. Vault: `transit/keys/<name>`. AWS KMS: a key ARN, an alias ARN, `alias/<name>` or a key id. Azure: the key identifier, `https://<vault>.vault.azure.net/keys/<name>` |
-| `VAULT_ADDR`, `VAULT_TOKEN` / `VAULT_TOKEN_FILE` / `VAULT_K8S_ROLE` | Where Vault is and how to authenticate: a token, a mounted token file, or a Kubernetes service-account login (`VAULT_K8S_MOUNT`, default `kubernetes`)                                                                    |
-| `VAULT_NAMESPACE`                                                   | Vault Enterprise namespaces only                                                                                                                                                                                          |
+| Variable                                                            | Meaning                                                                                                                                                                                                                                                                                      |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `KMS_PROVIDER`                                                      | `env` (default), `vault`, `aws`, `azure` or `gcp`                                                                                                                                                                                                                                            |
+| `KMS_KEY_REF`                                                       | The provider's reference for the key-encrypting key. Vault: `transit/keys/<name>`. AWS KMS: a key ARN, an alias ARN, `alias/<name>` or a key id. Azure: the key identifier, `https://<vault>.vault.azure.net/keys/<name>`. Cloud KMS: the key's resource name, `projects/…/cryptoKeys/<key>` |
+| `VAULT_ADDR`, `VAULT_TOKEN` / `VAULT_TOKEN_FILE` / `VAULT_K8S_ROLE` | Where Vault is and how to authenticate: a token, a mounted token file, or a Kubernetes service-account login (`VAULT_K8S_MOUNT`, default `kubernetes`)                                                                                                                                       |
+| `VAULT_NAMESPACE`                                                   | Vault Enterprise namespaces only                                                                                                                                                                                                                                                             |
 
 **Switching a running deployment to Vault**, which is a rotation and not a
 cutover (from `env`; from another external provider it is a re-key, see
@@ -311,13 +311,126 @@ metadata service, over TLS under a real `*.vault.azure.net` name; the comment
 at its top gives the commands. lowkey-vault wraps with RSA keys only, so AES
 key wrap (Managed HSM) is covered by the unit tests.
 
+## Google Cloud KMS
+
+`KMS_PROVIDER=gcp` keeps the key-encrypting key in Cloud KMS: a symmetric key
+in software, in Cloud HSM, or in an external key manager through Cloud EKM.
+The data key is 32 random bytes the app makes, encrypted with the key's
+primary version and stored only after a decrypt has given back the same
+bytes. There is no Google SDK: the Cloud KMS REST API (v1) with an OAuth token
+for the `cloudkms` scope.
+
+Every byte string carries its CRC-32C both ways, as Google asks: the request
+names the checksum of its plaintext (or ciphertext) and of its additional
+authenticated data, the answer must say the service verified them, and the
+checksum of what comes back is checked before it is used. An answer that fails
+any of these is discarded and nothing is stored. Every encrypt and decrypt
+carries the same additional authenticated data,
+`agentswarms:credential-data-key`, so a ciphertext made with the same key for
+anything else does not decrypt as a data key.
+
+| Variable               | Meaning                                                                                                                                                                                                                                                                                                                             |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `KMS_KEY_REF`          | The key's resource name, as the console's "Copy resource name" gives it: `projects/<project>/locations/<location>/keyRings/<ring>/cryptoKeys/<key>` (or the same after `//cloudkms.googleapis.com/`). A key **version** is refused: decrypt finds the version from the ciphertext, and encrypt uses the primary, so rotation works  |
+| `GCP_KMS_ENDPOINT`     | Where the calls go instead of `https://cloudkms.googleapis.com`: a regional endpoint (`https://cloudkms.<location>.rep.googleapis.com`), a Private Service Connect endpoint (`https://cloudkms-<endpoint>.p.googleapis.com`, whose token is then fetched from `oauth2-<endpoint>.p.googleapis.com`), or an emulator. An origin only |
+| `KMS_REQUIRE_PRIVATE`  | `true`: every Cloud KMS call must take a private network path ([below](#over-private-service-connect))                                                                                                                                                                                                                              |
+| the identity variables | The app's own Google identity, [below](#the-apps-google-identity)                                                                                                                                                                                                                                                                   |
+
+**Switching to Cloud KMS** is the same rotation as for Vault:
+
+1. Create a key ring in the location your data lives in, and a key with the
+   purpose **Symmetric encrypt/decrypt**: protection level Software, HSM (Cloud
+   HSM) or External (Cloud EKM). Give it a **rotation period**: the settings
+   card says when there is none. Grant the app's identity **Cloud KMS
+   CryptoKey Encrypter/Decrypter** (`roles/cloudkms.cryptoKeyEncrypterDecrypter`)
+   on the key, not the project. Add **Cloud KMS Viewer** on the key if you want
+   the card to show its protection level, primary version and rotation; the
+   app does not need it.
+2. Set `KMS_KEY_REF` to the key's resource name, give the app its identity,
+   leave `KMS_PROVIDER` unset and restart. **Admin → IAM → Settings →
+   Credential encryption key** shows the endpoint and its network path, who
+   the app signs in as, and, when it may read them, the key's protection
+   level, primary version, rotation and how long a version scheduled for
+   destruction can be restored. Opening the card proves the permission with a
+   test encrypt and decrypt of 32 random bytes; **Create a data key in Cloud
+   KMS** is enabled only when that works and the primary version is enabled.
+3. Create the data key.
+4. Set `KMS_PROVIDER=gcp`, restart, and run **Re-encrypt to current key**.
+
+The stored data key names the **version** that encrypted it, checked to be a
+version of the row's own key before anything is sent, and decrypt is asked at
+the row's own key: Cloud KMS refuses a ciphertext from any other key. Rotation
+in Cloud KMS (a new primary version, on the key's schedule or by hand) changes
+nothing for data keys already stored as long as their versions stay enabled;
+**Rotate the data key** encrypts a new one with the new primary. A version
+scheduled for destruction can be restored until its destruction date (the
+key's `destroyScheduledDuration`, 30 days by default); after that, every
+credential under a data key it encrypted is gone.
+
+### The app's Google identity
+
+The token the app presents when it calls Google Cloud as itself
+(`src/utils/google/credentials.server.ts`): Application Default Credentials,
+as Google's libraries find them, without gcloud's file in the home directory.
+If `GOOGLE_APPLICATION_CREDENTIALS` is set, that file is the source, and if it
+fails the call fails: it never falls through to the metadata server.
+
+| Source                       | Set                                                                      | Typical deployment                                                                         |
+| ---------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| The metadata server          | nothing                                                                  | Compute Engine, GKE with Workload Identity Federation for GKE, Cloud Run, Cloud Functions  |
+| Workload identity federation | `GOOGLE_APPLICATION_CREDENTIALS`: an `external_account` file             | EKS, AKS, any cluster with an OIDC issuer, a CI's OIDC token: no key leaves Google         |
+| A service account key        | `GOOGLE_APPLICATION_CREDENTIALS`: a `service_account` key file           | Outside Google Cloud when federation is not possible; prefer federation                    |
+| Impersonation                | `GOOGLE_APPLICATION_CREDENTIALS`: an `impersonated_service_account` file | A key or user credential acting as the service account that holds the KMS role             |
+| User credentials             | `GOOGLE_APPLICATION_CREDENTIALS`: an `authorized_user` file              | Development only (`gcloud auth application-default login`); its `quota_project_id` is sent |
+
+- **The metadata server** is asked directly at `169.254.169.254` (or
+  `GCE_METADATA_HOST`), never through the proxy and never following a
+  redirect, and an answer without `Metadata-Flavor: Google` is refused.
+- **Workload identity federation** reads the other identity provider's token
+  from a file (read again at every exchange, because platforms rotate it) or a
+  URL (`credential_source.url`, with its headers and a JSON field; a
+  link-local or loopback URL is fetched directly, anything else through the
+  guarded fetch), exchanges it at Google's Security Token Service and, with
+  `service_account_impersonation_url`, for the service account's token. The
+  `aws` and `executable` credential sources are not read: on AWS, use the
+  pod's or instance's OIDC token file.
+- **A service account key** signs an RS256 assertion (its `private_key_id`
+  as `kid`) and is read again at every exchange, so a replaced key file is
+  picked up.
+- Tokens are cached until five minutes before they expire.
+
+### Over Private Service Connect
+
+Cloud KMS calls go the way every outbound call goes: the SSRF guard's
+always-blocked tier, and the proxy. With a Private Service Connect endpoint
+for Google APIs, either set `GCP_KMS_ENDPOINT` to the endpoint's
+`cloudkms-<endpoint>.p.googleapis.com` name, or give `cloudkms.googleapis.com`
+the endpoint's address in a private DNS zone. `KMS_REQUIRE_PRIVATE=true` makes
+that a rule: a Cloud KMS call that would go directly to a public address is
+refused before anything is sent, audited as `security.kms.private_path.refused`
+with `system:kms` as the actor, and the process refuses to start on it. The
+`private.googleapis.com` and `restricted.googleapis.com` ranges are public
+addresses routed privately, so the rule refuses them: use a PSC endpoint,
+whose address is your VPC's own. **The token request is not covered:** it
+goes to the key file's `token_uri` (or `oauth2-<endpoint>.p.googleapis.com`
+with a PSC endpoint), to STS and to iamcredentials as configured, directly or
+through `HTTPS_PROXY`, and carries the app's credential, never key material.
+A metadata server token never leaves the host.
+
+**Testing without a Google Cloud account.**
+`tests/integration/gcpKmsEmulator.test.ts` drives the real provider and the
+real service account sign-in against floci-gcp (pinned by digest), whose
+token endpoint accepts the key's assertion; the comment at its top gives the
+commands and what the emulator does differently. Federation, impersonation,
+the metadata server and the IAM errors are covered by the unit tests.
+
 ## Changing key providers
 
 Three different changes, in the order they are usually needed.
 
 **Rotating within a provider.** The common one, and transparent. AWS KMS
-automatic rotation, a new Key Vault key version and `vault write -f
-transit/keys/<name>/rotate` change nothing for the app: the provider unwraps
+automatic rotation, a new Key Vault key version, a new Cloud KMS primary
+version and `vault write -f transit/keys/<name>/rotate` change nothing for the app: the provider unwraps
 what its older key material wrapped. To move to a different key in the same
 provider, point `KMS_KEY_REF` at it, restart, use **Rotate the data key**, and
 run **Re-encrypt to current key**.
@@ -338,6 +451,13 @@ uses today, as its own identity, from wherever it now runs:
   projected token with the audience `api://AzureADTokenExchange`, and set
   `AZURE_FEDERATED_TOKEN_FILE`, `AZURE_CLIENT_ID` and `AZURE_TENANT_ID` (the
   workload identity source above).
+- **Cloud KMS from EKS, AKS or any cluster with an OIDC issuer:** create a
+  workload identity pool and provider trusting the cluster's issuer, let the
+  pool's principal for the app's service account impersonate the service
+  account that holds the KMS role, mount a projected token with the
+  provider's audience, and point `GOOGLE_APPLICATION_CREDENTIALS` at the
+  `external_account` file `gcloud iam workload-identity-pools
+create-cred-config` writes (workload identity federation, above).
 - **Vault Transit:** anywhere `VAULT_ADDR` is reachable.
 
 Nothing is re-encrypted and no data key changes. The key provider calls then
@@ -481,7 +601,7 @@ an existing deployment:
 | Provider            | Key reference                     | Wrap / unwrap                                                                             | Auth in a self-hosted deployment                           |
 | ------------------- | --------------------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
 | **AWS KMS**         | `arn:aws:kms:…:key/…`             | `Encrypt` / `Decrypt`, or `GenerateDataKey` which returns plaintext + wrapped in one call | IAM role via IRSA / instance profile; else access key pair |
-| **GCP KMS**         | `projects/…/cryptoKeys/…`         | `encrypt` / `decrypt`                                                                     | Workload Identity; else service-account JSON               |
+| **Cloud KMS**       | `projects/…/cryptoKeys/…`         | `encrypt` / `decrypt`, with CRC-32C both ways and fixed AAD                               | Metadata server or federation; else service-account JSON   |
 | **Azure Key Vault** | `https://…vault.azure.net/keys/…` | `wrapKey` / `unwrapKey`                                                                   | Managed Identity; else client secret / cert                |
 | **OCI Vault**       | key OCID + crypto endpoint        | `encrypt` / `decrypt`                                                                     | Instance principal; else API signing key                   |
 | **HashiCorp Vault** | `transit/keys/<name>`             | Transit `encrypt` / `decrypt`                                                             | Kubernetes auth, AppRole, or token                         |
@@ -516,7 +636,7 @@ Deliberately incremental. Each step is shippable and reversible.
    change, done with no external dependency to debug alongside it.
 2. **Add `KeyProvider` and the Vault Transit implementation.** Testable in CI
    with a Vault dev container — no cloud account needed.
-3. **Add AWS (done), Azure (done), then GCP, OCI**, each behind the same interface,
+3. **Add AWS (done), Azure (done), GCP (done), then OCI**, each behind the same interface,
    each with an integration test that is skipped when its emulator or
    credentials are absent.
 4. **Add a provider-switch flow** to the existing Settings card, reusing the

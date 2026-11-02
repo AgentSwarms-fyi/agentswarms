@@ -710,15 +710,33 @@ AUDIT_ARCHIVE_ON_PURGE="1"
         held to that rule.
       </Callout>
 
+      <Callout kind="info" title="Or in Google Cloud KMS">
+        <C>KMS_PROVIDER=gcp</C> does the same with a Cloud KMS key: set <C>KMS_KEY_REF</C> to the
+        key&apos;s resource name (
+        <C>
+          projects/&lt;project&gt;/locations/&lt;location&gt;/keyRings/&lt;ring&gt;/cryptoKeys/&lt;key&gt;
+        </C>
+        ), give the app&apos;s service account{" "}
+        <strong>Cloud KMS CryptoKey Encrypter/Decrypter</strong> on the key, and give the key a
+        rotation period. An HSM key lives in Cloud HSM, an External one in your own key manager. The
+        app signs in as the service account on the metadata server (Compute Engine, GKE with
+        workload identity, Cloud Run), or through <C>GOOGLE_APPLICATION_CREDENTIALS</C>: a workload
+        identity federation file from any other cloud, or a service account key. Every byte string
+        is checked with its CRC-32C both ways. With a Private Service Connect endpoint, set{" "}
+        <C>GCP_KMS_ENDPOINT</C> to its <C>cloudkms-&lt;endpoint&gt;.p.googleapis.com</C> name, and{" "}
+        <C>KMS_REQUIRE_PRIVATE=true</C> refuses any Cloud KMS call that would go to a public
+        address. The token request is not held to that rule.
+      </Callout>
+
       <Callout kind="warn" title="Changing key providers">
         Moving the app to another cloud does not mean moving the key: it can keep using the key
         provider it has, signing in from the new cloud with workload identity federation (an AWS
-        role trusting the cluster&apos;s OIDC issuer, or an Entra ID federated credential). From{" "}
-        <C>env</C> to a provider is a rotation and nothing becomes unreadable. Between two external
-        providers it is a re-key: values on the old provider&apos;s data key do not decrypt under
-        the new one. <strong>Credential encryption key</strong> counts them and names the key, the
-        old data key is kept so the way back works, and they are entered again. The steps are in{" "}
-        <C>docs/KEY_MANAGEMENT.md</C>, under Changing key providers.
+        role trusting the cluster&apos;s OIDC issuer, an Entra ID federated credential, or a Google
+        workload identity pool). From <C>env</C> to a provider is a rotation and nothing becomes
+        unreadable. Between two external providers it is a re-key: values on the old provider&apos;s
+        data key do not decrypt under the new one. <strong>Credential encryption key</strong> counts
+        them and names the key, the old data key is kept so the way back works, and they are entered
+        again. The steps are in <C>docs/KEY_MANAGEMENT.md</C>, under Changing key providers.
       </Callout>
 
       <H3 id="recipe-fleet">Autoscaled behind a load balancer</H3>

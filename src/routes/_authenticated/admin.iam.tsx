@@ -1909,7 +1909,9 @@ function CredentialKeyCard({ token }: { token: string }) {
         ? "AWS KMS"
         : id === "azure"
           ? "Azure Key Vault"
-          : id.toUpperCase();
+          : id === "gcp"
+            ? "Cloud KMS"
+            : id.toUpperCase();
 
   const createKey = async () => {
     setCreating(true);
@@ -2052,8 +2054,10 @@ function CredentialKeyCard({ token }: { token: string }) {
                     role; AWS KMS: the key&apos;s ARN or alias, and a role or{" "}
                     <code className="font-mono">AWS_*</code> keys; Azure Key Vault: the key
                     identifier, and a managed or workload identity or{" "}
-                    <code className="font-mono">AZURE_*</code> variables), restart, and the option
-                    to wrap a data key appears here.
+                    <code className="font-mono">AZURE_*</code> variables; Cloud KMS: the key&apos;s
+                    resource name, and a service account on the metadata server or{" "}
+                    <code className="font-mono">GOOGLE_APPLICATION_CREDENTIALS</code>), restart, and
+                    the option to wrap a data key appears here.
                   </p>
                 )}
                 {external?.probe.facts?.length ? (

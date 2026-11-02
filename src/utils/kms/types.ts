@@ -13,7 +13,13 @@ export const KMS_PROVIDERS = ["env", "vault", "aws", "gcp", "azure", "oci"] as c
 export type KmsProviderId = (typeof KMS_PROVIDERS)[number];
 
 /** The providers this build can actually talk to. The rest are designed, not built. */
-export const IMPLEMENTED_KMS_PROVIDERS: readonly KmsProviderId[] = ["env", "vault", "aws", "azure"];
+export const IMPLEMENTED_KMS_PROVIDERS: readonly KmsProviderId[] = [
+  "env",
+  "vault",
+  "aws",
+  "azure",
+  "gcp",
+];
 
 export type WrappedDek = {
   provider: KmsProviderId;
@@ -213,10 +219,75 @@ export function parseAzureKeyRef(keyRef: string): AzureKeyRef {
   };
 }
 
+export type GcpKeyRef = {
+  /** The key's resource name, normalised: projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>. */
+  keyRef: string;
+  project: string;
+  location: string;
+  keyRing: string;
+  cryptoKey: string;
+};
+
+// A project id (6–30 lowercase letters, digits and hyphens; a legacy
+// domain-scoped one has "example.com:" in front) or a project number. Each
+// part goes into a URL path, so nothing else gets through.
+const GCP_PROJECT = /^(?:(?:[a-z0-9-]+\.)+[a-z]+:)?[a-z][a-z0-9-]{4,28}[a-z0-9]$|^\d{1,20}$/;
+// "global", a region (europe-west3), a multi-region (us), a dual (nam-eur-asia1).
+const GCP_LOCATION = /^[a-z][a-z0-9-]{0,62}$/;
+const GCP_ID = /^[A-Za-z0-9_-]{1,63}$/;
+const GCP_KEY_NAME =
+  /^projects\/([^/]+)\/locations\/([^/]+)\/keyRings\/([^/]+)\/cryptoKeys\/([^/]+)(\/cryptoKeyVersions\/[^/]+)?$/;
+
+/**
+ * A Cloud KMS key's resource name, as the console's "Copy resource name"
+ * gives it: projects/<project>/locations/<location>/keyRings/<ring>/cryptoKeys/<key>,
+ * or the same after //cloudkms.googleapis.com/. A key VERSION is refused:
+ * decrypt takes the key and finds the version from the ciphertext, and encrypt
+ * should use whichever version is primary, so rotation works.
+ */
+export function parseGcpKeyRef(keyRef: string): GcpKeyRef {
+  const raw = keyRef.trim().replace(/^\/\/cloudkms\.googleapis\.com\//, "");
+  const usage =
+    `KMS_KEY_REF for Cloud KMS must be a key's resource name, ` +
+    `projects/<project>/locations/<location>/keyRings/<ring>/cryptoKeys/<key>, not "${keyRef}"`;
+  const m = GCP_KEY_NAME.exec(raw);
+  if (!m) throw new KmsConfigError(usage);
+  if (m[5]) {
+    throw new KmsConfigError(
+      `KMS_KEY_REF names a key version (${m[5].slice(1)}); name the key itself, ` +
+        `so encrypt uses the primary version and rotation works`,
+    );
+  }
+  const [, project, location, keyRing, cryptoKey] = m;
+  if (
+    !GCP_PROJECT.test(project) ||
+    !GCP_LOCATION.test(location) ||
+    !GCP_ID.test(keyRing) ||
+    !GCP_ID.test(cryptoKey)
+  ) {
+    throw new KmsConfigError(usage);
+  }
+  return {
+    keyRef: `projects/${project}/locations/${location}/keyRings/${keyRing}/cryptoKeys/${cryptoKey}`,
+    project,
+    location,
+    keyRing,
+    cryptoKey,
+  };
+}
+
 /** Which provider a key reference belongs to, by its shape. */
-export function keyRefProvider(keyRef: string): "vault" | "aws" | "azure" | null {
+export function keyRefProvider(keyRef: string): "vault" | "aws" | "azure" | "gcp" | null {
   const ref = keyRef.trim();
   if (/^[A-Za-z0-9_.-]+\/keys\/[A-Za-z0-9_.-]+$/.test(ref)) return "vault";
+  if (ref.startsWith("projects/") || ref.startsWith("//cloudkms.googleapis.com/")) {
+    try {
+      parseGcpKeyRef(ref);
+      return "gcp";
+    } catch {
+      return null;
+    }
+  }
   if (ref.startsWith("arn:") || ref.startsWith("alias/") || AWS_KEY_ID.test(ref)) return "aws";
   if (/^https:\/\//i.test(ref)) {
     try {

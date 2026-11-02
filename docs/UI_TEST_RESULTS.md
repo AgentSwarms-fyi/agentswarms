@@ -15,6 +15,25 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-02 — R435: Google Cloud KMS on the credential key card
+
+Stand-in: `r435-floci-gcp` (floci-gcp 0.11.0, pinned by digest) on the app network, key
+`projects/acme-prod/locations/europe-west3/keyRings/agentswarms-ui/cryptoKeys/credential-kek`. The
+identity: a throwaway service account key (generated for the round, mounted read-only) whose
+`token_uri` is the stand-in's `/token`. `KMS_PROVIDER` unset throughout; the app recreated per
+phase with the override in the scratchpad, then returned to its own environment.
+
+| What was driven | Result |
+| --- | --- |
+| A: `KMS_KEY_REF` + `GCP_KMS_ENDPOINT=http://r435-floci-gcp:4588` → Admin → IAM → Settings | "Cloud KMS: Encrypt and decrypt work (version 1)." and **Create a data key in Cloud KMS** enabled. Endpoint "http://r435-floci-gcp:4588 (GCP_KMS_ENDPOINT) · direct to 172.19.0.14 (private)"; Signed in as "service account agentswarms-kms@acme-prod.iam.gserviceaccount.com (key c864d924…)"; Protection "software-protected"; Primary version "1 · ENABLED"; Rotation "not scheduled: set a rotation period on the key". The stand-in's log: POST /token, GET the key, POST :encrypt, POST :decrypt |
+| B: `KMS_REQUIRE_PRIVATE=true`, the endpoint left at Google's default | "Cloud KMS is set to require a private network path, but cloudkms.googleapis.com resolves to a public address (142.250.200.170, 142.250.202.10) from this server, so the call was not sent." with the PSC advice; Endpoint "(public)"; the Create button disabled; Signed in as still shown (the token request is not held) |
+| B → Audit log | `system:kms` · `security.kms.private_path.refused` · the key · the refusal |
+| C: the rule on, the private endpoint | "Encrypt and decrypt work (version 1)."; Network rule "private path required (KMS_REQUIRE_PRIVATE)"; Create enabled |
+
+Not pressed: **Create a data key in Cloud KMS** (a row in the live database; the user's).
+Fixtures kept: `r435-floci-gcp` (running, keys in memory) and the overrides
+`gcp-a/b/c.override.yml` in the session scratchpad.
+
 ## 2026-11-02 — R434: Explore narrows what it lists; the graph's panel and wheel
 
 Fixture: ontology `33883aa4-…` "Northwind Outfitters 2", 1440×900, the hot-deployed build. Before:

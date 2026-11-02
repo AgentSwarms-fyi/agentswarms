@@ -109,6 +109,67 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-02 — R435: Google Cloud KMS as a key provider, and the app's own Google identity
+
+**Feature.** `KMS_PROVIDER=gcp` keeps the credential key-encrypting key in Cloud KMS, in the order
+the user set (AWS, Azure, then GCP and OCI, per-customer keys last). `src/utils/kms/gcp.server.ts`
+(the REST API, no SDK), `src/utils/google/credentials.server.ts` (Application Default Credentials:
+a service account key, user credentials, workload identity federation, impersonation, the
+metadata server), `src/utils/kms/crc32c.ts`, `parseGcpKeyRef` in `types.ts`, the keyring, the
+settings card and the rotation message.
+
+**Designed against what can go wrong.**
+
+- **An altered request or answer.** Google asks callers to send a CRC-32C with every byte string
+  and check the one returned. Encrypt sends the plaintext's and the AAD's and uses the answer only
+  if the service says it verified both and the ciphertext's checksum matches; decrypt checks the
+  plaintext's. Node's `zlib.crc32` is the IEEE polynomial, a different checksum, so CRC-32C is its
+  own table, tested against the published check values.
+- **A ciphertext from elsewhere.** Decrypt is asked at the row's own key, so Cloud KMS refuses a
+  ciphertext another key made; every call carries the same AAD, so one made with this key for any
+  other purpose does not decrypt as a data key; the stored version is checked to be one of the
+  row's key before anything is sent.
+- **The least-privileged role failing the probe.** The Azure probe describes the key first. In
+  Cloud KMS that needs `cloudkms.cryptoKeys.get`, which the encrypter/decrypter role does not have,
+  so a correctly scoped identity would have been shown as broken. The probe describes the key when
+  it may and otherwise says the details are not readable, then proves what the app needs with an
+  encrypt and decrypt of 32 random bytes.
+- **Falling through to another identity.** If `GOOGLE_APPLICATION_CREDENTIALS` is set, that file
+  is the source and its failure is the error; the metadata server is used only when it is unset.
+  An answer from the metadata address without `Metadata-Flavor: Google` is refused. A
+  `credential_source.url` on a link-local or loopback address is fetched directly, anything else
+  through the guarded fetch; a header with a line break is refused. The `aws` and `executable`
+  credential sources are refused by name rather than half-supported.
+- **Private access that is not a private address.** `private.googleapis.com` and
+  `restricted.googleapis.com` are public ranges routed privately, so `KMS_REQUIRE_PRIVATE` refuses
+  them; a Private Service Connect endpoint has the VPC's own address and passes, and its token is
+  fetched from `oauth2-<endpoint>.p.googleapis.com`. Stated in the docs as a choice.
+- **A key version as the reference.** Refused, saying why: decrypt finds the version from the
+  ciphertext and encrypt must use the primary, or rotation does nothing.
+
+**Measured against the emulator** (floci-gcp 0.11.0, pinned by digest): checksums are strings,
+the verified flags are true when the CRCs are sent and absent when not, a wrong CRC or AAD is a 400,
+a missing key a 404, rotation and disabling work, and encrypt with a disabled primary is
+FAILED_PRECONDITION. Differently from Cloud KMS: it accepts any assertion and any token, its STS
+takes only access tokens, its iamcredentials only the cloud-platform scope, it drops a rotation
+period and an HSM protection level, and it decrypts with a disabled version. Those are the unit
+tests'.
+
+**Proved.**
+
+| Check | Result |
+| --- | --- |
+| `gcpKms.test.ts` (new) | 25: CRC-32C check values; key references (a version refused with the reason, nothing that leaves the path, the full resource name normalised); the endpoint and the PSC token host; the request bodies (checksums as strings, AAD); each checksum failure discards the answer; a version of another key refused before calling; a row for a retired key decrypted at that key; Google's errors with what to do (IAM role, key name, disabled version, VPC Service Controls); retries on 429 and 5xx only; the probe for a full and a least-privileged identity, a disabled primary, an asymmetric key; the private-path rule through the real guarded fetch and its audit row; the keyring creating a data key, and storing nothing when decrypt gives other bytes |
+| `googleCredentials.test.ts` (new) | 18: the source by the file's type; the assertion verified with the public key; the PSC token host with the audience unchanged; Google's refusal in its words; user credentials and the quota project; STS and impersonation (the cloud-platform scope only when impersonating, the lifetime); file and URL token sources, the metadata address directly; AWS, executable and header injection refused before calling; the metadata server's flavor header and its absence; never falling through; caching and re-reading the key file |
+| `gcpKmsEmulator.test.ts` (new, integration) | 6 against floci-gcp with the real chain and the real guarded fetch: wrap and unwrap, the probe's facts, a missing key, another key's ciphertext and one without the AAD refused, rotation (new data keys name the new version, old ones still unwrap), a disabled primary failing the probe |
+| mutation | 27 of 27 killed: each checksum check, the version checks, decrypt at the configured key instead of the row's, the AAD left out of decrypt, retrying 4xx, the PSC token host, the least-privilege fallback, the disabled-primary check, the quota project, the VPC-SC hint, the private-path rule, the key reference's version and id rules, the metadata flavor check, the STS scope, the impersonation lifetime, the direct fetch of a local token URL, the header check, the refresh margin, the assertion's audience, the AWS source refusal, the impersonation source's scope, re-reading the key file |
+| UI | UI_TEST_RESULTS, R435 |
+
+**Not covered.** A real Google Cloud project: the emulator does not check IAM, VPC Service
+Controls or HSM keys. **Create a data key in Cloud KMS** was not pressed in the UI round: it
+writes the key row to the live database, the same click the session's permission check refused
+for Azure in R431, so it is the user's.
+
 ### 2026-11-02 — R434: Explore narrows what it lists; the graph's panel and wheel
 
 **How it was found.** The three ontology gaps R433's UI round noted and left; the user: "fix the

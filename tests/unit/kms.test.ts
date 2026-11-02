@@ -104,9 +104,9 @@ describe("reading the configuration", () => {
 
   it("refuses an unknown provider, a designed-not-built one, and a missing key ref — by name", () => {
     expect(() => kmsConfigFromEnv({ KMS_PROVIDER: "kms" })).toThrow(/not a key provider/);
-    expect(() => kmsConfigFromEnv({ KMS_PROVIDER: "gcp", KMS_KEY_REF: "projects/x" })).toThrow(
-      /not built in this release; use env, vault, aws, azure$/,
-    );
+    expect(() =>
+      kmsConfigFromEnv({ KMS_PROVIDER: "oci", KMS_KEY_REF: "ocid1.key.oc1..x" }),
+    ).toThrow(/not built in this release; use env, vault, aws, azure, gcp$/);
     expect(kmsConfigFromEnv({ KMS_PROVIDER: "aws", KMS_KEY_REF: "alias/app" })).toEqual({
       provider: "aws",
       keyRef: "alias/app",

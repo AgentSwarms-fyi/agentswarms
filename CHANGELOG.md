@@ -85,6 +85,22 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **The credential key can live in Google Cloud KMS** (R435). `KMS_PROVIDER=gcp`
+  with `KMS_KEY_REF` set to a key's resource name
+  (`projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>`): the data key is
+  encrypted by the key's primary version, in software, Cloud HSM or an
+  external key manager (Cloud EKM), and decrypted once per process start.
+  Every byte string carries its CRC-32C both ways and every call the same
+  additional authenticated data; the stored data key names its version, and
+  decrypt is asked at the row's own key. The app signs in as its own Google
+  identity: the metadata server (Compute Engine, GKE, Cloud Run), workload
+  identity federation from any other cloud, impersonation, or a service
+  account key (`GOOGLE_APPLICATION_CREDENTIALS`). `GCP_KMS_ENDPOINT` takes a
+  regional or Private Service Connect endpoint, and `KMS_REQUIRE_PRIVATE`
+  refuses a public one. The settings card proves the permission with a test
+  encrypt and decrypt, so the least-privileged role passes, and shows the
+  key's protection, primary version and rotation when it may read them.
+  Tested against floci-gcp, not yet a real Google Cloud account.
 - **An Enterprise Ontology guide and a modelling guide** (R433). In the app,
   `/docs/ontology/guide` (what an ontology is, how it differs from a semantic
   layer and a knowledge graph, a first hour with the sample, reading the
