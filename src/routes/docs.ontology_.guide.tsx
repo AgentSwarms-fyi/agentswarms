@@ -160,7 +160,12 @@ order_lines  order_id, product_id, ...   →   OrderLine ── order ──▶ 
                 From Customers, choose <strong>Search around → orders</strong>, then{" "}
                 <strong>contains</strong>: every product those customers ordered, 40 of them. Up to
                 four steps; a step through a join table (an order contains products through its
-                lines) works like any other.
+                lines) works like any other. The search box and <strong>Filter</strong> narrow
+                whatever is listed, at every step: from Enterprise customers,{" "}
+                <strong>Search around → orders</strong> (71), filter Status is delivered (18), then{" "}
+                <strong>contains</strong> and search &ldquo;gloves&rdquo;: the 2 glove products in
+                Enterprise customers&apos; delivered orders. The trail above the table keeps what
+                narrowed each set, and stepping back makes the last one editable again.
               </>
             ),
           },
@@ -250,6 +255,11 @@ order_lines  order_id, product_id, ...   →   OrderLine ── order ──▶ 
           <strong>Hide</strong> removes an object and whatever only it connected;{" "}
           <strong>Start here</strong> redraws from it. <strong>All labels</strong> names every link
           at once.
+        </li>
+        <li>
+          The panel beside the graph shows the selected object; with nothing selected it says how to
+          read the graph. The wheel scrolls the page; <strong>Ctrl + scroll</strong>, or a pinch,
+          zooms; drag the background to move.
         </li>
         <li>
           A graph stops at 150 objects and says so. A link that could not be followed (a table you

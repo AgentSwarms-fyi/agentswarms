@@ -3,6 +3,8 @@
 // products those customers bought). Each object opens in a side panel with
 // its properties, the rules it breaks, its own metrics, what it links to and
 // the actions available on it. Hidden properties say "hidden", never blank.
+// The search box and Filter narrow the objects listed; after a search around,
+// what narrowed the sets before stays on the trail and in the query.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -45,7 +47,7 @@ import {
   type ObjectSetResult,
   type ObjectView,
 } from "@/utils/ontologyData.functions";
-import type { Filter, FilterOp, PathStep } from "@/lib/ontology/compile";
+import type { Filter, FilterOp, PathStep, SetStep } from "@/lib/ontology/compile";
 import {
   allProperties,
   displayTitle,
@@ -77,6 +79,18 @@ const OP_LABEL: Record<FilterOp, string> = {
 
 const PAGE = 50;
 
+/** What narrows one set along a search around. */
+type Narrowing = { filters: Filter[]; search: string };
+
+function narrowingText(n: Narrowing): string {
+  return [
+    n.search && `“${n.search}”`,
+    n.filters.length && `${n.filters.length} filter${n.filters.length === 1 ? "" : "s"}`,
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+
 export function ExploreTab() {
   const o = useOntology();
   const bound = o.spec.objectTypes.filter((t) => t.source);
@@ -87,6 +101,10 @@ export function ExploreTab() {
   const [searchLive, setSearchLive] = useState("");
   const [filters, setFilters] = useState<Filter[]>([]);
   const [path, setPath] = useState<PathStep[]>([]);
+  // What narrowed each set before the one listed: [0] the start type's, [i]
+  // the objects step i reached. As long as the path; the listed set's own
+  // narrowing is `filters` and `search`.
+  const [earlier, setEarlier] = useState<Narrowing[]>([]);
   const [offset, setOffset] = useState(0);
   const [order, setOrder] = useState<{ property: string; direction: "asc" | "desc" } | null>(null);
   const [result, setResult] = useState<ObjectSetResult | null>(null);
@@ -119,6 +137,12 @@ export function ExploreTab() {
 
   const run = useCallback(async () => {
     if (!typeName) return;
+    const sets = [...earlier, { filters, search: searchLive.trim() }];
+    const steps: SetStep[] = path.map((s, i) => ({
+      ...s,
+      ...(sets[i + 1].filters.length ? { filters: sets[i + 1].filters } : {}),
+      ...(sets[i + 1].search ? { search: sets[i + 1].search } : {}),
+    }));
     setLoading(true);
     try {
       const res = await objectsFn({
@@ -127,9 +151,9 @@ export function ExploreTab() {
           id: o.id,
           query: {
             objectType: typeName,
-            filters,
-            ...(searchLive.trim() ? { search: searchLive.trim() } : {}),
-            ...(path.length ? { path } : {}),
+            filters: sets[0].filters,
+            ...(sets[0].search ? { search: sets[0].search } : {}),
+            ...(steps.length ? { path: steps } : {}),
             ...(order ? { orderBy: order } : {}),
             limit: PAGE,
             offset,
@@ -149,7 +173,7 @@ export function ExploreTab() {
     } finally {
       setLoading(false);
     }
-  }, [objectsFn, o.tokenRef, o.id, typeName, filters, searchLive, path, order, offset]);
+  }, [objectsFn, o.tokenRef, o.id, typeName, earlier, filters, searchLive, path, order, offset]);
 
   useEffect(() => {
     void run();
@@ -159,9 +183,33 @@ export function ExploreTab() {
     setTypeName(name);
     setFilters([]);
     setPath([]);
+    setEarlier([]);
     setOffset(0);
     setOrder(null);
     setSearch("");
+  };
+
+  // Walking on keeps what narrowed this set on the trail; the next set starts
+  // unnarrowed. Stepping back makes the last set's narrowing editable again.
+  const stepTo = (step: PathStep) => {
+    setEarlier((e) => [...e, { filters, search: search.trim() }]);
+    setPath((p) => [...p, step]);
+    setFilters([]);
+    setSearch("");
+    setSearchLive("");
+    setOffset(0);
+    setOrder(null);
+  };
+  const stepBack = () => {
+    const last = earlier[earlier.length - 1];
+    if (!last) return;
+    setEarlier((e) => e.slice(0, -1));
+    setPath((p) => p.slice(0, -1));
+    setFilters(last.filters);
+    setSearch(last.search);
+    setSearchLive(last.search);
+    setOffset(0);
+    setOrder(null);
   };
 
   if (!bound.length) {
@@ -181,6 +229,8 @@ export function ExploreTab() {
   const nextSteps = endType
     ? linksOf(o.spec, endType.name).filter(({ other }) => findObjectType(o.spec, other)?.source)
     : [];
+  // The type listed, which the search box and Filter narrow.
+  const listed = path.length ? endType : start;
 
   return (
     <div className="space-y-4">
@@ -213,14 +263,15 @@ export function ExploreTab() {
               setSearch(e.target.value);
               setOffset(0);
             }}
-            placeholder={start ? `Search ${pluralTitleOf(start).toLowerCase()}` : "Search"}
+            placeholder={listed ? `Search ${pluralTitleOf(listed).toLowerCase()}` : "Search"}
             className="pl-8"
-            aria-label="Search objects"
+            aria-label={listed ? `Search ${pluralTitleOf(listed).toLowerCase()}` : "Search objects"}
           />
         </div>
-        {start && (
+        {listed && (
           <FilterBuilder
-            typeName={start.name}
+            key={`${path.length}:${listed.name}`}
+            typeName={listed.name}
             onAdd={(f) => {
               setFilters((fs) => [...fs, f]);
               setOffset(0);
@@ -232,9 +283,7 @@ export function ExploreTab() {
             value=""
             onValueChange={(v) => {
               const [direction, link] = v.split(":") as ["forward" | "inverse", string];
-              setPath((p) => [...p, { link, direction }]);
-              setOffset(0);
-              setOrder(null);
+              stepTo({ link, direction });
             }}
           >
             <SelectTrigger className="w-56 [&>span]:flex" aria-label="Search around">
@@ -294,16 +343,18 @@ export function ExploreTab() {
           {path.length > 0 && start && (
             <span className="inline-flex flex-wrap items-center gap-1 rounded-full border border-primary/40 bg-primary/5 px-2 py-0.5 text-primary">
               <Network className="h-3 w-3" /> {pluralTitleOf(start)}
+              {earlier[0] && narrowingText(earlier[0]) && (
+                <span className="text-primary/70">({narrowingText(earlier[0])})</span>
+              )}
               {path.map((s, i) => (
                 <span key={i} className="inline-flex items-center gap-1">
                   <ArrowRight className="h-3 w-3" /> {s.link.replace(/_/g, " ")}
+                  {earlier[i + 1] && narrowingText(earlier[i + 1]) && (
+                    <span className="text-primary/70">({narrowingText(earlier[i + 1])})</span>
+                  )}
                 </span>
               ))}
-              <button
-                type="button"
-                onClick={() => setPath((p) => p.slice(0, -1))}
-                aria-label="Step back"
-              >
+              <button type="button" onClick={stepBack} aria-label="Step back">
                 <X className="h-3 w-3" />
               </button>
             </span>

@@ -10,6 +10,12 @@
 // objects on screen was drawn only if one of them had been expanded; a click
 // always grew the graph and a double-click grew it twice. The walk is in
 // src/lib/ontology/graph.ts, the layout and paths in graphView.ts.
+//
+// R434, also from the UI: the selected object's panel floated over the
+// canvas's left third, hiding the objects under it, and the wheel zoomed the
+// canvas, so a page scrolled with the pointer over it stopped dead. The panel
+// sits beside the canvas now, and saying how to read the graph when nothing
+// is selected; the wheel scrolls the page, Ctrl + scroll or a pinch zooms.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -151,6 +157,35 @@ function FitOnGrow(props: { count: number; fitKey: number }) {
 
 const edgeKey = (e: GraphEdge) => `${e.from}|${e.link}|${e.to}`;
 
+/** The side panel when nothing is selected: how to read and drive the graph. */
+function GraphHelp() {
+  return (
+    <div className="space-y-3">
+      <p className="font-semibold">Reading the graph</p>
+      <dl className="space-y-2 text-xs">
+        {(
+          [
+            ["Click", "an object to see its relationships here, its neighbours lit."],
+            ["Double-click", "or Expand to draw what it links to."],
+            ["Shift-click", "a second object for the path between the two."],
+            ["Drag", "the background to move; Ctrl + scroll, or pinch, to zoom."],
+          ] as const
+        ).map(([k, v]) => (
+          <div key={k}>
+            <dt className="inline font-medium">{k}</dt>{" "}
+            <dd className="inline text-muted-foreground">{v}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="text-xs text-muted-foreground">
+        A dashed border means an object is not expanded yet; a “more” badge on its corner, that it
+        has more links than are drawn. Arrows point the way a link reads forward: an order is placed
+        by a customer.
+      </p>
+    </div>
+  );
+}
+
 export function GraphTab() {
   const o = useOntology();
   const nbFn = useServerFn(ontologyNeighborhood);
@@ -181,6 +216,17 @@ export function GraphTab() {
     shownRef.current = shown;
     posRef.current = positions;
   }, [shown, positions]);
+
+  // A plain wheel over the canvas scrolls the page; say how to zoom instead.
+  const [wheelHint, setWheelHint] = useState(false);
+  const hintTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const noteWheel = (e: React.WheelEvent) => {
+    if (e.ctrlKey || e.metaKey) return;
+    setWheelHint(true);
+    clearTimeout(hintTimer.current);
+    hintTimer.current = setTimeout(() => setWheelHint(false), 1500);
+  };
+  useEffect(() => () => clearTimeout(hintTimer.current), []);
 
   // Picking a starting object.
   const [pickType, setPickType] = useState(bound[0]?.name ?? "");
@@ -600,194 +646,217 @@ export function GraphTab() {
           ))}
         </div>
       )}
-      <div className="relative h-[min(72vh,760px)] min-h-[440px] overflow-hidden rounded-xl border border-border bg-background">
-        <ReactFlow
-          nodes={rfNodes}
-          edges={rfEdges}
-          nodeTypes={nodeTypes}
-          onNodeClick={(ev, n) => {
-            if (ev.shiftKey && selected && selected !== n.id) setPathTo(n.id);
-            else {
-              setSelected(n.id);
-              setPathTo(null);
-            }
-          }}
-          onNodeDoubleClick={(_, n) => expand(n.id)}
-          onPaneClick={() => {
-            setSelected(null);
-            setPathTo(null);
-          }}
-          onNodeMouseEnter={(_, n) => setHovered(n.id)}
-          onNodeMouseLeave={() => setHovered(null)}
-          nodesConnectable={false}
-          zoomOnDoubleClick={false}
-          fitView
-          minZoom={0.1}
-          proOptions={{ hideAttribution: true }}
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <div
+          className="relative h-[min(72vh,760px)] min-h-[440px] overflow-hidden rounded-xl border border-border bg-background"
+          onWheel={noteWheel}
         >
-          <FitOnGrow count={shown.nodes.length} fitKey={fitKey} />
-          <Background variant={BackgroundVariant.Dots} gap={18} size={1} />
-          <Controls showInteractive={false} />
-        </ReactFlow>
+          <ReactFlow
+            nodes={rfNodes}
+            edges={rfEdges}
+            nodeTypes={nodeTypes}
+            onNodeClick={(ev, n) => {
+              if (ev.shiftKey && selected && selected !== n.id) setPathTo(n.id);
+              else {
+                setSelected(n.id);
+                setPathTo(null);
+              }
+            }}
+            onNodeDoubleClick={(_, n) => expand(n.id)}
+            onPaneClick={() => {
+              setSelected(null);
+              setPathTo(null);
+            }}
+            onNodeMouseEnter={(_, n) => setHovered(n.id)}
+            onNodeMouseLeave={() => setHovered(null)}
+            nodesConnectable={false}
+            zoomOnDoubleClick={false}
+            preventScrolling={false}
+            fitView
+            minZoom={0.1}
+            proOptions={{ hideAttribution: true }}
+          >
+            <FitOnGrow count={shown.nodes.length} fitKey={fitKey} />
+            <Background variant={BackgroundVariant.Dots} gap={18} size={1} />
+            <Controls showInteractive={false} />
+          </ReactFlow>
 
-        {/* What each colour is, and how many of each are shown. */}
-        <div className="pointer-events-none absolute bottom-3 right-3 flex max-w-[60%] flex-wrap justify-end gap-1.5">
-          {types.map(({ t, name, n }) => {
-            const tone = toneOf(t);
-            const Icon = iconOf(t);
-            return (
-              <span
-                key={name}
-                className={cn(
-                  "flex items-center gap-1 rounded-full border bg-card/90 px-2 py-0.5 text-[11px]",
-                  tone.ring,
-                )}
-              >
-                <Icon className={cn("h-3 w-3", tone.ink)} />
-                {t ? (n === 1 ? titleOf(t) : pluralTitleOf(t)) : name}
-                <span className="tabular-nums text-muted-foreground">{n}</span>
-              </span>
-            );
-          })}
+          {/* What each colour is, and how many of each are shown. */}
+          <div className="pointer-events-none absolute bottom-3 right-3 flex max-w-[60%] flex-wrap justify-end gap-1.5">
+            {types.map(({ t, name, n }) => {
+              const tone = toneOf(t);
+              const Icon = iconOf(t);
+              return (
+                <span
+                  key={name}
+                  className={cn(
+                    "flex items-center gap-1 rounded-full border bg-card/90 px-2 py-0.5 text-[11px]",
+                    tone.ring,
+                  )}
+                >
+                  <Icon className={cn("h-3 w-3", tone.ink)} />
+                  {t ? (n === 1 ? titleOf(t) : pluralTitleOf(t)) : name}
+                  <span className="tabular-nums text-muted-foreground">{n}</span>
+                </span>
+              );
+            })}
+          </div>
+
+          {wheelHint && (
+            <p className="pointer-events-none absolute inset-x-0 top-3 mx-auto w-fit rounded-full bg-foreground/80 px-3 py-1 text-xs text-background">
+              Ctrl + scroll, or pinch, to zoom
+            </p>
+          )}
         </div>
 
-        {sel && (
-          <aside
-            className="absolute left-3 top-3 max-h-[calc(100%-24px)] w-[300px] space-y-3 overflow-y-auto rounded-xl border border-border bg-card/95 p-3 text-sm shadow-lg backdrop-blur"
-            aria-label="Selected object"
-          >
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <p className="truncate font-semibold">{displayTitle(selType, sel.title)}</p>
-                <p className="text-xs text-muted-foreground">
-                  {selType ? titleOf(selType) : sel.objectType} ·{" "}
-                  {sel.depth === 0
-                    ? "where the graph starts"
-                    : `${sel.depth} step${sel.depth === 1 ? "" : "s"} from ${rootId ? titleFor(rootId) : "the start"}`}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelected(null);
-                  setPathTo(null);
-                }}
-                aria-label="Clear selection"
-                className="rounded p-1 text-muted-foreground hover:bg-muted"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              <Button size="sm" disabled={busy} onClick={() => expand(sel.id)}>
-                <Plus className="mr-1 h-3.5 w-3.5" />
-                {expanded.has(sel.id) ? "Expand again" : "Expand"}
-              </Button>
-              <Button size="sm" variant="outline" disabled={busy} onClick={() => expand(sel.id, 2)}>
-                2 steps
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setOpen(targetOf(sel.id))}
-                aria-label="Open the object"
-              >
-                <PanelRightOpen className="mr-1 h-3.5 w-3.5" /> Open
-              </Button>
-              {sel.depth > 0 && (
-                <>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={busy}
-                    onClick={() => setRoot(targetOf(sel.id))}
-                  >
-                    <Crosshair className="mr-1 h-3.5 w-3.5" /> Start here
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => hide(sel.id)}>
-                    <EyeOff className="mr-1 h-3.5 w-3.5" /> Hide
-                  </Button>
-                </>
-              )}
-            </div>
-
-            {path ? (
-              <section className="space-y-1.5">
-                <h3 className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  <Route className="h-3.5 w-3.5" /> Path, {path.steps.length} link
-                  {path.steps.length === 1 ? "" : "s"}
-                </h3>
-                <ol className="space-y-1 text-xs">
-                  <li className="font-medium">{titleFor(path.nodes[0])}</li>
-                  {path.steps.map((s, i) => (
-                    <li key={i} className="space-y-1">
-                      {/* Read in the direction of the walk: a customer's
-                          "orders", then an order's "contains". */}
-                      <span className="flex items-center gap-1 pl-2 text-muted-foreground">
-                        <ArrowRight className="h-3 w-3" />
-                        {s.forward ? s.edge.label : s.edge.inverseLabel}
-                      </span>
-                      <span className="block font-medium">{titleFor(path.nodes[i + 1])}</span>
-                    </li>
-                  ))}
-                </ol>
-              </section>
-            ) : pathTo ? (
-              <p className="text-xs text-muted-foreground">
-                No path between {titleFor(sel.id)} and {titleFor(pathTo)} among the objects shown.
-                Expand more of the graph to find one.
-              </p>
-            ) : (
-              <section className="space-y-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Relationships shown
-                </h3>
-                {rels.length ? (
-                  rels.map((r) => (
-                    <div key={`${r.link}|${r.outgoing}`} className="space-y-0.5">
-                      <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <ArrowRight className="h-3 w-3" />
-                        <span className="font-medium text-foreground">{r.label}</span>
-                        <span className="tabular-nums">· {r.others.length}</span>
-                      </p>
-                      <ul className="pl-4 text-xs">
-                        {r.others.slice(0, 6).map((id) => (
-                          <li key={id}>
-                            <button
-                              type="button"
-                              className="truncate text-left hover:underline"
-                              onClick={() => setSelected(id)}
-                            >
-                              {titleFor(id)}
-                            </button>
-                          </li>
-                        ))}
-                        {r.others.length > 6 && (
-                          <li className="text-muted-foreground">and {r.others.length - 6} more</li>
-                        )}
-                      </ul>
-                    </div>
-                  ))
-                ) : (
+        <aside
+          className="space-y-3 overflow-y-auto rounded-xl border border-border bg-card p-3 text-sm lg:h-[min(72vh,760px)] lg:min-h-[440px]"
+          aria-label={sel ? "Selected object" : "Reading the graph"}
+        >
+          {sel ? (
+            <>
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate font-semibold">{displayTitle(selType, sel.title)}</p>
                   <p className="text-xs text-muted-foreground">
-                    None shown yet. Expand it to see what it links to.
+                    {selType ? titleOf(selType) : sel.objectType} ·{" "}
+                    {sel.depth === 0
+                      ? "where the graph starts"
+                      : `${sel.depth} step${sel.depth === 1 ? "" : "s"} from ${rootId ? titleFor(rootId) : "the start"}`}
                   </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelected(null);
+                    setPathTo(null);
+                  }}
+                  aria-label="Clear selection"
+                  className="rounded p-1 text-muted-foreground hover:bg-muted"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                <Button size="sm" disabled={busy} onClick={() => expand(sel.id)}>
+                  <Plus className="mr-1 h-3.5 w-3.5" />
+                  {expanded.has(sel.id) ? "Expand again" : "Expand"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => expand(sel.id, 2)}
+                >
+                  2 steps
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setOpen(targetOf(sel.id))}
+                  aria-label="Open the object"
+                >
+                  <PanelRightOpen className="mr-1 h-3.5 w-3.5" /> Open
+                </Button>
+                {sel.depth > 0 && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() => setRoot(targetOf(sel.id))}
+                    >
+                      <Crosshair className="mr-1 h-3.5 w-3.5" /> Start here
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => hide(sel.id)}>
+                      <EyeOff className="mr-1 h-3.5 w-3.5" /> Hide
+                    </Button>
+                  </>
                 )}
-                {cappedBy.has(sel.id) && (
-                  <p className="text-xs text-amber-700 dark:text-amber-400">
-                    More than shown over {cappedBy.get(sel.id)!.join(", ")}: open it to page through
-                    every linked object.
-                  </p>
-                )}
-                <p className="text-[11px] text-muted-foreground">
-                  Each link is named as it reads from this object; on the canvas, an arrow points
-                  the way it reads forward (an order is placed by a customer). Shift-click another
-                  object for the path between them.
+              </div>
+
+              {path ? (
+                <section className="space-y-1.5">
+                  <h3 className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <Route className="h-3.5 w-3.5" /> Path, {path.steps.length} link
+                    {path.steps.length === 1 ? "" : "s"}
+                  </h3>
+                  <ol className="space-y-1 text-xs">
+                    <li className="font-medium">{titleFor(path.nodes[0])}</li>
+                    {path.steps.map((s, i) => (
+                      <li key={i} className="space-y-1">
+                        {/* Read in the direction of the walk: a customer's
+                          "orders", then an order's "contains". */}
+                        <span className="flex items-center gap-1 pl-2 text-muted-foreground">
+                          <ArrowRight className="h-3 w-3" />
+                          {s.forward ? s.edge.label : s.edge.inverseLabel}
+                        </span>
+                        <span className="block font-medium">{titleFor(path.nodes[i + 1])}</span>
+                      </li>
+                    ))}
+                  </ol>
+                </section>
+              ) : pathTo ? (
+                <p className="text-xs text-muted-foreground">
+                  No path between {titleFor(sel.id)} and {titleFor(pathTo)} among the objects shown.
+                  Expand more of the graph to find one.
                 </p>
-              </section>
-            )}
-          </aside>
-        )}
+              ) : (
+                <section className="space-y-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Relationships shown
+                  </h3>
+                  {rels.length ? (
+                    rels.map((r) => (
+                      <div key={`${r.link}|${r.outgoing}`} className="space-y-0.5">
+                        <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                          <ArrowRight className="h-3 w-3" />
+                          <span className="font-medium text-foreground">{r.label}</span>
+                          <span className="tabular-nums">· {r.others.length}</span>
+                        </p>
+                        <ul className="pl-4 text-xs">
+                          {r.others.slice(0, 6).map((id) => (
+                            <li key={id}>
+                              <button
+                                type="button"
+                                className="truncate text-left hover:underline"
+                                onClick={() => setSelected(id)}
+                              >
+                                {titleFor(id)}
+                              </button>
+                            </li>
+                          ))}
+                          {r.others.length > 6 && (
+                            <li className="text-muted-foreground">
+                              and {r.others.length - 6} more
+                            </li>
+                          )}
+                        </ul>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      None shown yet. Expand it to see what it links to.
+                    </p>
+                  )}
+                  {cappedBy.has(sel.id) && (
+                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                      More than shown over {cappedBy.get(sel.id)!.join(", ")}: open it to page
+                      through every linked object.
+                    </p>
+                  )}
+                  <p className="text-[11px] text-muted-foreground">
+                    Each link is named as it reads from this object; on the canvas, an arrow points
+                    the way it reads forward (an order is placed by a customer). Shift-click another
+                    object for the path between them.
+                  </p>
+                </section>
+              )}
+            </>
+          ) : (
+            <GraphHelp />
+          )}
+        </aside>
       </div>
       <ObjectPanel target={open} onClose={() => setOpen(null)} onNavigate={setOpen} />
     </div>

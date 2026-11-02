@@ -71,7 +71,12 @@ something to find.
 2. **Explore customers.** Search, filter (Segment is Enterprise), sort. Each row is an object.
 3. **Search around.** From Customers, choose **Search around → orders**, then **contains**: you are
    looking at every product those customers ordered, 40 of them. Up to four steps, and a step
-   through a join table (an order contains products through its lines) works like any other.
+   through a join table (an order contains products through its lines) works like any other. The
+   search box and **Filter** narrow whatever is listed, at every step: from Enterprise customers,
+   **Search around → orders** (71), filter Status is delivered (18), then **contains** and search
+   "gloves": the 2 glove products in Enterprise customers' delivered orders. The trail above the
+   table keeps what narrowed each set (_Customers (1 filter) → orders (1 filter) → contains_), and
+   stepping back makes the last one editable again.
 4. **Open an object.** Click a customer: its properties, its measures, the rules it breaks, every
    object it links to, and the actions you may take on it.
 5. **Draw its neighbourhood** (Graph). Start from Ava Byrne; see [Reading the graph](#reading-the-graph).
@@ -108,6 +113,9 @@ are these two connected?".
 - A **more** badge means an object has more links of some kind than the 8 drawn; the line above the
   graph names them. Open the object to page through all of them.
 - **Hide** removes an object and whatever only it connected; **Start here** redraws from it.
+- The panel beside the graph shows the selected object; with nothing selected it says how to read
+  the graph. The wheel scrolls the page; **Ctrl + scroll**, or a pinch, zooms; drag the background to
+  move.
 - A graph stops at 150 objects and says so. A link that could not be followed (a table you cannot
   read, a hidden key) is named above the graph, not silently dropped.
 

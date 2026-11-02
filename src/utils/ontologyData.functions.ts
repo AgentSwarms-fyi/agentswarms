@@ -79,6 +79,11 @@ const step = z.object({
   link: z.string().min(1).max(64),
   direction: z.enum(["forward", "inverse"]),
 });
+// Explore narrows each set a search around reaches, not only the first.
+const setStep = step.extend({
+  filters: z.array(filter).max(20).optional(),
+  search: z.string().max(200).optional(),
+});
 const keySchema = z.record(z.string().max(64), scalar);
 
 async function access(
@@ -126,7 +131,7 @@ export const ontologyObjects = createServerFn({ method: "POST" })
           objectType: z.string().min(1).max(64),
           filters: z.array(filter).max(20).optional(),
           search: z.string().max(200).optional(),
-          path: z.array(step).max(4).optional(),
+          path: z.array(setStep).max(4).optional(),
           targetFilters: z.array(filter).max(20).optional(),
           properties: z.array(z.string().max(64)).max(200).optional(),
           orderBy: z

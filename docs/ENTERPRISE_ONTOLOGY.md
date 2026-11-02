@@ -70,7 +70,8 @@ uses, a link's own key.
 ## From the model to SQL
 
 `compile.ts` is pure: object sets (filters with literals checked against the property's type,
-search over string properties, up to four link steps), one object and its links, metrics grouped
+search over string properties, up to four link steps, each of which may carry its own filters
+and search for the objects it reaches), one object and its links, metrics grouped
 through **to-one** links only (a fan-out grouping is refused with the reason), time grains, rule
 checks with samples, implied rules (keys, required properties, value types, link targets) and
 action writes. Every fragment an ontology holds — derived properties, source filters, metrics,
@@ -235,6 +236,9 @@ quantities and two orders in an unknown status.
 - `tests/unit/ontologyGraphView.test.ts` — the layout (neighbours beside their parent, nothing
   moved, no overlaps up to over a hundred objects, deterministic), merging, paths, relationships,
   hiding.
+- `tests/unit/ontologyExploreSteps.test.ts` — a search around narrowed at each step (the start,
+  the orders reached, the products reached) against hand-written SQL; a step's search reads the
+  type it reaches; a masked property cannot be filtered on mid-path.
 - `tests/unit/ontologyDocsExamples.test.ts` — every expression ONTOLOGY_GUIDE.md and the in-app
   modelling page teach with, run on the sample and found in both documents as printed; a link from
   a type to itself.

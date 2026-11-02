@@ -210,7 +210,10 @@ function OntologyDocsPage() {
         An object set is one type&apos;s objects, filtered and searched.{" "}
         <strong>Search around</strong> walks links from that set — up to four steps — and shows the
         objects at the end: start at delivered Orders, walk <C>placed_by</C>, and you have the
-        customers with a delivered order. A link through a join table works the same way.
+        customers with a delivered order. A link through a join table works the same way. The search
+        box and Filter narrow the set being listed, at every step: after a search around they name
+        and narrow the objects reached, and what narrowed the sets before stays on the trail above
+        the table (Customers (1 filter) → orders) and in the query.
       </P>
 
       <H2 id="graph">The graph</H2>

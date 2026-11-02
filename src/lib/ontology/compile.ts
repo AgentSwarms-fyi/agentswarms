@@ -69,12 +69,15 @@ export type PathStep = { link: string; direction: "forward" | "inverse" };
 export const TIME_GRAINS = ["day", "week", "month", "quarter", "year"] as const;
 export type TimeGrain = (typeof TIME_GRAINS)[number];
 
+/** A search-around step whose filters and search narrow the objects it reaches. */
+export type SetStep = PathStep & { filters?: Filter[]; search?: string };
+
 export type ObjectSetQuery = {
   objectType: string;
   filters?: Filter[];
   search?: string;
   /** Walk these links from the start set; the result is the objects at the end. */
-  path?: PathStep[];
+  path?: SetStep[];
   /** Filters on the objects at the end of the path. */
   targetFilters?: Filter[];
   properties?: string[];
@@ -493,6 +496,9 @@ export function compileObjectSet(
     const nextAlias = `t${i + 1}`;
     from.push(joinSql(spec, link, step.direction, at, alias, next, nextAlias, "JOIN"));
     where.push(...policyWhere(spec, next, nextAlias, opts));
+    for (const f of step.filters ?? []) where.push(filterSql(spec, next, nextAlias, f, opts));
+    const s = step.search ? searchSql(spec, next, nextAlias, step.search, opts) : null;
+    if (s) where.push(s);
     at = next;
     alias = nextAlias;
   });

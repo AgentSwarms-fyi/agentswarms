@@ -15,6 +15,25 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-02 — R434: Explore narrows what it lists; the graph's panel and wheel
+
+Fixture: ontology `33883aa4-…` "Northwind Outfitters 2", 1440×900, the hot-deployed build. Before:
+R433's round (the box said "Search customers" over a table of orders; the panel at the canvas's top
+left; the wheel zoomed).
+
+| What was driven | Result |
+| --- | --- |
+| Explore → Customers → Filter: Segment is Enterprise → Search around → **orders → Order** | the box "Search orders" (its label too), empty; the trail "Customers (1 filter) → orders"; **71 orders**, as the generator's tables give |
+| Filter (now offering the order's properties) → Status is delivered → Add | **19 orders**: the generator gives 18, plus order 1063, delivered by the action approved in round 1 (below); the rest match by number |
+| Search around → **contains → Product**, typed "gloves" | the box "Search products"; the trail "Customers (1 filter) → orders (1 filter) → contains"; **2 products** (IDs 17 and 27, both "Coastal Gloves"), the same as hand-written SQL over the generator's tables |
+| Step back (×) | back to the 19 orders, "Search orders", the box empty, "Status is delivered" editable again |
+| Graph → Ava Byrne → Steps out 2 | 18 objects, 24 links. The panel at x 1110–1410, the canvas at 280–1098: apart, **0** objects under the panel, all 18 inside the canvas. Before anything is selected the panel reads "Reading the graph" (click, double-click, Shift-click, drag, zoom) |
+| a real 3-tick wheel over the canvas | the page scrolled 0 → 92 (its end); the graph's transform unchanged |
+| a plain wheel, then a Ctrl + wheel, on the canvas | the plain one: no zoom, "Ctrl + scroll, or pinch, to zoom" shown and gone after 1.9 s; the Ctrl one: zoom 0.49 → 0.65, the event's default prevented (no page zoom) |
+| 900 px wide | the panel below the canvas (canvas bottom 973, panel top 985), no sideways scroll |
+
+Fixtures kept: the ontology as it was (nothing in it was changed by this round).
+
 ## 2026-11-02 — R433: the ontology graph, and the ontology guide
 
 Fixture: ontology `33883aa4-…` "Northwind Outfitters 2" (v3 published), on a 1440×900 viewport,

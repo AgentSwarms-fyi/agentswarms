@@ -109,6 +109,45 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-02 — R434: Explore narrows what it lists; the graph's panel and wheel
+
+**How it was found.** The three ontology gaps R433's UI round noted and left; the user: "fix the
+three small gaps".
+
+1. **Explore narrowed the wrong set.** After **Search around → orders** the search box still said
+   "Search customers", and it and Filter still narrowed the start set (the customers) while the
+   table listed orders. Filter offered the customer's properties, so an order's status could not be
+   filtered on at all; the compiler took filters on the start and the end only, so a search around
+   could not be narrowed in the middle.
+2. **The graph's panel hid the graph.** The selected object's panel floated over the canvas's top
+   left, 300 pixels wide: objects under it could not be seen or clicked, and the fit framed the
+   graph into space the panel covered.
+3. **The wheel trapped the page.** React Flow zooms on the wheel and swallows it, so a page scrolled
+   with the pointer over the graph (about three quarters of the screen) stopped dead.
+
+**Fixed.**
+
+- `compile.ts`: a search-around step is a `SetStep`, a `PathStep` with optional `filters` and
+  `search` that narrow the objects it reaches (each on that step's own alias, through the same
+  `filterSql`/`searchSql` and so the same hidden-property guard). `ontologyObjects` accepts them
+  (`setStep`: 20 filters, 200 characters); metric groupings keep plain steps. The Explore tab keeps
+  one narrowing per set (`earlier`, as long as the path; the listed set's is the box and Filter):
+  the box and Filter name and narrow the type listed, walking on keeps what narrowed the set on the
+  trail and in the query, stepping back makes it editable again.
+- `GraphTab.tsx`: the panel is a column beside the canvas (`lg:grid-cols-[minmax(0,1fr)_300px]`,
+  below it under 1024 pixels) and shows how to read the graph when nothing is selected;
+  `preventScrolling={false}`, so a plain wheel scrolls the page and React Flow still zooms on
+  Ctrl + wheel or a pinch (which the browser sends as Ctrl + wheel); a plain wheel over the canvas
+  shows "Ctrl + scroll, or pinch, to zoom" for 1.5 seconds.
+
+**Proved.**
+
+| Check | Result |
+| --- | --- |
+| `ontologyExploreSteps.test.ts` (new) | 5 on the sample in DuckDB: Enterprise customers → their delivered orders → products searched "gloves" equals hand-written SQL, rows and count; without the step's filter or search, more come back (and the filterless one equals its own hand-written SQL); a step's search reads the type it reaches, not the start; a step cannot filter on a property the grant masks; an empty narrowing compiles as before |
+| mutation | 4 of 4 killed: the step's filters dropped, its search dropped, its search or its filters read against the previous type |
+| UI | UI_TEST_RESULTS, R434 |
+
 ### 2026-11-02 — R433: the ontology graph, and the ontology's guide
 
 **How it was found.** The user: "the graph traversal seemed a bit weird ... clicking on nodes and

@@ -1041,6 +1041,21 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **Explore's search box and Filter narrow the objects listed, at every step
+  of a search around** (R434, found from the UI). After **Search around →
+  orders** the box still said "Search customers", and it and Filter still
+  narrowed the customers while the table listed orders: an order's status
+  could not be filtered on at all. Now they follow the type listed; what
+  narrowed the sets before stays on the trail ("Customers (1 filter) →
+  orders (1 filter) → contains") and in the query, and stepping back makes it
+  editable again.
+- **The ontology graph's panel no longer covers the graph, and the wheel
+  scrolls the page** (R434). The selected object's panel floated over the
+  canvas's left third; it sits beside the canvas now (below it on a narrow
+  screen) and says how to read the graph when nothing is selected. A page
+  scrolled with the pointer over the graph stopped dead because the wheel
+  zoomed it; the wheel scrolls the page, and Ctrl + scroll or a pinch zooms
+  (a plain scroll over the graph says so).
 - **The ontology graph is laid out, complete and readable** (R433, found from
   the UI). New objects were spread round a ring about the start, so an
   order's lines landed on the far side of the customer and edges crossed the
