@@ -527,6 +527,13 @@ endpoint's address in private DNS. `private.googleapis.com` and `restricted.goog
 public addresses routed privately, and the rule refuses them. See
 [KEY_MANAGEMENT.md](./KEY_MANAGEMENT.md#over-private-service-connect).
 
+OCI Vault takes the same rule (R437): with `KMS_REQUIRE_PRIVATE=true` a Vault call that would go
+directly to a public address is refused. A service gateway keeps the traffic on Oracle's network
+but the vault's addresses stay public, so the rule refuses them; a Private Service Access
+endpoint, whose private DNS answers the vault's endpoint name with an address in your subnet,
+passes. An instance principal's call to the identity service is not covered. See
+[KEY_MANAGEMENT.md](./KEY_MANAGEMENT.md#over-a-private-address).
+
 ### How it would be tested
 
 - **Proxy:** a throwaway Squid container on the app network as the only egress;

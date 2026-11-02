@@ -109,6 +109,78 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-02 — R437: OCI Vault as a key provider, the app's own OCI identity, one OCI signer
+
+**Feature.** `KMS_PROVIDER=oci` keeps the credential key-encrypting key in OCI Vault, the last of the
+providers in the order the user set (AWS, Azure, GCP, OCI; per-customer keys next).
+`src/utils/kms/oci.server.ts` (the Vault crypto API, no SDK), `src/utils/oci/credentials.server.ts`
+(an API key from an OCI config file, a resource principal, an instance principal),
+`src/utils/oci/signer.ts` (OCI's request signature, now also the Generative AI adapter's),
+`parseOciKeyRef` in `types.ts`, the keyring, the settings card and the rotation message.
+
+**Designed against what can go wrong.**
+
+- **A signature OCI would not accept, found only in production.** No OCI account here, and the
+  stand-in does not verify signatures, so the signer is held to the OCI Go SDK's own test vectors
+  (its key, request and date): RSA PKCS#1 v1.5 is deterministic, so an equal signature means the
+  signing string was byte-identical, header order, query and body hash included.
+- **A ciphertext from elsewhere.** Decrypt is asked at the row's own key and the version the stored
+  data key names, so Vault refuses another key's ciphertext; every call carries the same associated
+  data, which Vault binds into its AES-GCM, so one made with this key for any other use does not
+  decrypt as a data key; an answer naming another key or version is not used. A data key made under
+  a key in another vault is refused before anything is sent: a vault's keys answer only at its own
+  endpoint.
+- **A checksum of unknown meaning.** OCI's decrypt answers a `plaintextChecksum` it does not
+  document (the stand-in's is CRC-32 in hex). Checking it on a guess could refuse every real
+  answer; it is not relied on, and the keyring already refuses an unwrapped key whose fingerprint is
+  not the stored one.
+- **The least-privileged policy failing the probe.** OCI answers 404 both for a key that is not
+  there and for one the identity may not read. The probe reads the key's details when it may and
+  otherwise says so, then proves what the app needs with an encrypt and decrypt; the 404 hint names
+  both causes, the policy to write, and when the key's OCID and the endpoint name different vaults.
+- **The wrong half of an API key.** OCI refuses a mismatched key and fingerprint with a bare
+  NotAuthenticated. The key file is checked against the profile's fingerprint first, and the error
+  names both.
+- **Falling through to another identity.** `OCI_AUTH` names the source, else the first configured
+  (config file, resource principal, instance principal); a chosen source that fails is the error.
+  OKE workload identity and `oci session authenticate` tokens are refused by name. The metadata
+  service is asked directly with `Bearer Oracle`, never through the proxy; the identity service's
+  host comes from the instance's own realm (`regionInfo`), not the commercial one assumed.
+- **Private access that is not a private address.** A service gateway keeps traffic on Oracle's
+  network, but the vault's addresses stay public, so `KMS_REQUIRE_PRIVATE` refuses them; a Private
+  Service Access endpoint has an address in the VCN and passes. Stated in the docs.
+
+**Found.** The emulator test failed on its first request: Node's fetch refused it with "invalid
+content-length header". The signer had returned `content-length` as a header, and once the undici
+package is loaded, as it always is in the app (the guarded fetch's dispatchers), fetch refuses a
+hand-set length. The Generative AI adapter set it the same way, so OCI Generative AI could not have
+sent a request through the guarded fetch. **Fixed:** the signer signs the length and lets fetch send
+it, like the host; a test sends signed requests through an undici dispatcher to a local server and
+verifies what arrives. The adapter now uses the shared signer, which also reads a PKCS#1 key (its
+WebCrypto import took PKCS#8 only).
+
+**Measured against the emulator** (floci-oci 0.5.0, pinned by digest, signatures required): the
+crypto API's paths and shapes, decrypt at another key 404 NotAuthorizedOrNotFound, a missing key the
+same, a disabled key 409, rotation makes a new current version and old ciphertexts still decrypt.
+Differently from OCI Vault: it requires a signature's header but does not verify it, ignores
+`associatedData` and a decrypt's `keyVersionId`, gives key OCIDs no vault part, and serves every
+vault from one host.
+
+**Proved.**
+
+| Check | Result |
+| --- | --- |
+| `ociSigner.test.ts` (new) | 7: the OCI Go SDK's GET and POST vectors, header for header; an empty POST's body headers; the host as fetch sends it; signed requests through a real undici dispatcher verify on arrival, length included; the fingerprint as openssl gives it; the Generative AI adapter on the shared signer |
+| `ociCredentials.test.ts` (new) | 21: the source by OCI_AUTH and by what is configured; OKE workload identity and session tokens refused by name; the config file (DEFAULT's values, a missing profile or field, a relative key_file, an encrypted key, a non-RSA key, OCIDs, re-reading); the key checked against the fingerprint; resource principals as values and files, refreshed before expiry, other versions refused; the instance principal's metadata calls, federation body, keyId and signature verified with the certificate's key, its realm, the overrides, no tenancy, the service's refusal, no fall-through, one exchange for concurrent callers |
+| `ociKms.test.ts` (new) | 24, against a fake Vault that verifies every signature and binds AES-GCM to the associated data: the OCID (with and without the vault part, a version refused, nothing that leaves the path); the endpoints; the request bodies; another use of the key refused; answers for another key or version; a retired key's row; another vault's row refused before calling; OCI's errors with what to do; retries on 429 and 5xx only; the probe for a full and a least-privileged identity, a disabled and an RSA key; the private-path rule through the real guarded fetch and its audit row; the keyring creating a data key, and storing nothing when decrypt gives other bytes |
+| `ociKmsEmulator.test.ts` (new, integration) | 6 against floci-oci with a real API key and the real guarded fetch: wrap and unwrap, the probe's facts, a missing key, another key's ciphertext, rotation, a disabled key |
+| mutation | 36 of 36 killed: the signed header order, the query, the length sent twice, an empty POST's headers, the fingerprint's hash, the adapter's signer, DEFAULT's values, the fingerprint check, an encrypted key, key_file's directory, the resource principal's version and files, Bearer Oracle, the federation keyId and fingerprintAlgorithm, the refresh margin, the source order, OKE refused, a certificate without a tenancy, the realm's domain, decrypt at the row's key, the associated data both ways, the decrypt's version, the answers' key and version, retrying 4xx, another vault's row, the 404 hint, the least-privilege fallback, a disabled and an RSA key, the management endpoint, the rule's name, an OCID told apart |
+| UI | UI_TEST_RESULTS, R437 |
+
+**Not covered.** A real OCI tenancy: IAM policies, an HSM, Private Service Access and the identity
+service are unit-tested only. **Create a data key in OCI Vault** was not pressed: it writes the key
+row to the live database, the user's.
+
 ### 2026-11-02 — R436: R428's private-path rule, with the migration in; a detached catalog's query says why
 
 **Context.** The user pushed `20261104000000` (`iceberg_catalogs.require_private`), so R428's UI

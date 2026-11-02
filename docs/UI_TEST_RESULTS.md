@@ -15,6 +15,27 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-02 — R437: OCI Vault on the credential key card
+
+Stand-in: `r437-floci-oci` (floci-oci 0.5.0, pinned by digest, signatures required) on the app
+network at 172.19.0.16, with a vault and an AES-256 HSM key made for the round
+(`ocid1.key.oc1.iad.kx2hhm3g…73xc`). The identity: a throwaway API key and an OCI config file,
+generated for the round and mounted read-only; a second profile, `[mismatch]`, names another key's
+fingerprint. `KMS_PROVIDER` unset throughout; the app recreated per phase with the override in the
+scratchpad, then returned to its own environment (the same variable names as before, checked).
+
+| What was driven | Result |
+| --- | --- |
+| A: `KMS_KEY_REF`, `OCI_KMS_CRYPTO_ENDPOINT` and `OCI_KMS_MANAGEMENT_ENDPOINT` = `http://r437-floci-oci:4599`, `OCI_CONFIG_FILE` → Admin → IAM → Settings | "OCI Vault: Encrypt and decrypt work (key version …7zhvmfydp4ti)." and **Create a data key in OCI Vault** enabled. Crypto endpoint "http://r437-floci-oci:4599 (OCI_KMS_CRYPTO_ENDPOINT) · direct to 172.19.0.16 (private) · plain http: the data key would cross the network unencrypted, an emulator only"; Signed in as "user ocid1.user.oc1..aaaaaaaar437agentswarms (API key 0a:1a:bc:…:ed:7e)"; Protection "HSM-protected"; Shape "AES-256"; Current version "…7zhvmfydp4ti · ENABLED"; Rotation "not scheduled: turn on auto-rotation for the key, or rotate it yourself" |
+| B: `KMS_REQUIRE_PRIVATE=true`, the endpoint `https://kms.us-ashburn-1.oraclecloud.com` (a public Oracle name: a vault's own name exists only for a real vault) | "OCI Vault is set to require a private network path, but kms.us-ashburn-1.oraclecloud.com resolves to a public address (140.91.15.12, 140.91.11.14) from this server, so the call was not sent." with the Private Service Access advice; the Create button disabled; Network rule shown; Key details "not shown: set OCI_KMS_MANAGEMENT_ENDPOINT…" |
+| B → Audit log | `system:kms` · `security.kms.private_path.refused` · the key · the refusal |
+| C: the rule on, the stand-in's private address | "Encrypt and decrypt work (key version …7zhvmfydp4ti)."; Network rule "private path required (KMS_REQUIRE_PRIVATE); an instance principal's call to the identity service is not covered"; Create enabled |
+| D: `OCI_CONFIG_PROFILE=mismatch` | "key_file /run/r437/key.pem is the API key 0a:1a:bc:…:ed:7e, but the [mismatch] profile names 84:c6:87:…:5c:2c: they must be the same key"; Create disabled |
+
+Not pressed: **Create a data key in OCI Vault** (a row in the live database; the user's).
+Fixtures kept: `r437-floci-oci` (running; its vault and key in memory), the overrides
+`oci-a/b/c/d.override.yml` and the generated API key and config in the session scratchpad.
+
 ## 2026-11-02 — R436: Iceberg catalogs over a private path, with the migration in (R428, part two)
 
 The user pushed `20261104000000`, so the three checks R428 left waiting were driven. Stand-in:

@@ -1,9 +1,11 @@
 // OCI Generative AI streaming adapter -> OpenAI-style SSE.
-// Uses OCI Request Signing v1 (https://docs.oracle.com/en-us/iaas/Content/API/Concepts/signingrequests.htm)
-// with RSA-SHA256. Targets the Generative AI Inference `chat` action.
+// Signed by the shared OCI request signer (utils/oci/signer, proved against
+// the OCI Go SDK's vectors). Targets the Generative AI Inference `chat` action.
+import { createPrivateKey, type KeyObject } from "node:crypto";
 
 import type { ChatMessage, OCIConfig, OCICreds } from "../types";
 import { providerFetch } from "@/utils/ssrfGuard.server";
+import { signOciRequest } from "@/utils/oci/signer";
 import { providerOrigin } from "../privateEndpoint";
 
 function toOpenAIChunk(content: string): string {
@@ -12,91 +14,6 @@ function toOpenAIChunk(content: string): string {
     object: "chat.completion.chunk",
     choices: [{ index: 0, delta: { content } }],
   })}\n\n`;
-}
-
-// ---- PEM -> CryptoKey for RSA-SHA256 signing ----
-function pemToArrayBuffer(pem: string): ArrayBuffer {
-  const stripped = pem
-    .replace(/-----BEGIN [^-]+-----/g, "")
-    .replace(/-----END [^-]+-----/g, "")
-    .replace(/\s+/g, "");
-  const bin = atob(stripped);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return bytes.buffer;
-}
-
-async function importPrivateKey(pem: string): Promise<CryptoKey> {
-  const buf = pemToArrayBuffer(pem);
-  return crypto.subtle.importKey(
-    "pkcs8",
-    buf,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-}
-
-function bytesToB64(bytes: Uint8Array): string {
-  let bin = "";
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin);
-}
-
-async function sha256B64(body: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body));
-  return bytesToB64(new Uint8Array(digest));
-}
-
-async function signString(key: CryptoKey, str: string): Promise<string> {
-  const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(str));
-  return bytesToB64(new Uint8Array(sig));
-}
-
-async function buildSignedHeaders(args: {
-  method: "POST";
-  url: URL;
-  body: string;
-  keyId: string; // tenancy/user/fingerprint
-  privateKeyPem: string;
-}): Promise<Record<string, string>> {
-  const { method, url, body, keyId, privateKeyPem } = args;
-  const date = new Date().toUTCString();
-  const contentSha256 = await sha256B64(body);
-  const contentLength = String(new TextEncoder().encode(body).byteLength);
-  const headersToSign = [
-    "(request-target)",
-    "date",
-    "host",
-    "x-content-sha256",
-    "content-type",
-    "content-length",
-  ];
-  const requestTarget = `${method.toLowerCase()} ${url.pathname}${url.search}`;
-  const signingString = [
-    `(request-target): ${requestTarget}`,
-    `date: ${date}`,
-    `host: ${url.host}`,
-    `x-content-sha256: ${contentSha256}`,
-    `content-type: application/json`,
-    `content-length: ${contentLength}`,
-  ].join("\n");
-
-  const key = await importPrivateKey(privateKeyPem);
-  const signature = await signString(key, signingString);
-
-  const authHeader =
-    `Signature version="1",keyId="${keyId}",algorithm="rsa-sha256",` +
-    `headers="${headersToSign.join(" ")}",signature="${signature}"`;
-
-  return {
-    date,
-    host: url.host,
-    "x-content-sha256": contentSha256,
-    "content-type": "application/json",
-    "content-length": contentLength,
-    authorization: authHeader,
-  };
 }
 
 // Endpoint host varies by region: https://inference.generativeai.<region>.oci.oraclecloud.com
@@ -164,13 +81,14 @@ export async function ociChatStream(args: {
   });
 
   const keyId = `${creds.tenancyOcid}/${creds.userOcid}/${creds.fingerprint}`;
-  const headers = await buildSignedHeaders({
-    method: "POST",
-    url,
-    body,
-    keyId,
-    privateKeyPem: creds.privateKeyPem,
-  });
+  let privateKey: KeyObject;
+  try {
+    // PKCS#8 or PKCS#1: the WebCrypto import this replaced took PKCS#8 only.
+    privateKey = createPrivateKey(creds.privateKeyPem);
+  } catch {
+    throw new Error("OCI Generative AI: the saved private key is not a PEM private key");
+  }
+  const headers = signOciRequest({ method: "POST", url, body, key: { keyId, privateKey } });
 
   const upstream = await providerFetch(url.toString(), { method: "POST", headers, body });
   if (!upstream.ok || !upstream.body) {

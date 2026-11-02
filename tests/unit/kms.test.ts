@@ -102,11 +102,16 @@ describe("reading the configuration", () => {
     expect(kmsConfigFromEnv({ KMS_PROVIDER: "ENV " })).toEqual({ provider: "env" });
   });
 
-  it("refuses an unknown provider, a designed-not-built one, and a missing key ref — by name", () => {
+  it("refuses an unknown provider and a missing key ref — by name; every listed provider is built", () => {
     expect(() => kmsConfigFromEnv({ KMS_PROVIDER: "kms" })).toThrow(/not a key provider/);
-    expect(() =>
-      kmsConfigFromEnv({ KMS_PROVIDER: "oci", KMS_KEY_REF: "ocid1.key.oc1..x" }),
-    ).toThrow(/not built in this release; use env, vault, aws, azure, gcp$/);
+    // OCI was the last designed-but-not-built provider (R437).
+    expect(kmsConfigFromEnv({ KMS_PROVIDER: "oci", KMS_KEY_REF: "ocid1.key.oc1.iad.v.k" })).toEqual(
+      {
+        provider: "oci",
+        keyRef: "ocid1.key.oc1.iad.v.k",
+      },
+    );
+    expect(() => kmsConfigFromEnv({ KMS_PROVIDER: "oci" })).toThrow(/KMS_KEY_REF/);
     expect(kmsConfigFromEnv({ KMS_PROVIDER: "aws", KMS_KEY_REF: "alias/app" })).toEqual({
       provider: "aws",
       keyRef: "alias/app",

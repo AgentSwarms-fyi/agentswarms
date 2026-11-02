@@ -85,6 +85,23 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **The credential key can live in OCI Vault** (R437). `KMS_PROVIDER=oci` with
+  `KMS_KEY_REF` set to a key's OCID and `OCI_KMS_CRYPTO_ENDPOINT` to its
+  vault's cryptographic endpoint: the data key is encrypted by the key's
+  current version, HSM-protected, software-protected or in your own key
+  manager through OCI External KMS, and decrypted once per process start.
+  Every call carries the same associated data; an answer naming another key
+  or version is not used, and decrypt is asked at the row's own key and
+  version. The app signs every request as its own OCI identity: an instance
+  principal (a compute instance or OKE node in a dynamic group), a resource
+  principal, or an API key from the config file `oci setup config` writes,
+  checked against its fingerprint. `KMS_REQUIRE_PRIVATE` refuses a vault
+  address that is public, which a service gateway's are; a Private Service
+  Access endpoint passes. The settings card proves the permission with a test
+  encrypt and decrypt and shows the key's protection mode, shape, current
+  version and rotation when it may read them. Request signing is proved
+  against the OCI Go SDK's test vectors; tested against floci-oci, not yet a
+  real OCI tenancy. Every external provider the design named is now built.
 - **The credential key can live in Google Cloud KMS** (R435). `KMS_PROVIDER=gcp`
   with `KMS_KEY_REF` set to a key's resource name
   (`projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>`): the data key is
@@ -1057,6 +1074,13 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **OCI Generative AI requests could not be sent** (R437, found by the
+  emulator test). The adapter signed its requests correctly but also set
+  `content-length` as a header, which Node's fetch refuses ("invalid
+  content-length header") when an undici dispatcher carries the request, and
+  the guarded fetch always gives it one. It now signs through the shared OCI
+  signer, which signs the length and lets fetch send it, and it reads a
+  PKCS#1 (`BEGIN RSA PRIVATE KEY`) API key as well as PKCS#8.
 - **A query on a mount of a catalog that is not attached says which catalog
   and why** (R436, found in R428's second UI round). A catalog detached
   because its name had stopped resolving privately answered a query on its

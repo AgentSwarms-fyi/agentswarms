@@ -728,6 +728,25 @@ AUDIT_ARCHIVE_ON_PURGE="1"
         address. The token request is not held to that rule.
       </Callout>
 
+      <Callout kind="info" title="Or in OCI Vault">
+        <C>KMS_PROVIDER=oci</C> does the same with an OCI Vault key: set <C>KMS_KEY_REF</C> to the
+        key&apos;s OCID and <C>OCI_KMS_CRYPTO_ENDPOINT</C> to its vault&apos;s cryptographic
+        endpoint (<C>https://&lt;vault&gt;-crypto.kms.&lt;region&gt;.oraclecloud.com</C>), and let
+        the app&apos;s identity use that key and nothing else (
+        <C>
+          Allow dynamic-group &lt;group&gt; to use keys in compartment &lt;c&gt; where target.key.id
+          = &apos;&lt;key OCID&gt;&apos;
+        </C>
+        ). The key is AES-256: HSM-protected, software-protected, or in your own key manager through
+        OCI External KMS. The app signs every request as its instance principal (a compute instance
+        or OKE node in a dynamic group), a resource principal (
+        <C>OCI_RESOURCE_PRINCIPAL_VERSION=2.2</C>), or outside OCI an API key from the config file{" "}
+        <C>oci setup config</C> writes (<C>OCI_CONFIG_FILE</C>). A service gateway keeps the traffic
+        on Oracle&apos;s network, but the vault&apos;s addresses stay public: with{" "}
+        <C>KMS_REQUIRE_PRIVATE=true</C> reach it through a Private Service Access endpoint or{" "}
+        <C>HTTPS_PROXY</C>.
+      </Callout>
+
       <Callout kind="warn" title="Changing key providers">
         Moving the app to another cloud does not mean moving the key: it can keep using the key
         provider it has, signing in from the new cloud with workload identity federation (an AWS

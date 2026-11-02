@@ -127,7 +127,7 @@ const NOT_CLAIMED: Item[] = [
   },
   {
     title: "By default the master key lives in your environment",
-    body: "Unless you configure an external key provider, PROVIDER_CREDS_SECRET is an environment variable you set and back up. HashiCorp Vault Transit, AWS KMS, Azure Key Vault (or an Azure Managed HSM) and Google Cloud KMS are built: the data key is wrapped by a key that never leaves them, and the app holds a permission to unwrap it. OCI Vault is designed in docs/KEY_MANAGEMENT.md and not built. AWS KMS, Azure Key Vault and Cloud KMS have been tested against emulators, not yet a real cloud account. Rotation is supported and operator-initiated: the app never rotates on a schedule by itself.",
+    body: "Unless you configure an external key provider, PROVIDER_CREDS_SECRET is an environment variable you set and back up. HashiCorp Vault Transit, AWS KMS, Azure Key Vault (or an Azure Managed HSM), Google Cloud KMS and OCI Vault are built: the data key is wrapped by a key that never leaves them, and the app holds a permission to unwrap it. AWS KMS, Azure Key Vault, Cloud KMS and OCI Vault have been tested against emulators, not yet a real cloud account. Rotation is supported and operator-initiated: the app never rotates on a schedule by itself.",
   },
   {
     title: "Encryption at rest is not end-to-end",

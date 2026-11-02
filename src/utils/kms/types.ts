@@ -12,13 +12,14 @@
 export const KMS_PROVIDERS = ["env", "vault", "aws", "gcp", "azure", "oci"] as const;
 export type KmsProviderId = (typeof KMS_PROVIDERS)[number];
 
-/** The providers this build can actually talk to. The rest are designed, not built. */
+/** The providers this build can actually talk to. */
 export const IMPLEMENTED_KMS_PROVIDERS: readonly KmsProviderId[] = [
   "env",
   "vault",
   "aws",
   "azure",
   "gcp",
+  "oci",
 ];
 
 export type WrappedDek = {
@@ -276,9 +277,59 @@ export function parseGcpKeyRef(keyRef: string): GcpKeyRef {
   };
 }
 
-/** Which provider a key reference belongs to, by its shape. */
-export function keyRefProvider(keyRef: string): "vault" | "aws" | "azure" | "gcp" | null {
+export type OciKeyRef = {
+  /** The key's OCID. */
+  keyRef: string;
+  /** oc1 (the commercial realm), oc2… */
+  realm: string;
+  /** The region's key or name, as the OCID carries it: iad, us-ashburn-1. */
+  region: string;
+  /**
+   * The vault's part of the OCID, which also names its endpoints
+   * (`<vault>-crypto.kms.<region>.oraclecloud.com`); not every OCID has it.
+   */
+  vault: string | null;
+};
+
+// ocid1.key.<realm>.<region>[.<vault>].<unique id>: lowercase letters, digits
+// and the region's hyphens. The OCID goes into a URL path (GetKey), so nothing
+// else gets through.
+const OCI_KEY_OCID = /^ocid1\.key\.(oc[0-9]+)\.([a-z0-9-]+)\.(?:([a-z0-9]+)\.)?([a-z0-9]+)$/;
+
+/**
+ * An OCI Vault master encryption key's OCID, as the console's key details
+ * show it. A key VERSION's OCID is refused: decrypt finds the version from the
+ * ciphertext, and encrypt should use the key's current version, so rotation
+ * works.
+ */
+export function parseOciKeyRef(keyRef: string): OciKeyRef {
   const ref = keyRef.trim();
+  if (ref.startsWith("ocid1.keyversion.")) {
+    throw new KmsConfigError(
+      `KMS_KEY_REF names a key version (${ref}); name the key itself (ocid1.key.…), ` +
+        `so encrypt uses its current version and rotation works`,
+    );
+  }
+  const m = OCI_KEY_OCID.exec(ref);
+  if (!m) {
+    throw new KmsConfigError(
+      `KMS_KEY_REF for OCI Vault must be a key's OCID, ocid1.key.oc1.<region>.<…>, not "${keyRef}"`,
+    );
+  }
+  return { keyRef: ref, realm: m[1], region: m[2], vault: m[3] ?? null };
+}
+
+/** Which provider a key reference belongs to, by its shape. */
+export function keyRefProvider(keyRef: string): "vault" | "aws" | "azure" | "gcp" | "oci" | null {
+  const ref = keyRef.trim();
+  if (ref.startsWith("ocid1.")) {
+    try {
+      parseOciKeyRef(ref);
+      return "oci";
+    } catch {
+      return null;
+    }
+  }
   if (/^[A-Za-z0-9_.-]+\/keys\/[A-Za-z0-9_.-]+$/.test(ref)) return "vault";
   if (ref.startsWith("projects/") || ref.startsWith("//cloudkms.googleapis.com/")) {
     try {

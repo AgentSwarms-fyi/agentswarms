@@ -1,24 +1,23 @@
 # Key management and external KMS
 
-**Status: envelope encryption is built, with five providers.** `env` (the
+**Status: envelope encryption is built, with six providers.** `env` (the
 default) derives the key from `PROVIDER_CREDS_SECRET` exactly as before,
 `vault` keeps the key-encrypting key in HashiCorp Vault Transit, `aws` in AWS
 KMS ([below](#aws-kms)), `azure` in Azure Key Vault or an Azure Managed HSM
 ([below](#azure-key-vault)), and `gcp` in Google Cloud KMS
-([below](#google-cloud-kms)). OCI Vault is designed behind the same interface
-and not yet built; `KMS_PROVIDER` refuses it by name rather than pretending.
+([below](#google-cloud-kms)), and `oci` in OCI Vault ([below](#oci-vault)).
 
 For what exists now — AES-256-GCM, key fingerprints, and the rotation sweep —
 see [SECURITY.md](../SECURITY.md#credential-encryption).
 
 ## What exists
 
-| Variable                                                            | Meaning                                                                                                                                                                                                                                                                                      |
-| ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `KMS_PROVIDER`                                                      | `env` (default), `vault`, `aws`, `azure` or `gcp`                                                                                                                                                                                                                                            |
-| `KMS_KEY_REF`                                                       | The provider's reference for the key-encrypting key. Vault: `transit/keys/<name>`. AWS KMS: a key ARN, an alias ARN, `alias/<name>` or a key id. Azure: the key identifier, `https://<vault>.vault.azure.net/keys/<name>`. Cloud KMS: the key's resource name, `projects/…/cryptoKeys/<key>` |
-| `VAULT_ADDR`, `VAULT_TOKEN` / `VAULT_TOKEN_FILE` / `VAULT_K8S_ROLE` | Where Vault is and how to authenticate: a token, a mounted token file, or a Kubernetes service-account login (`VAULT_K8S_MOUNT`, default `kubernetes`)                                                                                                                                       |
-| `VAULT_NAMESPACE`                                                   | Vault Enterprise namespaces only                                                                                                                                                                                                                                                             |
+| Variable                                                            | Meaning                                                                                                                                                                                                                                                                                                                 |
+| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `KMS_PROVIDER`                                                      | `env` (default), `vault`, `aws`, `azure`, `gcp` or `oci`                                                                                                                                                                                                                                                                |
+| `KMS_KEY_REF`                                                       | The provider's reference for the key-encrypting key. Vault: `transit/keys/<name>`. AWS KMS: a key ARN, an alias ARN, `alias/<name>` or a key id. Azure: the key identifier, `https://<vault>.vault.azure.net/keys/<name>`. Cloud KMS: the key's resource name, `projects/…/cryptoKeys/<key>`. OCI Vault: the key's OCID |
+| `VAULT_ADDR`, `VAULT_TOKEN` / `VAULT_TOKEN_FILE` / `VAULT_K8S_ROLE` | Where Vault is and how to authenticate: a token, a mounted token file, or a Kubernetes service-account login (`VAULT_K8S_MOUNT`, default `kubernetes`)                                                                                                                                                                  |
+| `VAULT_NAMESPACE`                                                   | Vault Enterprise namespaces only                                                                                                                                                                                                                                                                                        |
 
 **Switching a running deployment to Vault**, which is a rotation and not a
 cutover (from `env`; from another external provider it is a re-key, see
@@ -424,6 +423,127 @@ token endpoint accepts the key's assertion; the comment at its top gives the
 commands and what the emulator does differently. Federation, impersonation,
 the metadata server and the IAM errors are covered by the unit tests.
 
+## OCI Vault
+
+`KMS_PROVIDER=oci` keeps the key-encrypting key in OCI Vault: an AES master
+encryption key, HSM-protected, software-protected, or held in your own key
+manager through OCI External KMS. The data key is 32 random bytes the app
+makes, encrypted with the key's current version and stored only after a
+decrypt has given back the same bytes. There is no Oracle SDK: the Vault
+crypto API (`20180608`) at the vault's own cryptographic endpoint, every
+request signed by the app's identity with OCI's request signature
+(`src/utils/oci/signer.ts`, proved against the OCI Go SDK's test vectors).
+
+Every encrypt and decrypt carries the same associated data,
+`{"purpose": "agentswarms:credential-data-key"}`, which Vault binds into its
+AES-GCM, so a ciphertext made with the same key for anything else does not
+decrypt as a data key. An answer that names another key, or a decrypt that
+names another version than the stored data key's, is not used. The decrypt
+answer's `plaintextChecksum` is not relied on: OCI does not document how it
+is computed, and the keyring already refuses an unwrapped key whose
+fingerprint is not the stored one.
+
+| Variable                      | Meaning                                                                                                                                                                                                                   |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `KMS_KEY_REF`                 | The key's OCID, from the key's details page: `ocid1.key.oc1.<region>.<vault>.<id>`. A key **version** OCID is refused: decrypt finds the version from the ciphertext, and encrypt uses the current one, so rotation works |
+| `OCI_KMS_CRYPTO_ENDPOINT`     | Required. The vault's **Cryptographic Endpoint**, from the vault's details page: `https://<vault>-crypto.kms.<region>.oraclecloud.com`, or a private name for it, or an emulator. An origin only                          |
+| `OCI_KMS_MANAGEMENT_ENDPOINT` | The vault's **Management Endpoint**, only for the key's details on the settings card. Taken from the crypto endpoint when that is Oracle's name (`-crypto.` becomes `-management.`)                                       |
+| `KMS_REQUIRE_PRIVATE`         | `true`: every Vault call must take a private network path ([below](#over-a-private-address))                                                                                                                              |
+| the identity variables        | The app's own OCI identity, [below](#the-apps-oci-identity)                                                                                                                                                               |
+
+**Switching to OCI Vault** is the same rotation as for Vault:
+
+1. In a vault (a **virtual private vault** if you want its own HSM
+   partition), create a master encryption key with the shape **AES 256**,
+   protection mode HSM, Software, or External. Turn on **auto-rotation** for
+   it if your vault offers it: the settings card says when nothing rotates the
+   key. Let the app's identity use that key and nothing else, for an instance
+   principal through a dynamic group:
+   `Allow dynamic-group <group> to use keys in compartment <compartment> where target.key.id = '<key OCID>'`
+   (a group, for an API key's user). `read keys` lets the card show the key's
+   protection mode, shape, current version and rotation; the app does not need
+   it.
+2. Set `KMS_KEY_REF` to the key's OCID and `OCI_KMS_CRYPTO_ENDPOINT` to its
+   vault's cryptographic endpoint, give the app its identity, leave
+   `KMS_PROVIDER` unset and restart. **Admin → IAM → Settings → Credential
+   encryption key** shows the endpoint and its network path, who the app
+   signs in as, and, when it may read them, the key's protection mode, shape,
+   current version and rotation. Opening the card proves the permission with
+   a test encrypt and decrypt of 32 random bytes; **Create a data key in OCI
+   Vault** is enabled only when that works and the key is enabled.
+3. Create the data key.
+4. Set `KMS_PROVIDER=oci`, restart, and run **Re-encrypt to current key**.
+
+The stored data key names the **version** that encrypted it, and decrypt is
+asked at the row's own key and that version: Vault refuses a ciphertext from
+any other key. Rotation in Vault (a new current version, on a schedule or by
+hand) changes nothing for data keys already stored; **Rotate the data key**
+encrypts a new one with the new version. A vault's keys are reached only at
+that vault's endpoint, so a data key made with a key in another vault is
+refused before anything is sent, saying which vault. **Deleting** a key in
+OCI is scheduled 7 to 30 days ahead and can be cancelled until then; after
+that, every credential under a data key it encrypted is gone.
+
+### The app's OCI identity
+
+The key the app signs a request with when it calls OCI as itself
+(`src/utils/oci/credentials.server.ts`). `OCI_AUTH` names the source;
+otherwise the first that is configured, in this order. A chosen source that
+fails is the error: it never falls through to another.
+
+| Source                | Set                                                                                                    | Typical deployment                                        |
+| --------------------- | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------- |
+| An API key            | `OCI_CONFIG_FILE`: the config file `oci setup config` writes (profile `OCI_CONFIG_PROFILE`, `DEFAULT`) | Outside OCI, or anywhere a principal is not possible      |
+| A resource principal  | `OCI_RESOURCE_PRINCIPAL_VERSION=2.2` and the session token and key OCI provides                        | OCI Functions, Container Instances and services like them |
+| An instance principal | nothing (`OCI_AUTH=instance_principal` to say so)                                                      | A compute instance or an OKE node in a dynamic group      |
+
+- **An API key** is the profile's `user`, `fingerprint`, `key_file` (read
+  beside the config file when relative; `pass_phrase` when it is encrypted)
+  and `tenancy`; a profile takes `DEFAULT`'s values unless it sets its own.
+  The key is checked against the fingerprint, so a key file and a fingerprint
+  from two different keys are reported as that, not as OCI's bare
+  `NotAuthenticated`. The files are read again every 15 minutes, so a
+  replaced key is used.
+- **A resource principal** (version 2.2) is `OCI_RESOURCE_PRINCIPAL_RPST`
+  and `OCI_RESOURCE_PRINCIPAL_PRIVATE_PEM`, each the value or an absolute
+  path to a file the platform keeps fresh; the token is read again five
+  minutes before it expires.
+- **An instance principal** asks the instance metadata service (directly at
+  `169.254.169.254/opc/v2`, or `OCI_METADATA_BASE_URL`, with
+  `Authorization: Bearer Oracle`, never through the proxy) for the region and
+  realm, the instance's certificate, its key and the intermediate
+  certificate, then exchanges them at the region's identity service,
+  `https://auth.<region>.<realm domain>/v1/x509` (or
+  `OCI_FEDERATION_ENDPOINT`), for a session token bound to a key pair made in
+  the process. The token is renewed five minutes before it expires.
+- **Not supported**, refused by name: OKE workload identity (on OKE, use the
+  node pool's instance principal, or an API key) and session tokens from
+  `oci session authenticate`.
+
+### Over a private address
+
+Vault calls go the way every outbound call goes: the SSRF guard's
+always-blocked tier, and the proxy. `KMS_REQUIRE_PRIVATE=true` makes a
+private path a rule: a Vault call that would go directly to a public address
+is refused before anything is sent, audited as
+`security.kms.private_path.refused` with `system:kms` as the actor, and the
+process refuses to start on it. A **service gateway** keeps traffic to OCI
+services on Oracle's network, but the vault's endpoint addresses stay public,
+so the rule refuses them: reach the vault through a **Private Service
+Access** endpoint where your region offers one for OCI Vault (its private DNS
+answers the vault's endpoint name with the endpoint's address in your
+subnet), or through `HTTPS_PROXY`. **The identity call is not covered:** an
+instance principal's exchange at the identity service carries the instance's
+certificate, never key material, and goes directly or through `HTTPS_PROXY`.
+
+**Testing without an OCI account.** `tests/integration/ociKmsEmulator.test.ts`
+drives the real provider and a real API key against floci-oci (pinned by
+digest, signatures required); the comment at its top gives the commands and
+what the emulator does differently: it does not verify signatures or apply
+the associated data. Request signing is proved against the OCI Go SDK's own
+vectors, and the instance and resource principals, the associated data and
+the errors are covered by the unit tests.
+
 ## Changing key providers
 
 Three different changes, in the order they are usually needed.
@@ -603,7 +723,7 @@ an existing deployment:
 | **AWS KMS**         | `arn:aws:kms:…:key/…`             | `Encrypt` / `Decrypt`, or `GenerateDataKey` which returns plaintext + wrapped in one call | IAM role via IRSA / instance profile; else access key pair |
 | **Cloud KMS**       | `projects/…/cryptoKeys/…`         | `encrypt` / `decrypt`, with CRC-32C both ways and fixed AAD                               | Metadata server or federation; else service-account JSON   |
 | **Azure Key Vault** | `https://…vault.azure.net/keys/…` | `wrapKey` / `unwrapKey`                                                                   | Managed Identity; else client secret / cert                |
-| **OCI Vault**       | key OCID + crypto endpoint        | `encrypt` / `decrypt`                                                                     | Instance principal; else API signing key                   |
+| **OCI Vault**       | key OCID + crypto endpoint        | `encrypt` / `decrypt`, with fixed associated data                                         | Instance or resource principal; else API signing key       |
 | **HashiCorp Vault** | `transit/keys/<name>`             | Transit `encrypt` / `decrypt`                                                             | Kubernetes auth, AppRole, or token                         |
 
 Vault Transit is the most portable and the one to build **second** after `env`,
@@ -636,7 +756,7 @@ Deliberately incremental. Each step is shippable and reversible.
    change, done with no external dependency to debug alongside it.
 2. **Add `KeyProvider` and the Vault Transit implementation.** Testable in CI
    with a Vault dev container — no cloud account needed.
-3. **Add AWS (done), Azure (done), GCP (done), then OCI**, each behind the same interface,
+3. **Add AWS (done), Azure (done), GCP (done), then OCI (done)**, each behind the same interface,
    each with an integration test that is skipped when its emulator or
    credentials are absent.
 4. **Add a provider-switch flow** to the existing Settings card, reusing the

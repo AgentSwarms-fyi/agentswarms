@@ -1911,7 +1911,9 @@ function CredentialKeyCard({ token }: { token: string }) {
           ? "Azure Key Vault"
           : id === "gcp"
             ? "Cloud KMS"
-            : id.toUpperCase();
+            : id === "oci"
+              ? "OCI Vault"
+              : id.toUpperCase();
 
   const createKey = async () => {
     setCreating(true);
@@ -2056,8 +2058,11 @@ function CredentialKeyCard({ token }: { token: string }) {
                     identifier, and a managed or workload identity or{" "}
                     <code className="font-mono">AZURE_*</code> variables; Cloud KMS: the key&apos;s
                     resource name, and a service account on the metadata server or{" "}
-                    <code className="font-mono">GOOGLE_APPLICATION_CREDENTIALS</code>), restart, and
-                    the option to wrap a data key appears here.
+                    <code className="font-mono">GOOGLE_APPLICATION_CREDENTIALS</code>; OCI Vault:
+                    the key&apos;s OCID and{" "}
+                    <code className="font-mono">OCI_KMS_CRYPTO_ENDPOINT</code>, and an instance or
+                    resource principal or <code className="font-mono">OCI_CONFIG_FILE</code>),
+                    restart, and the option to wrap a data key appears here.
                   </p>
                 )}
                 {external?.probe.facts?.length ? (
