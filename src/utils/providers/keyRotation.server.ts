@@ -70,6 +70,8 @@ export type TableStatus = {
   rows: number;
   blobs: number;
   onCurrent: number;
+  /** On the deployment's current key, not yet on its owner's key: a sweep moves it. */
+  onDeploymentKey: number;
   /** On an older key this server holds: a sweep moves it. */
   onOther: number;
   /** On a key this server does not hold: a sweep cannot move it (R432). */
@@ -261,6 +263,7 @@ export async function keyEncryptionStatus(context?: KeyContext): Promise<TableSt
         rows: 0,
         blobs: 0,
         onCurrent: 0,
+        onDeploymentKey: 0,
         onOther: 0,
         unreadable: 0,
         unreadableKids: [],
@@ -271,6 +274,7 @@ export async function keyEncryptionStatus(context?: KeyContext): Promise<TableSt
     }
     let blobs = 0;
     let onCurrent = 0;
+    let onDeploymentKey = 0;
     let onOther = 0;
     let unreadable = 0;
     const unreadableKids = new Set<string>();
@@ -281,12 +285,17 @@ export async function keyEncryptionStatus(context?: KeyContext): Promise<TableSt
       // until the owner has one, every value of theirs is still to move.
       const keys =
         ctx.summary.enabled && owner
-          ? { current: ctx.liveByOwner.get(owner) ?? null, held: ctx.held }
+          ? {
+              current: ctx.liveByOwner.get(owner) ?? null,
+              deployment: ctx.instanceCurrent,
+              held: ctx.held,
+            }
           : { current: ctx.instanceCurrent, held: ctx.held };
       for (const val of Object.values(row)) {
         const s = await blobKeyStatus(val, keys);
         blobs += s.total;
         onCurrent += s.onCurrent;
+        onDeploymentKey += s.onDeploymentKey;
         onOther += s.onOther;
         unreadable += s.unreadable;
         for (const k of s.unreadableKids) unreadableKids.add(k);
@@ -298,6 +307,7 @@ export async function keyEncryptionStatus(context?: KeyContext): Promise<TableSt
       rows: (data ?? []).length,
       blobs,
       onCurrent,
+      onDeploymentKey,
       onOther,
       unreadable,
       unreadableKids: [...unreadableKids],
@@ -315,6 +325,7 @@ export function statusTotals(tables: TableStatus[]): StatusTotals {
   const t: StatusTotals = {
     blobs: 0,
     onCurrent: 0,
+    onDeploymentKey: 0,
     onOther: 0,
     unreadable: 0,
     unreadableKids: [],
@@ -323,6 +334,7 @@ export function statusTotals(tables: TableStatus[]): StatusTotals {
   for (const s of tables) {
     t.blobs += s.blobs;
     t.onCurrent += s.onCurrent;
+    t.onDeploymentKey += s.onDeploymentKey;
     t.onOther += s.onOther;
     t.unreadable += s.unreadable;
     t.legacy += s.legacy;

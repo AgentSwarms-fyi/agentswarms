@@ -242,7 +242,10 @@ function SelfHostingOperationsPage() {
         <li>Restrict embed keys to your own domains.</li>
         <li>Review retention windows for chats, transcripts and audit.</li>
         <li>
-          Back up <C>PROVIDER_CREDS_SECRET</C> somewhere you can actually retrieve it.
+          Back up <C>PROVIDER_CREDS_SECRET</C> somewhere you can actually retrieve it. It wraps
+          every user&apos;s key, so a restored database reads nothing without it. A key erased or
+          destroyed in the app is still in backups taken before; only a customer key deleted in the
+          customer&apos;s own KMS reaches those.
         </li>
         <li>
           Keep the image pins. If you mirror the images into your own registry, mirror them by

@@ -109,6 +109,47 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-03 — R439: R438's second UI round, with the migration in
+
+**What was driven.** Everything R438 left for after the push, on the only account and so only in
+moves that could be undone: an app-held key created and checked; the account assigned directly and
+through a group, moved out again; a conflict created both ways (refused at assignment, and arising
+from a membership change, then a save refused); settled by a direct assignment; a key destroyed by
+name; erase taken up to the confirmation; a key in the AWS stand-in's KMS created and checked; the
+customer disabling it (the account's stored credentials stop reading, naming the key and the KMS's
+answer) and enabling it again (nothing lost); the account moved out (the customer's key no longer
+matters); the audit trail. All in UI_TEST_RESULTS, R439.
+
+**Found and fixed.**
+
+- **The count called current values old.** After the migration, every value written before it
+  was "on an older key": they were on the current deployment key, with their owner's own key now
+  the current one. Counted apart now, "on the deployment key, not yet on their owner's key"; the
+  fingerprint the card shows is labelled **Deployment key**.
+- **"1 of this group's members are".** "is" for one.
+- **The audit page called a customer key's fingerprint a "data key".** It names the kind of key
+  by the action (customer key, user key, data key), and shows what an assignment moved (users,
+  user keys re-wrapped, values re-encrypted) and what a destroy erased.
+- **"is disabled.. The key"** in every AWS KMS refusal whose message ends in its own full stop
+  (an R429 message, seen here through a customer key). One stop.
+- **Every key's buttons were named "Check" and "Destroy"**, nothing saying which key; named by
+  the key now.
+
+**Proved.**
+
+| Check | Result |
+| --- | --- |
+| `customerKeySweep.test.ts`, `keyEncryptionStatus.test.ts` | the deployment-key count apart from the older-key one |
+| `customerKeyFunctions.test.ts` | "is" for one member, anchored |
+| `gatewayCallerLeft.test.ts` | the audit page's label by the action, and the counts it shows |
+| `awsKms.test.ts` | a message ending in a stop gets one |
+| mutation | 4 of 4 killed (the count, the verb, the label, the stop) |
+| UI | UI_TEST_RESULTS, R439 |
+
+**Not covered.** Erasing a user key and destroying a key with members were not done on the only
+account (they would have made its real credentials unreadable); both are covered by
+`customerKeyFunctions.test.ts` and `customerKeys.test.ts`. A grant across real AWS accounts.
+
 ### 2026-11-02 — R438: customer keys and user keys
 
 **Feature.** The last item in the user's KMS order ("per-customer keys after the cloud

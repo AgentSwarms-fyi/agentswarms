@@ -75,7 +75,7 @@ function IamPage() {
           ["SSO", "SAML identity provider configuration"],
           [
             "Settings",
-            "Public-signup toggle, the default model-access policy (allow vs deny), trace retention, and the current superadmin list",
+            "Public-signup toggle, the default model-access policy (allow vs deny), trace retention, the credential encryption key and its re-encrypt sweep, customer keys (a key per customer, assigned to groups or users, held by the app or in the customer's own KMS) and erasing one user's key, and the current superadmin list",
           ],
         ]}
       />

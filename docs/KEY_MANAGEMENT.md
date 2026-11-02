@@ -679,7 +679,17 @@ key affects their members' reads and saves, and nothing else.
 Until then the card says the migration is needed and every value is written
 under the deployment's key, as before. Once it is applied, user keys are made
 as users save; run **Re-encrypt to current key** once to move what was stored
-before onto its owners' keys.
+before onto its owners' keys. Until you do, the credential key card counts
+those values as "on the deployment key, not yet on their owner's key" (they
+read; nothing is wrong), and the fingerprint it shows is the **deployment
+key**'s, the one that wraps every user key.
+
+What each change on the Customer keys card reports, in its toast and in the
+audit log (`security.customer_key.create`, `.assign`, `.unassign`,
+`.destroy`, `security.user_key.erase`): how many users it covers, how many
+user keys it re-wrapped, and how many values it re-encrypted onto an owner's
+key (only values still on the deployment key; a move itself re-encrypts
+nothing).
 
 ### Creating a customer key
 

@@ -15,6 +15,62 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-03 — R439: customer keys and user keys (R438, part two, with the migration in)
+
+The user pushed `20261105000000`. The account is the only user (no second account can be made on
+the hosted sign-in service), so every move was one that could be undone, and nothing was destroyed
+or erased while the account was under it. Evidence that a stored credential reads: **Test** on the
+built-in Lakehouse connection, which decrypts its stored credentials. Toasts read by a watcher on
+the page's toast list. Phase A on the app's own environment; phase B with the AWS stand-in
+(`r429-localstack`) given as the app's KMS endpoint and identity, `DATA_KEY_CACHE_SECONDS=20`, and
+`KMS_PROVIDER` unset; the environment then restored (the same variable names as before, none of
+the stand-in's left).
+
+| Page / surface | What was driven | Result |
+| --- | --- | --- |
+| Admin → IAM → Settings, after the push | read | Credential encryption key: "19 encrypted values · 0 on the current key · 19 on an older key". **Found:** they were on the current deployment key, not an older one; the owner had no user key yet. Customer keys: "0 user keys · 0 under a customer key", the new-key form |
+| Customer keys → New customer key "R438 Acme", Held by the app | **Create customer key**, then **Check** | "Customer key "R438 Acme" created (8407e362900b)…"; "Unwrapped under the deployment key 30dc47ce45e7" |
+| Integrations → Data Sources → Lakehouse | **Test** (baseline) | "Connection verified", OK 00:42 |
+| R438 Acme → assign the account | **Assign** | "Assigned rghosh044@gmail.com to "R438 Acme": 1 user, 19 values re-encrypted."; "1 user key · 1 under a customer key"; the key card "19 · 19 on the current key" |
+| Lakehouse | **Test** | "Connection verified", 00:44, under the customer key |
+| R438 Acme → remove the account | ✕ | "1 user, 1 user key re-wrapped." (no value re-encrypted: a move is a re-wrap) |
+| Groups → create r438-acme-staff (the account in it) and r438-globex-staff (empty); New customer key "R438 Globex" | create, add member | "Group created"; "R438 Globex" created (412bfd4951a2) |
+| R438 Acme → assign group r438-acme-staff | **Assign** | "Assigned group r438-acme-staff to "R438 Acme": 1 user, 1 user key re-wrapped." |
+| The account added to r438-globex-staff; R438 Globex → assign that group | **Assign** | refused: "1 of this group's members are already covered through another group by "R438 Acme". Assign those users directly to one key, or remove the other group's assignment." Nothing assigned. **Found:** "are" for one member |
+| The account removed from r438-globex-staff; the empty group assigned to R438 Globex; the account added back (Groups tab) | add member | "Assigned group r438-globex-staff to "R438 Globex": 0 users."; server log: "[kms] after adding a group member: user c8e0b22d…: This user is in groups assigned to different customer keys: "R438 Acme" (group r438-acme-staff), "R438 Globex" (group r438-globex-staff)…" |
+| Customer keys | read | "1 user in groups assigned to different customer keys. Nothing new is stored for them until one key is chosen: assign each one directly. rghosh044@gmail.com: "R438 Acme" and "R438 Globex"" |
+| Secrets → New secret R438_DURING_CONFLICT | **Create secret** | refused with the conflict message; the dialog stayed open, nothing saved |
+| R438 Acme → assign the account directly | **Assign** | "Assigned rghosh044@gmail.com to "R438 Acme": 1 user."; the conflict list gone |
+| Secrets → New secret R438_UNDER_ACME | **Create secret** | "Secret created — reference it as {{secret:R438_UNDER_ACME}}" |
+| Unwound: Globex's group, Acme's group, the direct assignment | ✕ ×3 | "1 user." ×2, then "1 user, 1 user key re-wrapped."; "1 user key · 0 under a customer key" |
+| R438 Globex → **Destroy**, "r438 globex" typed, then "R438 Globex" | **Destroy the key** | disabled for the wrong case; then ""R438 Globex" destroyed; 0 user keys erased with it."; "Destroyed: R438 Globex (412bfd4951a2, on 2026-11-02)…" |
+| Erase a user's key → the account, a wrong email typed | read | **Erase the key** disabled; cancelled. Not erased: it is the only account, and its real credentials |
+| B: New customer key "R438 Initech KMS", In the customer's KMS, "my-key" | **Create customer key** | refused: "Enter the customer's key: an AWS KMS key ARN, …" |
+| … the stand-in key's ARN (`…key/695eb1f3…`) | **Create customer key**, then **Check** | created (afc442d3adc9); "Unwrapped by arn:aws:kms:eu-west-1:000000000000:key/695eb1f3…; Enabled for encryption, in eu-west-1." with Endpoint "http://r429-localstack:4566 (AWS_ENDPOINT_URL_KMS) · direct to 172.19.0.12 (private)", Signed as, Key, Key material "generated and kept in AWS KMS's HSMs", State "Enabled" |
+| R438 Initech KMS → assign the account; Lakehouse **Test** | | "1 user, 1 user key re-wrapped."; "Connection verified", 01:06 |
+| The customer disables the key (stand-in DisableKey); 25 s | Lakehouse **Test** | "The customer key "R438 Initech KMS" (arn:…) was refused by its key provider: AWS KMS Decrypt failed (400): DisabledException: … is disabled.. The key is disabled or pending deletion." **Found:** the doubled full stop |
+| The customer enables it again; 17 s | Lakehouse **Test** | "Connection verified", 01:07: nothing lost |
+| R438 Initech KMS → remove the account; the key disabled again; 22 s | Lakehouse **Test** | "1 user, 1 user key re-wrapped."; "Connection verified", 01:09: out of the customer's hands |
+| R438 Initech KMS → **Destroy** by name | | ""R438 Initech KMS" destroyed; 0 user keys erased with it." |
+| Audit log | read | `security.customer_key.create` ×3, `.assign` ×5, `.unassign` ×5, `.destroy` ×2, `iam.group.create` ×2, `iam.group.add_member` ×3, `.remove_member`, `secret.create` R438_UNDER_ACME, all by the account. **Found:** create and destroy read "data key 8407e362900b": it is the customer key's fingerprint |
+| The card's Check and Destroy buttons | read | **Found:** every key's are named "Check" and "Destroy", nothing saying which key |
+
+Fixed from this round (R439), each with a test and a mutant: the count ("on the deployment key, not
+yet on their owner's key", and "Deployment key" for the fingerprint shown), "is" for one member,
+the audit label ("customer key …", "user key …", and what an assignment moved), the doubled full
+stop, and the buttons' names ("Check R438 Acme", "Destroy R438 Acme"). The fixed build,
+hot-deployed and read: the card shows "Deployment key 30dc47ce45e7 · 20 encrypted values · 20 on
+the current key" (every value now on its owner's key, so the new count has nothing to show here;
+its test has); the buttons are "Check R438 Acme" and "Destroy R438 Acme"; the audit page reads
+"security.customer_key.destroy · R438 Initech KMS · customer key afc442d3adc9 · 0 user keys
+erased" and "security.customer_key.assign · R438 Initech KMS · 1 user · 1 user key re-wrapped".
+
+Fixtures kept: R438 Acme (held by the app, nobody assigned); the destroyed R438 Globex and R438
+Initech KMS; groups r438-acme-staff and r438-globex-staff (the account in both, neither assigned
+to a key); secrets R438_PRE_MIGRATION and R438_UNDER_ACME (dummy values); the stand-in key,
+disabled, in `r429-localstack`. The account ends on its own user key, wrapped by the deployment's
+key. **Re-encrypt to current key** was not pressed by me (the user's).
+
 ## 2026-11-02 — R438: customer keys and user keys (part one, before the migration)
 
 The build hot-deployed from the main checkout, before `20261105000000` is applied, on the

@@ -227,4 +227,16 @@ describe("the audit log", () => {
     const traces = readFileSync("src/routes/_authenticated/traces.tsx", "utf8");
     expect(traces).toContain('t.status === "cancelled" ? "stopped"');
   });
+
+  // R438: a customer key's fingerprint read "data key …" on the audit page.
+  it("names a fingerprint by the kind of key the action is about", () => {
+    const ui = readFileSync("src/components/observability/AuditLog.tsx", "utf8");
+    const summary = ui.slice(ui.indexOf("function describeDetail("));
+    expect(summary).toMatch(
+      /r\.action\.startsWith\("security\.customer_key\."\)\s*\?\s*"customer key"/,
+    );
+    expect(summary).toMatch(/r\.action\.startsWith\("security\.user_key\."\)\s*\?\s*"user key"/);
+    expect(summary).toContain("bits.push(`${which} ${String(d.kid)}`)");
+    expect(summary).toContain('count(d.user_keys_erased, "user key erased", "user keys erased")');
+  });
 });

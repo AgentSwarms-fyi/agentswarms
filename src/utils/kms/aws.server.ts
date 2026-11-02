@@ -238,7 +238,8 @@ export function createAwsKmsProvider(config: AwsKmsConfig, deps: AwsKmsDeps = {}
               ? json.Message
               : res.statusText || "no detail";
         throw new AwsKmsError(
-          `AWS KMS ${op} failed (${res.status}): ${type}: ${message}.${hint(type, op, keyRef, config.region)}`,
+          // AWS's message often ends in its own full stop; one is enough (R438).
+          `AWS KMS ${op} failed (${res.status}): ${type}: ${message.replace(/\.+$/, "")}.${hint(type, op, keyRef, config.region)}`,
           type,
           res.status,
         );

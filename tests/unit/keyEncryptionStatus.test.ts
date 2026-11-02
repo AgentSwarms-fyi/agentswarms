@@ -78,6 +78,7 @@ describe("the credential key counts", () => {
     expect(statusTotals(status)).toEqual({
       blobs: 6,
       onCurrent: 1,
+      onDeploymentKey: 0,
       onOther: 1,
       unreadable: 3,
       unreadableKids: ["aws931a2e06b", "gone00000000"],

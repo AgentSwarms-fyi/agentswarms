@@ -242,11 +242,14 @@ describe("the card's counts", () => {
     expect(ctx.summary.notes[onBob.kid!]).toBe("a user key erased on 2026-11-02");
     const totals = statusTotals(await keyEncryptionStatus(ctx));
     // Alice's own key: current. Alice's on the deployment key, and Carol's
-    // (who has no key yet): still to move. Bob's: unreadable, by its key.
+    // (who has no key yet): on the deployment key, still to move, and not
+    // "on an older key" (R438's UI round found the card saying so). Bob's:
+    // unreadable, by its key.
     expect(totals).toMatchObject({
       blobs: 4,
       onCurrent: 1,
-      onOther: 2,
+      onDeploymentKey: 2,
+      onOther: 0,
       unreadable: 1,
       unreadableKids: [onBob.kid],
     });

@@ -425,6 +425,13 @@ export async function reEncryptDeep<T>(
 export type BlobKeyStatus = {
   total: number;
   onCurrent: number;
+  /**
+   * On the deployment's current key, where the owner's own key is current: it
+   * decrypts, and a sweep moves it onto the owner's key. Counted apart from
+   * onOther: it is not on an older key (found in R438's UI round, where the
+   * card called every value written before the migration "on an older key").
+   */
+  onDeploymentKey: number;
   /** On an older key this server still holds: it decrypts, and a sweep moves it. */
   onOther: number;
   /**
@@ -442,18 +449,20 @@ export type BlobKeyStatus = {
 /**
  * Count the blobs in a value, by the key each is on. `keys` says which key is
  * current for this value (its owner's user key, null before the owner has
- * one) and which ones this server can read; without it, the deployment
- * keyring's.
+ * one), which is the deployment's current key, and which ones this server can
+ * read; without it, the deployment keyring's.
  */
 export async function blobKeyStatus(
   value: unknown,
-  keys?: { current: string | null; held: ReadonlySet<string> },
+  keys?: { current: string | null; deployment?: string; held: ReadonlySet<string> },
 ): Promise<BlobKeyStatus> {
   const ring = keys ? null : await keyringFingerprints();
   const cur = keys ? keys.current : ring!.current;
+  const deployment = keys ? keys.deployment : undefined;
   const held: ReadonlySet<string> = keys ? keys.held : new Set(ring!.previous);
   let total = 0;
   let onCurrent = 0;
+  let onDeploymentKey = 0;
   let onOther = 0;
   let unreadable = 0;
   const unreadableKids = new Set<string>();
@@ -463,6 +472,7 @@ export async function blobKeyStatus(
       total++;
       if (!v.kid) legacy++;
       else if (v.kid === cur) onCurrent++;
+      else if (deployment && v.kid === deployment) onDeploymentKey++;
       else if (held.has(v.kid)) onOther++;
       else {
         unreadable++;
@@ -474,7 +484,15 @@ export async function blobKeyStatus(
     else if (v && typeof v === "object") Object.values(v).forEach(walk);
   }
   walk(value);
-  return { total, onCurrent, onOther, unreadable, unreadableKids: [...unreadableKids], legacy };
+  return {
+    total,
+    onCurrent,
+    onDeploymentKey,
+    onOther,
+    unreadable,
+    unreadableKids: [...unreadableKids],
+    legacy,
+  };
 }
 
 // Mask a secret for display: show last 4 chars only.

@@ -230,6 +230,9 @@ describe("status counts tell an operator what a sweep would do", () => {
     expect(s).toEqual({
       total: 4,
       onCurrent: 1,
+      // R439: no owner here, so nothing is "on the deployment key, not yet
+      // on its owner's"; the current deployment key is the current key.
+      onDeploymentKey: 0,
       onOther: 1,
       unreadable: 2,
       unreadableKids: [orphan.kid],

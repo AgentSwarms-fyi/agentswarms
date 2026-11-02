@@ -178,8 +178,32 @@ function describeDetail(r: AuditRow): string {
   if (typeof d.reason === "string") bits.push(String(d.reason));
   if (typeof d.schedule === "string") bits.push(String(d.schedule));
   if (Array.isArray(d.kinds) && d.kinds.length > 0) bits.push(d.kinds.join(", "));
-  // A credential data key's fingerprint (security.kms.*).
-  if (typeof d.kid === "string") bits.push(`data key ${String(d.kid)}`);
+  // A key's fingerprint: a credential data key (security.kms.*), a customer
+  // key or a user key (R438: its UI round found a customer key's called a
+  // "data key").
+  if (typeof d.kid === "string") {
+    const which = r.action.startsWith("security.customer_key.")
+      ? "customer key"
+      : r.action.startsWith("security.user_key.")
+        ? "user key"
+        : "data key";
+    bits.push(`${which} ${String(d.kid)}`);
+  }
+  // What a customer key assignment moved, and what a destroy erased (R438).
+  const count = (n: unknown, one: string, many: string) =>
+    typeof n === "number" ? `${n} ${n === 1 ? one : many}` : null;
+  for (const bit of [
+    count(d.users, "user", "users"),
+    typeof d.user_keys_rewrapped === "number" && d.user_keys_rewrapped > 0
+      ? count(d.user_keys_rewrapped, "user key re-wrapped", "user keys re-wrapped")
+      : null,
+    typeof d.values_reencrypted === "number" && d.values_reencrypted > 0
+      ? count(d.values_reencrypted, "value re-encrypted", "values re-encrypted")
+      : null,
+    count(d.user_keys_erased, "user key erased", "user keys erased"),
+  ]) {
+    if (bit) bits.push(bit);
+  }
   if (d.status === "error") bits.push("ERROR");
   // A call whose caller left before its answer ended (R363), in the Traces
   // page's word for it. It read like a success.

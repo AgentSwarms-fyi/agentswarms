@@ -288,7 +288,7 @@ describe("assigning", () => {
     });
     expect(clash).toMatchObject({
       ok: false,
-      error: expect.stringMatching(/1 of this group's members .* "Acme"/),
+      error: expect.stringMatching(/^1 of this group's members is already covered .* "Acme"/),
     });
     expect(fake.tables.customer_key_members).toHaveLength(1);
     // A direct assignment settles Carol, and then the group is fine.

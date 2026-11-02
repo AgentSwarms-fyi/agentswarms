@@ -1105,6 +1105,15 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **The customer keys round's findings** (R439, R438's second UI round).
+  The credential key card counted every value written before the migration
+  "on an older key"; they are on the current deployment key, and are counted
+  as "on the deployment key, not yet on their owner's key" now, beside a
+  fingerprint labelled **Deployment key**. The audit page called a customer
+  key's fingerprint a "data key"; it names the kind of key, and shows what an
+  assignment moved. An assignment refused for one member said "are"; AWS KMS
+  refusals read "is disabled.. The key"; each key's Check and Destroy buttons
+  now say which key they act on.
 - **Slack workspaces, Teams bots and signed embed viewers were left out of
   key rotation** (R438). The re-encrypt sweep and the credential key card's
   counts work from a list of the tables that hold ciphertext, said to be

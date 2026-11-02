@@ -391,6 +391,22 @@ describe("the calls", () => {
     }
   });
 
+  it('does not double AWS\'s own full stop (R438: "is disabled.. The key")', async () => {
+    const { fetchImpl } = fakeKms(() =>
+      fail(400, "DisabledException", "arn:aws:kms:eu-west-1:1:key/k is disabled."),
+    );
+    const p = createAwsKmsProvider(config(), {
+      credentials: staticCreds,
+      fetch: fetchImpl,
+      sleep: noSleep,
+    });
+    const err = await p
+      .unwrapDek({ provider: "aws", keyRef: ARN, material: "x" })
+      .catch((e: unknown) => e);
+    expect((err as Error).message).toContain("key/k is disabled. The key is disabled");
+    expect((err as Error).message).not.toContain("..");
+  });
+
   it("retries throttling and 5xx twice, freshly signed, and nothing else", async () => {
     let n = 0;
     const { calls, fetchImpl } = fakeKms(() =>

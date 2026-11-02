@@ -1909,7 +1909,7 @@ function CredentialKeyCard({ token }: { token: string }) {
   }, [load]);
 
   const totals = status?.totals;
-  const pending = totals ? totals.onOther + totals.legacy : 0;
+  const pending = totals ? totals.onDeploymentKey + totals.onOther + totals.legacy : 0;
   const kms = status?.kms ?? null;
   const external = kms?.external ?? null;
   const externalInUse = !!kms && kms.provider !== "env";
@@ -2091,7 +2091,7 @@ function CredentialKeyCard({ token }: { token: string }) {
               </div>
             ) : null}
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span className="text-muted-foreground">Current key</span>
+              <span className="text-muted-foreground">Deployment key</span>
               <code className="rounded bg-muted px-1.5 py-0.5 font-mono">{status.current}</code>
               {status.previous.length > 0 && (
                 <>
@@ -2124,6 +2124,12 @@ function CredentialKeyCard({ token }: { token: string }) {
                     <span className="text-emerald-600 dark:text-emerald-400">
                       {totals.onCurrent} on the current key
                     </span>
+                    {totals.onDeploymentKey > 0 && (
+                      <span className="text-amber-600 dark:text-amber-400">
+                        {totals.onDeploymentKey} on the deployment key, not yet on their
+                        owner&apos;s key
+                      </span>
+                    )}
                     {totals.onOther > 0 && (
                       <span className="text-amber-600 dark:text-amber-400">
                         {totals.onOther} on an older key

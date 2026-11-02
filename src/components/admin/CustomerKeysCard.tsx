@@ -375,6 +375,7 @@ export function CustomerKeysCard(props: {
                           <Button
                             size="sm"
                             variant="outline"
+                            aria-label={`Check ${k.name}`}
                             disabled={busy !== null}
                             onClick={() => void check(k)}
                           >
@@ -389,6 +390,7 @@ export function CustomerKeysCard(props: {
                             size="sm"
                             variant="outline"
                             className="text-destructive"
+                            aria-label={`Destroy ${k.name}`}
                             disabled={busy !== null}
                             onClick={() => {
                               setDestroyName("");
@@ -493,6 +495,7 @@ export function CustomerKeysCard(props: {
                         <Button
                           size="sm"
                           variant="outline"
+                          aria-label={`Assign to ${k.name}: the group or user picked`}
                           disabled={busy !== null || !picks[k.id]}
                           onClick={() => void assign(k)}
                         >

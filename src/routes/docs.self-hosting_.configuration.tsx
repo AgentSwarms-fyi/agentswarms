@@ -768,9 +768,12 @@ AUDIT_ARCHIVE_ON_PURGE="1"
         revoking theirs leaves only those users&apos; credentials unreadable, within{" "}
         <C>DATA_KEY_CACHE_SECONDS</C> (300 by default) in every process. Needs the migration{" "}
         <C>20261105000000_customer_keys.sql</C>; until it is applied everything stays under the
-        deployment&apos;s key. A database backup taken before an erasure still holds the erased key:
-        only a customer key deleted in its own KMS reaches backups. Chat history, documents and
-        lakehouse files are not under these keys yet (the design is in <C>docs/KEY_MANAGEMENT.md</C>
+        deployment&apos;s key. After it, <strong>Re-encrypt to current key</strong> moves what was
+        stored before onto its owners&apos; keys (the card counts those as on the deployment key,
+        not yet on their owner&apos;s). A database backup taken before an erasure still holds the
+        erased key: only a customer key deleted in its own KMS reaches backups. Chat history,
+        documents and lakehouse files are not under these keys yet (the design is in{" "}
+        <C>docs/KEY_MANAGEMENT.md</C>
         ).
       </Callout>
 

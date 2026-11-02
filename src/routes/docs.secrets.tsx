@@ -340,11 +340,18 @@ function SecretsPage() {
 
       <H2 id="at-rest">How they're protected</H2>
       <P>
-        Values are encrypted before storage using a workspace encryption key held in the
-        environment, not in the database — so a database dump alone doesn't yield credentials. On a
+        Values are encrypted before storage under a key of your own, which the deployment&apos;s key
+        wraps; the deployment&apos;s key is held in the environment (or an external key provider),
+        not in the database, so a database dump alone doesn&apos;t yield credentials. On a
         self-hosted deployment that key is <C>PROVIDER_CREDS_SECRET</C>; back it up somewhere you
         can recover it from, because losing it makes every stored secret unreadable. See{" "}
         <DocLink to="/docs/self-hosting">Install &amp; deploy</DocLink>.
+      </P>
+      <P>
+        If an admin assigns you to a <strong>customer key</strong> (Admin → IAM → Settings), your
+        key is wrapped by it, and that customer can revoke it in their own KMS: your secrets then
+        stop working until they turn it back on. If your groups are assigned to two different
+        customer keys, a save says so and stores nothing until an admin assigns you to one.
       </P>
 
       <NextPrev current="/docs/secrets" />

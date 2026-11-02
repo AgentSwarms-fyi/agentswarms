@@ -351,7 +351,7 @@ export const assignCustomerKey = createServerFn({ method: "POST" })
         }
         return {
           ok: false,
-          error: `${clashes.length} of this group's members are already covered through another group by ${[
+          error: `${clashes.length} of this group's members ${clashes.length === 1 ? "is" : "are"} already covered through another group by ${[
             ...other,
           ]
             .map((k) => `"${names.get(k) ?? k}"`)

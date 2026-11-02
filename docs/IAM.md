@@ -30,7 +30,14 @@ It manages:
   than anywhere else: granting the role is itself superadmin-gated, so a
   deployment with none has nobody left who can make one.
 - **Groups** — organize users; model rules and resource shares can target a
-  whole group at once.
+  whole group at once, and so can a customer key.
+- **Keys** — under Settings, the credential encryption key and its re-encrypt
+  sweep, and **Customer keys**: every user's stored credentials are under their
+  own key, and a customer key (held by the app, or in the customer's own KMS)
+  wraps the keys of the users and groups assigned to it. A user in groups
+  assigned to two customer keys is refused a save until assigned directly; a
+  change to a group's members, here or over SCIM, moves the users it touches.
+  See [Customer keys and user keys](./KEY_MANAGEMENT.md#customer-keys-and-user-keys).
 - **Provisioning** — with SCIM 2.0 the identity provider creates users before
   they sign in, deactivates them when they leave, and keeps groups in step;
   see [Users and groups pushed from the IdP](#users-and-groups-pushed-from-the-idp-scim).
