@@ -71,6 +71,77 @@ describe("the session policy", () => {
   });
 });
 
+// R442. On AWS a file under a KMS key is read and written only by an identity
+// that may use the key, and a session may do only what its role AND its
+// session policy allow: S3 actions alone left the cluster unable to read a
+// customer-key schema's files. Found reading the policy against AWS's rules
+// for session policies; LocalStack does not enforce them, so it is pinned
+// here and said in SANDBOX_LAKEHOUSE_ACCESS.md.
+describe("the session policy's use of KMS keys", () => {
+  type KmsStatement = {
+    Action: string[];
+    Resource: string;
+    Condition: { StringEquals: { "kms:ViaService": string } };
+  };
+  const kms = (json: string) =>
+    (JSON.parse(json) as { Statement: KmsStatement[] }).Statement.find((st) =>
+      st.Action.some((a) => a.startsWith("kms:")),
+    );
+
+  it("lets a read decrypt, and a write also make data keys, only through S3 in the bucket's region", () => {
+    const read = kms(scopePolicy("lake", { read: ["main/a/t/"] }, "eu-west-1"))!;
+    expect(read.Action).toEqual(["kms:Decrypt"]);
+    expect(read.Condition.StringEquals["kms:ViaService"]).toBe("s3.eu-west-1.amazonaws.com");
+    const write = kms(scopePolicy("lake", { write: ["_stage/s1/out/"] }, "eu-west-1"))!;
+    expect(write.Action).toEqual(["kms:Decrypt", "kms:GenerateDataKey"]);
+    expect(write.Condition.StringEquals["kms:ViaService"]).toBe("s3.eu-west-1.amazonaws.com");
+    // No other KMS action: nothing that creates, lists or manages a key.
+    expect(scopePolicy("lake", { write: ["x/"] }, "eu-west-1")).not.toMatch(
+      /kms:(Encrypt|ReEncrypt|Create|List|Describe|Put|Schedule|Disable|\*)/,
+    );
+  });
+
+  it("names no KMS action for a store other than AWS", () => {
+    expect(kms(scopePolicy("lake", { read: ["main/a/t/"] }))).toBeUndefined();
+  });
+
+  it("is asked for when the store is AWS, and not when it is MinIO", async () => {
+    const { assumeScopedCredentials } = await import("@/utils/lakehouse/sts.server");
+    const bodies: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_u: unknown, init?: RequestInit) => {
+        bodies.push(String(init?.body ?? ""));
+        return new Response(
+          "<AssumeRoleResponse><Credentials><AccessKeyId>A</AccessKeyId><SecretAccessKey>S</SecretAccessKey><SessionToken>T</SessionToken><Expiration>2026-11-04T00:00:00Z</Expiration></Credentials></AssumeRoleResponse>",
+          { status: 200 },
+        );
+      }),
+    );
+    try {
+      const base = {
+        region: "eu-west-1",
+        useSsl: true,
+        urlStyle: "vhost" as const,
+        bucket: "lake",
+        accessKeyId: "AKID",
+        secretAccessKey: "SECRET",
+      };
+      await assumeScopedCredentials({ target: base, scope: { read: ["main/a/t/"] }, label: "q" });
+      await assumeScopedCredentials({
+        target: { ...base, endpoint: "minio:9000", useSsl: false, urlStyle: "path" },
+        scope: { read: ["main/a/t/"] },
+        label: "q",
+      });
+      const policy = (b: string) => new URLSearchParams(b).get("Policy") ?? "";
+      expect(policy(bodies[0]!)).toContain('"kms:ViaService":"s3.eu-west-1.amazonaws.com"');
+      expect(policy(bodies[1]!)).not.toContain("kms:");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe("the prefixes a Spark lakehouse query needs", () => {
   const table = (schema: string, name: string, files: string[]) => ({
     schema,

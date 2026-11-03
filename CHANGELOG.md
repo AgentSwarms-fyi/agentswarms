@@ -96,6 +96,27 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Model artifacts and run staging under customer keys** (R442). A customer
+  key in AWS KMS that covers its members' lakehouse files (R440) now also
+  covers what they keep beside the lake: their models' artifacts
+  (`ml-artifacts/<model>/`), their notebook experiments' saved files, and the
+  rows their pipelines and ML runs stage. A sandbox uploads through a
+  presigned URL, and for a covered owner the app signs the key's headers into
+  it, so the store refuses the upload unless it arrives under that key; the
+  rows a read stages are written by the engine under it, and a Spark run's
+  staged write carries it. No runtime image change: the code that uploads is
+  sent by the app with each run. Assignments, removals and **Re-encrypt
+  lakehouse files** move model artifacts and experiment files by their
+  owner, and the pass line counts models and runs; the card says how many
+  models each key covers, and a destroy names the models left under the
+  customer's key. Found and fixed on the way: the Spark cluster's scoped
+  credential allowed no use of a KMS key, so on AWS a Spark run could not read
+  a covered schema's files; it now allows `kms:Decrypt` (and
+  `kms:GenerateDataKey` to write) through S3 in the bucket's region only. Not
+  covered, and said: a pipeline ejected to code before this release stages
+  under the store's own encryption until ejected again, and an artifact of a
+  deleted model is left as it is. No migration. See
+  [Key management → Lakehouse files](./docs/KEY_MANAGEMENT.md#lakehouse-files).
 - **Generated documents and dataset copies under their owner's key** (R441).
   The documents chat generates and the columnar copies of uploaded datasets
   live in Supabase Storage, which cannot encrypt under a customer's key, so

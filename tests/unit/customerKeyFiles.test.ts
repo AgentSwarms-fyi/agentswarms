@@ -4,8 +4,11 @@
 // (AWS S3, a key's ARN, the bucket's region); a file under a destroyed
 // customer key is never moved onto another key; a refusal of a customer's key
 // names the schema and the key, and nothing else is taken for one.
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 import {
+  artifactFolderOf,
   awsKmsKeyRegion,
   describeCustomerKeyFileError,
   fileKeyFor,
@@ -13,8 +16,10 @@ import {
   laterPass,
   reEncryptAction,
   schemaPrefix,
+  isAwsEndpoint,
   splitS3Url,
   sseKmsMode,
+  stagedUnderKeyBit,
   whyNotCovered,
   type CoveredPrefix,
 } from "@/utils/lakehouse/customerKeyFiles";
@@ -281,6 +286,73 @@ describe("a pass's counts in one line", () => {
       filesPassLine({ skipped: "Turned off for this deployment (LAKEHOUSE_SSE_KMS=off)." }),
     ).toBe("Nothing ran: Turned off for this deployment (LAKEHOUSE_SSE_KMS=off).");
   });
+
+  it("names the models and experiment runs a pass checked, and what it left alone (R442)", () => {
+    expect(
+      filesPassLine({
+        files: 9,
+        schemas: 2,
+        models: 3,
+        experiment_runs: 1,
+        files_reencrypted: 4,
+        models_conflicted: 2,
+        files_not_owned: 1,
+      }),
+    ).toBe(
+      "9 files in 2 schemas, 3 models and 1 experiment run checked · 4 re-encrypted under a customer key · 2 models or runs left as is (the owner is in two customer keys) · 1 file of no model or run on record left as is",
+    );
+    expect(filesPassLine({ files: 2, schemas: 0, models: 1, models_conflicted: 1 })).toBe(
+      "2 files in 0 schemas and 1 model checked · 1 model or run left as is (the owner is in two customer keys)",
+    );
+  });
+});
+
+describe("whose a model artifact is, from its key (R442)", () => {
+  const M = "40000000-0000-4000-8000-000000000001";
+  it("is the model's for a version's file, and the run's for an experiment's", () => {
+    expect(artifactFolderOf(`ml-artifacts/${M}/v3/model.joblib`)).toEqual({ kind: "model", id: M });
+    expect(
+      artifactFolderOf(`ml-artifacts/${M.toUpperCase()}/v1/shard-0-of-2/model.joblib`),
+    ).toEqual({
+      kind: "model",
+      id: M,
+    });
+    expect(artifactFolderOf(`ml-artifacts/experiments/${M}/model.joblib`)).toEqual({
+      kind: "run",
+      id: M,
+    });
+  });
+
+  it("is no one's for anything the app did not write there", () => {
+    for (const key of [
+      "ml-artifacts/README.txt",
+      `ml-artifacts/${M}`,
+      `ml-artifacts/${M}/`,
+      "ml-artifacts/experiments/",
+      `ml-artifacts/experiments/${M}`,
+      "ml-artifacts/not-a-uuid/v1/model.joblib",
+      `lake/${M}/v1/model.joblib`,
+      `xml-artifacts/${M}/v1/model.joblib`,
+    ]) {
+      expect(artifactFolderOf(key), key).toBeNull();
+    }
+  });
+});
+
+describe("whether a store is AWS's own (R442)", () => {
+  it("is for no endpoint, an amazonaws.com host and a VPC endpoint, and nothing else", () => {
+    expect(isAwsEndpoint(undefined)).toBe(true);
+    expect(isAwsEndpoint("")).toBe(true);
+    expect(isAwsEndpoint("https://s3.eu-west-1.amazonaws.com")).toBe(true);
+    expect(isAwsEndpoint("bucket.vpce-0a1b2c3d4e5f.s3.eu-west-1.vpce.amazonaws.com:443")).toBe(
+      true,
+    );
+    expect(isAwsEndpoint("minio:9000")).toBe(false);
+    expect(isAwsEndpoint("192.168.1.85:19000")).toBe(false);
+    // A lookalike that merely ends in the name is not AWS.
+    expect(isAwsEndpoint("evilamazonaws.com")).toBe(false);
+    expect(isAwsEndpoint("amazonaws.com.example.org")).toBe(false);
+  });
 });
 
 describe("the card's last pass", () => {
@@ -302,5 +374,22 @@ describe("the card's last pass", () => {
     expect(laterPass(offset, here)).toBe(here);
     const before = { at: "2026-11-03T00:31:12.100Z", n: "before" };
     expect(laterPass(audit, before)).toBe(audit);
+  });
+});
+
+describe("a sandbox read's staged copy, in the audit log (R442)", () => {
+  it("names the customer's key by the start of its id, and says nothing otherwise", () => {
+    expect(stagedUnderKeyBit({ rows: 2000, staged_under_kms_key: ARN })).toBe(
+      "staged under the customer's KMS key 1234abcd…",
+    );
+    for (const d of [{}, { staged_under_kms_key: null }, { staged_under_kms_key: " " }]) {
+      expect(stagedUnderKeyBit(d)).toBeNull();
+    }
+  });
+
+  it("is on the audit log's line, found in the round where it was recorded and not shown", () => {
+    const log = readFileSync("src/components/observability/AuditLog.tsx", "utf8");
+    expect(log).toContain("const staged = stagedUnderKeyBit(d);");
+    expect(log).toContain("if (staged) bits.push(staged);");
   });
 });

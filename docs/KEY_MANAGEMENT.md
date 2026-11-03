@@ -805,13 +805,35 @@ How it works:
 - **Check** on such a key also has the store write a small test file under
   the key, reads back how it was stored, and deletes it.
 
+The same key covers what its members keep **beside the lake** (R442):
+
+- A trained model's **artifact** (`ml-artifacts/<model>/`) and a notebook
+  experiment run's saved file (`ml-artifacts/experiments/<run>/`). A training
+  sandbox holds no storage credential: it asks the app for one URL for its
+  model, and for a covered owner the app signs the key's headers into that
+  URL. S3 takes a KMS key only from headers, and with them inside the
+  signature the store refuses the upload unless it arrives under that key
+  (measured against a store with signature checks on: an upload without the
+  headers, or with another key's, is refused with `SignatureDoesNotMatch`).
+  An experiment's file is written by the app itself, under the key.
+- What a run **stages**: the rows a pipeline or a training job reads (the
+  engine writes them under the key, through a credential scoped to that one
+  file for the length of the copy), the rows a pipeline or a prediction hands
+  back for the app to load (each upload URL signed for the key as above), and
+  what a Spark run stages (its write carries the key, S3A's
+  `fs.s3a.encryption.*`).
+- An assignment, a removal and **Re-encrypt lakehouse files** move model
+  artifacts and experiment files like schema files, by the model's or run's
+  owner. Staged rows are not moved: they are deleted once loaded, and swept
+  within the hour.
+
 What it needs:
 
-| What      | Requirement                                                                                                                                                                                                                                                                                                               |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The store | AWS S3. `LAKEHOUSE_SSE_KMS=auto` (the default) is on for AWS S3: no `LAKEHOUSE_S3_ENDPOINT`, or an `amazonaws.com` one (a VPC endpoint). An S3-compatible store that encrypts under KMS keys (MinIO with KES): `LAKEHOUSE_SSE_KMS=on`. `off` turns it off. Any other store is off under `auto`, and the card says so.     |
-| The key   | The key's own ARN (`arn:aws:kms:<region>:<account>:key/<id>`), in the **bucket's region** (`LAKEHOUSE_S3_REGION`): S3 encrypts only under a key in its own region. An alias or a bare key id is not enough: S3 records the key it resolves to.                                                                            |
-| The grant | Besides the grant to the app's identity [above](#creating-a-customer-key), the customer's key policy allows the **lakehouse's storage identity** (the `LAKEHOUSE_S3_KEY_ID` user, or the role the app runs as) `kms:GenerateDataKey` and `kms:Decrypt`. A Spark cluster that reads the lakehouse needs `kms:Decrypt` too. |
+| What      | Requirement                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The store | AWS S3. `LAKEHOUSE_SSE_KMS=auto` (the default) is on for AWS S3: no `LAKEHOUSE_S3_ENDPOINT`, or an `amazonaws.com` one (a VPC endpoint). An S3-compatible store that encrypts under KMS keys (MinIO with KES): `LAKEHOUSE_SSE_KMS=on`. `off` turns it off. Any other store is off under `auto`, and the card says so.                                                                                                                        |
+| The key   | The key's own ARN (`arn:aws:kms:<region>:<account>:key/<id>`), in the **bucket's region** (`LAKEHOUSE_S3_REGION`): S3 encrypts only under a key in its own region. An alias or a bare key id is not enough: S3 records the key it resolves to.                                                                                                                                                                                               |
+| The grant | Besides the grant to the app's identity [above](#creating-a-customer-key), the customer's key policy allows the **lakehouse's storage identity** (the `LAKEHOUSE_S3_KEY_ID` user, or the role the app runs as) `kms:GenerateDataKey` and `kms:Decrypt`. A Spark cluster that reads the lakehouse needs `kms:Decrypt` too, and `kms:GenerateDataKey` to stage a write: the scoped credential it runs with allows them through S3 only (R442). |
 
 The card says, for each key, whether its members' files are under it, and why
 not when they are not.
@@ -836,18 +858,25 @@ What it does not cover, said on the card where it applies:
 - A user whose groups name two customer keys: their schemas are left as they
   are, and new files are written under the store's own encryption, until one
   key is chosen.
-- A run's **staging** files (what a pipeline's sandbox reads, and what a Spark
-  run writes before the app loads it) are under the store's own encryption,
-  and deleted when the run ends or within the hour.
+- A pipeline **ejected to code** before R442 carries its own copy of the
+  staging code, which does not send the key's headers: its staged rows stay
+  under the store's own encryption (and are loaded under the key) until it is
+  ejected again. A visual pipeline is compiled afresh at every run.
+- A **model artifact of a deleted model** or run is left as it is by every
+  pass: whose it was is no longer recorded.
+- The Spark cluster's scoped credential allows use of a KMS key only through
+  S3 in the bucket's region (`kms:ViaService`). Before R442 it allowed no KMS
+  use at all, so on AWS a Spark run could not read a covered schema's files;
+  measured nowhere but read from AWS's rules for session policies, since the
+  stand-in enforces none.
 - On a **versioned** bucket, a copy in place leaves the earlier version under
   the encryption it was written with; a lifecycle rule expiring noncurrent
   versions removes it.
 - A file larger than 5 GB (one copy request's limit) is counted and left as
   it is.
 - Generated documents and dataset copies are under the members' user keys
-  whatever the store ([Stored files](#stored-files)); model artifacts in the
-  lake bucket, and chat, memory and knowledge-base text: see
-  [Data beyond credentials](#data-beyond-credentials-design).
+  whatever the store ([Stored files](#stored-files)); chat, memory and
+  knowledge-base text: see [Data beyond credentials](#data-beyond-credentials-design).
 
 When the store refuses a file under a customer key (S3 answers a key the
 customer disabled with HTTP 400 `KMS.DisabledException`, and a key the storage
@@ -926,14 +955,14 @@ What it does not cover:
 
 ## Data beyond credentials (design)
 
-**Status: lakehouse files on S3 (R440) and generated documents and dataset
-copies (R441) are built, above; the rest is designed, not built.** The app
-encrypts credentials, generated documents and dataset copies itself. The rest
-of the data a customer's users bring and make is stored in places the app
-does not encrypt today: Postgres rows (chat history, knowledge-base documents
-and chunks, agent memory, notebooks, BI definitions, uploaded datasets' rows),
-the lake bucket outside the lakehouse's schemas (model artifacts, run
-staging) and the vector store. Those rely on the storage's own encryption at
+**Status: lakehouse files on S3 (R440), generated documents and dataset
+copies (R441), and model artifacts and run staging on S3 (R442) are built,
+above; the rest is designed, not built.** The app encrypts credentials,
+generated documents and dataset copies itself. The rest of the data a
+customer's users bring and make is stored in places the app does not encrypt
+today: Postgres rows (chat history, knowledge-base documents and chunks, agent
+memory, notebooks, BI definitions, uploaded datasets' rows) and the vector
+store. Those rely on the storage's own encryption at
 rest, under the operator's keys. For
 "a customer's data is unreadable once their key is gone" to cover them, each
 store needs its own scheme, under the same customer key:
@@ -944,7 +973,7 @@ store needs its own scheme, under the same customer key:
 | Knowledge-base documents and chunks          | Postgres (`kb_chunks`, its text) and the vector store  | The chunk text encrypted as above; the embeddings left in clear, since search needs them, and stated as such (an embedding reveals something about its text). Or a vector store per customer. | Keyword search over chunk text (Postgres full text) stops working unless it moves to the server; embeddings are a known residual.              |
 | Lakehouse tables                             | The object store (SILO, MinIO, S3, Azure Blob, GCS)    | The store's own server-side encryption under the customer's KMS key. **Built for S3 (R440):** SSE-KMS, the key passed per request. Azure Blob customer-managed keys and GCS CMEK: designed.   | SILO and MinIO need their KMS integration (MinIO KES) configured.                                                                              |
 | Uploaded datasets' rows                      | Postgres (`user_data_rows`)                            | As chat messages.                                                                                                                                                                             | Filtering and sorting a dataset in Postgres would move to the server (its columnar copy already does).                                         |
-| Model artifacts, run staging                 | The lake bucket (`ml-artifacts/`, `_sandbox_staging/`) | As lakehouse files: SSE-KMS under the owner's key.                                                                                                                                            | A sandbox writes through presigned URLs, so it must send the key's headers too: a runtime image change.                                        |
+| Model artifacts, run staging                 | The lake bucket (`ml-artifacts/`, `_sandbox_staging/`) | **Built for S3 (R442):** SSE-KMS under the owner's key, as lakehouse files; a sandbox's upload URL is signed for the key ([Lakehouse files](#lakehouse-files)).                               | No runtime image change: the code that uploads is sent by the app.                                                                             |
 | The lakehouse catalog                        | Postgres (DuckLake metadata)                           | Metadata only (names, statistics, file paths); left under the database's encryption, documented.                                                                                              | —                                                                                                                                              |
 | Generated documents, dataset copies          | Supabase Storage (`chat-docs`, `datasets`)             | **Built (R441):** encrypted by the app under the owner's user key, since the store cannot use a customer's key ([Stored files](#stored-files)).                                               | —                                                                                                                                              |
 
@@ -964,9 +993,16 @@ not in the object store the design assumed but in Supabase Storage, which
 cannot encrypt under a customer's key, so the app encrypts them itself, under
 the owner's user key. That covers every kind of customer key and an erased
 user key, and nothing stops working. Exports (CSV, Excel, the audit log) are
-streamed to the browser and never stored. Still to do: model artifacts and run
-staging in the lake bucket, Azure Blob and GCS, then chat and memory text,
-then knowledge-base text.
+streamed to the browser and never stored.
+
+Model artifacts and run staging followed (R442, 2026-11-03), under the same
+store encryption as lakehouse files. The design expected a runtime image
+change, since a sandbox uploads through presigned URLs; the code that uploads
+is sent by the app with each run, so it changed with the app. Building it
+found that the Spark cluster's scoped credential could not use a KMS key at
+all, which on AWS stopped a Spark run reading a covered schema's files since
+R440. Still to do: Azure Blob and GCS, then chat and memory text and datasets'
+rows, then knowledge-base text.
 
 ---
 

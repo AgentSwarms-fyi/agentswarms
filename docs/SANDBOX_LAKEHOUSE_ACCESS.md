@@ -28,16 +28,38 @@ uses for its code and secrets (`/api/notebook/runtime/source`, authenticated
 by the session's own token and scoped to the session's owner). The module is
 `src/utils/lakehouse/sandboxLake.server.ts`.
 
-| The sandbox asks for | What the app does |
-| --- | --- |
-| `lake_read` of a declared source | Runs the source's SELECT as the owner through `governSelect`, the SQL editor's schema check and the owners' policies. Writes the rows as one Parquet file under the session's staging prefix and returns a presigned GET and DELETE for it. A preview's read is capped at the preview's sample size. |
-| `lake_stage` for a declared target | Returns presigned PUTs under the session's staging prefix. |
-| `lake_commit` of staged loads | Checks each target again (an accessible schema, never a mount, never a table under another owner's policy, never a table a Sheets workbook holds) and loads every staged batch, with the run's cursors, in one transaction. A merge whose rows lack its key is refused. Deletes the staged files once committed. |
-| `lake_cursors` | Returns the cursors that committed with the pipeline's last exactly-once load. |
-| `lake_artifact` of a declared model | A presigned PUT or GET for one model artifact this run named. Asked for when it is needed, because a training job can outlive a URL minted at its start. |
+| The sandbox asks for                | What the app does                                                                                                                                                                                                                                                                                                |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lake_read` of a declared source    | Runs the source's SELECT as the owner through `governSelect`, the SQL editor's schema check and the owners' policies. Writes the rows as one Parquet file under the session's staging prefix and returns a presigned GET and DELETE for it. A preview's read is capped at the preview's sample size.             |
+| `lake_stage` for a declared target  | Returns presigned PUTs under the session's staging prefix.                                                                                                                                                                                                                                                       |
+| `lake_commit` of staged loads       | Checks each target again (an accessible schema, never a mount, never a table under another owner's policy, never a table a Sheets workbook holds) and loads every staged batch, with the run's cursors, in one transaction. A merge whose rows lack its key is refused. Deletes the staged files once committed. |
+| `lake_cursors`                      | Returns the cursors that committed with the pipeline's last exactly-once load.                                                                                                                                                                                                                                   |
+| `lake_artifact` of a declared model | A presigned PUT or GET for one model artifact this run named. Asked for when it is needed, because a training job can outlive a URL minted at its start.                                                                                                                                                         |
 
 A presigned URL carries its method and key inside the signature: a URL to put
 one staging file cannot read it, write another, or list anything.
+
+### Under the owner's customer key
+
+When the run's owner is under a customer key that the store can use (an AWS
+KMS key, on S3 with `LAKEHOUSE_SSE_KMS` on; see
+[KEY_MANAGEMENT.md](KEY_MANAGEMENT.md#lakehouse-files)), what the run puts
+beside the lake is written under that key (R442):
+
+- A URL to put a model artifact, or a staged load, signs the key's headers
+  (`x-amz-server-side-encryption`, `-aws-kms-key-id`) with the host, and the
+  answer names them for the sandbox to send. S3 takes a KMS key only from
+  headers, never from a query string; with them inside the signature, an
+  upload without them, or with another key's, fails `SignatureDoesNotMatch`.
+  A stage signs them only when the call says it sends headers
+  (`'headers': True`), which the code this app generates does; a pipeline
+  ejected to code before R442 stages as before, under the store's own
+  encryption.
+- The rows a read stages are written by the engine under the key, through a
+  credential scoped to that one file, made before the copy and dropped after.
+- A read needs nothing: the store decrypts for whoever signed the URL, which
+  is the lakehouse's storage identity, so that identity must be allowed to use
+  the key.
 
 One read or one commit may run for `LAKEHOUSE_SANDBOX_IO_TIMEOUT_MS` (default
 30 minutes) before the engine interrupts it.
@@ -68,6 +90,7 @@ DuckLake's catalog is about twenty Postgres tables, plus one inlined-data table
 per table and schema version, created on the fly. Row-level security over all
 of them, keyed on schema and table ids, would have kept generated code
 unchanged, but:
+
 - `ducklake_snapshot_changes` records other tables' names as text, and the
   commit path reads it for conflict detection, so it cannot be filtered;
 - inlined-data tables are created by whichever writer needs one, so their
@@ -103,13 +126,13 @@ so they reach the lake the same way (`src/utils/ml/lakeManifest.ts`):
 
 ## Status
 
-| Path | Credentials in the sandbox |
-| --- | --- |
-| ETL, sandbox engine: runs, previews, continuous exactly-once | **None** (October 2026) |
-| ETL, Spark engine: lakehouse sources and cursors | **None** |
-| ETL, Spark engine: lakehouse target (the cluster writes its Parquet) | **A credential scoped to that run's staging prefix**, which expires (R230). No catalog. |
-| Lakehouse queries on Spark | **A read credential scoped to the files the query's plan resolved**, which expires (R230). No catalog. |
-| ML training, prediction and warm scoring | **None** (R231) |
+| Path                                                                 | Credentials in the sandbox                                                                             |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| ETL, sandbox engine: runs, previews, continuous exactly-once         | **None** (October 2026)                                                                                |
+| ETL, Spark engine: lakehouse sources and cursors                     | **None**                                                                                               |
+| ETL, Spark engine: lakehouse target (the cluster writes its Parquet) | **A credential scoped to that run's staging prefix**, which expires (R230). No catalog.                |
+| Lakehouse queries on Spark                                           | **A read credential scoped to the files the query's plan resolved**, which expires (R230). No catalog. |
+| ML training, prediction and warm scoring                             | **None** (R231)                                                                                        |
 
 Scoped credentials on Spark are only worth anything if the cluster uses the
 credentials a call passes. It did not: Hadoop caches one S3A client per
@@ -133,6 +156,16 @@ AssumeRole with a session policy (`src/utils/lakehouse/sts.server.ts`):
 - Listing is bounded to the same prefixes, so a credential cannot enumerate
   the bucket to find what else is there. Nothing is granted on the bucket
   itself.
+- On AWS, use of a KMS key through S3 in the bucket's region
+  (`kms:ViaService`): `kms:Decrypt` to read, and `kms:GenerateDataKey` too to
+  write. A file under a KMS key (a customer's, or the bucket's own SSE-KMS
+  default) is read only by an identity that may use the key, and a session may
+  do only what its role and its session policy both allow, so a policy of S3
+  actions alone left the cluster unable to read such a file (found in R442;
+  the stand-in enforces no session policy, so this is read from AWS's rules,
+  not measured). The role still decides which keys. Other stores get no KMS
+  statement. A Spark run whose owner is under a customer key also stages its
+  write under that key (`fs.s3a.encryption.algorithm` `SSE-KMS`).
 
 Neither carries the catalog any more: the ETL target's load is the app's, and a
 Spark query reads Parquet the app resolved before the query was planned.

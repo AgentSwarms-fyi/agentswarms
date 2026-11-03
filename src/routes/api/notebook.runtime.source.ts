@@ -77,6 +77,8 @@ type LakeBody = {
   cursors?: unknown;
   which?: unknown;
   uri?: unknown;
+  /** The caller sends the headers a stage's URLs are signed with (R442). */
+  headers?: unknown;
 };
 
 const LAKE_PARTS = new Set([
@@ -140,14 +142,29 @@ async function lakePart(
       }
       return json(
         200,
-        lake.lakeArtifact({ manifest, which, uri: typeof body.uri === "string" ? body.uri : "" }),
+        await lake.lakeArtifact({
+          manifest,
+          which,
+          uri: typeof body.uri === "string" ? body.uri : "",
+          userId: s.userId,
+        }),
       );
     }
     if (s.readOnly)
       return json(403, { error: "A preview reads the lakehouse; it never writes it" });
     if (part === "lake_stage") {
       const parts = typeof body.parts === "number" ? body.parts : 1;
-      return json(200, lake.lakeStage({ sessionId: s.sessionId, manifest, id, parts }));
+      return json(
+        200,
+        await lake.lakeStage({
+          sessionId: s.sessionId,
+          manifest,
+          id,
+          parts,
+          userId: s.userId,
+          sendsHeaders: body.headers === true,
+        }),
+      );
     }
     if (part === "lake_commit") {
       const loads = (Array.isArray(body.loads) ? body.loads : []).map((l) => {

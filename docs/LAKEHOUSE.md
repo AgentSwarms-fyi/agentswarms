@@ -545,7 +545,10 @@ Sharing snapshots of its tables. An assignment copies the files written before
 in place under the key; **Re-encrypt lakehouse files** does it on demand. If
 the customer disables or revokes the key, queries on those schemas fail with
 an error naming the schema and the key, and other schemas are unaffected. A
-Spark cluster reading the lakehouse needs `kms:Decrypt` on the key.
+Spark cluster reading the lakehouse needs `kms:Decrypt` on the key, and
+`kms:GenerateDataKey` to stage a write; its scoped credential allows both
+through S3 only. The members' model artifacts and the rows their pipelines
+and ML runs stage are written under the same key.
 `LAKEHOUSE_SSE_KMS` (`auto`, on for AWS S3) decides whether the store is asked
 at all. What it needs and what it does not cover:
 [Key management → Lakehouse files](./KEY_MANAGEMENT.md#lakehouse-files).

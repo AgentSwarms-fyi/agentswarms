@@ -256,12 +256,17 @@ export function CustomerKeysCard(props: {
     if (!r) return;
     if (!r.value.ok) return toast.error(r.value.error, { id: r.t, duration: 10000 });
     const left = r.value.lakehouseSchemasLeft;
+    const modelsLeft = r.value.lakehouseModelsLeft;
+    const what = [
+      left > 0 ? plural(left, "schema") : null,
+      modelsLeft > 0 ? plural(modelsLeft, "model") : null,
+    ].filter(Boolean);
     toast.success(
       `"${k.name}" destroyed; ${plural(r.value.userKeysErased, "user key")} erased with it.` +
-        (left > 0
-          ? ` Its members' lakehouse files (${plural(left, "schema")}) stay under the customer's KMS key: for them to become unreadable, the customer disables or deletes that key.`
+        (what.length
+          ? ` Its members' lakehouse files (${what.join(", ")}) stay under the customer's KMS key: for them to become unreadable, the customer disables or deletes that key.`
           : ""),
-      { id: r.t, duration: left > 0 ? 15000 : 8000 },
+      { id: r.t, duration: what.length ? 15000 : 8000 },
     );
     await load();
   };
@@ -277,12 +282,16 @@ export function CustomerKeysCard(props: {
       ...(v.skipped ? { skipped: v.skipped } : {}),
       files: v.files,
       schemas: v.schemas,
+      models: v.models,
+      experiment_runs: v.runs,
       files_reencrypted: v.reEncrypted,
       files_to_store_key: v.toStoreKey,
       files_already_right: v.alreadyRight,
       files_kept_under_destroyed: v.keptUnderDestroyed,
       files_too_large: v.tooLarge,
       schemas_conflicted: v.conflicted,
+      models_conflicted: v.modelsConflicted,
+      files_not_owned: v.notOwned,
       files_failed: v.failed,
     };
     const line = filesPassLine(detail);
@@ -354,8 +363,8 @@ export function CustomerKeysCard(props: {
           or the customer revoking theirs, leaves what its members stored unreadable, and nobody
           else&apos;s. Erasing one user&apos;s key does the same for that user. The documents chat
           generates and the copies of uploaded datasets are under the same user keys. A key in AWS
-          KMS can also cover its members&apos; lakehouse files: the store encrypts each of them
-          under it.
+          KMS can also cover its members&apos; lakehouse files, their models and what their runs
+          stage: the store encrypts each of them under it.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -442,9 +451,11 @@ export function CustomerKeysCard(props: {
               </div>
               {state.lakehouseFiles.on ? (
                 <p className="text-muted-foreground">
-                  {state.lakehouseFiles.why} A schema&apos;s new files are written under its
-                  owner&apos;s customer key; files written before an assignment are copied in place
-                  under it, by the assignment and by this button (one request per file).
+                  {state.lakehouseFiles.why} A schema&apos;s new files, its owner&apos;s model
+                  artifacts and experiment files, and the rows their runs stage are written under
+                  the owner&apos;s customer key; files written before an assignment are copied in
+                  place under it, by the assignment and by this button (one request per file).
+                  Staged rows are not: they are deleted once loaded.
                 </p>
               ) : (
                 <p className="text-muted-foreground">
@@ -593,7 +604,11 @@ export function CustomerKeysCard(props: {
                         k.lakehouseFiles.kmsKeyId ? (
                           <p className="text-xs text-emerald-600 dark:text-emerald-400">
                             Lakehouse files: the store encrypts them under this key (
-                            {plural(k.lakehouseFiles.schemas, "schema")}).
+                            {plural(k.lakehouseFiles.schemas, "schema")}
+                            {k.lakehouseFiles.models > 0
+                              ? `, ${plural(k.lakehouseFiles.models, "model")}`
+                              : ""}
+                            ).
                           </p>
                         ) : (
                           <p className="text-xs text-muted-foreground">

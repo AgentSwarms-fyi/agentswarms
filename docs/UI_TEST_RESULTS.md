@@ -15,6 +15,60 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-03 — R442: model artifacts and run staging under customer keys
+
+The next roadmap item: what a customer key's members keep beside the lake (model artifacts,
+experiment files, staged rows), written under the customer's AWS KMS key. For the round the app's
+lakehouse was a throwaway one, as in R440: an empty DuckLake catalog in a throwaway Postgres
+(`r442-catalog`) and a **versioned** bucket in a LocalStack 4.14 stand-in (`r442-localstack`, S3,
+KMS and STS, **presigned signatures checked**, reached as `store.r442.test:9000` because the
+sandbox egress proxy admits port 9000), whose KMS held the customer's key;
+`LAKEHOUSE_SSE_KMS=on`, the in-process scheduler off. The bucket's versioning keeps every version
+of a file a run deletes, so each staged file's encryption could be read after the run. The store
+was read from the host (every version's `x-amz-server-side-encryption` headers). **The user
+assigned the account to the key themselves**: the classifier refused my click on the assignment.
+
+| Page / surface | What was driven | Result |
+| --- | --- | --- |
+| Admin → IAM → Settings → Customer keys | read | "Lakehouse files … A schema's new files, its owner's model artifacts and experiment files, and the rows their runs stage are written under the owner's customer key; … Staged rows are not: they are deleted once loaded." |
+| Lakehouse → New schema `r442_ml`; `CREATE TABLE r442_ml.churn AS … range(2000)` | Create, Run | the schema; 2000 |
+| New customer key "R442 Acme KMS", In the customer's KMS, the stand-in key's ARN | **Create customer key** | "Customer key "R442 Acme KMS" created (f874ddf1e39e)…"; "Lakehouse files: the store encrypts them under this key (0 schemas)." |
+| R442 Acme KMS → **Check** | | "… The lakehouse store wrote a test file under this key (aws:kms) and it was deleted." (the store: the test file's one version, aws:kms) |
+| Assign the account | the assign menu | **Refused by the classifier** (a security setting on the only account); not retried, nothing assigned. Asked the user |
+| **Account not under a key.** ML Models → Train a model: `r442_ml.churn` → `churned`, "R442 churn" | **Train** | The first job failed: I restarted the egress proxy while its sandbox was reading (the app's reload of the proxy had timed out through the Docker API, so the store's name was not yet allowed); "Connection refused" to the proxy. Train new version → v2, "production". The store: `ml-artifacts/805dad6d…/v2/model.joblib`, 222,391 bytes, AES256 (uploaded through a URL signed for `host` alone, to a store that checks signatures); the staged read's file AES256, deleted after use |
+| Predictions → Batch prediction → `r442_ml.r442_churn_predictions` | **Predict** | "succeeded … 2,000"; the staged load (`out/…/0.parquet`, through the generated code that now says `'headers': True`, no key signed) and the output's file AES256 |
+| **The user assigned the account** | | "Covers 1 user; wraps 1 user key. Lakehouse files: the store encrypts them under this key (5 schemas, 10 models)." (the account's models in the database; only R442 churn's artifact is in this bucket). About 20 s later: Last pass "(rghosh044@gmail.com): 3 files in 5 schemas and 1 model checked · 3 re-encrypted under a customer key." The store: `v2/model.joblib` copied in place under the key (its AES256 version kept by versioning), both tables' files under it |
+| Train new version (v3) | **Train** | "read 2000 row(s)" (the staged read under the key, opened by the store for the sandbox); the store: `v3/model.joblib` under the key with **no other version** (written under it on upload, through a URL whose signature names the key); the staged read's file under the key, deleted after use |
+| Batch prediction → `r442_ml.r442_churn_covered` | **Predict** | "succeeded … 2,000"; the staged read (`in/`) and the staged load (`out/…/0.parquet`, put by the sandbox through a URL signed for the key) both under the key and deleted after the load; the output's file under it |
+| Developer workspace → new notebook: `agentswarms.start_run("r442-experiment")`, `run.save_model(…)`, `run.finish()` | **Run cell** | "[agentswarms] saved 604 bytes to s3://r442-lake/ml-artifacts/experiments/773604bd…/model.joblib"; the store: under the key (the app's own write) |
+| ETL → New pipeline `r442_spark`: Lakehouse table `r442_ml.churn` → Lakehouse table `r442_ml.spark_copy`, Engine "Spark cluster — spark-connect:15002" | Save, **Run now** | "[etl] spark: staged 2000 row(s) at s3a://r442-lake/_sandbox_staging/74e3a1ef…/out/38b1ec2d…", rows_loaded 2000. The store: all 8 part files, `_SUCCESS` and S3A's `_temporary` markers under the key (Hadoop applied the per-write `fs.s3a.encryption.*` options under Spark Connect); the parts deleted after the load; `spark_copy`'s file under the key |
+| **Re-encrypt lakehouse files** | | "7 files in 5 schemas, 1 model and 1 experiment run checked · 7 already under the right key." |
+| Remove the account from R442 Acme KMS | ✕ | "Removed … 1 user, 1 user key re-wrapped, their lakehouse files follow in the background."; "Covers 0 users"; about 30 s later the store: both model versions, the experiment's file and the four tables' files AES256 |
+| Audit log | read | `security.customer_key.create`, `.assign`, `.unassign`; `security.lakehouse_files.reencrypt` ×3: "via assignment to "R442 Acme KMS" · 1 user · 3 files in 5 schemas and 1 model checked · 3 re-encrypted under a customer key", "via Re-encrypt lakehouse files · 7 files in 5 schemas, 1 model and 1 experiment run checked · 7 already under the right key", "via removal from "R442 Acme KMS" · 1 user · 7 files … · 7 back on the store's own encryption". **Found (1):** `lakehouse.sandbox_read` read "2000 rows · via ml_train:…" for the covered runs too: the row recorded the key (`staged_under_kms_key`) and the line never showed it |
+| The fixed build, the same environment: Audit log | read | The three covered reads: "2000 rows · staged under the customer's KMS key b266a74b… · via ml_train:…" (and `ml_predict:…`, `etl_run:…`); the uncovered ones as before |
+| R442 Acme KMS → **Destroy**, the name typed | **Destroy the key** | (nobody assigned) The dialog: "Its 0 user keys are erased with it … Their lakehouse files stay encrypted under the customer's KMS key, readable while that key allows …"; ""R442 Acme KMS" destroyed; 0 user keys erased with it." |
+| After the restore: Customer keys; Lakehouse | read | "Lakehouse files — Stay under the store's own encryption: The lakehouse store is 192.168.1.85, not AWS S3, …"; "14 schemas · 78 tables" (the real lakehouse, as after R440) |
+Fixed from this round (R442, before its commit), with a test and two mutants: the audit line says
+which customer key a read's staged copy was under (1).
+
+Seen during the window: Docker was slow enough for health checks to time out ("timed out starting
+health check") and for the app's reload of the egress proxy through the Docker API to time out;
+the allow-list file was written but not loaded until the proxy was restarted. Not this round's
+code; the documented fallback ("It takes effect next time the proxy restarts") held.
+
+Not driven live: the customer disabling the key (LocalStack does not enforce a disabled key on S3,
+R440); the Spark credential's KMS statement (the stand-in is not AWS, so none is asked for, and it
+enforces no session policy; unit-tested on the policy and on the request); a pipeline ejected to
+code before R442 (unit-tested: no headers signed unless the call says it sends them); an artifact
+of a deleted model (unit-tested: left as it is).
+
+Fixtures: the destroyed R442 Acme KMS (f874ddf1e39e); the stand-ins `r442-localstack` and
+`r442-catalog`, stopped. Removed in the UI before the restore, since each pointed at the throwaway
+store: the model R442 churn, the experiment `r442-experiment`, the pipeline `r442_spark`, the test
+notebook and the schema `r442_ml`. The environment was restored afterwards (the same 51 variable
+names, none of the stand-in's). The egress allow-list file still names `store.r442.test` until the
+app next writes it (at the next ML or ETL start); the entry admits a host that no longer exists.
+
 ## 2026-11-03 — R441: generated documents and dataset copies under their owner's key
 
 The next roadmap item: the files the app keeps in Supabase Storage (the `chat-docs` and `datasets`

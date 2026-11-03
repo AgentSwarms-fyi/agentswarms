@@ -20,6 +20,11 @@
 // to put one staging file cannot read it, write another, or list anything.
 // Staging lives beside the lake, never inside its data path:
 // s3://<bucket>/_sandbox_staging/<session-id>/.
+//
+// Under the owner's customer key (R442), where one covers them: a URL to put
+// a model or a staged load signs the key's headers too, so the store refuses
+// the upload unless it arrives under that key, and the rows a read stages are
+// written by the engine under it.
 import { randomUUID } from "node:crypto";
 
 import type { DuckDBConnection } from "@duckdb/node-api";
@@ -31,7 +36,9 @@ import {
   classifyStatement,
   governSelect,
   isWriteConflict,
+  lakehouseConfig,
   lakehouseConnection,
+  lakehouseS3SecretParts,
   redactLakehouseSecrets,
   stripSqlComments,
   type SchemaRow,
@@ -39,6 +46,7 @@ import {
 import { loadPolicies } from "@/utils/lakehouse/policies.server";
 import {
   presignS3,
+  sseKmsHeaders,
   s3DeleteObject,
   s3DeletePrefix,
   s3ListKeys,
@@ -163,6 +171,12 @@ async function withTimeout<T>(c: DuckDBConnection, work: () => Promise<T>): Prom
   }
 }
 
+/** The owner's customer key for what this run writes beside the lake, or null. */
+async function ownerKmsKey(userId: string): Promise<string | null> {
+  const { lakeObjectKmsKey } = await import("@/utils/lakehouse/customerKeyFiles.server");
+  return lakeObjectKmsKey(userId);
+}
+
 /**
  * Run one declared read as the run's owner and hand back the rows as one
  * staged Parquet file.
@@ -217,11 +231,32 @@ export async function lakeRead(args: {
         ? `SELECT * FROM (${sql}) AS _q LIMIT ${Math.floor(limit)}`
         : sql;
     const key = `${stagingPrefix(args.sessionId)}in/${randomUUID()}.parquet`;
-    const rows = await withTimeout(c, async () => {
-      const res = await c.run(
-        `COPY (${shaped}) TO ${sq(url(key))} (FORMAT parquet, COMPRESSION zstd)`,
+    // The rows are the owner's: under their customer key, by a secret scoped
+    // to this one file, on this worker's engine, for as long as the copy runs.
+    // Not named lake_ck_*, which the engine's sync drops when it is not one
+    // of the schemas' (R440).
+    const kms = await ownerKmsKey(args.userId);
+    const secret = kms ? `stage_ck_${randomUUID().replace(/-/g, "")}` : null;
+    if (secret) {
+      const cfg = lakehouseConfig();
+      if (!cfg) throw new Error("The lakehouse is not configured on this deployment.");
+      await c.run(
+        `CREATE SECRET ${secret} (${[
+          ...lakehouseS3SecretParts(cfg),
+          `KMS_KEY_ID ${sq(kms!)}`,
+          `SCOPE ${sq(`s3://${bucket}/${key}`)}`,
+        ].join(", ")});`,
       );
-      return Number((await res.getRows())[0]?.[0] ?? 0);
+    }
+    const rows = await withTimeout(c, async () => {
+      try {
+        const res = await c.run(
+          `COPY (${shaped}) TO ${sq(url(key))} (FORMAT parquet, COMPRESSION zstd)`,
+        );
+        return Number((await res.getRows())[0]?.[0] ?? 0);
+      } finally {
+        if (secret) await c.run(`DROP SECRET IF EXISTS ${secret};`).catch(() => undefined);
+      }
     });
     auditEvent({
       userId: args.userId,
@@ -232,6 +267,8 @@ export async function lakeRead(args: {
         via: args.via,
         rows,
         policies_applied: governed.policyTables.length ? governed.policyTables : undefined,
+        // Which key the staged copy was written under, when it was a customer's.
+        staged_under_kms_key: kms ?? undefined,
       },
     });
     return {
@@ -314,9 +351,13 @@ function artifactKey(bucket: string, uri: string): string {
  * training job can run for hours, and a URL minted at the start would have
  * expired by the time there is a model to write.
  */
-export function lakeArtifact(args: { manifest: LakeManifest; which: "put" | "get"; uri: string }): {
-  url: string;
-} {
+export async function lakeArtifact(args: {
+  manifest: LakeManifest;
+  which: "put" | "get";
+  uri: string;
+  /** The run's owner, whose customer key a model is written under (R442). */
+  userId: string;
+}): Promise<{ url: string; headers?: Record<string, string> }> {
   const { target, bucket } = storage();
   const a = args.manifest.artifacts;
   if (!a) throw new Error("This run declared no model artifacts");
@@ -325,6 +366,9 @@ export function lakeArtifact(args: { manifest: LakeManifest; which: "put" | "get
   if (!allowed.includes(key)) {
     throw new Error(`This run may not ${args.which} the artifact "${key}"`);
   }
+  // A read needs nothing: the store decrypts for whoever signed the URL.
+  const kms = args.which === "put" ? await ownerKmsKey(args.userId) : null;
+  const headers = kms ? sseKmsHeaders(kms) : undefined;
   return {
     url: presignS3({
       target,
@@ -332,27 +376,50 @@ export function lakeArtifact(args: { manifest: LakeManifest; which: "put" | "get
       method: args.which === "put" ? "PUT" : "GET",
       expiresSeconds: URL_TTL_SECONDS,
       which: "app",
+      amzHeaders: headers,
     }),
+    ...(headers ? { headers } : {}),
   };
 }
 
-/** Presigned PUTs for one declared target's next load. */
-export function lakeStage(args: {
+/**
+ * Presigned PUTs for one declared target's next load.
+ *
+ * Under the owner's customer key when the caller says it sends the headers it
+ * is given (`sendsHeaders`): the code this app generates does, since R442. A
+ * pipeline ejected to code before then does not, and a URL whose signature
+ * names headers it never sends would fail every load; its rows are staged
+ * under the store's own encryption, as before, until it is ejected again.
+ */
+export async function lakeStage(args: {
   sessionId: string;
   manifest: LakeManifest;
   id: string;
   parts: number;
-}): { batch: string; puts: string[] } {
+  userId: string;
+  sendsHeaders?: boolean;
+}): Promise<{ batch: string; puts: string[]; headers?: Record<string, string> }> {
   if (!Object.hasOwn(args.manifest.writes, args.id)) {
     throw new Error(`This run declared no lakehouse target "${args.id}"`);
   }
   const { target } = storage();
   const batch = randomUUID();
+  const keys = stagedKeys(args.sessionId, batch, args.parts);
+  const kms = args.sendsHeaders ? await ownerKmsKey(args.userId) : null;
+  const headers = kms ? sseKmsHeaders(kms) : undefined;
   return {
     batch,
-    puts: stagedKeys(args.sessionId, batch, args.parts).map((key) =>
-      presignS3({ target, key, method: "PUT", expiresSeconds: URL_TTL_SECONDS, which: "app" }),
+    puts: keys.map((key) =>
+      presignS3({
+        target,
+        key,
+        method: "PUT",
+        expiresSeconds: URL_TTL_SECONDS,
+        which: "app",
+        amzHeaders: headers,
+      }),
     ),
+    ...(headers ? { headers } : {}),
   };
 }
 

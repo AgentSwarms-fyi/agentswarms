@@ -11,10 +11,20 @@
 // them against the assignments at most every SYNC_MS, and at once on the
 // worker that made a change.
 //
+// OUTSIDE A SCHEMA (R442). A model's artifact and an experiment run's file
+// sit beside the lake, and a run stages its rows there. The engine writes
+// none of these through a scoped secret: a sandbox puts them through a
+// presigned URL and the app with its own signed call. So each such write asks
+// lakeObjectKmsKey for its owner's key and carries it in the request; on a
+// presigned URL the key is inside the signature, and the store refuses the
+// upload without it.
+//
 // OLDER FILES. Files written before an assignment, or under the key a user
 // has since left, are copied in place under the key they should be under: the
-// bytes stay in the store and the catalog's paths do not change. An
-// assignment starts that pass by itself, after every worker has synced.
+// bytes stay in the store and the catalog's paths do not change. Model
+// artifacts and experiment files are moved the same way; staged rows are not
+// (they are deleted once loaded). An assignment starts that pass by itself,
+// after every worker has synced.
 import { randomUUID } from "node:crypto";
 
 import type { DuckDBConnection } from "@duckdb/node-api";
@@ -39,6 +49,8 @@ import {
 } from "./presign.server";
 import { lakehouseConfig, lakehouseS3SecretParts, type LakehouseConfig } from "./core.server";
 import {
+  MODEL_ARTIFACT_ROOT,
+  artifactFolderOf,
   describeCustomerKeyFileError,
   fileKeyFor,
   reEncryptAction,
@@ -107,6 +119,8 @@ export type FilePlan = {
   mode: SseMode;
   bucketRegion: string;
   keys: Array<{ id: string; name: string; decision: FileKeyDecision }>;
+  /** Each covered user's customer key, or the two their groups name. */
+  owners: Map<string, { customerKeyId: string } | { conflict: string[] }>;
   schemas: SchemaPlan[];
   shares: SharePlan[];
   /** KMS keys of live customer keys: files under one belong to whoever it covers. */
@@ -114,6 +128,27 @@ export type FilePlan = {
   /** KMS keys of destroyed customer keys: their files are never moved. */
   destroyedRefs: Set<string>;
 };
+
+/** What one owner's files outside a schema's folder are written under (R442). */
+export type OwnerFiles = {
+  customerKeyId: string | null;
+  /** The customer's KMS key; null: the store's own encryption. */
+  kmsKeyId: string | null;
+  /** Their groups name two customer keys: left as they are until one is chosen. */
+  conflict: boolean;
+};
+
+export function ownerFiles(plan: Pick<FilePlan, "owners" | "keys">, userId: string): OwnerFiles {
+  const exp = plan.owners.get(userId);
+  if (!exp) return { customerKeyId: null, kmsKeyId: null, conflict: false };
+  if ("conflict" in exp) return { customerKeyId: null, kmsKeyId: null, conflict: true };
+  const decision = plan.keys.find((k) => k.id === exp.customerKeyId)?.decision;
+  return {
+    customerKeyId: exp.customerKeyId,
+    kmsKeyId: decision?.kmsKeyId ?? null,
+    conflict: false,
+  };
+}
 
 type CatalogSchema = { id: string; path: string; relative: boolean };
 
@@ -139,6 +174,67 @@ async function catalogSchemaPaths(
 }
 
 /**
+ * The customer keys, what each does for lakehouse files, and whom each
+ * covers: the part of the plan that reads no schema. A read that fails throws.
+ */
+async function keyPlan(
+  cfg: LakehouseConfig | null,
+): Promise<{ plan: FilePlan; byId: Map<string, CustomerKeyRow> }> {
+  const mode = lakehouseSseMode();
+  const region = bucketRegion(cfg);
+  const plan: FilePlan = {
+    mode,
+    bucketRegion: region,
+    keys: [],
+    owners: new Map(),
+    schemas: [],
+    shares: [],
+    liveRefs: new Set(),
+    destroyedRefs: new Set(),
+  };
+  if (!cfg) return { plan, byId: new Map() };
+  let keys: CustomerKeyRow[] = [];
+  try {
+    const [rows, members] = await Promise.all([listCustomerKeys(), listCustomerKeyMembers()]);
+    keys = rows;
+    const groupIds = [...new Set(members.map((m) => m.group_id).filter((g): g is string => !!g))];
+    plan.owners = expectedCustomerKeys(members, await groupMembers(groupIds));
+  } catch (e) {
+    // Before migration 20261105000000 there are no customer keys to cover anyone.
+    if (!(e instanceof KeyStoreMissingError)) throw e;
+  }
+  for (const k of keys) {
+    plan.keys.push({ id: k.id, name: k.name, decision: fileKeyFor(k, mode, region) });
+    if (k.provider === "aws" && k.key_ref) {
+      (k.destroyed_at ? plan.destroyedRefs : plan.liveRefs).add(k.key_ref.trim());
+    }
+  }
+  return { plan, byId: new Map(keys.map((k) => [k.id, k])) };
+}
+
+let ownerPlan: { at: number; plan: FilePlan } | null = null;
+
+/**
+ * The KMS key an owner's lake objects outside a schema's folder are written
+ * under (R442): their models' artifacts, their experiment runs' files, and
+ * what their runs stage. Null for the store's own encryption: not covered, a
+ * key the store cannot use, or groups that name two keys (as their schemas).
+ *
+ * Read again at most every SYNC_MS on each worker, and at once after a change
+ * on the worker that made it: the timing the schema secrets follow, which the
+ * pass after a move waits out. A key store that cannot be read throws, so a
+ * covered owner's file is never written under the wrong key without a word.
+ */
+export async function lakeObjectKmsKey(userId: string): Promise<string | null> {
+  if (!lakehouseSseMode().on) return null;
+  const now = Date.now();
+  if (!ownerPlan || now - ownerPlan.at >= SYNC_MS) {
+    ownerPlan = { at: now, plan: (await keyPlan(lakehouseConfig())).plan };
+  }
+  return ownerFiles(ownerPlan.plan, userId).kmsKeyId;
+}
+
+/**
  * Which key each schema's files are written under, and why. A read that fails
  * throws: answering "no schemas" would drop every secret, and a covered
  * schema would be written under the store's own encryption without a word.
@@ -152,36 +248,9 @@ export async function customerKeyFilePlan(
   c: Pick<DuckDBConnection, "run"> | null,
 ): Promise<FilePlan> {
   const cfg = lakehouseConfig();
-  const mode = lakehouseSseMode();
-  const region = bucketRegion(cfg);
-  const plan: FilePlan = {
-    mode,
-    bucketRegion: region,
-    keys: [],
-    schemas: [],
-    shares: [],
-    liveRefs: new Set(),
-    destroyedRefs: new Set(),
-  };
+  const { plan, byId } = await keyPlan(cfg);
   if (!cfg) return plan;
-  let keys: CustomerKeyRow[] = [];
-  let expected = new Map<string, { customerKeyId: string } | { conflict: string[] }>();
-  try {
-    const [rows, members] = await Promise.all([listCustomerKeys(), listCustomerKeyMembers()]);
-    keys = rows;
-    const groupIds = [...new Set(members.map((m) => m.group_id).filter((g): g is string => !!g))];
-    expected = expectedCustomerKeys(members, await groupMembers(groupIds));
-  } catch (e) {
-    // Before migration 20261105000000 there are no customer keys to cover anyone.
-    if (!(e instanceof KeyStoreMissingError)) throw e;
-  }
-  const byId = new Map(keys.map((k) => [k.id, k]));
-  for (const k of keys) {
-    plan.keys.push({ id: k.id, name: k.name, decision: fileKeyFor(k, mode, region) });
-    if (k.provider === "aws" && k.key_ref) {
-      (k.destroyed_at ? plan.destroyedRefs : plan.liveRefs).add(k.key_ref.trim());
-    }
-  }
+  const expected = plan.owners;
   const decisions = new Map(plan.keys.map((k) => [k.id, k.decision]));
 
   const { data: rows, error } = await supabaseAdmin
@@ -262,6 +331,7 @@ const inliningOffHere = new Set<string>();
 /** The next sync on this worker happens at once: after an assignment, or a new schema. */
 export function forgetCustomerKeyFiles(): void {
   lastSync = 0;
+  ownerPlan = null;
 }
 
 /** A new engine attaches the catalog afresh: its options come with it, and are set again. */
@@ -356,6 +426,9 @@ export type FilesPassResult = {
   /** Why nothing ran (the store does not encrypt under customer keys). */
   skipped: string | null;
   schemas: number;
+  /** Models and experiment runs whose artifacts were checked (R442). */
+  models: number;
+  runs: number;
   files: number;
   /** Copied in place under the customer's key. */
   reEncrypted: number;
@@ -368,6 +441,10 @@ export type FilesPassResult = {
   tooLarge: number;
   /** Schemas left alone: their owner's groups name two customer keys. */
   conflicted: number;
+  /** Models and runs left alone, for the same reason. */
+  modelsConflicted: number;
+  /** Artifacts of no model or run on record (deleted since): not ours to move. */
+  notOwned: number;
   failed: number;
   errors: string[];
 };
@@ -381,11 +458,147 @@ async function pool<T>(items: T[], size: number, fn: (item: T) => Promise<void>)
   );
 }
 
+/** Put one stored file under `desired` (null: the store's own), counting what happened. */
+async function reEncryptOne(
+  target: S3Target,
+  key: string,
+  desired: string | null,
+  plan: FilePlan,
+  result: FilesPassResult,
+): Promise<void> {
+  result.files++;
+  try {
+    const head = await s3HeadObject(target, key);
+    if (!head) return; // deleted while the pass ran
+    const action = reEncryptAction(
+      { sse: head.sse, kmsKeyId: head.kmsKeyId },
+      desired,
+      plan.liveRefs,
+      plan.destroyedRefs,
+    );
+    if (action === "keep-destroyed") {
+      result.keptUnderDestroyed++;
+      return;
+    }
+    if (action === "keep") {
+      result.alreadyRight++;
+      return;
+    }
+    if (head.size > S3_COPY_MAX_BYTES) {
+      result.tooLarge++;
+      return;
+    }
+    await s3CopyInPlace(target, key, {
+      kmsKeyId: action.copyTo,
+      contentType: head.contentType,
+    });
+    if (action.copyTo) result.reEncrypted++;
+    else result.toStoreKey++;
+  } catch (e) {
+    result.failed++;
+    if (result.errors.length < 5) result.errors.push(`${key}: ${(e as Error).message}`);
+  }
+}
+
+/** Ids to owners, from one table, a page of ids at a time. */
+async function ownersOf(table: "ml_models" | "ml_experiment_runs", ids: string[]) {
+  const out = new Map<string, string>();
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data, error } = await supabaseAdmin
+      .from(table)
+      .select("id, user_id")
+      .in("id", ids.slice(i, i + 200));
+    if (error) throw new Error(`Could not read ${table}: ${error.message}`);
+    for (const r of data ?? []) out.set(String(r.id).toLowerCase(), String(r.user_id));
+  }
+  return out;
+}
+
+/**
+ * The model artifacts and experiment files beside the lake (R442), each
+ * under its owner's key: one listing of the folder, then who owns each model
+ * and run. A file of no model or run on record is left as it is, and only a
+ * pass over everyone counts it: whose it was is not known.
+ */
+async function reEncryptModelArtifacts(
+  target: S3Target,
+  plan: FilePlan,
+  owners: Set<string> | null,
+  result: FilesPassResult,
+): Promise<void> {
+  let listed: { key: string }[];
+  try {
+    listed = await s3ListKeys(target, MODEL_ARTIFACT_ROOT);
+  } catch (e) {
+    result.failed++;
+    result.errors.push(`${MODEL_ARTIFACT_ROOT}: ${(e as Error).message}`);
+    return;
+  }
+  const folders = new Map<string, { kind: "model" | "run"; id: string; keys: string[] }>();
+  let unknown = 0;
+  for (const { key } of listed) {
+    const f = artifactFolderOf(key);
+    if (!f) {
+      unknown++;
+      continue;
+    }
+    const at = `${f.kind}:${f.id}`;
+    const folder = folders.get(at) ?? { ...f, keys: [] };
+    folder.keys.push(key);
+    folders.set(at, folder);
+  }
+  const all = [...folders.values()];
+  let models: Map<string, string>;
+  let runs: Map<string, string>;
+  try {
+    [models, runs] = await Promise.all([
+      ownersOf(
+        "ml_models",
+        all.filter((f) => f.kind === "model").map((f) => f.id),
+      ),
+      ownersOf(
+        "ml_experiment_runs",
+        all.filter((f) => f.kind === "run").map((f) => f.id),
+      ),
+    ]);
+  } catch (e) {
+    result.failed++;
+    result.errors.push((e as Error).message);
+    return;
+  }
+  const work: Array<{ key: string; desired: string | null }> = [];
+  for (const f of all) {
+    const owner = (f.kind === "model" ? models : runs).get(f.id);
+    if (!owner) {
+      if (!owners) {
+        result.files += f.keys.length;
+        result.notOwned += f.keys.length;
+      }
+      continue;
+    }
+    if (owners && !owners.has(owner)) continue;
+    const o = ownerFiles(plan, owner);
+    if (o.conflict) {
+      result.modelsConflicted++;
+      continue;
+    }
+    if (f.kind === "model") result.models++;
+    else result.runs++;
+    for (const key of f.keys) work.push({ key, desired: o.kmsKeyId });
+  }
+  if (!owners) {
+    result.files += unknown;
+    result.notOwned += unknown;
+  }
+  await pool(work, 8, (w) => reEncryptOne(target, w.key, w.desired, plan, result));
+}
+
 /**
  * Put every file of the given owners' schemas (all, when none are given),
- * and their shares' snapshots, under the key it should be under. Rows the
- * catalog still holds inline are written out first, so they land under the
- * key too.
+ * their shares' snapshots, and their models' artifacts and experiment files,
+ * under the key it should be under. Rows the catalog still holds inline are
+ * written out first, so they land under the key too. What a run stages is not
+ * here: it is deleted when the run loads it, and swept within the hour.
  */
 export async function reEncryptLakehouseFiles(
   opts: { owners?: string[] } = {},
@@ -394,6 +607,8 @@ export async function reEncryptLakehouseFiles(
     ok: true,
     skipped: null,
     schemas: 0,
+    models: 0,
+    runs: 0,
     files: 0,
     reEncrypted: 0,
     toStoreKey: 0,
@@ -401,6 +616,8 @@ export async function reEncryptLakehouseFiles(
     keptUnderDestroyed: 0,
     tooLarge: 0,
     conflicted: 0,
+    modelsConflicted: 0,
+    notOwned: 0,
     failed: 0,
     errors: [],
   };
@@ -412,11 +629,10 @@ export async function reEncryptLakehouseFiles(
   }
   const { lakehouseConnection } = await import("./core.server");
   const c = await lakehouseConnection();
-  let plan: FilePlan;
   try {
     // The secrets first: a row flushed out of the catalog is written now.
     await ensureCustomerKeySecrets(c, true);
-    plan = lastPlan as FilePlan;
+    const plan = lastPlan as FilePlan;
     const owners = opts.owners ? new Set(opts.owners) : null;
     const schemas = plan.schemas.filter((s) => !owners || owners.has(s.ownerId));
     result.conflicted = schemas.filter((s) => s.conflict).length;
@@ -439,41 +655,10 @@ export async function reEncryptLakehouseFiles(
         result.errors.push(`${f.keyPrefix}: ${(e as Error).message}`);
         continue;
       }
-      await pool(listed, 8, async ({ key }) => {
-        result.files++;
-        try {
-          const head = await s3HeadObject(target, key);
-          if (!head) return; // deleted while the pass ran
-          const action = reEncryptAction(
-            { sse: head.sse, kmsKeyId: head.kmsKeyId },
-            f.kmsKeyId,
-            plan.liveRefs,
-            plan.destroyedRefs,
-          );
-          if (action === "keep-destroyed") {
-            result.keptUnderDestroyed++;
-            return;
-          }
-          if (action === "keep") {
-            result.alreadyRight++;
-            return;
-          }
-          if (head.size > S3_COPY_MAX_BYTES) {
-            result.tooLarge++;
-            return;
-          }
-          await s3CopyInPlace(target, key, {
-            kmsKeyId: action.copyTo,
-            contentType: head.contentType,
-          });
-          if (action.copyTo) result.reEncrypted++;
-          else result.toStoreKey++;
-        } catch (e) {
-          result.failed++;
-          if (result.errors.length < 5) result.errors.push(`${key}: ${(e as Error).message}`);
-        }
-      });
+      await pool(listed, 8, ({ key }) => reEncryptOne(target, key, f.kmsKeyId, plan, result));
     }
+    const lake = splitS3Url(cfg.dataUrl);
+    if (lake) await reEncryptModelArtifacts(targetFor(cfg, lake.bucket), plan, owners, result);
   } finally {
     c.closeSync();
   }
@@ -484,6 +669,8 @@ export async function reEncryptLakehouseFiles(
 export function filesPassDetail(r: FilesPassResult): Record<string, unknown> {
   return {
     schemas: r.schemas,
+    ...(r.models ? { models: r.models } : {}),
+    ...(r.runs ? { experiment_runs: r.runs } : {}),
     files: r.files,
     files_reencrypted: r.reEncrypted,
     files_to_store_key: r.toStoreKey,
@@ -491,6 +678,8 @@ export function filesPassDetail(r: FilesPassResult): Record<string, unknown> {
     files_kept_under_destroyed: r.keptUnderDestroyed,
     files_too_large: r.tooLarge,
     schemas_conflicted: r.conflicted,
+    ...(r.modelsConflicted ? { models_conflicted: r.modelsConflicted } : {}),
+    ...(r.notOwned ? { files_not_owned: r.notOwned } : {}),
     files_failed: r.failed,
     ...(r.errors.length ? { errors: r.errors } : {}),
     ...(r.skipped ? { skipped: r.skipped } : {}),
@@ -590,27 +779,41 @@ export async function checkStoreUnderKey(row: CustomerKeyRow): Promise<StoreChec
 }
 
 /** What the card says about lakehouse files, per key and for the deployment. */
+export type KeyFilesView = {
+  kmsKeyId: string | null;
+  why: string | null;
+  schemas: number;
+  /** Its members' models, whose artifacts are written under it too (R442). */
+  models: number;
+};
+
 export async function customerKeyFilesView(): Promise<{
   mode: SseMode;
-  perKey: Map<string, { kmsKeyId: string | null; why: string | null; schemas: number }>;
+  perKey: Map<string, KeyFilesView>;
   conflictedSchemas: number;
   error?: string;
 }> {
   const mode = lakehouseSseMode();
-  const perKey = new Map<
-    string,
-    { kmsKeyId: string | null; why: string | null; schemas: number }
-  >();
+  const perKey = new Map<string, KeyFilesView>();
   const cfg = lakehouseConfig();
   if (!cfg) return { mode, perKey, conflictedSchemas: 0 };
   try {
     // No engine: the card must not wait on the lakehouse to show the keys.
     const plan = await customerKeyFilePlan(null);
+    const { data: models, error } = await supabaseAdmin.from("ml_models").select("user_id");
+    if (error) throw new Error(`Could not read the models: ${error.message}`);
+    const modelsUnder = new Map<string, number>();
+    for (const m of models ?? []) {
+      const o = ownerFiles(plan, String(m.user_id));
+      if (o.customerKeyId)
+        modelsUnder.set(o.customerKeyId, (modelsUnder.get(o.customerKeyId) ?? 0) + 1);
+    }
     for (const k of plan.keys) {
       perKey.set(k.id, {
         kmsKeyId: k.decision.kmsKeyId,
         why: whyNotCovered(k.decision),
         schemas: plan.schemas.filter((s) => s.customerKeyId === k.id).length,
+        models: modelsUnder.get(k.id) ?? 0,
       });
     }
     return { mode, perKey, conflictedSchemas: plan.schemas.filter((s) => s.conflict).length };

@@ -325,6 +325,14 @@ function LakehouseDocsPage() {
         the customer&apos;s KMS key: for them to become unreadable, the customer disables or deletes
         it. The details are in <C>docs/KEY_MANAGEMENT.md</C>, under Lakehouse files.
       </P>
+      <P>
+        The same key covers what its members keep beside the lake: their models&apos; artifacts,
+        their notebook experiments&apos; saved files, and the rows their pipelines and ML runs stage
+        on the way in and out. A sandbox uploads through a URL the app signs for the key, so the
+        store refuses an upload that does not arrive under it; a Spark run&apos;s staged write
+        carries the key too. A pipeline ejected to code before this release stages under the
+        store&apos;s own encryption until it is ejected again.
+      </P>
 
       <H2 id="ecosystem">Across the ecosystem</H2>
       <P>

@@ -88,8 +88,9 @@ describe("a warm scorer's session", () => {
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ url: "https://minio.test/models/m1/v1.joblib?signed" });
+    // R442: the session's owner rides along, whose customer key a put is signed for.
     expect(calls.artifact).toEqual([
-      { manifest, which: "get", uri: "s3://lake/models/m1/v1.joblib" },
+      { manifest, which: "get", uri: "s3://lake/models/m1/v1.joblib", userId: "user-1" },
     ]);
     expect(calls.bundle).toBe(0);
   });

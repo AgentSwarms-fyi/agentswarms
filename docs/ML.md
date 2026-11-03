@@ -102,7 +102,10 @@ audited (`ml.train.start`, `ml.train.succeeded` / `ml.train.failed`,
 `ml-artifacts/<model>/v<n>/model.joblib` in the lake bucket — outside the
 DuckLake data path, so orphan-file cleanup can never delete a model — and
 its SHA-256 is recorded; inference refuses an artifact whose bytes do not
-hash to it.
+hash to it. When the model's owner is under a customer key in AWS KMS (on S3),
+the artifact is written under that key, and so is everything the run stages
+([KEY_MANAGEMENT.md](KEY_MANAGEMENT.md#lakehouse-files)): the store refuses the
+upload otherwise. A notebook experiment's saved file is too.
 
 ### A search across several sandboxes
 
@@ -1819,7 +1822,8 @@ See [SCALE_AND_LIMITS.md](./SCALE_AND_LIMITS.md#machine-learning--srcutilsnotebo
   still works.
 - Artifacts live under `ml-artifacts/` in the lake bucket. `npm run backup`
   mirrors the lake data path; add the artifacts prefix to your object-store
-  backup as well.
+  backup as well. An artifact under a customer's KMS key restores only where
+  the backup's identity may use that key.
 - **On Kubernetes** training and prediction are batch Jobs in the notebook
   namespace, bounded by its `ResourceQuota` and `LimitRange` and scaled by
   adding nodes; the egress ConfigMap must admit the object store. The

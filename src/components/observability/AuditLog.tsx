@@ -53,7 +53,7 @@ import {
   type AuditRow,
 } from "@/utils/audit.functions";
 import { reportFailure } from "@/lib/silentFailureNet";
-import { filesPassLine } from "@/utils/lakehouse/customerKeyFiles";
+import { filesPassLine, stagedUnderKeyBit } from "@/utils/lakehouse/customerKeyFiles";
 import { storedFilesPassLine } from "@/utils/storage/storedFiles";
 
 const ACTION_META: Record<string, { label: string; className: string }> = {
@@ -169,6 +169,9 @@ function describeDetail(r: AuditRow): string {
   if (Array.isArray(d.tables) && d.tables.length > 0) bits.push(`tables: ${d.tables.join(", ")}`);
   if (typeof d.steps === "number") bits.push(`${d.steps} steps`);
   if (typeof d.rows === "number") bits.push(`${d.rows} rows`);
+  // A sandbox read's staged copy under the owner's customer key (R442).
+  const staged = stagedUnderKeyBit(d);
+  if (staged) bits.push(staged);
   if (typeof d.assets === "number") bits.push(`${d.assets} assets`);
   if (typeof d.sql === "string") bits.push(String(d.sql));
   // Where a lakehouse statement came from: the SQL page ("ui"), an ontology
@@ -207,6 +210,11 @@ function describeDetail(r: AuditRow): string {
       d.lakehouse_schemas_left_under_key,
       "lakehouse schema left under the customer's KMS key",
       "lakehouse schemas left under the customer's KMS key",
+    ),
+    count(
+      d.models_left_under_key,
+      "model left under the customer's KMS key",
+      "models left under the customer's KMS key",
     ),
   ]) {
     if (bit) bits.push(bit);

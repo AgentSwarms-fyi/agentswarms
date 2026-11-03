@@ -775,14 +775,15 @@ AUDIT_ARCHIVE_ON_PURGE="1"
         stored before onto its owners&apos; keys (the card counts those as on the deployment key,
         not yet on their owner&apos;s). A database backup taken before an erasure still holds the
         erased key: only a customer key deleted in its own KMS reaches backups. A key in AWS KMS
-        also has the store encrypt its members&apos; lakehouse files under it when the lakehouse is
-        on S3 (<C>LAKEHOUSE_SSE_KMS</C>: <C>auto</C> by default, on for AWS S3; <C>on</C> for an
-        S3-compatible store with KMS keys; <C>off</C>), as long as the key is in the bucket&apos;s
-        region and the lakehouse&apos;s storage identity may use it. The documents chat generates
-        and the copies of uploaded datasets are encrypted by the app under their owner&apos;s user
-        key, whatever the customer key&apos;s kind (<C>CHAT_DOC_MAX_BYTES</C>, 50 MB by default, is
-        the largest document kept; <C>STORED_FILES_PER_PASS</C>, 25, how many files stored before
-        one hourly pass encrypts). Chat history itself is not under these keys yet (the design is in{" "}
+        also has the store encrypt its members&apos; lakehouse files, model artifacts and staged
+        rows under it when the lakehouse is on S3 (<C>LAKEHOUSE_SSE_KMS</C>: <C>auto</C> by default,
+        on for AWS S3; <C>on</C> for an S3-compatible store with KMS keys; <C>off</C>), as long as
+        the key is in the bucket&apos;s region and the lakehouse&apos;s storage identity may use it.
+        The documents chat generates and the copies of uploaded datasets are encrypted by the app
+        under their owner&apos;s user key, whatever the customer key&apos;s kind (
+        <C>CHAT_DOC_MAX_BYTES</C>, 50 MB by default, is the largest document kept;{" "}
+        <C>STORED_FILES_PER_PASS</C>, 25, how many files stored before one hourly pass encrypts).
+        Chat history itself is not under these keys yet (the design is in{" "}
         <C>docs/KEY_MANAGEMENT.md</C>).
       </Callout>
 

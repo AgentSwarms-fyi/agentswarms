@@ -101,7 +101,9 @@ function MlTrainingPage() {
         holdout metrics, the leaderboard, permutation importance on the raw columns, dropped columns
         and why, and the SHA-256 of the serialised pipeline, stored under <C>ml-artifacts/</C> in
         the lake bucket — outside the DuckLake data path, so orphan-file cleanup can never delete a
-        model. Inference refuses an artifact whose bytes do not hash to the digest.
+        model. Inference refuses an artifact whose bytes do not hash to the digest. When the
+        model&apos;s owner is under a customer key in AWS KMS (on S3), the artifact, and the rows
+        the run stages, are written under that key.
       </Callout>
 
       <H3 id="search-workers">A search across several sandboxes</H3>

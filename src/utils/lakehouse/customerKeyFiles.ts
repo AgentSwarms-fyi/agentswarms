@@ -53,12 +53,7 @@ export function sseKmsMode(
       why: `LAKEHOUSE_SSE_KMS=${raw?.trim()} is not auto, on or off, so files are not encrypted under customer keys.`,
     };
   }
-  const host = (endpoint ?? "")
-    .trim()
-    .replace(/^https?:\/\//i, "")
-    .replace(/[/:].*$/, "")
-    .toLowerCase();
-  if (!host || host === "amazonaws.com" || host.endsWith(".amazonaws.com")) {
+  if (isAwsEndpoint(endpoint)) {
     return {
       on: true,
       why: "The lakehouse store is AWS S3, which encrypts files under customer keys.",
@@ -66,8 +61,25 @@ export function sseKmsMode(
   }
   return {
     on: false,
-    why: `The lakehouse store is ${host}, not AWS S3, and may not encrypt with KMS keys. Set LAKEHOUSE_SSE_KMS=on if it does (MinIO with KES, for one).`,
+    why: `The lakehouse store is ${endpointHost(endpoint)}, not AWS S3, and may not encrypt with KMS keys. Set LAKEHOUSE_SSE_KMS=on if it does (MinIO with KES, for one).`,
   };
+}
+
+function endpointHost(endpoint: string | undefined): string {
+  return (endpoint ?? "")
+    .trim()
+    .replace(/^https?:\/\//i, "")
+    .replace(/[/:].*$/, "")
+    .toLowerCase();
+}
+
+/**
+ * Whether an S3 endpoint is AWS's own: none (the regional default), or an
+ * amazonaws.com host, a VPC endpoint among them.
+ */
+export function isAwsEndpoint(endpoint: string | undefined): boolean {
+  const host = endpointHost(endpoint);
+  return !host || host === "amazonaws.com" || host.endsWith(".amazonaws.com");
 }
 
 const KEY_ARN = /^arn:aws(?:-[a-z-]+)?:kms:([a-z0-9-]+):\d{12}:key\/[A-Za-z0-9-]+$/;
@@ -142,6 +154,31 @@ export function splitS3Url(url: string): { bucket: string; key: string } | null 
   return m ? { bucket: m[1], key: m[2] } : null;
 }
 
+/**
+ * Where model artifacts live, beside the lake's data path: one folder per
+ * model (`<model>/v<n>/…`) and one per experiment run (`experiments/<run>/…`).
+ */
+export const MODEL_ARTIFACT_ROOT = "ml-artifacts/";
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The model or experiment run a stored artifact belongs to, from its key; null
+ * for a key that is neither (nothing the app wrote), which a pass leaves alone.
+ */
+export function artifactFolderOf(key: string): { kind: "model" | "run"; id: string } | null {
+  if (!key.startsWith(MODEL_ARTIFACT_ROOT)) return null;
+  const parts = key.slice(MODEL_ARTIFACT_ROOT.length).split("/");
+  if (parts[0] === "experiments") {
+    return parts.length > 2 && UUID.test(parts[1]) && parts[2]
+      ? { kind: "run", id: parts[1].toLowerCase() }
+      : null;
+  }
+  return parts.length > 1 && UUID.test(parts[0]) && parts[1]
+    ? { kind: "model", id: parts[0].toLowerCase() }
+    : null;
+}
+
 /** How one stored file is encrypted, read from the store (HEAD). */
 export type ObjectEncryption = { sse: string | null; kmsKeyId: string | null };
 
@@ -178,8 +215,17 @@ const count = (n: number, one: string) => `${n} ${n === 1 ? one : `${one}s`}`;
  */
 export function filesPassLine(d: Record<string, unknown>): string {
   if (typeof d.skipped === "string") return `Nothing ran: ${d.skipped}`;
+  // R442: models and experiment runs beside the schemas, named when the pass
+  // had any, so a pass from before reads as it always did.
+  const where = [
+    count(num(d.schemas), "schema"),
+    num(d.models) > 0 ? count(num(d.models), "model") : null,
+    num(d.experiment_runs) > 0 ? count(num(d.experiment_runs), "experiment run") : null,
+  ].filter((w): w is string => w !== null);
+  const places =
+    where.length > 1 ? `${where.slice(0, -1).join(", ")} and ${where[where.length - 1]}` : where[0];
   const parts = [
-    `${count(num(d.files), "file")} in ${count(num(d.schemas), "schema")} checked`,
+    `${count(num(d.files), "file")} in ${places} checked`,
     num(d.files_reencrypted) > 0
       ? `${num(d.files_reencrypted)} re-encrypted under a customer key`
       : null,
@@ -198,9 +244,28 @@ export function filesPassLine(d: Record<string, unknown>): string {
     num(d.schemas_conflicted) > 0
       ? `${count(num(d.schemas_conflicted), "schema")} left as is (its owner is in two customer keys)`
       : null,
+    num(d.models_conflicted) > 0
+      ? `${num(d.models_conflicted)} ${num(d.models_conflicted) === 1 ? "model or run" : "models or runs"} left as is (the owner is in two customer keys)`
+      : null,
+    num(d.files_not_owned) > 0
+      ? `${count(num(d.files_not_owned), "file")} of no model or run on record left as is`
+      : null,
     num(d.files_failed) > 0 ? `${num(d.files_failed)} failed` : null,
   ].filter(Boolean);
   return parts.join(" · ");
+}
+
+/**
+ * What a sandbox read's audit row says about the copy it staged (R442): under
+ * the owner's customer key, named by the start of its key id; nothing when it
+ * was under the store's own encryption. Found in the round: the row recorded
+ * the key and the log line never showed it.
+ */
+export function stagedUnderKeyBit(d: Record<string, unknown>): string | null {
+  const ref = d.staged_under_kms_key;
+  if (typeof ref !== "string" || !ref.trim()) return null;
+  const id = /:key\/([0-9a-f-]+)$/i.exec(ref.trim())?.[1] ?? ref.trim();
+  return `staged under the customer's KMS key ${id.slice(0, 8)}…`;
 }
 
 /**

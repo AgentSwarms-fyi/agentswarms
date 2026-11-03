@@ -352,6 +352,46 @@ describe("destroying and erasing", () => {
     expect(next.kid).not.toBe(v.kid);
   });
 
+  it("says what of its members' lakehouse files stays under the customer's KMS key (R442: models too)", async () => {
+    const env = {
+      LAKEHOUSE_CATALOG_URL: "postgres://lake:pw@catalog:5432/lake",
+      LAKEHOUSE_DATA_URL: "s3://lake-bucket/lake",
+      LAKEHOUSE_S3_KEY_ID: "AKIDEXAMPLE",
+      LAKEHOUSE_S3_SECRET: "test-secret-value",
+      LAKEHOUSE_S3_REGION: "eu-west-1",
+    };
+    Object.assign(process.env, env);
+    try {
+      fake.tables.lakehouse_schemas = [
+        { id: "s1", name: "acme", user_id: ALICE, lake_source_id: null, iceberg_catalog_id: null },
+      ];
+      fake.tables.lakehouse_share_tables = [];
+      fake.tables.ml_models = [
+        { id: "m1", user_id: ALICE },
+        { id: "m2", user_id: ALICE },
+        { id: "m3", user_id: BOB },
+      ];
+      const globex = ok(await create({ name: "Globex", where: "kms", key_ref: ARN }));
+      ok(
+        await assignCustomerKey({
+          data: { access_token: T, id: globex.id, principal_type: "user", principal_id: ALICE },
+        }),
+      );
+      const r = ok(
+        await destroyCustomerKey({
+          data: { access_token: T, id: globex.id, confirm_name: "Globex" },
+        }),
+      );
+      expect(r).toMatchObject({ lakehouseSchemasLeft: 1, lakehouseModelsLeft: 2 });
+      expect(h.audits.at(-1)).toMatchObject({
+        action: "security.customer_key.destroy",
+        detail: { lakehouse_schemas_left_under_key: 1, models_left_under_key: 2 },
+      });
+    } finally {
+      for (const k of Object.keys(env)) delete process.env[k];
+    }
+  });
+
   it("erases one user's key only by their email", async () => {
     process.env.DATA_KEY_CACHE_SECONDS = "300";
     const v = await encryptJson("bob", { owner: BOB });

@@ -592,6 +592,10 @@ export async function resolveRunEnv(
         label: `etl-${pipeline.id.slice(0, 8)}`,
       });
       env.ETL_LAKEHOUSE_STAGE_URL = `s3://${lt.bucket}/${prefix}`;
+      // The rows it stages are the owner's: under their customer key (R442).
+      const { lakeObjectKmsKey } = await import("@/utils/lakehouse/customerKeyFiles.server");
+      const kms = await lakeObjectKmsKey(pipeline.user_id);
+      if (kms) env.ETL_LAKEHOUSE_S3_KMS_KEY_ID = kms;
       env.ETL_LAKEHOUSE_S3_URL_STYLE = cfg.s3.urlStyle;
       env.ETL_LAKEHOUSE_S3_USE_SSL = cfg.s3.useSsl ? "true" : "false";
       if (cfg.s3.endpoint) env.ETL_LAKEHOUSE_S3_ENDPOINT = cfg.s3.endpoint;

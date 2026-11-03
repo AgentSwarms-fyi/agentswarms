@@ -38,8 +38,10 @@ import {
   customerKeyFileError,
   ensureCustomerKeySecrets,
   customerKeyFilesView,
+  filesPassDetail,
   forgetCustomerKeyFiles,
   forgetEngineAttachment,
+  lakeObjectKmsKey,
   reEncryptFilesAfterMove,
   reEncryptLakehouseFiles,
 } from "@/utils/lakehouse/customerKeyFiles.server";
@@ -61,6 +63,11 @@ const S_MOUNT = "20000000-0000-4000-8000-000000000003";
 const S_CAROL = "20000000-0000-4000-8000-000000000004";
 const T_ACME = "30000000-0000-4000-8000-000000000001";
 const T_BOBS = "30000000-0000-4000-8000-000000000002";
+const M_ALICE = "40000000-0000-4000-8000-000000000001";
+const M_BOB = "40000000-0000-4000-8000-000000000002";
+const M_CAROL = "40000000-0000-4000-8000-000000000003";
+const M_GONE = "40000000-0000-4000-8000-000000000009";
+const R_ALICE = "50000000-0000-4000-8000-000000000001";
 const hex = (id: string) => id.replace(/-/g, "");
 
 const ENV = {
@@ -132,6 +139,12 @@ function seed(overrides: Record<string, Array<Record<string, unknown>>> = {}) {
       { id: T_ACME, schema_name: "acme" },
       { id: T_BOBS, schema_name: "bobs" },
     ],
+    ml_models: [
+      { id: M_ALICE, user_id: ALICE },
+      { id: M_BOB, user_id: BOB },
+      { id: M_CAROL, user_id: CAROL },
+    ],
+    ml_experiment_runs: [{ id: R_ALICE, user_id: ALICE }],
     ...overrides,
   }).client as unknown as Record<string, unknown>;
 }
@@ -385,9 +398,12 @@ describe("each covered schema's writes carry its customer's key", () => {
     };
     const v = await customerKeyFilesView();
     expect(v.error).toBeUndefined();
-    expect(v.perKey.get(K_AWS)).toEqual({ kmsKeyId: ARN, why: null, schemas: 1 });
+    expect(v.perKey.get(K_AWS)).toEqual({ kmsKeyId: ARN, why: null, schemas: 1, models: 1 });
     expect(v.perKey.get(K_APP)?.kmsKeyId).toBeNull();
     expect(v.perKey.get(K_APP)?.schemas).toBe(1);
+    // R442: the members' models, whose artifacts follow the same key.
+    expect(v.perKey.get(K_APP)?.models).toBe(1);
+    expect(v.perKey.get(K_DEAD)?.models).toBe(0);
   });
 
   it("syncs at most every few seconds unless forced", async () => {
@@ -662,5 +678,186 @@ describe("a copy in place is signed with its source and encryption", () => {
     expect(auth).toMatch(
       /SignedHeaders=host;x-amz-content-sha256;x-amz-copy-source;x-amz-date;x-amz-metadata-directive;x-amz-server-side-encryption;x-amz-server-side-encryption-aws-kms-key-id,/,
     );
+  });
+});
+
+describe("the key an owner's lake objects outside a schema are written under (R442)", () => {
+  it("is the customer's KMS key for a covered owner, and none for anyone else", async () => {
+    expect(await lakeObjectKmsKey(ALICE)).toBe(ARN);
+    // Bob's key is held by the app (the store cannot use it); Carol has none.
+    expect(await lakeObjectKmsKey(BOB)).toBeNull();
+    expect(await lakeObjectKmsKey(CAROL)).toBeNull();
+  });
+
+  it("is none for an owner whose groups name two customer keys", async () => {
+    seed({
+      customer_key_members: [
+        { id: "m1", customer_key_id: K_AWS, user_id: null, group_id: "g1" },
+        { id: "m2", customer_key_id: K_APP, user_id: null, group_id: "g2" },
+      ],
+      iam_group_members: [
+        { group_id: "g1", user_id: ALICE },
+        { group_id: "g2", user_id: ALICE },
+      ],
+    });
+    expect(await lakeObjectKmsKey(ALICE)).toBeNull();
+  });
+
+  it("is none, without reading a key, while the store does not encrypt under customer keys", async () => {
+    process.env.LAKEHOUSE_SSE_KMS = "off";
+    h.db = new Proxy(
+      {},
+      {
+        get: () => {
+          throw new Error("nothing is read while the store cannot use the keys");
+        },
+      },
+    );
+    expect(await lakeObjectKmsKey(ALICE)).toBeNull();
+  });
+
+  it("is read again after the sync window, and at once after a change here", async () => {
+    vi.useFakeTimers({ now: new Date("2026-11-03T10:00:00Z") });
+    expect(await lakeObjectKmsKey(ALICE)).toBe(ARN);
+    // Alice leaves the key; within the window this worker still answers the old one.
+    seed({ customer_key_members: [] });
+    expect(await lakeObjectKmsKey(ALICE)).toBe(ARN);
+    vi.setSystemTime(new Date("2026-11-03T10:00:16Z"));
+    expect(await lakeObjectKmsKey(ALICE)).toBeNull();
+    seed();
+    expect(await lakeObjectKmsKey(ALICE)).toBeNull();
+    forgetCustomerKeyFiles();
+    expect(await lakeObjectKmsKey(ALICE)).toBe(ARN);
+  });
+
+  it("throws when the keys cannot be read, rather than write a covered file under none", async () => {
+    seed();
+    const db = h.db as Record<string, unknown>;
+    h.db = {
+      ...db,
+      from: (t: string) => {
+        if (t === "customer_keys") {
+          const b: Record<string, unknown> = {};
+          for (const m of ["select", "eq", "is", "in", "order"]) b[m] = () => b;
+          b.then = (res: (v: unknown) => unknown) =>
+            Promise.resolve({ data: null, error: { code: "57014", message: "timeout" } }).then(res);
+          return b;
+        }
+        return (db.from as (t: string) => unknown)(t);
+      },
+    };
+    await expect(lakeObjectKmsKey(ALICE)).rejects.toThrow(/customer keys/);
+  });
+});
+
+describe("model artifacts and experiment files in the pass (R442)", () => {
+  function artifacts(s3: ReturnType<typeof fakeS3>) {
+    const put = (k: string, sse: string, kms: string | null) =>
+      s3.objects.set(`lake-bucket/${k}`, { sse, kms, type: "" });
+    put(`ml-artifacts/${M_ALICE}/v1/model.joblib`, "AES256", null);
+    put(`ml-artifacts/${M_ALICE}/v2/model.joblib`, "aws:kms", ARN);
+    put(`ml-artifacts/experiments/${R_ALICE}/model.joblib`, "AES256", null);
+    // Bob's key is held by the app: his model is his no longer under Acme's.
+    put(`ml-artifacts/${M_BOB}/v1/model.joblib`, "aws:kms", ARN);
+    // Carol was under the destroyed key: never moved off it.
+    put(`ml-artifacts/${M_CAROL}/v1/model.joblib`, "aws:kms", DEST);
+    // A model deleted since, and something that is no model's at all.
+    put(`ml-artifacts/${M_GONE}/v1/model.joblib`, "aws:kms", ARN);
+    put("ml-artifacts/README.txt", "AES256", null);
+  }
+
+  it("puts each under its owner's key and leaves alone what is no one's", async () => {
+    fakeConn();
+    const s3 = fakeS3();
+    artifacts(s3);
+    const r = await reEncryptLakehouseFiles();
+    expect(r).toMatchObject({
+      models: 3,
+      runs: 1,
+      // 0 schema files here; 7 artifacts listed.
+      files: 7,
+      reEncrypted: 2,
+      toStoreKey: 1,
+      alreadyRight: 1,
+      keptUnderDestroyed: 1,
+      notOwned: 2,
+      failed: 0,
+    });
+    const at = (k: string) => s3.objects.get(`lake-bucket/${k}`);
+    expect(at(`ml-artifacts/${M_ALICE}/v1/model.joblib`)).toMatchObject({ kms: ARN });
+    expect(at(`ml-artifacts/experiments/${R_ALICE}/model.joblib`)).toMatchObject({ kms: ARN });
+    expect(at(`ml-artifacts/${M_BOB}/v1/model.joblib`)).toMatchObject({ sse: "AES256", kms: null });
+    expect(at(`ml-artifacts/${M_CAROL}/v1/model.joblib`)).toMatchObject({ kms: DEST });
+    // Whose a deleted model's file was is not known: it is not moved, either way.
+    expect(at(`ml-artifacts/${M_GONE}/v1/model.joblib`)).toMatchObject({ kms: ARN });
+    const copied = s3.requests.filter((q) => q.headers["x-amz-copy-source"]).map((q) => q.key);
+    expect(copied.sort()).toEqual(
+      [
+        `ml-artifacts/${M_ALICE}/v1/model.joblib`,
+        `ml-artifacts/${M_BOB}/v1/model.joblib`,
+        `ml-artifacts/experiments/${R_ALICE}/model.joblib`,
+      ].sort(),
+    );
+    expect(filesPassDetail(r)).toMatchObject({
+      models: 3,
+      experiment_runs: 1,
+      files_not_owned: 2,
+    });
+  });
+
+  it("takes only the given owners' models, and counts no one else's files", async () => {
+    fakeConn();
+    const s3 = fakeS3();
+    artifacts(s3);
+    const r = await reEncryptLakehouseFiles({ owners: [ALICE] });
+    expect(r).toMatchObject({ models: 1, runs: 1, files: 3, reEncrypted: 2, notOwned: 0 });
+    expect(s3.objects.get(`lake-bucket/ml-artifacts/${M_BOB}/v1/model.joblib`)).toMatchObject({
+      kms: ARN,
+    });
+  });
+
+  it("leaves alone the models of an owner whose groups name two customer keys", async () => {
+    seed({
+      customer_key_members: [
+        { id: "m1", customer_key_id: K_AWS, user_id: null, group_id: "g1" },
+        { id: "m2", customer_key_id: K_APP, user_id: null, group_id: "g2" },
+      ],
+      iam_group_members: [
+        { group_id: "g1", user_id: ALICE },
+        { group_id: "g2", user_id: ALICE },
+      ],
+    });
+    fakeConn();
+    const s3 = fakeS3();
+    artifacts(s3);
+    const r = await reEncryptLakehouseFiles({ owners: [ALICE] });
+    expect(r).toMatchObject({ models: 0, runs: 0, modelsConflicted: 2, files: 0 });
+    expect(s3.objects.get(`lake-bucket/ml-artifacts/${M_ALICE}/v1/model.joblib`)).toMatchObject({
+      sse: "AES256",
+    });
+  });
+
+  it("says so, and moves nothing, when the models' owners cannot be read", async () => {
+    const db = h.db as Record<string, unknown>;
+    h.db = {
+      ...db,
+      from: (t: string) => {
+        if (t === "ml_models") {
+          const b: Record<string, unknown> = {};
+          for (const m of ["select", "eq", "is", "in", "order"]) b[m] = () => b;
+          b.then = (res: (v: unknown) => unknown) =>
+            Promise.resolve({ data: null, error: { code: "57014", message: "timeout" } }).then(res);
+          return b;
+        }
+        return (db.from as (t: string) => unknown)(t);
+      },
+    };
+    fakeConn();
+    const s3 = fakeS3();
+    artifacts(s3);
+    const r = await reEncryptLakehouseFiles();
+    expect(r.failed).toBe(1);
+    expect(r.errors.join(" ")).toMatch(/Could not read ml_models/);
+    expect(s3.requests.some((q) => q.headers["x-amz-copy-source"])).toBe(false);
   });
 });

@@ -109,6 +109,69 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-03 — R442: model artifacts and run staging under customer keys
+
+**What was built.** The roadmap's next item after R441: what a customer key's members keep beside
+the lake. A trained model's artifact (`ml-artifacts/<model>/`), a notebook experiment's saved file
+(`ml-artifacts/experiments/<run>/`) and the rows a pipeline or ML run stages are now written under
+the owner's AWS KMS customer key, when the store can use it (S3, `LAKEHOUSE_SSE_KMS` on), as their
+schemas' files have been since R440. S3 takes a KMS key only from headers, so a sandbox's
+presigned upload URL now signs the key's headers with the host: the store refuses the upload
+without them, or with another key's. The rows a read stages are written by the engine through a
+DuckDB secret scoped to that one file, made before the copy and dropped after; an experiment's
+file is the app's own write, with the headers; a Spark run's staged write carries
+`fs.s3a.encryption.*`. An assignment, a removal and **Re-encrypt lakehouse files** move model
+artifacts and experiment files by their owner. The design expected a runtime image change; the
+code that uploads is sent by the app with every run, so none was needed.
+
+**Found on the way.** The Spark cluster's scoped STS credential named S3 actions only. On AWS a
+file under a KMS key is read and written only by an identity that may use the key, and a role
+session gets what its role AND its session policy allow, so since R440 a Spark run on AWS could
+not read a covered schema's files (nor any file under a bucket's own SSE-KMS default). The policy
+now allows `kms:Decrypt` (and `kms:GenerateDataKey` for a write) through S3 in the bucket's region
+only (`kms:ViaService`), on AWS only. Read from AWS's rules for session policies, not measured:
+LocalStack enforces none.
+
+**Attacks considered.**
+
+- *Upload a model or a staged load under no key, or another key, with the URL the app signed.* The
+  key's headers are inside the signature: refused `SignatureDoesNotMatch` both ways, measured
+  against a store that checks presigned signatures (`sseKmsPresignLive.test.ts`); a mutant that
+  names the headers without signing them is caught.
+- *Have the app sign for someone else's key.* The key is the session owner's, from the token, never
+  from the request (pinned; a mutant reading the body is caught).
+- *A pipeline ejected to code before R442*, whose staging code sends no headers, failing every load
+  against a URL that names them. A stage signs the key only when the call says it sends headers
+  (`'headers': True`); such a pipeline stages under the store's own encryption, as before, and it
+  is said.
+- *The staged read's secret dropped mid-copy* by the engine's schema sync, which drops every
+  `lake_ck_%` secret it did not make (`_` is any one character in LIKE). Named `stage_ck_*`
+  (a mutant naming it `lake_ck_r_*` is caught); scoped to the one file (a mutant widening it to
+  the session is caught); dropped after the copy, also when the copy fails.
+- *A covered owner's file written under no key because the key store could not be read.* The
+  lookup throws instead (tested).
+- *A deleted model's artifact moved off a customer's key* by a pass that cannot know whose it was:
+  left as it is, and counted (a mutant moving it is caught).
+- *A pass for one owner moving another's models*, or a conflicted owner's: both caught.
+
+**Proved.**
+
+| Check | Result |
+| --- | --- |
+| `presignSignedHeaders.test.ts` | the signature against a canonical request written out by hand; a different signature for no key and for another key; byte-identical URLs when no header is given; only `x-amz-*` signed; the app's own put carries the key |
+| `sseKmsPresignLive.test.ts` (LocalStack, signature checks on) | with the headers: stored under the key and read back through a plain GET; without them, or with another key's: 403 `SignatureDoesNotMatch`, nothing stored |
+| `sandboxLake.test.ts` | a covered owner's PUTs sign the key, for code that says it sends headers; a read asks for no key; the staged read's secret (name, scope, dropped after, and after a failure); the route signs for the session's owner |
+| `lakeUploadHeaders.test.ts` | the emitted trainer, staging and Spark code, run in Python: each upload sends exactly the headers the app answered; the cluster's options name SSE-KMS and the key |
+| `customerKeyFilesServer.test.ts` | the owner's key (covered, app-held, conflicted, off, cached for the sync window, read at once after a change here, a read failure throws); the pass over model artifacts and experiment files (moved by owner, a deleted model's left, owners filter, conflict, owners unreadable) |
+| `stsScopedCredentials.test.ts` | the KMS statement on AWS (Decrypt to read, GenerateDataKey too to write, through S3 in the region), none for MinIO |
+| app image, DuckDB 1.5.5 | a secret scoped to one file: a 3,000,000-row multipart copy under the key, its sibling under the store's own, the same path after the drop under the store's own |
+| mutation | 36 of 36 killed, the control survived |
+| UI | UI_TEST_RESULTS, R442: models, experiment files, staged reads and loads (sandbox and Spark) under the key while the account was under it, and back on the store's own after its removal; one finding fixed (the audit line) |
+
+**Not covered.** Azure Blob and GCS (the store is S3). A store that does not encrypt under KMS
+keys. The customer revoking the key, live (LocalStack does not enforce it). The Spark KMS
+statement, live. On a versioned bucket, a copy in place leaves the earlier version as it was.
+
 ### 2026-11-03 — R441: generated documents and dataset copies under their owner's key
 
 **What was built.** The roadmap's next item after R440: uploads, generated documents and exports.

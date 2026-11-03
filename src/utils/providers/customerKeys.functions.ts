@@ -67,8 +67,11 @@ export type CustomerKeyView = {
   userKeys: number;
   /** Covered users whose user key is not under it yet, or users under it no longer covered. */
   toMove: number;
-  /** Its members' lakehouse files: under the customer's KMS key, or why not (R440). */
-  lakehouseFiles: { kmsKeyId: string | null; why: string | null; schemas: number };
+  /**
+   * Its members' lakehouse files: under the customer's KMS key, or why not
+   * (R440); their models' artifacts follow the same key (R442).
+   */
+  lakehouseFiles: { kmsKeyId: string | null; why: string | null; schemas: number; models: number };
 };
 
 export type LakehouseFilesState = {
@@ -222,6 +225,7 @@ export const getCustomerKeys = createServerFn({ method: "POST" })
             kmsKeyId: null,
             why: files.state.error ?? files.state.why,
             schemas: 0,
+            models: 0,
           },
         };
       });
@@ -601,7 +605,15 @@ export const destroyCustomerKey = createServerFn({ method: "POST" })
   .handler(
     async ({
       data,
-    }): Promise<{ ok: true; userKeysErased: number; lakehouseSchemasLeft: number } | Fail> => {
+    }): Promise<
+      | {
+          ok: true;
+          userKeysErased: number;
+          lakehouseSchemasLeft: number;
+          lakehouseModelsLeft: number;
+        }
+      | Fail
+    > => {
       const guard = await requireSuperadmin(data.access_token);
       if (!guard.ok) return { ok: false, error: guard.error };
       try {
@@ -615,6 +627,7 @@ export const destroyCustomerKey = createServerFn({ method: "POST" })
         // the app cannot destroy that, and moves no file off it (R440). Said.
         const files = (await customerKeyFilesView()).perKey.get(row.id);
         const schemasLeft = files?.kmsKeyId ? files.schemas : 0;
+        const modelsLeft = files?.kmsKeyId ? files.models : 0;
         const erased = await destroyCustomerKeyRow(row.id, guard.userId);
         keyHierarchy().forgetCustomer(row.id);
         auditEvent({
@@ -630,9 +643,15 @@ export const destroyCustomerKey = createServerFn({ method: "POST" })
             kid: row.kid,
             user_keys_erased: erased,
             ...(schemasLeft ? { lakehouse_schemas_left_under_key: schemasLeft } : {}),
+            ...(modelsLeft ? { models_left_under_key: modelsLeft } : {}),
           },
         });
-        return { ok: true, userKeysErased: erased, lakehouseSchemasLeft: schemasLeft };
+        return {
+          ok: true,
+          userKeysErased: erased,
+          lakehouseSchemasLeft: schemasLeft,
+          lakehouseModelsLeft: modelsLeft,
+        };
       } catch (e) {
         return { ok: false, error: (e as Error).message };
       }
@@ -640,8 +659,9 @@ export const destroyCustomerKey = createServerFn({ method: "POST" })
   );
 
 /**
- * Put every lakehouse file under the key its schema's owner is under, now:
- * the card's "Re-encrypt lakehouse files". It reads how every file is stored
+ * Put every lakehouse file under the key its schema's owner is under, and
+ * every model artifact under its model's owner's, now: the card's
+ * "Re-encrypt lakehouse files". It reads how every file is stored
  * (one request per file) and copies in place the ones that are not; on a
  * large lakehouse that takes a while.
  */

@@ -18,6 +18,7 @@
 import { createHash } from "node:crypto";
 
 import { signS3Request } from "@/utils/catalog/objectStore.server";
+import { isAwsEndpoint } from "@/utils/lakehouse/customerKeyFiles";
 import { type S3Target } from "@/utils/lakehouse/presign.server";
 
 export type ScopedCredentials = {
@@ -72,8 +73,19 @@ export function normalisePrefix(raw: string): string {
   return key.endsWith("/") ? key : `${key}/`;
 }
 
-/** The session policy for one scope, as the store's STS expects it. */
-export function scopePolicy(bucket: string, scope: Scope): string {
+/**
+ * The session policy for one scope, as the store's STS expects it.
+ *
+ * `kmsRegion` (R442): on AWS a file under a KMS key (a customer's, or the
+ * bucket's own SSE-KMS default) is read and written only by an identity that
+ * may use the key, and a session's permissions are the role's AND its session
+ * policy's. A policy naming S3 actions alone therefore left the cluster unable
+ * to read a covered schema's files, or to stage under its owner's key. Use of
+ * a key is allowed only through S3 in the bucket's region (kms:ViaService), so
+ * it reaches no further than the prefixes above; the role still decides which
+ * keys. Other stores do not evaluate KMS permissions this way and get none.
+ */
+export function scopePolicy(bucket: string, scope: Scope, kmsRegion?: string): string {
   const arn = (p: string) => `arn:aws:s3:::${bucket}/${normalisePrefix(p)}*`;
   const statements: unknown[] = [];
   const read = scope.read ?? [];
@@ -95,6 +107,16 @@ export function scopePolicy(bucket: string, scope: Scope): string {
       StringLike: { "s3:prefix": [...read, ...write].map((p) => `${normalisePrefix(p)}*`) },
     },
   });
+  if (kmsRegion) {
+    statements.push({
+      Effect: "Allow",
+      // A write under a key asks KMS for a data key; a multipart one also
+      // decrypts it to finish. A read only decrypts.
+      Action: write.length ? ["kms:Decrypt", "kms:GenerateDataKey"] : ["kms:Decrypt"],
+      Resource: "*",
+      Condition: { StringEquals: { "kms:ViaService": `s3.${kmsRegion}.amazonaws.com` } },
+    });
+  }
   return JSON.stringify({ Version: "2012-10-17", Statement: statements });
 }
 
@@ -137,7 +159,11 @@ export async function assumeScopedCredentials(args: {
   label: string;
 }): Promise<ScopedCredentials | null> {
   const { target } = args;
-  const policy = scopePolicy(target.bucket, args.scope);
+  const policy = scopePolicy(
+    target.bucket,
+    args.scope,
+    isAwsEndpoint(target.endpoint) ? target.region : undefined,
+  );
   const { origin, host } = stsEndpoint(target);
   const roleArn = process.env.LAKEHOUSE_STS_ROLE_ARN?.trim();
   const body = formEncode({

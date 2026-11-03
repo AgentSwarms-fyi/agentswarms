@@ -1832,7 +1832,9 @@ def _lake_read_meta(node_id):
 
 
 def _lake_artifact(which, uri):
-    return _lake_call('lake_artifact', {'which': which, 'uri': uri})['url']
+    # The URL, and the headers it is signed with: under the owner's customer
+    # key a put carries them, or the store refuses it (R442).
+    return _lake_call('lake_artifact', {'which': which, 'uri': uri})
 
 
 # ── Model artifacts ──────────────────────────────────────────────────────────
@@ -1843,14 +1845,15 @@ def _upload(blob):
     # have expired by then.
     import requests
     uri = os.environ['ML_ARTIFACT_URI']
-    r = requests.put(_lake_artifact('put', uri), data=blob, timeout=3600)
+    a = _lake_artifact('put', uri)
+    r = requests.put(a['url'], data=blob, headers=a.get('headers') or {}, timeout=3600)
     r.raise_for_status()
     return uri
 
 
 def _fetch_artifact(uri):
     import requests
-    r = requests.get(_lake_artifact('get', uri), timeout=3600)
+    r = requests.get(_lake_artifact('get', uri)['url'], timeout=3600)
     r.raise_for_status()
     return r.content
 

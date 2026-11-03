@@ -37,7 +37,9 @@ describe("the digest is the platform's, not the caller's", () => {
   it("hashes what arrived and records that, refusing a mismatch", () => {
     // A digest nobody verified protects nothing: inference checks this value
     // before loading the artifact, so it must describe the stored bytes.
-    expect(srv).toContain("const put = await s3PutObject(lake.target, key, args.body)");
+    expect(srv).toContain(
+      "const put = await s3PutObject(lake.target, key, args.body, { kmsKeyId })",
+    );
     expect(srv).toContain("args.claimedSha256.toLowerCase() !== put.sha256");
     expect(srv).toContain("artifact_sha256: put.sha256");
     const presign = rd("src/utils/lakehouse/presign.server.ts");

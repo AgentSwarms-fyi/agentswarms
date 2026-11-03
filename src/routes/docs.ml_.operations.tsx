@@ -110,6 +110,8 @@ function MlOperationsPage() {
         <li>
           Artifacts live under <C>ml-artifacts/</C> in the lake bucket. <C>npm run backup</C>{" "}
           mirrors the lake data path; add the artifacts prefix to your object-store backup as well.
+          An artifact under a customer&apos;s KMS key restores only where the backup&apos;s identity
+          may use that key.
         </li>
       </UL>
 

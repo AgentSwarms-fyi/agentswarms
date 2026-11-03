@@ -3,9 +3,10 @@
 //
 // A kernel never holds the lake bucket's credentials — user code runs there —
 // so the bytes come to the app with the session token and the app writes
-// them beside the trainer's own artifacts, computing the digest itself. What
-// the registry then verifies before loading is a digest the platform took,
-// not one the caller reported. Registration reuses the external-version path
+// them beside the trainer's own artifacts (under the owner's customer key,
+// where one covers them), computing the digest itself. What the registry
+// then verifies before loading is a digest the platform took, not one the
+// caller reported. Registration reuses the external-version path
 // end to end: same contract, same audit row, same promotion rules.
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
@@ -90,7 +91,10 @@ export async function putExperimentArtifact(args: {
     };
   }
   const key = experimentArtifactKey(args.runId, args.name);
-  const put = await s3PutObject(lake.target, key, args.body);
+  // Under the owner's customer key, where one covers them (R442).
+  const { lakeObjectKmsKey } = await import("@/utils/lakehouse/customerKeyFiles.server");
+  const kmsKeyId = await lakeObjectKmsKey(args.userId);
+  const put = await s3PutObject(lake.target, key, args.body, { kmsKeyId });
   if (args.claimedSha256 && args.claimedSha256.toLowerCase() !== put.sha256) {
     return {
       ok: false,

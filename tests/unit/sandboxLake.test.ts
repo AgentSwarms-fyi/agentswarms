@@ -52,6 +52,18 @@ vi.mock("@/utils/ml/experimentArtifacts.server", () => ({
     },
   }),
 }));
+// R442: the KMS key the owner's lake objects are written under; null: none.
+const owner = vi.hoisted(() => ({
+  kms: null as string | null,
+  asked: [] as string[],
+  secrets: [] as string[],
+}));
+vi.mock("@/utils/lakehouse/customerKeyFiles.server", () => ({
+  lakeObjectKmsKey: async (userId: string) => {
+    owner.asked.push(userId);
+    return owner.kms;
+  },
+}));
 const store = vi.hoisted(() => ({
   keys: [] as { key: string; lastModified: Date }[],
   deleted: [] as string[],
@@ -73,12 +85,25 @@ vi.mock("@/utils/lakehouse/core.server", async (orig) => {
     ...real,
     lakehouseConnection: () => db.engine!(),
     accessibleSchemas: async () => db.allowed,
+    lakehouseConfig: () => ({
+      catalogUrl: "postgres://x",
+      dataUrl: "s3://lake/main",
+      s3: {
+        keyId: "AKTEST",
+        secret: "SKTEST",
+        endpoint: "minio:9000",
+        region: "us-east-1",
+        urlStyle: "path",
+        useSsl: false,
+      },
+    }),
   };
 });
 
 const lake = await import("@/utils/lakehouse/sandboxLake.server");
 
 const OWNER = "owner-1";
+const ARN = "arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab";
 const READER = "reader-2";
 const SID = "0b5f2c1e-7d1a-4c3e-9f00-1234567890ab";
 let instance: DuckDBInstance;
@@ -200,6 +225,112 @@ describe("a read", () => {
     ]);
   });
 
+  // R442. The rows a read stages are the owner's, so a covered owner's go
+  // under their customer key: a secret on the engine scoped to that one file,
+  // made before the copy and dropped after it, whatever the copy did.
+  async function recording(failCopy = false) {
+    const engine = db.engine!;
+    const sql: string[] = [];
+    db.engine = async () => {
+      const real = (await engine()) as DuckDBConnection;
+      return new Proxy(real, {
+        get(t, prop) {
+          if (prop === "run") {
+            return async (text: string) => {
+              sql.push(text);
+              // This engine has no httpfs to make an S3 secret with; what the
+              // app asks of the real one is what is checked.
+              if (/^(CREATE SECRET|DROP SECRET IF EXISTS) stage_ck_/.test(text)) {
+                return { getRows: async () => [] };
+              }
+              if (failCopy && text.startsWith("COPY (")) throw new Error("the store said no");
+              return t.run(text);
+            };
+          }
+          const v = Reflect.get(t, prop);
+          return typeof v === "function" ? v.bind(t) : v;
+        },
+      });
+    };
+    return { sql, restore: () => (db.engine = engine) };
+  }
+
+  it("stages a covered owner's rows under their customer key, by a secret for that one file", async () => {
+    owner.kms = ARN;
+    const rec = await recording();
+    try {
+      const out = await lake.lakeRead({
+        userId: OWNER,
+        sessionId: SID,
+        manifest: manifest(),
+        id: "n_orders",
+        via: "test",
+        io,
+      });
+      const key = decodeURIComponent(new URL(out.files[0]!.get).pathname).replace(/^\/lake\//, "");
+      const create = rec.sql.findIndex((q) => q.startsWith("CREATE SECRET stage_ck_"));
+      const copy = rec.sql.findIndex((q) => q.startsWith("COPY ("));
+      const drop = rec.sql.findIndex((q) => q.startsWith("DROP SECRET IF EXISTS stage_ck_"));
+      expect(create).toBeGreaterThanOrEqual(0);
+      expect(copy).toBeGreaterThan(create);
+      expect(drop).toBeGreaterThan(copy);
+      const made = rec.sql[create]!;
+      expect(made).toContain("TYPE s3");
+      expect(made).toContain("KEY_ID 'AKTEST'");
+      expect(made).toContain(`KMS_KEY_ID '${ARN}'`);
+      expect(made).toContain(`SCOPE 's3://lake/${key}'`);
+      const name = /^CREATE SECRET (\w+)/.exec(made)![1]!;
+      expect(rec.sql[drop]).toBe(`DROP SECRET IF EXISTS ${name};`);
+      // Not a name the engine's schema sync drops (LIKE 'lake_ck_%', where _
+      // is any one character): it would go in the middle of the copy.
+      expect(name).not.toMatch(/^lake.ck./);
+      expect(await staged(out)).toHaveLength(3);
+    } finally {
+      rec.restore();
+      owner.kms = null;
+    }
+  });
+
+  it("drops that secret when the copy fails", async () => {
+    owner.kms = ARN;
+    const rec = await recording(true);
+    try {
+      await expect(
+        lake.lakeRead({
+          userId: OWNER,
+          sessionId: SID,
+          manifest: manifest(),
+          id: "n_orders",
+          via: "test",
+          io,
+        }),
+      ).rejects.toThrow(/the store said no/);
+      const made = rec.sql.find((q) => q.startsWith("CREATE SECRET stage_ck_"))!;
+      const name = /^CREATE SECRET (\w+)/.exec(made)![1]!;
+      expect(rec.sql).toContain(`DROP SECRET IF EXISTS ${name};`);
+    } finally {
+      rec.restore();
+      owner.kms = null;
+    }
+  });
+
+  it("makes no secret for an owner no customer key covers", async () => {
+    const rec = await recording();
+    try {
+      await lake.lakeRead({
+        userId: OWNER,
+        sessionId: SID,
+        manifest: manifest(),
+        id: "n_orders",
+        via: "test",
+        io,
+      });
+      expect(rec.sql.some((q) => /SECRET/.test(q))).toBe(false);
+    } finally {
+      rec.restore();
+    }
+  });
+
   it("gives another reader the rows and values the owner's policy allows", async () => {
     db.allowed = [
       { name: "sales", user_id: OWNER },
@@ -254,7 +385,7 @@ describe("a read", () => {
 
 /** Stage a frame the way the sandbox does: Parquet at the key the stage named. */
 async function stage(id: string, select: string, m = manifest()) {
-  const st = lake.lakeStage({ sessionId: SID, manifest: m, id, parts: 1 });
+  const st = await lake.lakeStage({ sessionId: SID, manifest: m, id, parts: 1, userId: READER });
   const key = decodeURIComponent(new URL(st.puts[0]!).pathname).replace(/^\/lake\//, "");
   mkdirSync(path.dirname(io.url(key)), { recursive: true });
   await q(`COPY (${select}) TO '${io.url(key)}' (FORMAT parquet)`);
@@ -277,20 +408,89 @@ const commit = (
   });
 
 describe("a stage", () => {
-  it("hands out PUTs under this session's own prefix, for declared targets only", () => {
-    const st = lake.lakeStage({ sessionId: SID, manifest: manifest(), id: "t_append", parts: 3 });
+  it("hands out PUTs under this session's own prefix, for declared targets only", async () => {
+    const st = await lake.lakeStage({
+      sessionId: SID,
+      manifest: manifest(),
+      id: "t_append",
+      parts: 3,
+      userId: READER,
+    });
     expect(st.puts).toHaveLength(3);
     for (const [k, u] of st.puts.entries()) {
       expect(new URL(u).pathname).toBe(
         `/lake/_sandbox_staging/${SID}/out/${st.batch}/${k}.parquet`,
       );
     }
-    expect(() =>
-      lake.lakeStage({ sessionId: SID, manifest: manifest(), id: "n_orders", parts: 1 }),
-    ).toThrow(/declared no lakehouse target/);
-    expect(() =>
-      lake.lakeStage({ sessionId: SID, manifest: manifest(), id: "t_append", parts: 0 }),
-    ).toThrow(/1 to \d+ staged parts/);
+    await expect(
+      lake.lakeStage({
+        sessionId: SID,
+        manifest: manifest(),
+        id: "n_orders",
+        parts: 1,
+        userId: READER,
+      }),
+    ).rejects.toThrow(/declared no lakehouse target/);
+    await expect(
+      lake.lakeStage({
+        sessionId: SID,
+        manifest: manifest(),
+        id: "t_append",
+        parts: 0,
+        userId: READER,
+      }),
+    ).rejects.toThrow(/1 to \d+ staged parts/);
+  });
+
+  // R442. The store takes a KMS key only from headers, so the URL alone cannot
+  // say it; signed into the URL, the headers are what the store checks, and an
+  // upload that leaves them out, or names another key, is refused.
+  it("signs the owner's customer key into every PUT, for code that sends it", async () => {
+    owner.kms = ARN;
+    owner.asked.length = 0;
+    try {
+      const st = await lake.lakeStage({
+        sessionId: SID,
+        manifest: manifest(),
+        id: "t_append",
+        parts: 2,
+        userId: OWNER,
+        sendsHeaders: true,
+      });
+      expect(owner.asked).toEqual([OWNER]);
+      expect(st.headers).toEqual({
+        "x-amz-server-side-encryption": "aws:kms",
+        "x-amz-server-side-encryption-aws-kms-key-id": ARN,
+      });
+      for (const u of st.puts) {
+        expect(new URL(u).searchParams.get("X-Amz-SignedHeaders")).toBe(
+          "host;x-amz-server-side-encryption;x-amz-server-side-encryption-aws-kms-key-id",
+        );
+      }
+    } finally {
+      owner.kms = null;
+    }
+  });
+
+  it("signs no key for code that does not send headers, and asks for none", async () => {
+    // A pipeline ejected to code before R442: a URL naming headers it never
+    // sends would fail every load. Its rows stage as they always did.
+    owner.kms = ARN;
+    owner.asked.length = 0;
+    try {
+      const st = await lake.lakeStage({
+        sessionId: SID,
+        manifest: manifest(),
+        id: "t_append",
+        parts: 1,
+        userId: OWNER,
+      });
+      expect(owner.asked).toEqual([]);
+      expect(st.headers).toBeUndefined();
+      expect(new URL(st.puts[0]!).searchParams.get("X-Amz-SignedHeaders")).toBe("host");
+    } finally {
+      owner.kms = null;
+    }
   });
 });
 
@@ -461,6 +661,23 @@ describe("the session channel", () => {
     expect(lakePart.indexOf('if (part === "lake_stage")')).toBeGreaterThan(guard);
     expect(lakePart.indexOf('if (part === "lake_commit")')).toBeGreaterThan(guard);
   });
+
+  it("signs for the session's owner, never for someone the request names (R442)", () => {
+    const fn = route.slice(
+      route.indexOf("async function lakePart"),
+      route.indexOf("async function handle"),
+    );
+    // The key a put is signed under is the owner's: whoever the token says.
+    const call = (name: string) =>
+      fn.slice(fn.indexOf(`lake.${name}({`), fn.indexOf("})", fn.indexOf(`lake.${name}({`)));
+    for (const name of ["lakeArtifact", "lakeStage"]) {
+      expect(fn.indexOf(`lake.${name}({`), name).toBeGreaterThan(-1);
+      expect(call(name), name).toContain("userId: s.userId,");
+    }
+    expect(fn).not.toMatch(/userId: body\./);
+    // A stage signs headers only for code that says it sends them.
+    expect(fn).toContain("sendsHeaders: body.headers === true,");
+  });
 });
 
 describe("a load the cluster wrote", () => {
@@ -624,37 +841,77 @@ describe("a read the app bounds", () => {
 describe("a model artifact", () => {
   const m = (artifacts: Record<string, unknown>) => ({ ...manifest(), artifacts }) as never;
 
-  it("is signed for the one key this run declared, for the method it declared", () => {
-    const put = lake.lakeArtifact({
+  it("is signed for the one key this run declared, for the method it declared", async () => {
+    const put = await lake.lakeArtifact({
       manifest: m({ put: "ml-artifacts/m1/v3/model.joblib", get: [] }),
       which: "put",
       uri: "s3://lake/ml-artifacts/m1/v3/model.joblib",
+      userId: OWNER,
     });
     const url = new URL(put.url);
     expect(url.pathname).toBe("/lake/ml-artifacts/m1/v3/model.joblib");
     expect(url.searchParams.get("X-Amz-Signature")).toBeTruthy();
+    expect(put.headers).toBeUndefined();
   });
 
-  it("cannot be read when only writing was declared, or the other way round", () => {
+  it("puts a covered owner's model under their customer key, and reads one with no key", async () => {
+    owner.kms = ARN;
+    owner.asked.length = 0;
+    try {
+      const put = await lake.lakeArtifact({
+        manifest: m({
+          put: "ml-artifacts/m1/v3/model.joblib",
+          get: ["ml-artifacts/m1/v2/model.joblib"],
+        }),
+        which: "put",
+        uri: "s3://lake/ml-artifacts/m1/v3/model.joblib",
+        userId: OWNER,
+      });
+      expect(owner.asked).toEqual([OWNER]);
+      expect(put.headers).toEqual({
+        "x-amz-server-side-encryption": "aws:kms",
+        "x-amz-server-side-encryption-aws-kms-key-id": ARN,
+      });
+      expect(new URL(put.url).searchParams.get("X-Amz-SignedHeaders")).toBe(
+        "host;x-amz-server-side-encryption;x-amz-server-side-encryption-aws-kms-key-id",
+      );
+      // A read is decrypted by the store for whoever signed the URL.
+      const get = await lake.lakeArtifact({
+        manifest: m({ get: ["ml-artifacts/m1/v2/model.joblib"] }),
+        which: "get",
+        uri: "s3://lake/ml-artifacts/m1/v2/model.joblib",
+        userId: OWNER,
+      });
+      expect(owner.asked).toEqual([OWNER]);
+      expect(get.headers).toBeUndefined();
+      expect(new URL(get.url).searchParams.get("X-Amz-SignedHeaders")).toBe("host");
+    } finally {
+      owner.kms = null;
+    }
+  });
+
+  it("cannot be read when only writing was declared, or the other way round", async () => {
     const writeOnly = m({ put: "ml-artifacts/m1/v3/model.joblib", get: [] });
-    expect(() =>
+    await expect(
       lake.lakeArtifact({
         manifest: writeOnly,
         which: "get",
         uri: "s3://lake/ml-artifacts/m1/v3/model.joblib",
+        userId: OWNER,
       }),
-    ).toThrow(/may not get/);
+    ).rejects.toThrow(/may not get/);
     const readOnly = m({ get: ["ml-artifacts/m1/v3/model.joblib"] });
-    expect(() =>
+    await expect(
       lake.lakeArtifact({
         manifest: readOnly,
         which: "put",
         uri: "s3://lake/ml-artifacts/m1/v3/model.joblib",
+        userId: OWNER,
       }),
-    ).toThrow(/may not put/);
+    ).rejects.toThrow(/may not put/);
   });
 
-  it("cannot be another model's, whatever URI is asked for", () => {
+  it("cannot be another model's, whatever URI is asked for", async () => {
     const mine = m({
       put: "ml-artifacts/m1/v3/model.joblib",
       get: ["ml-artifacts/m1/v3/model.joblib"],
@@ -665,15 +922,21 @@ describe("a model artifact", () => {
       "s3://other/ml-artifacts/m1/v3/model.joblib",
       "ml-artifacts/m1/v3/../../main/analytics/x.parquet",
     ]) {
-      expect(() => lake.lakeArtifact({ manifest: mine, which: "get", uri }), uri).toThrow(
-        /may not get/,
-      );
+      await expect(
+        lake.lakeArtifact({ manifest: mine, which: "get", uri, userId: OWNER }),
+        uri,
+      ).rejects.toThrow(/may not get/);
     }
   });
 
-  it("is refused outright by a run that declared none", () => {
-    expect(() =>
-      lake.lakeArtifact({ manifest: manifest() as never, which: "get", uri: "s3://lake/x" }),
-    ).toThrow(/declared no model artifacts/);
+  it("is refused outright by a run that declared none", async () => {
+    await expect(
+      lake.lakeArtifact({
+        manifest: manifest() as never,
+        which: "get",
+        uri: "s3://lake/x",
+        userId: OWNER,
+      }),
+    ).rejects.toThrow(/declared no model artifacts/);
   });
 });

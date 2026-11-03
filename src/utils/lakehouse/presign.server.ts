@@ -4,7 +4,9 @@
 // storage configuration, so MinIO in Compose and S3 in production produce
 // the same URLs a recipient's client can fetch with no credential of ours.
 // Customer keys add three (R440): HEAD for how a file is encrypted, a copy in
-// place onto another key, and a PUT under a key for the store's check.
+// place onto another key, and a PUT under a key for the store's check. R442
+// puts the key inside a presigned PUT's signature, so the store refuses the
+// upload unless it arrives under that key.
 import { createHash, createHmac } from "node:crypto";
 
 import { signS3Request } from "@/utils/catalog/objectStore.server";
@@ -78,6 +80,11 @@ export function presignS3Get(args: {
  *
  * `which` picks the host the signature covers. A share's recipient fetches
  * from the public endpoint; a sandbox reaches the store as the app does.
+ *
+ * `amzHeaders` are signed with the host (R442): the request must carry them,
+ * with these values, or the store refuses the signature. That is how a PUT is
+ * held to a customer's KMS key: S3 takes the key only from headers, never
+ * from the query string, so the URL alone cannot say it.
  */
 export function presignS3(args: {
   target: S3Target;
@@ -85,6 +92,7 @@ export function presignS3(args: {
   method: "GET" | "PUT" | "DELETE";
   expiresSeconds: number;
   which: "app" | "public";
+  amzHeaders?: Record<string, string>;
   now?: Date;
 }): string {
   const { target } = args;
@@ -97,12 +105,19 @@ export function presignS3(args: {
   const dateStamp = amzDate.slice(0, 8);
   const scope = `${dateStamp}/${target.region}/s3/aws4_request`;
   const canonicalUri = awsUriEncode(`${loc.basePath}/${args.key}`.replace(/\/+/g, "/"), false);
+  const signed: Record<string, string> = { host: loc.host };
+  for (const [name, value] of Object.entries(args.amzHeaders ?? {})) {
+    const n = name.toLowerCase();
+    if (!n.startsWith("x-amz-")) throw new Error(`Only x-amz-* headers are signed here, not ${n}`);
+    signed[n] = value.trim();
+  }
+  const names = Object.keys(signed).sort();
   const query: Record<string, string> = {
     "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
     "X-Amz-Credential": `${target.accessKeyId}/${scope}`,
     "X-Amz-Date": amzDate,
     "X-Amz-Expires": String(Math.max(1, Math.floor(args.expiresSeconds))),
-    "X-Amz-SignedHeaders": "host",
+    "X-Amz-SignedHeaders": names.join(";"),
     ...(target.sessionToken ? { "X-Amz-Security-Token": target.sessionToken } : {}),
   };
   const canonicalQuery = Object.keys(query)
@@ -113,8 +128,8 @@ export function presignS3(args: {
     args.method,
     canonicalUri,
     canonicalQuery,
-    `host:${loc.host}\n`,
-    "host",
+    names.map((n) => `${n}:${signed[n]}\n`).join(""),
+    names.join(";"),
     "UNSIGNED-PAYLOAD",
   ].join("\n");
   const stringToSign = ["AWS4-HMAC-SHA256", amzDate, scope, sha256Hex(canonicalRequest)].join("\n");
@@ -177,14 +192,23 @@ async function signedCall(
 /**
  * Write one object. The app writes on a caller's behalf when the caller must
  * not hold the bucket's credentials — a notebook kernel saving a model — and
- * reports the digest it computed itself, never one it was told.
+ * reports the digest it computed itself, never one it was told. Under a KMS
+ * key when one is given: the owner's customer key (R442).
  */
 export async function s3PutObject(
   t: S3Target,
   key: string,
   body: Buffer,
+  opts: { kmsKeyId?: string | null } = {},
 ): Promise<{ sha256: string; bytes: number }> {
-  const res = await signedCall(t, "PUT", key, body);
+  const res = await signedCall(
+    t,
+    "PUT",
+    key,
+    body,
+    {},
+    opts.kmsKeyId ? sseKmsHeaders(opts.kmsKeyId) : {},
+  );
   if (!res.ok) throw new Error(`PUT ${key} failed (${res.status})`);
   return { sha256: createHash("sha256").update(body).digest("hex"), bytes: body.length };
 }
@@ -227,7 +251,7 @@ export function s3ErrorOf(xml: string): { code: string; message: string } | null
 }
 
 /** The headers that make S3 encrypt an object under one KMS key. */
-function kmsHeaders(kmsKeyId: string): Record<string, string> {
+export function sseKmsHeaders(kmsKeyId: string): Record<string, string> {
   return {
     "x-amz-server-side-encryption": "aws:kms",
     "x-amz-server-side-encryption-aws-kms-key-id": kmsKeyId,
@@ -257,7 +281,7 @@ export async function s3CopyInPlace(
     ? {
         "x-amz-copy-source": source,
         "x-amz-metadata-directive": "COPY",
-        ...kmsHeaders(to.kmsKeyId),
+        ...sseKmsHeaders(to.kmsKeyId),
       }
     : {
         "x-amz-copy-source": source,
@@ -284,7 +308,7 @@ export async function s3PutObjectUnderKey(
   body: Buffer,
   kmsKeyId: string,
 ): Promise<{ status: number; sse: string | null; kmsKeyId: string | null; error: string | null }> {
-  const res = await signedCall(t, "PUT", key, body, {}, kmsHeaders(kmsKeyId));
+  const res = await signedCall(t, "PUT", key, body, {}, sseKmsHeaders(kmsKeyId));
   const text = await res.text();
   const err = s3ErrorOf(text);
   return {

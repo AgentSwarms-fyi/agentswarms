@@ -1072,9 +1072,11 @@ export function lakeGatewayFn(): string {
     `            con.execute("COPY (SELECT * FROM _src) TO '" + p.replace("'", "''") + "' (FORMAT parquet)")`,
     `        finally:`,
     `            con.close()`,
-    `        st = _lake_call('lake_stage', {'id': node_id, 'parts': 1})`,
+    // R442: 'headers' says this code sends the headers the URL is signed
+    // with; under a customer key they hold the upload to that key.
+    `        st = _lake_call('lake_stage', {'id': node_id, 'parts': 1, 'headers': True})`,
     `        with open(p, 'rb') as fh:`,
-    `            r = requests.put(st['puts'][0], data=fh, timeout=3600)`,
+    `            r = requests.put(st['puts'][0], data=fh, headers=st.get('headers') or {}, timeout=3600)`,
     `        r.raise_for_status()`,
     `        return {'id': node_id, 'batch': st['batch'], 'parts': 1}`,
     `    finally:`,
