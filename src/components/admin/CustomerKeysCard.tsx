@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/select";
 import { reportFailure } from "@/lib/silentFailureNet";
 import { filesPassLine, laterPass } from "@/utils/lakehouse/customerKeyFiles";
+import { storedFilesPassLine } from "@/utils/storage/storedFiles";
 import type { IamGroupRow, IamUserRow } from "@/utils/iam.functions";
 import {
   assignCustomerKey,
@@ -44,12 +45,14 @@ import {
   eraseUserKey,
   getCustomerKeys,
   reEncryptLakehouseFilesNow,
+  sealStoredFilesNow,
   unassignCustomerKey,
   type CheckPayload,
   type CustomerKeysPayload,
   type CustomerKeyView,
   type LakehouseFilesState,
   type MembershipPayload,
+  type StoredFilesState,
 } from "@/utils/providers/customerKeys.functions";
 
 const PROVIDER_NAME: Record<string, string> = {
@@ -88,12 +91,14 @@ export function CustomerKeysCard(props: {
   const destroyFn = useServerFn(destroyCustomerKey);
   const eraseFn = useServerFn(eraseUserKey);
   const filesFn = useServerFn(reEncryptLakehouseFilesNow);
+  const sealFn = useServerFn(sealStoredFilesNow);
 
   const [state, setState] = useState<CustomerKeysPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   // A pass run from this page, until the audit trail has it.
   const [passHere, setPassHere] = useState<LakehouseFilesState["lastPass"]>(null);
+  const [sealedHere, setSealedHere] = useState<StoredFilesState["lastPass"]>(null);
   const [checks, setChecks] = useState<Record<string, CheckPayload | { ok: false; error: string }>>(
     {},
   );
@@ -289,6 +294,34 @@ export function CustomerKeysCard(props: {
     await load();
   };
 
+  const sealStored = async () => {
+    const r = await run("stored", "Encrypting stored files", () =>
+      sealFn({ data: { access_token: token } }),
+    );
+    if (!r) return;
+    if (!r.value.ok) return toast.error(r.value.error, { id: r.t, duration: 10000 });
+    const v = r.value;
+    const detail = {
+      files: v.files,
+      documents: v.documents,
+      copies: v.copies,
+      files_sealed_now: v.sealedNow,
+      copies_rebuilt: v.rebuilt,
+      files_already_right: v.alreadyRight,
+      files_unreadable: v.unreadable,
+      copies_not_rebuilt: v.notRebuilt,
+      files_not_owned: v.notOwned,
+      files_vanished: v.vanished,
+      files_left: v.left,
+      files_failed: v.failed,
+    };
+    const line = storedFilesPassLine(detail);
+    if (v.failed > 0) toast.error(`${line}. ${v.errors[0] ?? ""}`, { id: r.t, duration: 15000 });
+    else toast.success(`${line}.`, { id: r.t, duration: 10000 });
+    setSealedHere({ at: new Date().toISOString(), by: null, detail });
+    await load();
+  };
+
   const erase = async () => {
     const id = eraseUser;
     const r = await run("erase", `Erasing ${userLabel(id)}'s key`, () =>
@@ -304,6 +337,7 @@ export function CustomerKeysCard(props: {
   };
 
   const lastPass = laterPass(state?.lakehouseFiles.lastPass ?? null, passHere);
+  const lastSeal = laterPass(state?.storedFiles.lastPass ?? null, sealedHere);
   const live = (state?.keys ?? []).filter((k) => !k.destroyedAt);
   const destroyed = (state?.keys ?? []).filter((k) => k.destroyedAt);
   const s = state?.summary;
@@ -318,8 +352,10 @@ export function CustomerKeysCard(props: {
           wraps the user keys of the users and groups assigned to it: held by the app, or a key in
           the customer&apos;s own KMS, which they control and can revoke. Destroying a customer key,
           or the customer revoking theirs, leaves what its members stored unreadable, and nobody
-          else&apos;s. Erasing one user&apos;s key does the same for that user. A key in AWS KMS can
-          also cover its members&apos; lakehouse files: the store encrypts each of them under it.
+          else&apos;s. Erasing one user&apos;s key does the same for that user. The documents chat
+          generates and the copies of uploaded datasets are under the same user keys. A key in AWS
+          KMS can also cover its members&apos; lakehouse files: the store encrypts each of them
+          under it.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -425,6 +461,49 @@ export function CustomerKeysCard(props: {
                     addSuffix: true,
                   })}
                   {lastPass.by ? ` (${lastPass.by})` : ""}: {filesPassLine(lastPass.detail)}.
+                </p>
+              ) : null}
+            </div>
+
+            <div
+              className="space-y-1.5 rounded-md border border-border/60 p-3 text-xs"
+              data-stored-files
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-medium">Stored files</span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="ml-auto"
+                  disabled={busy !== null}
+                  onClick={() => void sealStored()}
+                >
+                  {busy === "stored" ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <ShieldCheck className="mr-1.5 h-3.5 w-3.5" />
+                  )}
+                  Encrypt stored files
+                </Button>
+              </div>
+              <p className="text-muted-foreground">
+                The documents chat generates and the copies of uploaded datasets are encrypted by
+                the app under their owner&apos;s user key, whatever kind of key covers it, so
+                erasing a user key or destroying a customer key leaves them unreadable too. Files
+                stored before that are encrypted by a pass every hour, or by this button. Not
+                covered: profile pictures (others see them), and what stays in the database: chat
+                messages with each document&apos;s thumbnail, and a dataset&apos;s own rows.
+              </p>
+              {state.storedFiles.error ? (
+                <p className="text-destructive">{state.storedFiles.error}</p>
+              ) : null}
+              {lastSeal ? (
+                <p data-last-seal>
+                  Last pass{" "}
+                  {formatDistanceToNow(new Date(lastSeal.at), {
+                    addSuffix: true,
+                  })}
+                  {lastSeal.by ? ` (${lastSeal.by})` : ""}: {storedFilesPassLine(lastSeal.detail)}.
                 </p>
               ) : null}
             </div>
@@ -762,8 +841,8 @@ export function CustomerKeysCard(props: {
             <AlertDialogTitle>Destroy &ldquo;{destroying?.name}&rdquo;?</AlertDialogTitle>
             <AlertDialogDescription>
               Its {plural(destroying?.userKeys ?? 0, "user key")} are erased with it and its
-              assignments removed. Everything its members stored becomes unreadable, and cannot be
-              recovered from this app.
+              assignments removed. Everything its members stored becomes unreadable, their generated
+              documents and dataset copies included, and cannot be recovered from this app.
               {destroying?.lakehouseFiles.kmsKeyId
                 ? " Their lakehouse files stay encrypted under the customer's KMS key, readable while that key allows: for them to become unreadable too, the customer disables or deletes it."
                 : ""}{" "}
@@ -797,7 +876,8 @@ export function CustomerKeysCard(props: {
           <AlertDialogHeader>
             <AlertDialogTitle>Erase {userLabel(eraseUser)}&apos;s key?</AlertDialogTitle>
             <AlertDialogDescription>
-              Every credential, connection and secret this user stored becomes unreadable. Type the
+              Every credential, connection and secret this user stored becomes unreadable, and so do
+              the documents chat generated for them and the copies of their datasets. Type the
               user&apos;s email to confirm.
             </AlertDialogDescription>
           </AlertDialogHeader>

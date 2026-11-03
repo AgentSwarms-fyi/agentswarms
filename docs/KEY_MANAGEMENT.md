@@ -741,6 +741,7 @@ the customer's; choose **Held by the app** instead.
 | A wrapped key's stored form is changed (copied to another row, another key's material)                     | Refused: each wrapped key is bound to its own row and fingerprint.                                                                                                                                                   |
 | The migration is not applied                                                                               | Everything is under the deployment's key, as before; the card says so.                                                                                                                                               |
 | The customer disables or revokes a key that covers lakehouse files                                         | Queries and writes on their members' schemas fail, naming the schema and the customer key. Other schemas are unaffected. Turning the key back on brings them back; nothing is lost.                                  |
+| A stored file's key is gone (erased, destroyed, refused)                                                   | Its document does not download, and says why; its dataset copy is not used, and the dataset answers from its rows. The pass leaves the file as it is.                                                                |
 
 `DATA_KEY_CACHE_SECONDS` (default 300) is how long a process keeps an
 unwrapped user key or customer key before reading it again. A key erased,
@@ -763,9 +764,11 @@ backup. Erasure that reaches backups needs one of:
   member's data in every backup. This is the strongest guarantee, and the one
   enterprise customers usually mean by "bring your own key".
 
-Customer keys cover what the app encrypts, stored credentials and secrets,
-and, for a key in AWS KMS, its members' lakehouse files (next). The rest of
-the data a customer's users work with is not under these keys yet; see
+Customer keys cover what the app encrypts: stored credentials and secrets,
+the documents chat generates and the copies of uploaded datasets
+([Stored files](#stored-files)), and, for a key in AWS KMS, its members'
+lakehouse files (next). The rest of the data a customer's users work with is
+not under these keys yet; see
 [Data beyond credentials](#data-beyond-credentials-design).
 
 ### Lakehouse files
@@ -841,33 +844,109 @@ What it does not cover, said on the card where it applies:
   versions removes it.
 - A file larger than 5 GB (one copy request's limit) is counted and left as
   it is.
-- Uploads, generated documents and exports, and chat, memory and
-  knowledge-base text: see the next section.
+- Generated documents and dataset copies are under the members' user keys
+  whatever the store ([Stored files](#stored-files)); model artifacts in the
+  lake bucket, and chat, memory and knowledge-base text: see
+  [Data beyond credentials](#data-beyond-credentials-design).
 
 When the store refuses a file under a customer key (S3 answers a key the
 customer disabled with HTTP 400 `KMS.DisabledException`, and a key the storage
 identity may not use with 403), the query's error names the schema and the
 customer key and says what to check, and other schemas are unaffected.
 
+### Stored files
+
+The documents chat generates (Word, PowerPoint, Excel) and the columnar copies
+of uploaded datasets are kept in Supabase Storage, in the `chat-docs` and
+`datasets` buckets. Storage cannot encrypt under a customer's key, so the app
+does: each file is **encrypted by the app under its owner's user key** before
+it is stored, and opened by the app when it is read. So:
+
+- every customer key covers its members' stored files, whatever kind of key it
+  is (held by the app, or in any KMS); destroying it, or the customer revoking
+  it, leaves them unreadable, and erasing one user's key does the same for
+  that user;
+- moving a user between customer keys re-wraps their user key: no file is
+  rewritten;
+- the bucket, and any copy of it, holds ciphertext only.
+
+How it works:
+
+- AES-256-GCM in 1 MiB chunks under the owner's user key. Each chunk is bound
+  to the object's bucket and path, its place in the file, and whether it is
+  the last, so a file that is cut short or reordered, or copied into another
+  user's folder, does not open. The object's content type names its key
+  (`application/vnd.agentswarms.sealed; kid=<fingerprint>`), so a pass can
+  tell which key a file is under from the listing alone.
+- A **document** is stored and fetched through `/api/chat-docs` (the chat's
+  **Download** button), and only for its owner. A document whose key is gone
+  says why ("was stored under a user key that was erased on ...; it cannot be
+  read"), not that it expired.
+- A **dataset copy** is written by the dataset's refresh, and opened into the
+  server's local cache (`PARQUET_CACHE_DIR`) for DuckDB to read. Before using a
+  cached copy, each server process asks for its key again, so a key erased or
+  destroyed elsewhere stops that process serving the copy within
+  `DATA_KEY_CACHE_SECONDS`. A cached file left from before a restart is
+  downloaded again rather than trusted.
+- Files stored **before** this change, which are not encrypted, and any file
+  under a key other than its owner's current one, are put under it by a
+  **pass**. It runs every hour in the background, changing at most
+  `STORED_FILES_PER_PASS` files (25 by default), and on demand with **Encrypt
+  stored files** on the Customer keys card. A document is encrypted in place.
+  A dataset copy is rebuilt from the dataset's rows, because encrypting one in
+  place could put an older copy over a newer one. A file under a key that is
+  gone is left as it is. Every pass that changes something is audited
+  (`security.stored_files.seal`), and the card shows the last one.
+
+| Setting                 | Default | What it is                                              |
+| ----------------------- | ------- | ------------------------------------------------------- |
+| `CHAT_DOC_MAX_BYTES`    | 50 MB   | The largest generated document the app keeps.           |
+| `STORED_FILES_PER_PASS` | 25      | Files one background pass changes; the button has none. |
+
+What it does not cover:
+
+- The chat **messages** themselves, including each document's thumbnail (a
+  small picture of its first page), and a dataset's **rows**. They are
+  Postgres rows, the later items of
+  [Data beyond credentials](#data-beyond-credentials-design). So erasing a
+  user's key makes their documents unreadable but not the chat text around
+  them, and an uploaded dataset still answers from its rows; its copy is
+  rebuilt under the user's new key at its next refresh.
+- **Profile pictures** (the `avatars` bucket): other users see them, so they
+  are public by design.
+- A dataset copy in a server's local cache is the opened Parquet, on that
+  server's disk, until it is evicted or its key is found gone.
+- A user's own browser can still write into their own `chat-docs` folder
+  directly: the bucket's owner policies allow it, though the app no longer
+  does. Such a file is readable only by that user, and the next pass encrypts
+  it.
+- A **backup** taken before: the user keys it holds are covered as
+  [above](#what-erasure-covers-and-what-it-does-not); a storage backup from
+  before the pass holds the files as they were.
+
 ## Data beyond credentials (design)
 
-**Status: lakehouse files on S3 are built (R440, above); the rest is designed,
-not built.** The app encrypts credentials itself. The
-data a customer's users bring and make is stored in places the app does not
-encrypt today: Postgres rows (chat history, knowledge-base documents and
-chunks, agent memory, notebooks, BI definitions), the object store
-(lakehouse files, uploads, generated documents) and the vector store. Those
-rely on the storage's own encryption at rest, under the operator's keys. For
+**Status: lakehouse files on S3 (R440) and generated documents and dataset
+copies (R441) are built, above; the rest is designed, not built.** The app
+encrypts credentials, generated documents and dataset copies itself. The rest
+of the data a customer's users bring and make is stored in places the app
+does not encrypt today: Postgres rows (chat history, knowledge-base documents
+and chunks, agent memory, notebooks, BI definitions, uploaded datasets' rows),
+the lake bucket outside the lakehouse's schemas (model artifacts, run
+staging) and the vector store. Those rely on the storage's own encryption at
+rest, under the operator's keys. For
 "a customer's data is unreadable once their key is gone" to cover them, each
 store needs its own scheme, under the same customer key:
 
-| Data                                         | Where                                                 | Proposed scheme                                                                                                                                                                                                                                                                                              | What it costs                                                                                                                                                                      |
-| -------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Chat messages, agent memory, notebook source | Postgres text and JSON columns                        | Application-level AES-GCM under the owner's user key, as credentials are: a value is encrypted on write and decrypted on read in the server.                                                                                                                                                                 | Postgres can no longer search, sort or index those columns: the chat search and memory recall would move to the server or to the vector store.                                     |
-| Knowledge-base documents and chunks          | Postgres (`kb_chunks`, its text) and the vector store | The chunk text encrypted as above; the embeddings left in clear, since search needs them, and stated as such (an embedding reveals something about its text). Or a vector store per customer.                                                                                                                | Keyword search over chunk text (Postgres full text) stops working unless it moves to the server; embeddings are a known residual.                                                  |
-| Lakehouse tables and uploaded files          | The object store (SILO, MinIO, S3, Azure Blob, GCS)   | A storage prefix or bucket per customer, with the store's own server-side encryption under the customer's KMS key (S3 SSE-KMS, Azure Blob customer-managed keys, GCS CMEK); the app passes the key per request, or the bucket is configured with it. Revoking the key stops the store serving those objects. | Per-customer storage layout; SILO and MinIO need their KMS integration (MinIO KES) configured; DuckLake's catalog and DuckDB reads must carry the per-customer key or credentials. |
-| The lakehouse catalog                        | Postgres (DuckLake metadata)                          | Metadata only (names, statistics, file paths); left under the database's encryption, documented.                                                                                                                                                                                                             | —                                                                                                                                                                                  |
-| Generated documents, exports                 | The object store                                      | As lakehouse files.                                                                                                                                                                                                                                                                                          | —                                                                                                                                                                                  |
+| Data                                         | Where                                                  | Proposed scheme                                                                                                                                                                               | What it costs                                                                                                                                  |
+| -------------------------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Chat messages, agent memory, notebook source | Postgres text and JSON columns                         | Application-level AES-GCM under the owner's user key, as credentials are: a value is encrypted on write and decrypted on read in the server.                                                  | Postgres can no longer search, sort or index those columns: the chat search and memory recall would move to the server or to the vector store. |
+| Knowledge-base documents and chunks          | Postgres (`kb_chunks`, its text) and the vector store  | The chunk text encrypted as above; the embeddings left in clear, since search needs them, and stated as such (an embedding reveals something about its text). Or a vector store per customer. | Keyword search over chunk text (Postgres full text) stops working unless it moves to the server; embeddings are a known residual.              |
+| Lakehouse tables                             | The object store (SILO, MinIO, S3, Azure Blob, GCS)    | The store's own server-side encryption under the customer's KMS key. **Built for S3 (R440):** SSE-KMS, the key passed per request. Azure Blob customer-managed keys and GCS CMEK: designed.   | SILO and MinIO need their KMS integration (MinIO KES) configured.                                                                              |
+| Uploaded datasets' rows                      | Postgres (`user_data_rows`)                            | As chat messages.                                                                                                                                                                             | Filtering and sorting a dataset in Postgres would move to the server (its columnar copy already does).                                         |
+| Model artifacts, run staging                 | The lake bucket (`ml-artifacts/`, `_sandbox_staging/`) | As lakehouse files: SSE-KMS under the owner's key.                                                                                                                                            | A sandbox writes through presigned URLs, so it must send the key's headers too: a runtime image change.                                        |
+| The lakehouse catalog                        | Postgres (DuckLake metadata)                           | Metadata only (names, statistics, file paths); left under the database's encryption, documented.                                                                                              | —                                                                                                                                              |
+| Generated documents, dataset copies          | Supabase Storage (`chat-docs`, `datasets`)             | **Built (R441):** encrypted by the app under the owner's user key, since the store cannot use a customer's key ([Stored files](#stored-files)).                                               | —                                                                                                                                              |
 
 **Order, if built:** lakehouse files first (the largest and most sensitive,
 and the store does the encryption, so search and queries are unaffected),
@@ -878,8 +957,16 @@ stop working.
 Lakehouse files were built first, for S3 (R440, decided 2026-11-03): one
 prefix per schema rather than per customer, since a schema is already its own
 folder and its owner is who decides the key; the key passed per request by a
-scoped credential rather than set on a bucket. Uploads, generated documents
-and exports in the object store, and Azure Blob and GCS, are still to do.
+scoped credential rather than set on a bucket.
+
+Generated documents and dataset copies came next (R441, 2026-11-03). They are
+not in the object store the design assumed but in Supabase Storage, which
+cannot encrypt under a customer's key, so the app encrypts them itself, under
+the owner's user key. That covers every kind of customer key and an erased
+user key, and nothing stops working. Exports (CSV, Excel, the audit log) are
+streamed to the browser and never stored. Still to do: model artifacts and run
+staging in the lake bucket, Azure Blob and GCS, then chat and memory text,
+then knowledge-base text.
 
 ---
 

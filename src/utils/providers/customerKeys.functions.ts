@@ -31,6 +31,12 @@ import {
   reEncryptLakehouseFiles,
   type FilesPassResult,
 } from "@/utils/lakehouse/customerKeyFiles.server";
+import {
+  sealOlderStoredFiles,
+  STORED_FILES_PASS,
+  storedFilesPassDetail,
+  type StoredFilesPass,
+} from "@/utils/storage/storedFiles.server";
 import { customerKeyProvider, keyHierarchy } from "./crypto.server";
 import {
   expectedCustomerKeys,
@@ -72,11 +78,21 @@ export type LakehouseFilesState = {
   /** Schemas left as they are: their owner's groups name two customer keys. */
   conflictedSchemas: number;
   /** The last re-encrypt pass, from the audit trail. */
-  lastPass: {
-    at: string;
-    by: string | null;
-    detail: Record<string, string | number | boolean>;
-  } | null;
+  lastPass: AuditedPass | null;
+  error?: string;
+};
+
+/** A pass from the audit trail: when, by whom, and its counts. */
+export type AuditedPass = {
+  at: string;
+  by: string | null;
+  detail: Record<string, string | number | boolean>;
+};
+
+/** Generated documents and dataset copies, sealed by the app under their owner's key (R441). */
+export type StoredFilesState = {
+  /** The last pass over them, from the audit trail. */
+  lastPass: AuditedPass | null;
   error?: string;
 };
 
@@ -86,6 +102,7 @@ export type CustomerKeysPayload = {
   enabled: boolean;
   keys: CustomerKeyView[];
   lakehouseFiles: LakehouseFilesState;
+  storedFiles: StoredFilesState;
   /** Users whose groups name two customer keys: nothing new is stored for them. */
   conflicts: Array<{ userId: string; keyIds: string[] }>;
   /** Live user keys, per user: what the erase control lists. */
@@ -95,23 +112,27 @@ export type CustomerKeysPayload = {
 
 const FILES_PASS = "security.lakehouse_files.reencrypt";
 
-/** The store's mode, what each key does for files, and the last pass. */
-async function lakehouseFilesState(): Promise<{
-  state: LakehouseFilesState;
-  perKey: Awaited<ReturnType<typeof customerKeyFilesView>>["perKey"];
-}> {
-  const view = await customerKeyFilesView();
-  let lastPass: LakehouseFilesState["lastPass"] = null;
-  const { data: rows, error: auditError } = await supabaseAdmin
+/** The last audited pass of `action`; a trail that cannot be read is said, not shown as none. */
+async function lastAuditedPass(
+  action: string,
+): Promise<{ lastPass: AuditedPass | null; error?: string }> {
+  const { data: rows, error } = await supabaseAdmin
     .from("audit_events")
     .select("created_at, actor_email, detail")
-    .eq("action", FILES_PASS)
+    .eq("action", action)
     .order("created_at", { ascending: false })
     .limit(1);
+  if (error) {
+    return {
+      lastPass: null,
+      error: `The last pass could not be read from the audit trail: ${error.message}`,
+    };
+  }
   const last = rows?.[0] as
     { created_at: string; actor_email?: string | null; detail: unknown } | undefined;
-  if (last) {
-    lastPass = {
+  if (!last) return { lastPass: null };
+  return {
+    lastPass: {
       at: last.created_at,
       by: last.actor_email ?? null,
       // The counts and the reason only: what the card prints (and serialisable).
@@ -121,8 +142,17 @@ async function lakehouseFilesState(): Promise<{
             ["string", "number", "boolean"].includes(typeof e[1]),
         ),
       ),
-    };
-  }
+    },
+  };
+}
+
+/** The store's mode, what each key does for files, and the last pass. */
+async function lakehouseFilesState(): Promise<{
+  state: LakehouseFilesState;
+  perKey: Awaited<ReturnType<typeof customerKeyFilesView>>["perKey"];
+}> {
+  const view = await customerKeyFilesView();
+  const { lastPass, error: auditError } = await lastAuditedPass(FILES_PASS);
   return {
     state: {
       on: view.mode.on,
@@ -130,11 +160,7 @@ async function lakehouseFilesState(): Promise<{
       conflictedSchemas: view.conflictedSchemas,
       lastPass,
       // A last pass that could not be read is said, not shown as none.
-      ...(view.error
-        ? { error: view.error }
-        : auditError
-          ? { error: `The last pass could not be read from the audit trail: ${auditError.message}` }
-          : {}),
+      ...(view.error ? { error: view.error } : auditError ? { error: auditError } : {}),
     },
     perKey: view.perKey,
   };
@@ -155,6 +181,7 @@ export const getCustomerKeys = createServerFn({ method: "POST" })
           enabled: false,
           keys: [],
           lakehouseFiles: (await lakehouseFilesState()).state,
+          storedFiles: await lastAuditedPass(STORED_FILES_PASS),
           conflicts: [],
           userKeys: [],
           summary: ctx.summary,
@@ -206,6 +233,7 @@ export const getCustomerKeys = createServerFn({ method: "POST" })
         enabled: true,
         keys,
         lakehouseFiles: files.state,
+        storedFiles: await lastAuditedPass(STORED_FILES_PASS),
         conflicts,
         userKeys: live.map((k) => ({
           userId: k.user_id,
@@ -633,6 +661,33 @@ export const reEncryptLakehouseFilesNow = createServerFn({ method: "POST" })
         detail: { trigger: "Re-encrypt lakehouse files", ...filesPassDetail(r) },
       });
       return r;
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  });
+
+/**
+ * Put every generated document and dataset copy under its owner's current
+ * key, now: the card's "Encrypt stored files". The background pass does the
+ * same a bounded number an hour (STORED_FILES_PER_PASS); this one has no
+ * bound, and downloads each document that is not yet under its key.
+ */
+export const sealStoredFilesNow = createServerFn({ method: "POST" })
+  .validator((input: unknown) => token.parse(input))
+  .handler(async ({ data }): Promise<({ ok: true } & StoredFilesPass) | Fail> => {
+    const guard = await requireSuperadmin(data.access_token);
+    if (!guard.ok) return { ok: false, error: guard.error };
+    try {
+      const r = await sealOlderStoredFiles();
+      auditEvent({
+        userId: guard.userId,
+        actorEmail: guard.email,
+        action: STORED_FILES_PASS,
+        resourceType: "security",
+        resourceName: "stored files",
+        detail: { trigger: "Encrypt stored files", ...storedFilesPassDetail(r) },
+      });
+      return { ok: true, ...r };
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }

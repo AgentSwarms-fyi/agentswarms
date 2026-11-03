@@ -289,6 +289,7 @@ SITE_URL="https://your-domain.com"`}</Code>
             "Live warehouse queries per dashboard OWNER — a shared dashboard bills its owner's budget, so the limit follows the owner rather than the viewer.",
           ],
           [<C key="d">UPLOAD_PER_MINUTE</C>, "10", "Dataset uploads per user."],
+          [<C key="d2">CHAT_DOC_PER_MINUTE</C>, "30", "Generated documents kept, per user."],
           [
             <C key="e">INTEGRATION_TEST_PER_MINUTE</C>,
             "10",
@@ -344,13 +345,15 @@ SITE_URL="https://your-domain.com"`}</Code>
 
       <H4>Parquet mirror</H4>
       <P>
-        Optional. Large local datasets can be mirrored to Parquet so repeat queries read a columnar
-        file instead of re-reading rows. Unset, nothing is mirrored and everything still works.
+        On by default. Large local datasets are mirrored to Parquet so repeat queries read a
+        columnar file instead of re-reading rows; set <C>PARQUET_MIRROR=0</C> to turn it off, and
+        everything still works from the rows. The stored copy is encrypted under the dataset
+        owner&apos;s key.
       </P>
       <Table
         headers={["Variable", "Default", "Purpose"]}
         rows={[
-          [<C key="a">PARQUET_MIRROR</C>, "off", "Enables mirroring."],
+          [<C key="a">PARQUET_MIRROR</C>, "on", "0 turns mirroring off."],
           [<C key="b">PARQUET_MIN_ROWS</C>, "5000", "Below this a table is not worth mirroring."],
           [<C key="c">PARQUET_MAX_ROWS</C>, "5000000", "Above this a table is not mirrored."],
           [<C key="d">PARQUET_CACHE_DIR</C>, "temp dir", "Where mirrored files live."],
@@ -775,9 +778,12 @@ AUDIT_ARCHIVE_ON_PURGE="1"
         also has the store encrypt its members&apos; lakehouse files under it when the lakehouse is
         on S3 (<C>LAKEHOUSE_SSE_KMS</C>: <C>auto</C> by default, on for AWS S3; <C>on</C> for an
         S3-compatible store with KMS keys; <C>off</C>), as long as the key is in the bucket&apos;s
-        region and the lakehouse&apos;s storage identity may use it. Chat history and documents are
-        not under these keys yet (the design is in <C>docs/KEY_MANAGEMENT.md</C>
-        ).
+        region and the lakehouse&apos;s storage identity may use it. The documents chat generates
+        and the copies of uploaded datasets are encrypted by the app under their owner&apos;s user
+        key, whatever the customer key&apos;s kind (<C>CHAT_DOC_MAX_BYTES</C>, 50 MB by default, is
+        the largest document kept; <C>STORED_FILES_PER_PASS</C>, 25, how many files stored before
+        one hourly pass encrypts). Chat history itself is not under these keys yet (the design is in{" "}
+        <C>docs/KEY_MANAGEMENT.md</C>).
       </Callout>
 
       <H3 id="recipe-fleet">Autoscaled behind a load balancer</H3>

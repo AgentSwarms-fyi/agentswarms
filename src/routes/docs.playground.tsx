@@ -213,7 +213,9 @@ function PlaygroundDoc() {
       <P>
         The finished file appears as a preview card with a thumbnail and a Download button, and is
         stored in a private bucket so Download still works after a reload — until the agent's chat
-        retention window purges it.
+        retention window purges it. The app stores it encrypted under your own key (a customer key
+        an admin assigned you covers it too) and opens it for you alone when you download it; if
+        that key was erased, Download says so.
       </P>
 
       <H2 id="slack">Answering in Slack</H2>

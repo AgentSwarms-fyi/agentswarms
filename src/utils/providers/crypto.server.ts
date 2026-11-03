@@ -31,6 +31,7 @@ import {
   type KeyStore,
 } from "@/utils/kms/keyHierarchy.server";
 import { keyRefProvider, type KeyProvider } from "@/utils/kms/types";
+import { openFile, sealFile } from "@/utils/storage/sealedFile";
 
 const ALGO = "AES-GCM";
 
@@ -327,6 +328,52 @@ async function decryptWithKey<T>(key: CryptoKey, ciphertext: string, iv: string)
 /** Decrypt a stored blob, by the key its `kid` names. */
 export async function decryptBlob<T = unknown>(blob: EncryptedBlob): Promise<T> {
   return decryptJson<T>(blob.ciphertext, blob.iv, blob.kid);
+}
+
+// ── Stored files (R441) ─────────────────────────────────────────────────────
+
+/**
+ * The key with this fingerprint: a deployment key's, or a user key's. Throws
+ * DataKeyUnavailableError, saying why, when it cannot be had.
+ */
+async function keyByKid(kid: string): Promise<CryptoKey> {
+  const k = await keyring();
+  const deployment = [k.current, ...k.previous].find((e) => e.kid === kid);
+  if (deployment) return deployment.key;
+  const user = await readUserKey(kid);
+  if (user) return user.key;
+  throw new DataKeyUnavailableError(
+    `This file is on the key ${kid}, which this server does not hold`,
+    "unheld",
+  );
+}
+
+/**
+ * Seal a stored file's bytes under its owner's key: the key a value of
+ * `owner` is written with (writeKeyFor). `where` is the object's bucket and
+ * path, which the sealed file is bound to.
+ */
+export async function sealStoredFile(
+  bytes: Uint8Array,
+  opts: EncryptFor & { where: string },
+): Promise<{ sealed: Uint8Array; kid: string }> {
+  const key = await writeKeyFor(opts.owner);
+  return { sealed: await sealFile(bytes, key, opts.where), kid: key.kid };
+}
+
+/** Open a sealed stored file by the key its header names. */
+export async function openStoredFile(sealed: Uint8Array, where: string): Promise<Uint8Array> {
+  return openFile(sealed, keyByKid, where);
+}
+
+/** Throws as opening a file under `kid` would, when that key cannot be had now. */
+export async function assertStoredFileKey(kid: string): Promise<void> {
+  await keyByKid(kid);
+}
+
+/** The fingerprint new files of `owner` are sealed with (it may make the owner's user key). */
+export async function storedFileKidFor(owner: string): Promise<string> {
+  return (await writeKeyFor(owner)).kid;
 }
 
 /** Whether a value is one of our stored ciphertext blobs. */

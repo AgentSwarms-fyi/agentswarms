@@ -13,6 +13,7 @@ const h = vi.hoisted(() => ({
   audits: [] as Array<Record<string, unknown>>,
   superadmin: true,
   users: new Map<string, string>(),
+  storage: null as null | { client: unknown },
 }));
 
 vi.mock("@tanstack/react-start", () => ({
@@ -49,7 +50,9 @@ vi.mock("@/integrations/supabase/client.server", () => ({
                     : { data: { user: null }, error: { message: "User not found" } },
               },
             }
-          : (h.db as Record<string | symbol, unknown>)[prop],
+          : prop === "storage"
+            ? h.storage?.client
+            : (h.db as Record<string | symbol, unknown>)[prop],
     },
   ),
 }));
@@ -63,6 +66,7 @@ import {
   destroyCustomerKey,
   eraseUserKey,
   getCustomerKeys,
+  sealStoredFilesNow,
   unassignCustomerKey,
 } from "@/utils/providers/customerKeys.functions";
 import {
@@ -73,6 +77,8 @@ import {
 } from "@/utils/providers/crypto.server";
 import { ENCRYPTED_TABLES } from "@/utils/providers/keyRotation.server";
 import { fakePostgrest, type FakeDb } from "../fixtures/fakePostgrest";
+import { fakeStorage } from "../fixtures/fakeStorage";
+import { isSealed, sealedKid } from "@/utils/storage/sealedFile";
 
 const T = "test-access-token";
 const ALICE = "00000000-0000-4000-8000-00000000a11c";
@@ -383,6 +389,72 @@ describe("destroying and erasing", () => {
     expect(ok(await getCustomerKeys({ data: { access_token: T } }))).toMatchObject({
       enabled: false,
       keys: [],
+    });
+  });
+});
+
+describe("Encrypt stored files (R441)", () => {
+  const DOC = `${ALICE}/11111111-1111-4111-8111-111111111111.docx`;
+  const docx = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 1, 2, 3]);
+
+  beforeEach(() => {
+    h.storage = fakeStorage();
+  });
+
+  it("is a superadmin's alone, and touches nothing for anyone else", async () => {
+    const store = h.storage as ReturnType<typeof fakeStorage>;
+    store.put("chat-docs", DOC, docx);
+    h.superadmin = false;
+    expect(await sealStoredFilesNow({ data: { access_token: T } })).toEqual({
+      ok: false,
+      error: "Superadmin only",
+    });
+    expect(store.calls.list).toBe(0);
+    expect(h.audits).toHaveLength(0);
+  });
+
+  it("puts every stored file under its owner's key, and audits the pass with its counts", async () => {
+    const store = h.storage as ReturnType<typeof fakeStorage>;
+    store.put("chat-docs", DOC, docx);
+    const r = ok(await sealStoredFilesNow({ data: { access_token: T } }));
+    expect(r).toMatchObject({ files: 1, documents: 1, sealedNow: 1, failed: 0 });
+    const obj = store.get("chat-docs", DOC)!;
+    expect(isSealed(obj.bytes)).toBe(true);
+    expect(sealedKid(obj.bytes)).toBe(
+      fake.tables.user_keys!.find((k) => k.user_id === ALICE && !k.erased_at)!.kid,
+    );
+    expect(h.audits).toEqual([
+      expect.objectContaining({
+        action: "security.stored_files.seal",
+        actorEmail: "admin@example.test",
+        detail: expect.objectContaining({
+          trigger: "Encrypt stored files",
+          files: 1,
+          files_sealed_now: 1,
+          files_failed: 0,
+        }),
+      }),
+    ]);
+  });
+
+  it("the card reads the last pass from the audit trail, and says when it cannot", async () => {
+    expect(ok(await getCustomerKeys({ data: { access_token: T } })).storedFiles.error).toMatch(
+      /^The last pass could not be read from the audit trail: /,
+    );
+    fake.tables.audit_events = [
+      {
+        action: "security.stored_files.seal",
+        created_at: "2026-11-03T08:38:00.000Z",
+        actor_email: "system:kms",
+        detail: { trigger: "scheduled", files: 3, files_sealed_now: 3, errors: ["kept out"] },
+      },
+    ];
+    expect(ok(await getCustomerKeys({ data: { access_token: T } })).storedFiles).toEqual({
+      lastPass: {
+        at: "2026-11-03T08:38:00.000Z",
+        by: "system:kms",
+        detail: { trigger: "scheduled", files: 3, files_sealed_now: 3 },
+      },
     });
   });
 });

@@ -37,10 +37,13 @@ It manages:
   wraps the keys of the users and groups assigned to it. A user in groups
   assigned to two customer keys is refused a save until assigned directly; a
   change to a group's members, here or over SCIM, moves the users it touches.
-  A key in AWS KMS also has the store encrypt its members' lakehouse files
-  under it when the lakehouse is on S3, and **Re-encrypt lakehouse files**
-  puts files written before under the right key.
-  See [Customer keys and user keys](./KEY_MANAGEMENT.md#customer-keys-and-user-keys)
+  The documents chat generates and the copies of uploaded datasets are
+  under the same user keys, and **Encrypt stored files** puts those stored
+  before under them. A key in AWS KMS also has the store encrypt its members'
+  lakehouse files under it when the lakehouse is on S3, and **Re-encrypt
+  lakehouse files** puts files written before under the right key.
+  See [Customer keys and user keys](./KEY_MANAGEMENT.md#customer-keys-and-user-keys),
+  [Stored files](./KEY_MANAGEMENT.md#stored-files)
   and [Lakehouse files](./KEY_MANAGEMENT.md#lakehouse-files).
 - **Provisioning** — with SCIM 2.0 the identity provider creates users before
   they sign in, deactivates them when they leave, and keeps groups in step;

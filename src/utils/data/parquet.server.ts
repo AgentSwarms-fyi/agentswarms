@@ -22,6 +22,14 @@
 // and the local cache lives under a server-only directory. Any future
 // direct-download path would bypass shared_dataset_rows() and hand a grantee
 // the unmasked table.
+//
+// R441: the stored copy is sealed under the dataset owner's user key
+// (storage/storedFiles.server), so the bucket holds ciphertext. The local
+// cache is the opened Parquet DuckDB reads; each process remembers which key
+// a cached file came from and asks for that key again before using it, so a
+// key erased or destroyed elsewhere stops this node serving the copy within
+// DATA_KEY_CACHE_SECONDS. A cached file it has no record of (one from before
+// a restart) is downloaded again rather than trusted.
 
 import { createHash } from "node:crypto";
 import { mkdir, readdir, rm, stat, writeFile, rename } from "node:fs/promises";
@@ -31,6 +39,8 @@ import path from "node:path";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { selectAllPages } from "@/lib/pagedSelect";
+import { assertStoredFileKey } from "@/utils/providers/crypto.server";
+import { getStoredFile, putStoredFile } from "@/utils/storage/storedFiles.server";
 import {
   describeEviction,
   planEviction,
@@ -213,14 +223,12 @@ export async function refreshDatasetMirror(args: {
 
     const bytes = (await stat(scratch)).size;
     const body = await import("node:fs/promises").then((m) => m.readFile(scratch));
-    const { error: upErr } = await supabaseAdmin.storage
-      .from(BUCKET)
-      .upload(objectKey(args.userId, args.tableId), body, {
-        upsert: true,
-        contentType: "application/vnd.apache.parquet",
-      });
-    await rm(scratch, { force: true });
-    if (upErr) throw new Error(upErr.message);
+    try {
+      // Sealed under the owner's key: the bucket never holds the table as it is.
+      await putStoredFile(BUCKET, objectKey(args.userId, args.tableId), new Uint8Array(body));
+    } finally {
+      await rm(scratch, { force: true });
+    }
 
     const syncedAt = new Date().toISOString();
     await supabaseAdmin
@@ -261,6 +269,8 @@ export function mirrorIsCurrent(meta: MirrorMeta): boolean {
 }
 
 const inFlight = new Map<string, Promise<string | null>>();
+/** Which key each file this process cached came from: null for a copy stored before R441. */
+const cachedUnder = new Map<string, string | null>();
 
 /**
  * Record that a mirror was read, at most once a minute per dataset.
@@ -332,24 +342,38 @@ export async function localParquetPath(meta: MirrorMeta): Promise<string | null>
   // last refresh would evict the stable table nobody changes precisely because
   // nobody changes it — while it is being queried every hour.
   touchMirror(meta.tableId);
-  if (existsSync(target)) return target;
+  if (existsSync(target) && cachedUnder.has(target)) {
+    const kid = cachedUnder.get(target);
+    if (!kid) return target;
+    try {
+      await assertStoredFileKey(kid);
+      return target;
+    } catch (e) {
+      // Its key is gone: the copy is not this node's to keep serving.
+      cachedUnder.delete(target);
+      await rm(target, { force: true }).catch(() => {});
+      console.warn(
+        `[parquet] ${meta.tableId}: its copy's key is gone (${(e as Error).message}); reading its rows`,
+      );
+      return null;
+    }
+  }
 
   const existing = inFlight.get(target);
   if (existing) return existing;
 
   const job = (async (): Promise<string | null> => {
     try {
-      const { data, error } = await supabaseAdmin.storage
-        .from(BUCKET)
-        .download(objectKey(meta.userId, meta.tableId));
-      if (error || !data) return null;
-      const buf = Buffer.from(await data.arrayBuffer());
+      // Opened under the owner's key; one from before R441 comes as it is.
+      const file = await getStoredFile(BUCKET, objectKey(meta.userId, meta.tableId));
+      if (!file) return null;
       await mkdir(cacheDir(), { recursive: true });
       // Write to a scratch name and rename: a reader must never observe a
       // half-written Parquet, and rename is atomic within a directory.
       const scratch = `${target}.${process.pid}.part`;
-      await writeFile(scratch, buf);
+      await writeFile(scratch, file.bytes);
       await rename(scratch, target);
+      cachedUnder.set(target, file.kid);
       void evictCache().catch(() => {});
       return target;
     } catch (e) {

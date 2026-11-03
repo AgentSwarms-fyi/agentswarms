@@ -96,6 +96,24 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Generated documents and dataset copies under their owner's key** (R441).
+  The documents chat generates and the columnar copies of uploaded datasets
+  live in Supabase Storage, which cannot encrypt under a customer's key, so
+  the app now encrypts each one itself, under its owner's user key (AES-256-GCM
+  in 1 MiB chunks, each bound to the object's path and its place in the file).
+  Every customer key covers its members' files whatever its kind, held by the
+  app or in any KMS; destroying it, revoking it, or erasing one user's key
+  leaves those files unreadable, and moving a user rewrites none. A document
+  is stored and fetched through `/api/chat-docs`, for its owner only, and one
+  whose key is gone says why rather than "expired". A dataset copy is opened
+  into the local cache, and each process asks for its key again before using
+  it. Files stored before are encrypted by an hourly pass
+  (`STORED_FILES_PER_PASS`, 25) and by **Encrypt stored files** on the
+  Customer keys card, audited as `security.stored_files.seal`; a file under a
+  key that is gone is left as it is. New settings: `CHAT_DOC_MAX_BYTES`
+  (50 MB), `CHAT_DOC_PER_MINUTE` (30). Not covered, and said: chat messages
+  with each document's thumbnail, a dataset's rows, and profile pictures. No
+  migration.
 - **Lakehouse files under customer keys** (R440). A customer key in AWS KMS
   now also covers its members' lakehouse files when the lakehouse is on S3:
   the store encrypts every file of their schemas under the customer's key

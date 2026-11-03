@@ -54,6 +54,7 @@ import {
 } from "@/utils/audit.functions";
 import { reportFailure } from "@/lib/silentFailureNet";
 import { filesPassLine } from "@/utils/lakehouse/customerKeyFiles";
+import { storedFilesPassLine } from "@/utils/storage/storedFiles";
 
 const ACTION_META: Record<string, { label: string; className: string }> = {
   "model.call": { label: "model call", className: "bg-primary/10 text-primary" },
@@ -212,6 +213,8 @@ function describeDetail(r: AuditRow): string {
   }
   // A lakehouse files pass (R440): what it checked, moved and could not.
   if (r.action === "security.lakehouse_files.reencrypt") bits.push(filesPassLine(d));
+  // A stored files pass (R441): documents and dataset copies put under their owners' keys.
+  if (r.action === "security.stored_files.seal") bits.push(storedFilesPassLine(d));
   if (d.status === "error") bits.push("ERROR");
   // A call whose caller left before its answer ended (R363), in the Traces
   // page's word for it. It read like a success.

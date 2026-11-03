@@ -15,6 +15,42 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-03 — R441: generated documents and dataset copies under their owner's key
+
+The next roadmap item: the files the app keeps in Supabase Storage (the `chat-docs` and `datasets`
+buckets, on the hosted project) encrypted by the app under each owner's user key. The build was
+hot-deployed from the main checkout onto the app's own environment; nothing was changed in it. The
+buckets were read before and after by a read-only listing run inside the app container with the
+server's own settings (names, content type, size, first 8 bytes; no key printed). The account is
+the only user, so no key was erased or destroyed and the account was not moved between customer
+keys.
+
+| Page / surface | What was driven | Result |
+| --- | --- | --- |
+| The buckets, before the deploy | read | `chat-docs`: 3 documents (a .docx, two .pptx), each starting `504b0304` (an Office ZIP), with the Office content types; `datasets`: none |
+| Admin → IAM → Settings → Customer keys, after the deploy | read | "Stored files", the button, and "Last pass 1 minute ago (system:kms): 3 files checked (3 documents, 0 dataset copies) · 3 encrypted under their owner's key." The hourly pass ran at boot |
+| The buckets | read | The same 3 documents, each starting `0041535345414c01` (sealed), content type `application/vnd.agentswarms.sealed; kid=eef4de9bca22`, each exactly 49 bytes larger (the header and one tag). Measured: the hosted store keeps the `kid` parameter, so a pass tells a file's key from the listing alone |
+| **Encrypt stored files** | refused | The classifier refused the press (it rewrites every user's stored files); not retried. The pass behind it is the one that ran at boot; the server function is unit-tested (superadmin only, the pass, its audit row) |
+| Agent Chat, the R413 note's conversation, after a reload | **Download** | `GET /api/chat-docs?path=…/173cbc71….docx` → 200; the page got 40,531 bytes starting `504b0304`: the original document, opened from the 40,580-byte sealed object. (The link click was recorded in the page rather than saving a file to Downloads.) |
+| Word mode: "A one-page note titled R441 stored files check, with two short bullet points…" | send | "A-one-page-note-titled-R441-stored-files.docx · Word · ready"; `POST /api/chat-docs?doc=96b69733…&format=docx` → 200; the bucket: 13,618 bytes, sealed, `kid=eef4de9bca22` |
+| Reload; that card | **Download** | 13,569 bytes, `504b0304`: the document as built |
+| Data Catalog → Workbench → Upload data: `r441_sealed_copy.csv`, 6,000 generated rows (built in the page and handed to the dialog's file input: the pane cannot pick a file from disk) | **Create dataset** | "Dataset created r441_sealed_copy 6,000 rows · 4 columns · CSV"; `datasets`: one object, 14,078 bytes, sealed, `kid=eef4de9bca22` |
+| Semantic Layer → Employee Roster (loads every dataset of the account on the server) | **Validate** | "All 12 checks pass — fields run, joins and grain measure as declared. …"; the container's cache: `1bd48587….623704ca1904.parquet`, 14,029 bytes, `PAR1 … PAR1`: the copy opened under the owner's key (the sealed object less its 49 bytes); no warning in the server log |
+| Audit log | read | `security.stored_files.seal` · stored files · "via scheduled · 3 files checked (3 documents, 0 dataset copies) · 3 encrypted under their owner's key" |
+| `/docs/secrets`, `/docs/iam`, `/docs/self-hosting/configuration`, `/docs/playground` | read | The new passages render. The configuration page's Parquet mirror row now reads "on · 0 turns mirroring off."; it said "off", which the code never defaulted to |
+
+Nothing broken was found. The console's "An unknown error occurred when fetching the script" is the
+service worker's registration, which this browser pane never completes (seen in earlier rounds).
+
+Not driven live: an erased user key or a destroyed customer key (the account is the only user;
+unit-tested: the document says why, the dataset copy is not used and the dataset answers from its
+rows, the pass leaves the file as it is); moving the account between customer keys (a re-wrap of
+its user key that rewrites no file; unit-tested); a document above `CHAT_DOC_MAX_BYTES`; the
+button press.
+
+Fixtures kept: the dataset `r441_sealed_copy` (6,000 rows) and its sealed copy; the R441 document,
+in the R413 note's conversation.
+
 ## 2026-11-03 — R440: lakehouse files under customer keys
 
 The user chose the next roadmap item: a customer key in AWS KMS also covers its members' lakehouse

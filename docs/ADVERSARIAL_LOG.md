@@ -109,6 +109,67 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-03 — R441: generated documents and dataset copies under their owner's key
+
+**What was built.** The roadmap's next item after R440: uploads, generated documents and exports.
+Mapping where they actually live changed the plan. The documents chat generates and the columnar
+copies of uploaded datasets are in Supabase Storage (`chat-docs`, `datasets`), not the object store
+the design assumed, and Supabase Storage cannot encrypt under a customer's key. Exports are streamed
+to the browser and never stored; an uploaded file is parsed into rows and not kept. So the app now
+seals each stored file itself, under its owner's user key: AES-256-GCM in 1 MiB chunks, each chunk
+bound to the object's bucket and path, its index and whether it is the last. Every customer key
+covers its members' files whatever its kind, an erased user key leaves that user's files
+unreadable, and a move between customer keys rewrites none (it re-wraps the user key). A document
+is stored and fetched through `/api/chat-docs`, for its owner only; a dataset copy is opened into
+the local cache, and each process asks for its key again before using a cached one. Files from
+before are sealed by an hourly pass (`STORED_FILES_PER_PASS`) and by **Encrypt stored files**: a
+document in place, a dataset copy rebuilt from its rows (sealing one in place could put an older
+copy over a newer one written meanwhile); a file under a key that is gone is left. A sealed
+object's content type names its key, so a pass reads keys from the listing.
+
+**Attacks considered.**
+
+- *Copy a user's sealed document into another user's folder, or into another path of one's own.*
+  Each chunk's additional data holds the bucket and path: it does not open elsewhere (tested).
+- *Cut a file short at a chunk boundary, drop or swap a chunk.* The last chunk is marked in its
+  additional data and each nonce carries its index: none of these opens (tested, and the mutants
+  that drop the mark or the place are caught).
+- *A header naming a huge chunk size,* to make the server allocate. Refused before any key is asked
+  for (a mutant that only checks the lower bound survived the first run; the test now carries
+  content and checks the message).
+- *Fetch another user's document* through the route with one's own session. The path's owner must
+  be the caller; a mismatch is a 404 before anything is downloaded (tested).
+- *A filename that injects a header* through Content-Disposition. Quotes, CR/LF, slashes and
+  non-ASCII are stripped (tested).
+- *Trust a cached dataset copy after its key is erased elsewhere.* Each process remembers which key
+  a cached file came from and asks for it again (within `DATA_KEY_CACHE_SECONDS`); a cached file
+  it has no record of, as after a restart, is downloaded again (tested).
+- *A legacy plaintext file taken for a sealed one, or the reverse.* Office files start `PK`, Parquet
+  `PAR1`; a sealed file starts with a NUL. The magic decides, never the content type.
+- *The owner's own browser writing plaintext into their `chat-docs` folder.* The bucket's owner
+  policies still allow it (no migration this round). Such a file is the owner's own, readable only
+  by them, and the next pass seals it. Said in KEY_MANAGEMENT.md.
+
+**Proved.**
+
+| Check | Result |
+| --- | --- |
+| `sealedFile.test.ts` | round trips from empty to past a chunk; no plaintext left; tampered byte, nonce, cut, dropped chunk, swapped chunks, another path, another key; malformed headers refused before a key is asked for |
+| `storedFiles.test.ts` | the owner from the path (no climb, no empty segment), the key from the content type, the pass line accounting for every file |
+| `storedFilesServer.test.ts` | over an in-memory Storage and the real key hierarchy: ciphertext under the owner's key; a move rewrites nothing; erased and destroyed keys said in words; a conflict stores nothing; the pass seals, moves off the deployment's key, leaves files under a gone key, honours its limit, rebuilds copies and never rebuilds one under a gone key; the hourly pass audits only when it did something |
+| `chatDocsRoute.test.ts` | the route over the same: sealed in the caller's folder; refusals (session, id, format, empty, size, rate); another user's path is a 404; an erased key says so |
+| `parquetMirrorSealed.test.ts` | the mirror's own code: the copy sealed; not written when the owner's key cannot be had; the cache opened, reused, dropped when the key is erased, re-fetched after a restart |
+| `customerKeyFunctions.test.ts` | **Encrypt stored files**: superadmin only, the pass and its audit row; the card's last pass, and its error when the trail cannot be read |
+| mutation | 24 of 24 killed (two survivors in the first run were weak tests, now fixed), the controls survived |
+| UI | UI_TEST_RESULTS, R441: the hosted store holds the documents sealed (measured: it keeps the `kid` parameter); old and new documents download whole; a dataset copy sealed in the bucket and opened in the cache |
+
+**Not covered.** The chat messages around a document, with its thumbnail, and a dataset's rows:
+Postgres rows, the later items. Profile pictures (public by design). Model artifacts and run
+staging in the lake bucket (SSE-KMS, as lakehouse files; a sandbox writes through presigned URLs,
+so the runtime image would send the key's headers). An erased or destroyed key and a move
+between customer keys, live: the account is the only user. The **Encrypt stored files** press: the
+classifier refused it.
+
 ### 2026-11-03 — R440: lakehouse files under customer keys
 
 **What was built.** The roadmap's next item, as the user chose it: a customer key in AWS KMS also

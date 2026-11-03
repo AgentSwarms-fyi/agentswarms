@@ -133,9 +133,13 @@ native app.
 
 ### Where generated files live (retention)
 
-The generated file is uploaded to a private **`chat-docs`** storage bucket and
-the preview card references it, so **Download still works after you reload** —
-until the conversation is purged. How long that is comes from the agent's
+The app keeps the generated file in a private **`chat-docs`** storage bucket,
+encrypted under your own user key (and so under your customer key, if an admin
+assigned you one; see
+[Stored files](./KEY_MANAGEMENT.md#stored-files)), and the preview card
+references it, so **Download still works after you reload**, until the
+conversation is purged. Download fetches it through the app, which opens it
+for you and nobody else. How long that is comes from the agent's
 **Chat history retention** setting (agent builder → **Memory**), which defaults
 to **7 days** and can only be **increased** (7-day floor). A scheduled purge
 deletes messages past the window and removes their stored files with them.

@@ -1603,6 +1603,11 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
     await import("@/utils/data/parquet.server")
       .then((m) => m.sweepDatasetMirrors())
       .catch((e) => fold("parquet-sweep", e));
+    // Generated documents and dataset copies stored before R441, or under a
+    // key other than their owner's: put under it, a bounded number an hour.
+    await import("@/utils/storage/storedFiles.server")
+      .then((m) => m.sweepStoredFiles(force))
+      .catch((e) => fold("stored-files", e));
     await import("@/utils/integrations/health.server")
       .then(async (m) => {
         await m.checkIntegrationHealth(force);

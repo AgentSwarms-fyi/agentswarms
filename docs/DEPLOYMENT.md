@@ -71,7 +71,7 @@ All options share the same two prerequisites.
    | Variable                                        | Why                                                                                                                                                                                                                                           |
    | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
    | `PROVIDER_CREDS_SECRET`                         | **Required** if anyone uses warehouses, Secrets, or Data Catalog — the AES-256 key encrypting stored credentials. Set once (`openssl rand -hex 32`); rotation is supported — see SECURITY.md#rotating-the-credential-key.                     |
-   | `PROVIDER_CREDS_SECRET_OLD`                     | Optional. Previous credential keys, comma-separated, accepted for decryption only while you rotate. Remove once the re-encrypt sweep reports nothing left on them: it also re-wraps every user's key, which the old key may still wrap.                                                                            |
+   | `PROVIDER_CREDS_SECRET_OLD`                     | Optional. Previous credential keys, comma-separated, accepted for decryption only while you rotate. Remove once the re-encrypt sweep reports nothing left on them: it also re-wraps every user's key, which the old key may still wrap.       |
    | `SITE_URL`                                      | Your public URL — used in email links and as the default origin for scheduled work.                                                                                                                                                           |
    | `RESEND_API_KEY` **or** `SMTP_*` + `EMAIL_FROM` | Outbound app email (welcome, budget alerts, BI alerts, scheduled reports, approvals, contact form). `EMAIL_FROM` must be on a **verified** domain — see [Email delivery](#email-delivery). Without a transport, sends are skipped and logged. |
    | `BI_CRON_TOKEN`                                 | Lets an external scheduler drive background jobs — see [Scheduling](#scheduling--background-jobs).                                                                                                                                            |
@@ -1797,6 +1797,12 @@ It is strictly a **cache**: `user_data_rows` remains the source of truth, and a
 mirror is used only when its `parquet_synced_at` is at least as new as the
 dataset's `data_loaded_at`. Anything else falls back to reading rows, so a
 missing or stale mirror costs speed and never correctness.
+
+The object in the bucket is **encrypted by the app under the dataset owner's
+user key** (R441), so the bucket holds ciphertext; the local cache holds the
+opened file DuckDB reads, and a process asks for the key again before using a
+cached copy. A copy whose key is gone is not used: the dataset answers from
+its rows. See [Stored files](./KEY_MANAGEMENT.md#stored-files).
 
 **SHARED datasets are never mirrored**, and this is deliberate. A mirror holds
 the full table with no row filter and no column mask, so a per-grantee mirror

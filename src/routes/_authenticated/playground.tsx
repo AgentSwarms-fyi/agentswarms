@@ -1225,21 +1225,31 @@ function PlaygroundPage() {
       }
       // Show the result as a preview card in chat (thumbnail + download button)
       // instead of auto-downloading. The blob URL lives for this session; the
-      // file is also parked in the private `chat-docs` bucket so the Download
-      // button still works after a reload (via a signed URL) until the agent's
-      // retention window purges it.
+      // file is also kept in the private `chat-docs` bucket so the Download
+      // button still works after a reload, until the agent's retention window
+      // purges it. The server stores it encrypted under this user's key (R441).
       const url = URL.createObjectURL(built.blob);
       const docId = crypto.randomUUID();
       let path: string | undefined;
       if (user) {
         try {
-          const p = `${user.id}/${docId}.${format}`;
-          const { error } = await supabase.storage
-            .from("chat-docs")
-            .upload(p, built.blob, { contentType: DOC_MIME[format], upsert: true });
-          if (!error) path = p;
+          const res = await fetch(`/api/chat-docs?doc=${docId}&format=${format}`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": DOC_MIME[format] },
+            body: built.blob,
+          });
+          const out = (await res.json().catch(() => ({}))) as { path?: string; error?: string };
+          if (res.ok && out.path) path = out.path;
+          else {
+            // Said, not swallowed: without it the Download button would stop
+            // working after a reload with no word why.
+            toast.warning("Document built, but not kept for later", {
+              description: `${out.error ?? `The server answered ${res.status}.`} Download it now — it won't be here after a reload.`,
+              duration: 12000,
+            });
+          }
         } catch {
-          /* storage unavailable (bucket not migrated yet) → session-only download */
+          /* server unreachable → session-only download */
         }
       }
       const docMeta = { format, filename: built.filename, thumb: built.thumb, path };
@@ -3282,17 +3292,32 @@ function DocResultCard({ doc }: { doc: DocResultMeta }) {
       trigger(doc.url);
       return;
     }
-    // Reloaded session: fetch a short-lived signed URL for the stored file.
+    // Reloaded session: the server opens the stored file (it is encrypted
+    // under its owner's key) and sends it back.
     if (doc.path) {
       setBusy(true);
       try {
-        const { data, error } = await supabase.storage
-          .from("chat-docs")
-          .createSignedUrl(doc.path, 300, { download: doc.filename });
-        if (error || !data?.signedUrl) throw error ?? new Error("no url");
-        trigger(data.signedUrl);
-      } catch {
-        toast.error("This document has expired or is no longer available.");
+        const { data: sess } = await supabase.auth.getSession();
+        const token = sess.session?.access_token;
+        if (!token) throw new Error("Please sign in again");
+        const res = await fetch(
+          `/api/chat-docs?path=${encodeURIComponent(doc.path)}&filename=${encodeURIComponent(doc.filename)}`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        if (!res.ok) {
+          const out = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(out.error ?? "This document has expired or is no longer available.");
+        }
+        const href = URL.createObjectURL(await res.blob());
+        trigger(href);
+        setTimeout(() => URL.revokeObjectURL(href), 60_000);
+      } catch (e) {
+        toast.error(
+          (e as Error).message || "This document has expired or is no longer available.",
+          {
+            duration: 10000,
+          },
+        );
       } finally {
         setBusy(false);
       }

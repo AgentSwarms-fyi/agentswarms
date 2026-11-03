@@ -89,6 +89,16 @@ replica count when sizing against your warehouse's `max_connections`.
 | `UPLOAD_MAX_ROWS`  | `500000`             | Largest dataset accepted, in rows |
 | `UPLOAD_MAX_BYTES` | `104857600` (100 MB) | Largest file accepted             |
 
+### Generated documents — `src/routes/api/chat-docs.ts`
+
+| Setting               | Default            | What it bounds                               |
+| --------------------- | ------------------ | -------------------------------------------- |
+| `CHAT_DOC_MAX_BYTES`  | `52428800` (50 MB) | Largest generated document the app keeps     |
+| `CHAT_DOC_PER_MINUTE` | `30`               | Documents one user may have kept, per minute |
+
+A document above the limit is still delivered for the session; the chat says
+it will not be there after a reload.
+
 Local datasets are a laptop-scale convenience — CSVs, sample data, SaaS syncs —
 not a warehouse replacement. Past a few million rows, link the warehouse table
 instead of importing it.
