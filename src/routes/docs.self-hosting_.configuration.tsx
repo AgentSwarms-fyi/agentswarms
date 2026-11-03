@@ -771,9 +771,12 @@ AUDIT_ARCHIVE_ON_PURGE="1"
         deployment&apos;s key. After it, <strong>Re-encrypt to current key</strong> moves what was
         stored before onto its owners&apos; keys (the card counts those as on the deployment key,
         not yet on their owner&apos;s). A database backup taken before an erasure still holds the
-        erased key: only a customer key deleted in its own KMS reaches backups. Chat history,
-        documents and lakehouse files are not under these keys yet (the design is in{" "}
-        <C>docs/KEY_MANAGEMENT.md</C>
+        erased key: only a customer key deleted in its own KMS reaches backups. A key in AWS KMS
+        also has the store encrypt its members&apos; lakehouse files under it when the lakehouse is
+        on S3 (<C>LAKEHOUSE_SSE_KMS</C>: <C>auto</C> by default, on for AWS S3; <C>on</C> for an
+        S3-compatible store with KMS keys; <C>off</C>), as long as the key is in the bucket&apos;s
+        region and the lakehouse&apos;s storage identity may use it. Chat history and documents are
+        not under these keys yet (the design is in <C>docs/KEY_MANAGEMENT.md</C>
         ).
       </Callout>
 

@@ -21,6 +21,16 @@ import {
   removeCustomerKeyMember,
 } from "@/utils/kms/keyStore.server";
 import { keyRefProvider, type ProbeResult } from "@/utils/kms/types";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import {
+  checkStoreUnderKey,
+  customerKeyFilesView,
+  filesPassDetail,
+  lakehouseSseMode,
+  reEncryptFilesAfterMove,
+  reEncryptLakehouseFiles,
+  type FilesPassResult,
+} from "@/utils/lakehouse/customerKeyFiles.server";
 import { customerKeyProvider, keyHierarchy } from "./crypto.server";
 import {
   expectedCustomerKeys,
@@ -51,6 +61,23 @@ export type CustomerKeyView = {
   userKeys: number;
   /** Covered users whose user key is not under it yet, or users under it no longer covered. */
   toMove: number;
+  /** Its members' lakehouse files: under the customer's KMS key, or why not (R440). */
+  lakehouseFiles: { kmsKeyId: string | null; why: string | null; schemas: number };
+};
+
+export type LakehouseFilesState = {
+  /** The store encrypts files under customer keys, and why (LAKEHOUSE_SSE_KMS). */
+  on: boolean;
+  why: string;
+  /** Schemas left as they are: their owner's groups name two customer keys. */
+  conflictedSchemas: number;
+  /** The last re-encrypt pass, from the audit trail. */
+  lastPass: {
+    at: string;
+    by: string | null;
+    detail: Record<string, string | number | boolean>;
+  } | null;
+  error?: string;
 };
 
 export type CustomerKeysPayload = {
@@ -58,12 +85,60 @@ export type CustomerKeysPayload = {
   /** False until migration 20261105000000 is applied: the card says so. */
   enabled: boolean;
   keys: CustomerKeyView[];
+  lakehouseFiles: LakehouseFilesState;
   /** Users whose groups name two customer keys: nothing new is stored for them. */
   conflicts: Array<{ userId: string; keyIds: string[] }>;
   /** Live user keys, per user: what the erase control lists. */
   userKeys: Array<{ userId: string; kid: string; customerKeyId: string | null; createdAt: string }>;
   summary: UserKeySummary;
 };
+
+const FILES_PASS = "security.lakehouse_files.reencrypt";
+
+/** The store's mode, what each key does for files, and the last pass. */
+async function lakehouseFilesState(): Promise<{
+  state: LakehouseFilesState;
+  perKey: Awaited<ReturnType<typeof customerKeyFilesView>>["perKey"];
+}> {
+  const view = await customerKeyFilesView();
+  let lastPass: LakehouseFilesState["lastPass"] = null;
+  const { data: rows, error: auditError } = await supabaseAdmin
+    .from("audit_events")
+    .select("created_at, actor_email, detail")
+    .eq("action", FILES_PASS)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  const last = rows?.[0] as
+    { created_at: string; actor_email?: string | null; detail: unknown } | undefined;
+  if (last) {
+    lastPass = {
+      at: last.created_at,
+      by: last.actor_email ?? null,
+      // The counts and the reason only: what the card prints (and serialisable).
+      detail: Object.fromEntries(
+        Object.entries((last.detail ?? {}) as Record<string, unknown>).filter(
+          (e): e is [string, string | number | boolean] =>
+            ["string", "number", "boolean"].includes(typeof e[1]),
+        ),
+      ),
+    };
+  }
+  return {
+    state: {
+      on: view.mode.on,
+      why: view.mode.why,
+      conflictedSchemas: view.conflictedSchemas,
+      lastPass,
+      // A last pass that could not be read is said, not shown as none.
+      ...(view.error
+        ? { error: view.error }
+        : auditError
+          ? { error: `The last pass could not be read from the audit trail: ${auditError.message}` }
+          : {}),
+    },
+    perKey: view.perKey,
+  };
+}
 
 /** Read-only: every customer key, who it covers, and the user keys. */
 export const getCustomerKeys = createServerFn({ method: "POST" })
@@ -79,11 +154,13 @@ export const getCustomerKeys = createServerFn({ method: "POST" })
           ok: true,
           enabled: false,
           keys: [],
+          lakehouseFiles: (await lakehouseFilesState()).state,
           conflicts: [],
           userKeys: [],
           summary: ctx.summary,
         };
       }
+      const files = await lakehouseFilesState();
       const members = await listCustomerKeyMembers();
       const live = ctx.userKeys.filter((k) => !k.erased_at);
       const keys = ctx.customerKeys.map((c): CustomerKeyView => {
@@ -114,6 +191,11 @@ export const getCustomerKeys = createServerFn({ method: "POST" })
           coveredUsers: covered.length,
           userKeys: under.length,
           toMove,
+          lakehouseFiles: files.perKey.get(c.id) ?? {
+            kmsKeyId: null,
+            why: files.state.error ?? files.state.why,
+            schemas: 0,
+          },
         };
       });
       const conflicts = [...ctx.expected]
@@ -123,6 +205,7 @@ export const getCustomerKeys = createServerFn({ method: "POST" })
         ok: true,
         enabled: true,
         keys,
+        lakehouseFiles: files.state,
         conflicts,
         userKeys: live.map((k) => ({
           userId: k.user_id,
@@ -255,12 +338,32 @@ export const checkCustomerKey = createServerFn({ method: "POST" })
         };
       }
       const probe = await customerKeyProvider(row).probe();
+      // A key that covers lakehouse files: the store is asked to use it too.
+      const store = await checkStoreUnderKey(row).catch(
+        (e): Awaited<ReturnType<typeof checkStoreUnderKey>> => ({
+          covered: true,
+          ok: false,
+          detail: `The lakehouse store could not be checked: ${(e as Error).message}`,
+        }),
+      );
       return {
         ok: true,
-        detail: probe.ok
-          ? `Unwrapped by ${row.key_ref}; ${probe.detail}`
-          : `Unwrapped by ${row.key_ref}, but the provider's own check says: ${probe.detail}`,
-        facts: probe.facts ?? [],
+        detail:
+          (probe.ok
+            ? `Unwrapped by ${row.key_ref}; ${probe.detail}`
+            : `Unwrapped by ${row.key_ref}, but the provider's own check says: ${probe.detail}`) +
+          (store.covered ? ` ${store.detail}` : ""),
+        facts: [
+          ...(probe.facts ?? []),
+          {
+            label: "Lakehouse files",
+            value: store.covered
+              ? store.ok
+                ? "Encrypted by the store under this key"
+                : "The store did not encrypt under this key"
+              : store.why,
+          },
+        ],
       };
     } catch (e) {
       return { ok: false, error: (e as Error).message };
@@ -283,16 +386,40 @@ export type MembershipPayload = {
   valuesReEncrypted: number;
   valuesFailed: number;
   ownerFailures: SweepResult["ownerFailures"];
+  /** Their lakehouse files are put under the key they now belong under, in the background. */
+  lakehouseFilesFollow: boolean;
 };
 
-const membershipResult = (users: number, r: SweepResult): MembershipPayload => ({
+const membershipResult = (
+  users: number,
+  r: SweepResult,
+  lakehouseFilesFollow: boolean,
+): MembershipPayload => ({
   ok: true,
   users,
   userKeysRewrapped: r.userKeysRewrapped,
   valuesReEncrypted: r.totalMigrated,
   valuesFailed: r.totalFailed,
   ownerFailures: r.ownerFailures,
+  lakehouseFilesFollow,
 });
+
+/**
+ * After a move: the users' lakehouse files follow their key, once every
+ * worker writes under it. Said only when the store encrypts under customer
+ * keys and some live customer key is in AWS KMS (the pass's own guard).
+ */
+function filesFollow(
+  affected: string[],
+  why: string,
+  keys: Array<{ provider: string; destroyed_at: string | null }>,
+  actor: { userId: string; email: string | null },
+): boolean {
+  if (!affected.length || !lakehouseSseMode().on) return false;
+  if (!keys.some((k) => k.provider === "aws" && !k.destroyed_at)) return false;
+  reEncryptFilesAfterMove(affected, why, actor);
+  return true;
+}
 
 /**
  * Assign a user or an IAM group to a customer key, then move everyone it
@@ -367,6 +494,7 @@ export const assignCustomerKey = createServerFn({ method: "POST" })
         addedBy: guard.userId,
       });
       const swept = await reEncryptOwners(affected);
+      const follow = filesFollow(affected, `assignment to "${key.name}"`, keys, guard);
       auditEvent({
         userId: guard.userId,
         actorEmail: guard.email,
@@ -379,9 +507,10 @@ export const assignCustomerKey = createServerFn({ method: "POST" })
           [isUser ? "user_id" : "group_id"]: data.principal_id,
           users: affected.length,
           ...sweepDetail(swept),
+          lakehouse_files_follow: follow,
         },
       });
-      return membershipResult(affected.length, swept);
+      return membershipResult(affected.length, swept, follow);
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
@@ -404,7 +533,14 @@ export const unassignCustomerKey = createServerFn({ method: "POST" })
         : ((await groupMembers([removed.group_id as string])).get(removed.group_id as string) ??
           []);
       const swept = await reEncryptOwners(affected);
-      const key = (await listCustomerKeys()).find((c) => c.id === removed.customer_key_id);
+      const keys = await listCustomerKeys();
+      const key = keys.find((c) => c.id === removed.customer_key_id);
+      const follow = filesFollow(
+        affected,
+        `removal from "${key?.name ?? removed.customer_key_id}"`,
+        keys,
+        guard,
+      );
       auditEvent({
         userId: guard.userId,
         actorEmail: guard.email,
@@ -416,9 +552,10 @@ export const unassignCustomerKey = createServerFn({ method: "POST" })
           [removed.user_id ? "user_id" : "group_id"]: removed.user_id ?? removed.group_id,
           users: affected.length,
           ...sweepDetail(swept),
+          lakehouse_files_follow: follow,
         },
       });
-      return membershipResult(affected.length, swept);
+      return membershipResult(affected.length, swept, follow);
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
@@ -433,33 +570,69 @@ export const destroyCustomerKey = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
     token.extend({ id: uuid, confirm_name: z.string().max(80) }).parse(input),
   )
-  .handler(async ({ data }): Promise<{ ok: true; userKeysErased: number } | Fail> => {
+  .handler(
+    async ({
+      data,
+    }): Promise<{ ok: true; userKeysErased: number; lakehouseSchemasLeft: number } | Fail> => {
+      const guard = await requireSuperadmin(data.access_token);
+      if (!guard.ok) return { ok: false, error: guard.error };
+      try {
+        const row = (await listCustomerKeys()).find((c) => c.id === data.id);
+        if (!row) return { ok: false, error: "That customer key does not exist" };
+        if (row.destroyed_at) return { ok: false, error: "That customer key is already destroyed" };
+        if (data.confirm_name.trim() !== row.name) {
+          return { ok: false, error: `Type the key's name, ${row.name}, to destroy it` };
+        }
+        // Its members' lakehouse files stay under the customer's own KMS key:
+        // the app cannot destroy that, and moves no file off it (R440). Said.
+        const files = (await customerKeyFilesView()).perKey.get(row.id);
+        const schemasLeft = files?.kmsKeyId ? files.schemas : 0;
+        const erased = await destroyCustomerKeyRow(row.id, guard.userId);
+        keyHierarchy().forgetCustomer(row.id);
+        auditEvent({
+          userId: guard.userId,
+          actorEmail: guard.email,
+          action: "security.customer_key.destroy",
+          resourceType: "security",
+          resourceName: row.name,
+          resourceId: row.id,
+          detail: {
+            provider: row.provider,
+            key_ref: row.key_ref,
+            kid: row.kid,
+            user_keys_erased: erased,
+            ...(schemasLeft ? { lakehouse_schemas_left_under_key: schemasLeft } : {}),
+          },
+        });
+        return { ok: true, userKeysErased: erased, lakehouseSchemasLeft: schemasLeft };
+      } catch (e) {
+        return { ok: false, error: (e as Error).message };
+      }
+    },
+  );
+
+/**
+ * Put every lakehouse file under the key its schema's owner is under, now:
+ * the card's "Re-encrypt lakehouse files". It reads how every file is stored
+ * (one request per file) and copies in place the ones that are not; on a
+ * large lakehouse that takes a while.
+ */
+export const reEncryptLakehouseFilesNow = createServerFn({ method: "POST" })
+  .validator((input: unknown) => token.parse(input))
+  .handler(async ({ data }): Promise<FilesPassResult | Fail> => {
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) return { ok: false, error: guard.error };
     try {
-      const row = (await listCustomerKeys()).find((c) => c.id === data.id);
-      if (!row) return { ok: false, error: "That customer key does not exist" };
-      if (row.destroyed_at) return { ok: false, error: "That customer key is already destroyed" };
-      if (data.confirm_name.trim() !== row.name) {
-        return { ok: false, error: `Type the key's name, ${row.name}, to destroy it` };
-      }
-      const erased = await destroyCustomerKeyRow(row.id, guard.userId);
-      keyHierarchy().forgetCustomer(row.id);
+      const r = await reEncryptLakehouseFiles();
       auditEvent({
         userId: guard.userId,
         actorEmail: guard.email,
-        action: "security.customer_key.destroy",
+        action: FILES_PASS,
         resourceType: "security",
-        resourceName: row.name,
-        resourceId: row.id,
-        detail: {
-          provider: row.provider,
-          key_ref: row.key_ref,
-          kid: row.kid,
-          user_keys_erased: erased,
-        },
+        resourceName: "every schema",
+        detail: { trigger: "Re-encrypt lakehouse files", ...filesPassDetail(r) },
       });
-      return { ok: true, userKeysErased: erased };
+      return r;
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }

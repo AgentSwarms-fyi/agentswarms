@@ -151,9 +151,23 @@ describe("describeMissingDataFile", () => {
   it("is wired into the query path, not just exported", async () => {
     // The redaction fix that preceded this one covered engine boot only, so
     // query errors — the ones users actually hit — went out untouched.
+    //
+    // What this pins is the caught error's own message reaching the explainer
+    // inside the redaction, not how that message is spelt: R440 reads it once
+    // (the customer key explainer reads it too), and the literal this used to
+    // quote failed a correct change.
     const { readFileSync } = await import("node:fs");
     const src = readFileSync("src/utils/lakehouse/core.server.ts", "utf8");
-    expect(src).toContain("describeMissingDataFile((e as Error).message)");
-    expect(src).toMatch(/redactLakehouseSecrets\(\s*describeMissingDataFile/);
+    const m =
+      /const (\w+) = \(e as Error\)\.message;([\s\S]{0,800}?)record\("error", null, message\)/.exec(
+        src,
+      );
+    expect(m).not.toBeNull();
+    const [, v, body] = m!;
+    expect(body).toMatch(
+      new RegExp(`redactLakehouseSecrets\\(\\s*describeMissingDataFile\\(${v}\\)`),
+    );
+    // R440: a store refusing a customer's key is explained on the same path.
+    expect(body).toMatch(new RegExp(`customerKeyFileError\\(${v}\\)`));
   });
 });

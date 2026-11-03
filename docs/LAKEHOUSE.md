@@ -17,15 +17,16 @@ stateless compute on every app replica.
 
 Two pieces of shared infrastructure, both named in `.env`:
 
-| Variable                                      | What it is                                                        |
-| --------------------------------------------- | ----------------------------------------------------------------- |
-| `LAKEHOUSE_CATALOG_URL`                       | Postgres every replica can reach (`postgres://u:p@host/db`)       |
-| `LAKEHOUSE_DATA_URL`                          | Object-storage prefix for table data (`s3://lakehouse/main`)      |
-| `LAKEHOUSE_S3_ENDPOINT`                       | `host:port` for SILO/MinIO/R2/etc.; omit for AWS S3               |
-| `LAKEHOUSE_S3_KEY_ID` / `LAKEHOUSE_S3_SECRET` | Credentials for that prefix                                       |
-| `LAKEHOUSE_S3_URL_STYLE`                      | `path` for SILO and MinIO, `vhost` for AWS                        |
-| `LAKEHOUSE_S3_USE_SSL`                        | `false` for the plain-HTTP bundled store                          |
-| `LAKEHOUSE_CATALOG_CONNECTIONS`               | Catalog sessions one app worker may hold (default 8); see Scaling |
+| Variable                                      | What it is                                                         |
+| --------------------------------------------- | ------------------------------------------------------------------ |
+| `LAKEHOUSE_CATALOG_URL`                       | Postgres every replica can reach (`postgres://u:p@host/db`)        |
+| `LAKEHOUSE_DATA_URL`                          | Object-storage prefix for table data (`s3://lakehouse/main`)       |
+| `LAKEHOUSE_S3_ENDPOINT`                       | `host:port` for SILO/MinIO/R2/etc.; omit for AWS S3                |
+| `LAKEHOUSE_S3_KEY_ID` / `LAKEHOUSE_S3_SECRET` | Credentials for that prefix                                        |
+| `LAKEHOUSE_S3_URL_STYLE`                      | `path` for SILO and MinIO, `vhost` for AWS                         |
+| `LAKEHOUSE_S3_USE_SSL`                        | `false` for the plain-HTTP bundled store                           |
+| `LAKEHOUSE_CATALOG_CONNECTIONS`               | Catalog sessions one app worker may hold (default 8); see Scaling  |
+| `LAKEHOUSE_SSE_KMS`                           | `auto` (default), `on` or `off`: files under customer keys (below) |
 
 Compose ships a catalog Postgres (`lakehouse-catalog`) and starts it with
 everything else; any Postgres 12+ works instead, including a self-hosted
@@ -533,6 +534,21 @@ attached as) is checked as `schema.table`; any other catalog is refused.
 Every statement — refusals included — lands in the user's **query history**
 and in the platform **audit trail** (`lakehouse.select|dml|ddl`,
 `lakehouse.schema.create|drop`, `lakehouse.import`, `lakehouse.nl2sql`).
+
+### Files under a customer's key
+
+On S3, a schema whose owner is under a **customer key** in AWS KMS (Admin →
+IAM → Settings → Customer keys) has its files encrypted by the store under
+that key: every new file in the schema's folder, whoever writes it, its
+small writes (written as files rather than kept in the catalog), and Delta
+Sharing snapshots of its tables. An assignment copies the files written before
+in place under the key; **Re-encrypt lakehouse files** does it on demand. If
+the customer disables or revokes the key, queries on those schemas fail with
+an error naming the schema and the key, and other schemas are unaffected. A
+Spark cluster reading the lakehouse needs `kms:Decrypt` on the key.
+`LAKEHOUSE_SSE_KMS` (`auto`, on for AWS S3) decides whether the store is asked
+at all. What it needs and what it does not cover:
+[Key management → Lakehouse files](./KEY_MANAGEMENT.md#lakehouse-files).
 
 ## Sharing tables outside the platform (Delta Sharing)
 

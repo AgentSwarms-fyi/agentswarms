@@ -53,6 +53,7 @@ import {
   type AuditRow,
 } from "@/utils/audit.functions";
 import { reportFailure } from "@/lib/silentFailureNet";
+import { filesPassLine } from "@/utils/lakehouse/customerKeyFiles";
 
 const ACTION_META: Record<string, { label: string; className: string }> = {
   "model.call": { label: "model call", className: "bg-primary/10 text-primary" },
@@ -201,9 +202,16 @@ function describeDetail(r: AuditRow): string {
       ? count(d.values_reencrypted, "value re-encrypted", "values re-encrypted")
       : null,
     count(d.user_keys_erased, "user key erased", "user keys erased"),
+    count(
+      d.lakehouse_schemas_left_under_key,
+      "lakehouse schema left under the customer's KMS key",
+      "lakehouse schemas left under the customer's KMS key",
+    ),
   ]) {
     if (bit) bits.push(bit);
   }
+  // A lakehouse files pass (R440): what it checked, moved and could not.
+  if (r.action === "security.lakehouse_files.reencrypt") bits.push(filesPassLine(d));
   if (d.status === "error") bits.push("ERROR");
   // A call whose caller left before its answer ended (R363), in the Traces
   // page's word for it. It read like a success.

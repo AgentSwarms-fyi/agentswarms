@@ -409,6 +409,12 @@ export const createLakehouseSchema = createServerFn({ method: "POST" })
     const c = await lakehouseConnection();
     try {
       await c.run(`CREATE SCHEMA IF NOT EXISTS ${qi(data.name)}`);
+      // An owner under a customer key: the new schema's files are under that
+      // key from its first write on this worker (R440); other workers sync
+      // within seconds.
+      await import("@/utils/lakehouse/customerKeyFiles.server")
+        .then((m) => m.ensureCustomerKeySecrets(c, true))
+        .catch((e) => console.warn("[lakehouse] customer key files:", (e as Error).message));
     } catch (e) {
       await supabaseAdmin.from("lakehouse_schemas").delete().eq("id", row.id);
       throw new Error(`Could not create schema in the lakehouse: ${(e as Error).message}`);

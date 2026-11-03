@@ -740,6 +740,7 @@ the customer's; choose **Held by the app** instead.
 | The deployment key a user key is wrapped by is gone (`PROVIDER_CREDS_SECRET_OLD` dropped before the sweep) | That user's values do not read, and a save for them is refused rather than make a new key that would orphan them. Put the old secret back, run the sweep, then retire it.                                            |
 | A wrapped key's stored form is changed (copied to another row, another key's material)                     | Refused: each wrapped key is bound to its own row and fingerprint.                                                                                                                                                   |
 | The migration is not applied                                                                               | Everything is under the deployment's key, as before; the card says so.                                                                                                                                               |
+| The customer disables or revokes a key that covers lakehouse files                                         | Queries and writes on their members' schemas fail, naming the schema and the customer key. Other schemas are unaffected. Turning the key back on brings them back; nothing is lost.                                  |
 
 `DATA_KEY_CACHE_SECONDS` (default 300) is how long a process keeps an
 unwrapped user key or customer key before reading it again. A key erased,
@@ -762,13 +763,96 @@ backup. Erasure that reaches backups needs one of:
   member's data in every backup. This is the strongest guarantee, and the one
   enterprise customers usually mean by "bring your own key".
 
-Customer keys cover what the app encrypts: stored credentials and secrets.
-The data a customer's users work with is not under these keys yet; see the
-next section.
+Customer keys cover what the app encrypts, stored credentials and secrets,
+and, for a key in AWS KMS, its members' lakehouse files (next). The rest of
+the data a customer's users work with is not under these keys yet; see
+[Data beyond credentials](#data-beyond-credentials-design).
+
+### Lakehouse files
+
+A customer key in **AWS KMS** also covers its members' **lakehouse files**
+when the lakehouse is on S3: the store encrypts each file under the customer's
+key (S3 SSE-KMS). A customer who disables or revokes their key stops the store
+serving those files. Queries, Spark and Delta Sharing read the same files as
+before; nothing else changes.
+
+How it works:
+
+- Every schema has its own folder (`<LAKEHOUSE_DATA_URL>/<schema>/`), and
+  every lakehouse write goes through the app's engine. For each schema whose
+  **owner** is under such a key, the engine gets the store's credential again,
+  scoped to that folder and carrying the customer's key, so every new file
+  there is written under it, whoever writes it (someone writing into a shared
+  schema writes under its owner's key). Delta Sharing snapshots of the
+  schema's tables get the same.
+- Small writes that DuckLake would otherwise keep inside its catalog
+  (Postgres) are written as files for those schemas, so they are under the key
+  too. Each app worker sets that on its own catalog attachment: DuckLake reads
+  the option when it attaches, and a worker attached before keeps the old one
+  (measured in the R440 round).
+- An **assignment** puts the members' existing files under the key: once every
+  worker has picked the change up (about 20 seconds), each file is copied in
+  place under the right key. The bytes do not leave the store and the paths do
+  not change, so the catalog is untouched. **Removing** an assignment puts them
+  back on the store's own encryption. **Re-encrypt lakehouse files** on the
+  card does the same for every schema, at any time; it asks the store how each
+  file is stored (one request per file), so on a large lakehouse it takes a
+  while. Every pass is audited (`security.lakehouse_files.reencrypt`) with what
+  it checked and moved, and the card shows the last one.
+- **Check** on such a key also has the store write a small test file under
+  the key, reads back how it was stored, and deletes it.
+
+What it needs:
+
+| What      | Requirement                                                                                                                                                                                                                                                                                                               |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The store | AWS S3. `LAKEHOUSE_SSE_KMS=auto` (the default) is on for AWS S3: no `LAKEHOUSE_S3_ENDPOINT`, or an `amazonaws.com` one (a VPC endpoint). An S3-compatible store that encrypts under KMS keys (MinIO with KES): `LAKEHOUSE_SSE_KMS=on`. `off` turns it off. Any other store is off under `auto`, and the card says so.     |
+| The key   | The key's own ARN (`arn:aws:kms:<region>:<account>:key/<id>`), in the **bucket's region** (`LAKEHOUSE_S3_REGION`): S3 encrypts only under a key in its own region. An alias or a bare key id is not enough: S3 records the key it resolves to.                                                                            |
+| The grant | Besides the grant to the app's identity [above](#creating-a-customer-key), the customer's key policy allows the **lakehouse's storage identity** (the `LAKEHOUSE_S3_KEY_ID` user, or the role the app runs as) `kms:GenerateDataKey` and `kms:Decrypt`. A Spark cluster that reads the lakehouse needs `kms:Decrypt` too. |
+
+The card says, for each key, whether its members' files are under it, and why
+not when they are not.
+
+What it does not cover, said on the card where it applies:
+
+- A customer key **held by the app**, or in Azure Key Vault, Cloud KMS, OCI
+  Vault or Vault Transit: the store cannot use those, so their members' files
+  stay under the store's own encryption.
+- A store that is not S3 with KMS: the bundled SILO, Azure Blob, GCS.
+- **Destroying** a customer key in the app does not touch its members' files:
+  they stay under the customer's KMS key, readable while that key allows, and
+  no pass ever moves a file off a destroyed key (not even when the member is
+  assigned elsewhere later). For them to become unreadable, the customer
+  disables or deletes the key in their own KMS. The destroy dialog and its
+  result say so. **Erasing** a user key does not touch their files either.
+- For about 15 seconds after an assignment, or after a schema is created,
+  another worker may still write a file under the store's own encryption, or
+  keep a small write in the catalog. The pass an assignment starts, the next
+  **Re-encrypt lakehouse files**, and the scheduled maintenance's flush of
+  catalog-held rows catch them.
+- A user whose groups name two customer keys: their schemas are left as they
+  are, and new files are written under the store's own encryption, until one
+  key is chosen.
+- A run's **staging** files (what a pipeline's sandbox reads, and what a Spark
+  run writes before the app loads it) are under the store's own encryption,
+  and deleted when the run ends or within the hour.
+- On a **versioned** bucket, a copy in place leaves the earlier version under
+  the encryption it was written with; a lifecycle rule expiring noncurrent
+  versions removes it.
+- A file larger than 5 GB (one copy request's limit) is counted and left as
+  it is.
+- Uploads, generated documents and exports, and chat, memory and
+  knowledge-base text: see the next section.
+
+When the store refuses a file under a customer key (S3 answers a key the
+customer disabled with HTTP 400 `KMS.DisabledException`, and a key the storage
+identity may not use with 403), the query's error names the schema and the
+customer key and says what to check, and other schemas are unaffected.
 
 ## Data beyond credentials (design)
 
-**Status: designed, not built.** The app encrypts credentials itself. The
+**Status: lakehouse files on S3 are built (R440, above); the rest is designed,
+not built.** The app encrypts credentials itself. The
 data a customer's users bring and make is stored in places the app does not
 encrypt today: Postgres rows (chat history, knowledge-base documents and
 chunks, agent memory, notebooks, BI definitions), the object store
@@ -790,6 +874,12 @@ and the store does the encryption, so search and queries are unaffected),
 then chat and memory text, then knowledge-base text. Each is its own round
 with a measured cost, and none is started without a decision on what may
 stop working.
+
+Lakehouse files were built first, for S3 (R440, decided 2026-11-03): one
+prefix per schema rather than per customer, since a schema is already its own
+folder and its owner is who decides the key; the key passed per request by a
+scoped credential rather than set on a bucket. Uploads, generated documents
+and exports in the object store, and Azure Blob and GCS, are still to do.
 
 ---
 

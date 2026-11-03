@@ -96,6 +96,25 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Lakehouse files under customer keys** (R440). A customer key in AWS KMS
+  now also covers its members' lakehouse files when the lakehouse is on S3:
+  the store encrypts every file of their schemas under the customer's key
+  (S3 SSE-KMS), so a customer who disables or revokes the key stops the store
+  serving them, while queries, Spark and Delta Sharing read the same files as
+  before. Each covered schema's folder gets the store's credential carrying
+  the key, so every write lands under it, including Delta Sharing snapshots
+  and small writes DuckLake would otherwise keep in its catalog. An
+  assignment copies the members' existing files in place under the key, and
+  removing it puts them back; **Re-encrypt lakehouse files** on the Customer
+  keys card does it for every schema, and every pass is audited
+  (`security.lakehouse_files.reencrypt`). **Check** has the store write a test
+  file under the key. A file the store refuses names its schema and customer
+  key. `LAKEHOUSE_SSE_KMS` (`auto`, on for AWS S3; `on`; `off`) decides
+  whether the store is asked; the card says, per key, why one does not cover
+  files (held by the app, another provider, another region, an alias). A key
+  destroyed in the app leaves its members' files under the customer's KMS
+  key, and none is moved off it. No migration. See
+  [Key management → Lakehouse files](./docs/KEY_MANAGEMENT.md#lakehouse-files).
 - **Customer keys and user keys** (R438). Every user's stored credentials are
   now under that user's own key, wrapped by the deployment's key, and **Admin
   → IAM → Settings → Customer keys** creates a key per customer: held by the

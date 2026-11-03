@@ -15,6 +15,55 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-03 — R440: lakehouse files under customer keys
+
+The user chose the next roadmap item: a customer key in AWS KMS also covers its members' lakehouse
+files, encrypted by the store (S3 SSE-KMS). For the round the app's lakehouse was a throwaway one:
+an empty DuckLake catalog in a throwaway Postgres (`r440-catalog`) and a bucket in a LocalStack
+4.14 stand-in (`r440-localstack`, S3 and KMS together), whose KMS also held the customer's key;
+`LAKEHOUSE_SSE_KMS=on`, the app's KMS identity the emulator's test values, the in-process
+scheduler off. The environment was restored afterwards (the same 49 variable names, none of the
+stand-in's). The store and the catalog were read from the host (each object's
+`x-amz-server-side-encryption` headers; the catalog's inlined-data tables). Times are local.
+
+| Page / surface | What was driven | Result |
+| --- | --- | --- |
+| Admin → IAM → Settings → Customer keys | read | "Lakehouse files … The lakehouse store encrypts files under customer keys (LAKEHOUSE_SSE_KMS=on)…"; R438 Acme: "Lakehouse files: Held by the app: the store cannot use a key the app holds, so its members' lakehouse files stay under the store's own encryption." **Found (1):** the card sat on "Checking…" for over a minute: it opened a lakehouse connection, and the first one brought the empty catalog up |
+| Lakehouse → New schema `r440_acme`; `CREATE TABLE r440_acme.orders AS … range(50000)`; a one-row `INSERT` | Create, Run ×2 | "Schema "r440_acme" created"; 50000; 1. The store: one data file, AES256 (the bucket's own); the one row held inline in the catalog |
+| New customer key "R440 Acme KMS", In the customer's KMS, the stand-in key's ARN | **Create customer key** | "Customer key "R440 Acme KMS" created (9a7aba489f1a)…"; "Lakehouse files: the store encrypts them under this key (0 schemas)." |
+| R440 Acme KMS → **Check** | | "Unwrapped by arn:…; Enabled for encryption, in eu-west-1. The lakehouse store wrote a test file under this key (aws:kms) and it was deleted."; fact "Lakehouse files: Encrypted by the store under this key"; no test file left in the bucket |
+| Assign the account | **Assign** | "Assigned rghosh044@gmail.com to "R440 Acme KMS": 1 user, 1 user key re-wrapped, their lakehouse files follow in the background."; "(5 schemas)": the account's five that are not mounts |
+| About 25 s later: the store; the card | read | The data file copied in place under the customer's key; the inlined row written out as a new file under it. Last pass "(rghosh044@gmail.com): 2 files in 5 schemas checked · 1 re-encrypted under a customer key". **Found (3):** nothing said what became of the other file. **Found (2):** every worker logged "inlining not turned off: … not found" every 15 s for the account's schemas the throwaway catalog does not have |
+| A one-row `INSERT`; 200,000 rows; `SELECT count(*), sum(amount) …` | Run ×3 | 1; 200000; "250002 · 4198248.0 · 2": the files under the key read. The 200,000 rows: a file under the key. **Found (4):** the one-row insert was inlined into the catalog (`ducklake_inlined_data_2_2` held "tiny after") though the schema's option said 0 |
+| (probe) two DuckDB instances on one DuckLake catalog, a local file and then Postgres | | An attachment made before another set the schema's inlining option keeps inlining until it sets the option itself; with a Postgres catalog its `ducklake_options()` already shows the option, which the sync had trusted |
+| Fixed build, the same environment: Customer keys on fresh workers | Settings tab | Loaded in 1.3 s |
+| Two workers warmed; New schema `r440_beta`; after 20 s a one-row `CREATE TABLE … AS` and four one-row `INSERT`s, a reload between each | Run ×5 | Five files, all under the key; nothing inlined for `r440_beta` (which worker served each is not visible from the page; the probe and the tests cover the mechanism) |
+| **Re-encrypt lakehouse files** | | "9 files in 6 schemas checked · 9 already under the right key." (`r440_acme`'s inlined row written out under the key first: its inlined-data table 0 rows). **Found (5):** the card's Last pass still showed the pass before; the audit row is written after the answer |
+| Final build: **Re-encrypt lakehouse files** | | the same toast; "Last pass less than a minute ago: 9 files in 6 schemas checked · 9 already under the right key." |
+| Remove the account from R440 Acme KMS | ✕ | "Removed rghosh044@gmail.com from "R440 Acme KMS": 1 user, 1 user key re-wrapped, their lakehouse files follow in the background."; about 25 s later the store: 9 files, AES256; Last pass "(rghosh044@gmail.com): 9 files in 6 schemas checked · 9 back on the store's own encryption." |
+| R440 Acme KMS → **Destroy**, the name typed | **Destroy the key** | The dialog: "… Their lakehouse files stay encrypted under the customer's KMS key, readable while that key allows: for them to become unreadable too, the customer disables or deletes it. …"; ""R440 Acme KMS" destroyed; 0 user keys erased with it." |
+| Audit log | read | `security.customer_key.create`, `.assign`, `.unassign`, `.destroy` ("customer key 9a7aba489f1a · 0 user keys erased"); `security.lakehouse_files.reencrypt` ×4, e.g. "via assignment to "R440 Acme KMS" · 1 user · 2 files in 5 schemas checked · 1 re-encrypted under a customer key · 1 already under the right key" and "via removal from "R440 Acme KMS" · 1 user · 9 files in 6 schemas checked · 9 back on the store's own encryption" |
+| After the restore: Customer keys; Lakehouse; `/docs/lakehouse#customer-keys` | read | "Lakehouse files — Stay under the store's own encryption: The lakehouse store is 192.168.1.85, not AWS S3, and may not encrypt with KMS keys. Set LAKEHOUSE_SSE_KMS=on if it does (MinIO with KES, for one)."; no per-key line, no button; "14 schemas · 78 tables"; the new section renders |
+
+Fixed from this round (R440, before its commit), each with a test and a mutant: the card no longer
+opens the lakehouse (1); a schema the catalog does not have is skipped, without a warning (2); the
+pass line counts files already under the right key (3); each worker sets the inlining option on its
+own attachment (4); the card shows a pass run from the page until the audit trail has it (5).
+
+Seen during the window: four data monitors ran at 04:07 and failed against the throwaway catalog
+(their tables are not in it). `DISABLE_INPROCESS_SCHEDULER` stops the in-process tick, but a
+signed-in page's catch-up call to `/api/bi/cron` runs what is due. Their next scheduled run on the
+real lakehouse replaces the verdict.
+
+Not driven live: the customer revoking the key (LocalStack 4.14 does not enforce a disabled key on
+S3 reads or writes, measured; the refusal's message is unit-tested on S3's documented 400 and 403),
+a Delta Sharing snapshot (it needs a recipient token, which is never copied off the page; the
+snapshot's scoped credential is unit-tested), a file over 5 GB, a versioned bucket.
+
+Fixtures kept: the destroyed R440 Acme KMS (9a7aba489f1a); the stand-ins `r440-localstack` and
+`r440-catalog`, stopped. Removed: the schemas `r440_acme` and `r440_beta`, dropped in the UI before
+the restore (their rows would have pointed at a catalog that is gone).
+
 ## 2026-11-03 — R439: customer keys and user keys (R438, part two, with the migration in)
 
 The user pushed `20261105000000`. The account is the only user (no second account can be made on

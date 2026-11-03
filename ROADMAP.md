@@ -77,10 +77,15 @@ Stated because you will find them anyway.
 - **No third-party certification.** Not SOC 2, ISO 27001 or HIPAA certified,
   and no penetration-test report to share. See [Security](./src/routes/security.tsx)
   for the posture and the limits.
-- **No managed key rotation.** `PROVIDER_CREDS_SECRET` is an environment
-  variable; rotating it does not re-encrypt anything automatically. Connection
-  credentials now surface their **age** so a stale one is visible, but rotating
-  is still a manual re-save.
+- **Key rotation is started by the operator.** The credential key is
+  `PROVIDER_CREDS_SECRET`, or a data key wrapped by an external key provider
+  (Vault, AWS KMS, Azure Key Vault, Cloud KMS, OCI Vault), with a key per user
+  and per customer under it; a customer key in AWS KMS also covers its
+  members' lakehouse files on S3. Rotating is a new secret or data key and then
+  **Re-encrypt to current key**; nothing rotates on a schedule. Chat history,
+  documents and knowledge-base text are not under customer keys yet
+  ([Key management](./docs/KEY_MANAGEMENT.md)). Connection credentials surface
+  their **age**, so a stale one is visible.
 - **Pool and rate limits are per process.** Behind a load balancer each replica
   enforces its own, so multiply by replica count when sizing against a
   warehouse's `max_connections`. A cluster-wide budget needs shared state.

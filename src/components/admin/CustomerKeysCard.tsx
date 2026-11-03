@@ -34,6 +34,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { reportFailure } from "@/lib/silentFailureNet";
+import { filesPassLine, laterPass } from "@/utils/lakehouse/customerKeyFiles";
 import type { IamGroupRow, IamUserRow } from "@/utils/iam.functions";
 import {
   assignCustomerKey,
@@ -42,10 +43,12 @@ import {
   destroyCustomerKey,
   eraseUserKey,
   getCustomerKeys,
+  reEncryptLakehouseFilesNow,
   unassignCustomerKey,
   type CheckPayload,
   type CustomerKeysPayload,
   type CustomerKeyView,
+  type LakehouseFilesState,
   type MembershipPayload,
 } from "@/utils/providers/customerKeys.functions";
 
@@ -66,6 +69,7 @@ function movedLine(r: MembershipPayload): string {
     plural(r.users, "user"),
     r.userKeysRewrapped > 0 ? `${plural(r.userKeysRewrapped, "user key")} re-wrapped` : null,
     r.valuesReEncrypted > 0 ? `${plural(r.valuesReEncrypted, "value")} re-encrypted` : null,
+    r.lakehouseFilesFollow ? "their lakehouse files follow in the background" : null,
   ].filter(Boolean);
   return parts.join(", ");
 }
@@ -83,10 +87,13 @@ export function CustomerKeysCard(props: {
   const unassignFn = useServerFn(unassignCustomerKey);
   const destroyFn = useServerFn(destroyCustomerKey);
   const eraseFn = useServerFn(eraseUserKey);
+  const filesFn = useServerFn(reEncryptLakehouseFilesNow);
 
   const [state, setState] = useState<CustomerKeysPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // A pass run from this page, until the audit trail has it.
+  const [passHere, setPassHere] = useState<LakehouseFilesState["lastPass"]>(null);
   const [checks, setChecks] = useState<Record<string, CheckPayload | { ok: false; error: string }>>(
     {},
   );
@@ -243,10 +250,42 @@ export function CustomerKeysCard(props: {
     setDestroyName("");
     if (!r) return;
     if (!r.value.ok) return toast.error(r.value.error, { id: r.t, duration: 10000 });
+    const left = r.value.lakehouseSchemasLeft;
     toast.success(
-      `"${k.name}" destroyed; ${plural(r.value.userKeysErased, "user key")} erased with it.`,
-      { id: r.t, duration: 8000 },
+      `"${k.name}" destroyed; ${plural(r.value.userKeysErased, "user key")} erased with it.` +
+        (left > 0
+          ? ` Its members' lakehouse files (${plural(left, "schema")}) stay under the customer's KMS key: for them to become unreadable, the customer disables or deletes that key.`
+          : ""),
+      { id: r.t, duration: left > 0 ? 15000 : 8000 },
     );
+    await load();
+  };
+
+  const reEncryptFiles = async () => {
+    const r = await run("files", "Re-encrypting lakehouse files", () =>
+      filesFn({ data: { access_token: token } }),
+    );
+    if (!r) return;
+    if (!r.value.ok) return toast.error(r.value.error, { id: r.t, duration: 10000 });
+    const v = r.value;
+    const detail = {
+      ...(v.skipped ? { skipped: v.skipped } : {}),
+      files: v.files,
+      schemas: v.schemas,
+      files_reencrypted: v.reEncrypted,
+      files_to_store_key: v.toStoreKey,
+      files_already_right: v.alreadyRight,
+      files_kept_under_destroyed: v.keptUnderDestroyed,
+      files_too_large: v.tooLarge,
+      schemas_conflicted: v.conflicted,
+      files_failed: v.failed,
+    };
+    const line = filesPassLine(detail);
+    if (v.failed > 0) toast.error(`${line}. ${v.errors[0] ?? ""}`, { id: r.t, duration: 15000 });
+    else toast.success(`${line}.`, { id: r.t, duration: 10000 });
+    // The audit row the card reads is written after this answer: until it is
+    // there, the last pass is this one (R440's round showed the one before).
+    setPassHere({ at: new Date().toISOString(), by: null, detail });
     await load();
   };
 
@@ -264,6 +303,7 @@ export function CustomerKeysCard(props: {
     await load();
   };
 
+  const lastPass = laterPass(state?.lakehouseFiles.lastPass ?? null, passHere);
   const live = (state?.keys ?? []).filter((k) => !k.destroyedAt);
   const destroyed = (state?.keys ?? []).filter((k) => k.destroyedAt);
   const s = state?.summary;
@@ -278,7 +318,8 @@ export function CustomerKeysCard(props: {
           wraps the user keys of the users and groups assigned to it: held by the app, or a key in
           the customer&apos;s own KMS, which they control and can revoke. Destroying a customer key,
           or the customer revoking theirs, leaves what its members stored unreadable, and nobody
-          else&apos;s. Erasing one user&apos;s key does the same for that user.
+          else&apos;s. Erasing one user&apos;s key does the same for that user. A key in AWS KMS can
+          also cover its members&apos; lakehouse files: the store encrypts each of them under it.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -326,6 +367,9 @@ export function CustomerKeysCard(props: {
                   {plural(state.conflicts.length, "user")} in groups assigned to different customer
                   keys. Nothing new is stored for them until one key is chosen: assign each one
                   directly.
+                  {state.lakehouseFiles.on
+                    ? " Their lakehouse files are written under the store's own encryption until then."
+                    : ""}
                 </p>
                 <ul className="mt-1 space-y-0.5">
                   {state.conflicts.map((c) => (
@@ -336,6 +380,54 @@ export function CustomerKeysCard(props: {
                 </ul>
               </div>
             ) : null}
+
+            <div
+              className="space-y-1.5 rounded-md border border-border/60 p-3 text-xs"
+              data-lakehouse-files
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-medium">Lakehouse files</span>
+                {state.lakehouseFiles.on ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="ml-auto"
+                    disabled={busy !== null}
+                    onClick={() => void reEncryptFiles()}
+                  >
+                    {busy === "files" ? (
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <ShieldCheck className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    Re-encrypt lakehouse files
+                  </Button>
+                ) : null}
+              </div>
+              {state.lakehouseFiles.on ? (
+                <p className="text-muted-foreground">
+                  {state.lakehouseFiles.why} A schema&apos;s new files are written under its
+                  owner&apos;s customer key; files written before an assignment are copied in place
+                  under it, by the assignment and by this button (one request per file).
+                </p>
+              ) : (
+                <p className="text-muted-foreground">
+                  Stay under the store&apos;s own encryption: {state.lakehouseFiles.why}
+                </p>
+              )}
+              {state.lakehouseFiles.error ? (
+                <p className="text-destructive">{state.lakehouseFiles.error}</p>
+              ) : null}
+              {lastPass ? (
+                <p data-last-pass>
+                  Last pass{" "}
+                  {formatDistanceToNow(new Date(lastPass.at), {
+                    addSuffix: true,
+                  })}
+                  {lastPass.by ? ` (${lastPass.by})` : ""}: {filesPassLine(lastPass.detail)}.
+                </p>
+              ) : null}
+            </div>
 
             {live.length === 0 ? (
               <p className="text-sm text-muted-foreground">
@@ -418,6 +510,18 @@ export function CustomerKeysCard(props: {
                         ) : null}
                         .
                       </p>
+                      {state.lakehouseFiles.on ? (
+                        k.lakehouseFiles.kmsKeyId ? (
+                          <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                            Lakehouse files: the store encrypts them under this key (
+                            {plural(k.lakehouseFiles.schemas, "schema")}).
+                          </p>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">
+                            Lakehouse files: {k.lakehouseFiles.why}
+                          </p>
+                        )
+                      ) : null}
                       {result ? (
                         <div className="text-xs">
                           {result.ok ? (
@@ -659,7 +763,11 @@ export function CustomerKeysCard(props: {
             <AlertDialogDescription>
               Its {plural(destroying?.userKeys ?? 0, "user key")} are erased with it and its
               assignments removed. Everything its members stored becomes unreadable, and cannot be
-              recovered from this app. Type the key&apos;s name to confirm.
+              recovered from this app.
+              {destroying?.lakehouseFiles.kmsKeyId
+                ? " Their lakehouse files stay encrypted under the customer's KMS key, readable while that key allows: for them to become unreadable too, the customer disables or deletes it."
+                : ""}{" "}
+              Type the key&apos;s name to confirm.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <Input

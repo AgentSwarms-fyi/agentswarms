@@ -179,7 +179,12 @@ describe("creating a customer key", () => {
     const r = ok(await create({ name: "Globex", where: "kms", key_ref: ARN }));
     expect(fake.tables.customer_keys[0]).toMatchObject({ provider: "aws", key_ref: ARN });
     const c = ok(await checkCustomerKey({ data: { access_token: T, id: r.id } }));
-    expect(c.facts).toEqual([{ label: "Key", value: ARN }]);
+    // R440: what the key does for lakehouse files is a fact of its own; with
+    // no lakehouse here, it says so rather than staying silent.
+    expect(c.facts).toEqual([
+      { label: "Key", value: ARN },
+      { label: "Lakehouse files", value: "The lakehouse is not configured." },
+    ]);
     kmsState.revoked = true;
     expect(await checkCustomerKey({ data: { access_token: T, id: r.id } })).toMatchObject({
       ok: false,

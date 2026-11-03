@@ -102,6 +102,23 @@ function sq(v: string): string {
   return `'${v.replace(/'/g, "''")}'`;
 }
 
+/**
+ * The lakehouse store's S3 secret, without a scope: the engine's own, and the
+ * base of every customer key's scoped one (customerKeyFiles.server), which
+ * must reach the same store the same way and differ only in its key.
+ */
+export function lakehouseS3SecretParts(cfg: LakehouseConfig): string[] {
+  return [
+    "TYPE s3",
+    `KEY_ID ${sq(cfg.s3.keyId)}`,
+    `SECRET ${sq(cfg.s3.secret)}`,
+    ...(cfg.s3.endpoint ? [`ENDPOINT ${sq(cfg.s3.endpoint)}`] : []),
+    ...(cfg.s3.region ? [`REGION ${sq(cfg.s3.region)}`] : []),
+    `URL_STYLE ${sq(cfg.s3.urlStyle)}`,
+    `USE_SSL ${cfg.s3.useSsl ? "true" : "false"}`,
+  ];
+}
+
 async function createEngine(cfg: LakehouseConfig): Promise<DuckDBInstance> {
   const { DuckDBInstance } = await import("@duckdb/node-api");
   // Admin -> Developer runtime wins, then the env var, then the default. The
@@ -148,15 +165,7 @@ async function createEngine(cfg: LakehouseConfig): Promise<DuckDBInstance> {
         console.warn("[lakehouse] iceberg extension did not load:", firstLine(e));
       }
     }
-    const s3parts = [
-      "TYPE s3",
-      `KEY_ID ${sq(cfg.s3.keyId)}`,
-      `SECRET ${sq(cfg.s3.secret)}`,
-      ...(cfg.s3.endpoint ? [`ENDPOINT ${sq(cfg.s3.endpoint)}`] : []),
-      ...(cfg.s3.region ? [`REGION ${sq(cfg.s3.region)}`] : []),
-      `URL_STYLE ${sq(cfg.s3.urlStyle)}`,
-      `USE_SSL ${cfg.s3.useSsl ? "true" : "false"}`,
-    ];
+    const s3parts = lakehouseS3SecretParts(cfg);
     // MEMORY AND SPILL. Without these a query larger than RAM kills the
     // process — DuckDB's default is "fail rather than spill" when no temp
     // directory is set. A bounded memory limit plus a spill directory turns
@@ -219,6 +228,15 @@ async function createEngine(cfg: LakehouseConfig): Promise<DuckDBInstance> {
     // Data-lake mounts: each mounted storage source gets its own scoped
     // credential so a view can read ITS bucket and nothing else.
     await ensureLakeSecrets(c);
+    // Customer keys: each schema of a customer's members gets the store's
+    // credential again, scoped to its folder and carrying the customer's KMS
+    // key, so its files are written under that key (R440). Never fatal.
+    await import("@/utils/lakehouse/customerKeyFiles.server")
+      .then((m) => {
+        m.forgetEngineAttachment();
+        return m.ensureCustomerKeySecrets(c, true);
+      })
+      .catch((e) => console.warn("[lakehouse] customer key files:", (e as Error).message));
     // Iceberg REST catalogs: attached on the shared instance so mount views
     // resolve; a catalog that fails to attach is noted on its row, not fatal.
     if (icebergLoaded) {
@@ -399,6 +417,11 @@ export async function lakehouseConnection(): Promise<DuckDBConnection> {
       .then((m) => m.ensureIcebergCatalogs(c))
       .catch((e) => console.warn("[lakehouse] iceberg catalogs:", (e as Error).message));
   }
+  // Assignments made on another worker reach this one's secrets here, at most
+  // every few seconds (customerKeyFiles.server); nothing per statement.
+  await import("@/utils/lakehouse/customerKeyFiles.server")
+    .then((m) => m.ensureCustomerKeySecrets(c))
+    .catch((e) => console.warn("[lakehouse] customer key files:", (e as Error).message));
   return c;
 }
 
@@ -1470,9 +1493,11 @@ export async function runLakehouseStatement(
     // Redact HERE, not only on engine boot. Every query error travels to the
     // browser and into lakehouse_query_history, and object-store failures quote
     // the full endpoint URL — which is the operator's internal address.
-    const message = redactLakehouseSecrets(
-      describeMissingDataFile((e as Error).message) ?? (e as Error).message,
-    );
+    const raw = (e as Error).message;
+    const keyRefusal = await import("@/utils/lakehouse/customerKeyFiles.server")
+      .then((m) => m.customerKeyFileError(raw))
+      .catch(() => null);
+    const message = redactLakehouseSecrets(describeMissingDataFile(raw) ?? keyRefusal ?? raw);
     record("error", null, message);
     throw new Error(message);
   } finally {

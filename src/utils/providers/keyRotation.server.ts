@@ -540,4 +540,8 @@ export async function reconcileOwners(userIds: string[], why: string): Promise<v
   }
   const r = await reEncryptOwners(ids);
   for (const f of r.ownerFailures) console.warn(`[kms] after ${why}: user ${f.userId}: ${f.error}`);
+  // Their lakehouse files follow the same key (R440), once every worker writes under it.
+  await import("@/utils/lakehouse/customerKeyFiles.server")
+    .then((m) => m.reEncryptFilesAfterMove(ids, why))
+    .catch((e) => console.warn(`[kms] lakehouse files after ${why}:`, (e as Error).message));
 }

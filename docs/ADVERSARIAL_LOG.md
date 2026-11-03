@@ -109,6 +109,53 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-03 — R440: lakehouse files under customer keys
+
+**What was built.** The roadmap's next item, as the user chose it: a customer key in AWS KMS also
+covers its members' lakehouse files on S3, encrypted by the store (SSE-KMS). Each covered schema's
+folder gets the store's credential carrying the customer's key on the app's engine (DuckDB 1.5.5's
+S3 secret takes `KMS_KEY_ID`, scoped by prefix; measured: small and multipart writes alike land
+under the key, and a folder outside the scope keeps the bucket's own), as do Delta Sharing
+snapshots of its tables; DuckLake's inlining is off for those schemas, so small writes are files
+too. An assignment copies existing files in place (CopyObject onto itself, checked for an error in
+a 200 body), and **Re-encrypt lakehouse files** does it on demand; files under a destroyed customer
+key are never moved. **Check** has the store write a test file under the key. A file the store
+refuses (400 for a disabled key, 403 for a key the identity may not use) names its schema and key.
+
+**Found and fixed in the round.**
+
+- **The card waited on the lakehouse.** It opened a lakehouse connection for what each key covers;
+  the first one brought a catalog up, and the Customer keys card sat on "Checking…" for over a
+  minute. A slow or unreachable catalog would have held the whole card, credentials included. The
+  card's view reads no catalog now.
+- **Small writes were inlined on every worker but one.** DuckLake reads its options when it
+  attaches and keeps them: the worker that set a schema's inlining option honoured it, the others
+  kept writing small rows into the catalog's Postgres, under no customer key. With a Postgres
+  catalog their `ducklake_options()` showed the option (measured with two instances), which is
+  what the sync had trusted. Each worker sets it on its own attachment, once.
+- **A warning every 15 seconds per worker** for a covered schema the catalog does not have. Such a
+  schema has no writes yet; it is skipped quietly.
+- **The pass line left files unaccounted for** ("2 files checked · 1 re-encrypted"). It counts the
+  ones already under the right key.
+- **The card showed the pass before the one just run**, because the audit row it reads is written
+  after the answer. The page keeps its own until the trail has a later one, compared by time.
+
+**Proved.**
+
+| Check | Result |
+| --- | --- |
+| `customerKeyFiles.test.ts` | the store's mode, which keys cover files and why not, schema folders, the pass's rule (never off a destroyed key), the refusal's message, the pass line, the last pass |
+| `customerKeyFilesServer.test.ts` | over tables and an in-memory S3: the scoped secrets, a failed read drops nothing, inlining set per attachment, the pass's copies, the delayed pass after a move, the store's check, the card's view opening no lakehouse, the copy signed with its headers |
+| `customerKeyFunctions.test.ts` | Check's lakehouse fact |
+| `lakehouseErrorRedaction.test.ts` | the gate failed a correct change here: its wiring guard quoted `describeMissingDataFile((e as Error).message)` as text. It now pins the caught message reaching the missing-file explainer inside the redaction, and the customer key explainer beside it; 2 of 2 mutants killed, and a rename of the variable (the control) passes, as it should |
+| mutation | 18 of 18 killed, the control survived |
+| UI | UI_TEST_RESULTS, R440 |
+
+**Not covered.** The customer revoking the key, live: LocalStack 4.14 does not enforce a disabled
+key on S3 reads or writes (measured). A Delta Sharing snapshot, live. Azure Blob and GCS;
+uploads, generated documents and exports; a run's staging files (transient, deleted within the
+hour); earlier versions on a versioned bucket. All said in KEY_MANAGEMENT.md, Lakehouse files.
+
 ### 2026-11-03 — R439: R438's second UI round, with the migration in
 
 **What was driven.** Everything R438 left for after the push, on the only account and so only in

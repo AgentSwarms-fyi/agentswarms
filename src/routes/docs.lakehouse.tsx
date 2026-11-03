@@ -310,6 +310,22 @@ function LakehouseDocsPage() {
         or agent reads exactly what the schema&apos;s grants allow — never more.
       </Callout>
 
+      <H3 id="customer-keys">Files under a customer&apos;s key</H3>
+      <P>
+        On S3, a schema whose owner is under a <strong>customer key</strong> in AWS KMS (Admin → IAM
+        → Settings → Customer keys) has its files encrypted by the store under that key: every new
+        file in the schema, whoever writes it, its small writes (written as files rather than kept
+        in the catalog), and Delta Sharing snapshots of its tables. An assignment copies the files
+        written before in place under the key, and <strong>Re-encrypt lakehouse files</strong> does
+        it on demand. If the customer disables or revokes the key, queries on those schemas fail
+        with an error that names the schema and the key; other schemas are unaffected.{" "}
+        <C>LAKEHOUSE_SSE_KMS</C> (<C>auto</C> by default, on for AWS S3) decides whether the store
+        is asked at all; a key held by the app, or in another provider, does not cover files, and
+        the card says so. Destroying a customer key in the app leaves its members&apos; files under
+        the customer&apos;s KMS key: for them to become unreadable, the customer disables or deletes
+        it. The details are in <C>docs/KEY_MANAGEMENT.md</C>, under Lakehouse files.
+      </P>
+
       <H2 id="ecosystem">Across the ecosystem</H2>
       <P>
         The lakehouse registers as a <strong>warehouse connection</strong> (Integrations → Data

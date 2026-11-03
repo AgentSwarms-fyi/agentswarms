@@ -3,6 +3,8 @@
 // DELETE for a superseded snapshot. Written against the lakehouse's own
 // storage configuration, so MinIO in Compose and S3 in production produce
 // the same URLs a recipient's client can fetch with no credential of ours.
+// Customer keys add three (R440): HEAD for how a file is encrypted, a copy in
+// place onto another key, and a PUT under a key for the store's check.
 import { createHash, createHmac } from "node:crypto";
 
 import { signS3Request } from "@/utils/catalog/objectStore.server";
@@ -132,6 +134,8 @@ async function signedCall(
   key: string,
   body?: Buffer,
   query: Record<string, string> = {},
+  /** Lower-case x-amz-* headers, signed with the rest (a copy's source, its encryption). */
+  amzHeaders: Record<string, string> = {},
 ): Promise<Response> {
   const loc = s3Location(t, "app");
   const canonicalUri = awsUriEncode(`${loc.basePath}/${key}`.replace(/\/+/g, "/"), false);
@@ -140,6 +144,7 @@ async function signedCall(
     .replace(/[-:]/g, "")
     .replace(/\.\d{3}Z$/, "Z");
   const headers: Record<string, string> = {
+    ...amzHeaders,
     host: loc.host,
     // A PUT signs its payload's digest, so the bytes that land are the bytes
     // that were signed for — S3 refuses a body that hashes differently.
@@ -191,6 +196,108 @@ export async function s3ObjectSize(t: S3Target, key: string): Promise<number | n
   if (!res.ok) throw new Error(`HEAD ${key} failed (${res.status})`);
   const len = res.headers.get("content-length");
   return len ? Number(len) : 0;
+}
+
+/** An object's size, type and encryption, or null when it is not there. */
+export async function s3HeadObject(
+  t: S3Target,
+  key: string,
+): Promise<{
+  size: number;
+  contentType: string | null;
+  sse: string | null;
+  kmsKeyId: string | null;
+} | null> {
+  const res = await signedCall(t, "HEAD", key);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`HEAD ${key} failed (${res.status})`);
+  return {
+    size: Number(res.headers.get("content-length") ?? 0),
+    contentType: res.headers.get("content-type"),
+    sse: res.headers.get("x-amz-server-side-encryption"),
+    kmsKeyId: res.headers.get("x-amz-server-side-encryption-aws-kms-key-id"),
+  };
+}
+
+/** S3's error code and message from an error body, when it has one. */
+export function s3ErrorOf(xml: string): { code: string; message: string } | null {
+  const m =
+    /<Error>[\s\S]*?<Code>([\s\S]*?)<\/Code>(?:[\s\S]*?<Message>([\s\S]*?)<\/Message>)?/.exec(xml);
+  return m ? { code: xmlUnescape(m[1]), message: xmlUnescape(m[2] ?? "") } : null;
+}
+
+/** The headers that make S3 encrypt an object under one KMS key. */
+function kmsHeaders(kmsKeyId: string): Record<string, string> {
+  return {
+    "x-amz-server-side-encryption": "aws:kms",
+    "x-amz-server-side-encryption-aws-kms-key-id": kmsKeyId,
+  };
+}
+
+/** One copy request is at most 5 GB (S3's limit); larger needs a multipart copy. */
+export const S3_COPY_MAX_BYTES = 5 * 1024 ** 3;
+
+/**
+ * Copy an object onto itself under another encryption: a KMS key, or (null)
+ * the bucket's own default. The bytes never leave the store and the key does
+ * not change, so the catalog that names the file is untouched.
+ *
+ * Going back to the bucket's default sends no encryption at all, which on its
+ * own would be "copy to itself without changing anything" (refused): the
+ * metadata is REPLACEd instead, keeping the content type. A copy can also fail
+ * AFTER S3 answered 200, with the error in the body; that is checked.
+ */
+export async function s3CopyInPlace(
+  t: S3Target,
+  key: string,
+  to: { kmsKeyId: string | null; contentType: string | null },
+): Promise<void> {
+  const source = `/${t.bucket}/${awsUriEncode(key, false)}`;
+  const headers: Record<string, string> = to.kmsKeyId
+    ? {
+        "x-amz-copy-source": source,
+        "x-amz-metadata-directive": "COPY",
+        ...kmsHeaders(to.kmsKeyId),
+      }
+    : {
+        "x-amz-copy-source": source,
+        "x-amz-metadata-directive": "REPLACE",
+        ...(to.contentType ? { "content-type": to.contentType } : {}),
+      };
+  const res = await signedCall(t, "PUT", key, undefined, {}, headers);
+  const body = await res.text();
+  const err = s3ErrorOf(body);
+  if (!res.ok || err) {
+    throw new Error(
+      `COPY ${key} failed (${res.status}${err ? ` ${err.code}${err.message ? `: ${err.message}` : ""}` : ""})`,
+    );
+  }
+}
+
+/**
+ * Write one small object under a KMS key and report how the store says it
+ * stored it: the customer key's check of the lakehouse store.
+ */
+export async function s3PutObjectUnderKey(
+  t: S3Target,
+  key: string,
+  body: Buffer,
+  kmsKeyId: string,
+): Promise<{ status: number; sse: string | null; kmsKeyId: string | null; error: string | null }> {
+  const res = await signedCall(t, "PUT", key, body, {}, kmsHeaders(kmsKeyId));
+  const text = await res.text();
+  const err = s3ErrorOf(text);
+  return {
+    status: res.status,
+    sse: res.headers.get("x-amz-server-side-encryption"),
+    kmsKeyId: res.headers.get("x-amz-server-side-encryption-aws-kms-key-id"),
+    error:
+      res.ok && !err
+        ? null
+        : err
+          ? `${err.code}${err.message ? `: ${err.message}` : ""}`
+          : `HTTP ${res.status}`,
+  };
 }
 
 /** Delete one object; a missing object is not an error. */

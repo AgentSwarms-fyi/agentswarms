@@ -351,7 +351,9 @@ function SecretsPage() {
         If an admin assigns you to a <strong>customer key</strong> (Admin → IAM → Settings), your
         key is wrapped by it, and that customer can revoke it in their own KMS: your secrets then
         stop working until they turn it back on. If your groups are assigned to two different
-        customer keys, a save says so and stores nothing until an admin assigns you to one.
+        customer keys, a save says so and stores nothing until an admin assigns you to one. A
+        customer key in AWS KMS also covers the files of your lakehouse schemas, on S3: revoking it
+        stops queries on them too, with an error that names the schema and the key.
       </P>
 
       <NextPrev current="/docs/secrets" />
