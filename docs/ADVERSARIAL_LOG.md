@@ -109,6 +109,78 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-04 — R448: model call traces under each user's key
+
+**What was built.** What a model call keeps of what was said (the prompt, the request's messages and
+system prompt, the reply, the tool calls) is sealed by the app under its owner's user key, bound to
+its row and column. The figures stay readable, as do the request keys budgets, the reprice sweep and
+the list ask Postgres about; every other key is sealed, one added later too. The Agent Chat panel
+reads through the server now, as the Traces page already did.
+
+**Checked first, which changed the job.** The design and R447's narrative said the OpenTelemetry
+export and decision passports read a trace's text. Neither does: the export's query has no body
+column, a passport carries figures, and the decision chain asked for `prompt` and `tool_calls` and
+nothing used them. So the chain stopped asking, and only two readers had to change. The documentation
+is corrected.
+
+**Found while in there.** An image turn wrote `null` to `response_payload`, which is `NOT NULL`. The
+whole row was refused, so a generated image in chat left no trace and its cost reached no budget, and
+the only sign was a server log line. It writes `{}` now. Found from the schema; not reproduced live,
+since that needs a paid image call.
+
+**Attacks considered.**
+
+- *A key that cannot be had takes the model call down, or takes the cost with it.* A trace is what
+  budgets add up, so a row that cannot be written is spend the cap cannot see. A key failure costs the
+  row its text, never the row: the figures are written, the text is dropped, and the trace says so
+  (tests; mutants throwing, keeping the prompt, keeping the reply, and losing the figures are each
+  caught).
+- *The same failure leaves the text in the clear, or under another key.* Neither: no `ck1:` value and
+  none of the text in the row (test).
+- *A new payload key leaks because nobody listed it.* The list is of what stays readable, so a key
+  nobody has thought of is sealed (test; a mutant keeping `messages` readable is caught).
+- *A caller's payload carries the marker or the sealed form's key, to be left in the clear.* Those
+  keys are not on the list, so they are sealed with the rest (test).
+- *Sealing takes away what budgets need.* `pricing_missing`, `price_source` and `model_fallback` stay
+  readable, and the reprice sweep finds and rewrites a sealed row, which still opens (tests; mutants
+  sealing each are caught).
+- *A reprice racing the pass.* It can put back a payload it read before the pass, unmarked, beside
+  columns already sealed. The next pass seals that payload and leaves the sealed columns, not sealing
+  them twice (test; mutants for the column and the prompt are caught).
+- *The pass stopped by a row it should skip.* A row with no owner gets no key, which reads as "no
+  user-key tables yet" and would end the pass, so such rows are left out of its query (found by
+  mutation, below).
+- *Read another user's trace.* The detail filters by the caller from the token (test; caught).
+- *One unreadable trace takes the page.* A list costs one row, and a key that is gone is asked for
+  once, not once per row (tests; caught). What it cannot open keeps its figures and says why.
+- *Move a sealed value onto another row.* Each of the four columns is bound; each is moved alone
+  (test; mutants dropping each binding are caught), the lesson from R447.
+- *The browser reading sealed text as if it were a prompt.* The Traces page's direct fallback read
+  leaves the prompt out, and the Agent Chat panel does not read the table (tests; caught).
+- *A superadmin's audit export as a way round.* It gives rows as stored, so a sealed trace leaves
+  sealed; this is documented, since it is a change for anyone who relied on reading prompts there.
+
+**Found by mutation.** First run 45 of 50, with the control surviving as it should. Three real gaps:
+the test of what the pass skips had no ordinary row after them, so a skipped row ending the pass went
+unseen; a sealed row taken by the pass's query was only stopped by the write's guard, so the test now
+counts writes; and a gateway trace with no id passed because the fake database kept the `undefined`,
+where a real one assigns its own and the bodies would no longer open. All three tightened and caught.
+The fourth, removing the owner check in `sealTraceRow`, is equivalent: the key step treats no owner
+the same, and it does not compile.
+
+**Proved.**
+
+| Check | Result |
+| --- | --- |
+| `traceSealing.test.ts` (41) | stored with nothing readable and opened; what stays readable and a new key sealed; a marker in a payload not trusted; each column bound alone; redacted, ownerless and no-tables rows left; a key that cannot be had costs the text and not the cost, for both writers; a gateway call's own id; both Traces reads, the caller's alone, a gone key asked for once, one bad value costing one row; who reads the table without the key (four source checks); the reprice sweep over a sealed row; the pass (both owners' keys, what it skips, racing a reprice, its limit, a refused owner, no tables, a row sealed while it worked, failed reads and writes); the audit detail, the card's line, the index |
+| `storedFilesServer.test.ts`, `customerKeyFunctions.test.ts`, `playgroundReads.test.ts` | traces in the same audited row, with their own limit, from the sweep and the button; the panel's R191 behaviour, through the server |
+| mutation | 48 of 49, the one left equivalent as above; the control survived |
+| UI | UI_TEST_RESULTS, R448: a new turn read back on the panel and the page, found by search; 333 older traces sealed by the pass and read, with their tool calls, a fallback and an unpriced cost; spend, budgets and the audit trail unchanged |
+
+**Not covered.** Swarm run traces, a separate store (next). The error message and the figures, on
+purpose. Older traces with no owner. Notifications from a scheduled analysis. Datasets' rows,
+knowledge-base text. Erasure live.
+
 ### 2026-11-04 — R447: swarm chats and AI Analyst threads under each user's key
 
 **What was built.** The two stores of conversation text R446 found. A swarm chat's transcript, flow

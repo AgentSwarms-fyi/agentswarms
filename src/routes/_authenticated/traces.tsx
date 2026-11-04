@@ -39,6 +39,7 @@ import {
   Wrench,
   BookOpen,
   Download,
+  Lock,
   RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -145,10 +146,12 @@ function TracesPage() {
         throw new Error(result.error);
       }
     } catch (serverError) {
+      // This read is the browser's, which holds no key, so it leaves the prompts
+      // out (R448): the row's figures still show, and opening one asks the server.
       const { data, error } = await supabase
         .from("execution_traces")
         .select(
-          "id, agent_name, llm_provider, llm_model, latency_ms, tokens_in, tokens_out, cost_usd, status, prompt, error_message, created_at, parent_trace_id, pricing_missing:request_payload->>pricing_missing, fell_back_from:request_payload->model_fallback->>from",
+          "id, agent_name, llm_provider, llm_model, latency_ms, tokens_in, tokens_out, cost_usd, status, error_message, created_at, parent_trace_id, pricing_missing:request_payload->>pricing_missing, fell_back_from:request_payload->model_fallback->>from",
         )
         .gte("created_at", since)
         .order("created_at", { ascending: false })
@@ -158,7 +161,7 @@ function TracesPage() {
         setLoadError(error.message);
         setTraces([]);
       } else {
-        setTraces((data ?? []) as Trace[]);
+        setTraces((data ?? []).map((t) => ({ ...t, prompt: null })) as Trace[]);
         // Fallback path: same honesty, from the client. A failed count is not
         // worth failing the page over — rows on screen beat a perfect label —
         // but then the label claims only what it holds.
@@ -592,6 +595,16 @@ function TracesPage() {
                   <Badge variant="outline" className="ml-2 text-[10px] font-mono">
                     {selected.id.slice(0, 8)}
                   </Badge>
+                  {selected.body_sealed && (
+                    <Badge
+                      variant="outline"
+                      data-trace-sealed
+                      className="text-[10px]"
+                      title="Its prompt, messages, tool calls and reply are stored encrypted under your key."
+                    >
+                      <Lock className="mr-1 h-2.5 w-2.5" /> Encrypted under your key
+                    </Badge>
+                  )}
                 </SheetTitle>
                 <SheetDescription className="text-xs">
                   {selected.agent_name} · {selected.llm_model} ·{" "}
@@ -634,6 +647,29 @@ function TracesPage() {
                       <pre className="bg-destructive/10 border border-destructive/30 rounded-md p-3 text-xs text-destructive font-mono whitespace-pre-wrap break-all">
                         {selected.error_message}
                       </pre>
+                    </Section>
+                  )}
+
+                  {selected.body_unreadable && (
+                    <Section title="Text">
+                      <p
+                        data-trace-unreadable
+                        className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs"
+                      >
+                        This trace's text cannot be read: {selected.body_unreadable}
+                      </p>
+                    </Section>
+                  )}
+
+                  {selected.body_dropped && (
+                    <Section title="Text">
+                      <p
+                        data-trace-dropped
+                        className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs"
+                      >
+                        Recorded without its text, because the owner's key could not be had at the
+                        time.
+                      </p>
                     </Section>
                   )}
 

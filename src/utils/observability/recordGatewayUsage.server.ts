@@ -7,6 +7,7 @@
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { bodyJson, bodyText } from "@/utils/observability/redaction.server";
+import { sealTraceRow } from "@/utils/observability/sealedTraces.server";
 import { approxTokens, isImageModel } from "./pricing";
 import { priceCall } from "./priceResolver";
 import { providerReportedCost } from "./providerCost";
@@ -137,7 +138,10 @@ export async function recordGatewayCall(args: RecordGatewayCallArgs): Promise<vo
     const responsePayload: Record<string, unknown> = {};
     if (args.responsePreview !== undefined) responsePayload.preview = args.responsePreview;
 
-    const insertRow = {
+    // The bodies go under the owner's key, bound to this row's id (R448).
+    // Never throws: a key that cannot be had costs the row its text, not the row.
+    const insertRow = await sealTraceRow({
+      id: crypto.randomUUID(),
       user_id: args.userId,
       agent_id: args.agentId ?? null,
       // Real column, not just jsonb: the /traces UI nests child rounds under
@@ -159,7 +163,7 @@ export async function recordGatewayCall(args: RecordGatewayCallArgs): Promise<vo
       tool_calls: [],
       cost_scope_type: args.costScope?.type ?? null,
       cost_scope_id: args.costScope?.id ?? null,
-    };
+    });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error } = await (supabaseAdmin.from("execution_traces") as any).insert(insertRow);
     if (error) {

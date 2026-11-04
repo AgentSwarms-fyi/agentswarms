@@ -1,5 +1,5 @@
 // A small in-memory stand-in for the PostgREST client calls the key code
-// makes (select/eq/neq/gt/is/in/not/or/order, insert/update/delete with .select(),
+// makes (select/eq/neq/gt/is/in/not/or/order, a jsonb key's ->>, insert/update/delete with .select(),
 // maybeSingle/single, one rpc), with the unique constraints of migration
 // 20261105000000, so tests run the real keyStore.server and the sweep
 // against tables, not against a mock of each call.
@@ -64,6 +64,15 @@ function orFilter(expr: string): Filter {
     throw new Error(`fakePostgrest: or() op ${op}`);
   });
   return (r) => parts.some((f) => f(r));
+}
+
+// A column, or a jsonb key of one (`request_payload->>pricing_missing`), as
+// Postgres gives it: `->>` is text, so a true comes back as "true".
+function cell(r: Row, col: string): unknown {
+  const at = col.indexOf("->>");
+  if (at < 0) return r[col];
+  const v = (r[col.slice(0, at)] as Row | null | undefined)?.[col.slice(at + 3)];
+  return v === null || v === undefined ? null : String(v);
 }
 
 export function fakePostgrest(seed: Record<string, Row[]> = {}) {
@@ -201,11 +210,11 @@ export function fakePostgrest(seed: Record<string, Row[]> = {}) {
         return q;
       },
       eq(col: string, v: unknown) {
-        filters.push((r) => r[col] === v);
+        filters.push((r) => cell(r, col) === v);
         return q;
       },
       is(col: string, v: null) {
-        filters.push((r) => (r[col] ?? null) === v);
+        filters.push((r) => (cell(r, col) ?? null) === v);
         return q;
       },
       in(col: string, vals: unknown[]) {
@@ -228,6 +237,10 @@ export function fakePostgrest(seed: Record<string, Row[]> = {}) {
         );
         return q;
       },
+      gte(col: string, v: unknown) {
+        filters.push((r) => r[col] != null && String(r[col]) >= String(v));
+        return q;
+      },
       gt(col: string, v: unknown) {
         filters.push((r) => r[col] != null && String(r[col]) > String(v));
         return q;
@@ -244,7 +257,7 @@ export function fakePostgrest(seed: Record<string, Row[]> = {}) {
           const re = new RegExp("^" + pattern + "$", "s");
           filters.push((r) => r[col] != null && !re.test(String(r[col])));
         } else if (op === "is") {
-          filters.push((r) => (r[col] ?? null) !== v);
+          filters.push((r) => (cell(r, col) ?? null) !== v);
         } else {
           throw new Error(`fakePostgrest: not.${op} is not supported`);
         }

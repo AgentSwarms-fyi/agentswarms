@@ -16,6 +16,9 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Apply `20261106000000` when convenient** (R448). It adds a partial index for
+  the pass that seals older model call traces, so the pass stays cheap once they
+  are done. Everything works without it, more slowly.
 - **Apply `20261105000000` for user keys and customer keys** (R438). It adds
   `user_keys`, `customer_keys`, `customer_key_members` and the
   `destroy_customer_key` function, server-only (RLS on, no policies; the
@@ -96,6 +99,18 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Model call traces under each user's key** (R448). What a model call keeps
+  of what was said (the prompt, the messages and system prompt, the tool calls,
+  the reply) is sealed by the app under its owner's user key, which a customer
+  key wraps when the user is a customer's member. Nothing to set up, and nothing
+  stops working: the Traces page, its search and the Agent Chat inspector read
+  through the server. The model, tokens, cost, latency, status and error message
+  stay readable, as do the request keys budgets and the reprice sweep ask
+  Postgres about; any other key is sealed, one added later too. A model call
+  never fails because of a key: a trace is what budgets add up, so one whose
+  owner's key cannot be had keeps its figures and loses its text. Older traces
+  are sealed by the hourly pass (`TRACE_SEAL_PER_PASS`, 2000) and **Encrypt
+  stored files**. Swarm run traces are a separate store, and next.
 - **Swarm chats and AI Analyst threads under each user's key** (R447). A swarm
   chat's transcript, flow state and title, and an analysis's turns (questions,
   SQL, write-ups, samples of result rows) and title, are now encrypted by the
@@ -1250,6 +1265,9 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **A generated image's cost reached no budget** (R448). An image turn wrote
+  `null` to `response_payload`, which is `NOT NULL`, so the whole trace row was
+  refused and the only sign was a line in the server log. It writes `{}` now.
 - **The customer keys round's findings** (R439, R438's second UI round).
   The credential key card counted every value written before the migration
   "on an older key"; they are on the current deployment key, and are counted

@@ -26,6 +26,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { auditEvent } from "@/utils/audit.server";
 import { DataKeyUnavailableError } from "@/utils/kms/keyHierarchy.server";
 import { KMS_AUDIT_ACTOR } from "@/utils/kms/keyring.server";
+import { tracePassDetail } from "@/utils/observability/tracePass";
 import {
   assertStoredFileKey,
   openStoredFile,
@@ -362,7 +363,8 @@ let lastSweep = 0;
  * The background pass, from the scheduler: at most once an hour, at most
  * STORED_FILES_PER_PASS files changed, what agents kept about each user
  * before R445 (memory items, summaries, scratchpads; MEMORY_SEAL_PER_PASS),
- * and Agent Chat history kept before R446 (CHAT_SEAL_PER_PASS).
+ * Agent Chat history kept before R446 (CHAT_SEAL_PER_PASS), and model call
+ * traces kept before R448 (TRACE_SEAL_PER_PASS).
  * Audited, as one row, when it changed or failed something; a pass with
  * nothing to do leaves no row.
  */
@@ -380,7 +382,12 @@ export async function sweepStoredFiles(force = false): Promise<StoredFilesPass |
     await import("@/utils/chat/sealedChat.server");
   const c = await sealOlderChats({ limit: chatSealPerPass() });
   const chatChanged = c.messages + c.titles + c.swarmChats + c.analystThreads + c.failed;
-  if (r.sealedNow + r.rebuilt + r.failed + memoryChanged + chatChanged > 0) {
+  // And model call traces kept before R448.
+  const { sealOlderTraces, traceSealPerPass } =
+    await import("@/utils/observability/sealedTraces.server");
+  const t = await sealOlderTraces({ limit: traceSealPerPass() });
+  const tracesChanged = t.traces + t.failed;
+  if (r.sealedNow + r.rebuilt + r.failed + memoryChanged + chatChanged + tracesChanged > 0) {
     auditEvent({
       userId: null,
       actorEmail: KMS_AUDIT_ACTOR,
@@ -392,11 +399,13 @@ export async function sweepStoredFiles(force = false): Promise<StoredFilesPass |
         ...storedFilesPassDetail(r),
         ...memoryPassDetail(m),
         ...chatPassDetail(c),
+        ...tracePassDetail(t),
       },
     });
   }
   if (r.failed) console.warn(`[stored-files] ${r.failed} failed`, r.errors);
   if (m.failed) console.warn(`[agent-memory] ${m.failed} failed`, m.errors);
   if (c.failed) console.warn(`[chat-history] ${c.failed} failed`, c.errors);
+  if (t.failed) console.warn(`[traces] ${t.failed} failed`, t.errors);
   return r;
 }

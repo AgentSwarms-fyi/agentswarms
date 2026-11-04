@@ -41,6 +41,7 @@ import {
 } from "@/utils/storage/storedFiles.server";
 import type { MemoryPass } from "@/utils/memory/memoryPass";
 import type { ChatPass } from "@/utils/chat/chatPass";
+import { tracePassDetail, type TracePass } from "@/utils/observability/tracePass";
 import { customerKeyProvider, keyHierarchy } from "./crypto.server";
 import {
   expectedCustomerKeys,
@@ -711,7 +712,12 @@ export const sealStoredFilesNow = createServerFn({ method: "POST" })
     async ({
       data,
     }): Promise<
-      ({ ok: true } & StoredFilesPass & { memory: MemoryPass; chat: ChatPass }) | Fail
+      | ({ ok: true } & StoredFilesPass & {
+            memory: MemoryPass;
+            chat: ChatPass;
+            traces: TracePass;
+          })
+      | Fail
     > => {
       const guard = await requireSuperadmin(data.access_token);
       if (!guard.ok) return { ok: false, error: guard.error };
@@ -723,6 +729,9 @@ export const sealStoredFilesNow = createServerFn({ method: "POST" })
         // And Agent Chat history kept before R446.
         const { chatPassDetail, sealOlderChats } = await import("@/utils/chat/sealedChat.server");
         const c = await sealOlderChats();
+        // And model call traces kept before R448.
+        const { sealOlderTraces } = await import("@/utils/observability/sealedTraces.server");
+        const t = await sealOlderTraces();
         auditEvent({
           userId: guard.userId,
           actorEmail: guard.email,
@@ -734,9 +743,10 @@ export const sealStoredFilesNow = createServerFn({ method: "POST" })
             ...storedFilesPassDetail(r),
             ...memoryPassDetail(m),
             ...chatPassDetail(c),
+            ...tracePassDetail(t),
           },
         });
-        return { ok: true, ...r, memory: m, chat: c };
+        return { ok: true, ...r, memory: m, chat: c, traces: t };
       } catch (e) {
         return { ok: false, error: (e as Error).message };
       }

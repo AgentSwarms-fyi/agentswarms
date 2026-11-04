@@ -116,7 +116,12 @@ function KeysPage() {
             "Encrypted by the app under the user's own key",
           ],
           [
-            "Model call traces, knowledge-base text, notebooks, datasets' rows",
+            "Model call traces (the prompt, messages, tool calls and reply)",
+            "The database",
+            "Encrypted by the app under the user's own key",
+          ],
+          [
+            "Swarm run traces, knowledge-base text, notebooks, datasets' rows",
             "The database",
             "The database's own encryption at rest: a managed Postgres encrypts its disks; one you run yourself is as safe as its disk",
           ],
@@ -563,8 +568,8 @@ npm run backup`}</Code>
         </li>
       </UL>
       <P>
-        The prompts kept in model call traces, and the notifications a scheduled analysis leaves,
-        are not under these keys yet: delete the account for those.
+        What a swarm run&apos;s steps keep, and the notifications a scheduled analysis leaves, are
+        not under these keys yet: delete the account for those.
       </P>
 
       <H2 id="mistakes">Mistakes, and what you see</H2>

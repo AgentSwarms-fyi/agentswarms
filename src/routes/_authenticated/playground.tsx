@@ -63,6 +63,7 @@ import { BiWidgetCard } from "@/components/bi/BiWidgetCard";
 import { BI_FELL_THROUGH_NOTE, generateChatWidget } from "@/lib/chatBi";
 import { parseWidgets } from "@/lib/biDashboards";
 import { useServerFn } from "@tanstack/react-start";
+import { traceById } from "@/lib/traceReads";
 import { DOC_FORMAT_LABEL } from "@/lib/docGen/types";
 import type {
   DocScope,
@@ -2561,6 +2562,8 @@ type TraceRow = {
   response_payload: Json;
   tool_calls: Json;
   created_at: string;
+  body_dropped?: boolean;
+  body_unreadable?: string | null;
 };
 
 function RealExecutionTrace({ traceId, thinking }: { traceId: string | null; thinking: boolean }) {
@@ -2571,9 +2574,10 @@ function RealExecutionTrace({ traceId, thinking }: { traceId: string | null; thi
   const [readError, setReadError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
 
-  // Poll the execution_traces table by trace_id (set as the row's `id`).
-  // The chat route generates the UUID and writes the row when the LLM call
-  // settles, so we may need a couple of attempts before the row appears.
+  // Poll for the trace by trace_id (set as the row's `id`), through the server:
+  // its bodies are sealed under the user's key (R448). The chat route generates
+  // the UUID and writes the row when the LLM call settles, so we may need a
+  // couple of attempts before the row appears.
   useEffect(() => {
     if (!traceId) {
       setTrace(null);
@@ -2587,11 +2591,7 @@ function RealExecutionTrace({ traceId, thinking }: { traceId: string | null; thi
 
     const tick = async () => {
       attempts += 1;
-      const { data, error } = await supabase
-        .from("execution_traces")
-        .select("*")
-        .eq("id", traceId)
-        .maybeSingle();
+      const { data, error } = await traceById(traceId);
       if (cancelled) return;
       if (data) {
         setTrace(data as TraceRow);
@@ -2727,6 +2727,24 @@ function RealExecutionTrace({ traceId, thinking }: { traceId: string | null; thi
                 {trace.error_message}
               </p>
             </div>
+          )}
+
+          {trace.body_unreadable && (
+            <p
+              data-trace-unreadable
+              className="rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-[11px]"
+            >
+              This trace's text cannot be read: {trace.body_unreadable}
+            </p>
+          )}
+
+          {trace.body_dropped && (
+            <p
+              data-trace-dropped
+              className="rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-[11px]"
+            >
+              Recorded without its text, because your key could not be had at the time.
+            </p>
           )}
 
           {toolCalls.length > 0 && (

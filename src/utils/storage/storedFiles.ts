@@ -106,6 +106,17 @@ export function storedFilesPassLine(d: Record<string, unknown>): string {
     );
   if (d.chat_left === true) parts.push("more chat history left for the next pass");
   if (n(d.chat_failed)) parts.push(`${n(d.chat_failed)} of chat history failed`);
+  // And model call traces kept before R448.
+  if (n(d.traces_sealed))
+    parts.push(
+      `${plural(n(d.traces_sealed), "model call trace")} encrypted under their owner's key`,
+    );
+  if (n(d.traces_unreadable))
+    parts.push(
+      `${plural(n(d.traces_unreadable), "model call trace")} whose owner's key cannot be had now, left as they are`,
+    );
+  if (d.traces_left === true) parts.push("more model call traces left for the next pass");
+  if (n(d.traces_failed)) parts.push(`${plural(n(d.traces_failed), "model call trace")} failed`);
   if (typeof d.skipped === "string" && d.skipped) parts.push(d.skipped);
   return parts.join(" · ");
 }

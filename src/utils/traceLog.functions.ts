@@ -38,6 +38,12 @@ export type ExecutionTraceRow = {
   /** The model that was chosen but could not run, when the call ran on the
    *  default instead (request_payload.model_fallback.from). */
   fell_back_from?: string | null;
+  /** Its bodies are stored under the owner's key (R448); on a detail row. */
+  body_sealed?: boolean;
+  /** Recorded without its text: the owner's key could not be had at the time. */
+  body_dropped?: boolean;
+  /** Why its text cannot be read now. */
+  body_unreadable?: string | null;
 };
 
 // pricing_missing is projected out of the jsonb payload rather than selecting
@@ -90,7 +96,8 @@ export const getExecutionTraces = createServerFn({ method: "POST" })
 
       if (error) return { ok: false, error: error.message };
       if (countError) return { ok: false, error: countError.message };
-      const traces = (rows ?? []) as unknown as ExecutionTraceRow[];
+      const { openTracePrompts } = await import("@/utils/observability/sealedTraces.server");
+      const traces = await openTracePrompts((rows ?? []) as unknown as ExecutionTraceRow[]);
       return { ok: true, traces, total: count ?? traces.length };
     },
   );
@@ -123,18 +130,20 @@ export const getExecutionTraceDetail = createServerFn({ method: "POST" })
 
       if (error) return { ok: false, error: error.message };
       if (!row) return { ok: true, trace: null };
+      const { openTraceRow } = await import("@/utils/observability/sealedTraces.server");
+      const opened = await openTraceRow(row);
       // The list projects pricing_missing out of the payload; the detail row
       // replaces the list row in the UI, so it must carry the same field or
       // an "unpriced" cost would flip back to $0.0000 the moment the panel
       // finishes loading.
       const payload = (
-        row as {
+        opened as {
           request_payload?: { pricing_missing?: unknown; model_fallback?: { from?: unknown } };
         }
       ).request_payload;
       const from = payload?.model_fallback?.from;
       const trace = {
-        ...(row as object),
+        ...(opened as object),
         pricing_missing:
           payload?.pricing_missing === true || payload?.pricing_missing === "true" ? "true" : null,
         fell_back_from: typeof from === "string" ? from : null,

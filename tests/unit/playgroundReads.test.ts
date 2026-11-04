@@ -62,7 +62,8 @@ describe("the trace panel", () => {
   const poll = between("const tick = async () => {", "tick();");
 
   it("keeps the last read's error while it polls", () => {
-    expect(poll).toMatch(/const \{ data, error \} = await supabase\s*\.from\("execution_traces"\)/);
+    // Through the server since R448: the bodies are sealed under the user's key.
+    expect(poll).toContain("const { data, error } = await traceById(traceId);");
     expect(poll).toContain("setReadError(error ? error.message : null);");
     expect(SRC).toContain("}, [traceId, attempt]);");
   });

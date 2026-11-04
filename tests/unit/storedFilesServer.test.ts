@@ -26,6 +26,13 @@ const h = vi.hoisted(() => ({
     failed: 0,
     errors: [] as string[],
   })),
+  traces: vi.fn(async (_opts: { limit?: number }) => ({
+    traces: 0,
+    unreadable: 0,
+    left: false,
+    failed: 0,
+    errors: [] as string[],
+  })),
   memory: vi.fn(async (_opts: { limit?: number }) => ({
     items: 0,
     summaries: 0,
@@ -49,6 +56,10 @@ vi.mock("@/integrations/supabase/client.server", () => ({
 }));
 vi.mock("@/utils/data/parquet.server", () => ({
   refreshDatasetMirror: (args: unknown) => h.refresh(args),
+}));
+vi.mock("@/utils/observability/sealedTraces.server", () => ({
+  sealOlderTraces: (opts: { limit?: number }) => h.traces(opts),
+  traceSealPerPass: () => 2000,
 }));
 vi.mock("@/utils/chat/sealedChat.server", async () => {
   const pass =
@@ -437,6 +448,20 @@ describe("the background pass", () => {
           swarm_chats_sealed: 1,
           analyst_threads_sealed: 3,
         },
+      });
+      // And one that sealed only model call traces, with their own limit.
+      expect(h.traces).toHaveBeenCalledWith({ limit: 2000 });
+      h.traces.mockResolvedValueOnce({
+        traces: 40,
+        unreadable: 0,
+        left: true,
+        failed: 0,
+        errors: [],
+      });
+      expect(await sweepStoredFiles(true)).not.toBeNull();
+      expect(h.audits).toHaveLength(5);
+      expect(h.audits[4]).toMatchObject({
+        detail: { trigger: "scheduled", traces_sealed: 40, traces_left: true },
       });
     } finally {
       delete process.env.STORED_FILES_PER_PASS;

@@ -15,6 +15,39 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-04 — R448: model call traces under each user's key
+
+What a model call keeps of what was said, sealed under its owner's key. The real environment as a
+fresh install has it (no customer key, no KMS). Migration `20261106000000` was not applied, so this
+also shows the pass working without its index.
+
+| Page / surface | What was driven | Result |
+| --- | --- | --- |
+| Hot deploy; Traces & Logs | read | All 333 traces in the 90-day window loaded, before the pass had run: plaintext rows read as they are |
+| Agent Chat, Sample · Graph RAG Explorer: **New Chat**, "R448 Bergen trace check: what does Acme Corp's knowledge graph contain?" | Send | A real turn with two tool rounds; a reply; no warning |
+| Developer inspector → Trace | open | Execution Trace with `success`, its figures, **Tool calls (2)**, both `kb_graph_search`, read through the server; no "Trace not read" |
+| Traces & Logs | reload | 337 traces: the four new rows on top (the turn, two tool rounds, the knowledge-base embedding) |
+| The turn | open | **Encrypted under your key**; its prompt, the Provenance section, the request payload (messages and system prompt) and reply in full; nothing of the sealed form on screen |
+| A tool round; the embedding | open | **Encrypted under your key**; their readable keys (`surface`, `kind`, `price_source`, `parent_trace_id`) |
+| Search: "Bergen trace" | type | The turn and its two children: a word held only in a sealed prompt is still found |
+| The hourly pass | waited for it | Customer keys and Audit Log: "333 model call traces encrypted under their owner's key", in one `security.stored_files.seal` row; 4 new rows already sealed, so 333 + 4 = 337. No failure |
+| An older trace, Oct 8, Predictive Analyst | open | Sealed by the pass: **Encrypted under your key**, **Tool calls (2)**, `ml_list_models` and its result |
+| An older trace that fell back to another model, AI SQL | open | Sealed; "Ran on openai/gpt-4o-mini, the default model, because anthropic/claude-sonnet-4 could not run: …" still shows, from the readable keys |
+| An older unpriced trace, `claude-opus-5-5` | open | Sealed; Cost still reads "unpriced", not $0.0000; prompt in full; Provenance shows |
+| Analytics; Budgets & Guardrails; Audit Log | read | Team spend $0.2495 over 329 calls, month-to-date spend, the audit trail: all as before, none showing a sealed value |
+| Final deploy; Customer keys, Stored files text; Logs & traces docs | read | The text names what model calls keep; "Not covered" names datasets' rows and swarm run traces; **Traces under your key** is a heading on the docs page |
+| App log since the deploy | read | No warning or error |
+
+Not driven live: a trace whose key is gone or refused, at read or at write (the only account's key is
+never erased; `traceSealing.test.ts` covers "cannot be read", "Recorded without its text" and the cost
+being kept); a generated image's trace, the one that was refused (no image model call was made; the
+schema and `traceSealing.test.ts` pin it); `PERSIST_PROMPT_BODIES=false` (tested); the reprice sweep
+over a sealed row (tested); the audit export (not downloaded); **Encrypt stored files** (the hourly
+pass runs the same code).
+
+Fixture kept: the conversation "R448 Bergen trace check: what does Acme Corp's knowledge graph
+contain?" on Sample · Graph RAG Explorer (Acme Corp).
+
 ## 2026-11-04 — R447: swarm chats and AI Analyst threads under each user's key
 
 The two stores of conversation text R446 found. The real environment as a fresh install has it (no

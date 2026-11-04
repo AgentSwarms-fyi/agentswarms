@@ -1324,6 +1324,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 2
       },
       {
+        "id": "encrypted-traces",
+        "text": "Traces under your key",
+        "level": 2
+      },
+      {
         "id": "swarm-traces",
         "text": "Swarm traces",
         "level": 2
@@ -4021,6 +4026,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "SWARM_RUN_MAX_CONCURRENT",
       "SWARM_RUN_RATE_LIMIT_PER_MIN",
       "SWARM_RUN_TIMEOUT_MS",
+      "TRACE_SEAL_PER_PASS",
       "TRUSTED_PROXY_HOPS",
       "UPLOAD_PER_MINUTE",
       "VAULT_*",

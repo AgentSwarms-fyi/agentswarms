@@ -495,6 +495,7 @@ type TraceContext = {
 // runtime, BI Agent, KB ingestion, memory work, etc. all price the same
 // model the same way.
 import { bodyJson, bodyText } from "@/utils/observability/redaction.server";
+import { sealTraceRow } from "@/utils/observability/sealedTraces.server";
 import { traceToolCalls } from "@/lib/traceToolCalls";
 import { tapStream } from "@/lib/tapStream";
 import {
@@ -688,7 +689,9 @@ async function recordTrace(opts: {
   );
 
   try {
-    const insertRow = {
+    // The bodies go under the owner's key (R448). Never throws: a key that
+    // cannot be had costs the row its text, not the row.
+    const insertRow = await sealTraceRow({
       id: trace.traceId,
       decision_id: trace.decisionId,
       user_id: userId,
@@ -706,12 +709,14 @@ async function recordTrace(opts: {
       status,
       error_message: errorMessage ?? null,
       request_payload: bodyJson(safePayload),
+      // {} and not null: the column is NOT NULL, so a null refused the whole
+      // row, and with it the cost of a generated image.
       response_payload: bodyJson(
-        skipResponsePayload ? null : { preview: sanitizeTraceValue(assistantText.slice(0, 2000)) },
+        skipResponsePayload ? {} : { preview: sanitizeTraceValue(assistantText.slice(0, 2000)) },
       ),
       // The turn's tool calls, where the Traces page reads them (R354).
       tool_calls: bodyJson(traceToolCalls(safePayload.toolEvents)),
-    };
+    });
     // VA-2026-10-25-13: the cost record is written as the service role, never
     // the caller's client. execution_traces is now owner-SELECT with no client
     // write policy, so a user cannot DELETE or zero their own rows to defeat the

@@ -105,8 +105,6 @@ export type DecisionTrace = {
   tokens_out: number;
   cost_usd: number;
   latency_ms: number;
-  prompt: string | null;
-  tool_calls: Json;
   created_at: string;
 };
 
@@ -153,7 +151,7 @@ export async function getDecisionChain(
   const [{ data: traces }, { data: events }] = await Promise.all([
     (supabaseAdmin.from("execution_traces") as any)
       .select(
-        "id, agent_name, llm_provider, llm_model, status, tokens_in, tokens_out, cost_usd, latency_ms, prompt, tool_calls, created_at",
+        "id, agent_name, llm_provider, llm_model, status, tokens_in, tokens_out, cost_usd, latency_ms, created_at",
       )
       .eq("decision_id", decisionId)
       .eq("user_id", userId)

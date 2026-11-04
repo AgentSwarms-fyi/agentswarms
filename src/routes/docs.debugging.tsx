@@ -272,6 +272,30 @@ function DebuggingDoc() {
         ]}
       />
 
+      <H2 id="encrypted-traces">Traces under your key</H2>
+      <P>
+        What a model call keeps of what was said (the prompt, the messages, the tool calls and the
+        reply) is stored encrypted under your own key, with nothing to set up, and a trace shows{" "}
+        <strong>Encrypted under your key</strong>. You read and search them as before. The model,
+        tokens, cost, latency, status and error message stay readable, because budgets and Analytics
+        run on them.
+      </P>
+      <UL>
+        <li>
+          <strong>This trace&apos;s text cannot be read</strong>: its key was erased, destroyed or
+          refused. The trace keeps its figures, and says why.
+        </li>
+        <li>
+          <strong>Recorded without its text</strong>: your key could not be had when the call was
+          made. The call itself was not affected and its cost is counted; the text was dropped
+          rather than stored unprotected.
+        </li>
+      </UL>
+      <P>
+        Swarm traces, below, are not under your key yet. See{" "}
+        <DocLink to="/docs/keys">Keys &amp; encryption</DocLink>.
+      </P>
+
       <H2 id="swarm-traces">Swarm traces</H2>
       <P>
         A swarm run records per-node steps, so you can see which branch a router chose, which nodes
