@@ -96,6 +96,33 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Keys & encryption, for beginners** (R444). A new handbook page,
+  **Docs → Govern & operate → Keys & encryption**, and a rewritten opening
+  for [Key management](./docs/KEY_MANAGEMENT.md#start-here) explain the keys
+  from the beginning: what is encrypted with no setup at all, the one secret
+  to keep (`PROVIDER_CREDS_SECRET`) and what to do if it is lost, envelope
+  encryption in plain words, what an external KMS and a customer key each add,
+  which setup suits whom, and tutorials for checking, backing up, rotating,
+  moving to a KMS, giving a customer their own key and erasing one person's
+  data. Both say plainly that none of it has to be set up: an external KMS
+  and customer keys are optional, and nothing is turned off without them.
+  SECURITY.md's coverage line is brought up to date (documents, dataset
+  copies and lakehouse files are under the keys since R440–R443). The
+  **Credential encryption key** and **Customer keys** cards say the same and
+  link the guide ("No external key provider configured, and none is needed"),
+  and name Cloud KMS on Cloud Storage beside AWS KMS on S3. The guide also
+  tells encryption BYOK apart from the platform's other BYOK, your own model
+  provider API key.
+- **No key work for a lakehouse that does not use customer keys** (R444).
+  While lakehouse files are not under customer keys (`LAKEHOUSE_SSE_KMS`
+  off, the default for the bundled SILO and MinIO), opening the lakehouse no
+  longer reads the customer keys, the schema list or the catalog's folders
+  every few seconds; it read them to decide nothing.
+- **A lost deployment secret says its way out** (R444). A save refused
+  because a user's key is locked by a deployment key the server no longer
+  holds now says what to do if that key is gone for good (erase the user's
+  key; their next save makes a new one), and so does the count on the
+  Customer keys card.
 - **Customer keys on a lakehouse in Cloud Storage** (R443). A lakehouse on
   Google Cloud Storage (through its S3-compatible endpoint) is now covered by
   customer keys in Cloud KMS, as one on S3 is by keys in AWS KMS: a schema's

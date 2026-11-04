@@ -345,7 +345,9 @@ function SecretsPage() {
         not in the database, so a database dump alone doesn&apos;t yield credentials. On a
         self-hosted deployment that key is <C>PROVIDER_CREDS_SECRET</C>; back it up somewhere you
         can recover it from, because losing it makes every stored secret unreadable. See{" "}
-        <DocLink to="/docs/self-hosting">Install &amp; deploy</DocLink>.
+        <DocLink to="/docs/self-hosting">Install &amp; deploy</DocLink>, and{" "}
+        <DocLink to="/docs/keys">Keys &amp; encryption</DocLink> for what the keys are, from the
+        beginning. None of it needs setting up.
       </P>
       <P>
         If an admin assigns you to a <strong>customer key</strong> (Admin → IAM → Settings), your

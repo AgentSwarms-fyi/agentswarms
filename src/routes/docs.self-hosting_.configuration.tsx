@@ -660,6 +660,13 @@ AUDIT_ARCHIVE_ON_PURGE="1"
         investigation still has something to read.
       </Callout>
 
+      <Callout kind="info" title="New to keys?">
+        Nothing below has to be set up: the installer generates <C>PROVIDER_CREDS_SECRET</C>, and
+        every feature works with it. <DocLink to="/docs/keys">Keys &amp; encryption</DocLink>{" "}
+        explains the keys from the beginning, with tutorials for backing up, rotating, moving to a
+        KMS and giving a customer their own key.
+      </Callout>
+
       <Callout kind="info" title="Rotating the credential key is supported">
         Changing <C>PROVIDER_CREDS_SECRET</C> on its own does strand everything already encrypted,
         which is why the snippet above says to set it once. Rotating it properly needs no downtime:

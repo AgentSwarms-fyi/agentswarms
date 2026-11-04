@@ -2117,6 +2117,127 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     ]
   },
   {
+    "route": "/docs/keys",
+    "title": "Keys & encryption",
+    "description": "What is encrypted with no setup at all, the one secret you must keep, and when an external key service or customer keys are worth it. Written for someone who has never had to think about encryption keys.",
+    "terms": [
+      ".env",
+      "DATA_KEY_CACHE_SECONDS",
+      "KMS_KEY_REF",
+      "KMS_PROVIDER",
+      "PROVIDER_CREDS_SECRET",
+      "PROVIDER_CREDS_SECRET_OLD",
+      "acme-staff",
+      "agentswarms-bootstrap",
+      "docs/KEY_MANAGEMENT.md",
+      "kms:Decrypt",
+      "kms:DescribeKey",
+      "kms:GenerateDataKey"
+    ],
+    "headings": [
+      {
+        "id": "start",
+        "text": "Start here",
+        "level": 2
+      },
+      {
+        "id": "protected",
+        "text": "What is protected, with no setup",
+        "level": 3
+      },
+      {
+        "id": "keep-the-secret",
+        "text": "The one thing you must do: keep the deployment secret",
+        "level": 3
+      },
+      {
+        "id": "plain-words",
+        "text": "Keys in plain words",
+        "level": 2
+      },
+      {
+        "id": "at-rest",
+        "text": "What encryption at rest is for, and what it is not",
+        "level": 3
+      },
+      {
+        "id": "envelope",
+        "text": "Envelope encryption: a key that locks other keys",
+        "level": 3
+      },
+      {
+        "id": "layers",
+        "text": "The layers here",
+        "level": 3
+      },
+      {
+        "id": "kms",
+        "text": "What a key management service (KMS) adds",
+        "level": 3
+      },
+      {
+        "id": "customer-keys",
+        "text": "What a customer key adds (BYOK for encryption)",
+        "level": 3
+      },
+      {
+        "id": "words",
+        "text": "Rotate, erase, destroy, revoke",
+        "level": 3
+      },
+      {
+        "id": "which",
+        "text": "Which setup is right for you",
+        "level": 2
+      },
+      {
+        "id": "tutorials",
+        "text": "Tutorials",
+        "level": 2
+      },
+      {
+        "id": "tutorial-check",
+        "text": "Check what protects your deployment",
+        "level": 3
+      },
+      {
+        "id": "tutorial-backup",
+        "text": "Back up the deployment secret, and prove the backup",
+        "level": 3
+      },
+      {
+        "id": "tutorial-rotate",
+        "text": "Rotate the deployment secret",
+        "level": 3
+      },
+      {
+        "id": "tutorial-kms",
+        "text": "Move the deployment key into a KMS",
+        "level": 3
+      },
+      {
+        "id": "tutorial-customer",
+        "text": "Give a customer their own key",
+        "level": 3
+      },
+      {
+        "id": "tutorial-erase",
+        "text": "Take data out of reach",
+        "level": 3
+      },
+      {
+        "id": "mistakes",
+        "text": "Mistakes, and what you see",
+        "level": 2
+      },
+      {
+        "id": "reference",
+        "text": "Where the details are",
+        "level": 2
+      }
+    ]
+  },
+  {
     "route": "/docs/knowledge",
     "title": "Knowledge Base",
     "description": "Collections of documents an agent can search by meaning and quote with citations. This is how you stop an agent inventing your policies.",

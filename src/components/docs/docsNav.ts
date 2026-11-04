@@ -110,6 +110,7 @@ export const DOCS_GROUPS: DocGroup[] = [
     label: "Govern & operate",
     items: [
       { to: "/docs/iam", label: "Access control", icon: ShieldCheck },
+      { to: "/docs/keys", label: "Keys & encryption", icon: KeyRound },
       { to: "/docs/guardrails", label: "Guardrails & PII", icon: ShieldAlert },
       { to: "/docs/budgets", label: "Budgets & cost", icon: Wallet },
       { to: "/docs/debugging", label: "Logs & traces", icon: Wrench },

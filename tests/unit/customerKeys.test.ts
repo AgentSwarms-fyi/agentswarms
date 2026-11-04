@@ -235,6 +235,16 @@ describe("rotating the deployment key re-wraps user keys and re-encrypts no valu
     // every value the old one encrypted without anyone deciding to.
     await expect(encryptJson("x", { owner: ALICE })).rejects.toMatchObject({ reason: "unheld" });
     expect(mem.userKeys).toHaveLength(1);
+    // A secret lost for good has a way out, and the refusal says which: an
+    // admin erases the user's key, and their next save makes a new one.
+    await expect(encryptJson("x", { owner: ALICE })).rejects.toThrow(
+      /If that key is lost for good, an admin can erase this user's key \(Admin → IAM → Settings → Customer keys → Erase a user's key\)/,
+    );
+    mem.erase(ALICE);
+    keyHierarchy().forgetAll();
+    const again = await encryptJson({ token: "alice-new" }, { owner: ALICE });
+    expect(await read(again)).toEqual({ token: "alice-new" });
+    await expect(read(blob)).rejects.toMatchObject({ reason: "erased" });
   });
 });
 

@@ -336,7 +336,7 @@ export function createKeyHierarchy(deps: HierarchyDeps) {
     const entry = instanceEntry(ring, row.wrapped_by);
     if (!entry) {
       throw new DataKeyUnavailableError(
-        `This user's key is wrapped by the deployment key ${row.wrapped_by}, which this server does not hold. Put that key back (PROVIDER_CREDS_SECRET_OLD, or its key provider) to read it.`,
+        `This user's key is wrapped by the deployment key ${row.wrapped_by}, which this server does not hold. Put that key back (PROVIDER_CREDS_SECRET_OLD, or its key provider) to read it. If that key is lost for good, an admin can erase this user's key (Admin → IAM → Settings → Customer keys → Erase a user's key): their next save makes a new one, and what they stored must be entered again.`,
         "unheld",
       );
     }

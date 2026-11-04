@@ -75,7 +75,18 @@ function IamPage() {
           ["SSO", "SAML identity provider configuration"],
           [
             "Settings",
-            "Public-signup toggle, the default model-access policy (allow vs deny), trace retention, the credential encryption key and its re-encrypt sweep, customer keys (a key per customer, assigned to groups or users, held by the app or in the customer's own KMS; the documents chat generates and dataset copies are under the same user keys, with Encrypt stored files for those stored before; one in AWS KMS also covers its members' lakehouse files, model artifacts and what their runs stage, with Re-encrypt lakehouse files for those written before) and erasing one user's key, and the current superadmin list",
+            <>
+              Public-signup toggle, the default model-access policy (allow vs deny), trace
+              retention, the credential encryption key and its re-encrypt sweep, customer keys (a
+              key per customer, assigned to groups or users, held by the app or in the
+              customer&apos;s own KMS; the documents chat generates and dataset copies are under the
+              same user keys, with Encrypt stored files for those stored before; one in a KMS the
+              lakehouse store can use, AWS KMS on S3 or Cloud KMS on Cloud Storage, also covers its
+              members&apos; lakehouse files, model artifacts and what their runs stage, with
+              Re-encrypt lakehouse files for those written before) and erasing one user&apos;s key,
+              and the current superadmin list. None of the keys needs setting up; see{" "}
+              <DocLink to="/docs/keys">Keys &amp; encryption</DocLink>.
+            </>,
           ],
         ]}
       />

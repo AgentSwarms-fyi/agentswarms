@@ -44,7 +44,8 @@ describe("whether the store encrypts under customer keys (LAKEHOUSE_SSE_KMS)", (
   it("is off by default for any other store, and names it", () => {
     const m = sseKmsMode(undefined, LAKE, "minio:9000");
     expect(m.on).toBe(false);
-    expect(m.why).toMatch(/The lakehouse store is minio, not AWS S3/);
+    expect(m.why).toMatch(/The lakehouse store is minio, not AWS S3 or Cloud Storage/);
+    expect(m.why).toMatch(/nothing else needs a customer key/);
     expect(m.why).toMatch(/LAKEHOUSE_SSE_KMS=on/);
     // A lookalike is not AWS.
     expect(sseKmsMode(undefined, LAKE, "s3.amazonaws.com.attacker.test").on).toBe(false);

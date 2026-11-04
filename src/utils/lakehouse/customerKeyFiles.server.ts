@@ -359,6 +359,18 @@ export function forgetEngineAttachment(): void {
 
 const secretName = (kind: "s" | "t", id: string) => `lake_ck_${kind}_${id.replace(/-/g, "")}`;
 
+async function dropSecretsNotIn(
+  c: Pick<DuckDBConnection, "run">,
+  want: Map<string, string>,
+): Promise<void> {
+  const have = await (
+    await c.run(`SELECT name FROM duckdb_secrets() WHERE name LIKE 'lake_ck_%'`)
+  ).getRows();
+  for (const [name] of have) {
+    if (!want.has(String(name))) await c.run(`DROP SECRET IF EXISTS ${String(name)};`);
+  }
+}
+
 /**
  * Create the scoped secret of every covered folder, drop the ones no longer
  * covered, and stop DuckLake inlining small writes of a covered schema into
@@ -374,40 +386,41 @@ export async function ensureCustomerKeySecrets(
   lastSync = now;
   const cfg = lakehouseConfig();
   if (!cfg) return;
+  // Off, which is the default for a store that cannot use a customer's key:
+  // no key store, schema list or catalog is read, so a deployment that never
+  // sets up customer keys does no key work when it opens the lakehouse. A
+  // secret an earlier "on" made in this process goes.
+  if (!lakehouseSseMode().on) {
+    lastPlan = null;
+    await dropSecretsNotIn(c, new Map());
+    return;
+  }
   const plan = await customerKeyFilePlan(c);
   lastPlan = plan;
   const want = new Map<string, string>();
-  if (plan.mode.on) {
-    const base = lakehouseS3SecretParts(cfg);
-    const parts = new Map<string, string | null>();
-    for (const f of [...plan.schemas, ...plan.shares]) {
-      if (f.kmsKeyId && !parts.has(f.kmsKeyId)) {
-        parts.set(f.kmsKeyId, await engineKeyPart(f.kmsKeyId));
-      }
+  const base = lakehouseS3SecretParts(cfg);
+  const parts = new Map<string, string | null>();
+  for (const f of [...plan.schemas, ...plan.shares]) {
+    if (f.kmsKeyId && !parts.has(f.kmsKeyId)) {
+      parts.set(f.kmsKeyId, await engineKeyPart(f.kmsKeyId));
     }
-    const add = (name: string, f: FolderPlan) => {
-      const part = f.kmsKeyId ? parts.get(f.kmsKeyId) : null;
-      if (!part) return;
-      want.set(
-        name,
-        `CREATE OR REPLACE SECRET ${name} (${[
-          ...base,
-          part,
-          `SCOPE ${sq(`s3://${f.bucket}/${f.keyPrefix}`)}`,
-        ].join(", ")});`,
-      );
-    };
-    for (const s of plan.schemas) add(secretName("s", s.schemaId), s);
-    for (const t of plan.shares) add(secretName("t", t.shareTableId), t);
   }
+  const add = (name: string, f: FolderPlan) => {
+    const part = f.kmsKeyId ? parts.get(f.kmsKeyId) : null;
+    if (!part) return;
+    want.set(
+      name,
+      `CREATE OR REPLACE SECRET ${name} (${[
+        ...base,
+        part,
+        `SCOPE ${sq(`s3://${f.bucket}/${f.keyPrefix}`)}`,
+      ].join(", ")});`,
+    );
+  };
+  for (const s of plan.schemas) add(secretName("s", s.schemaId), s);
+  for (const t of plan.shares) add(secretName("t", t.shareTableId), t);
   for (const sql of want.values()) await c.run(sql);
-  const have = await (
-    await c.run(`SELECT name FROM duckdb_secrets() WHERE name LIKE 'lake_ck_%'`)
-  ).getRows();
-  for (const [name] of have) {
-    if (!want.has(String(name))) await c.run(`DROP SECRET IF EXISTS ${String(name)};`);
-  }
-  if (!plan.mode.on) return;
+  await dropSecretsNotIn(c, want);
   // A schema the catalog does not have yet (its row comes first) has no
   // writes to keep out of the catalog; the sync after it is created sets it.
   for (const s of plan.schemas) {

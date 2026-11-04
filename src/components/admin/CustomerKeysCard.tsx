@@ -7,6 +7,7 @@
 // user's key. The server does the moving: every assignment change re-wraps
 // the covered users' keys at once, and the card reports what moved.
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
@@ -363,8 +364,14 @@ export function CustomerKeysCard(props: {
           or the customer revoking theirs, leaves what its members stored unreadable, and nobody
           else&apos;s. Erasing one user&apos;s key does the same for that user. The documents chat
           generates and the copies of uploaded datasets are under the same user keys. A key in AWS
-          KMS can also cover its members&apos; lakehouse files, their models and what their runs
-          stage: the store encrypts each of them under it.
+          KMS (on S3) or Cloud KMS (on Cloud Storage) can also cover its members&apos; lakehouse
+          files, their models and what their runs stage: the store encrypts each of them under it.
+          Customer keys are optional: without one, every user key is wrapped by the
+          deployment&apos;s key and everything works. New to keys?{" "}
+          <Link to="/docs/keys" className="text-primary hover:underline">
+            Keys &amp; encryption
+          </Link>
+          .
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -400,7 +407,9 @@ export function CustomerKeysCard(props: {
                 ) : null}
                 {s.unheld > 0 ? (
                   <span className="text-destructive">
-                    {s.unheld} wrapped by a key this server does not hold
+                    {s.unheld} wrapped by a key this server does not hold: put it back in
+                    PROVIDER_CREDS_SECRET_OLD (or its key provider), or, if it is lost for good,
+                    erase those users&apos; keys below; each one&apos;s next save makes a new key
                   </span>
                 ) : null}
               </div>

@@ -404,7 +404,7 @@ One focused guide per topic in [`docs/`](./docs):
   [React SDK](./sdk/react/README.md)
 - **Governance and operations** — [Access control (IAM) & SSO](./docs/IAM.md) ·
   [Decision provenance](./docs/PROVENANCE.md) ·
-  [Key management](./docs/KEY_MANAGEMENT.md) ·
+  [Key management](./docs/KEY_MANAGEMENT.md) ([start here](./docs/KEY_MANAGEMENT.md#start-here) if keys are new to you; nothing needs setting up) ·
   [Private connectivity for GenAI (design)](./docs/PRIVATE_GENAI_CONNECTIVITY.md) ·
   [Model pricing](./docs/MODEL_PRICING.md) ·
   [Architecture](./docs/ARCHITECTURE.md) ·

@@ -109,6 +109,67 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-04 — R444: keys for beginners, and nothing blocked without them
+
+**Asked.** The key documentation brought up to date, written so a beginner understands the
+security side, and a guarantee that someone who wants neither customer keys nor an external KMS is
+not blocked by them.
+
+**The default path, audited.** A fresh install has one key, derived from the generated
+`PROVIDER_CREDS_SECRET`, and every user key is made under it automatically. What was checked, from
+the code:
+
+- credentials: user keys are made at a user's first save; before the key tables exist, values go
+  under the deployment key (tested since R438);
+- group membership changes: the key follow-up runs in the background and its failure cannot fail
+  the change;
+- sandbox, ETL and model uploads: `lakeObjectKmsKey` returns before reading anything while key files
+  are off (tested since R442);
+- the lakehouse pass over files runs only after an assignment or removal (and only with a live key
+  the store can use) or a button press, never on a timer;
+- the lakehouse's key sync never fails a connection (it is caught and logged).
+
+**Found.** (1) The lakehouse's key sync built its whole plan while key files were off, the default
+on SILO and MinIO: the customer keys, the schema list and the catalog's folders, every 15 seconds
+per worker on a connection, to decide nothing. It now returns before reading anything, and drops
+any secret an earlier "on" made. (2) A lost deployment secret blocked every user who had saved
+anything: their saves are refused (correctly: a new key in place of the old would orphan what they
+stored) with a message that said only "put that key back", while the way out for a key gone for
+good is to erase the user's key. The message and the card's count now say it. (3) The docs: the
+key guide's opening said data beyond credentials was "designed, not built" (R440–R443 built most
+of it), and SECURITY.md said documents and lakehouse files were not under the keys; the cards
+named only AWS KMS for lakehouse files; "No external key provider configured." read as a warning;
+search could not find the guide by "envelope encryption", "KMS" or "BYOK"; and the platform uses
+BYOK for model provider keys, which the new guide now tells apart.
+
+**Attacks considered.**
+
+- *Does skipping the sync while off leave a secret that names a key behind?* A secret made while
+  on is dropped on the next sync (test; a mutant that skips the drop is caught).
+- *Does the way out weaken the refusal?* No: the save is still refused and no key is made in place
+  of the old; only an admin's erase, which is audited and makes what the user stored unreadable,
+  lets the next save make a new key (test: refused, erased, then a new key and the old value
+  "erased").
+- *Do the docs promise more than the code does?* The protected-data table says what the store's
+  own encryption is on SILO and MinIO (nothing, unless configured), that chat history, memory,
+  knowledge-base text and datasets' rows rely on the database's encryption, and that passwords are
+  never stored by the app.
+
+**Proved.**
+
+| Check | Result |
+| --- | --- |
+| `customerKeyFilesServer.test.ts` | while off, the sync reads nothing (a key store that throws on any read is not touched) and runs only the secrets listing; the plan is cleared |
+| `customerKeys.test.ts` | a save refused under a deployment key the server does not hold names the way out; after an erase, the next save makes a new key and reads back |
+| `customerKeyFiles.test.ts` | the off-mode text names Cloud Storage and says nothing else needs a customer key |
+| docs checks | `check:docs` (49 pages), `check:md-docs`, `check:doc-commands`, the search index regenerated |
+| mutation | 3 of 3 caught (the sync reading while off, leftover secrets kept, the refusal without its way out), the control survived |
+| UI | UI_TEST_RESULTS, R444: the guide, its links, search and index; both cards on the default path; a secret saved, a lakehouse write and read, a stored connection's Test, all with no customer key and no KMS |
+
+**Not covered.** A lost secret live (it would mean breaking the deployment's key on the only
+account). A bulk way out for a deployment whose secret is lost (each user's key is erased one at a
+time); not built, since the docs' first instruction is to keep the secret.
+
 ### 2026-11-04 — R443: customer keys on a lakehouse in Cloud Storage
 
 **What was built.** The user's choice for the item after R442: what R440–R442 do for a lakehouse

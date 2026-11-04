@@ -15,6 +15,39 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-04 — R444: keys for beginners, and the platform with no key setup at all
+
+The user asked for the key documentation to be brought up to date, for it to teach the security
+side to beginners, and for users who want neither customer keys nor an external KMS not to be
+blocked by them. The round ran on the real environment as a fresh install has it: no `KMS_*`
+variable, no `LAKEHOUSE_SSE_KMS` (auto, off on the bundled SILO store), only
+`PROVIDER_CREDS_SECRET`; the only account under no customer key (the R438 Acme fixture key exists,
+with nobody assigned). Readiness: `{"status":"ready","checks":{"db":true,"keys":true}}`.
+
+| Page / surface | What was driven | Result |
+| --- | --- | --- |
+| Docs → Keys & encryption (new) | read | Renders under Govern & operate, after Access control; "You do not need to set up anything here" first; the layers diagram readable |
+| The page's "Give a customer their own key" link (Which setup table) | click | `#tutorial-customer`, the heading at the top (a first coordinate click missed the link: measured, then clicked on it) |
+| The page's "Configuration" link | click (pointer) | `/docs/self-hosting/configuration#recipe-regulated`, the heading at the top, the new "New to keys?" callout above the key callouts |
+| Docs index | read | A "Keys & encryption" row under Govern and operate |
+| Docs search "envelope encryption" | type | **Found:** "Nothing matches": the index holds headings and code terms, not prose, and no heading said "envelope". Headings now carry the words a beginner searches for (envelope encryption, KMS, BYOK); after the rebuild: "Envelope encryption: a key t… · Keys & encryption" |
+| Docs search "BYOK" | type | **Found:** two results, "BYOK — whose key pays" (Core concepts) and the customer key section: the platform already uses BYOK for a model provider's API key. The heading now says "BYOK for encryption", and both doc sets say the two are unrelated |
+| Admin → IAM → Settings → Credential encryption key | read | "env (PROVIDER_CREDS_SECRET)" · "keyring loaded"; deployment key 30dc47ce45e7; "20 encrypted values · 20 on the current key". **Found:** "No external key provider configured." read as a warning; now "No external key provider configured, and none is needed: the deployment key from PROVIDER_CREDS_SECRET covers everything. To use one, …", and the description links the guide |
+| Admin → IAM → Settings → Customer keys | read | "1 user key · 0 under a customer key". **Found:** the description named only AWS KMS for lakehouse files (Cloud KMS since R443), and the lakehouse line said "not AWS S3"; both name Cloud Storage now, the line says nothing else needs a customer key, and the card says customer keys are optional, with a link that opens the guide (pointer click) |
+| Integrations → Secrets → New secret `R444_DEFAULT_PATH` (dummy value) | **Create secret** | "Secret created — reference it as {{secret:R444_DEFAULT_PATH}}"; the key card then "21 encrypted values · 21 on the current key": stored under the account's user key, which the deployment key wraps |
+| Lakehouse → New schema `r444_default` | **Create** | "Schema "r444_default" created" (the schema sync that now skips all key work while key files are off) |
+| `CREATE TABLE r444_default.orders AS SELECT range AS id, range * 3 AS amount FROM range(4000)`; `SELECT count(*), sum(amount)` | Run ×2 | 4000; "4000 · 23994000" |
+| Integrations → Data Sources → Lakehouse | **Test** | "Connection verified", OK 13:25: a stored credential decrypts |
+| App log since the deploy | read | No `[kms]`, `customer key` or `lake_ck` line |
+| Lakehouse → `r444_default` → Drop schema | **Drop schema** | "Dropped r444_default"; after a reload "14 schemas · 78 tables" |
+
+Not driven live: a lost `PROVIDER_CREDS_SECRET` (its refusal now says the way out; proven in
+`customerKeys.test.ts`, with the erase and a new key after it); the Customer keys card's
+count of keys "wrapped by a key this server does not hold", which needs one.
+
+Fixtures: the secret `R444_DEFAULT_PATH` (dummy value), kept. The schema `r444_default` was dropped
+in the UI.
+
 ## 2026-11-04 — R443: customer keys on a lakehouse in Cloud Storage
 
 The user chose this item over chat/memory/dataset rows and an Azure Blob lakehouse. Nothing local

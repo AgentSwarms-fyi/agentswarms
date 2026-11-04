@@ -1,19 +1,409 @@
 # Key management and external KMS
 
-**Status: envelope encryption is built, with six providers.** `env` (the
+**New to encryption keys?** Read [Start here](#start-here) and
+[Keys in plain words](#keys-in-plain-words) first, then the
+[tutorials](#tutorials). **Nothing on this page has to be set up to use the
+platform:** the installer makes the one key a deployment needs, and every
+feature works with it. The rest of the page is for operators who want that key
+in a key management service, or who host several customers and want each
+customer's data under a key the customer controls.
+
+**Status.** Envelope encryption is built, with six key providers. `env` (the
 default) derives the key from `PROVIDER_CREDS_SECRET` exactly as before,
 `vault` keeps the key-encrypting key in HashiCorp Vault Transit, `aws` in AWS
 KMS ([below](#aws-kms)), `azure` in Azure Key Vault or an Azure Managed HSM
-([below](#azure-key-vault)), and `gcp` in Google Cloud KMS
+([below](#azure-key-vault)), `gcp` in Google Cloud KMS
 ([below](#google-cloud-kms)), and `oci` in OCI Vault ([below](#oci-vault)).
 Under that key, every user's credentials are under their own key, and a
 **customer key**, held by the app or in a customer's own KMS, can wrap the
 keys of the users and groups assigned to it
-([below](#customer-keys-and-user-keys)). Encrypting the data beyond
-credentials is [designed](#data-beyond-credentials-design), not built.
+([below](#customer-keys-and-user-keys)). A customer key also covers its
+members' generated documents and dataset copies
+([Stored files](#stored-files)), and their lakehouse files, model artifacts
+and run staging where the object store can use the key: a key in AWS KMS on
+S3, a key in Cloud KMS on Cloud Storage ([Lakehouse files](#lakehouse-files)).
+Chat history, agent memory, knowledge-base text and datasets' rows are
+[designed](#data-beyond-credentials-design), not built.
 
-For what exists now — AES-256-GCM, key fingerprints, and the rotation sweep —
-see [SECURITY.md](../SECURITY.md#credential-encryption).
+For the cipher itself (AES-256-GCM, key fingerprints, the rotation sweep), see
+[SECURITY.md](../SECURITY.md#credential-encryption).
+
+## Start here
+
+### You do not need to set up keys
+
+A fresh install already encrypts everything this page describes. The setup
+script (`scripts/setup.sh`, `scripts/setup.ps1`, or `scripts/setup-k8s.sh` on
+Kubernetes) generates `PROVIDER_CREDS_SECRET`, 32 random bytes, and the app
+derives the **deployment key** from it. With nothing else configured:
+
+- every credential a user saves is encrypted before it reaches the database,
+  under a key of that user's own, which the app makes at their first save and
+  locks with the deployment key;
+- the documents chat generates and the copies of uploaded datasets are
+  encrypted the same way before they are stored;
+- nothing waits on a key service: there is no extra container to run, no
+  network call to make, and nothing to pay for.
+
+An external KMS and customer keys are **optional**. No feature is turned off
+without them and none asks for them. A user who is under no customer key
+never meets one: saving a credential, querying the lakehouse, running a
+notebook, a pipeline or a training run, and chatting work the same for them
+whether or not the deployment has customer keys for other people. While
+lakehouse files are not under customer keys (the default for the bundled
+object store), opening the lakehouse does no key work at all.
+[Which setup is right for you](#which-setup-is-right-for-you) says when the
+optional parts are worth it.
+
+### What is protected, with no setup
+
+| What                                                                                                                                                                                                          | Where it is kept                           | What protects it, with no setup                                                                                                                                                                                                      |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Credentials: model provider keys, warehouse and SaaS connections, secrets, integrations, MCP servers, Data Catalog and knowledge-base sources, Git export, Slack workspaces, Teams bots, signed embed viewers | The database                               | Encrypted by the app (AES-256-GCM) under the user's own key, which the deployment key locks                                                                                                                                          |
+| Documents chat generates; copies of uploaded datasets                                                                                                                                                         | Supabase Storage (`chat-docs`, `datasets`) | Encrypted by the app under the owner's user key                                                                                                                                                                                      |
+| Lakehouse tables, model artifacts, the rows a run stages                                                                                                                                                      | The object store                           | The store's own encryption: AWS S3 and Cloud Storage encrypt every object with keys they manage; the bundled SILO (a MinIO fork) and MinIO write files as they are, unless their encryption is configured or their disk is encrypted |
+| Chat history, agent memory, knowledge-base text, notebooks, datasets' rows, and the rest of the database                                                                                                      | The database                               | The database's own encryption at rest: a managed Postgres (Supabase's hosted service, RDS, Cloud SQL) encrypts its disks; a database you run yourself is as safe as the disk it is on                                                |
+
+Passwords are not on the list because the app never stores them: Supabase Auth
+keeps only a hash, or your identity provider signs users in (SSO).
+
+### Keep the deployment secret safe
+
+Every user key is locked by the deployment key, and the deployment key is made
+from `PROVIDER_CREDS_SECRET`. **Lose it and every stored credential and every
+generated document is unreadable**, with no way back: no copy of it exists
+anywhere else, by design. (Dataset copies are rebuilt from their rows.)
+
+1. Copy it from `.env` (on Kubernetes, from the `agentswarms-bootstrap`
+   Secret) into a password manager or your secret manager, **kept apart from
+   the database backups**. `npm run backup` lists it by name and says it
+   cannot contain it.
+2. Keep it out of chat, tickets and git. Anyone who holds it **and** a copy of
+   the database can read every credential.
+3. When you move or rebuild the server, bring the same value. A different
+   value makes a different key, and nothing stored under the old one opens.
+
+If it is lost anyway, put a new value in `PROVIDER_CREDS_SECRET` and restart.
+A save for a user whose key the old secret locked is then refused, with a
+message that says why and what to do, until an admin erases that user's key
+(**Admin → IAM → Settings → Customer keys → Erase a user's key**). Each one's
+next save makes a new key, and they enter their credentials again. Users who
+had saved nothing are not affected.
+
+### When you would want more
+
+- **Your security policy says keys live in a KMS or an HSM**, or you need a
+  record of every use of the key: move the deployment key into Vault, AWS KMS,
+  Azure Key Vault, Cloud KMS or OCI Vault
+  ([tutorial](#move-the-deployment-key-into-a-kms)).
+- **You host several organisations** (an agency for its clients, a platform
+  team for business units, a service built on this one), and one of them wants
+  its data under a key it controls, can switch off, or can delete to make the
+  data unreadable for good: give it a customer key
+  ([tutorial](#give-a-customer-their-own-key)).
+- **You must be able to make one person's data unreadable** (someone leaves,
+  a deletion request): erase their user key
+  ([tutorial](#take-data-out-of-reach)). This works with no other setup.
+
+## Keys in plain words
+
+A short course for anyone who has not had to think about encryption keys
+before. Nothing in it is specific to this platform until
+[The layers here](#the-layers-here).
+
+### What encryption at rest is for
+
+Encryption at rest means data is stored scrambled, so that someone who gets a
+copy of the storage (a stolen backup, a database dump, the disk of a retired
+server, a bucket left open by mistake) sees noise instead of your passwords.
+Unscrambling it takes the **key**: a random number, here 256 bits long, which
+is far too many possibilities to guess.
+
+What it does **not** do is protect against someone who can use the running
+app. The app has to unscramble a credential to use it, so an attacker who takes
+over the server process, or signs in as a user, sees what that process or that
+user can see. That is the job of sign-in, access control and network rules
+([IAM.md](./IAM.md)). Encryption at rest and access control are two locks on
+two different doors; you want both.
+
+### A key that locks other keys
+
+Encrypting a thousand credentials directly with one master key works, but it
+makes every change hard: replacing the master key means rewriting all thousand,
+and the master key has to be at hand for every read. So nearly every serious
+system uses **envelope encryption**:
+
+- the data is encrypted with a **data key**;
+- the data key is stored next to it, itself encrypted ("**wrapped**") by a
+  **key-encrypting key**;
+- to read, the app unwraps the data key once, then uses it as often as it
+  needs.
+
+A picture: your valuables are in a box locked with a small key (the data key).
+The small key is kept in a lockbox (wrapping) that only the bank can open (the
+key-encrypting key). When the bank changes its lockbox, nobody repacks the
+boxes: the small keys are moved to the new lockbox. And if the bank refuses to
+open the lockbox, every box behind it stays shut, at once.
+
+### The layers here
+
+```
+   PROVIDER_CREDS_SECRET  ──or──  a key in your KMS (KMS_PROVIDER)
+              │
+              ▼
+        deployment key           one per deployment, made at install
+              │ locks
+              ▼
+          user keys              one per user, made at their first save
+              │ encrypt          (a customer key can lock them instead)
+              ▼
+   that user's credentials, secrets and connections,
+   the documents chat made for them, their dataset copies
+```
+
+- The **deployment key** is the root. By default it is derived from
+  `PROVIDER_CREDS_SECRET`; with an external KMS it is a random data key that
+  only your KMS can unwrap.
+- Each **user key** belongs to one person. Because everyone has their own, one
+  person's data can be made unreadable without touching anyone else's.
+- A **customer key**, if you make one, sits between the two for the users and
+  groups assigned to it: it locks their user keys instead of the deployment
+  key.
+- **Lakehouse files** are the object store's to encrypt: with its own keys by
+  default, or with a customer's key when that key is in a KMS the store can
+  use.
+
+### What a KMS adds
+
+A **key management service** (KMS) keeps a key inside itself and does the
+wrapping and unwrapping, so the key never leaves it. Each cloud runs one (AWS
+KMS, Azure Key Vault, Google Cloud KMS, OCI Vault), and HashiCorp Vault is one
+you can run yourself. Compared with a secret in an environment variable, it
+gives you:
+
+- a **record of every use**, in the KMS's own audit log;
+- **separation of duties**: the app holds a _permission_ to unwrap, not the
+  key, so someone who reads the server's environment does not get the key;
+- **one switch**: disabling the key stops every deployment that uses it;
+- **hardware backing**: the key can live in an HSM, a device built to keep
+  keys inside it.
+
+What it costs is one more service to keep available. The app unwraps its data
+key once when it starts, never per request, so a KMS that is slow or briefly
+down while the app runs changes nothing. A KMS that cannot be reached **when
+the app starts** keeps it from starting, on purpose, rather than let it run
+without its key.
+
+### What a customer key adds
+
+A **customer key** is for a deployment that serves more than one organisation.
+Say an agency runs the platform for three clients, each client's people in an
+IAM group of their own. Give each client a customer key and assign their group
+to it: their users' keys are then locked by their client's key rather than the
+deployment's. The key is either:
+
+- **held by the app**: the operator keeps a separate key per client, and
+  destroying it in the app makes that client's data unreadable; or
+- **in the customer's own KMS**: the client creates the key in their own cloud
+  account and grants the app permission to use it. They can take the
+  permission away at any time, and the app then cannot read their users' data,
+  and nobody else's is affected. This is what enterprises usually mean by
+  **bring your own key** (BYOK).
+
+Not to be confused with the platform's other BYOK, bringing your own _model
+provider_ API key so that model calls run on your own account
+([AGENT_CHAT.md](./AGENT_CHAT.md) and the in-app Core concepts page use it in
+that sense). The two are unrelated, and neither needs the other.
+
+### Rotate, erase, destroy, revoke
+
+| Word                         | What it means                                                                          | What happens to the data                                                                                                       |
+| ---------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| **Rotate**                   | Replace a key with a new one, keeping the old one readable until everything has moved  | Nothing is lost: a sweep moves what the old key locked onto the new one                                                        |
+| **Erase** (a user's key)     | Delete one user's key                                                                  | What that user stored becomes unreadable; their next save makes a new key                                                      |
+| **Destroy** (a customer key) | Delete a customer key in the app                                                       | Every user key it locked is erased with it                                                                                     |
+| **Revoke**                   | The customer disables their KMS key, removes the app's permission on it, or deletes it | The app cannot read their members' data until it is turned back on; a key deleted in their KMS makes it permanent, backups too |
+
+### Glossary
+
+- **AES-256-GCM**: the cipher used throughout, AES with a 256-bit key in a mode
+  that also detects tampering.
+- **BYOK** (bring your own key): the customer, not the operator, holds the
+  key. Here, a customer key in the customer's own KMS; elsewhere in the docs,
+  your own model provider API key, which is a different thing.
+- **CMEK** (customer-managed encryption key): Google Cloud's name for a Cloud
+  KMS key the customer controls.
+- **Data key, key-encrypting key**: see
+  [A key that locks other keys](#a-key-that-locks-other-keys).
+- **Fingerprint** (`kid`): a short id derived from a key and stored with
+  everything it encrypted, so the app knows which key opens it. It reveals
+  nothing about the key.
+- **HSM** (hardware security module): a device built to keep keys inside it.
+- **KMS**: a key management service.
+- **SSE-KMS**: S3's encryption of a file under a key in AWS KMS.
+- **The store's own encryption**: what the object store does by itself, with
+  no customer key. S3 and Cloud Storage encrypt with keys they manage; SILO and
+  MinIO only when configured to.
+- **Wrap, unwrap**: encrypt or decrypt one key with another.
+
+## Which setup is right for you
+
+| You are                                                                      | Use                                                   | What to do                                                                          |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Trying it out, a developer on your own, or a small team on one server        | The default                                           | Nothing, except [keep the deployment secret safe](#keep-the-deployment-secret-safe) |
+| A company whose policy requires keys in a KMS or an HSM, or audit of key use | An external KMS for the deployment key                | [Move the deployment key into a KMS](#move-the-deployment-key-into-a-kms)           |
+| Hosting several organisations, one of which wants control of its own key     | Customer keys, any of them in that customer's own KMS | [Give a customer their own key](#give-a-customer-their-own-key)                     |
+| Required to make one person's data unreadable on request                     | User keys, which are already on                       | [Take data out of reach](#take-data-out-of-reach)                                   |
+
+They combine: a deployment key in AWS KMS, two customers with keys in their own
+accounts, and everyone else under the deployment key.
+
+## Tutorials
+
+Each takes a few minutes. The first two are for every deployment.
+
+### Check what protects your deployment
+
+1. Sign in as a superadmin and open **Admin → IAM → Settings**.
+2. Find **Credential encryption key**. With no setup, **Key provider** reads
+   "env (PROVIDER_CREDS_SECRET)" followed by "keyring loaded": the deployment
+   key is derived from the secret, and it works. The card also shows the key's
+   fingerprint and how many stored values are on which key.
+3. Find **Customer keys**. "No customer keys yet. Every user key is wrapped by
+   the deployment's key." is the normal state for most deployments.
+4. If the card says a migration is needed instead, apply it
+   (`npx supabase db push`). Until then everything is under the deployment key,
+   as it was before user keys existed, and nothing is wrong.
+
+### Back up the deployment secret, and prove the backup
+
+1. Copy `PROVIDER_CREDS_SECRET` from `.env` into your password manager or
+   secret manager. On Kubernetes, read it from its Secret:
+
+   ```bash
+   kubectl -n agentswarms get secret agentswarms-bootstrap -o jsonpath='{.data.PROVIDER_CREDS_SECRET}' | base64 -d
+   ```
+
+2. Run `npm run backup`. Its last section, "Secrets this backup CANNOT
+   contain", lists `PROVIDER_CREDS_SECRET` as `[set]`: the backup holds your
+   data, and your password manager holds the key to it. Keep the two in
+   different places, because whoever has both has every credential.
+3. To prove it, restore into a scratch install
+   ([DEPLOYMENT.md, Backups and restore](./DEPLOYMENT.md#backups-and-restore))
+   with the saved value in its `.env`, open **Admin → IAM → Settings →
+   Credential encryption key**, and compare the fingerprint with your live
+   deployment's. The same fingerprint is the same key.
+
+### Rotate PROVIDER_CREDS_SECRET
+
+Rotate when the secret may have leaked (it was pasted somewhere, someone who
+had it left), or when your policy rotates keys on a schedule.
+
+1. Make a new value: `openssl rand -hex 32`.
+2. In `.env`, move the current value to `PROVIDER_CREDS_SECRET_OLD` and put
+   the new one in `PROVIDER_CREDS_SECRET`.
+3. Restart the app: `docker compose up -d agentswarms` re-reads `.env`; on
+   Kubernetes, update the Secret and restart the deployment. Both keys now
+   read, and everything new is written with the new one.
+4. Open **Admin → IAM → Settings → Credential encryption key** and run
+   **Re-encrypt to current key**. It re-locks every user key, and every
+   customer key held by the app, with the new key, and moves anything still on
+   the old one. What users stored is not rewritten.
+5. When the card counts nothing left on the old key, remove
+   `PROVIDER_CREDS_SECRET_OLD`, restart again, and replace your saved copy of
+   the secret.
+
+The rules, including what not to do midway, are in
+[SECURITY.md, Rotating the credential key](../SECURITY.md#rotating-the-credential-key).
+
+### Move the deployment key into a KMS
+
+The outline is the same for every provider; each provider's section has its
+permissions and identity.
+
+1. Create a key in your KMS and give the app's identity permission to use it:
+   [Vault](#what-exists), [AWS KMS](#aws-kms),
+   [Azure Key Vault](#azure-key-vault), [Cloud KMS](#google-cloud-kms),
+   [OCI Vault](#oci-vault).
+2. Set `KMS_KEY_REF` to the key and the provider's own variables, leave
+   `KMS_PROVIDER` unset, and restart. The **Credential encryption key** card
+   shows the provider, whether the app can reach it, and a button to create the
+   data key there.
+3. Create the data key. The app makes it, has the KMS wrap it, proves it
+   unwraps, and only then stores it. Nothing else changes yet.
+4. Set `KMS_PROVIDER` to the provider and restart. From now on the app unwraps
+   its data key when it starts and writes everything new with it;
+   `PROVIDER_CREDS_SECRET` still reads what it wrote.
+5. Run **Re-encrypt to current key**. When nothing is left on the env key,
+   `PROVIDER_CREDS_SECRET` can go.
+
+From then on, an app that cannot reach the KMS, or is refused by it, when it
+starts does not start, and says which provider and key. That is deliberate: a
+deployment that started without its key would fail every read. Fix the
+permission or the network, and it starts.
+
+### Give a customer their own key
+
+Say Acme's people are in the IAM group `acme-staff`, and Acme wants their data
+under a key in their own AWS account.
+
+1. Acme creates a symmetric key in their AWS KMS and adds a statement to its
+   key policy that allows your app's role `kms:GenerateDataKey`, `kms:Decrypt`
+   and `kms:DescribeKey`. ([Creating a customer key](#creating-a-customer-key)
+   has the grant for every provider.) They send you the key's ARN.
+2. Open **Admin → IAM → Settings → Customer keys**. Under **New customer
+   key**, name it "Acme", choose **In the customer's KMS**, paste the ARN, and
+   press **Create customer key**. The app wraps and unwraps a test key with it
+   first, so a missing permission shows now rather than later.
+3. Press **Check** on the key. It unwraps again and shows what the KMS says
+   about the key; when the lakehouse store can use the key, it also writes,
+   reads and deletes a test file under it.
+4. On the key, choose `acme-staff` in **Assign a group or a user…** and press
+   **Assign**. Every member's user key is locked by Acme's key at once, however
+   much they stored; when the store can use the key, their lakehouse files
+   follow in the background.
+5. Nothing changes for Acme's people: they sign in, save and query as before.
+   Nothing changes for anyone else either.
+
+If Acme later disables the key, their people's saved credentials and documents
+stop working, with an error that names Acme's key, and nobody else is
+affected. When Acme turns it back on, everything works again. The app never
+writes a member's data under another key instead.
+
+Without a KMS, choose **Held by the app** in step 2: a separate key per
+customer, which you hold, and which erases that customer's data when you
+destroy it.
+
+### Take data out of reach
+
+- **One person** (someone leaves, a deletion request): **Admin → IAM →
+  Settings → Customer keys → Erase a user's key**, choose the user, and press
+  **Erase the key**. What they stored (credentials, connections, secrets,
+  generated documents, dataset copies) is unreadable at once in this server
+  process, and in the others within `DATA_KEY_CACHE_SECONDS` (five minutes by
+  default). Deleting their account does the same.
+- **One customer**: press **Destroy** on their customer key and type its name.
+  Every user key it locked is erased with it.
+- **For good, backups included**: a key erased or destroyed in the app is still
+  in the database backups taken before it. Only a customer key in the
+  customer's own KMS, **deleted in that KMS**, makes those backups unreadable
+  too ([What erasure covers](#what-erasure-covers-and-what-it-does-not)).
+
+Chat history and agent memory are database rows that are not under these keys
+yet, so erasing a key does not make them unreadable; delete the chats, or the
+account, for that.
+
+### Mistakes, and what you see
+
+| You did                                                                                      | You see                                                                                                                               | The fix                                                                                                      |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Lost `PROVIDER_CREDS_SECRET`, or pointed a new install with a new secret at the old database | Stored credentials do not read; a save for those users is refused: "wrapped by the deployment key …, which this server does not hold" | Put the old value back. If it is gone for good, erase the affected users' keys; they enter credentials again |
+| Removed `PROVIDER_CREDS_SECRET_OLD` before running the sweep                                 | The same                                                                                                                              | Put it back, run **Re-encrypt to current key**, then remove it                                               |
+| Set `KMS_PROVIDER` before creating the data key, or the app lost its KMS permission          | The app does not start; its log names the provider, the key and the error (exit code 78)                                              | Unset `KMS_PROVIDER` and create the data key first, or restore the permission                                |
+| Put a user in two groups assigned to different customer keys                                 | Their saves are refused, naming both keys and both groups                                                                             | Assign the user directly to one of the keys                                                                  |
+| Assigned a key in one cloud's KMS while the lakehouse is in another cloud's store            | The key's card says the store cannot use it for files                                                                                 | Nothing is wrong with credentials; for files, use a key in the store's own cloud                             |
+
+The reference for everything above follows.
 
 ## What exists
 
@@ -766,18 +1156,25 @@ backup. Erasure that reaches backups needs one of:
 
 Customer keys cover what the app encrypts: stored credentials and secrets,
 the documents chat generates and the copies of uploaded datasets
-([Stored files](#stored-files)), and, for a key in AWS KMS, its members'
-lakehouse files (next). The rest of the data a customer's users work with is
-not under these keys yet; see
+([Stored files](#stored-files)), and, for a key in a KMS the object store can
+use (AWS KMS on S3, Cloud KMS on Cloud Storage), its members' lakehouse files,
+model artifacts and run staging (next). The rest of the data a customer's
+users work with is not under these keys yet; see
 [Data beyond credentials](#data-beyond-credentials-design).
 
 ### Lakehouse files
 
 A customer key in **AWS KMS** also covers its members' **lakehouse files**
 when the lakehouse is on S3: the store encrypts each file under the customer's
-key (S3 SSE-KMS). A customer who disables or revokes their key stops the store
-serving those files. Queries, Spark and Delta Sharing read the same files as
-before; nothing else changes.
+key (S3 SSE-KMS). On Cloud Storage a key in **Cloud KMS** does the same
+([On Cloud Storage](#on-cloud-storage)). A customer who disables or revokes
+their key stops the store serving those files. Queries, Spark and Delta
+Sharing read the same files as before; nothing else changes.
+
+On a store that cannot use the key, which includes the bundled SILO and MinIO
+unless their KMS integration is configured, `LAKEHOUSE_SSE_KMS` is off by
+default: files stay on the store's own encryption, the card says why, and the
+lakehouse does no customer-key work at all.
 
 How it works:
 
@@ -1055,6 +1452,10 @@ a real bucket. Still to do: chat and memory text and datasets' rows, then
 knowledge-base text; an Azure Blob lakehouse is a feature of its own first.
 
 ---
+
+_The sections from here on are the design record, written before envelope
+encryption was built. They are kept for the reasoning; the sections above
+describe what exists._
 
 ## Why the current design is not simply wrong
 

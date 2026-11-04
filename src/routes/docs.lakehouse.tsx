@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   C,
   Callout,
+  DocLink,
   DocsHeader,
   H2,
   H3,
@@ -325,7 +326,11 @@ function LakehouseDocsPage() {
         another provider, does not cover files, and the card says so. Destroying a customer key in
         the app leaves its members&apos; files under the customer&apos;s KMS key: for them to become
         unreadable, the customer disables or deletes it. The details are in{" "}
-        <C>docs/KEY_MANAGEMENT.md</C>, under Lakehouse files.
+        <C>docs/KEY_MANAGEMENT.md</C>, under Lakehouse files. None of this is needed to use the
+        lakehouse: with no customer key, or on the bundled store, files stay on the store&apos;s own
+        encryption and the lakehouse does no key work (
+        <DocLink to="/docs/keys">Keys &amp; encryption</DocLink> explains the keys from the
+        beginning).
       </P>
       <P>
         The same key covers what its members keep beside the lake: their models&apos; artifacts,

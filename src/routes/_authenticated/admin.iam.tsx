@@ -1959,7 +1959,11 @@ function CredentialKeyCard({ token }: { token: string }) {
           never leaves it. To rotate an env secret: put the new one in{" "}
           <code className="text-xs">PROVIDER_CREDS_SECRET</code>, move the old one to{" "}
           <code className="text-xs">PROVIDER_CREDS_SECRET_OLD</code>, restart, then run the sweep
-          below. Both keys decrypt in the meantime, so nothing breaks mid-rotation.
+          below. Both keys decrypt in the meantime, so nothing breaks mid-rotation. New to keys?{" "}
+          <Link to="/docs/keys" className="text-primary hover:underline">
+            Keys &amp; encryption
+          </Link>{" "}
+          explains them from the beginning; none of it needs setting up.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -2063,11 +2067,12 @@ function CredentialKeyCard({ token }: { token: string }) {
                   </div>
                 ) : (
                   <p className="text-xs text-muted-foreground">
-                    No external key provider configured. Set{" "}
-                    <code className="font-mono">KMS_KEY_REF</code> and the provider&apos;s variables
-                    (Vault: <code className="font-mono">VAULT_ADDR</code> and a token or Kubernetes
-                    role; AWS KMS: the key&apos;s ARN or alias, and a role or{" "}
-                    <code className="font-mono">AWS_*</code> keys; Azure Key Vault: the key
+                    No external key provider configured, and none is needed: the deployment key from{" "}
+                    <code className="font-mono">PROVIDER_CREDS_SECRET</code> covers everything. To
+                    use one, set <code className="font-mono">KMS_KEY_REF</code> and the
+                    provider&apos;s variables (Vault: <code className="font-mono">VAULT_ADDR</code>{" "}
+                    and a token or Kubernetes role; AWS KMS: the key&apos;s ARN or alias, and a role
+                    or <code className="font-mono">AWS_*</code> keys; Azure Key Vault: the key
                     identifier, and a managed or workload identity or{" "}
                     <code className="font-mono">AZURE_*</code> variables; Cloud KMS: the key&apos;s
                     resource name, and a service account on the metadata server or{" "}

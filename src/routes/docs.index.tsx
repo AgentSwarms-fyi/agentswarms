@@ -289,6 +289,12 @@ function IntroductionPage() {
             "Users, groups, model rules, read-only sharing, invite-only signup and SSO.",
           ],
           [
+            <DocLink key="k" to="/docs/keys">
+              Keys & encryption
+            </DocLink>,
+            "What is encrypted with no setup, the one secret to keep, and when an external KMS or customer keys are worth it; written for beginners.",
+          ],
+          [
             <DocLink key="b" to="/docs/guardrails">
               Guardrails & PII
             </DocLink>,

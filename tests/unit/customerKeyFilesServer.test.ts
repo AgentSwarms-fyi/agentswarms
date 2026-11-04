@@ -45,6 +45,7 @@ import {
   reEncryptFilesAfterMove,
   reEncryptLakehouseFiles,
   __forgetEngineVerdictForTests,
+  __lastFilePlanForTests,
 } from "@/utils/lakehouse/customerKeyFiles.server";
 import type { CustomerKeyRow } from "@/utils/kms/keyHierarchy.server";
 import { s3CopyInPlace } from "@/utils/lakehouse/presign.server";
@@ -425,6 +426,25 @@ describe("each covered schema's writes carry its customer's key", () => {
     await ensureCustomerKeySecrets(h.conn!, true);
     expect(st.sql.some((s) => s.startsWith("CREATE OR REPLACE SECRET"))).toBe(false);
     expect(st.secrets.size).toBe(0);
+  });
+
+  it("reads nothing about keys while the store does not encrypt under them", async () => {
+    // The default on SILO and MinIO, and every deployment that never sets up
+    // customer keys there: opening the lakehouse does no key work, and a key
+    // store or schema list that cannot be read changes nothing.
+    process.env.LAKEHOUSE_SSE_KMS = "off";
+    h.db = new Proxy(
+      {},
+      {
+        get: () => {
+          throw new Error("nothing is read while the store cannot use the keys");
+        },
+      },
+    );
+    const st = fakeConn();
+    await ensureCustomerKeySecrets(h.conn!, true);
+    expect(st.sql).toEqual([`SELECT name FROM duckdb_secrets() WHERE name LIKE 'lake_ck_%'`]);
+    expect(__lastFilePlanForTests()).toBeNull();
   });
 
   it("drops nothing when the schemas cannot be read", async () => {

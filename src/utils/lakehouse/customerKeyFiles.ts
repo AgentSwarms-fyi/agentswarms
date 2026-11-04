@@ -75,7 +75,7 @@ export function sseKmsMode(
   }
   return {
     on: false,
-    why: `The lakehouse store is ${endpointHost(endpoint)}, not AWS S3, and may not encrypt with KMS keys. Set LAKEHOUSE_SSE_KMS=on if it does (MinIO with KES, for one).`,
+    why: `The lakehouse store is ${endpointHost(endpoint)}, not AWS S3 or Cloud Storage, and may not encrypt with KMS keys; nothing else needs a customer key. Set LAKEHOUSE_SSE_KMS=on if it does (MinIO with KES, for one).`,
   };
 }
 
