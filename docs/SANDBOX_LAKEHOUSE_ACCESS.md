@@ -42,13 +42,15 @@ one staging file cannot read it, write another, or list anything.
 ### Under the owner's customer key
 
 When the run's owner is under a customer key that the store can use (an AWS
-KMS key, on S3 with `LAKEHOUSE_SSE_KMS` on; see
+KMS key on S3, or a Cloud KMS key on Cloud Storage, with `LAKEHOUSE_SSE_KMS`
+on; see
 [KEY_MANAGEMENT.md](KEY_MANAGEMENT.md#lakehouse-files)), what the run puts
 beside the lake is written under that key (R442):
 
 - A URL to put a model artifact, or a staged load, signs the key's headers
-  (`x-amz-server-side-encryption`, `-aws-kms-key-id`) with the host, and the
-  answer names them for the sandbox to send. S3 takes a KMS key only from
+  (`x-amz-server-side-encryption`, `-aws-kms-key-id`; on Cloud Storage
+  `x-goog-encryption-kms-key-name`, R443) with the host, and the answer names
+  them for the sandbox to send. S3 takes a KMS key only from
   headers, never from a query string; with them inside the signature, an
   upload without them, or with another key's, fails `SignatureDoesNotMatch`.
   A stage signs them only when the call says it sends headers

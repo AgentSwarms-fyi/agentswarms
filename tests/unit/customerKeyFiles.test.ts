@@ -10,6 +10,10 @@ import { describe, expect, it } from "vitest";
 import {
   artifactFolderOf,
   awsKmsKeyRegion,
+  cloudKmsKeyName,
+  keyHeaders,
+  objectEncryptionOf,
+  storeKindOf,
   describeCustomerKeyFileError,
   fileKeyFor,
   filesPassLine,
@@ -385,11 +389,153 @@ describe("a sandbox read's staged copy, in the audit log (R442)", () => {
     for (const d of [{}, { staged_under_kms_key: null }, { staged_under_kms_key: " " }]) {
       expect(stagedUnderKeyBit(d)).toBeNull();
     }
+    // R443: a Cloud KMS key by its own name, not the start of its resource name.
+    expect(
+      stagedUnderKeyBit({
+        staged_under_kms_key:
+          "projects/acme-prod/locations/europe-west3/keyRings/lake/cryptoKeys/r443-acme",
+      }),
+    ).toBe("staged under the customer's Cloud KMS key r443-acme");
   });
 
   it("is on the audit log's line, found in the round where it was recorded and not shown", () => {
     const log = readFileSync("src/components/observability/AuditLog.tsx", "utf8");
     expect(log).toContain("const staged = stagedUnderKeyBit(d);");
     expect(log).toContain("if (staged) bits.push(staged);");
+  });
+});
+
+describe("a lakehouse on Cloud Storage (R443)", () => {
+  const GKEY = "projects/acme-prod/locations/europe-west1/keyRings/lake/cryptoKeys/acme";
+  const GCS = "storage.googleapis.com";
+  const mode = sseKmsMode(undefined, LAKE, GCS);
+
+  it("is told from its endpoints: global, regional and Private Service Connect", () => {
+    for (const ep of [
+      "storage.googleapis.com",
+      "https://storage.googleapis.com",
+      "storage.googleapis.com:443",
+      "storage.europe-west1.rep.googleapis.com",
+      "storage-lakepsc.p.googleapis.com",
+    ]) {
+      expect(storeKindOf(ep), ep).toBe("gcs");
+    }
+    for (const ep of [
+      undefined,
+      "s3.eu-west-1.amazonaws.com",
+      "minio:9000",
+      "storage.googleapis.com.attacker.test",
+      "evilstorage.googleapis.com",
+    ]) {
+      expect(storeKindOf(ep), String(ep)).toBe("s3");
+    }
+  });
+
+  it("is on by default, as AWS S3 is", () => {
+    expect(mode).toEqual({
+      on: true,
+      why: "The lakehouse store is Cloud Storage, which encrypts files under customer-managed Cloud KMS keys.",
+    });
+    expect(sseKmsMode("off", LAKE, GCS).on).toBe(false);
+  });
+
+  it("is covered by a key in Cloud KMS, by its resource name", () => {
+    expect(
+      fileKeyFor({ provider: "gcp", key_ref: GKEY, destroyed_at: null }, mode, "auto", "gcs"),
+    ).toEqual({
+      kmsKeyId: GKEY,
+    });
+    // The full URI form is the same key.
+    expect(
+      fileKeyFor(
+        { provider: "gcp", key_ref: `//cloudkms.googleapis.com/${GKEY}`, destroyed_at: null },
+        mode,
+        "auto",
+        "gcs",
+      ),
+    ).toEqual({ kmsKeyId: GKEY });
+  });
+
+  it("is not covered by a key in AWS KMS, a key's version, or a key held by the app", () => {
+    const aws = fileKeyFor(
+      { provider: "aws", key_ref: ARN, destroyed_at: null },
+      mode,
+      "auto",
+      "gcs",
+    );
+    expect(whyNotCovered(aws)).toMatch(
+      /^In AWS KMS: the lakehouse store is Cloud Storage, which encrypts only under a Cloud KMS key/,
+    );
+    const version = fileKeyFor(
+      { provider: "gcp", key_ref: `${GKEY}/cryptoKeyVersions/3`, destroyed_at: null },
+      mode,
+      "auto",
+      "gcs",
+    );
+    expect(whyNotCovered(version)).toMatch(/^Not a key's resource name/);
+    expect(
+      whyNotCovered(
+        fileKeyFor({ provider: "app", key_ref: null, destroyed_at: null }, mode, "auto", "gcs"),
+      ),
+    ).toMatch(/^Held by the app/);
+    // And on S3, a Cloud KMS key still covers nothing.
+    expect(
+      whyNotCovered(
+        fileKeyFor(
+          { provider: "gcp", key_ref: GKEY, destroyed_at: null },
+          sseKmsMode(undefined, LAKE, undefined),
+          "eu-west-1",
+        ),
+      ),
+    ).toMatch(/^In Google Cloud KMS: the lakehouse store is S3/);
+  });
+
+  it("names the key with Cloud Storage's header there, and with SSE-KMS on S3", () => {
+    expect(keyHeaders("gcs", GKEY)).toEqual({ "x-goog-encryption-kms-key-name": GKEY });
+    expect(keyHeaders("s3", ARN)).toEqual({
+      "x-amz-server-side-encryption": "aws:kms",
+      "x-amz-server-side-encryption-aws-kms-key-id": ARN,
+    });
+  });
+
+  it("reads the key off a stored object without the version Cloud Storage adds", () => {
+    const h = (o: Record<string, string>) => (n: string) => o[n] ?? null;
+    expect(
+      objectEncryptionOf(h({ "x-goog-encryption-kms-key-name": `${GKEY}/cryptoKeyVersions/7` })),
+    ).toEqual({ sse: "gcp:kms", kmsKeyId: GKEY });
+    expect(objectEncryptionOf(h({}))).toEqual({ sse: null, kmsKeyId: null });
+    expect(
+      objectEncryptionOf(
+        h({
+          "x-amz-server-side-encryption": "aws:kms",
+          "x-amz-server-side-encryption-aws-kms-key-id": ARN,
+        }),
+      ),
+    ).toEqual({ sse: "aws:kms", kmsKeyId: ARN });
+    expect(cloudKmsKeyName(` ${GKEY}/cryptoKeyVersions/12 `)).toBe(GKEY);
+    expect(cloudKmsKeyName(GKEY)).toBe(GKEY);
+  });
+
+  it("explains Cloud Storage's refusal of the key, and names the service agent's role", () => {
+    const msg = describeCustomerKeyFileError(
+      "HTTP Error: HTTP GET error reading 's3://lake-bucket/lake/acme/t/a.parquet' (HTTP 400 Bad Request) cloudKmsDisabledKey",
+      [
+        {
+          bucket: "lake-bucket",
+          keyPrefix: "lake/acme/",
+          schema: "acme",
+          keyName: "Acme",
+          kmsKeyId: GKEY,
+          store: "gcs",
+        },
+      ],
+    );
+    expect(msg).toMatch(
+      /^The store refused a file of lakehouse schema "acme" \(cloudKmsDisabledKey\)\./,
+    );
+    expect(msg).toContain(
+      "Cloud Storage service agent may lack the Cloud KMS CryptoKey Encrypter/Decrypter role",
+    );
+    expect(msg).not.toContain("kms:GenerateDataKey");
   });
 });

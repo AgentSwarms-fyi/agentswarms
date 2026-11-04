@@ -6,10 +6,18 @@
 // Customer keys add three (R440): HEAD for how a file is encrypted, a copy in
 // place onto another key, and a PUT under a key for the store's check. R442
 // puts the key inside a presigned PUT's signature, so the store refuses the
-// upload unless it arrives under that key.
+// upload unless it arrives under that key. R443 names the key the way the
+// store does: S3's SSE-KMS headers, or Cloud Storage's
+// x-goog-encryption-kms-key-name through its S3-compatible XML API.
 import { createHash, createHmac } from "node:crypto";
 
 import { signS3Request } from "@/utils/catalog/objectStore.server";
+import {
+  keyHeaders,
+  objectEncryptionOf,
+  storeKindOf,
+  type ObjectEncryption,
+} from "@/utils/lakehouse/customerKeyFiles";
 
 export type S3Target = {
   /** host[:port], no scheme. Absent means AWS S3 in `region`. */
@@ -84,7 +92,8 @@ export function presignS3Get(args: {
  * `amzHeaders` are signed with the host (R442): the request must carry them,
  * with these values, or the store refuses the signature. That is how a PUT is
  * held to a customer's KMS key: S3 takes the key only from headers, never
- * from the query string, so the URL alone cannot say it.
+ * from the query string, so the URL alone cannot say it. Cloud Storage's own
+ * x-goog-* headers are signed the same way (R443).
  */
 export function presignS3(args: {
   target: S3Target;
@@ -108,7 +117,9 @@ export function presignS3(args: {
   const signed: Record<string, string> = { host: loc.host };
   for (const [name, value] of Object.entries(args.amzHeaders ?? {})) {
     const n = name.toLowerCase();
-    if (!n.startsWith("x-amz-")) throw new Error(`Only x-amz-* headers are signed here, not ${n}`);
+    if (!n.startsWith("x-amz-") && !n.startsWith("x-goog-")) {
+      throw new Error(`Only x-amz-* and x-goog-* headers are signed here, not ${n}`);
+    }
     signed[n] = value.trim();
   }
   const names = Object.keys(signed).sort();
@@ -145,7 +156,7 @@ const EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b78
 
 async function signedCall(
   t: S3Target,
-  method: "GET" | "HEAD" | "DELETE" | "PUT",
+  method: "GET" | "HEAD" | "DELETE" | "PUT" | "POST",
   key: string,
   body?: Buffer,
   query: Record<string, string> = {},
@@ -207,7 +218,7 @@ export async function s3PutObject(
     key,
     body,
     {},
-    opts.kmsKeyId ? sseKmsHeaders(opts.kmsKeyId) : {},
+    opts.kmsKeyId ? keyHeadersFor(t, opts.kmsKeyId) : {},
   );
   if (!res.ok) throw new Error(`PUT ${key} failed (${res.status})`);
   return { sha256: createHash("sha256").update(body).digest("hex"), bytes: body.length };
@@ -222,24 +233,21 @@ export async function s3ObjectSize(t: S3Target, key: string): Promise<number | n
   return len ? Number(len) : 0;
 }
 
-/** An object's size, type and encryption, or null when it is not there. */
+/**
+ * An object's size, type and encryption, or null when it is not there. The
+ * key on Cloud Storage is its Cloud KMS key's name, without the version.
+ */
 export async function s3HeadObject(
   t: S3Target,
   key: string,
-): Promise<{
-  size: number;
-  contentType: string | null;
-  sse: string | null;
-  kmsKeyId: string | null;
-} | null> {
+): Promise<({ size: number; contentType: string | null } & ObjectEncryption) | null> {
   const res = await signedCall(t, "HEAD", key);
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`HEAD ${key} failed (${res.status})`);
   return {
     size: Number(res.headers.get("content-length") ?? 0),
     contentType: res.headers.get("content-type"),
-    sse: res.headers.get("x-amz-server-side-encryption"),
-    kmsKeyId: res.headers.get("x-amz-server-side-encryption-aws-kms-key-id"),
+    ...objectEncryptionOf((n) => res.headers.get(n)),
   };
 }
 
@@ -248,6 +256,14 @@ export function s3ErrorOf(xml: string): { code: string; message: string } | null
   const m =
     /<Error>[\s\S]*?<Code>([\s\S]*?)<\/Code>(?:[\s\S]*?<Message>([\s\S]*?)<\/Message>)?/.exec(xml);
   return m ? { code: xmlUnescape(m[1]), message: xmlUnescape(m[2] ?? "") } : null;
+}
+
+/** The headers that make this store write an object under one KMS key. */
+export function keyHeadersFor(
+  t: Pick<S3Target, "endpoint">,
+  keyRef: string,
+): Record<string, string> {
+  return keyHeaders(storeKindOf(t.endpoint), keyRef);
 }
 
 /** The headers that make S3 encrypt an object under one KMS key. */
@@ -277,17 +293,28 @@ export async function s3CopyInPlace(
   to: { kmsKeyId: string | null; contentType: string | null },
 ): Promise<void> {
   const source = `/${t.bucket}/${awsUriEncode(key, false)}`;
-  const headers: Record<string, string> = to.kmsKeyId
-    ? {
-        "x-amz-copy-source": source,
-        "x-amz-metadata-directive": "COPY",
-        ...sseKmsHeaders(to.kmsKeyId),
-      }
-    : {
-        "x-amz-copy-source": source,
-        "x-amz-metadata-directive": "REPLACE",
-        ...(to.contentType ? { "content-type": to.contentType } : {}),
-      };
+  // Cloud Storage's XML API copies with its own headers, and copies an object
+  // onto itself only with the metadata REPLACEd (so the type goes with it); a
+  // copy with no key header lands under the bucket's own encryption.
+  const headers: Record<string, string> =
+    storeKindOf(t.endpoint) === "gcs"
+      ? {
+          "x-goog-copy-source": source.slice(1),
+          "x-goog-metadata-directive": "REPLACE",
+          ...(to.contentType ? { "content-type": to.contentType } : {}),
+          ...(to.kmsKeyId ? keyHeadersFor(t, to.kmsKeyId) : {}),
+        }
+      : to.kmsKeyId
+        ? {
+            "x-amz-copy-source": source,
+            "x-amz-metadata-directive": "COPY",
+            ...sseKmsHeaders(to.kmsKeyId),
+          }
+        : {
+            "x-amz-copy-source": source,
+            "x-amz-metadata-directive": "REPLACE",
+            ...(to.contentType ? { "content-type": to.contentType } : {}),
+          };
   const res = await signedCall(t, "PUT", key, undefined, {}, headers);
   const body = await res.text();
   const err = s3ErrorOf(body);
@@ -308,13 +335,12 @@ export async function s3PutObjectUnderKey(
   body: Buffer,
   kmsKeyId: string,
 ): Promise<{ status: number; sse: string | null; kmsKeyId: string | null; error: string | null }> {
-  const res = await signedCall(t, "PUT", key, body, {}, sseKmsHeaders(kmsKeyId));
+  const res = await signedCall(t, "PUT", key, body, {}, keyHeadersFor(t, kmsKeyId));
   const text = await res.text();
   const err = s3ErrorOf(text);
   return {
     status: res.status,
-    sse: res.headers.get("x-amz-server-side-encryption"),
-    kmsKeyId: res.headers.get("x-amz-server-side-encryption-aws-kms-key-id"),
+    ...objectEncryptionOf((n) => res.headers.get(n)),
     error:
       res.ok && !err
         ? null
@@ -322,6 +348,126 @@ export async function s3PutObjectUnderKey(
           ? `${err.code}${err.message ? `: ${err.message}` : ""}`
           : `HTTP ${res.status}`,
   };
+}
+
+/** What a store did with requests that all name a key (R443). */
+export type HeaderRoundTrip = {
+  ok: boolean;
+  /** The request it refused, when it refused one. */
+  refused: "PUT" | "MULTIPART" | "HEAD" | "GET" | "LIST" | "DELETE" | null;
+  /** The store's error code or status for that request. */
+  error: string | null;
+  /** How the store says it stored the test object. */
+  stored: ObjectEncryption | null;
+};
+
+/**
+ * Write one small object with `headers`, write another as a multipart upload
+ * (initiate, one part, complete), then HEAD the first, read it, list its
+ * folder and delete both, naming the same headers on every request: what the
+ * engine does through a DuckDB secret that carries them. Measured in R443's
+ * probes: DuckDB sends a secret's extra headers on HEADs, reads and listings,
+ * and a large write goes up in parts with the headers on every part too.
+ * Cloud Storage documents its key header for an upload and a multipart
+ * initiate only, so whether it minds the header anywhere else is asked of the
+ * store itself, here. A refused step leaves what it made to be removed
+ * without the headers.
+ */
+export async function s3HeaderRoundTrip(
+  t: S3Target,
+  key: string,
+  headers: Record<string, string>,
+): Promise<HeaderRoundTrip> {
+  const fail = async (
+    refused: HeaderRoundTrip["refused"],
+    res: Response,
+    stored: ObjectEncryption | null,
+  ): Promise<HeaderRoundTrip> => {
+    const err = s3ErrorOf(await res.text().catch(() => ""));
+    return {
+      ok: false,
+      refused,
+      error: err ? `${err.code}${err.message ? `: ${err.message}` : ""}` : `HTTP ${res.status}`,
+      stored,
+    };
+  };
+  const put = await signedCall(
+    t,
+    "PUT",
+    key,
+    Buffer.from("AgentSwarms: a store check\n"),
+    {},
+    headers,
+  );
+  if (!put.ok) return fail("PUT", put, null);
+  await put.text().catch(() => "");
+  let stored: ObjectEncryption | null = null;
+  const parts = `${key}.parts`;
+  let uploadId: string | null = null;
+  try {
+    const init = await signedCall(t, "POST", parts, Buffer.alloc(0), { uploads: "" }, headers);
+    if (!init.ok) return await fail("MULTIPART", init, null);
+    uploadId = /<UploadId>([\s\S]*?)<\/UploadId>/.exec(await init.text())?.[1] ?? null;
+    if (!uploadId) {
+      return { ok: false, refused: "MULTIPART", error: "no upload id in the answer", stored: null };
+    }
+    const part = await signedCall(
+      t,
+      "PUT",
+      parts,
+      Buffer.from("AgentSwarms: a store check, in one part\n"),
+      { partNumber: "1", uploadId },
+      headers,
+    );
+    if (!part.ok) return await fail("MULTIPART", part, null);
+    const etag = part.headers.get("etag") ?? "";
+    await part.text().catch(() => "");
+    const done = await signedCall(
+      t,
+      "POST",
+      parts,
+      Buffer.from(
+        `<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>${etag}</ETag></Part></CompleteMultipartUpload>`,
+      ),
+      { uploadId },
+      headers,
+    );
+    const doneText = await done.text().catch(() => "");
+    if (!done.ok || s3ErrorOf(doneText)) {
+      return await fail(
+        "MULTIPART",
+        new Response(doneText, { status: done.ok ? 400 : done.status }),
+        null,
+      );
+    }
+    uploadId = null;
+    const head = await signedCall(t, "HEAD", key, undefined, {}, headers);
+    if (!head.ok) return await fail("HEAD", head, null);
+    stored = objectEncryptionOf((n) => head.headers.get(n));
+    const get = await signedCall(t, "GET", key, undefined, {}, headers);
+    if (!get.ok) return await fail("GET", get, stored);
+    await get.arrayBuffer();
+    const folder = key.slice(0, key.lastIndexOf("/") + 1);
+    const list = await signedCall(
+      t,
+      "GET",
+      "",
+      undefined,
+      { "list-type": "2", prefix: folder },
+      headers,
+    );
+    if (!list.ok) return await fail("LIST", list, stored);
+    await list.text();
+    const del = await signedCall(t, "DELETE", key, undefined, {}, headers);
+    if (!del.ok && del.status !== 404) return await fail("DELETE", del, stored);
+    return { ok: true, refused: null, error: null, stored };
+  } finally {
+    if (uploadId) {
+      await signedCall(t, "DELETE", parts, undefined, { uploadId }).catch(() => undefined);
+    }
+    await s3DeleteObject(t, key).catch(() => undefined);
+    await s3DeleteObject(t, parts).catch(() => undefined);
+  }
 }
 
 /** Delete one object; a missing object is not an error. */

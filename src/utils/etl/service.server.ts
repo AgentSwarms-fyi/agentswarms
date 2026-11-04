@@ -593,8 +593,11 @@ export async function resolveRunEnv(
       });
       env.ETL_LAKEHOUSE_STAGE_URL = `s3://${lt.bucket}/${prefix}`;
       // The rows it stages are the owner's: under their customer key (R442).
-      const { lakeObjectKmsKey } = await import("@/utils/lakehouse/customerKeyFiles.server");
-      const kms = await lakeObjectKmsKey(pipeline.user_id);
+      // On S3 only: S3A names a key with SSE-KMS, which Cloud Storage does not
+      // read, so there the cluster stages under the bucket's own (R443).
+      const files = await import("@/utils/lakehouse/customerKeyFiles.server");
+      const kms =
+        files.lakehouseStore() === "s3" ? await files.lakeObjectKmsKey(pipeline.user_id) : null;
       if (kms) env.ETL_LAKEHOUSE_S3_KMS_KEY_ID = kms;
       env.ETL_LAKEHOUSE_S3_URL_STYLE = cfg.s3.urlStyle;
       env.ETL_LAKEHOUSE_S3_USE_SSL = cfg.s3.useSsl ? "true" : "false";

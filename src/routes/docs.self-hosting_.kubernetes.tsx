@@ -258,14 +258,20 @@ gcloud compute addresses describe agentswarms-ip --global --format='value(addres
 gcloud sql instances create agentswarms-catalog --database-version=POSTGRES_16 \
   --tier=db-custom-2-7680 --region="$REGION"
 gcloud storage buckets create gs://agentswarms-lake --location="$REGION"
-gcloud storage hmac create <service-account-email>`}</Code>
+gcloud storage hmac create <service-account-email>
+
+# For customer keys in Cloud KMS: a key ring in the bucket's location, usable
+# by the bucket project's Cloud Storage service agent.
+gcloud storage service-agent --project="$PROJECT"   --authorize-cmek="projects/$PROJECT/locations/$REGION/keyRings/<ring>/cryptoKeys/<key>"`}</Code>
       <P>
         The Ingress wants three objects: a <C>ManagedCertificate</C>, a <C>BackendConfig</C> whose
         health check is <C>/api/health/ready</C>, and the Ingress itself annotated with the static
         IP and the certificate. The certificate stays <C>Provisioning</C> until the A record
         resolves, which takes tens of minutes on first issue. For GCS set{" "}
         <C>LAKEHOUSE_S3_ENDPOINT</C> to <C>storage.googleapis.com</C> with{" "}
-        <C>LAKEHOUSE_S3_URL_STYLE=path</C>.
+        <C>LAKEHOUSE_S3_URL_STYLE=path</C>. A customer key in Cloud KMS then covers its
+        members&apos; lakehouse files (<C>LAKEHOUSE_SSE_KMS</C> stays <C>auto</C>); its Check writes
+        a test file under it.
       </P>
 
       <H3 id="k8s-aks">Azure AKS, step by step</H3>

@@ -109,6 +109,77 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-04 — R443: customer keys on a lakehouse in Cloud Storage
+
+**What was built.** The user's choice for the item after R442: what R440–R442 do for a lakehouse
+on S3, for one in Cloud Storage. The store is told apart by its endpoint (`storage.googleapis.com`,
+a regional `storage.<location>.rep.googleapis.com`, a Private Service Connect
+`storage-<name>.p.googleapis.com`; a lookalike host is not taken). On Cloud Storage a customer key
+in Cloud KMS (provider `gcp`) covers its members' lakehouse files, model artifacts, experiment
+files and staged rows; a key in AWS KMS or any other provider covers nothing there, and the card
+says so. `LAKEHOUSE_SSE_KMS` is on by default for Cloud Storage. The key travels as
+`x-goog-encryption-kms-key-name` (S3's SSE headers are never sent there), in a sandbox's presigned
+upload URL signed with the host, on the app's own uploads, and on a copy in place (Cloud Storage's
+XML copy, `x-goog-copy-source` with `REPLACE`, which it requires for a copy onto itself). A HEAD
+answers with the key's version (`…/cryptoKeyVersions/N`), so the app compares key names without it.
+
+**Measured.** The engine (DuckDB 1.5.5 in the app image) has no Cloud KMS option, but an S3
+secret's `EXTRA_HTTP_HEADERS` is sent on every request it makes under the secret's scope: PUT,
+HEAD, GET, a listing, and a multipart upload's initiate, parts and complete; nothing outside the
+scope (three probes against a capturing server). So a covered folder's secret names the key on
+every request, including the ones Google documents no meaning for.
+
+**Attacks considered.**
+
+- *A store that refuses the header on a read, a listing or a part* (Google documents it for uploads
+  only), so that every read of a covered folder fails. Before any folder secret names the key, each
+  process asks the store once with the engine's own requests: an upload, a multipart upload, a
+  HEAD, a read, a listing and a delete, all naming the key. Only a yes gives the header; a refusal
+  leaves new files under the bucket's own encryption, says which request was refused, on the card
+  and in the key's Check, and is asked again after ten minutes (mutants: the header before the
+  store said yes, asked on every sync, never asked again, a Check's verdict that is not the
+  engine's, the card not told; all caught). Live in the UI round against a stand-in told to refuse
+  reads: the keyed files read back and new files landed under the bucket's own.
+- *A probe that leaves something behind.* A refused multipart upload is aborted; the test file is
+  deleted in `finally`, without the header (caught: an upload left open).
+- *An AWS key's files on Cloud Storage*, an S3 header sent to Google, or S3's grant text on the
+  card: each its own mutant, caught. Spark's S3A sends only S3's SSE-KMS headers, so on Cloud
+  Storage the cluster is not told a key (caught) and a Spark run's staged write is under the
+  bucket's own encryption; said in the docs.
+- *A sandbox upload without the key or under another*, with the URL the app signed: the header is
+  inside the signature (`x-goog-*` signed as `x-amz-*` were; caught: not signed).
+- *A copy in place that silently keeps the old key*: Cloud Storage refuses a copy onto itself
+  without `REPLACE` (caught), and a copy that names no key goes back to the bucket's own (caught).
+- *A stored key name compared with its version* and every file re-copied on every pass: names are
+  compared without `/cryptoKeyVersions/N` (caught).
+
+**Found in the UI round** (each fixed before the commit, with a test and a mutant): (1) an
+assignment's trigger for moving the member's files asked for a live key in AWS KMS, so on Cloud
+Storage an assignment moved nothing; (2) the card showed only what the worker serving it had
+learned from the store, so a fresh worker showed nothing; it now asks once, for an assigned key
+only; (3) the audit line for a staged read named a Cloud KMS key by the start of its resource name
+("projects…").
+
+**Proved.**
+
+| Check | Result |
+| --- | --- |
+| `customerKeyFiles.test.ts` | the store by endpoint (global, regional, PSC; lookalikes refused); auto mode on for Cloud Storage; the key's file key by provider; key names without their version; the audit line names a Cloud KMS key |
+| `presignSignedHeaders.test.ts` | `x-goog-*` signed; the app's put, HEAD and copy in place on Cloud Storage (copy source, `REPLACE`, the key or none); the round trip, with a multipart upload, and its refusal and abort |
+| `customerKeyFilesServer.test.ts` | the folder secret's `EXTRA_HTTP_HEADERS` only after the store said yes; a read refused and a part refused, the ten-minute retry; Check's three outcomes; the card asking once, for an assigned key only; the pass's copies on Cloud Storage |
+| `sandboxLake.test.ts` | a covered owner's upload URL signs `x-goog-encryption-kms-key-name`; the staged read's secret on Cloud Storage, and none when the store may not be told |
+| `customerKeyFunctions.test.ts` | an assignment to a Cloud KMS key on Cloud Storage says its members' files follow; one to an AWS key does not |
+| app image, DuckDB 1.5.5 | `EXTRA_HTTP_HEADERS` on PUT, HEAD, GET, LIST and every multipart request, and only in scope |
+| mutation | 28 of 28 killed, the control survived; then the three UI findings' mutants, caught |
+| UI | UI_TEST_RESULTS, R443: Create, Check, assignment, Re-encrypt, engine writes and reads, a training run's artifact and staged read under the key; the refusal mode end to end; removal back to the bucket's own; three findings fixed |
+
+**Not covered.** Real Cloud Storage: nothing local emulates its customer-managed keys, so the
+round's store was a stand-in built from Google's documentation; on a real bucket the key's Check
+and the engine's probe ask the store itself, and a refusal is said, not hidden. Spark on Cloud
+Storage. The service agent's grant on the key is the operator's (`gcloud storage service-agent
+--authorize-cmek`, in the docs); without it Check says so. The customer disabling the key, live.
+Azure Blob.
+
 ### 2026-11-03 — R442: model artifacts and run staging under customer keys
 
 **What was built.** The roadmap's next item after R441: what a customer key's members keep beside

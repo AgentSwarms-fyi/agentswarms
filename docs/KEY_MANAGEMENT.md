@@ -838,12 +838,52 @@ What it needs:
 The card says, for each key, whether its members' files are under it, and why
 not when they are not.
 
+#### On Cloud Storage
+
+A lakehouse on **Google Cloud Storage** (through its S3-compatible endpoint,
+`storage.googleapis.com`, as the [GKE runbook](./DEPLOYMENT.md) sets it up) is
+covered by a customer key in **Cloud KMS** instead (R443): Cloud Storage
+encrypts an object under a customer-managed key (CMEK) named per request by
+`x-goog-encryption-kms-key-name`, not by S3's SSE-KMS headers. The same things
+are covered the same way: a schema's new files, Delta Sharing snapshots, model
+artifacts, experiment files and staged rows; an upload URL signs the key's name,
+and a copy in place (Cloud Storage's XML-API copy, with its metadata replaced)
+moves older files onto the key and off it. `LAKEHOUSE_SSE_KMS=auto` is on for
+Cloud Storage's global, regional (`storage.<location>.rep.googleapis.com`) and
+Private Service Connect (`storage-<name>.p.googleapis.com`) endpoints.
+
+| What      | Requirement                                                                                                                                                                                                                                                                    |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| The key   | The key's resource name, `projects/<project>/locations/<location>/keyRings/<ring>/cryptoKeys/<key>` (not a version), with its key ring in the **bucket's location**: Cloud Storage refuses a key elsewhere, and the key's **Check** says so.                                   |
+| The grant | The bucket project's **Cloud Storage service agent** holds `roles/cloudkms.cryptoKeyEncrypterDecrypter` on the key (`gcloud storage service-agent --project=<project> --authorize-cmek=<key>`), besides the grant to the app's own identity [above](#creating-a-customer-key). |
+
+One thing is settled by the store rather than by its documentation. The
+engine names a covered folder's key through its DuckDB secret, and on Cloud
+Storage that has to be an extra header, which DuckDB sends on **every**
+request for the folder: HEADs, reads, listings, and each part of a large
+upload, not only the upload (measured in R443 against a header capture).
+Cloud Storage documents the header for an upload and a multipart initiate. So
+before any folder's secret names a key, the app asks the store once per
+process: a test object written, written again in parts, read, listed and
+deleted, with the key named on every request. Only when all of it is taken
+does the engine write new files under the key. Otherwise the card says what the
+store refused, new files are written under the bucket's own encryption, and an
+assignment or **Re-encrypt lakehouse files** moves them under the key; the
+store is asked again ten minutes later, and at once by a key's **Check**, which
+makes the same round trip.
+
 What it does not cover, said on the card where it applies:
 
-- A customer key **held by the app**, or in Azure Key Vault, Cloud KMS, OCI
-  Vault or Vault Transit: the store cannot use those, so their members' files
-  stay under the store's own encryption.
-- A store that is not S3 with KMS: the bundled SILO, Azure Blob, GCS.
+- A customer key **held by the app**, or in Azure Key Vault, OCI Vault or
+  Vault Transit, or in the other cloud's KMS than the store's (a Cloud KMS key
+  on S3, an AWS KMS key on Cloud Storage): the store cannot use those, so their
+  members' files stay under the store's own encryption.
+- A store that is neither S3 with KMS nor Cloud Storage: the bundled SILO, and
+  Azure Blob (which cannot hold the lakehouse; see the AKS runbook).
+- On Cloud Storage, what a **Spark** run stages: S3A names a key with SSE-KMS
+  only, which Cloud Storage does not read, so the cluster stages under the
+  bucket's own encryption (the load lands under the key). There is no STS on
+  Cloud Storage either, so the cluster holds the lakehouse's own HMAC key.
 - **Destroying** a customer key in the app does not touch its members' files:
   they stay under the customer's KMS key, readable while that key allows, and
   no pass ever moves a file off a destroyed key (not even when the member is
@@ -956,8 +996,9 @@ What it does not cover:
 ## Data beyond credentials (design)
 
 **Status: lakehouse files on S3 (R440), generated documents and dataset
-copies (R441), and model artifacts and run staging on S3 (R442) are built,
-above; the rest is designed, not built.** The app encrypts credentials,
+copies (R441), model artifacts and run staging on S3 (R442), and all of these
+on Cloud Storage under Cloud KMS keys (R443) are built, above; the rest is
+designed, not built.** The app encrypts credentials,
 generated documents and dataset copies itself. The rest of the data a
 customer's users bring and make is stored in places the app does not encrypt
 today: Postgres rows (chat history, knowledge-base documents and chunks, agent
@@ -967,15 +1008,15 @@ rest, under the operator's keys. For
 "a customer's data is unreadable once their key is gone" to cover them, each
 store needs its own scheme, under the same customer key:
 
-| Data                                         | Where                                                  | Proposed scheme                                                                                                                                                                               | What it costs                                                                                                                                  |
-| -------------------------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| Chat messages, agent memory, notebook source | Postgres text and JSON columns                         | Application-level AES-GCM under the owner's user key, as credentials are: a value is encrypted on write and decrypted on read in the server.                                                  | Postgres can no longer search, sort or index those columns: the chat search and memory recall would move to the server or to the vector store. |
-| Knowledge-base documents and chunks          | Postgres (`kb_chunks`, its text) and the vector store  | The chunk text encrypted as above; the embeddings left in clear, since search needs them, and stated as such (an embedding reveals something about its text). Or a vector store per customer. | Keyword search over chunk text (Postgres full text) stops working unless it moves to the server; embeddings are a known residual.              |
-| Lakehouse tables                             | The object store (SILO, MinIO, S3, Azure Blob, GCS)    | The store's own server-side encryption under the customer's KMS key. **Built for S3 (R440):** SSE-KMS, the key passed per request. Azure Blob customer-managed keys and GCS CMEK: designed.   | SILO and MinIO need their KMS integration (MinIO KES) configured.                                                                              |
-| Uploaded datasets' rows                      | Postgres (`user_data_rows`)                            | As chat messages.                                                                                                                                                                             | Filtering and sorting a dataset in Postgres would move to the server (its columnar copy already does).                                         |
-| Model artifacts, run staging                 | The lake bucket (`ml-artifacts/`, `_sandbox_staging/`) | **Built for S3 (R442):** SSE-KMS under the owner's key, as lakehouse files; a sandbox's upload URL is signed for the key ([Lakehouse files](#lakehouse-files)).                               | No runtime image change: the code that uploads is sent by the app.                                                                             |
-| The lakehouse catalog                        | Postgres (DuckLake metadata)                           | Metadata only (names, statistics, file paths); left under the database's encryption, documented.                                                                                              | —                                                                                                                                              |
-| Generated documents, dataset copies          | Supabase Storage (`chat-docs`, `datasets`)             | **Built (R441):** encrypted by the app under the owner's user key, since the store cannot use a customer's key ([Stored files](#stored-files)).                                               | —                                                                                                                                              |
+| Data                                         | Where                                                  | Proposed scheme                                                                                                                                                                                         | What it costs                                                                                                                                  |
+| -------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Chat messages, agent memory, notebook source | Postgres text and JSON columns                         | Application-level AES-GCM under the owner's user key, as credentials are: a value is encrypted on write and decrypted on read in the server.                                                            | Postgres can no longer search, sort or index those columns: the chat search and memory recall would move to the server or to the vector store. |
+| Knowledge-base documents and chunks          | Postgres (`kb_chunks`, its text) and the vector store  | The chunk text encrypted as above; the embeddings left in clear, since search needs them, and stated as such (an embedding reveals something about its text). Or a vector store per customer.           | Keyword search over chunk text (Postgres full text) stops working unless it moves to the server; embeddings are a known residual.              |
+| Lakehouse tables                             | The object store (SILO, MinIO, S3, Azure Blob, GCS)    | The store's own server-side encryption under the customer's KMS key. **Built for S3 (R440) and Cloud Storage (R443):** SSE-KMS, or CMEK, the key passed per request. Azure Blob: not a lakehouse store. | SILO and MinIO need their KMS integration (MinIO KES) configured.                                                                              |
+| Uploaded datasets' rows                      | Postgres (`user_data_rows`)                            | As chat messages.                                                                                                                                                                                       | Filtering and sorting a dataset in Postgres would move to the server (its columnar copy already does).                                         |
+| Model artifacts, run staging                 | The lake bucket (`ml-artifacts/`, `_sandbox_staging/`) | **Built for S3 (R442):** SSE-KMS under the owner's key, as lakehouse files; a sandbox's upload URL is signed for the key ([Lakehouse files](#lakehouse-files)).                                         | No runtime image change: the code that uploads is sent by the app.                                                                             |
+| The lakehouse catalog                        | Postgres (DuckLake metadata)                           | Metadata only (names, statistics, file paths); left under the database's encryption, documented.                                                                                                        | —                                                                                                                                              |
+| Generated documents, dataset copies          | Supabase Storage (`chat-docs`, `datasets`)             | **Built (R441):** encrypted by the app under the owner's user key, since the store cannot use a customer's key ([Stored files](#stored-files)).                                                         | —                                                                                                                                              |
 
 **Order, if built:** lakehouse files first (the largest and most sensitive,
 and the store does the encryption, so search and queries are unaffected),
@@ -1001,8 +1042,17 @@ change, since a sandbox uploads through presigned URLs; the code that uploads
 is sent by the app with each run, so it changed with the app. Building it
 found that the Spark cluster's scoped credential could not use a KMS key at
 all, which on AWS stopped a Spark run reading a covered schema's files since
-R440. Still to do: Azure Blob and GCS, then chat and memory text and datasets'
-rows, then knowledge-base text.
+R440.
+
+Cloud Storage followed (R443, 2026-11-04, the user's choice over Azure Blob,
+which cannot hold the lakehouse at all): the same coverage under Cloud KMS
+keys, named by Cloud Storage's own header. Its documentation names the header
+for uploads only, while the engine sends it on every request for a folder, so
+the store itself is asked before the engine is let to; nothing local emulates
+Cloud Storage's customer-managed keys, so this was proven by tests, by
+capturing what the app and its DuckDB send, and by the store's own answer on
+a real bucket. Still to do: chat and memory text and datasets' rows, then
+knowledge-base text; an Azure Blob lakehouse is a feature of its own first.
 
 ---
 

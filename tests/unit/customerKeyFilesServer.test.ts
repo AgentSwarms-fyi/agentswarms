@@ -44,6 +44,7 @@ import {
   lakeObjectKmsKey,
   reEncryptFilesAfterMove,
   reEncryptLakehouseFiles,
+  __forgetEngineVerdictForTests,
 } from "@/utils/lakehouse/customerKeyFiles.server";
 import type { CustomerKeyRow } from "@/utils/kms/keyHierarchy.server";
 import { s3CopyInPlace } from "@/utils/lakehouse/presign.server";
@@ -280,6 +281,7 @@ beforeEach(() => {
   h.audits.length = 0;
   forgetCustomerKeyFiles();
   forgetEngineAttachment();
+  __forgetEngineVerdictForTests();
   seed();
 });
 afterEach(() => {
@@ -859,5 +861,306 @@ describe("model artifacts and experiment files in the pass (R442)", () => {
     expect(r.failed).toBe(1);
     expect(r.errors.join(" ")).toMatch(/Could not read ml_models/);
     expect(s3.requests.some((q) => q.headers["x-amz-copy-source"])).toBe(false);
+  });
+});
+
+// R443. A lakehouse on Cloud Storage, through its S3-compatible XML API. The
+// store here keeps each object under the Cloud KMS key its upload or copy
+// named, answers a HEAD with that key's name and a version, as Cloud Storage
+// documents, and can be told to refuse the key's header on a read, which its
+// documentation does not settle: the app must then name the key nowhere the
+// engine reads.
+describe("a lakehouse on Cloud Storage (R443)", () => {
+  const GKEY = "projects/acme-prod/locations/europe-west1/keyRings/lake/cryptoKeys/acme";
+  const K_GCP = "10000000-0000-4000-8000-000000000091";
+  const HDR = "x-goog-encryption-kms-key-name";
+
+  function gcsSeed() {
+    seed({
+      customer_keys: [
+        { ...key(K_AWS, "aws", ARN), name: "Acme AWS" },
+        { ...key(K_GCP, "gcp", GKEY), name: "Acme GCP" },
+      ],
+      customer_key_members: [
+        { id: "m1", customer_key_id: K_GCP, user_id: ALICE, group_id: null },
+        { id: "m2", customer_key_id: K_AWS, user_id: BOB, group_id: null },
+      ],
+    });
+  }
+
+  type GObj = { kms: string | null; type: string };
+  function fakeGcs(
+    opts: {
+      refuseReadsNamingKey?: boolean;
+      refusePartsNamingKey?: boolean;
+      refusePutCode?: string;
+    } = {},
+  ) {
+    const objects = new Map<string, GObj>();
+    const uploads = new Map<string, { id: string; kms: string | null }>();
+    const requests: Array<{
+      method: string;
+      key: string;
+      list: boolean;
+      headers: Record<string, string>;
+    }> = [];
+    const fetchFn = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const u = new URL(String(input));
+      expect(u.host).toBe("storage.googleapis.com");
+      const [, bucket, ...rest] = u.pathname.split("/");
+      const k = decodeURIComponent(rest.join("/"));
+      const method = (init?.method ?? "GET").toUpperCase();
+      const headers: Record<string, string> = {};
+      for (const [n, v] of Object.entries((init?.headers ?? {}) as Record<string, string>)) {
+        headers[n.toLowerCase()] = v;
+      }
+      const list = method === "GET" && u.searchParams.get("list-type") === "2";
+      requests.push({ method, key: k, list, headers });
+      const id = `${bucket}/${k}`;
+      const err = (code: string, status = 400) =>
+        new Response(`<Error><Code>${code}</Code><Message>refused</Message></Error>`, { status });
+      // S3's headers mean nothing here; sending them is a bug.
+      expect(Object.keys(headers).some((h) => h.startsWith("x-amz-server-side"))).toBe(false);
+      const reading = method === "HEAD" || method === "GET";
+      if (opts.refuseReadsNamingKey && headers[HDR] && reading) return err("InvalidArgument");
+      // A multipart upload: the initiate names the key; Cloud Storage documents it there only.
+      if (method === "POST" && u.searchParams.has("uploads")) {
+        const upload = `up-${uploads.size + 1}`;
+        uploads.set(upload, { id, kms: headers[HDR] ?? null });
+        return new Response(
+          `<InitiateMultipartUploadResult><UploadId>${upload}</UploadId></InitiateMultipartUploadResult>`,
+        );
+      }
+      if (u.searchParams.has("uploadId")) {
+        const name = u.searchParams.get("uploadId") ?? "";
+        const upload = uploads.get(name);
+        if (!upload) return err("NoSuchUpload", 404);
+        if (method === "PUT") {
+          if (opts.refusePartsNamingKey && headers[HDR]) return err("InvalidArgument");
+          return new Response("", { status: 200, headers: { etag: '"p"' } });
+        }
+        if (method === "POST") {
+          objects.set(upload.id, { kms: upload.kms, type: "" });
+          uploads.delete(name);
+          return new Response(
+            "<CompleteMultipartUploadResult><ETag>e</ETag></CompleteMultipartUploadResult>",
+          );
+        }
+        if (method === "DELETE") {
+          uploads.delete(name);
+          return new Response(null, { status: 204 });
+        }
+      }
+      if (list) {
+        const prefix = `${bucket}/${u.searchParams.get("prefix") ?? ""}`;
+        const keys = [...objects.keys()].filter((o) => o.startsWith(prefix));
+        return new Response(
+          `<ListBucketResult>${keys
+            .map(
+              (o) =>
+                `<Contents><Key>${o.slice(bucket.length + 1)}</Key><LastModified>2026-11-04T00:00:00Z</LastModified></Contents>`,
+            )
+            .join("")}<IsTruncated>false</IsTruncated></ListBucketResult>`,
+        );
+      }
+      if (method === "HEAD" || method === "GET") {
+        const o = objects.get(id);
+        if (!o) return new Response(null, { status: 404 });
+        return new Response(method === "GET" ? "body" : null, {
+          status: 200,
+          headers: {
+            "content-length": "4",
+            "content-type": o.type || "application/octet-stream",
+            ...(o.kms ? { [HDR]: `${o.kms}/cryptoKeyVersions/1` } : {}),
+          },
+        });
+      }
+      if (method === "PUT") {
+        if (opts.refusePutCode && headers[HDR]) return err(opts.refusePutCode);
+        const source = headers["x-goog-copy-source"];
+        if (source) {
+          // Onto itself only with the metadata replaced, as Cloud Storage requires.
+          if (source === id && headers["x-goog-metadata-directive"] !== "REPLACE")
+            return err("InvalidArgument");
+          const before = objects.get(source) as GObj;
+          objects.set(id, {
+            kms: headers[HDR] ?? null,
+            type: headers["content-type"] ?? before.type,
+          });
+          return new Response("<CopyObjectResult><ETag>e</ETag></CopyObjectResult>");
+        }
+        objects.set(id, { kms: headers[HDR] ?? null, type: "" });
+        return new Response("", {
+          status: 200,
+          headers: headers[HDR] ? { [HDR]: `${headers[HDR]}/cryptoKeyVersions/1` } : {},
+        });
+      }
+      if (method === "DELETE") {
+        objects.delete(id);
+        return new Response(null, { status: 204 });
+      }
+      return new Response(null, { status: 400 });
+    });
+    vi.stubGlobal("fetch", fetchFn);
+    return { objects, requests };
+  }
+
+  beforeEach(() => {
+    process.env.LAKEHOUSE_S3_ENDPOINT = "storage.googleapis.com";
+    process.env.LAKEHOUSE_S3_USE_SSL = "true";
+    delete process.env.LAKEHOUSE_SSE_KMS; // auto: on for Cloud Storage
+    gcsSeed();
+  });
+
+  it("writes a covered schema's files under its Cloud KMS key, once the store took the header on reads", async () => {
+    const store = fakeGcs();
+    const st = fakeConn();
+    await ensureCustomerKeySecrets(h.conn!, true);
+    const created = st.sql.filter((q) => q.startsWith("CREATE OR REPLACE SECRET"));
+    expect(created).toHaveLength(2); // acme and its share
+    const schema = created.find((q) => q.includes(`lake_ck_s_${hex(S_ACME)}`)) ?? "";
+    expect(schema).toContain(`EXTRA_HTTP_HEADERS MAP {'${HDR}': '${GKEY}'}`);
+    expect(schema).not.toContain("KMS_KEY_ID");
+    expect(schema).toContain("SCOPE 's3://lake-bucket/lake/acme/'");
+    // Bob's key is in AWS KMS: on Cloud Storage it covers nothing.
+    expect(created.join("\n")).not.toContain(hex(S_BOBS));
+    // The store was asked first, with the key named on each request the engine makes.
+    const probe = store.requests.filter(
+      (q) => q.key.startsWith("_customer_key_check/engine/") || q.list,
+    );
+    expect(probe.map((q) => (q.list ? "LIST" : q.method))).toEqual(
+      expect.arrayContaining(["PUT", "HEAD", "GET", "LIST", "DELETE"]),
+    );
+    for (const q of probe.filter((x) => x.headers[HDR])) expect(q.headers[HDR]).toBe(GKEY);
+    expect(await customerKeyFilesView()).toMatchObject({ engine: { ok: true, why: null } });
+  });
+
+  it("names the key nowhere the engine reads when the store refuses it on a read, and says why", async () => {
+    vi.useFakeTimers({ now: new Date("2026-11-04T10:00:00Z") });
+    const store = fakeGcs({ refuseReadsNamingKey: true });
+    const st = fakeConn();
+    await ensureCustomerKeySecrets(h.conn!, true);
+    expect(st.sql.some((q) => q.startsWith("CREATE OR REPLACE SECRET"))).toBe(false);
+    const v = await customerKeyFilesView();
+    expect(v.engine?.ok).toBe(false);
+    expect(v.engine?.why).toMatch(
+      /^the store refused a HEAD request that named the key \(InvalidArgument: refused\)$/,
+    );
+    expect(store.objects.size, "nothing the probe made is left").toBe(0);
+    // Asked again only after ten minutes, not on every sync.
+    const asked = () =>
+      store.requests.filter(
+        (q) =>
+          q.method === "PUT" &&
+          q.key.startsWith("_customer_key_check/engine/") &&
+          q.key.endsWith(".txt"),
+      ).length;
+    expect(asked()).toBe(1);
+    await ensureCustomerKeySecrets(h.conn!, true);
+    expect(asked()).toBe(1);
+    vi.setSystemTime(new Date("2026-11-04T10:10:01Z"));
+    await ensureCustomerKeySecrets(h.conn!, true);
+    expect(asked()).toBe(2);
+    // The probe's object is gone either way.
+    expect([...store.objects.keys()].filter((o) => o.includes("_customer_key_check"))).toEqual([]);
+  });
+
+  it("tells the card what the store said, asking it once when this worker has not", async () => {
+    const store = fakeGcs({ refuseReadsNamingKey: true });
+    const asked = () =>
+      store.requests.filter(
+        (q) =>
+          q.method === "PUT" &&
+          q.key.startsWith("_customer_key_check/engine/") &&
+          q.key.endsWith(".txt"),
+      ).length;
+    // A fresh worker: nothing has been written, nothing asked.
+    const v = await customerKeyFilesView();
+    expect(v.engine).toEqual({
+      ok: false,
+      why: "the store refused a HEAD request that named the key (InvalidArgument: refused)",
+    });
+    expect(asked()).toBe(1);
+    await customerKeyFilesView();
+    expect(asked()).toBe(1);
+  });
+
+  it("does not ask the store for the card while its Cloud KMS key covers nobody", async () => {
+    seed({
+      customer_keys: [{ ...key(K_GCP, "gcp", GKEY), name: "Acme GCP" }],
+      customer_key_members: [],
+    });
+    const store = fakeGcs();
+    expect((await customerKeyFilesView()).engine).toBeUndefined();
+    expect(store.requests).toHaveLength(0);
+  });
+
+  it("Check runs the engine's round trip and says each outcome in words", async () => {
+    const row = { ...key(K_GCP, "gcp", GKEY), name: "Acme GCP" } as unknown as CustomerKeyRow;
+    fakeGcs();
+    expect(await checkStoreUnderKey(row)).toEqual({
+      covered: true,
+      ok: true,
+      detail:
+        "Cloud Storage wrote a test file under this key and read, listed and deleted it with the key named on every request, as the engine names it.",
+    });
+    fakeGcs({ refusePutCode: "cloudKmsKeyLocationNotAllowed" });
+    const put = await checkStoreUnderKey(row);
+    expect(put).toMatchObject({ covered: true, ok: false });
+    expect((put as { detail: string }).detail).toMatch(
+      /^Cloud Storage refused to write a test file under this key: cloudKmsKeyLocationNotAllowed: refused\. The key ring must be in the bucket's location/,
+    );
+    __forgetEngineVerdictForTests();
+    fakeGcs({ refuseReadsNamingKey: true });
+    const read = await checkStoreUnderKey(row);
+    expect((read as { detail: string }).detail).toMatch(
+      /^Cloud Storage wrote a test file under this key but refused a HEAD request that named it \(InvalidArgument: refused\)\. The engine names the key on every request/,
+    );
+    // The Check's answer is the engine's: no secret names the key now.
+    expect((await customerKeyFilesView()).engine?.ok).toBe(false);
+    const st = fakeConn();
+    await ensureCustomerKeySecrets(h.conn!, true);
+    expect(st.sql.some((q) => q.startsWith("CREATE OR REPLACE SECRET"))).toBe(false);
+  });
+
+  it("names the key nowhere either when the store refuses it on a part of a multipart upload", async () => {
+    const store = fakeGcs({ refusePartsNamingKey: true });
+    const st = fakeConn();
+    await ensureCustomerKeySecrets(h.conn!, true);
+    expect(st.sql.some((q) => q.startsWith("CREATE OR REPLACE SECRET"))).toBe(false);
+    expect((await customerKeyFilesView()).engine?.why).toMatch(
+      /^the store refused a multipart upload that named the key \(InvalidArgument: refused\)$/,
+    );
+    expect(store.objects.size, "nothing the probe made is left").toBe(0);
+  });
+
+  it("moves older files onto the key, and off it, with Cloud Storage's own copy", async () => {
+    const store = fakeGcs();
+    fakeConn();
+    store.objects.set("lake-bucket/lake/acme/t/a.parquet", {
+      kms: null,
+      type: "application/vnd.apache.parquet",
+    });
+    store.objects.set("lake-bucket/lake/acme/t/b.parquet", { kms: GKEY, type: "" });
+    // Bob's key covers nothing here: his file under Acme's key is moved off it.
+    store.objects.set("lake-bucket/lake/bobs/t/c.parquet", {
+      kms: GKEY,
+      type: "application/vnd.apache.parquet",
+    });
+    const r = await reEncryptLakehouseFiles();
+    expect(r).toMatchObject({ reEncrypted: 1, toStoreKey: 1, alreadyRight: 1, failed: 0 });
+    expect(store.objects.get("lake-bucket/lake/acme/t/a.parquet")).toEqual({
+      kms: GKEY,
+      type: "application/vnd.apache.parquet",
+    });
+    expect(store.objects.get("lake-bucket/lake/bobs/t/c.parquet")).toEqual({
+      kms: null,
+      type: "application/vnd.apache.parquet",
+    });
+  });
+
+  it("puts a covered owner's model and staged rows under the Cloud KMS key's header", async () => {
+    expect(await lakeObjectKmsKey(ALICE)).toBe(GKEY);
+    expect(await lakeObjectKmsKey(BOB)).toBeNull();
   });
 });

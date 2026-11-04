@@ -462,6 +462,13 @@ export function CustomerKeysCard(props: {
                   Stay under the store&apos;s own encryption: {state.lakehouseFiles.why}
                 </p>
               )}
+              {state.lakehouseFiles.engine && !state.lakehouseFiles.engine.ok ? (
+                <p className="text-amber-600 dark:text-amber-400" data-engine-key>
+                  New files are written under the bucket&apos;s own encryption for now:{" "}
+                  {state.lakehouseFiles.engine.why}. An assignment and this button move them under
+                  the key; Check on a key asks the store again.
+                </p>
+              ) : null}
               {state.lakehouseFiles.error ? (
                 <p className="text-destructive">{state.lakehouseFiles.error}</p>
               ) : null}

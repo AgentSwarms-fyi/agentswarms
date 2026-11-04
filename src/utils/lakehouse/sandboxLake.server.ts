@@ -46,7 +46,7 @@ import {
 import { loadPolicies } from "@/utils/lakehouse/policies.server";
 import {
   presignS3,
-  sseKmsHeaders,
+  keyHeadersFor,
   s3DeleteObject,
   s3DeletePrefix,
   s3ListKeys,
@@ -177,6 +177,12 @@ async function ownerKmsKey(userId: string): Promise<string | null> {
   return lakeObjectKmsKey(userId);
 }
 
+/** How the engine's secret names that key on this store, or null when it must not (R443). */
+async function engineKeyPart(keyRef: string): Promise<string | null> {
+  const files = await import("@/utils/lakehouse/customerKeyFiles.server");
+  return files.engineKeyPart(keyRef);
+}
+
 /**
  * Run one declared read as the run's owner and hand back the rows as one
  * staged Parquet file.
@@ -234,16 +240,19 @@ export async function lakeRead(args: {
     // The rows are the owner's: under their customer key, by a secret scoped
     // to this one file, on this worker's engine, for as long as the copy runs.
     // Not named lake_ck_*, which the engine's sync drops when it is not one
-    // of the schemas' (R440).
+    // of the schemas' (R440). How the secret names the key is the store's
+    // (R443): on Cloud Storage only once the store has taken the header on
+    // the engine's reads, and otherwise the copy is under its own encryption.
     const kms = await ownerKmsKey(args.userId);
-    const secret = kms ? `stage_ck_${randomUUID().replace(/-/g, "")}` : null;
+    const part = kms ? await engineKeyPart(kms) : null;
+    const secret = part ? `stage_ck_${randomUUID().replace(/-/g, "")}` : null;
     if (secret) {
       const cfg = lakehouseConfig();
       if (!cfg) throw new Error("The lakehouse is not configured on this deployment.");
       await c.run(
         `CREATE SECRET ${secret} (${[
           ...lakehouseS3SecretParts(cfg),
-          `KMS_KEY_ID ${sq(kms!)}`,
+          part!,
           `SCOPE ${sq(`s3://${bucket}/${key}`)}`,
         ].join(", ")});`,
       );
@@ -368,7 +377,7 @@ export async function lakeArtifact(args: {
   }
   // A read needs nothing: the store decrypts for whoever signed the URL.
   const kms = args.which === "put" ? await ownerKmsKey(args.userId) : null;
-  const headers = kms ? sseKmsHeaders(kms) : undefined;
+  const headers = kms ? keyHeadersFor(target, kms) : undefined;
   return {
     url: presignS3({
       target,
@@ -406,7 +415,7 @@ export async function lakeStage(args: {
   const batch = randomUUID();
   const keys = stagedKeys(args.sessionId, batch, args.parts);
   const kms = args.sendsHeaders ? await ownerKmsKey(args.userId) : null;
-  const headers = kms ? sseKmsHeaders(kms) : undefined;
+  const headers = kms ? keyHeadersFor(target, kms) : undefined;
   return {
     batch,
     puts: keys.map((key) =>

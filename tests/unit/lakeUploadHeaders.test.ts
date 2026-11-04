@@ -217,7 +217,9 @@ describe("what the Spark cluster stages", () => {
     const at = svc.indexOf("env.ETL_LAKEHOUSE_STAGE_URL =");
     expect(at).toBeGreaterThan(-1);
     const block = svc.slice(at, svc.indexOf("env.ETL_LAKEHOUSE_S3_URL_STYLE", at));
-    expect(block).toContain("await lakeObjectKmsKey(pipeline.user_id)");
+    expect(block).toContain("await files.lakeObjectKmsKey(pipeline.user_id)");
     expect(block).toContain("if (kms) env.ETL_LAKEHOUSE_S3_KMS_KEY_ID = kms;");
+    // R443: S3A names a key with SSE-KMS, which Cloud Storage does not read.
+    expect(block).toContain('files.lakehouseStore() === "s3"');
   });
 });

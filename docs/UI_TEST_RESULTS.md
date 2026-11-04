@@ -15,6 +15,61 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-04 — R443: customer keys on a lakehouse in Cloud Storage
+
+The user chose this item over chat/memory/dataset rows and an Azure Blob lakehouse. Nothing local
+emulates Cloud Storage's customer-managed keys, so the round's store was a stand-in written for it:
+`r443-gcs`, a small proxy in front of LocalStack S3 (`r443-localstack`, which keeps the bytes) that
+answers as `storage.googleapis.com` (a network alias on the app's Docker network only, port 9000)
+and applies what Google documents for the XML API: `x-goog-encryption-kms-key-name` on an upload
+or multipart initiate puts the object under that key; a HEAD answers it with `/cryptoKeyVersions/1`;
+a copy is `x-goog-copy-source` and onto itself only with `REPLACE`; S3's SSE headers are refused;
+a presigned request whose signature names the key header and does not send it is refused. What
+Google does not document, the header on a read, a listing or a part, it takes by default and
+refuses when told. The customer's key was in the R435 Cloud KMS stand-in (`r435-floci-gcp`), with
+R435's throwaway service-account file. Throwaway catalog `r443-catalog`, a versioned bucket, the
+in-process scheduler off. **The user assigned the account to the key**, as in R442. The store was
+read from LocalStack directly (each version's recorded key).
+
+| Page / surface | What was driven | Result |
+| --- | --- | --- |
+| Admin → IAM → Settings → Customer keys | read | "The lakehouse store is Cloud Storage, which encrypts files under customer-managed Cloud KMS keys. …" |
+| New customer key "R443 Acme CMEK", In the customer's KMS, `projects/acme-prod/locations/europe-west3/keyRings/agentswarms-ui/cryptoKeys/r443-acme` | **Create customer key** | "Customer key "R443 Acme CMEK" created (7a45ccd44821)…"; "Cloud KMS"; "Lakehouse files: the store encrypts them under this key (0 schemas)." |
+| R443 Acme CMEK → **Check** | | "Unwrapped by projects/…/r443-acme; Encrypt and decrypt work (version 1). Cloud Storage wrote a test file under this key and read, listed and deleted it with the key named on every request, as the engine names it." The stand-in's log: PUT, initiate, part, complete, HEAD, GET, (listing), DELETE, each naming the key; the clean-up deletes without it |
+| Lakehouse → New schema `r443_gcs`; `CREATE TABLE r443_gcs.orders … range(5000)` | Create, Run | 5000; its file uploaded with no key (the bucket's own) |
+| **The user assigned the account** | | "Covers 1 user; wraps 1 user key. … (5 schemas, 9 models)". **Found (1):** no pass followed and the audit trail had none: the assignment's trigger asked for a live key in AWS KMS (the pass's own guard had been made the store's in this round; the trigger in `customerKeys.functions.ts` kept its copy) |
+| The fixed build: **Re-encrypt lakehouse files** | | "1 file in 5 schemas checked · 1 re-encrypted under a customer key."; the stand-in: a `COPY` naming the key; the file's new version under `r443-acme`, the old one under the bucket's own |
+| `CREATE TABLE r443_gcs.orders2 … range(3000)`; then a read of both tables | Run ×2 | Before the write each worker asked the store once (the probe, every request naming the key, taken); the file's PUT named the key and is under it; "5000 · 73500" read back with the header on the engine's requests |
+| `CREATE TABLE r443_gcs.churn …`; ML Models → Train "R443 churn" on it | **Train** | "read 1500 row(s)"; v1 "production". The store: the staged read written under the key by the engine (and deleted after the sandbox fetched it with a plain signed GET); `ml-artifacts/2bbac2cd…/v1/model.joblib`, 139,895 bytes, under the key, put by the sandbox through a URL signed for the header (the stand-in refuses such a URL without it). The egress proxy's reload went through this time |
+| The stand-in told to refuse the header on reads; the app redeployed (every worker fresh) | Customer keys | **Found (2)**, fixed before this: the card showed only what the worker serving it had learned, and a worker that had not asked showed nothing. Now: "New files are written under the bucket's own encryption for now: the store refused a HEAD request that named the key (HTTP 400). An assignment and this button move them under the key; Check on a key asks the store again." (a HEAD has no body, so only its status) |
+| R443 Acme CMEK → **Check** | | "… Cloud Storage wrote a test file under this key but refused a HEAD request that named it (HTTP 400). The engine names the key on every request for a covered folder, so new lakehouse files are written under the bucket's own encryption; an assignment and Re-encrypt lakehouse files move them under the key." |
+| `CREATE TABLE r443_gcs.orders3 … range(2000)`; a read of `orders` (under the key) and `orders3` | Run ×2 | The new file uploaded with no key (bucket default); "5000 · 2000": the keyed files read without the header |
+| **Re-encrypt lakehouse files** | | "5 files in 5 schemas and 1 model checked · 1 re-encrypted under a customer key · 4 already under the right key." (the copy is an upload, which the store takes) |
+| The stand-in back to its default; remove the account from R443 Acme CMEK | ✕ | "Removed … their lakehouse files follow in the background." (the fix); about 30 s later the four tables' files and the model under the bucket's own encryption |
+| Audit log | read | `security.customer_key.create`, `.assign`, `.unassign`; `security.lakehouse_files.reencrypt` "via removal from "R443 Acme CMEK" · 1 user · 5 files in 5 schemas and 1 model checked · 5 back on the store's own encryption". **Found (3):** the staged read read "staged under the customer's KMS key projects…" (R442's line shortens an AWS key id; a Cloud KMS name starts "projects"). Fixed build: "1500 rows · staged under the customer's Cloud KMS key r443-acme · via ml_train:…"; R442's AWS row unchanged ("b266a74b…") |
+| R443 Acme CMEK → **Destroy**, the name typed (nobody assigned) | **Destroy the key** | ""R443 Acme CMEK" destroyed; 0 user keys erased with it." |
+| After the restore: Lakehouse | read | "14 schemas · 78 tables" |
+
+Fixed from this round (R443, before its commit), each with a test and a mutant: an assignment to a
+Cloud KMS key on Cloud Storage moves its members' files (1); the card asks the store when its worker
+has not, for an assigned key only (2); the audit line names a Cloud KMS key by its own name (3).
+
+Seen during the window: the throwaway lakehouse was asked for scheduled work while the in-process
+scheduler was off (a signed-in page's catch-up call to `/api/bi/cron`, as in R440): four data
+monitors and a materialized view refresh failed against it. Their next run on the real lakehouse
+replaces the verdict.
+
+Not driven live: real Cloud Storage (no CMEK-capable emulator exists; the stand-in is Google's
+documentation, and on a real bucket the key's Check and the engine's probe ask the store itself);
+a refusal of the header on a multipart part (unit-tested); a Spark run on Cloud Storage (not
+covered, said); the customer disabling the Cloud KMS key.
+
+Fixtures: the destroyed R443 Acme CMEK (7a45ccd44821); the key `r443-acme` in the R435 Cloud KMS
+stand-in; the stand-ins `r443-gcs`, `r443-localstack` and `r443-catalog`, stopped. Removed in the UI
+before the restore: the model R443 churn and the schema `r443_gcs`. The environment was restored
+(the same 51 variable names), and the egress proxy restarted so it no longer resolves
+`storage.googleapis.com` to the stand-in; its allow-list names that host until the app next writes it.
+
 ## 2026-11-03 — R442: model artifacts and run staging under customer keys
 
 The next roadmap item: what a customer key's members keep beside the lake (model artifacts,

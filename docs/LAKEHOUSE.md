@@ -549,7 +549,9 @@ Spark cluster reading the lakehouse needs `kms:Decrypt` on the key, and
 `kms:GenerateDataKey` to stage a write; its scoped credential allows both
 through S3 only. The members' model artifacts and the rows their pipelines
 and ML runs stage are written under the same key.
-`LAKEHOUSE_SSE_KMS` (`auto`, on for AWS S3) decides whether the store is asked
+On Cloud Storage the key is in Cloud KMS instead, named the way Cloud Storage
+names a customer-managed key (R443).
+`LAKEHOUSE_SSE_KMS` (`auto`, on for AWS S3 and Cloud Storage) decides whether the store is asked
 at all. What it needs and what it does not cover:
 [Key management → Lakehouse files](./KEY_MANAGEMENT.md#lakehouse-files).
 

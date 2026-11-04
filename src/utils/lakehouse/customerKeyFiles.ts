@@ -14,7 +14,15 @@
 // cannot use a key it does not have), a key in another provider (the store is
 // S3), a key in another region than the bucket (S3 uses a key only in the
 // bucket's own region), and a store that does not encrypt with KMS keys.
+//
+// CLOUD STORAGE (R443). A lakehouse on Google Cloud Storage reaches it through
+// its S3-compatible XML API, and there a customer-managed key is a Cloud KMS
+// key named per request by `x-goog-encryption-kms-key-name`, not S3's SSE-KMS
+// headers. So the store's kind decides which provider's keys cover files and
+// which header names the key; the rest (scoped secrets, signed uploads, the
+// copy in place) is the same mechanism.
 import type { CustomerKeyRow } from "@/utils/kms/keyHierarchy.server";
+import { parseGcpKeyRef } from "@/utils/kms/types";
 
 /** Whether the lakehouse store encrypts files under customer keys, and why. */
 export type SseMode = { on: boolean; why: string };
@@ -59,6 +67,12 @@ export function sseKmsMode(
       why: "The lakehouse store is AWS S3, which encrypts files under customer keys.",
     };
   }
+  if (storeKindOf(endpoint) === "gcs") {
+    return {
+      on: true,
+      why: "The lakehouse store is Cloud Storage, which encrypts files under customer-managed Cloud KMS keys.",
+    };
+  }
   return {
     on: false,
     why: `The lakehouse store is ${endpointHost(endpoint)}, not AWS S3, and may not encrypt with KMS keys. Set LAKEHOUSE_SSE_KMS=on if it does (MinIO with KES, for one).`,
@@ -82,6 +96,63 @@ export function isAwsEndpoint(endpoint: string | undefined): boolean {
   return !host || host === "amazonaws.com" || host.endsWith(".amazonaws.com");
 }
 
+/**
+ * Which kind of store the lakehouse is on, as far as naming a key goes: Cloud
+ * Storage (its global, regional or Private Service Connect endpoint), or an
+ * S3 store (AWS, or an S3-compatible one that speaks SSE-KMS, MinIO with KES).
+ */
+export type StoreKind = "s3" | "gcs";
+
+export function storeKindOf(endpoint: string | undefined): StoreKind {
+  const host = endpointHost(endpoint);
+  return host === "storage.googleapis.com" ||
+    /^storage\.[a-z0-9-]+\.rep\.googleapis\.com$/.test(host) ||
+    /^storage-[a-z0-9-]+\.p\.googleapis\.com$/.test(host)
+    ? "gcs"
+    : "s3";
+}
+
+/** The provider whose keys a store encrypts under: AWS KMS for S3, Cloud KMS for Cloud Storage. */
+export function storeKeyProvider(store: StoreKind): "aws" | "gcp" {
+  return store === "gcs" ? "gcp" : "aws";
+}
+
+/** Cloud Storage's header naming the Cloud KMS key of an upload, a copy, and a stored object. */
+export const GCS_KMS_KEY_HEADER = "x-goog-encryption-kms-key-name";
+
+/**
+ * The headers that make the store write one object under a KMS key: S3's
+ * SSE-KMS pair, or Cloud Storage's key name. Signed with the request either
+ * way, so an upload URL holds the upload to the key.
+ */
+export function keyHeaders(store: StoreKind, keyRef: string): Record<string, string> {
+  return store === "gcs"
+    ? { [GCS_KMS_KEY_HEADER]: keyRef }
+    : {
+        "x-amz-server-side-encryption": "aws:kms",
+        "x-amz-server-side-encryption-aws-kms-key-id": keyRef,
+      };
+}
+
+/**
+ * A Cloud KMS key's resource name without the version a stored object reports
+ * (Cloud Storage answers `…/cryptoKeys/<key>/cryptoKeyVersions/<n>`), so it
+ * compares with the customer key's own name. Anything else is returned as is.
+ */
+export function cloudKmsKeyName(ref: string): string {
+  return ref.trim().replace(/\/cryptoKeyVersions\/\d+$/, "");
+}
+
+/** How a stored object is encrypted, from a HEAD's headers, on either kind of store. */
+export function objectEncryptionOf(get: (name: string) => string | null): ObjectEncryption {
+  const goog = get(GCS_KMS_KEY_HEADER);
+  if (goog) return { sse: "gcp:kms", kmsKeyId: cloudKmsKeyName(goog) };
+  return {
+    sse: get("x-amz-server-side-encryption"),
+    kmsKeyId: get("x-amz-server-side-encryption-aws-kms-key-id"),
+  };
+}
+
 const KEY_ARN = /^arn:aws(?:-[a-z-]+)?:kms:([a-z0-9-]+):\d{12}:key\/[A-Za-z0-9-]+$/;
 
 /** The region of an AWS KMS key's ARN, or null when the ref is not a key ARN. */
@@ -97,10 +168,18 @@ export function whyNotCovered(d: FileKeyDecision): string | null {
   return d.kmsKeyId === null ? d.why : null;
 }
 
+const PROVIDER_PLACE: Record<string, string> = {
+  aws: "AWS KMS",
+  azure: "Azure Key Vault",
+  gcp: "Google Cloud KMS",
+  oci: "OCI Vault",
+};
+
 export function fileKeyFor(
   key: Pick<CustomerKeyRow, "provider" | "key_ref" | "destroyed_at">,
   mode: SseMode,
   bucketRegion: string,
+  store: StoreKind = "s3",
 ): FileKeyDecision {
   if (key.destroyed_at) return { kmsKeyId: null, why: "Destroyed." };
   if (key.provider === "app") {
@@ -109,6 +188,7 @@ export function fileKeyFor(
       why: "Held by the app: the store cannot use a key the app holds, so its members' lakehouse files stay under the store's own encryption.",
     };
   }
+  if (store === "gcs") return cloudStorageKeyFor(key, mode);
   if (key.provider !== "aws") {
     const where =
       key.provider === "azure"
@@ -139,6 +219,33 @@ export function fileKeyFor(
     };
   }
   return { kmsKeyId: ref };
+}
+
+/**
+ * The same decision on Cloud Storage: a key in Cloud KMS, named by its
+ * resource name. The bucket's location is not known here (an S3 signing
+ * region is not a Cloud Storage location), so a key ring in another location
+ * is refused by the store and said by the key's Check.
+ */
+function cloudStorageKeyFor(
+  key: Pick<CustomerKeyRow, "provider" | "key_ref">,
+  mode: SseMode,
+): FileKeyDecision {
+  if (key.provider !== "gcp") {
+    return {
+      kmsKeyId: null,
+      why: `In ${PROVIDER_PLACE[key.provider] ?? "Vault"}: the lakehouse store is Cloud Storage, which encrypts only under a Cloud KMS key, so its members' lakehouse files stay under the store's own encryption.`,
+    };
+  }
+  if (!mode.on) return { kmsKeyId: null, why: mode.why };
+  try {
+    return { kmsKeyId: parseGcpKeyRef(key.key_ref ?? "").keyRef };
+  } catch {
+    return {
+      kmsKeyId: null,
+      why: "Not a key's resource name: give projects/<project>/locations/<location>/keyRings/<ring>/cryptoKeys/<key> for lakehouse files to be encrypted under it.",
+    };
+  }
 }
 
 /** Where a schema's files live: its catalog path, under the data path when relative. */
@@ -264,6 +371,10 @@ export function filesPassLine(d: Record<string, unknown>): string {
 export function stagedUnderKeyBit(d: Record<string, unknown>): string | null {
   const ref = d.staged_under_kms_key;
   if (typeof ref !== "string" || !ref.trim()) return null;
+  // A Cloud KMS key by its own name (R443's round: the start of its resource
+  // name read "projects…"); an AWS key by the start of its id.
+  const gcp = /\/cryptoKeys\/([^/]+)$/.exec(cloudKmsKeyName(ref));
+  if (gcp) return `staged under the customer's Cloud KMS key ${gcp[1]}`;
   const id = /:key\/([0-9a-f-]+)$/i.exec(ref.trim())?.[1] ?? ref.trim();
   return `staged under the customer's KMS key ${id.slice(0, 8)}…`;
 }
@@ -286,6 +397,8 @@ export type CoveredPrefix = {
   schema: string;
   keyName: string;
   kmsKeyId: string;
+  /** Which store, for the grant the message names (R443). */
+  store?: StoreKind;
 };
 
 /**
@@ -304,7 +417,8 @@ export function describeCustomerKeyFileError(
   covered: readonly CoveredPrefix[],
 ): string | null {
   const status = /\b(400|403)\b/.exec(message)?.[1];
-  const code = /\b(KMS\.[A-Za-z]+Exception|AccessDenied)\b/.exec(message)?.[1];
+  // Cloud Storage's own reasons name Cloud KMS (cloudKmsDisabledKey, …).
+  const code = /\b(KMS\.[A-Za-z]+Exception|AccessDenied|cloudKms[A-Za-z]+)\b/i.exec(message)?.[1];
   if (!status && !code && !/Forbidden/i.test(message)) return null;
   const hit = covered.find(
     (p) =>
@@ -315,7 +429,10 @@ export function describeCustomerKeyFileError(
   return (
     `The store refused a file of lakehouse schema "${hit.schema}" (${code ?? `HTTP ${status ?? 403}`}). ` +
     `Its files are encrypted under the customer key "${hit.keyName}" (${hit.kmsKeyId}): the customer ` +
-    `may have disabled or revoked that key, or the lakehouse's storage identity may lack kms:Decrypt ` +
-    `and kms:GenerateDataKey on it. Other schemas are unaffected.`
+    `may have disabled or revoked that key, ` +
+    (hit.store === "gcs"
+      ? `or the bucket's Cloud Storage service agent may lack the Cloud KMS CryptoKey Encrypter/Decrypter role on it. `
+      : `or the lakehouse's storage identity may lack kms:Decrypt and kms:GenerateDataKey on it. `) +
+    `Other schemas are unaffected.`
   );
 }

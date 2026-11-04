@@ -37,12 +37,14 @@ vi.mock("@/integrations/supabase/client.server", () => ({
 }));
 vi.mock("@/utils/audit.server", () => ({ auditEvent: () => {} }));
 vi.mock("@/utils/sheets/owned.server", () => ({ sheetOwnedRefusal: async () => null }));
+// The store's endpoint: MinIO, unless a test puts the lake on Cloud Storage (R443).
+const where = vi.hoisted(() => ({ endpoint: "minio:9000" }));
 vi.mock("@/utils/ml/experimentArtifacts.server", () => ({
   lakeTarget: () => ({
     bucket: "lake",
     dataUrl: "s3://lake/main",
     target: {
-      endpoint: "minio:9000",
+      endpoint: where.endpoint,
       region: "us-east-1",
       useSsl: false,
       urlStyle: "path",
@@ -57,12 +59,17 @@ const owner = vi.hoisted(() => ({
   kms: null as string | null,
   asked: [] as string[],
   secrets: [] as string[],
+  part: undefined as string | null | undefined,
 }));
 vi.mock("@/utils/lakehouse/customerKeyFiles.server", () => ({
   lakeObjectKmsKey: async (userId: string) => {
     owner.asked.push(userId);
     return owner.kms;
   },
+  // How the engine's secret names the key: S3's KMS_KEY_ID unless a test
+  // says otherwise (R443: Cloud Storage's header, or none until it is safe).
+  engineKeyPart: async (keyRef: string) =>
+    owner.part === undefined ? `KMS_KEY_ID '${keyRef}'` : owner.part,
 }));
 const store = vi.hoisted(() => ({
   keys: [] as { key: string; lastModified: Date }[],
@@ -311,6 +318,48 @@ describe("a read", () => {
     } finally {
       rec.restore();
       owner.kms = null;
+    }
+  });
+
+  // R443: on Cloud Storage the secret names the key with its header, and
+  // only once the store has taken it on reads; until then the copy is made
+  // under the store's own encryption, with no secret at all.
+  it("names the key the store's way, and makes no secret when the store may not be told", async () => {
+    owner.kms = "projects/acme-prod/locations/europe-west1/keyRings/lake/cryptoKeys/acme";
+    owner.part = `EXTRA_HTTP_HEADERS MAP {'x-goog-encryption-kms-key-name': '${owner.kms}'}`;
+    let rec = await recording();
+    try {
+      await lake.lakeRead({
+        userId: OWNER,
+        sessionId: SID,
+        manifest: manifest(),
+        id: "n_orders",
+        via: "test",
+        io,
+      });
+      const made = rec.sql.find((q) => q.startsWith("CREATE SECRET stage_ck_")) ?? "";
+      expect(made).toContain(owner.part);
+      expect(made).not.toContain("KMS_KEY_ID");
+    } finally {
+      rec.restore();
+    }
+    owner.part = null;
+    rec = await recording();
+    try {
+      const out = await lake.lakeRead({
+        userId: OWNER,
+        sessionId: SID,
+        manifest: manifest(),
+        id: "n_orders",
+        via: "test",
+        io,
+      });
+      expect(rec.sql.some((q) => /SECRET/.test(q))).toBe(false);
+      expect(out.rows).toBe(3);
+    } finally {
+      rec.restore();
+      owner.kms = null;
+      owner.part = undefined;
     }
   });
 
@@ -887,6 +936,39 @@ describe("a model artifact", () => {
       expect(new URL(get.url).searchParams.get("X-Amz-SignedHeaders")).toBe("host");
     } finally {
       owner.kms = null;
+    }
+  });
+
+  it("names the key the way the store reads it: Cloud Storage's header there", async () => {
+    // R443: on Cloud Storage a Cloud KMS key is named by x-goog-encryption-kms-key-name;
+    // S3's SSE-KMS headers would be ignored, and the model stored under the bucket's own.
+    const GKEY = "projects/acme-prod/locations/europe-west1/keyRings/lake/cryptoKeys/acme";
+    owner.kms = GKEY;
+    where.endpoint = "storage.googleapis.com";
+    try {
+      const put = await lake.lakeArtifact({
+        manifest: m({ put: "ml-artifacts/m1/v3/model.joblib", get: [] }),
+        which: "put",
+        uri: "s3://lake/ml-artifacts/m1/v3/model.joblib",
+        userId: OWNER,
+      });
+      expect(put.headers).toEqual({ "x-goog-encryption-kms-key-name": GKEY });
+      expect(new URL(put.url).host).toBe("storage.googleapis.com");
+      expect(new URL(put.url).searchParams.get("X-Amz-SignedHeaders")).toBe(
+        "host;x-goog-encryption-kms-key-name",
+      );
+      const st = await lake.lakeStage({
+        sessionId: SID,
+        manifest: manifest(),
+        id: "t_append",
+        parts: 1,
+        userId: OWNER,
+        sendsHeaders: true,
+      });
+      expect(st.headers).toEqual({ "x-goog-encryption-kms-key-name": GKEY });
+    } finally {
+      owner.kms = null;
+      where.endpoint = "minio:9000";
     }
   });
 

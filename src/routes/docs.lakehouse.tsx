@@ -318,12 +318,14 @@ function LakehouseDocsPage() {
         in the catalog), and Delta Sharing snapshots of its tables. An assignment copies the files
         written before in place under the key, and <strong>Re-encrypt lakehouse files</strong> does
         it on demand. If the customer disables or revokes the key, queries on those schemas fail
-        with an error that names the schema and the key; other schemas are unaffected.{" "}
-        <C>LAKEHOUSE_SSE_KMS</C> (<C>auto</C> by default, on for AWS S3) decides whether the store
-        is asked at all; a key held by the app, or in another provider, does not cover files, and
-        the card says so. Destroying a customer key in the app leaves its members&apos; files under
-        the customer&apos;s KMS key: for them to become unreadable, the customer disables or deletes
-        it. The details are in <C>docs/KEY_MANAGEMENT.md</C>, under Lakehouse files.
+        with an error that names the schema and the key; other schemas are unaffected. On Cloud
+        Storage the key is in Cloud KMS instead, named the way Cloud Storage names a
+        customer-managed key. <C>LAKEHOUSE_SSE_KMS</C> (<C>auto</C> by default, on for AWS S3 and
+        Cloud Storage) decides whether the store is asked at all; a key held by the app, or in
+        another provider, does not cover files, and the card says so. Destroying a customer key in
+        the app leaves its members&apos; files under the customer&apos;s KMS key: for them to become
+        unreadable, the customer disables or deletes it. The details are in{" "}
+        <C>docs/KEY_MANAGEMENT.md</C>, under Lakehouse files.
       </P>
       <P>
         The same key covers what its members keep beside the lake: their models&apos; artifacts,

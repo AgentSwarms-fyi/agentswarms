@@ -1047,6 +1047,18 @@ gcloud storage hmac create <service-account-email>
 kubectl -n agentswarms patch secret agentswarms-env --type merge -p '{"stringData":{"LAKEHOUSE_DATA_URL":"s3://agentswarms-lake/main","LAKEHOUSE_S3_ENDPOINT":"storage.googleapis.com","LAKEHOUSE_S3_URL_STYLE":"path","LAKEHOUSE_S3_USE_SSL":"true","LAKEHOUSE_S3_KEY_ID":"<access id>","LAKEHOUSE_S3_SECRET":"<secret>"}}'
 ```
 
+For a customer key in Cloud KMS to cover lakehouse files (Admin → IAM →
+Settings → Customer keys), put its key ring in the bucket's location and let
+the bucket project's Cloud Storage service agent use the key:
+
+```bash
+gcloud storage service-agent --project="$PROJECT" --authorize-cmek="projects/$PROJECT/locations/$REGION/keyRings/<ring>/cryptoKeys/<key>"
+```
+
+`LAKEHOUSE_SSE_KMS` stays `auto`, which is on for Cloud Storage; the key's
+**Check** writes a test file under it and reads it back. See
+[KEY_MANAGEMENT.md → On Cloud Storage](./KEY_MANAGEMENT.md#on-cloud-storage).
+
 **8. The notebook namespace** — identical to the AWS runbook's step 11, with
 `storage.googleapis.com` as the host to add to the egress allow-list.
 

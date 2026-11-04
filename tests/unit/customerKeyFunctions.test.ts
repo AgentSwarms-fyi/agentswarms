@@ -320,6 +320,50 @@ describe("assigning", () => {
   });
 });
 
+describe("an assignment on Cloud Storage (R443)", () => {
+  // Found in R443's round: the trigger for moving a member's lakehouse files
+  // asked for a live key in AWS KMS, so on Cloud Storage an assignment to a
+  // Cloud KMS key moved nothing and its toast did not say they follow.
+  const GKEY = "projects/acme-prod/locations/europe-west1/keyRings/lake/cryptoKeys/acme";
+  const env = {
+    LAKEHOUSE_CATALOG_URL: "postgres://lake:pw@catalog:5432/lake",
+    LAKEHOUSE_DATA_URL: "s3://lake-bucket/lake",
+    LAKEHOUSE_S3_ENDPOINT: "storage.googleapis.com",
+    LAKEHOUSE_S3_KEY_ID: "GOOGTEST",
+    LAKEHOUSE_S3_SECRET: "test-secret-value",
+  };
+  beforeEach(() => {
+    Object.assign(process.env, env);
+    // The pass the assignment starts waits for the workers' sync; it is not run here.
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    for (const k of Object.keys(env)) delete process.env[k];
+  });
+
+  it("says a Cloud KMS key's members' files follow it", async () => {
+    const acme = ok(await create({ name: "Acme GCP", where: "kms", key_ref: GKEY }));
+    expect(fake.tables.customer_keys[0]).toMatchObject({ provider: "gcp" });
+    const r = ok(
+      await assignCustomerKey({
+        data: { access_token: T, id: acme.id, principal_type: "user", principal_id: ALICE },
+      }),
+    );
+    expect(r.lakehouseFilesFollow).toBe(true);
+  });
+
+  it("does not say so for a key in AWS KMS, which Cloud Storage cannot use", async () => {
+    const globex = ok(await create({ name: "Globex", where: "kms", key_ref: ARN }));
+    const r = ok(
+      await assignCustomerKey({
+        data: { access_token: T, id: globex.id, principal_type: "user", principal_id: ALICE },
+      }),
+    );
+    expect(r.lakehouseFilesFollow).toBe(false);
+  });
+});
+
 describe("destroying and erasing", () => {
   it("destroys a customer key only by its name, and its members' values stop reading", async () => {
     // With the cache on: the process that destroys the key must not keep it.

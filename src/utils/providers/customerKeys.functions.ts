@@ -27,10 +27,12 @@ import {
   customerKeyFilesView,
   filesPassDetail,
   lakehouseSseMode,
+  lakehouseStore,
   reEncryptFilesAfterMove,
   reEncryptLakehouseFiles,
   type FilesPassResult,
 } from "@/utils/lakehouse/customerKeyFiles.server";
+import { storeKeyProvider } from "@/utils/lakehouse/customerKeyFiles";
 import {
   sealOlderStoredFiles,
   STORED_FILES_PASS,
@@ -80,6 +82,11 @@ export type LakehouseFilesState = {
   why: string;
   /** Schemas left as they are: their owner's groups name two customer keys. */
   conflictedSchemas: number;
+  /**
+   * On Cloud Storage, whether the store took the key's name on the engine's
+   * requests; until it has, new files are written under its own (R443).
+   */
+  engine?: { ok: boolean; why: string | null };
   /** The last re-encrypt pass, from the audit trail. */
   lastPass: AuditedPass | null;
   error?: string;
@@ -161,6 +168,7 @@ async function lakehouseFilesState(): Promise<{
       on: view.mode.on,
       why: view.mode.why,
       conflictedSchemas: view.conflictedSchemas,
+      ...(view.engine ? { engine: view.engine } : {}),
       lastPass,
       // A last pass that could not be read is said, not shown as none.
       ...(view.error ? { error: view.error } : auditError ? { error: auditError } : {}),
@@ -439,7 +447,9 @@ const membershipResult = (
 /**
  * After a move: the users' lakehouse files follow their key, once every
  * worker writes under it. Said only when the store encrypts under customer
- * keys and some live customer key is in AWS KMS (the pass's own guard).
+ * keys and some live customer key is in the store's own KMS (the pass's own
+ * guard): AWS KMS on S3, Cloud KMS on Cloud Storage. Found in R443's round:
+ * this said AWS alone, so a Cloud KMS key's assignment moved no file.
  */
 function filesFollow(
   affected: string[],
@@ -448,7 +458,8 @@ function filesFollow(
   actor: { userId: string; email: string | null },
 ): boolean {
   if (!affected.length || !lakehouseSseMode().on) return false;
-  if (!keys.some((k) => k.provider === "aws" && !k.destroyed_at)) return false;
+  const provider = storeKeyProvider(lakehouseStore());
+  if (!keys.some((k) => k.provider === provider && !k.destroyed_at)) return false;
   reEncryptFilesAfterMove(affected, why, actor);
   return true;
 }

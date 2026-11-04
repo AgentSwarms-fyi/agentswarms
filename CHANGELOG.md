@@ -96,6 +96,24 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Customer keys on a lakehouse in Cloud Storage** (R443). A lakehouse on
+  Google Cloud Storage (through its S3-compatible endpoint) is now covered by
+  customer keys in Cloud KMS, as one on S3 is by keys in AWS KMS: a schema's
+  new files, Delta Sharing snapshots, model artifacts, experiment files and
+  staged rows are written under the key, named by Cloud Storage's own
+  `x-goog-encryption-kms-key-name`; an upload URL signs it; the move pass uses
+  Cloud Storage's copy. `LAKEHOUSE_SSE_KMS=auto` is on for Cloud Storage's
+  global, regional and Private Service Connect endpoints. Cloud Storage
+  documents the header for uploads only, and the engine sends it on every
+  request for a covered folder (measured), so the app first asks the store: a
+  test object written, written in parts, read, listed and deleted with the key
+  named on each request. Until the store takes all of it, the engine names the
+  key nowhere, new files are written under the bucket's own encryption and moved
+  under the key by the pass, and the card says what the store refused; a key's
+  **Check** makes the same round trip. Not covered: a Spark run's staging on
+  Cloud Storage (S3A names keys with SSE-KMS only), and Azure Blob, which
+  cannot hold the lakehouse. No migration. See
+  [Key management → On Cloud Storage](./docs/KEY_MANAGEMENT.md#on-cloud-storage).
 - **Model artifacts and run staging under customer keys** (R442). A customer
   key in AWS KMS that covers its members' lakehouse files (R440) now also
   covers what they keep beside the lake: their models' artifacts

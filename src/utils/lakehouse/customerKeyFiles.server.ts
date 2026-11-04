@@ -44,7 +44,9 @@ import {
   s3DeleteObject,
   s3HeadObject,
   s3ListKeys,
+  s3HeaderRoundTrip,
   s3PutObjectUnderKey,
+  keyHeadersFor,
   type S3Target,
 } from "./presign.server";
 import { lakehouseConfig, lakehouseS3SecretParts, type LakehouseConfig } from "./core.server";
@@ -56,8 +58,12 @@ import {
   reEncryptAction,
   schemaPrefix,
   splitS3Url,
+  cloudKmsKeyName,
   sseKmsMode,
+  storeKeyProvider,
+  storeKindOf,
   whyNotCovered,
+  type StoreKind,
   type CoveredPrefix,
   type FileKeyDecision,
   type SseMode,
@@ -71,6 +77,16 @@ function sq(v: string): string {
 export function lakehouseSseMode(): SseMode {
   const cfg = lakehouseConfig();
   return sseKmsMode(process.env.LAKEHOUSE_SSE_KMS, cfg?.dataUrl, cfg?.s3.endpoint);
+}
+
+/** Which kind of store the lakehouse is on: what names a key in a request (R443). */
+export function lakehouseStore(): StoreKind {
+  return storeKindOf(lakehouseConfig()?.s3.endpoint);
+}
+
+/** A key's reference as the store reports it on an object: a Cloud KMS name without a version. */
+function storeRef(store: StoreKind, ref: string): string {
+  return store === "gcs" ? cloudKmsKeyName(ref) : ref.trim();
 }
 
 /** The region the lakehouse bucket is in, as the store's credential says. */
@@ -203,10 +219,11 @@ async function keyPlan(
     // Before migration 20261105000000 there are no customer keys to cover anyone.
     if (!(e instanceof KeyStoreMissingError)) throw e;
   }
+  const store = storeKindOf(cfg.s3.endpoint);
   for (const k of keys) {
-    plan.keys.push({ id: k.id, name: k.name, decision: fileKeyFor(k, mode, region) });
-    if (k.provider === "aws" && k.key_ref) {
-      (k.destroyed_at ? plan.destroyedRefs : plan.liveRefs).add(k.key_ref.trim());
+    plan.keys.push({ id: k.id, name: k.name, decision: fileKeyFor(k, mode, region, store) });
+    if (k.provider === storeKeyProvider(store) && k.key_ref) {
+      (k.destroyed_at ? plan.destroyedRefs : plan.liveRefs).add(storeRef(store, k.key_ref));
     }
   }
   return { plan, byId: new Map(keys.map((k) => [k.id, k])) };
@@ -362,13 +379,20 @@ export async function ensureCustomerKeySecrets(
   const want = new Map<string, string>();
   if (plan.mode.on) {
     const base = lakehouseS3SecretParts(cfg);
+    const parts = new Map<string, string | null>();
+    for (const f of [...plan.schemas, ...plan.shares]) {
+      if (f.kmsKeyId && !parts.has(f.kmsKeyId)) {
+        parts.set(f.kmsKeyId, await engineKeyPart(f.kmsKeyId));
+      }
+    }
     const add = (name: string, f: FolderPlan) => {
-      if (!f.kmsKeyId) return;
+      const part = f.kmsKeyId ? parts.get(f.kmsKeyId) : null;
+      if (!part) return;
       want.set(
         name,
         `CREATE OR REPLACE SECRET ${name} (${[
           ...base,
-          `KMS_KEY_ID ${sq(f.kmsKeyId)}`,
+          part,
           `SCOPE ${sq(`s3://${f.bucket}/${f.keyPrefix}`)}`,
         ].join(", ")});`,
       );
@@ -400,6 +424,88 @@ export async function ensureCustomerKeySecrets(
   }
 }
 
+// ── Naming a key on the engine's requests (R443) ────────────────────────────
+
+/**
+ * Whether the store takes the key's name on every request the engine makes
+ * for a covered folder. On S3 the engine's secret names the key with
+ * KMS_KEY_ID, which DuckDB sends on writes only: always fine. On Cloud
+ * Storage there is no such option, so the secret carries the header as an
+ * extra header, which DuckDB sends on HEADs, reads and listings too
+ * (measured), and Cloud Storage documents the header for uploads only. So
+ * the store is asked, once per process (again ten minutes after a refusal):
+ * a test object written, read, listed and deleted with the header on every
+ * request. Until it has answered yes, no folder is given the header, and its
+ * new files are written under the bucket's own encryption; an assignment and
+ * Re-encrypt lakehouse files move them under the key.
+ */
+export type EngineVerdict = { ok: boolean; why: string | null; at: number };
+let engineVerdict: EngineVerdict | null = null;
+const VERDICT_RETRY_MS = 10 * 60_000;
+
+/** What the engine last learned, for the card. Null on S3, or before it has asked. */
+export function engineKeyVerdict(): EngineVerdict | null {
+  return lakehouseStore() === "gcs" ? engineVerdict : null;
+}
+
+/** A refused request, in words. */
+const REQUEST_WORDS: Record<string, string> = {
+  PUT: "an upload",
+  MULTIPART: "a multipart upload",
+  HEAD: "a HEAD request",
+  GET: "a read",
+  LIST: "a listing",
+  DELETE: "a delete",
+};
+const requestWords = (r: string | null) => (r && REQUEST_WORDS[r]) || "a request";
+
+/** Record a store's answer to a round trip naming a key (the engine's probe, or a key's Check). */
+function recordVerdict(r: { ok: boolean; refused: string | null; error: string | null }): void {
+  engineVerdict = {
+    ok: r.ok,
+    why: r.ok
+      ? null
+      : `the store refused ${requestWords(r.refused)} that named the key (${r.error ?? "no reason given"})`,
+    at: Date.now(),
+  };
+}
+
+async function askStore(keyRef: string): Promise<void> {
+  const cfg = lakehouseConfig();
+  const lake = cfg ? splitS3Url(cfg.dataUrl) : null;
+  if (!cfg || !lake) return;
+  const target = targetFor(cfg, lake.bucket);
+  try {
+    recordVerdict(
+      await s3HeaderRoundTrip(
+        target,
+        `_customer_key_check/engine/${randomUUID()}.txt`,
+        keyHeadersFor(target, keyRef),
+      ),
+    );
+  } catch (e) {
+    recordVerdict({ ok: false, refused: "PUT", error: (e as Error).message });
+  }
+}
+
+/**
+ * The part of a DuckDB S3 secret that makes the engine write under `keyRef`,
+ * or null when the engine must not name it on this store (yet).
+ */
+export async function engineKeyPart(keyRef: string): Promise<string | null> {
+  if (lakehouseStore() !== "gcs") return `KMS_KEY_ID ${sq(keyRef)}`;
+  const stale =
+    !engineVerdict || (!engineVerdict.ok && Date.now() - engineVerdict.at >= VERDICT_RETRY_MS);
+  if (stale) await askStore(keyRef);
+  if (!engineVerdict?.ok) return null;
+  return `EXTRA_HTTP_HEADERS MAP {${sq("x-goog-encryption-kms-key-name")}: ${sq(keyRef)}}`;
+}
+
+/** Test seam: forget what the store said. */
+export function __forgetEngineVerdictForTests(): void {
+  engineVerdict = null;
+}
+
 /** The covered folders this worker last synced, as the error explainer needs them. */
 function coveredPrefixes(plan: FilePlan | null): CoveredPrefix[] {
   if (!plan) return [];
@@ -411,6 +517,7 @@ function coveredPrefixes(plan: FilePlan | null): CoveredPrefix[] {
       schema: s.name,
       keyName: s.customerKeyName ?? "",
       kmsKeyId: s.kmsKeyId as string,
+      store: lakehouseStore(),
     }));
 }
 
@@ -705,7 +812,8 @@ export function reEncryptFilesAfterMove(
     void (async () => {
       try {
         const keys = await listCustomerKeys().catch(() => [] as CustomerKeyRow[]);
-        if (!keys.some((k) => k.provider === "aws" && !k.destroyed_at)) return;
+        const provider = storeKeyProvider(lakehouseStore());
+        if (!keys.some((k) => k.provider === provider && !k.destroyed_at)) return;
         const r = await reEncryptLakehouseFiles({ owners: ids });
         auditEvent({
           userId: actor.userId,
@@ -737,7 +845,8 @@ export type StoreCheck =
  */
 export async function checkStoreUnderKey(row: CustomerKeyRow): Promise<StoreCheck> {
   const cfg = lakehouseConfig();
-  const decision = fileKeyFor(row, lakehouseSseMode(), bucketRegion(cfg));
+  const store = lakehouseStore();
+  const decision = fileKeyFor(row, lakehouseSseMode(), bucketRegion(cfg), store);
   if (decision.kmsKeyId === null) return { covered: false, why: decision.why };
   // Unreachable while the mode reads the same config; kept for the type.
   if (!cfg) return { covered: false, why: "The lakehouse is not configured." };
@@ -745,6 +854,7 @@ export async function checkStoreUnderKey(row: CustomerKeyRow): Promise<StoreChec
   if (!lake) return { covered: false, why: "The lakehouse's data path is not on S3." };
   const target = targetFor(cfg, lake.bucket);
   const key = `_customer_key_check/${row.id}/${randomUUID()}.txt`;
+  if (store === "gcs") return checkCloudStorageUnderKey(target, key, decision.kmsKeyId);
   const put = await s3PutObjectUnderKey(
     target,
     key,
@@ -778,6 +888,47 @@ export async function checkStoreUnderKey(row: CustomerKeyRow): Promise<StoreChec
   }
 }
 
+/**
+ * Check on Cloud Storage (R443): the same round trip the engine's probe makes,
+ * with the key named on every request, so what the Check says is what the
+ * engine will meet; its answer becomes the engine's, too.
+ */
+async function checkCloudStorageUnderKey(
+  target: S3Target,
+  key: string,
+  keyRef: string,
+): Promise<StoreCheck> {
+  const r = await s3HeaderRoundTrip(target, key, keyHeadersFor(target, keyRef));
+  if (r.refused === "PUT") {
+    return {
+      covered: true,
+      ok: false,
+      detail: `Cloud Storage refused to write a test file under this key: ${r.error}. The key ring must be in the bucket's location, and the bucket's Cloud Storage service agent needs the Cloud KMS CryptoKey Encrypter/Decrypter role on the key.`,
+    };
+  }
+  recordVerdict(r);
+  if (r.stored && r.stored.kmsKeyId !== keyRef) {
+    return {
+      covered: true,
+      ok: false,
+      detail: `Cloud Storage took the test file but stored it under ${r.stored.kmsKeyId ?? "no Cloud KMS key"}, not this key.`,
+    };
+  }
+  if (!r.ok) {
+    return {
+      covered: true,
+      ok: false,
+      detail: `Cloud Storage wrote a test file under this key but refused ${requestWords(r.refused)} that named it (${r.error}). The engine names the key on every request for a covered folder, so new lakehouse files are written under the bucket's own encryption; an assignment and Re-encrypt lakehouse files move them under the key.`,
+    };
+  }
+  return {
+    covered: true,
+    ok: true,
+    detail:
+      "Cloud Storage wrote a test file under this key and read, listed and deleted it with the key named on every request, as the engine names it.",
+  };
+}
+
 /** What the card says about lakehouse files, per key and for the deployment. */
 export type KeyFilesView = {
   kmsKeyId: string | null;
@@ -791,6 +942,8 @@ export async function customerKeyFilesView(): Promise<{
   mode: SseMode;
   perKey: Map<string, KeyFilesView>;
   conflictedSchemas: number;
+  /** On Cloud Storage, what the store said about the engine naming a key (R443). */
+  engine?: { ok: boolean; why: string | null };
   error?: string;
 }> {
   const mode = lakehouseSseMode();
@@ -816,7 +969,25 @@ export async function customerKeyFilesView(): Promise<{
         models: modelsUnder.get(k.id) ?? 0,
       });
     }
-    return { mode, perKey, conflictedSchemas: plan.schemas.filter((s) => s.conflict).length };
+    // On Cloud Storage the card says what the store answered the engine. A
+    // worker that has not asked yet (a fresh process, a card opened before any
+    // write) asks now, once: otherwise the card would show nothing on one
+    // worker and the refusal on another (found in R443's round).
+    if (lakehouseStore() === "gcs" && !engineVerdict) {
+      const assigned = new Set(
+        [...plan.owners.values()].flatMap((o) => ("customerKeyId" in o ? [o.customerKeyId] : [])),
+      );
+      const covered = plan.keys.find((k) => k.decision.kmsKeyId && assigned.has(k.id))?.decision
+        .kmsKeyId;
+      if (covered) await engineKeyPart(covered);
+    }
+    const verdict = engineKeyVerdict();
+    return {
+      mode,
+      perKey,
+      conflictedSchemas: plan.schemas.filter((s) => s.conflict).length,
+      ...(verdict ? { engine: { ok: verdict.ok, why: verdict.why } } : {}),
+    };
   } catch (e) {
     return { mode, perKey, conflictedSchemas: 0, error: (e as Error).message };
   }
