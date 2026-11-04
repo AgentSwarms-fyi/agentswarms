@@ -136,7 +136,14 @@ export class DataKeyUnavailableError extends Error {
   }
 }
 
-export type DataKey = { key: CryptoKey; kid: string };
+/**
+ * A data key. A user key also carries `index` (R445): an HMAC-SHA-256 key
+ * derived from the user key itself, with which the server finds a user's
+ * values by a word without reading them. It exists exactly as long as the user
+ * key does, so erasing the user key leaves the words as unreadable as the
+ * values. A deployment key has none.
+ */
+export type DataKey = { key: CryptoKey; kid: string; index?: CryptoKey };
 
 export type HierarchyDeps = {
   store: KeyStore;
@@ -183,6 +190,24 @@ const customerAad = (id: string, kid: string) =>
 
 export async function importDataKey(raw: Uint8Array): Promise<CryptoKey> {
   return crypto.subtle.importKey("raw", buf(raw), { name: ALGO }, false, ["encrypt", "decrypt"]);
+}
+
+const INDEX_INFO = new TextEncoder().encode("agentswarms:blind-index|v1");
+
+/** The user key's index key: HKDF-SHA-256 of its 32 random bytes, for HMAC-SHA-256. */
+export async function importIndexKey(raw: Uint8Array): Promise<CryptoKey> {
+  const base = await crypto.subtle.importKey("raw", buf(raw), "HKDF", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(32), info: INDEX_INFO },
+    base,
+    { name: "HMAC", hash: "SHA-256", length: 256 },
+    false,
+    ["sign"],
+  );
+}
+
+async function userDataKey(raw: Uint8Array, kid: string): Promise<DataKey> {
+  return { key: await importDataKey(raw), kid, index: await importIndexKey(raw) };
 }
 
 /** AES-256-GCM wrap of a 32-byte key under a wrapping key, bound to `aad`. */
@@ -374,7 +399,7 @@ export function createKeyHierarchy(deps: HierarchyDeps) {
     const hit = userCache.get(row.kid);
     if (fresh(hit) && hit.error === undefined) return hit.value as DataKey;
     const raw = await unwrapUserRaw(row, ring);
-    const key = { key: await importDataKey(raw), kid: row.kid };
+    const key = await userDataKey(raw, row.kid);
     raw.fill(0);
     userCache.set(row.kid, { at: now(), value: key });
     return key;
@@ -448,7 +473,7 @@ export function createKeyHierarchy(deps: HierarchyDeps) {
       raw.fill(0);
       return "conflict";
     }
-    const key = { key: await importDataKey(raw), kid };
+    const key = await userDataKey(raw, kid);
     raw.fill(0);
     userCache.set(kid, { at: now(), value: key });
     return key;
@@ -484,7 +509,7 @@ export function createKeyHierarchy(deps: HierarchyDeps) {
           to,
         );
         if (!moved) continue;
-        const key = { key: await importDataKey(raw), kid: row.kid };
+        const key = await userDataKey(raw, row.kid);
         userCache.set(row.kid, { at: now(), value: key });
         return key;
       } finally {

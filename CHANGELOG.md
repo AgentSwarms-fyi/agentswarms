@@ -96,6 +96,20 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Agent memory under each user's key** (R445). What an agent keeps about a
+  person between turns (long-term memory items, each conversation's rolling
+  summary, and its scratchpad) is now encrypted by the app under that
+  person's user key, like their credentials and generated documents. Erasing
+  the user's key, destroying their customer key or the customer revoking it
+  leaves it unreadable, and the agent answers without it. Recall still finds
+  an item by a word in Postgres: an item's keywords are its words hashed with
+  an HMAC key derived from the user key (a blind index), never the words. The
+  agent's Memory tab reads the items through the server and marks each
+  encrypted one with a lock. Memory kept before is read as it is and
+  encrypted by the hourly stored-files pass (`MEMORY_SEAL_PER_PASS`, 1000 by
+  default) or by **Encrypt stored files**, in the same audited row. Nothing
+  to set up, and no migration. See
+  [Key management → Agent memory](./docs/KEY_MANAGEMENT.md#agent-memory).
 - **Keys & encryption, for beginners** (R444). A new handbook page,
   **Docs → Govern & operate → Keys & encryption**, and a rewritten opening
   for [Key management](./docs/KEY_MANAGEMENT.md#start-here) explain the keys

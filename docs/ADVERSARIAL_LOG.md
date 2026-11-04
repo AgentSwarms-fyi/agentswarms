@@ -109,6 +109,70 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-04 — R445: agent memory under each user's key
+
+**What was built.** The roadmap's next item ("chat and memory text"), memory first: it is written
+and recalled on the server, while chat messages are read and written by the browser directly and
+need the server in front of them before they can be sealed. What an agent keeps about a person
+between turns (long-term memory items, each conversation's rolling summary, and its scratchpad) is
+sealed by the app under that person's user key: AES-256-GCM, one string
+`ck1:<fingerprint>:<iv>:<ciphertext>`, bound to the row and column it is kept in. Every customer
+key covers it, of any kind, and erasing a user's key leaves it unreadable.
+
+**The design problem.** Recall narrows candidates in Postgres, matching an item's `keywords` against
+the prompt's words in a GIN index, and a trigger (`derive_memory_keywords()`) fills `keywords` from
+`content` whenever content is written. Sealing the content alone would have left the words in the
+clear, and the trigger would have filled them with fragments of ciphertext. So a sealed item's
+keywords are a blind index: each word hashed with HMAC-SHA-256 under a key derived (HKDF) from the
+owner's user key when it is unwrapped, so the index key lives exactly as long as the user key. The
+trigger fires on INSERT and on UPDATE OF content only, so the hashes are written by a second update
+that names no content. No migration.
+
+**Attacks considered.**
+
+- *Read a person's memory from the database or a dump.* Content is ciphertext; keywords are hashes
+  under a key the database does not hold. What remains readable: which of one user's items share a
+  word, how many words each has, the kind, score, use count and times. Said in the docs.
+- *Dictionary-attack the hashes.* They are keyed, and the key is derived from the user key, which is
+  wrapped by the deployment or customer key, never stored. A deployment secret alone is not enough;
+  with it, the database and the user key's wrapped form, the user key itself is had, and the data
+  with it.
+- *Match one user's words against another's.* The index key is per user (test: the same word gives
+  Bob a different hash; a mutant deriving every index key from the same bytes is caught).
+- *Move a sealed value onto another row* (another agent's, another user's). It is bound to its
+  `table/row/column` and does not open (test; a mutant dropping the binding is caught). Recall leaves
+  such an item out and the turn goes on (test; first survived as a mutant, see below).
+- *Keep memory under another key when the owner's cannot be had* (a refused customer key, a
+  conflict). Nothing is kept from that turn; `memory_remember` tells the agent "not remembered";
+  extraction logs it. Never the deployment key in its place (tests; a mutant sealing under the
+  deployment key when there is no user key is caught).
+- *A trigger write landing after the hashes.* The hash update names no content (test against a fake
+  that applies the trigger's rule; mutants writing the hashes with the insert, or naming content in
+  the update, are caught). If the hash write fails the item is deleted rather than left unfindable.
+- *The browser reading memory it can no longer open.* The Memory tab reads through a server function
+  that returns only the caller's own items (a mutant dropping the owner filter is caught).
+- *An unreadable summary or item breaking a turn.* Left out, logged, the turn goes on (tests and
+  mutants for both).
+
+**Found by mutation.** "An unreadable item breaks recall" survived the first round: after an erase,
+recall's hashes come from the user's new key, so the erased item is never a candidate and its catch
+never ran. The test that reaches it is an item that matches but does not open where it is kept (a
+copied row); added, and the mutant is caught.
+
+**Proved.**
+
+| Check | Result |
+| --- | --- |
+| `memorySealing.test.ts` (27) | sealed text bound and tamper-evident; per-user hashes; the trigger's rule applied by the fake, the two writes in order; plaintext before the user-key tables exist; a failed hash write takes the item out; a refused key keeps nothing; recall of sealed and older plaintext items together, a moved item left out, an erased key's item left out; the scratchpad sealed whole, its key unwritable by `memory_set`; the Memory tab's list, its owner filter, "Cannot be read"; extraction sealed; a summary that does not open left out of the turn; the pass (hashes, not fragments; its limit; a refused owner left, others sealed; nothing before the tables exist) |
+| `customerKeyFunctions.test.ts` | **Encrypt stored files** seals an item, a summary and a scratchpad under the user's key in one audited row; nothing readable left; a second pass has nothing to do |
+| `storedFilesServer.test.ts`, `storedFiles.test.ts` | the hourly pass runs the memory pass with its bound and audits a pass that sealed only memory; the card's line for it |
+| mutation | 18 of 18 caught (one after its test was added), the control survived |
+| UI | UI_TEST_RESULTS, R445: 5 older summaries sealed by the pass at restart; an agent's extracted items listed with the lock; recalled in a new conversation; a delete from the browser |
+
+**Not covered.** Chat messages (the next item: the browser reads and writes them directly), datasets'
+rows, knowledge-base text. The item metadata and the hash pattern, as above. Erasure and refusal,
+live (the only account's key is never erased).
+
 ### 2026-11-04 — R444: keys for beginners, and nothing blocked without them
 
 **Asked.** The key documentation brought up to date, written so a beginner understands the

@@ -30,6 +30,12 @@ vi.mock("@/utils/providers/defaultModel.server", () => ({
     fellBack: null,
   }),
 }));
+// Sealing the summary under its owner's key (R445) is memorySealing.test.ts's;
+// here it is stored and read as it is, so the fold's own logic is what is tested.
+vi.mock("@/utils/memory/sealed.server", () => ({
+  openSummary: async (_conversationId: string, stored: string | null) => stored,
+  sealSummary: async (_owner: string, _conversationId: string, summary: string) => summary,
+}));
 vi.mock("@/utils/ssrfGuard.server", () => ({
   providerFetch: (url: string, init: unknown) =>
     (globalThis.fetch as unknown as (u: string, i: unknown) => unknown)(url, init),

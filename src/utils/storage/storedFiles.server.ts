@@ -360,24 +360,31 @@ let lastSweep = 0;
 
 /**
  * The background pass, from the scheduler: at most once an hour, at most
- * STORED_FILES_PER_PASS files changed. Audited when it changed or failed
- * something; a pass with nothing to do leaves no row.
+ * STORED_FILES_PER_PASS files changed, and what agents kept about each user
+ * before R445 (memory items, summaries, scratchpads; MEMORY_SEAL_PER_PASS).
+ * Audited, as one row, when it changed or failed something; a pass with
+ * nothing to do leaves no row.
  */
 export async function sweepStoredFiles(force = false): Promise<StoredFilesPass | null> {
   const now = Date.now();
   if (!force && now - lastSweep < SWEEP_INTERVAL_MS) return null;
   lastSweep = now;
   const r = await sealOlderStoredFiles({ limit: storedFilesPerPass() });
-  if (r.sealedNow + r.rebuilt + r.failed > 0) {
+  const { memoryPassDetail, memorySealPerPass, sealOlderMemory } =
+    await import("@/utils/memory/sealed.server");
+  const m = await sealOlderMemory({ limit: memorySealPerPass() });
+  const memoryChanged = m.items + m.summaries + m.scratchpads + m.failed;
+  if (r.sealedNow + r.rebuilt + r.failed + memoryChanged > 0) {
     auditEvent({
       userId: null,
       actorEmail: KMS_AUDIT_ACTOR,
       action: STORED_FILES_PASS,
       resourceType: "security",
       resourceName: "stored files",
-      detail: { trigger: "scheduled", ...storedFilesPassDetail(r) },
+      detail: { trigger: "scheduled", ...storedFilesPassDetail(r), ...memoryPassDetail(m) },
     });
   }
   if (r.failed) console.warn(`[stored-files] ${r.failed} failed`, r.errors);
+  if (m.failed) console.warn(`[agent-memory] ${m.failed} failed`, m.errors);
   return r;
 }

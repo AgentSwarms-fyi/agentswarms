@@ -2,6 +2,7 @@ import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { loadDraft, saveDraft, clearDraft } from "@/lib/formDraft";
 import { supabase } from "@/integrations/supabase/client";
+import { listAgentMemoryItems, type MemoryItemView } from "@/utils/memory.functions";
 import { useInstanceDefaultModel } from "@/hooks/use-instance-default-model";
 import { allowedProviders, isModelAllowedByRules, useMyModelRules } from "@/hooks/use-iam";
 import { useOllamaModels } from "@/hooks/use-ollama-models";
@@ -47,6 +48,7 @@ import {
   Boxes,
   HeartPulse,
   Network,
+  Lock,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { Json } from "@/integrations/supabase/types";
@@ -638,15 +640,8 @@ const DEFAULT_MEMORY_CONFIG_FORM: MemoryConfigForm = {
   chat_retention_days: 7,
 };
 
-type MemoryItemRow = {
-  id: string;
-  kind: string;
-  content: string;
-  score: number;
-  usage_count: number;
-  last_used_at: string | null;
-  created_at: string;
-};
+// Read through the server since R445: items are sealed under their owner's key.
+type MemoryItemRow = MemoryItemView;
 
 // Scoped to *creating* a new agent only. An edit already loads the agent's
 // real saved values from the database — silently overlaying a stray leftover
@@ -889,14 +884,18 @@ export function AgentForm({
   async function refreshMemoryItems() {
     if (!agent?.id) return;
     setMemoryItemsLoading(true);
-    const { data } = await supabase
-      .from("agent_memory_items")
-      .select("id, kind, content, score, usage_count, last_used_at, created_at")
-      .eq("agent_id", agent.id)
-      .order("last_used_at", { ascending: false, nullsFirst: false })
-      .limit(200);
-    if (data) setMemoryItems(data as MemoryItemRow[]);
-    setMemoryItemsLoading(false);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token;
+      if (!token) return;
+      const res = await listAgentMemoryItems({ data: { access_token: token, agent_id: agent.id } });
+      if (res.ok) setMemoryItems(res.items);
+      else toast.error(res.error);
+    } catch (e) {
+      toast.error(`Could not read this agent's memory: ${(e as Error).message}`);
+    } finally {
+      setMemoryItemsLoading(false);
+    }
   }
 
   async function deleteMemoryItem(id: string) {
@@ -2147,7 +2146,25 @@ export function AgentForm({
                         <Badge variant="outline" className="text-[9px] shrink-0 mt-0.5 font-mono">
                           {m.kind}
                         </Badge>
-                        <p className="text-xs flex-1 min-w-0 break-words">{m.content}</p>
+                        {m.sealed ? (
+                          <Lock
+                            className="h-3 w-3 shrink-0 mt-1 text-muted-foreground"
+                            aria-label="Encrypted under your key"
+                            data-memory-sealed
+                          >
+                            <title>Encrypted under your key</title>
+                          </Lock>
+                        ) : null}
+                        {m.content !== null ? (
+                          <p className="text-xs flex-1 min-w-0 break-words">{m.content}</p>
+                        ) : (
+                          <p
+                            className="text-xs flex-1 min-w-0 break-words text-muted-foreground italic"
+                            data-memory-unreadable
+                          >
+                            Cannot be read: {m.unreadable}
+                          </p>
+                        )}
                         <Button
                           type="button"
                           variant="ghost"

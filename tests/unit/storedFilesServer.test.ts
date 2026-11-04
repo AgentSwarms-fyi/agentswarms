@@ -14,6 +14,17 @@ const h = vi.hoisted(() => ({
   storage: null as null | { client: { from: (b: string) => unknown } },
   audits: [] as Array<Record<string, unknown>>,
   refresh: vi.fn(),
+  // The memory pass (R445) runs with the files pass: its own tests are
+  // memorySealing.test.ts's; here it says what it was asked and returns this.
+  memory: vi.fn(async (_opts: { limit?: number }) => ({
+    items: 0,
+    summaries: 0,
+    scratchpads: 0,
+    unreadable: 0,
+    left: false,
+    failed: 0,
+    errors: [] as string[],
+  })),
 }));
 
 vi.mock("@/utils/audit.server", () => ({
@@ -29,6 +40,16 @@ vi.mock("@/integrations/supabase/client.server", () => ({
 vi.mock("@/utils/data/parquet.server", () => ({
   refreshDatasetMirror: (args: unknown) => h.refresh(args),
 }));
+vi.mock("@/utils/memory/sealed.server", async () => {
+  const pass = await vi.importActual<typeof import("@/utils/memory/memoryPass")>(
+    "@/utils/memory/memoryPass",
+  );
+  return {
+    sealOlderMemory: (opts: { limit?: number }) => h.memory(opts),
+    memorySealPerPass: () => 1000,
+    memoryPassDetail: pass.memoryPassDetail,
+  };
+});
 
 import { DataKeyUnavailableError, type CustomerKeyRow } from "@/utils/kms/keyHierarchy.server";
 import {
@@ -352,7 +373,28 @@ describe("the background pass", () => {
       vi.setSystemTime(t0 + 122 * 60_000);
       expect(await sweepStoredFiles()).toMatchObject({ sealedNow: 0, alreadyRight: 2 });
       expect(h.audits).toHaveLength(2);
+      // R445: every pass also seals agent memory stored before, bounded, and
+      // a pass that sealed only memory is audited, its counts in the same row.
+      expect(h.memory).toHaveBeenCalledWith({ limit: 1000 });
+      h.memory.mockResolvedValueOnce({
+        items: 3,
+        summaries: 1,
+        scratchpads: 0,
+        unreadable: 0,
+        left: false,
+        failed: 0,
+        errors: [],
+      });
       expect(await sweepStoredFiles(true)).not.toBeNull();
+      expect(h.audits).toHaveLength(3);
+      expect(h.audits[2]).toMatchObject({
+        detail: {
+          trigger: "scheduled",
+          files_sealed_now: 0,
+          memory_items_sealed: 3,
+          summaries_sealed: 1,
+        },
+      });
     } finally {
       delete process.env.STORED_FILES_PER_PASS;
     }

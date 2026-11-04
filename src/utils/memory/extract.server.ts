@@ -6,6 +6,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import type { MemoryItemKind } from "./types";
+import { insertMemoryItems } from "./sealed.server";
 import { openAiCompatTarget, type CompatTarget } from "@/utils/providers/defaultModel.server";
 import { providerFetch } from "@/utils/ssrfGuard.server";
 
@@ -133,10 +134,17 @@ export async function extractMemoriesFromTurn(opts: {
     kind: it.kind,
     content: it.content,
   }));
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error } = await (sb.from("agent_memory_items") as any).insert(rows);
-  if (error) {
-    console.warn("[memory.extract] insert failed:", error.message);
+  // Sealed under the user's key (R445). When that key cannot be had, nothing
+  // is remembered from this turn rather than kept under another key.
+  let inserted: Awaited<ReturnType<typeof insertMemoryItems>>;
+  try {
+    inserted = await insertMemoryItems(sb, rows);
+  } catch (e) {
+    console.warn("[memory.extract] not remembered:", (e as Error).message);
+    return 0;
+  }
+  if (inserted.error) {
+    console.warn("[memory.extract] insert failed:", inserted.error);
     return 0;
   }
 
@@ -151,5 +159,5 @@ export async function extractMemoriesFromTurn(opts: {
   } catch (e) {
     console.warn("[memory.extract] prune failed:", (e as Error).message);
   }
-  return rows.length;
+  return inserted.ids.length;
 }

@@ -92,4 +92,22 @@ describe("the pass line", () => {
       "1 file checked (1 document, 0 dataset copies) · 2 dataset copies not rebuilt (their datasets answer from their rows meanwhile) · 2 deleted while the pass ran · 5 left for the next pass · 1 failed · No bucket",
     );
   });
+
+  it("says what agent memory the same pass encrypted, and what it left (R445)", () => {
+    expect(
+      storedFilesPassLine({
+        files: 0,
+        documents: 0,
+        copies: 0,
+        memory_items_sealed: 3,
+        summaries_sealed: 1,
+        scratchpads_sealed: 2,
+        memory_unreadable: 1,
+        memory_left: true,
+        memory_failed: 1,
+      }),
+    ).toBe(
+      "0 files checked (0 documents, 0 dataset copies) · 3 memory items, 1 conversation summary, 2 scratchpads of agent memory encrypted under their owner's key · 1 of agent memory whose owner's key cannot be had now, left as they are · more agent memory left for the next pass · 1 of agent memory failed",
+    );
+  });
 });

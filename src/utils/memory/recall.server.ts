@@ -6,64 +6,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import type { MemoryItem, RecalledItem } from "./types";
+import { isMemoryKeyError, openMemoryContent, recallTerms } from "./sealed.server";
+import { tokenize } from "./tokenize";
 
-const STOP = new Set([
-  "the",
-  "and",
-  "for",
-  "with",
-  "this",
-  "that",
-  "from",
-  "have",
-  "has",
-  "had",
-  "are",
-  "was",
-  "were",
-  "will",
-  "would",
-  "could",
-  "should",
-  "about",
-  "into",
-  "your",
-  "their",
-  "they",
-  "them",
-  "our",
-  "out",
-  "not",
-  "but",
-  "any",
-  "all",
-  "you",
-  "user",
-  "users",
-  "agent",
-  "agents",
-  "some",
-  "one",
-  "two",
-  "three",
-  "what",
-  "how",
-  "why",
-  "when",
-  "who",
-  "which",
-  "does",
-  "did",
-  "been",
-  "being",
-]);
-
-export function tokenize(text: string): string[] {
-  if (!text) return [];
-  const cleaned = text.toLowerCase().replace(/[^a-z0-9 ]+/g, " ");
-  const toks = cleaned.split(/\s+/).filter((t) => t.length >= 4 && !STOP.has(t));
-  return Array.from(new Set(toks));
-}
+export { tokenize };
 
 export async function recallMemoryItems(opts: {
   sb: SupabaseClient<Database>;
@@ -73,7 +19,9 @@ export async function recallMemoryItems(opts: {
   topK: number;
 }): Promise<RecalledItem[]> {
   const { sb, userId, agentId, userPrompt, topK } = opts;
-  const terms = tokenize(userPrompt);
+  // The prompt's words as they are (items from before R445) and as the
+  // owner's blind tokens (sealed items, whose keywords are tokens).
+  const terms = await recallTerms(userId, tokenize(userPrompt));
   if (terms.length === 0) return [];
 
   // Use the GIN index on `keywords` for an `&&` overlap match. Cap to a
@@ -91,7 +39,7 @@ export async function recallMemoryItems(opts: {
 
   const termSet = new Set(terms);
   type Row = MemoryItem & { keywords: string[] };
-  const scored = (data as Row[])
+  const scoredRows = (data as Row[])
     .map((row) => {
       const overlap = (row.keywords || []).filter((k) => termSet.has(k)).length;
       // Combine: keyword overlap (heaviest), stored score, recency boost.
@@ -107,6 +55,21 @@ export async function recallMemoryItems(opts: {
     .filter((r) => r.matchScore > 0)
     .sort((a, b) => b.matchScore - a.matchScore)
     .slice(0, Math.max(1, Math.min(topK, 12)));
+  // Sealed items opened. One whose key is gone (erased, destroyed, refused)
+  // is not recalled; the turn goes on with the rest.
+  const opened = await Promise.all(
+    scoredRows.map(async (row) => {
+      try {
+        return { ...row, content: await openMemoryContent(row) };
+      } catch (e) {
+        if (!isMemoryKeyError(e)) {
+          console.warn("[memory.recall] an item did not open:", (e as Error).message);
+        }
+        return null;
+      }
+    }),
+  );
+  const scored = opened.filter((r): r is (typeof scoredRows)[number] => r !== null);
 
   // Best-effort "this item helped" feedback: bump usage_count + last_used_at
   // for the rows we actually surface. Failures are non-blocking.

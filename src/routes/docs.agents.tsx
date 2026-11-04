@@ -287,6 +287,13 @@ If the customer is angry, or asks for a refund above $500, reply only:
         months. Stored items are listed on this tab and can be deleted individually. For a
         public-facing agent, consider leaving long-term memory off entirely.
       </Callout>
+      <P>
+        What an agent remembers about a person (these items, each conversation&apos;s summary and
+        its scratchpad) is encrypted under that person&apos;s own key, so erasing their key makes it
+        unreadable too. Recall still finds an item by a word: the words are kept as keyed hashes,
+        never as words. Nothing has to be set up for this; see{" "}
+        <DocLink to="/docs/keys">Keys &amp; encryption</DocLink>.
+      </P>
 
       {/* ── GUARDRAILS ── */}
       <H2 id="guardrails">Tab 5 — Guardrails</H2>

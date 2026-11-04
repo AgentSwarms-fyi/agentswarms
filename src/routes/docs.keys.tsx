@@ -66,8 +66,8 @@ function KeysPage() {
           deployment key;
         </li>
         <li>
-          the documents chat generates and the copies of uploaded datasets are encrypted the same
-          way before they are stored;
+          the documents chat generates, the copies of uploaded datasets, and what agents remember
+          about each user are encrypted the same way before they are stored;
         </li>
         <li>
           nothing waits on a key service: no extra container, no network call, nothing to pay for.
@@ -101,7 +101,12 @@ function KeysPage() {
             "The store's own encryption: AWS S3 and Cloud Storage encrypt every object; the bundled SILO and MinIO write files as they are unless their encryption is configured or their disk is encrypted",
           ],
           [
-            "Chat history, agent memory, knowledge-base text, notebooks, datasets' rows",
+            "What agents remember about each user: long-term memory, conversation summaries, scratchpads",
+            "The database",
+            "Encrypted by the app under the user's own key; recall finds an item by keyed hashes of its words, never the words",
+          ],
+          [
+            "Chat history, knowledge-base text, notebooks, datasets' rows",
             "The database",
             "The database's own encryption at rest: a managed Postgres encrypts its disks; one you run yourself is as safe as its disk",
           ],
@@ -194,7 +199,8 @@ function KeysPage() {
               │ encrypt          (a customer key can lock them instead)
               ▼
    that user's credentials, secrets and connections,
-   the documents chat made for them, their dataset copies`}</Diagram>
+   the documents chat made for them, their dataset copies,
+   what agents remember about them`}</Diagram>
       <UL>
         <li>
           The <strong>deployment key</strong> is the root: derived from <C>PROVIDER_CREDS_SECRET</C>{" "}
@@ -531,9 +537,9 @@ npm run backup`}</Code>
         <li>
           <strong>One person</strong>: <strong>Erase a user&apos;s key</strong> on the Customer keys
           card, then <strong>Erase the key</strong>. Their credentials, connections, secrets,
-          generated documents and dataset copies are unreadable at once here, and in every server
-          process within <C>DATA_KEY_CACHE_SECONDS</C> (five minutes by default). Deleting their
-          account does the same.
+          generated documents, dataset copies and what agents remember about them are unreadable at
+          once here, and in every server process within <C>DATA_KEY_CACHE_SECONDS</C> (five minutes
+          by default). Deleting their account does the same.
         </li>
         <li>
           <strong>One customer</strong>: <strong>Destroy</strong> on their customer key, typing its
@@ -546,8 +552,8 @@ npm run backup`}</Code>
         </li>
       </UL>
       <P>
-        Chat history and agent memory are database rows that are not under these keys yet: delete
-        the chats, or the account, for those.
+        Chat history is database rows that are not under these keys yet: delete the chats, or the
+        account, for that.
       </P>
 
       <H2 id="mistakes">Mistakes, and what you see</H2>

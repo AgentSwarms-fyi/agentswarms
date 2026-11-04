@@ -39,6 +39,7 @@ import {
   storedFilesPassDetail,
   type StoredFilesPass,
 } from "@/utils/storage/storedFiles.server";
+import type { MemoryPass } from "@/utils/memory/memoryPass";
 import { customerKeyProvider, keyHierarchy } from "./crypto.server";
 import {
   expectedCustomerKeys,
@@ -705,24 +706,33 @@ export const reEncryptLakehouseFilesNow = createServerFn({ method: "POST" })
  */
 export const sealStoredFilesNow = createServerFn({ method: "POST" })
   .validator((input: unknown) => token.parse(input))
-  .handler(async ({ data }): Promise<({ ok: true } & StoredFilesPass) | Fail> => {
-    const guard = await requireSuperadmin(data.access_token);
-    if (!guard.ok) return { ok: false, error: guard.error };
-    try {
-      const r = await sealOlderStoredFiles();
-      auditEvent({
-        userId: guard.userId,
-        actorEmail: guard.email,
-        action: STORED_FILES_PASS,
-        resourceType: "security",
-        resourceName: "stored files",
-        detail: { trigger: "Encrypt stored files", ...storedFilesPassDetail(r) },
-      });
-      return { ok: true, ...r };
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
-    }
-  });
+  .handler(
+    async ({ data }): Promise<({ ok: true } & StoredFilesPass & { memory: MemoryPass }) | Fail> => {
+      const guard = await requireSuperadmin(data.access_token);
+      if (!guard.ok) return { ok: false, error: guard.error };
+      try {
+        const r = await sealOlderStoredFiles();
+        // And what agents kept before R445: one pass, one audit row.
+        const { memoryPassDetail, sealOlderMemory } = await import("@/utils/memory/sealed.server");
+        const m = await sealOlderMemory();
+        auditEvent({
+          userId: guard.userId,
+          actorEmail: guard.email,
+          action: STORED_FILES_PASS,
+          resourceType: "security",
+          resourceName: "stored files",
+          detail: {
+            trigger: "Encrypt stored files",
+            ...storedFilesPassDetail(r),
+            ...memoryPassDetail(m),
+          },
+        });
+        return { ok: true, ...r, memory: m };
+      } catch (e) {
+        return { ok: false, error: (e as Error).message };
+      }
+    },
+  );
 
 /**
  * Erase one user's key. Everything they stored is unreadable from then on;

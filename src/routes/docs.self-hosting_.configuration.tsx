@@ -790,7 +790,9 @@ AUDIT_ARCHIVE_ON_PURGE="1"
         and the copies of uploaded datasets are encrypted by the app under their owner&apos;s user
         key, whatever the customer key&apos;s kind (<C>CHAT_DOC_MAX_BYTES</C>, 50 MB by default, is
         the largest document kept; <C>STORED_FILES_PER_PASS</C>, 25, how many files stored before
-        one hourly pass encrypts). Chat history itself is not under these keys yet (the design is in{" "}
+        one hourly pass encrypts), and so is what agents remember about each user (
+        <C>MEMORY_SEAL_PER_PASS</C>, 1000, how many values kept before one hourly pass encrypts).
+        Chat history itself is not under these keys yet (the design is in{" "}
         <C>docs/KEY_MANAGEMENT.md</C>).
       </Callout>
 

@@ -336,14 +336,14 @@ export async function decryptBlob<T = unknown>(blob: EncryptedBlob): Promise<T> 
  * The key with this fingerprint: a deployment key's, or a user key's. Throws
  * DataKeyUnavailableError, saying why, when it cannot be had.
  */
-async function keyByKid(kid: string): Promise<CryptoKey> {
+async function keyByKid(kid: string, what = "This file"): Promise<CryptoKey> {
   const k = await keyring();
   const deployment = [k.current, ...k.previous].find((e) => e.kid === kid);
   if (deployment) return deployment.key;
   const user = await readUserKey(kid);
   if (user) return user.key;
   throw new DataKeyUnavailableError(
-    `This file is on the key ${kid}, which this server does not hold`,
+    `${what} is on the key ${kid}, which this server does not hold`,
     "unheld",
   );
 }
@@ -374,6 +374,102 @@ export async function assertStoredFileKey(kid: string): Promise<void> {
 /** The fingerprint new files of `owner` are sealed with (it may make the owner's user key). */
 export async function storedFileKidFor(owner: string): Promise<string> {
   return (await writeKeyFor(owner)).kid;
+}
+
+// ── Sealed text (R445) ──────────────────────────────────────────────────────
+//
+// A text value the app encrypts itself, under its owner's user key: agent
+// memory, conversation summaries and scratchpads. The stored form is one
+// string, `ck1:<key fingerprint>:<iv>:<ciphertext>`, bound to where it is kept
+// (`table/row/column`), so a value copied onto another row does not open. The
+// prefix is shorter than the four characters a database trigger takes as a
+// word, so no word is derived from it.
+
+const SEALED_TEXT = "ck1:";
+const textAad = (where: string) =>
+  ab(new TextEncoder().encode(`agentswarms:sealed-text|v1|${where}`));
+
+function ab(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
+
+/** Whether a stored text value is sealed. */
+export function isSealedText(v: unknown): v is string {
+  return typeof v === "string" && v.startsWith(SEALED_TEXT);
+}
+
+/** The fingerprint of the key a sealed text value is under. */
+export function sealedTextKid(v: string): string | null {
+  return isSealedText(v) ? v.slice(SEALED_TEXT.length).split(":")[0] || null : null;
+}
+
+/**
+ * `text` sealed under `owner`'s user key, bound to `where`. Null when the
+ * owner has no user key to seal it with, which is before the user-key tables
+ * exist: the caller then stores it as it did before. Throws
+ * DataKeyUnavailableError when the owner's key cannot be had (a conflict, a
+ * customer key that was refused): it is never sealed under another key.
+ */
+export async function sealText(
+  text: string,
+  opts: { owner: string; where: string },
+): Promise<string | null> {
+  const k = await writeKeyFor(opts.owner);
+  if (!k.index) return null;
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(
+    await crypto.subtle.encrypt(
+      { name: ALGO, iv: ab(iv), additionalData: textAad(opts.where) },
+      k.key,
+      ab(new TextEncoder().encode(text)),
+    ),
+  );
+  return `${SEALED_TEXT}${k.kid}:${bytesToBase64(iv)}:${bytesToBase64(ct)}`;
+}
+
+/**
+ * A stored text value, opened; one that is not sealed comes back as it is.
+ * Throws DataKeyUnavailableError when its key cannot be had, and an error when
+ * it does not open where it is (moved, or changed).
+ */
+export async function openText(value: string, where: string): Promise<string> {
+  if (!isSealedText(value)) return value;
+  const [kid, iv, ct] = value.slice(SEALED_TEXT.length).split(":");
+  if (!kid || !iv || !ct) throw new Error("A sealed value is not in its stored form");
+  const key = await keyByKid(kid, "This value");
+  let plain: ArrayBuffer;
+  try {
+    plain = await crypto.subtle.decrypt(
+      { name: ALGO, iv: ab(base64ToBytes(iv)), additionalData: textAad(where) },
+      key,
+      ab(base64ToBytes(ct)),
+    );
+  } catch {
+    throw new Error(`A sealed value did not open at ${where}: it was moved or changed`);
+  }
+  return new TextDecoder().decode(plain);
+}
+
+/**
+ * Words as `owner`'s index key hashes them (R445): HMAC-SHA-256, `#` and 32
+ * hex digits each. The same word gives the same token for one user, and an
+ * unrelated one for anyone else; nothing else about a word is in its token.
+ * Null when the owner has no user key (see sealText).
+ */
+export async function blindTokens(words: string[], owner: string): Promise<string[] | null> {
+  const k = await writeKeyFor(owner);
+  if (!k.index) return null;
+  const index = k.index;
+  return Promise.all(
+    words.map(async (w) => {
+      const mac = new Uint8Array(
+        await crypto.subtle.sign("HMAC", index, ab(new TextEncoder().encode(w))),
+      );
+      let hex = "";
+      for (const b of mac.subarray(0, 16)) hex += b.toString(16).padStart(2, "0");
+      return `#${hex}`;
+    }),
+  );
 }
 
 /** Whether a value is one of our stored ciphertext blobs. */

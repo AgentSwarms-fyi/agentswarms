@@ -37,6 +37,7 @@ import {
 import { reportFailure } from "@/lib/silentFailureNet";
 import { filesPassLine, laterPass } from "@/utils/lakehouse/customerKeyFiles";
 import { storedFilesPassLine } from "@/utils/storage/storedFiles";
+import { memoryPassDetail } from "@/utils/memory/memoryPass";
 import type { IamGroupRow, IamUserRow } from "@/utils/iam.functions";
 import {
   assignCustomerKey,
@@ -324,9 +325,12 @@ export function CustomerKeysCard(props: {
       files_vanished: v.vanished,
       files_left: v.left,
       files_failed: v.failed,
+      ...memoryPassDetail(v.memory),
     };
     const line = storedFilesPassLine(detail);
-    if (v.failed > 0) toast.error(`${line}. ${v.errors[0] ?? ""}`, { id: r.t, duration: 15000 });
+    const failure = v.errors[0] ?? v.memory.errors[0] ?? "";
+    if (v.failed + v.memory.failed > 0)
+      toast.error(`${line}. ${failure}`, { id: r.t, duration: 15000 });
     else toast.success(`${line}.`, { id: r.t, duration: 10000 });
     setSealedHere({ at: new Date().toISOString(), by: null, detail });
     await load();
@@ -516,10 +520,12 @@ export function CustomerKeysCard(props: {
               <p className="text-muted-foreground">
                 The documents chat generates and the copies of uploaded datasets are encrypted by
                 the app under their owner&apos;s user key, whatever kind of key covers it, so
-                erasing a user key or destroying a customer key leaves them unreadable too. Files
-                stored before that are encrypted by a pass every hour, or by this button. Not
-                covered: profile pictures (others see them), and what stays in the database: chat
-                messages with each document&apos;s thumbnail, and a dataset&apos;s own rows.
+                erasing a user key or destroying a customer key leaves them unreadable too. So is
+                what agents remember about each user: long-term memory, conversation summaries and
+                scratchpads. What was stored before that is encrypted by a pass every hour, or by
+                this button. Not covered: profile pictures (others see them), and what stays in the
+                database as it is: chat messages with each document&apos;s thumbnail, and a
+                dataset&apos;s own rows.
               </p>
               {state.storedFiles.error ? (
                 <p className="text-destructive">{state.storedFiles.error}</p>

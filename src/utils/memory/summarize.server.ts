@@ -6,6 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { openAiCompatTarget, type CompatTarget } from "@/utils/providers/defaultModel.server";
 import { providerFetch } from "@/utils/ssrfGuard.server";
+import { openSummary, sealSummary } from "./sealed.server";
 
 type DbMessage = {
   id: string;
@@ -115,7 +116,9 @@ export async function summarizeIfNeeded(opts: {
     .eq("conversation_id", conversationId)
     .maybeSingle();
   if (memErr) throw new Error(`could not read the conversation summary: ${memErr.message}`);
-  const previousSummary = memRow?.summary ?? "";
+  // Sealed under the user's key since R445; one that does not open throws, as
+  // a failed read does, rather than fold from nothing over it.
+  const previousSummary = (await openSummary(conversationId, memRow?.summary ?? null)) ?? "";
 
   // When the last message the summary covers was written. If that message is
   // gone, the fold starts over from the first message, with the summary as
@@ -186,7 +189,7 @@ export async function summarizeIfNeeded(opts: {
     {
       conversation_id: conversationId,
       user_id: userId,
-      summary: newSummary,
+      summary: await sealSummary(userId, conversationId, newSummary),
       summary_token_estimate: Math.round(newSummary.length / 4),
       last_summarized_message_id: fresh[fresh.length - 1].id,
       updated_at: new Date().toISOString(),

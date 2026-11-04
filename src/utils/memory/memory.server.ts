@@ -8,6 +8,7 @@ import type { Database } from "@/integrations/supabase/types";
 import { DEFAULT_MEMORY_CONFIG, type MemoryConfig, type RecalledItem } from "./types";
 import { recallMemoryItems, buildLtmBlock } from "./recall.server";
 import { buildSummaryBlock } from "./summarize.server";
+import { openSummary } from "./sealed.server";
 
 export type MemoryOverrides = Partial<MemoryConfig> & {
   // Used by swarm nodes: when "swarm", use the swarm_run_id as the
@@ -93,7 +94,17 @@ export async function loadMemoryContext(opts: {
       .eq("conversation_id", conversationId)
       .maybeSingle();
     if (memErr) console.warn("[memory] could not read the conversation summary:", memErr.message);
-    else summaryBlock = buildSummaryBlock(memRow?.summary ?? null);
+    else {
+      // Sealed under the user's key since R445. One that does not open (its
+      // key erased or refused) is left out, and the turn goes on without it.
+      try {
+        summaryBlock = buildSummaryBlock(
+          await openSummary(conversationId, memRow?.summary ?? null),
+        );
+      } catch (e) {
+        console.warn("[memory] the conversation summary did not open:", (e as Error).message);
+      }
+    }
   }
 
   if (config.ltm_enabled && agentId && userPrompt.trim()) {

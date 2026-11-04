@@ -356,9 +356,9 @@ function SecretsPage() {
         customer keys, a save says so and stores nothing until an admin assigns you to one. A
         customer key in AWS KMS also covers the files of your lakehouse schemas, on S3: revoking it
         stops queries on them too, with an error that names the schema and the key. The documents
-        chat generates for you, and the copies of your uploaded datasets, are under your key as
-        well: erasing it, or a customer key over it being destroyed or revoked, leaves them
-        unreadable.
+        chat generates for you, the copies of your uploaded datasets, and what agents remember about
+        you, are under your key as well: erasing it, or a customer key over it being destroyed or
+        revoked, leaves them unreadable.
       </P>
 
       <NextPrev current="/docs/secrets" />

@@ -76,6 +76,22 @@ export function storedFilesPassLine(d: Record<string, unknown>): string {
   if (n(d.files_vanished)) parts.push(`${n(d.files_vanished)} deleted while the pass ran`);
   if (n(d.files_left)) parts.push(`${n(d.files_left)} left for the next pass`);
   if (n(d.files_failed)) parts.push(`${n(d.files_failed)} failed`);
+  // What agents kept before R445, sealed by the same pass.
+  const memory = [
+    n(d.memory_items_sealed) ? plural(n(d.memory_items_sealed), "memory item") : null,
+    n(d.summaries_sealed)
+      ? plural(n(d.summaries_sealed), "conversation summary", "conversation summaries")
+      : null,
+    n(d.scratchpads_sealed) ? plural(n(d.scratchpads_sealed), "scratchpad") : null,
+  ].filter(Boolean);
+  if (memory.length)
+    parts.push(`${memory.join(", ")} of agent memory encrypted under their owner's key`);
+  if (n(d.memory_unreadable))
+    parts.push(
+      `${n(d.memory_unreadable)} of agent memory whose owner's key cannot be had now, left as they are`,
+    );
+  if (d.memory_left === true) parts.push("more agent memory left for the next pass");
+  if (n(d.memory_failed)) parts.push(`${n(d.memory_failed)} of agent memory failed`);
   if (typeof d.skipped === "string" && d.skipped) parts.push(d.skipped);
   return parts.join(" · ");
 }

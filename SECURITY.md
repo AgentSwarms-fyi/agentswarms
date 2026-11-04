@@ -67,11 +67,11 @@ theirs leaves what those users stored unreadable, and nobody else's, within
 be had is an error that says why; a value is never written under another key
 in its place. Erasure in the app does not reach a database backup taken
 before it; deleting a customer key in the customer's own KMS does. These keys
-cover the credentials above, the documents chat generates and the copies of
-uploaded datasets (encrypted by the app), and, for a key in a KMS the object
-store can use, lakehouse files, model artifacts and run staging (encrypted by
-the store). Chat history, agent memory, knowledge-base text and datasets' rows
-are not under them yet; the design is in
+cover the credentials above, the documents chat generates, the copies of
+uploaded datasets and what agents remember about each user (encrypted by the
+app), and, for a key in a KMS the object store can use, lakehouse files, model
+artifacts and run staging (encrypted by the store). Chat history,
+knowledge-base text and datasets' rows are not under them yet; the design is in
 [KEY_MANAGEMENT.md](./docs/KEY_MANAGEMENT.md#data-beyond-credentials-design).
 
 **None of this needs setting up.** User keys are made automatically under the

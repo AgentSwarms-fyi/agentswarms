@@ -10,6 +10,7 @@
 
 import type { ToolDef, AgentToolContext } from "@/utils/tools/registry.server";
 import { recallMemoryItems, buildLtmBlock } from "./recall.server";
+import { insertMemoryItems, openScratchpad, sealScratchpad } from "./sealed.server";
 
 export type MemoryToolContext = AgentToolContext & { conversationId?: string | null };
 
@@ -57,19 +58,23 @@ export async function runMemoryRemember(
   const kind = (VALID_KINDS as readonly string[]).includes(args.kind || "")
     ? (args.kind as Kind)
     : "fact";
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (ctx.sb.from("agent_memory_items") as any)
-    .insert({
-      user_id: ctx.userId,
-      agent_id: ctx.agentId,
-      conversation_id: ctx.conversationId ?? null,
-      kind,
-      content,
-    })
-    .select("id")
-    .single();
-  if (error) return JSON.stringify({ error: error.message });
-  return JSON.stringify({ ok: true, id: data?.id, kind, content });
+  // Sealed under the user's key (R445); not kept at all when it cannot be had.
+  let inserted: Awaited<ReturnType<typeof insertMemoryItems>>;
+  try {
+    inserted = await insertMemoryItems(ctx.sb, [
+      {
+        user_id: ctx.userId,
+        agent_id: ctx.agentId,
+        conversation_id: ctx.conversationId ?? null,
+        kind,
+        content,
+      },
+    ]);
+  } catch (e) {
+    return JSON.stringify({ error: `not remembered: ${(e as Error).message}` });
+  }
+  if (inserted.error) return JSON.stringify({ error: inserted.error });
+  return JSON.stringify({ ok: true, id: inserted.ids[0], kind, content });
 }
 
 // ─────────────────────────── memory_recall ───────────────────────────
@@ -186,22 +191,27 @@ export async function runMemorySet(
   if (!key || !/^[a-zA-Z0-9_]+$/.test(key)) {
     return JSON.stringify({ error: "key must be alphanumeric + underscore" });
   }
-  // Read-modify-write the scratchpad jsonb.
+  // Read-modify-write the scratchpad jsonb, sealed under the user's key (R445).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: row } = await (ctx.sb.from("conversation_memory") as any)
     .select("scratchpad")
     .eq("conversation_id", ctx.conversationId)
     .maybeSingle();
-  const sp = (
-    row?.scratchpad && typeof row.scratchpad === "object" ? row.scratchpad : {}
-  ) as Record<string, unknown>;
-  sp[key] = args.value ?? null;
+  let sp: Record<string, unknown>;
+  let stored: Record<string, unknown>;
+  try {
+    sp = await openScratchpad(ctx.conversationId, row?.scratchpad);
+    sp[key] = args.value ?? null;
+    stored = await sealScratchpad(ctx.userId, ctx.conversationId, sp);
+  } catch (e) {
+    return JSON.stringify({ error: `scratchpad unavailable: ${(e as Error).message}` });
+  }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { error } = await (ctx.sb.from("conversation_memory") as any).upsert(
     {
       conversation_id: ctx.conversationId,
       user_id: ctx.userId,
-      scratchpad: sp,
+      scratchpad: stored,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "conversation_id" },
@@ -221,9 +231,12 @@ export async function runMemoryGet(
     .select("scratchpad")
     .eq("conversation_id", ctx.conversationId)
     .maybeSingle();
-  const sp = (
-    row?.scratchpad && typeof row.scratchpad === "object" ? row.scratchpad : {}
-  ) as Record<string, unknown>;
+  let sp: Record<string, unknown>;
+  try {
+    sp = await openScratchpad(ctx.conversationId, row?.scratchpad);
+  } catch (e) {
+    return JSON.stringify({ error: `scratchpad unavailable: ${(e as Error).message}` });
+  }
   if (args.key) {
     return JSON.stringify({ key: args.key, value: sp[String(args.key)] ?? null });
   }

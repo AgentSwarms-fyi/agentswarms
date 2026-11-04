@@ -1,5 +1,5 @@
 // A small in-memory stand-in for the PostgREST client calls the key code
-// makes (select/eq/is/in/or/order, insert/update/delete with .select(),
+// makes (select/eq/neq/gt/is/in/not/or/order, insert/update/delete with .select(),
 // maybeSingle/single, one rpc), with the unique constraints of migration
 // 20261105000000, so tests run the real keyStore.server and the sweep
 // against tables, not against a mock of each call.
@@ -210,6 +210,44 @@ export function fakePostgrest(seed: Record<string, Row[]> = {}) {
       },
       in(col: string, vals: unknown[]) {
         filters.push((r) => vals.includes(r[col]));
+        return q;
+      },
+      // A jsonb column compares as JSON ("{}" is an empty object), any other as text.
+      neq(col: string, v: unknown) {
+        filters.push((r) => {
+          const x = r[col] ?? null;
+          if (x === null) return false;
+          return typeof x === "object" ? JSON.stringify(x) !== String(v) : String(x) !== String(v);
+        });
+        return q;
+      },
+      // An array column sharing any element with `vals` (Postgres `&&`).
+      overlaps(col: string, vals: unknown[]) {
+        filters.push(
+          (r) => Array.isArray(r[col]) && (r[col] as unknown[]).some((x) => vals.includes(x)),
+        );
+        return q;
+      },
+      gt(col: string, v: unknown) {
+        filters.push((r) => r[col] != null && String(r[col]) > String(v));
+        return q;
+      },
+      // NOT LIKE on a NULL is NULL in Postgres: the row is left out, as here.
+      not(col: string, op: string, v: unknown) {
+        if (op === "like") {
+          const pattern = String(v)
+            .split("")
+            .map((ch) =>
+              ch === "%" ? ".*" : ch === "_" ? "." : ch.replace(/[^A-Za-z0-9]/, "\\$&"),
+            )
+            .join("");
+          const re = new RegExp("^" + pattern + "$", "s");
+          filters.push((r) => r[col] != null && !re.test(String(r[col])));
+        } else if (op === "is") {
+          filters.push((r) => (r[col] ?? null) !== v);
+        } else {
+          throw new Error(`fakePostgrest: not.${op} is not supported`);
+        }
         return q;
       },
       or(expr: string) {

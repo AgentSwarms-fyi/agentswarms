@@ -123,6 +123,9 @@ beforeEach(async () => {
     ],
   };
   for (const name of ENCRYPTED_TABLES) t[name] = [];
+  // Agent memory (R445), which the stored-files pass also seals.
+  t.agent_memory_items = [];
+  t.conversation_memory = [];
   fake = fakePostgrest(t);
   h.db = fake.client;
   const kek = await importDataKey(crypto.getRandomValues(new Uint8Array(32)));
@@ -519,6 +522,62 @@ describe("Encrypt stored files (R441)", () => {
         }),
       }),
     ]);
+    expect(h.audits[0]!.detail).not.toHaveProperty("memory_failed");
+  });
+
+  it("also seals what agents kept before R445, under each owner's key, in the same row", async () => {
+    const ITEM = "33333333-3333-4333-8333-333333333333";
+    const CONV = "44444444-4444-4444-8444-444444444444";
+    fake.tables.agent_memory_items.push({
+      id: ITEM,
+      user_id: ALICE,
+      agent_id: "55555555-5555-4555-8555-555555555555",
+      content: "Prefers quarterly revenue reports in euros",
+      keywords: ["prefers", "quarterly", "revenue", "reports", "euros"],
+    });
+    fake.tables.conversation_memory.push({
+      conversation_id: CONV,
+      user_id: ALICE,
+      summary: "Alice asked about the Halvard contract renewal",
+      scratchpad: { step: 2 },
+    });
+    const r = ok(await sealStoredFilesNow({ data: { access_token: T } }));
+    expect(r.memory).toMatchObject({ items: 1, summaries: 1, scratchpads: 1, failed: 0 });
+    const item = fake.tables.agent_memory_items[0]!;
+    const conv = fake.tables.conversation_memory[0]!;
+    // Nothing readable is left: not the text, not its words.
+    expect(item.content).toMatch(/^ck1:/);
+    expect(JSON.stringify(item)).not.toMatch(/quarterly|euros/);
+    expect((item.keywords as string[]).every((k) => /^#[0-9a-f]{32}$/.test(k))).toBe(true);
+    expect(conv.summary).toMatch(/^ck1:/);
+    expect(JSON.stringify(conv)).not.toMatch(/Halvard|step/);
+    // Each under Alice's own key, and each opens where it is kept.
+    const aliceKid = fake.tables.user_keys!.find((k) => k.user_id === ALICE && !k.erased_at)!.kid;
+    expect(String(item.content).split(":")[1]).toBe(aliceKid);
+    const sealed = await import("@/utils/memory/sealed.server");
+    expect(await sealed.openMemoryContent({ id: ITEM, content: String(item.content) })).toBe(
+      "Prefers quarterly revenue reports in euros",
+    );
+    expect(await sealed.openSummary(CONV, String(conv.summary))).toBe(
+      "Alice asked about the Halvard contract renewal",
+    );
+    expect(await sealed.openScratchpad(CONV, conv.scratchpad)).toEqual({ step: 2 });
+    // Moved onto another row, a sealed value does not open.
+    await expect(
+      sealed.openMemoryContent({ id: CONV, content: String(item.content) }),
+    ).rejects.toThrow(/did not open/);
+    // Recall finds it by a word: the prompt's word, as Alice's key hashes it.
+    const terms = await sealed.recallTerms(ALICE, ["euros"]);
+    expect((item.keywords as string[]).some((k) => terms.includes(k))).toBe(true);
+    // Bob's tokens for the same word are not Alice's.
+    const bobTerms = await sealed.recallTerms(BOB, ["euros"]);
+    expect((item.keywords as string[]).some((k) => bobTerms.includes(k))).toBe(false);
+    expect(h.audits.at(-1)).toMatchObject({
+      detail: { memory_items_sealed: 1, summaries_sealed: 1, scratchpads_sealed: 1 },
+    });
+    // A second pass has nothing left to do.
+    const again = ok(await sealStoredFilesNow({ data: { access_token: T } }));
+    expect(again.memory).toMatchObject({ items: 0, summaries: 0, scratchpads: 0, failed: 0 });
   });
 
   it("the card reads the last pass from the audit trail, and says when it cannot", async () => {

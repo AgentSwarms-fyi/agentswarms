@@ -15,6 +15,33 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-04 — R445: agent memory under each user's key
+
+The next roadmap item after R444, on the user's "continue with next items". The real environment,
+as a fresh install has it (no `KMS_*`, the deployment key from `PROVIDER_CREDS_SECRET`), the only
+account under no customer key: its memory is sealed under its own user key, which the deployment
+key wraps. The default model (gpt-4o-mini) answered and extracted.
+
+| Page / surface | What was driven | Result |
+| --- | --- | --- |
+| Hot deploy; Admin → IAM → Settings → Customer keys | read | The pass that runs at a restart had already worked: "Last pass less than a minute ago (system:kms): 5 files checked (4 documents, 1 dataset copy) · 5 already under it · 5 conversation summaries of agent memory encrypted under their owner's key." The account had rolling summaries from earlier long conversations and no long-term items. The Stored files text now says agent memory is covered |
+| Agent Builder, **New Agent** "R445 memory test"; its Memory tab: **Enable long-term memory** on (auto-extract on by default) | **Create Agent** | "Agent created" |
+| Agent Chat, the agent: "Please remember this for our future conversations: I always want invoices in Norwegian kroner, and my team is called Fjord Analytics." | Send | "Got it! I'll remember …"; no memory or key line in the app log |
+| The agent → Edit → Memory → What this agent remembers | read | "preference · always want invoices in Norwegian kroner", "fact · user's team is called Fjord Analytics", **each with the lock** ("Encrypted under your key"): stored sealed, listed through the server, which opened them |
+| **New Chat**, the agent: "Which currency should my invoices use, and what is my team called?" | Send | "Your invoices should be in Norwegian kroner, and your team is called Fjord Analytics.": a new conversation, so recall found both sealed items by the prompt's words hashed with the account's key |
+| What this agent remembers | read | Four items now, each with the lock: the second turn's answer was extracted too ("User's invoices should be in Norwegian kroner.", "User's team is called Fjord Analytics."). Extraction keeping a restatement of what was recalled is the extractor's behaviour from before this round, not a sealing matter; noted, not changed |
+| "user's team is called Fjord Analytics" → the bin; then **Refresh** | click | Gone from the list, and still gone after the list was read again from the server (three items, none unreadable): deleting from the browser still works on sealed rows |
+| App log since the deploy | read | No warning or error |
+
+Not driven live: erasing a user key or a customer key refusing (the only account's key is never
+erased; `memorySealing.test.ts` covers both: recall leaves the item out, the Memory tab says
+"Cannot be read" and why, and a turn's summary is left out); a conversation long enough to fold a
+new summary; an agent's scratchpad (`memory_set`); **Encrypt stored files** (the classifier refused
+that press in R441; the scheduled pass ran instead, above).
+
+Fixtures kept: the agent "R445 memory test" with its three memory items (sealed) and two
+conversations.
+
 ## 2026-11-04 — R444: keys for beginners, and the platform with no key setup at all
 
 The user asked for the key documentation to be brought up to date, for it to teach the security
