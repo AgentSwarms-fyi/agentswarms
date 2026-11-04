@@ -526,10 +526,11 @@ export function CustomerKeysCard(props: {
                 what agents remember about each user: long-term memory, conversation summaries and
                 scratchpads, and chat history with agents, swarms and AI Analyst: every message,
                 with its citations and its document&apos;s name and thumbnail, and every
-                conversation&apos;s title, and the text model calls keep: the prompt, messages, tool
-                calls and reply. What was stored before that is encrypted by a pass every hour, or
-                by this button. Not covered: profile pictures (others see them), and what stays in
-                the database as it is: a dataset&apos;s own rows, and swarm run traces.
+                conversation&apos;s title, and the text model calls and swarm runs keep: prompts,
+                messages, tool calls and replies, and each step&apos;s input and output. What was
+                stored before that is encrypted by a pass every hour, or by this button. Not
+                covered: profile pictures (others see them), and what stays in the database as it
+                is: a dataset&apos;s own rows, and the text an approval request shows its approvers.
               </p>
               {state.storedFiles.error ? (
                 <p className="text-destructive">{state.storedFiles.error}</p>

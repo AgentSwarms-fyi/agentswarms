@@ -292,11 +292,17 @@ function DebuggingDoc() {
         </li>
       </UL>
       <P>
-        Swarm traces, below, are not under your key yet. See{" "}
-        <DocLink to="/docs/keys">Keys &amp; encryption</DocLink>.
+        See <DocLink to="/docs/keys">Keys &amp; encryption</DocLink>.
       </P>
 
       <H2 id="swarm-traces">Swarm traces</H2>
+      <P>
+        What a run keeps of what was said (its input and output, each step&apos;s text and tool
+        calls, what passed between steps, and a parked run&apos;s state) is stored encrypted under
+        your own key too, and a run shows <strong>Encrypted under your key</strong>. A run whose key
+        is gone keeps its timeline and figures, and says why its text cannot be read. The
+        swarm&apos;s graph stays readable, as the swarm itself does.
+      </P>
       <P>
         A swarm run records per-node steps, so you can see which branch a router chose, which nodes
         were skipped, where an approval waited, and what each node wrote to flow state. Runs

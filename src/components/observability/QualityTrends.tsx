@@ -10,12 +10,11 @@ import {
 } from "recharts";
 import { format } from "date-fns";
 import { Gauge, TrendingUp, TrendingDown, Minus, ClipboardCheck, Target } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { evalScorecards } from "@/lib/swarmRunReads";
 import { useAuth } from "@/hooks/use-auth";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  parseEvalScorecard,
   buildQualityTrends,
   type QualityItem,
   type QualityTrends as Trends,
@@ -34,12 +33,6 @@ const scoreColor = (n: number | null | undefined) =>
         : "text-red-500";
 const barColor = (n: number) =>
   n >= 0.8 ? "bg-emerald-500" : n >= 0.6 ? "bg-amber-500" : "bg-red-500";
-
-type StepRow = {
-  started_at: string;
-  output: string | null;
-  swarm_runs: { swarm_name: string | null } | { swarm_name: string | null }[] | null;
-};
 
 function StatCard({
   label,
@@ -69,38 +62,23 @@ export function QualityTrends() {
   // an account with five scorecards across three swarms, telling the user to
   // set up something they had already set up.
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Scorecards whose key is gone: counted, so a trend does not read as complete.
+  const [unreadable, setUnreadable] = useState(0);
 
   useEffect(() => {
     if (!user) return;
     void (async () => {
-      const since = new Date(Date.now() - 30 * 86400000).toISOString();
-      const { data, error } = await supabase
-        .from("swarm_run_steps")
-        .select("started_at, output, swarm_runs(swarm_name)")
-        .eq("node_kind", "evaluate")
-        .gte("started_at", since)
-        .order("started_at", { ascending: true })
-        .limit(2000);
+      // Through the server: a step's output is sealed under the user's key (R449),
+      // and only the scores come back.
+      const { data, error } = await evalScorecards();
       if (error) {
         setLoadError(error.message);
         setItems([]);
         return;
       }
       setLoadError(null);
-      const parsed: QualityItem[] = [];
-      for (const row of (data ?? []) as StepRow[]) {
-        const card = parseEvalScorecard(row.output);
-        if (!card) continue;
-        const run = Array.isArray(row.swarm_runs) ? row.swarm_runs[0] : row.swarm_runs;
-        parsed.push({
-          started_at: row.started_at,
-          swarm_name: run?.swarm_name ?? "Untitled swarm",
-          overall: card.overall,
-          pass: card.pass,
-          metrics: card.metrics,
-        });
-      }
-      setItems(parsed);
+      setItems(data?.items ?? []);
+      setUnreadable(data?.unreadable ?? 0);
     })();
   }, [user]);
 
@@ -123,6 +101,23 @@ export function QualityTrends() {
             </span>{" "}
             Any scorecards your Evaluate nodes have produced are still recorded; this panel just
             cannot read them right now.
+          </p>
+        </div>
+      </Card>
+    );
+  }
+
+  // Scorecards there, none of them readable, is not an account without Evaluate
+  // nodes: the onboarding copy below would tell it to set up what it has.
+  if (trends.total === 0 && unreadable > 0) {
+    return (
+      <Card className="p-4 border-dashed border-warning/40">
+        <div className="flex items-start gap-3">
+          <Gauge className="h-4 w-4 mt-0.5 text-warning shrink-0" />
+          <p role="alert" data-scorecards-unreadable className="text-sm text-muted-foreground">
+            <span className="font-medium text-warning">Quality trends could not be read.</span>{" "}
+            {unreadable} scorecard{unreadable === 1 ? " is" : "s are"} stored under a key that
+            cannot be had now.
           </p>
         </div>
       </Card>
@@ -185,6 +180,12 @@ export function QualityTrends() {
           LLM-judge scores from Evaluate nodes · last 30 days
         </span>
       </div>
+      {unreadable > 0 && (
+        <p data-scorecards-unreadable className="text-xs text-amber-600 dark:text-amber-400">
+          {unreadable} scorecard{unreadable === 1 ? " is" : "s are"} left out: stored under a key
+          that cannot be had now.
+        </p>
+      )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard label="Evaluations" value={String(trends.total)} sub="scorecards" />

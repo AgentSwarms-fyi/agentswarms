@@ -12,7 +12,9 @@
 // tools and the JS sandbox.
 import { readFileSync } from "node:fs";
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { __setKeyHierarchyForTests } from "@/utils/providers/crypto.server";
+import { missingKeyStore } from "../fixtures/keyStores";
 
 type Row = Record<string, unknown>;
 
@@ -67,6 +69,14 @@ const browserTracer = readFileSync("src/utils/observability/tracer.ts", "utf8");
 beforeEach(() => {
   db.tables = {};
 });
+
+// No user-key tables here: these tests are about the run's record, not its sealing
+// (runSealing.test.ts), so bodies are stored as they are.
+beforeEach(() => {
+  process.env.PROVIDER_CREDS_SECRET ??= "f".repeat(64);
+  __setKeyHierarchyForTests(missingKeyStore());
+});
+afterEach(() => __setKeyHierarchyForTests(null));
 
 describe("the server run's close", () => {
   it("does not write success over a cancel, and still records what the run spent", async () => {

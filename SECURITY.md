@@ -69,10 +69,11 @@ in its place. Erasure in the app does not reach a database backup taken
 before it; deleting a customer key in the customer's own KMS does. These keys
 cover the credentials above, the documents chat generates, the copies of
 uploaded datasets, what agents remember about each user, and chat history
-with agents, swarms and AI Analyst, and what model calls keep (encrypted by the
-app), and, for a key in a KMS the object store can use, lakehouse files, model
-artifacts and run staging (encrypted by the store). What swarm runs keep,
-knowledge-base text and datasets' rows are not under them yet; the design is in
+with agents, swarms and AI Analyst, and what model calls and swarm runs keep
+(encrypted by the app), and, for a key in a KMS the object store can use,
+lakehouse files, model artifacts and run staging (encrypted by the store). The
+text approval requests show, knowledge-base text and datasets' rows are not
+under them yet; the design is in
 [KEY_MANAGEMENT.md](./docs/KEY_MANAGEMENT.md#data-beyond-credentials-design).
 
 **None of this needs setting up.** User keys are made automatically under the
@@ -405,10 +406,10 @@ Stated plainly because you will ask:
   OCI signing against the OCI Go SDK's), not yet against a real cloud account.
 - **Customer keys do not cover all data yet.** They cover stored
   credentials, generated documents and dataset copies, agent memory, chat
-  history with agents, swarms and AI Analyst, and the text of model call
-  traces (encrypted by the app), and lakehouse files where the store can use
-  the key. Swarm run traces, knowledge-base documents and datasets' rows are
-  encrypted only by their
+  history with agents, swarms and AI Analyst, and the text of model call and
+  swarm run traces (encrypted by the app), and lakehouse files where the store
+  can use the key. Knowledge-base documents and datasets' rows are encrypted
+  only by their
   storage, under the operator's keys; the per-customer design for them is
   written, not built.
   Erasing a key in the app does not reach backups taken before it.

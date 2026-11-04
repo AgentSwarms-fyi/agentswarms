@@ -378,10 +378,15 @@ describe("what the run detail page actually reads", () => {
     "src/routes/_authenticated/analytics_.observability.$runId.tsx",
     "utf8",
   );
+  const fns = readFileSync("src/utils/swarmRuns.functions.ts", "utf8");
 
   it("pages both tables by cursor instead of reading them unbounded", () => {
-    expect(page).toContain('.from("swarm_run_steps")');
-    expect(page).toContain('.from("swarm_run_edges")');
+    // Through the server since R449, which holds the key: the page's pagers ask
+    // it for one page each, and the query with the cursor is there.
+    expect(page).toContain("await runSteps(runId, after, size)");
+    expect(page).toContain("await runEdges(runId, after, size)");
+    expect(fns).toContain('.from("swarm_run_steps")');
+    expect(fns).toContain('.from("swarm_run_edges")');
     expect(page).toContain("scanRows<Step>(pageSteps,");
     expect(page).toContain("scanRows<Edge>(pageEdges,");
     // COUNTED, not merely present. There are two pagers here, and a mutation
@@ -389,14 +394,14 @@ describe("what the run detail page actually reads", () => {
     // copy of the same line sitting in the file, happily satisfying a
     // toContain. An anchor a sibling can satisfy checks nothing — the same
     // failure as an anchor a comment can satisfy, one symmetry along.
-    expect(occurrences(page, 'q = q.gt("id", after)')).toBe(2);
+    expect(occurrences(fns, 'q = q.gt("id", data.after)')).toBe(2);
     expect(occurrences(page, "{ maxRows: RUN_ROW_SCAN_MAX }")).toBe(2);
   });
 
   it("pages by a unique key and sorts for display separately", () => {
     // Two steps of one run can share a start instant, so started_at is not a
     // paging key — ordering by it and paging by offset would drop rows.
-    expect(occurrences(page, '.order("id", { ascending: true })')).toBe(2);
+    expect(occurrences(fns, '.order("id", { ascending: true })')).toBe(2);
     expect(page).toMatch(/sort\(\(a, b\) => Date\.parse\(a\.started_at\)/);
   });
 

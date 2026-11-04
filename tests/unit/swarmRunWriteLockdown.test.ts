@@ -13,6 +13,8 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { __setKeyHierarchyForTests } from "@/utils/providers/crypto.server";
+import { missingKeyStore } from "../fixtures/keyStores";
 
 const ME = "00000000-0000-4000-8000-0000000000a1";
 const THEM = "00000000-0000-4000-8000-0000000000b2";
@@ -93,6 +95,14 @@ const step = (over: Row = {}) => ({
   latencyMs: 100,
   ...over,
 });
+
+// No user-key tables here: these tests are about the run's record, not its sealing
+// (runSealing.test.ts), so bodies are stored as they are.
+beforeEach(() => {
+  process.env.PROVIDER_CREDS_SECRET ??= "f".repeat(64);
+  __setKeyHierarchyForTests(missingKeyStore());
+});
+afterEach(() => __setKeyHierarchyForTests(null));
 
 describe("a run is written only through the server, as its owner", () => {
   it("starts as the caller's own running run", async () => {

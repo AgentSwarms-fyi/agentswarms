@@ -68,7 +68,7 @@ type TraceBodies = {
   tool_calls: unknown;
 };
 
-function fieldsOf(payload: unknown): Record<string, unknown> {
+export function fieldsOf(payload: unknown): Record<string, unknown> {
   if (payload === null || payload === undefined) return {};
   if (typeof payload === "object" && !Array.isArray(payload)) {
     return payload as Record<string, unknown>;

@@ -15,6 +15,44 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-05 — R449: swarm run traces under each user's key
+
+What a run keeps of what was said, sealed under its owner's key. The real environment as a fresh
+install has it (no customer key, no KMS). Migration `20261107000000` was not applied, so this also
+shows the pass working without its indexes.
+
+| Page / surface | What was driven | Result |
+| --- | --- | --- |
+| Hot deploy; Swarm Observability | read | 108 runs listed; the list reads figures only, so it asks the database directly as before |
+| An older run, Oct 26, Approval durability check | open | Its input, five steps, final output; **Encrypted under your key**; the page made no direct read of a step or a link |
+| Its step "Summarise for the approver" | open | The step's input read back; nothing of the sealed form on screen |
+| The swarm "Approval durability check" on the canvas: "R449 Bergen refund: the customer wants 240 back for a damaged item." | Run | A real run: it stopped at its approval, and the approval it raised was approved from the inbox (the count went 128 → 127) |
+| The run's trace | open | **Encrypted under your key**; the input, five steps, the final output, Data flow (3): written under the sealing code and read back |
+| The hourly pass | waited for it | Audit Log: "334 run steps, 115 run links, 71 run states" and "121 run links, 1 run state", about the same time, no failure. A pass in the deploy before it had already done the runs, and was stopped by the next deploy before its audit row |
+| A parked server run, the R92 one-run probe from Nov 4 | open | Sealed by the pass: suspended, its input and steps read, **Encrypted under your key** |
+| Its approval, picked by matching the step's output to the inbox (the user's go-ahead, this one only) | Approve | "Human approval is resuming."; the count went 127 → 126 |
+| The same run, reloaded | open | **success**, 5 steps, 10h 4m elapsed: the server opened its sealed checkpoint and input, ran the condition after the approval and closed the run with sealed text. Its Approved? step ran, and its Result step was skipped by that condition, as on the canvas |
+| A bad address, `/analytics/observability/not-a-run` | open | First build: a validator's JSON dump, found here and fixed. Final build: "Run not found." |
+| Customer keys, Stored files text | read | Names what swarm runs keep; "Not covered" names datasets' rows and the text an approval request shows its approvers |
+| Logs & traces docs | read | Swarm Traces says a run is encrypted; the old "not under your key yet" line is gone |
+| Quality trends on Swarm Observability | read | Its onboarding card: no Evaluate node has run in these 30 days, so nothing to read |
+| App log since each deploy | read | No warning or error from a run, the pass or a resume |
+
+Not driven live: a run whose key is gone or refused, at read, write or resume (the only account's key
+is never erased; `runSealing.test.ts` covers each); a new server run's start (no API key or schedule
+was made: the resume drove the steps' finish and the run's close, and the daily probes will start
+one); the reply kept for an `Idempotency-Key` (needs an API key; tested); link preview text, since
+this swarm's nodes name their outputs and its links record nothing (a separate defect, below; sealing
+tested); Quality trends with real scorecards (tested); `PERSIST_PROMPT_BODIES=false` (tested).
+
+Found: a link out of a node with a named output records no preview and 0 bytes, on both runners. The
+runners write to `outputVar` and the link reads `out_<id>`. It predates this round and is left for its
+own change.
+
+Fixtures kept: the run "R449 Bergen refund" (047eaa35) on Approval durability check. One probe
+approval was approved, with the user's go-ahead, and its run (f8bbbe05) finished; the other pending
+approvals were not touched.
+
 ## 2026-11-04 — R448: model call traces under each user's key
 
 What a model call keeps of what was said, sealed under its owner's key. The real environment as a

@@ -16,6 +16,9 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Apply `20261107000000` when convenient** (R449). It adds partial indexes for
+  the pass that seals older swarm run traces, so the pass stays cheap once they
+  are done. Everything works without them, more slowly.
 - **Apply `20261106000000` when convenient** (R448). It adds a partial index for
   the pass that seals older model call traces, so the pass stays cheap once they
   are done. Everything works without it, more slowly.
@@ -99,6 +102,19 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Swarm run traces under each user's key** (R449). What a run keeps of what
+  was said (its input and output, each step's input, output, thinking, tool calls,
+  memory, passages and extractions, what passed along each link, the state of a
+  run still going or parked, and the reply kept for an `Idempotency-Key`) is sealed
+  by the app under its owner's user key. Nothing to set up, and nothing stops
+  working: Swarm Traces and Quality trends read through the server, and Quality
+  trends gets the scores alone. The figures, statuses, error messages and the graph
+  snapshot, which is the swarm's definition, stay readable. A run never fails
+  because of a key: a step that cannot be sealed keeps its figures and loses its
+  text. A checkpoint that cannot be sealed is not written, and a run whose state
+  cannot be opened stays parked and says why, rather than read as already resumed.
+  Older rows are sealed by the same hourly pass and **Encrypt stored files**. Not
+  yet covered: the text an approval request shows its approvers.
 - **Model call traces under each user's key** (R448). What a model call keeps
   of what was said (the prompt, the messages and system prompt, the tool calls,
   the reply) is sealed by the app under its owner's user key, which a customer
@@ -1265,6 +1281,9 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **`PERSIST_PROMPT_BODIES=false` did not reach a server run's link previews**
+  (R449). A deployed or scheduled run kept what passed between its steps with the
+  setting off; a canvas run did not. Both drop it now.
 - **A generated image's cost reached no budget** (R448). An image turn wrote
   `null` to `response_payload`, which is `NOT NULL`, so the whole trace row was
   refused and the only sign was a line in the server log. It writes `{}` now.

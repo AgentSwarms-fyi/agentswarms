@@ -132,6 +132,10 @@ beforeEach(async () => {
   t.swarm_chats = [];
   t.ai_analyst_threads = [];
   t.execution_traces = [];
+  t.swarm_runs = [];
+  t.swarm_run_steps = [];
+  t.swarm_run_edges = [];
+  t.swarm_run_checkpoints = [];
   fake = fakePostgrest(t);
   h.db = fake.client;
   const kek = await importDataKey(crypto.getRandomValues(new Uint8Array(32)));
@@ -530,6 +534,22 @@ describe("Encrypt stored files (R441)", () => {
     ]);
     expect(h.audits[0]!.detail).not.toHaveProperty("memory_failed");
     expect(h.audits[0]!.detail).not.toHaveProperty("chat_failed");
+  });
+
+  it("seals swarm run traces too, in the same audited row", async () => {
+    fake.tables.swarm_runs.push({
+      id: "77777777-7777-4777-8777-777777777777",
+      user_id: ALICE,
+      input_prompt: "The Halvard renewal",
+      final_output: "Renewed",
+    });
+    const r = ok(await sealStoredFilesNow({ data: { access_token: T } }));
+    expect(r.runs).toMatchObject({ runs: 1, failed: 0 });
+    expect(JSON.stringify(fake.tables.swarm_runs)).not.toMatch(/Halvard|Renewed/);
+    expect(h.audits.at(-1)).toMatchObject({
+      action: "security.stored_files.seal",
+      detail: { trigger: "Encrypt stored files", swarm_runs_sealed: 1 },
+    });
   });
 
   it("seals model call traces too, in the same audited row", async () => {

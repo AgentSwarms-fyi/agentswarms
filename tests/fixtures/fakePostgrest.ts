@@ -34,7 +34,11 @@ const UNIQUE: Record<
   ],
 };
 
-const EMBEDS: Record<string, string> = { customer_keys: "customer_key_id", iam_groups: "group_id" };
+const EMBEDS: Record<string, string> = {
+  customer_keys: "customer_key_id",
+  iam_groups: "group_id",
+  swarm_runs: "run_id",
+};
 
 function splitTop(expr: string): string[] {
   const out: string[] = [];

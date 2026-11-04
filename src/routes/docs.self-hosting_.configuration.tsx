@@ -795,7 +795,8 @@ AUDIT_ARCHIVE_ON_PURGE="1"
         is Agent Chat history (<C>CHAT_SEAL_PER_PASS</C>, 2000, how many chat values kept before one
         hourly pass encrypts). Swarm chats and AI Analyst threads are too, under the same pass. So
         is what model calls keep (<C>TRACE_SEAL_PER_PASS</C>, 2000, how many traces kept before one
-        hourly pass encrypts). Swarm run traces are not under these keys yet (the design is in{" "}
+        hourly pass encrypts), and so is what swarm runs keep (the same setting, of its own).
+        Knowledge-base text and datasets&apos; rows are not under these keys yet (the design is in{" "}
         <C>docs/KEY_MANAGEMENT.md</C>).
       </Callout>
 

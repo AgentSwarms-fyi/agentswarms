@@ -2,6 +2,7 @@
 // live in src/lib/swarmCheckpoint.ts; this is only the database half.
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { fromRow, toRow, type CheckpointRow, type SwarmCheckpoint } from "@/lib/swarmCheckpoint";
+import { openCheckpoint, sealCheckpoint } from "@/utils/observability/sealedRuns.server";
 
 /**
  * Write the run's position. Overwrites in place — the checkpoint is where the
@@ -10,6 +11,8 @@ import { fromRow, toRow, type CheckpointRow, type SwarmCheckpoint } from "@/lib/
  * Failure is logged and swallowed. A run that is working must not die because
  * the checkpoint table is unavailable; the cost is that this particular run
  * falls back to being non-resumable, which is exactly where we were before.
+ * The same goes for its owner's key: the flow state is sealed under it (R449),
+ * and a state that cannot be sealed is not written rather than kept in the clear.
  */
 export async function saveCheckpoint(args: {
   runId: string;
@@ -19,13 +22,14 @@ export async function saveCheckpoint(args: {
   depth: number;
 }): Promise<void> {
   try {
+    const row = await sealCheckpoint(args.userId, args.runId, toRow(args.checkpoint));
     const { error } = await supabaseAdmin.from("swarm_run_checkpoints").upsert(
       {
         run_id: args.runId,
         user_id: args.userId,
         source: args.source,
         depth: args.depth,
-        ...toRow(args.checkpoint),
+        ...row,
         suspended_at: args.checkpoint.suspendedNodeId ? new Date().toISOString() : null,
         updated_at: new Date().toISOString(),
       } as never,
@@ -37,11 +41,16 @@ export async function saveCheckpoint(args: {
   }
 }
 
-/** Load a run's checkpoint, scoped to its owner. Null when there isn't one. */
+/**
+ * Load a run's checkpoint, scoped to its owner. Null when there isn't one, or it
+ * could not be read. Throws when it is there and cannot be opened (its key is
+ * gone): that is not "nothing to resume", which reads as already resumed.
+ */
 export async function loadCheckpoint(
   runId: string,
   userId: string,
 ): Promise<SwarmCheckpoint | null> {
+  let stored: CheckpointRow | null;
   try {
     const { data } = await supabaseAdmin
       .from("swarm_run_checkpoints")
@@ -51,11 +60,12 @@ export async function loadCheckpoint(
       .eq("run_id", runId)
       .eq("user_id", userId)
       .maybeSingle();
-    return fromRow((data ?? null) as CheckpointRow | null);
+    stored = (data ?? null) as CheckpointRow | null;
   } catch (e) {
     console.warn("[swarmCheckpoint] load threw:", (e as Error).message);
     return null;
   }
+  return stored ? fromRow(await openCheckpoint(runId, stored)) : null;
 }
 
 /**

@@ -48,6 +48,7 @@ import {
 import { captureCheckpoint, restoreTracker, type SwarmCheckpoint } from "@/lib/swarmCheckpoint";
 import { commitLevelWrites, type StagedWrites, type StateReducer } from "@/lib/swarmGraph";
 import { clearCheckpoint, loadCheckpoint, saveCheckpoint } from "@/utils/swarmCheckpoint.server";
+import { openRunInput } from "@/utils/observability/sealedRuns.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { readChatStream, toolNodeEvents } from "@/lib/chatStream";
 import { createServerSwarmTracer } from "@/utils/observability/serverTracer.server";
@@ -1235,7 +1236,7 @@ export async function resumeSwarmRun(args: {
     },
     userId: args.userId,
     origin: args.origin,
-    input: run.input_prompt ?? "",
+    input: (await openRunInput(run)) ?? "",
     rejectApprovals: args.rejectApprovals ?? false,
     source: "api",
     resume: { runId: args.runId, checkpoint, decision: args.decision },

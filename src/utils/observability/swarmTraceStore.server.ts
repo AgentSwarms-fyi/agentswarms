@@ -20,12 +20,21 @@
 //
 // Bodies (inputs, outputs, thinking, edge previews) pass the
 // PERSIST_PROMPT_BODIES gate here; written from the browser they never did
-// (VA-2026-10-25-47). swarmTrace.functions.ts is the authenticated wrapper.
+// (VA-2026-10-25-47), and are then sealed under the owner's key (R449), bound to
+// the row's id, which is why an id is made here rather than by the database.
+// swarmTrace.functions.ts is the authenticated wrapper.
 import { z } from "zod";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
 import { bodyJson, bodyText } from "@/utils/observability/redaction.server";
+import {
+  sealEdgePreview,
+  sealRunInput,
+  sealRunOutput,
+  sealStepInput,
+  sealStepResult,
+} from "@/utils/observability/sealedRuns.server";
 
 const asJson = (v: unknown) => v as Json;
 
@@ -52,13 +61,15 @@ export const startRunSchema = z.object({
 });
 
 export async function startRun(userId: string, data: z.infer<typeof startRunSchema>) {
+  const id = crypto.randomUUID();
   const { data: row, error } = await supabaseAdmin
     .from("swarm_runs")
     .insert({
+      id,
       user_id: userId,
       swarm_id: data.swarmId ?? null,
       swarm_name: data.swarmName ?? null,
-      input_prompt: bodyText(data.inputPrompt ?? null),
+      input_prompt: await sealRunInput(userId, id, bodyText(data.inputPrompt ?? null)),
       swarm_snapshot: asJson(data.swarmSnapshot ?? {}),
       status: "running",
     })
@@ -80,16 +91,18 @@ export const startStepSchema = z.object({
 export async function startStep(userId: string, data: z.infer<typeof startStepSchema>) {
   const run = await ownRun(userId, data.runId);
   if (!run.running) throw new Error("The run has finished");
+  const id = crypto.randomUUID();
   const { data: row, error } = await supabaseAdmin
     .from("swarm_run_steps")
     .insert({
+      id,
       run_id: data.runId,
       user_id: userId,
       node_id: data.nodeId,
       node_label: data.nodeLabel ?? null,
       node_kind: data.nodeKind ?? "agent",
       agent_id: data.agentId ?? null,
-      input: asJson(bodyJson(data.input ?? {})),
+      input: asJson(await sealStepInput(userId, id, bodyJson(data.input ?? {}))),
       status: "running",
     })
     .select("id")
@@ -130,16 +143,19 @@ export async function finishStep(userId: string, data: z.infer<typeof finishStep
   if (!step || step.user_id !== userId) throw new Error("Step not found");
   const run = await ownRun(userId, step.run_id);
   if (!run.running && run.status !== "cancelled") throw new Error("The run has finished");
+  const bodies = await sealStepResult(userId, data.stepId, {
+    output: bodyText(data.output ?? null),
+    thinking: bodyText(data.thinking ?? null),
+    tool_calls: data.toolCalls ?? [],
+    memory_used: data.memoryUsed ?? [],
+    rag_chunks: data.ragChunks ?? [],
+    data_extractions: data.dataExtractions ?? [],
+  });
   const { data: updated, error } = await supabaseAdmin
     .from("swarm_run_steps")
     .update({
       status: data.status,
-      output: bodyText(data.output ?? null),
-      thinking: bodyText(data.thinking ?? null),
-      tool_calls: asJson(data.toolCalls ?? []),
-      memory_used: asJson(data.memoryUsed ?? []),
-      rag_chunks: asJson(data.ragChunks ?? []),
-      data_extractions: asJson(data.dataExtractions ?? []),
+      ...(bodies as Record<string, Json>),
       llm_provider: data.llmProvider ?? null,
       llm_model: data.llmModel ?? null,
       tokens_in: data.tokensIn ?? 0,
@@ -172,14 +188,16 @@ export const recordEdgeSchema = z.object({
 export async function recordEdge(userId: string, data: z.infer<typeof recordEdgeSchema>) {
   const run = await ownRun(userId, data.runId);
   if (!run.running) throw new Error("The run has finished");
+  const id = crypto.randomUUID();
   const { error } = await supabaseAdmin.from("swarm_run_edges").insert({
+    id,
     run_id: data.runId,
     user_id: userId,
     source_step_id: data.sourceStepId ?? null,
     target_step_id: data.targetStepId ?? null,
     source_node_id: data.sourceNodeId,
     target_node_id: data.targetNodeId,
-    payload_preview: bodyText(data.payloadPreview ?? null),
+    payload_preview: await sealEdgePreview(userId, id, bodyText(data.payloadPreview ?? null)),
     bytes: data.bytes ?? 0,
   });
   if (error) throw new Error(error.message);
@@ -233,7 +251,7 @@ export async function finishRun(userId: string, data: z.infer<typeof finishRunSc
       .from("swarm_runs")
       .update({
         status: data.status,
-        final_output: bodyText(data.finalOutput ?? null),
+        final_output: await sealRunOutput(userId, data.runId, bodyText(data.finalOutput ?? null)),
         error_message: data.errorMessage ?? null,
         finished_at: new Date().toISOString(),
         ...numbers,

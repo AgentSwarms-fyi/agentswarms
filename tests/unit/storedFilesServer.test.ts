@@ -26,6 +26,16 @@ const h = vi.hoisted(() => ({
     failed: 0,
     errors: [] as string[],
   })),
+  runs: vi.fn(async (_opts: { limit?: number }) => ({
+    runs: 0,
+    steps: 0,
+    edges: 0,
+    checkpoints: 0,
+    unreadable: 0,
+    left: false,
+    failed: 0,
+    errors: [] as string[],
+  })),
   traces: vi.fn(async (_opts: { limit?: number }) => ({
     traces: 0,
     unreadable: 0,
@@ -56,6 +66,9 @@ vi.mock("@/integrations/supabase/client.server", () => ({
 }));
 vi.mock("@/utils/data/parquet.server", () => ({
   refreshDatasetMirror: (args: unknown) => h.refresh(args),
+}));
+vi.mock("@/utils/observability/sealedRuns.server", () => ({
+  sealOlderRuns: (opts: { limit?: number }) => h.runs(opts),
 }));
 vi.mock("@/utils/observability/sealedTraces.server", () => ({
   sealOlderTraces: (opts: { limit?: number }) => h.traces(opts),
@@ -462,6 +475,23 @@ describe("the background pass", () => {
       expect(h.audits).toHaveLength(5);
       expect(h.audits[4]).toMatchObject({
         detail: { trigger: "scheduled", traces_sealed: 40, traces_left: true },
+      });
+      // And one that sealed only swarm run traces, under the same limit.
+      expect(h.runs).toHaveBeenCalledWith({ limit: 2000 });
+      h.runs.mockResolvedValueOnce({
+        runs: 2,
+        steps: 6,
+        edges: 0,
+        checkpoints: 0,
+        unreadable: 0,
+        left: false,
+        failed: 0,
+        errors: [],
+      });
+      expect(await sweepStoredFiles(true)).not.toBeNull();
+      expect(h.audits).toHaveLength(6);
+      expect(h.audits[5]).toMatchObject({
+        detail: { trigger: "scheduled", swarm_runs_sealed: 2, run_steps_sealed: 6 },
       });
     } finally {
       delete process.env.STORED_FILES_PER_PASS;

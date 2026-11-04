@@ -9,6 +9,13 @@
 // nodes sequentially): a tracing failure never breaks a run.
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { bodyJson, bodyText } from "@/utils/observability/redaction.server";
+import {
+  sealEdgePreview,
+  sealRunInput,
+  sealRunOutput,
+  sealStepInput,
+  sealStepResult,
+} from "@/utils/observability/sealedRuns.server";
 
 type FinishStepArgs = {
   status: "success" | "error" | "skipped";
@@ -139,13 +146,16 @@ export async function createServerSwarmTracer(opts: {
     }
 
     if (!resolved) {
+      // Made here rather than by the database: the bodies are bound to it (R449).
+      const newId = crypto.randomUUID();
       const { data: runRow, error } = await supabaseAdmin
         .from("swarm_runs")
         .insert({
+          id: newId,
           user_id: opts.userId,
           swarm_id: opts.swarmId ?? null,
           swarm_name: opts.swarmName ?? null,
-          input_prompt: bodyText(opts.inputPrompt ?? null),
+          input_prompt: await sealRunInput(opts.userId, newId, bodyText(opts.inputPrompt ?? null)),
           swarm_snapshot: (opts.swarmSnapshot ?? {}) as never,
           status: "running",
         } as never)
@@ -164,16 +174,22 @@ export async function createServerSwarmTracer(opts: {
         // below, and one that already finished is left as it was recorded.
         if (stepIdByNode.has(args.nodeId)) return;
         try {
+          const newStepId = crypto.randomUUID();
           const { data, error: stepErr } = await supabaseAdmin
             .from("swarm_run_steps")
             .insert({
+              id: newStepId,
               run_id: runId,
               user_id: opts.userId,
               node_id: args.nodeId,
               node_label: args.nodeLabel ?? null,
               node_kind: args.nodeKind ?? "agent",
               agent_id: args.agentId ?? null,
-              input: bodyJson(args.input ?? {}) as never,
+              input: (await sealStepInput(
+                opts.userId,
+                newStepId,
+                bodyJson(args.input ?? {}),
+              )) as never,
               status: "running",
             } as never)
             .select("id")
@@ -205,11 +221,15 @@ export async function createServerSwarmTracer(opts: {
         const stepId = stepIdByNode.get(nodeId);
         if (!stepId) return;
         try {
+          const bodies = await sealStepResult(opts.userId, stepId, {
+            output: bodyText(args.output ?? null),
+            tool_calls: args.toolCalls ?? [],
+          });
           const { error: finishErr } = await supabaseAdmin
             .from("swarm_run_steps")
             .update({
               status: args.status,
-              output: bodyText(args.output ?? null),
+              ...bodies,
               error_message: args.errorMessage ?? null,
               llm_model: args.llmModel ?? null,
               llm_provider: args.llmProvider ?? null,
@@ -217,7 +237,6 @@ export async function createServerSwarmTracer(opts: {
               tokens_out: args.tokensOut ?? 0,
               cost_usd: args.costUsd ?? 0,
               latency_ms: args.latencyMs ?? 0,
-              tool_calls: args.toolCalls ?? [],
               finished_at: new Date().toISOString(),
             } as never)
             .eq("id", stepId);
@@ -239,14 +258,22 @@ export async function createServerSwarmTracer(opts: {
         if (edgesSeen.has(edgeKey)) return;
         edgesSeen.add(edgeKey);
         try {
+          const newEdgeId = crypto.randomUUID();
           const { error: edgeErr } = await supabaseAdmin.from("swarm_run_edges").insert({
+            id: newEdgeId,
             run_id: runId,
             user_id: opts.userId,
             source_step_id: stepIdByNode.get(args.sourceNodeId) ?? null,
             target_step_id: stepIdByNode.get(args.targetNodeId) ?? null,
             source_node_id: args.sourceNodeId,
             target_node_id: args.targetNodeId,
-            payload_preview: args.payloadPreview ?? null,
+            // Through the gate as the canvas's is: this one never was, so a server
+            // run kept these previews with PERSIST_PROMPT_BODIES=false (R449).
+            payload_preview: await sealEdgePreview(
+              opts.userId,
+              newEdgeId,
+              bodyText(args.payloadPreview ?? null),
+            ),
             bytes: args.bytes ?? 0,
           } as never);
           if (edgeErr) {
@@ -279,12 +306,17 @@ export async function createServerSwarmTracer(opts: {
             step_count: totals.count,
             error_count: totals.errors,
           };
+          const finalOutput = await sealRunOutput(
+            opts.userId,
+            runId,
+            bodyText(args.finalOutput ?? null),
+          );
           const close = () =>
             supabaseAdmin
               .from("swarm_runs")
               .update({
                 status: args.status,
-                final_output: bodyText(args.finalOutput ?? null),
+                final_output: finalOutput,
                 error_message: args.errorMessage ?? null,
                 finished_at: new Date().toISOString(),
                 ...numbers,

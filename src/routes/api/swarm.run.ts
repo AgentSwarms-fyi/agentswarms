@@ -36,6 +36,7 @@ import { clientIp, clientUserAgent } from "@/utils/requestMeta.server";
 import { budgetMessage, getBudgetDecision } from "@/utils/budgetGuard.server";
 import { deliverRunCallback, hashBody } from "@/utils/swarmWebhook.server";
 import { idempotencyVerdict, type IdempotencyRow } from "@/utils/swarmIdempotency";
+import { openIdempotentReply, sealIdempotentReply } from "@/utils/observability/sealedRuns.server";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -168,7 +169,16 @@ export const Route = createFileRoute("/api/swarm/run")({
               );
             }
             if (verdict.action === "replay") {
-              return json(verdict.response as Record<string, unknown>);
+              // Sealed under the key's owner (R449). A reply that cannot be opened
+              // is refused, not run again: this retry was promised no second bill.
+              try {
+                return json(await openIdempotentReply(verdict.response, key.id, idemKey));
+              } catch (e) {
+                return json(
+                  { error: `This key's stored result cannot be read: ${(e as Error).message}` },
+                  503,
+                );
+              }
             }
             if (verdict.action === "in_progress") {
               return json(
@@ -293,11 +303,12 @@ export const Route = createFileRoute("/api/swarm/run")({
           /** Record the outcome against the idempotency key, if one was sent. */
           const finishIdempotency = async (status: "completed" | "failed", body: unknown) => {
             if (!idemKey) return;
+            const sealed = await sealIdempotentReply(key.user_id, key.id, idemKey, status, body);
             await supabaseAdmin
               .from("swarm_run_idempotency")
               .update({
-                status,
-                response: body as never,
+                status: sealed.status,
+                response: sealed.response as never,
                 completed_at: new Date().toISOString(),
               })
               .eq("api_key_id", key.id)

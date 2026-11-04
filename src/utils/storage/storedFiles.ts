@@ -106,6 +106,20 @@ export function storedFilesPassLine(d: Record<string, unknown>): string {
     );
   if (d.chat_left === true) parts.push("more chat history left for the next pass");
   if (n(d.chat_failed)) parts.push(`${n(d.chat_failed)} of chat history failed`);
+  // And swarm run traces kept before R449.
+  const runs = [
+    n(d.swarm_runs_sealed) ? plural(n(d.swarm_runs_sealed), "swarm run") : null,
+    n(d.run_steps_sealed) ? plural(n(d.run_steps_sealed), "run step") : null,
+    n(d.run_links_sealed) ? plural(n(d.run_links_sealed), "run link") : null,
+    n(d.run_checkpoints_sealed) ? plural(n(d.run_checkpoints_sealed), "run state") : null,
+  ].filter(Boolean);
+  if (runs.length) parts.push(`${runs.join(", ")} encrypted under their owner's key`);
+  if (n(d.runs_unreadable))
+    parts.push(
+      `${n(d.runs_unreadable)} of swarm run traces whose owner's key cannot be had now, left as they are`,
+    );
+  if (d.runs_left === true) parts.push("more swarm run traces left for the next pass");
+  if (n(d.runs_failed)) parts.push(`${n(d.runs_failed)} of swarm run traces failed`);
   // And model call traces kept before R448.
   if (n(d.traces_sealed))
     parts.push(

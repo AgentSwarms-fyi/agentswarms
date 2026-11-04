@@ -109,6 +109,85 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-05 — R449: swarm run traces under each user's key
+
+**What was built.** What a run keeps of what was said is sealed by the app under its owner's user key,
+bound to its row and column: a run's input and final output; each step's input, output, thinking, tool
+calls, memory, passages and extractions; what passed along each link; the flow state of a run still
+going or parked; and the reply kept for an `Idempotency-Key`. Both writers go through it (the canvas's
+store and the server's tracer). The run page and Quality trends read through the server now. The
+figures, statuses, error messages and the graph snapshot, which is the swarm's definition, stay
+readable.
+
+**Checked first, which widened the job.** The note said "swarm_runs, swarm_run_steps". Reading what a
+run leaves found five stores, not two: links, checkpoints and the idempotency record too. It also
+found a sixth this round does not cover: an approval request keeps up to 4,000 characters of a step's
+output, which other users read directly. That needs its own change, and is said on the card and in the
+docs rather than left to be found.
+
+**Found on the way.**
+
+- `PERSIST_PROMPT_BODIES=false` did not reach a server run's link previews: the canvas's store gated
+  them and the server's tracer did not. Fixed and tested.
+- A link out of a node with a named output records nothing, on both runners (the output is written to
+  `outputVar`, the link reads `out_<id>`). It predates this round and is flagged for its own change.
+
+**A checkpoint is not a trace.** Everywhere else a key that cannot be had costs a row its text, because
+a trace must not break a run. A run resumes from its checkpoint, so one with its text gone would
+continue from a wrong state: it is not written at all, and the run falls back to not being resumable.
+
+**The failure this could have reintroduced.** `loadCheckpoint` answered null when it could not read,
+and the resume reads null as "already resumed": R90's defect, reached by a new road, where a decision
+is swallowed under a cheerful ok and the work stays parked for ever. A sealed checkpoint that cannot
+be opened now throws, and the approver is told why (test; a mutant reading it as null is caught).
+
+**Attacks considered.**
+
+- *A key failure takes a run down, or its cost.* A step keeps its figures and loses its text, and says
+  so; a canvas run and a server run both finish (tests; mutants keeping the text, throwing and not
+  marking are caught).
+- *Read another user's run.* All four reads filter by the caller from the token (tests; each caught).
+- *Move a sealed value.* Every column of every table is bound, each moved alone, and a step's columns
+  and a run's two texts cannot swap (tests; caught).
+- *A pass racing a live run.* A step not finished has only its input sealed, since its finish writes
+  the rest; a row is written only if it is still as it was read. Each race is forced in a test, with
+  the other writer landing just before the pass's write (caught for runs, steps, links, checkpoints).
+- *A retried API call billed twice for a key problem.* A reply that cannot be opened answers `503`
+  rather than run the swarm; one that could not be sealed leaves the record `failed`, so that retry
+  runs, and nothing was handed back empty.
+- *Quality trends telling an account with scorecards to set some up.* Unreadable scorecards are
+  counted, and it says so rather than show the onboarding card (test; caught). Only the scores leave
+  the server.
+- *An address as input.* A run's id comes from the URL.
+
+**Found by mutation and by driving it.** The first run caught 72 of 88. Fourteen survived, nearly all
+one mistake: tests moved several values at once, so the first binding to fail hid the rest, and the
+pass's guards were only ever tested on rows nothing was racing. Each value now moves alone and each
+race is forced. Driving the page found what no test had: a bad address showed a validator's JSON dump
+where it had said "Run not found.", because a strict validator now stood in front of the read; that
+fix's own mutants survived at first, since the fake database finds nothing where Postgres raises an
+error, so the test now proves the database is not asked. Reading the pass's counts found that it
+counted empty link previews as sealed work; an empty value is left out now, and two guards for the
+same rule became one, so its mutants mean something.
+
+**Observed.** One hourly pass came out as two audit rows at about the same time, with no failure and
+counts that add up. Each worker keeps its own hourly stamp, so two can run together; that is why the
+row guards matter, and it held live. A pass stopped by a deploy leaves no audit row for what it had
+sealed: those runs were sealed, and only the next pass was recorded.
+
+**Proved.**
+
+| Check | Result |
+| --- | --- |
+| `runSealing.test.ts` (71) | a step stored with nothing readable and opened; every value bound, moved alone; a key failure at each write; both writers end to end, bound to the ids rows are stored under; the graph snapshot readable; `PERSIST_PROMPT_BODIES=false` on both, link previews included; checkpoints (sealed, the empty output too, the caller's alone, from before R449, a gone key an error, bound, no tables); what resuming reads; the idempotent reply; the four reads (owner, no session, paging, a bad address never asked of the database, a gone key keeps the figures, older rows); Quality trends; the pass (all four tables, an output alone, no double sealing, a step not finished, each race, the shared limit, a refused owner, no tables, failed reads and writes, empty values); the audit detail, the card's line, the indexes |
+| `traceWindow.test.ts`, `storedFilesServer.test.ts`, `customerKeyFunctions.test.ts`, `swarmRunWriteLockdown.test.ts`, `swarmCancelServerRun.test.ts` | cursor paging, now in the server; runs in the same audited row, with the same limit, from the sweep and the button; the write rules unchanged |
+| mutation | 95 of 95 after tightening, the control survived |
+| UI | UI_TEST_RESULTS, R449: a new canvas run read back; older runs sealed by the pass and read; a parked server run approved and resumed from its sealed checkpoint, finishing `success` after 10 hours |
+
+**Not covered.** The text an approval request shows its approvers (next, with the notification a
+scheduled analysis leaves). A swarm's definition, the figures and error messages, on purpose. Datasets'
+rows, knowledge-base text. Erasure live.
+
 ### 2026-11-04 — R448: model call traces under each user's key
 
 **What was built.** What a model call keeps of what was said (the prompt, the request's messages and

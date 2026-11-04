@@ -95,7 +95,15 @@ export const resumeApprovedSwarmRun = createServerFn({ method: "POST" })
         // ok. The CHECKPOINT is what a resume actually needs, so that is what
         // decides — and a run with none really was resumed already.
         const { loadCheckpoint } = await import("@/utils/swarmCheckpoint.server");
-        if (!(await loadCheckpoint(run.id, run.user_id))) {
+        // A checkpoint that cannot be opened is not a run already resumed: the
+        // decision stands, the work is still parked, and the caller is told why.
+        let held: Awaited<ReturnType<typeof loadCheckpoint>>;
+        try {
+          held = await loadCheckpoint(run.id, run.user_id);
+        } catch (e) {
+          return { ok: false, error: `The run was not resumed: ${(e as Error).message}` };
+        }
+        if (!held) {
           return { ok: true, status: run.status, runId: run.id, output: "" };
         }
 

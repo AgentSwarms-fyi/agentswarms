@@ -26,7 +26,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { auditEvent } from "@/utils/audit.server";
 import { DataKeyUnavailableError } from "@/utils/kms/keyHierarchy.server";
 import { KMS_AUDIT_ACTOR } from "@/utils/kms/keyring.server";
-import { tracePassDetail } from "@/utils/observability/tracePass";
+import { runPassDetail, tracePassDetail } from "@/utils/observability/tracePass";
 import {
   assertStoredFileKey,
   openStoredFile,
@@ -364,7 +364,8 @@ let lastSweep = 0;
  * STORED_FILES_PER_PASS files changed, what agents kept about each user
  * before R445 (memory items, summaries, scratchpads; MEMORY_SEAL_PER_PASS),
  * Agent Chat history kept before R446 (CHAT_SEAL_PER_PASS), and model call
- * traces kept before R448 (TRACE_SEAL_PER_PASS).
+ * traces kept before R448 and swarm run traces before R449 (TRACE_SEAL_PER_PASS,
+ * each).
  * Audited, as one row, when it changed or failed something; a pass with
  * nothing to do leaves no row.
  */
@@ -387,7 +388,12 @@ export async function sweepStoredFiles(force = false): Promise<StoredFilesPass |
     await import("@/utils/observability/sealedTraces.server");
   const t = await sealOlderTraces({ limit: traceSealPerPass() });
   const tracesChanged = t.traces + t.failed;
-  if (r.sealedNow + r.rebuilt + r.failed + memoryChanged + chatChanged + tracesChanged > 0) {
+  // And swarm run traces kept before R449.
+  const { sealOlderRuns } = await import("@/utils/observability/sealedRuns.server");
+  const p = await sealOlderRuns({ limit: traceSealPerPass() });
+  const runsChanged = p.runs + p.steps + p.edges + p.checkpoints + p.failed;
+  const changed = r.sealedNow + r.rebuilt + r.failed + memoryChanged + chatChanged;
+  if (changed + tracesChanged + runsChanged > 0) {
     auditEvent({
       userId: null,
       actorEmail: KMS_AUDIT_ACTOR,
@@ -400,6 +406,7 @@ export async function sweepStoredFiles(force = false): Promise<StoredFilesPass |
         ...memoryPassDetail(m),
         ...chatPassDetail(c),
         ...tracePassDetail(t),
+        ...runPassDetail(p),
       },
     });
   }
@@ -407,5 +414,6 @@ export async function sweepStoredFiles(force = false): Promise<StoredFilesPass |
   if (m.failed) console.warn(`[agent-memory] ${m.failed} failed`, m.errors);
   if (c.failed) console.warn(`[chat-history] ${c.failed} failed`, c.errors);
   if (t.failed) console.warn(`[traces] ${t.failed} failed`, t.errors);
+  if (p.failed) console.warn(`[swarm-trace] ${p.failed} failed`, p.errors);
   return r;
 }

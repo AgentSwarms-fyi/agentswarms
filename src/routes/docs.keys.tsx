@@ -121,7 +121,12 @@ function KeysPage() {
             "Encrypted by the app under the user's own key",
           ],
           [
-            "Swarm run traces, knowledge-base text, notebooks, datasets' rows",
+            "Swarm run traces (input and output, each step's text and tool calls, parked runs' state)",
+            "The database",
+            "Encrypted by the app under the user's own key",
+          ],
+          [
+            "Knowledge-base text, notebooks, datasets' rows",
             "The database",
             "The database's own encryption at rest: a managed Postgres encrypts its disks; one you run yourself is as safe as its disk",
           ],
@@ -568,8 +573,8 @@ npm run backup`}</Code>
         </li>
       </UL>
       <P>
-        What a swarm run&apos;s steps keep, and the notifications a scheduled analysis leaves, are
-        not under these keys yet: delete the account for those.
+        The text an approval request shows its approver, and the notifications a scheduled analysis
+        leaves, are not under these keys yet: delete the account for those.
       </P>
 
       <H2 id="mistakes">Mistakes, and what you see</H2>

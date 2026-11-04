@@ -41,7 +41,12 @@ import {
 } from "@/utils/storage/storedFiles.server";
 import type { MemoryPass } from "@/utils/memory/memoryPass";
 import type { ChatPass } from "@/utils/chat/chatPass";
-import { tracePassDetail, type TracePass } from "@/utils/observability/tracePass";
+import {
+  runPassDetail,
+  tracePassDetail,
+  type RunPass,
+  type TracePass,
+} from "@/utils/observability/tracePass";
 import { customerKeyProvider, keyHierarchy } from "./crypto.server";
 import {
   expectedCustomerKeys,
@@ -716,6 +721,7 @@ export const sealStoredFilesNow = createServerFn({ method: "POST" })
             memory: MemoryPass;
             chat: ChatPass;
             traces: TracePass;
+            runs: RunPass;
           })
       | Fail
     > => {
@@ -732,6 +738,9 @@ export const sealStoredFilesNow = createServerFn({ method: "POST" })
         // And model call traces kept before R448.
         const { sealOlderTraces } = await import("@/utils/observability/sealedTraces.server");
         const t = await sealOlderTraces();
+        // And swarm run traces kept before R449.
+        const { sealOlderRuns } = await import("@/utils/observability/sealedRuns.server");
+        const p = await sealOlderRuns();
         auditEvent({
           userId: guard.userId,
           actorEmail: guard.email,
@@ -744,9 +753,10 @@ export const sealStoredFilesNow = createServerFn({ method: "POST" })
             ...memoryPassDetail(m),
             ...chatPassDetail(c),
             ...tracePassDetail(t),
+            ...runPassDetail(p),
           },
         });
-        return { ok: true, ...r, memory: m, chat: c, traces: t };
+        return { ok: true, ...r, memory: m, chat: c, traces: t, runs: p };
       } catch (e) {
         return { ok: false, error: (e as Error).message };
       }

@@ -1,7 +1,7 @@
 import { formatUsd } from "@/lib/usd";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { runById, runEdges, runSteps } from "@/lib/swarmRunReads";
 import { scanRows } from "@/lib/cursorScan";
 import { UNKNOWN_COUNT } from "@/lib/listClaim";
 import { runStepsCaveat } from "@/lib/traceWindow";
@@ -13,7 +13,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { TraceFlowCanvas } from "@/components/observability/TraceFlowCanvas";
 import { format } from "date-fns";
-import { ArrowLeft, GitBranch, ListOrdered } from "lucide-react";
+import { ArrowLeft, GitBranch, ListOrdered, Lock } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/analytics_/observability/$runId")({
   component: TraceDetail,
@@ -34,6 +34,10 @@ type Run = {
   step_count: number;
   error_count: number;
   error_message: string | null;
+  /** Its text is stored under the owner's key (R449). */
+  body_sealed?: boolean;
+  /** Why its text cannot be read now. */
+  body_unreadable?: string | null;
   swarm_snapshot: {
     nodes?: Array<{ id: string; data?: { label?: string } }>;
     edges?: Array<{ source: string; target: string }>;
@@ -62,6 +66,10 @@ type Step = {
   tokens_out: number;
   cost_usd: number;
   error_message: string | null;
+  /** Recorded without its text: the owner's key could not be had at the time. */
+  body_dropped?: boolean;
+  /** Why its text cannot be read now. */
+  body_unreadable?: string | null;
 };
 
 type Edge = {
@@ -94,9 +102,10 @@ function TraceDetail() {
     void (async () => {
       setLoading(true);
       try {
-        const r = await supabase.from("swarm_runs").select("*").eq("id", runId).maybeSingle();
+        // Through the server: what a run keeps is sealed under the user's key (R449).
+        const r = await runById(runId);
         if (r.error) throw new Error(r.error.message);
-        setRun((r.data as Run) ?? null);
+        setRun((r.data as unknown as Run) ?? null);
 
         // Cursor-paged by id, then sorted for display. Both reads were
         // unbounded `.select("*")`, and PostgREST answers those with at most
@@ -104,33 +113,15 @@ function TraceDetail() {
         // no flag. Ordering by started_at and paging by offset would not fix
         // it: paging needs a unique key, and two steps of one run can share a
         // start instant.
-        // Written twice rather than once over a `table: string`: supabase-js
-        // types `.from()` on a literal union of the schema's tables, so a
-        // generic pager makes every call below it `never`. Two short functions
-        // beat one clever one that has to be cast back into place.
         const pageSteps = async (after: string | null, size: number) => {
-          let q = supabase
-            .from("swarm_run_steps")
-            .select("*")
-            .eq("run_id", runId)
-            .order("id", { ascending: true })
-            .limit(size);
-          if (after) q = q.gt("id", after);
-          const { data, error } = await q;
+          const { data, error } = await runSteps(runId, after, size);
           if (error) throw new Error(error.message);
-          return (data ?? []) as Step[];
+          return (data ?? []) as unknown as Step[];
         };
         const pageEdges = async (after: string | null, size: number) => {
-          let q = supabase
-            .from("swarm_run_edges")
-            .select("*")
-            .eq("run_id", runId)
-            .order("id", { ascending: true })
-            .limit(size);
-          if (after) q = q.gt("id", after);
-          const { data, error } = await q;
+          const { data, error } = await runEdges(runId, after, size);
           if (error) throw new Error(error.message);
-          return (data ?? []) as Edge[];
+          return (data ?? []) as unknown as Edge[];
         };
 
         const s = await scanRows<Step>(pageSteps, (x) => x.id, { maxRows: RUN_ROW_SCAN_MAX });
@@ -217,6 +208,16 @@ function TraceDetail() {
           >
             {run.status}
           </Badge>
+          {run.body_sealed && (
+            <Badge
+              variant="outline"
+              data-run-sealed
+              className="text-[10px] font-normal"
+              title="Its input, output, each step's text and tool calls are stored encrypted under your key."
+            >
+              <Lock className="mr-1 h-2.5 w-2.5" /> Encrypted under your key
+            </Badge>
+          )}
         </h1>
         <p className="text-xs text-muted-foreground mt-1 font-mono">
           {format(new Date(run.started_at), "PPpp")} · run {run.id.slice(0, 8)}
@@ -246,6 +247,15 @@ function TraceDetail() {
         >
           The detail of this run could not be read — {loadError}. The totals above come from the run
           itself and still stand.
+        </div>
+      )}
+
+      {run.body_unreadable && (
+        <div
+          data-run-unreadable
+          className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-sm"
+        >
+          This run's text cannot be read: {run.body_unreadable}
         </div>
       )}
 
@@ -396,6 +406,22 @@ function TraceDetail() {
                 />
                 <Metric label="Cost" value={formatUsd(selectedStep.cost_usd)} />
               </div>
+              {selectedStep.body_unreadable && (
+                <p
+                  data-step-unreadable
+                  className="mt-4 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs"
+                >
+                  This step's text cannot be read: {selectedStep.body_unreadable}
+                </p>
+              )}
+              {selectedStep.body_dropped && (
+                <p
+                  data-step-dropped
+                  className="mt-4 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs"
+                >
+                  Recorded without its text, because your key could not be had at the time.
+                </p>
+              )}
               <Tabs defaultValue="input" className="mt-4">
                 <TabsList className="flex-wrap h-auto">
                   <TabsTrigger value="input">Input</TabsTrigger>
