@@ -82,6 +82,14 @@ function PlaygroundDoc() {
           in its own words instead: another model would be refused the same way.
         </li>
       </UL>
+      <P>
+        Every message and every conversation&apos;s title is stored encrypted under your own key,
+        with nothing to set up: erasing that key, or a customer key over it being destroyed or
+        revoked, leaves them unreadable. A message stored under a key that is gone does not stop the
+        conversation loading; its bubble says <em>This message cannot be read</em> and why. The
+        trace a message leaves (below) keeps its prompt under the trace retention, and is not under
+        your key yet. See <DocLink to="/docs/keys">Keys &amp; encryption</DocLink>.
+      </P>
 
       <H2 id="traces">The trace behind every message</H2>
       <P>

@@ -791,9 +791,10 @@ AUDIT_ARCHIVE_ON_PURGE="1"
         key, whatever the customer key&apos;s kind (<C>CHAT_DOC_MAX_BYTES</C>, 50 MB by default, is
         the largest document kept; <C>STORED_FILES_PER_PASS</C>, 25, how many files stored before
         one hourly pass encrypts), and so is what agents remember about each user (
-        <C>MEMORY_SEAL_PER_PASS</C>, 1000, how many values kept before one hourly pass encrypts).
-        Chat history itself is not under these keys yet (the design is in{" "}
-        <C>docs/KEY_MANAGEMENT.md</C>).
+        <C>MEMORY_SEAL_PER_PASS</C>, 1000, how many values kept before one hourly pass encrypts). So
+        is Agent Chat history (<C>CHAT_SEAL_PER_PASS</C>, 2000, how many chat values kept before one
+        hourly pass encrypts). Swarm and AI Analyst chats and model call traces are not under these
+        keys yet (the design is in <C>docs/KEY_MANAGEMENT.md</C>).
       </Callout>
 
       <H3 id="recipe-fleet">Autoscaled behind a load balancer</H3>

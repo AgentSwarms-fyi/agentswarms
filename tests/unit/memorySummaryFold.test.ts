@@ -36,6 +36,14 @@ vi.mock("@/utils/memory/sealed.server", () => ({
   openSummary: async (_conversationId: string, stored: string | null) => stored,
   sealSummary: async (_owner: string, _conversationId: string, summary: string) => summary,
 }));
+// Messages are sealed since R446 (chatSealing.test.ts); here they read as stored.
+vi.mock("@/utils/chat/sealedChat.server", () => ({
+  openMessage: async (row: { content: string }) => ({
+    content: row.content,
+    metadata: null,
+    unreadable: null,
+  }),
+}));
 vi.mock("@/utils/ssrfGuard.server", () => ({
   providerFetch: (url: string, init: unknown) =>
     (globalThis.fetch as unknown as (u: string, i: unknown) => unknown)(url, init),

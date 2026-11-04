@@ -14,7 +14,9 @@ const page = readFileSync("src/routes/_authenticated/playground.tsx", "utf8");
 describe("every message insert goes through persistMessage", () => {
   it("and none inserts on its own any more", () => {
     // The document save keeps its own warning path; every other insert is the helper's.
-    const own = page.match(/\.from\("messages"\)\s*\.insert\(/g) ?? [];
+    // Both go through the server, which seals the message (R446).
+    expect(page).not.toMatch(/\.from\("messages"\)\s*\.insert\(/);
+    const own = page.match(/await chatHistory\.saveMessage\(/g) ?? [];
     expect(own.length).toBe(2); // the helper itself + the document save
     expect((page.match(/await persistMessage\(/g) ?? []).length).toBe(6);
   });
@@ -24,9 +26,7 @@ describe("every message insert goes through persistMessage", () => {
       page.indexOf("async function persistMessage("),
       page.indexOf("dbIdMap.current.set(localId, data.id);"),
     );
-    expect(helper).toContain(
-      'const { data, error } = await supabase.from("messages").insert(row).select("id").single();',
-    );
+    expect(helper).toContain("const { data, error } = await chatHistory.saveMessage(row);");
     expect(helper).toContain("if (error || !data?.id) {");
     expect(helper).toContain("{ ...m, unsaved: why }");
     expect(helper).toContain('toast.warning("This message was not saved to the conversation"');
@@ -54,7 +54,9 @@ describe("the conversation reads keep their error", () => {
       page.indexOf("async function loadConversations()"),
       page.indexOf("async function loadMessages()"),
     );
-    expect(load).toContain("const { data, error } = await supabase");
+    expect(load).toContain(
+      "const { data, error } = await chatHistory.conversationsOf(selectedAgent);",
+    );
     expect(load).toContain("Could not load this agent's conversations");
     // The error return comes BEFORE the branch that would auto-create a chat.
     expect(load).toContain("if (error) {");
@@ -68,7 +70,30 @@ describe("the conversation reads keep their error", () => {
       page.indexOf("async function loadMessages()"),
       page.indexOf("async function createConversation()"),
     );
-    expect(load).toContain("const { data, error } = await supabase");
+    expect(load).toContain("const { data, error } = await chatHistory.messagesOf(activeConvo);");
     expect(load).toContain("Could not load this conversation's messages");
+  });
+});
+
+describe("the page reads and writes no chat row itself (R446)", () => {
+  // Messages and titles are sealed under the user's key, which the browser
+  // does not hold: every read and write goes through the server. Deleting
+  // reads nothing, so it stays here, under the tables' row-level security.
+  it("only deletes", () => {
+    const direct = [...page.matchAll(/\.from\("(messages|conversations)"\)\s*\.(\w+)\(/g)].map(
+      (m) => `${m[1]}.${m[2]}`,
+    );
+    expect(direct.sort()).toEqual([
+      "conversations.delete",
+      "messages.delete",
+      "messages.delete",
+      "messages.delete",
+    ]);
+  });
+
+  it("a message that cannot be opened says why, in its bubble", () => {
+    expect(page).toContain("unreadable?: string | null;");
+    expect(page).toContain("{message.unreadable ? (");
+    expect(page).toContain("This message cannot be read: {message.unreadable}");
   });
 });

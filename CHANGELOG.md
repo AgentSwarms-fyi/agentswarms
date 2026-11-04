@@ -96,6 +96,22 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Agent Chat history under each user's key** (R446). Every Agent Chat
+  message (its text, and its metadata: citations, the knowledge-base passages
+  it quotes, a generated document's name and thumbnail) and every
+  conversation's title is now encrypted by the app under its owner's user
+  key. Erasing the key, destroying the customer key or the customer revoking
+  it leaves them unreadable. The chat page used to read and write these rows
+  from the browser, which holds no key; it now goes through the server, for
+  the signed-in user's own conversations only (deleting stays in the
+  browser). A message that cannot be opened says so in its bubble instead of
+  breaking the conversation. A generated document's storage path stays
+  readable so chat retention can still delete the file. Chats kept before are
+  encrypted by the hourly stored-files pass (`CHAT_SEAL_PER_PASS`, 2000 by
+  default) or by **Encrypt stored files**, in the same audited row. Nothing
+  to set up, and no migration. Not covered yet: swarm and AI Analyst chats,
+  and the prompts kept in model call traces. See
+  [Key management → Chat history](./docs/KEY_MANAGEMENT.md#chat-history).
 - **Agent memory under each user's key** (R445). What an agent keeps about a
   person between turns (long-term memory items, each conversation's rolling
   summary, and its scratchpad) is now encrypted by the app under that

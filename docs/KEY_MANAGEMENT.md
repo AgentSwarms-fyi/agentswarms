@@ -20,11 +20,12 @@ keys of the users and groups assigned to it
 ([below](#customer-keys-and-user-keys)). A customer key also covers its
 members' generated documents and dataset copies
 ([Stored files](#stored-files)), what agents remember about them
-([Agent memory](#agent-memory)), and their lakehouse files, model artifacts
+([Agent memory](#agent-memory)), their Agent Chat history
+([Chat history](#chat-history)), and their lakehouse files, model artifacts
 and run staging where the object store can use the key: a key in AWS KMS on
 S3, a key in Cloud KMS on Cloud Storage ([Lakehouse files](#lakehouse-files)).
-Chat history, knowledge-base text and datasets' rows are
-[designed](#data-beyond-credentials-design), not built.
+Swarm and AI Analyst chats, model call traces, knowledge-base text and
+datasets' rows are [designed](#data-beyond-credentials-design), not built.
 
 For the cipher itself (AES-256-GCM, key fingerprints, the rotation sweep), see
 [SECURITY.md](../SECURITY.md#credential-encryption).
@@ -64,8 +65,9 @@ optional parts are worth it.
 | Credentials: model provider keys, warehouse and SaaS connections, secrets, integrations, MCP servers, Data Catalog and knowledge-base sources, Git export, Slack workspaces, Teams bots, signed embed viewers | The database                               | Encrypted by the app (AES-256-GCM) under the user's own key, which the deployment key locks                                                                                                                                          |
 | Documents chat generates; copies of uploaded datasets                                                                                                                                                         | Supabase Storage (`chat-docs`, `datasets`) | Encrypted by the app under the owner's user key                                                                                                                                                                                      |
 | What agents remember about each user: long-term memory, conversation summaries, scratchpads                                                                                                                   | The database                               | Encrypted by the app under the user's own key; recall finds an item by keyed hashes of its words, never the words                                                                                                                    |
+| Agent Chat history: every message, its citations and sources, a generated document's name and thumbnail, and every conversation's title                                                                       | The database                               | Encrypted by the app under the user's own key; a generated document's storage path stays readable                                                                                                                                    |
 | Lakehouse tables, model artifacts, the rows a run stages                                                                                                                                                      | The object store                           | The store's own encryption: AWS S3 and Cloud Storage encrypt every object with keys they manage; the bundled SILO (a MinIO fork) and MinIO write files as they are, unless their encryption is configured or their disk is encrypted |
-| Chat history, knowledge-base text, notebooks, datasets' rows, and the rest of the database                                                                                                                    | The database                               | The database's own encryption at rest: a managed Postgres (Supabase's hosted service, RDS, Cloud SQL) encrypts its disks; a database you run yourself is as safe as the disk it is on                                                |
+| Swarm and AI Analyst chats, model call traces, knowledge-base text, notebooks, datasets' rows, and the rest of the database                                                                                   | The database                               | The database's own encryption at rest: a managed Postgres (Supabase's hosted service, RDS, Cloud SQL) encrypts its disks; a database you run yourself is as safe as the disk it is on                                                |
 
 Passwords are not on the list because the app never stores them: Supabase Auth
 keeps only a hash, or your identity provider signs users in (SSO).
@@ -162,7 +164,7 @@ open the lockbox, every box behind it stays shut, at once.
               ▼
    that user's credentials, secrets and connections,
    the documents chat made for them, their dataset copies,
-   what agents remember about them
+   what agents remember about them, their Agent Chat history
 ```
 
 - The **deployment key** is the root. By default it is derived from
@@ -383,8 +385,8 @@ destroy it.
 - **One person** (someone leaves, a deletion request): **Admin → IAM →
   Settings → Customer keys → Erase a user's key**, choose the user, and press
   **Erase the key**. What they stored (credentials, connections, secrets,
-  generated documents, dataset copies) and what agents remember about them is
-  unreadable at once in this server
+  generated documents, dataset copies), what agents remember about them and
+  their Agent Chat history is unreadable at once in this server
   process, and in the others within `DATA_KEY_CACHE_SECONDS` (five minutes by
   default). Deleting their account does the same.
 - **One customer**: press **Destroy** on their customer key and type its name.
@@ -394,8 +396,10 @@ destroy it.
   customer's own KMS, **deleted in that KMS**, makes those backups unreadable
   too ([What erasure covers](#what-erasure-covers-and-what-it-does-not)).
 
-Chat history is database rows that are not under these keys yet, so erasing a
-key does not make it unreadable; delete the chats, or the account, for that.
+Swarm and AI Analyst chats, and the prompts kept in model call traces, are not
+under these keys yet, so erasing a key does not make them unreadable; delete
+them, or the account, for that (traces also expire under their own retention,
+**Admin → IAM → Settings**).
 
 ### Mistakes, and what you see
 
@@ -1161,7 +1165,8 @@ backup. Erasure that reaches backups needs one of:
 Customer keys cover what the app encrypts: stored credentials and secrets,
 the documents chat generates and the copies of uploaded datasets
 ([Stored files](#stored-files)), what agents remember about them
-([Agent memory](#agent-memory)), and, for a key in a KMS the object store can
+([Agent memory](#agent-memory)), their Agent Chat history
+([Chat history](#chat-history)), and, for a key in a KMS the object store can
 use (AWS KMS on S3, Cloud KMS on Cloud Storage), its members' lakehouse files,
 model artifacts and run staging (next). The rest of the data a customer's
 users work with is not under these keys yet; see
@@ -1458,36 +1463,94 @@ still be deleted.
 
 What it does not cover:
 
-- The chat **messages** a memory was made from, the next item of
-  [Data beyond credentials](#data-beyond-credentials-design).
 - An item's kind, score, use count and times, and an agent's memory settings.
+- A **backup** taken before, as [above](#what-erasure-covers-and-what-it-does-not).
+
+### Chat history
+
+Every Agent Chat conversation is encrypted by the app under its owner's user
+key (R446): each message's text, and its metadata (the passages a reply quotes
+from a knowledge base, its citations and sources, a generated document's name
+and thumbnail), and the conversation's title, which is usually the start of its
+first message. So:
+
+- every customer key covers its members' chats, whatever kind of key it is.
+  Erasing a user's key, destroying the customer key or the customer revoking
+  theirs leaves them unreadable;
+- nothing about chatting changes. There was no search over message text to
+  lose.
+
+How it works:
+
+- The chat page used to read and write messages and titles itself, from the
+  browser, which holds no key. It now goes through the server, which seals
+  each value on the way in and opens it on the way out, for the signed-in
+  user's own conversations only. Deleting a message or a conversation stays
+  in the browser, since that reads nothing.
+- Each value is one sealed string (`ck1:…`, AES-256-GCM), bound to its row and
+  column; a message's metadata is sealed whole, under one key no real field
+  uses (`ck1:metadata`).
+- One field stays readable: a generated document's storage path,
+  `<user id>/<file id>.docx`, which says nothing about the document. Chat
+  retention finds expired documents by it in SQL and deletes the file with its
+  message. The document's name and thumbnail are sealed with the rest.
+- A new conversation's title, "New Chat", is no one's words and is kept as it
+  is; any other title is sealed.
+- A message that cannot be opened (its key erased, destroyed or refused) does
+  not stop the conversation loading: its bubble says "This message cannot be
+  read" and why, and a title reads "Cannot be read". The rolling summary is not
+  folded over such a message.
+- What was kept **before** this change is plaintext, and read as it is. The
+  stored-files pass seals it: every hour, at most `CHAT_SEAL_PER_PASS` values
+  (2000 by default), and all of it with **Encrypt stored files**, in the same
+  `security.stored_files.seal` row ("12 chat messages, 2 chat titles encrypted
+  under their owner's key").
+- Before the user-key tables exist, chats are stored as they always were.
+
+| Setting              | Default | What it is                                                     |
+| -------------------- | ------- | -------------------------------------------------------------- |
+| `CHAT_SEAL_PER_PASS` | 2000    | Chat values one background pass encrypts; the button has none. |
+
+What it does not cover:
+
+- **Swarm chats** and **AI Analyst threads**, which are stored apart and are
+  the next items of [Data beyond credentials](#data-beyond-credentials-design).
+- **Model call traces** (Traces & Logs): each model call keeps the first 4,000
+  characters of its prompt, and its request and response, for as long as trace
+  retention says (**Admin → IAM → Settings**). They are not under these keys
+  yet.
+- A message's role and time, which conversation it is in, and a
+  conversation's agent and times.
 - A **backup** taken before, as [above](#what-erasure-covers-and-what-it-does-not).
 
 ## Data beyond credentials (design)
 
 **Status: lakehouse files on S3 (R440), generated documents and dataset
 copies (R441), model artifacts and run staging on S3 (R442), all of these on
-Cloud Storage under Cloud KMS keys (R443), and agent memory (R445) are built,
-above; the rest is designed, not built.** The app encrypts credentials,
-generated documents, dataset copies and agent memory itself. The rest of the data a
-customer's users bring and make is stored in places the app does not encrypt
-today: Postgres rows (chat history, knowledge-base documents and chunks, agent
-memory, notebooks, BI definitions, uploaded datasets' rows) and the vector
+Cloud Storage under Cloud KMS keys (R443), agent memory (R445) and Agent
+Chat history (R446) are built, above; the rest is designed, not built.** The
+app encrypts credentials, generated documents, dataset copies, agent memory
+and Agent Chat history itself. The rest of the data a customer's users bring
+and make is stored in places the app does not encrypt today: Postgres rows
+(swarm chats, AI Analyst threads, model call traces, knowledge-base documents
+and chunks, notebooks, BI definitions, uploaded datasets' rows) and the vector
 store. Those rely on the storage's own encryption at
 rest, under the operator's keys. For
 "a customer's data is unreadable once their key is gone" to cover them, each
 store needs its own scheme, under the same customer key:
 
-| Data                                                                | Where                                                  | Proposed scheme                                                                                                                                                                                         | What it costs                                                                                                                                |
-| ------------------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Chat messages, notebook source                                      | Postgres text and JSON columns                         | Application-level AES-GCM under the owner's user key, as credentials and agent memory are: a value is encrypted on write and decrypted on read in the server.                                           | The browser reads and writes chat messages itself today, so they move behind the server first; there is no search over message text to lose. |
-| Agent memory (long-term items, conversation summaries, scratchpads) | Postgres                                               | **Built (R445):** sealed by the app under the owner's user key; recall matches keyed hashes of the words (a blind index) ([Agent memory](#agent-memory)).                                               | Which of one user's items share a word is visible to someone who can read the database.                                                      |
-| Knowledge-base documents and chunks                                 | Postgres (`kb_chunks`, its text) and the vector store  | The chunk text encrypted as above; the embeddings left in clear, since search needs them, and stated as such (an embedding reveals something about its text). Or a vector store per customer.           | Keyword search over chunk text (Postgres full text) stops working unless it moves to the server; embeddings are a known residual.            |
-| Lakehouse tables                                                    | The object store (SILO, MinIO, S3, Azure Blob, GCS)    | The store's own server-side encryption under the customer's KMS key. **Built for S3 (R440) and Cloud Storage (R443):** SSE-KMS, or CMEK, the key passed per request. Azure Blob: not a lakehouse store. | SILO and MinIO need their KMS integration (MinIO KES) configured.                                                                            |
-| Uploaded datasets' rows                                             | Postgres (`user_data_rows`)                            | As chat messages.                                                                                                                                                                                       | Filtering and sorting a dataset in Postgres would move to the server (its columnar copy already does).                                       |
-| Model artifacts, run staging                                        | The lake bucket (`ml-artifacts/`, `_sandbox_staging/`) | **Built for S3 (R442):** SSE-KMS under the owner's key, as lakehouse files; a sandbox's upload URL is signed for the key ([Lakehouse files](#lakehouse-files)).                                         | No runtime image change: the code that uploads is sent by the app.                                                                           |
-| The lakehouse catalog                                               | Postgres (DuckLake metadata)                           | Metadata only (names, statistics, file paths); left under the database's encryption, documented.                                                                                                        | —                                                                                                                                            |
-| Generated documents, dataset copies                                 | Supabase Storage (`chat-docs`, `datasets`)             | **Built (R441):** encrypted by the app under the owner's user key, since the store cannot use a customer's key ([Stored files](#stored-files)).                                                         | —                                                                                                                                            |
+| Data                                                                | Where                                                  | Proposed scheme                                                                                                                                                                                         | What it costs                                                                                                                     |
+| ------------------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Agent Chat messages and titles                                      | Postgres text and JSON columns                         | **Built (R446):** sealed by the app under the owner's user key; the chat page reads and writes them through the server ([Chat history](#chat-history)).                                                 | A generated document's storage path stays readable, for retention.                                                                |
+| Swarm chats, AI Analyst threads, notebook source                    | Postgres text and JSON columns                         | As Agent Chat: the browser's reads and writes moved behind the server, which seals them.                                                                                                                | —                                                                                                                                 |
+| Model call traces (prompts, requests, responses)                    | Postgres (`execution_traces`)                          | Sealed under the owner's user key; Traces & Logs, the OpenTelemetry export and decision passports read them through the server.                                                                         | The OpenTelemetry export would carry opened text to the collector, as it does today.                                              |
+| Agent memory (long-term items, conversation summaries, scratchpads) | Postgres                                               | **Built (R445):** sealed by the app under the owner's user key; recall matches keyed hashes of the words (a blind index) ([Agent memory](#agent-memory)).                                               | Which of one user's items share a word is visible to someone who can read the database.                                           |
+| Knowledge-base documents and chunks                                 | Postgres (`kb_chunks`, its text) and the vector store  | The chunk text encrypted as above; the embeddings left in clear, since search needs them, and stated as such (an embedding reveals something about its text). Or a vector store per customer.           | Keyword search over chunk text (Postgres full text) stops working unless it moves to the server; embeddings are a known residual. |
+| Lakehouse tables                                                    | The object store (SILO, MinIO, S3, Azure Blob, GCS)    | The store's own server-side encryption under the customer's KMS key. **Built for S3 (R440) and Cloud Storage (R443):** SSE-KMS, or CMEK, the key passed per request. Azure Blob: not a lakehouse store. | SILO and MinIO need their KMS integration (MinIO KES) configured.                                                                 |
+| Uploaded datasets' rows                                             | Postgres (`user_data_rows`)                            | As chat messages.                                                                                                                                                                                       | Filtering and sorting a dataset in Postgres would move to the server (its columnar copy already does).                            |
+| Model artifacts, run staging                                        | The lake bucket (`ml-artifacts/`, `_sandbox_staging/`) | **Built for S3 (R442):** SSE-KMS under the owner's key, as lakehouse files; a sandbox's upload URL is signed for the key ([Lakehouse files](#lakehouse-files)).                                         | No runtime image change: the code that uploads is sent by the app.                                                                |
+| The lakehouse catalog                                               | Postgres (DuckLake metadata)                           | Metadata only (names, statistics, file paths); left under the database's encryption, documented.                                                                                                        | —                                                                                                                                 |
+| Generated documents, dataset copies                                 | Supabase Storage (`chat-docs`, `datasets`)             | **Built (R441):** encrypted by the app under the owner's user key, since the store cannot use a customer's key ([Stored files](#stored-files)).                                                         | —                                                                                                                                 |
 
 **Order, if built:** lakehouse files first (the largest and most sensitive,
 and the store does the encryption, so search and queries are unaffected),
@@ -1530,6 +1593,12 @@ server, so the app seals it there, and recall keeps working through a blind
 index. Chat messages are read and written by the browser directly, so they
 need the server in front of them first; datasets' rows are read by the
 browser's SQL engine, which makes them the largest item.
+
+Agent Chat history followed (R446, 2026-11-04): the chat page's reads and
+writes moved behind the server, which seals them. Building it found two more
+stores of conversation text, swarm chats and AI Analyst threads, which the
+browser also reads directly, and the prompts kept in model call traces. Still
+to do: those, then datasets' rows and knowledge-base text.
 
 ---
 

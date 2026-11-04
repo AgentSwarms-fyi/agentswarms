@@ -109,6 +109,63 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-04 — R446: Agent Chat history under each user's key
+
+**What was built.** The roadmap's next item, chat text. Every Agent Chat message (its text and its
+metadata: citations, the knowledge-base passages it quotes, a generated document's name and
+thumbnail) and every conversation's title is sealed by the app under its owner's user key, bound to
+its row and column. The chat page used to read and write `messages` and `conversations` from the
+browser, which holds no key, so its reads and writes now go through server functions
+(`chatHistory.functions.ts`) that act for the signed-in user on their own rows only, as the
+tables' row-level security did. Deletes stay in the browser: they read nothing.
+
+**Found on the way.** Retention finds a generated document to delete by `metadata->doc->>path` in
+SQL, so sealing the metadata whole would have left expired documents in storage for good. The
+path (`<user id>/<file id>.<ext>`, no content) stays readable; the name and thumbnail are sealed.
+Two more stores of conversation text exist that the browser also reads directly (swarm chats, AI
+Analyst threads), and every model call's trace keeps the first 4,000 characters of its prompt and
+its request and response, under trace retention. Not covered by this round; said on the card and in
+the docs, and added to the roadmap.
+
+**Attacks considered.**
+
+- *Read another user's conversation through the new functions.* Each one resolves the caller from
+  the token and filters by them; a save into someone else's conversation is refused ("There is no
+  such conversation of yours"), which the table's policy did not even check. Mutants dropping each
+  owner filter (save, list, rename) are caught.
+- *Move a sealed message onto another row.* It is bound to its row and does not open there; the
+  bubble says so and the conversation loads around it (tests; a mutant that throws instead is
+  caught).
+- *The summary fold reading ciphertext.* It opens each message first and stops on one that does not
+  open (test: the turns sent to the summary model are the text; a mutant sending the stored form is
+  caught).
+- *Keep a message under another key when the owner's cannot be had.* The save is refused with the
+  reason; the page marks the message "not saved", as it did for any failed save.
+- *Lose the document's file to retention.* The path stays where retention looks (test; a mutant
+  sealing it too is caught).
+- *The browser still writing a message itself.* Pinned by source: the page's only direct calls on
+  the two tables are four deletes (test; a mutant restoring the direct insert is caught).
+
+**Found by mutation.** Two survivors in the first run. The pass's own filter on the starting title
+("New Chat") could be removed unnoticed, and had it been, the first such row would have ended the
+pass (it reads as "no user key yet"): the loop now skips that title explicitly and the test puts one
+first. The hourly sweep could skip chat history unnoticed: its test now asserts the chat pass runs,
+bounded, and that a pass which sealed only chat history is audited.
+
+**Proved.**
+
+| Check | Result |
+| --- | --- |
+| `chatSealing.test.ts` (19) | a message and its metadata sealed, only the document path readable, opened where it was sealed, not on another row, an erased key read as such; titles (the starting one kept); the server functions, their owner checks, a document path where retention looks; the summary fold over sealed messages; the pass (titles, the starting one left, its limit, a refused owner left, nothing before the user-key tables exist) |
+| `chatPersistence.test.ts`, `chatConversationStart.test.ts` | the page's saves and reads go through the server, their error handling as before; its only direct calls are deletes; an unreadable message's bubble |
+| `storedFilesServer.test.ts`, `storedFiles.test.ts`, `customerKeyFunctions.test.ts` | the sweep and the button run the chat pass in the same audited row; the card's line |
+| mutation | 14 of 14 caught (two after their tests were tightened), the control survived |
+| UI | UI_TEST_RESULTS, R446: 20 older messages and 42 titles sealed at restart and still read; a new conversation saved, titled, renamed, regenerated and reloaded; a generated document's card after a reload |
+
+**Not covered.** Swarm chats, AI Analyst threads, model call traces (next), datasets' rows,
+knowledge-base text. A message's role and time and which conversation it is in, and a document's
+storage path. Erasure live.
+
 ### 2026-11-04 — R445: agent memory under each user's key
 
 **What was built.** The roadmap's next item ("chat and memory text"), memory first: it is written

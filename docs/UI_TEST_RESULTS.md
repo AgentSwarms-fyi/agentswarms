@@ -15,6 +15,31 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-04 — R446: Agent Chat history under each user's key
+
+The next roadmap item, on the user's "continue with the next item on the roadmap". The real
+environment as a fresh install has it (no customer key, no KMS); the R445 test agent, with
+long-term memory, and the default model.
+
+| Page / surface | What was driven | Result |
+| --- | --- | --- |
+| Hot deploy; Admin → IAM → Settings → Customer keys | read | The pass that runs at a restart had sealed the account's chats kept before: "Last pass less than a minute ago (system:kms): 5 files checked (4 documents, 1 dataset copy) · 5 already under it · 20 chat messages, 42 chat titles encrypted under their owner's key." No failure. The Stored files text names Agent Chat history, and swarm and AI Analyst chats and model call traces as not covered |
+| Agent Chat, the R445 test agent | open | Its first conversation, sealed by that pass a minute before, loaded in full ("Please remember this for our future conversations: …", "Got it! …"); no message marked unreadable, no toast. The list's titles, sealed by the same pass, read as they were |
+| **New Chat**: "Write one sentence welcoming my team to the Q4 kickoff in Bergen." | Send | "Welcome, Fjord Analytics team, to our Q4 kickoff in beautiful Bergen …" (long-term memory recalled, R445); neither message marked "not saved" |
+| Reload | | The conversation first in the list, titled "Write one sentence welcoming my team to the Q4 kic" (its first message, saved through the server, sealed), both messages read back from the server |
+| The conversation → Rename → "R446 Bergen kickoff" → Enter | | Renamed; after a reload, still "R446 Bergen kickoff". (A first attempt was lost because the page was reloaded while the save was still under way: the tester's, not the page's) |
+| The reply → **Regenerate response** | | A new reply ("… let's set the stage for an incredible quarter ahead!"); after a reload one reply, the new one: the old row deleted from the browser, the new one saved through the server |
+| **Word** armed: "A one-page note welcoming the team to the Bergen Q4 kickoff, with a three-item agenda." | Send | "Here's your Word — A-one-page-note-welcoming-the-team-to-th.docx", "Word · ready", no "not saved" warning; after a reload the document's card is back, thumbnail and name: its metadata, sealed whole but for the storage path, opened. Download not pressed (a file download) |
+| App log since the deploy | read | No warning or error |
+
+Not driven live: a message or title whose key is gone (the only account's key is never erased;
+`chatSealing.test.ts` covers the bubble's "This message cannot be read" and the title's "Cannot be
+read"); chat retention deleting an expired document by its path (a 30-day window; tested from the
+stored row's shape); **Encrypt stored files** (the scheduled pass ran instead, above).
+
+Fixtures kept: the conversation "R446 Bergen kickoff" with its messages and the generated Word
+document, under the agent "R445 memory test".
+
 ## 2026-11-04 — R445: agent memory under each user's key
 
 The next roadmap item after R444, on the user's "continue with next items". The real environment,

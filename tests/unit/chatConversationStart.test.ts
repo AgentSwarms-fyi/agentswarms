@@ -23,7 +23,9 @@ const between = (from: string, to: string) => {
 describe("the first conversation", () => {
   it("says when it could not be created, and goes no further", () => {
     const auto = between("// Auto-create a first conversation", "async function loadMessages");
-    expect(auto).toContain("const { data: newConvo, error: insertError } = await supabase");
+    expect(auto).toMatch(
+      /const \{ data: newConvo, error: insertError \} =\s*await chatHistory\.startConversation\(selectedAgent\);/,
+    );
     expect(auto).toMatch(
       /if \(insertError \|\| !newConvo\) \{[\s\S]*?setConvoError\(why\);[\s\S]*?toast\.error\("Could not start a conversation", \{ description: why \}\);[\s\S]*?return;/,
     );
@@ -54,7 +56,8 @@ describe("a message sent while New Chat is starting (R352)", () => {
 
   it("leaves the chat on screen before the insert, so the composer is disabled", () => {
     const fn = create();
-    const insert = fn.indexOf('.from("conversations")');
+    const insert = fn.indexOf("await chatHistory.startConversation(selectedAgent)");
+    expect(insert).toBeGreaterThan(0);
     expect(fn.indexOf('setActiveConvo("");')).toBeGreaterThan(0);
     expect(fn.indexOf('setActiveConvo("");')).toBeLessThan(insert);
     expect(fn.indexOf("setMessages([]);")).toBeLessThan(insert);

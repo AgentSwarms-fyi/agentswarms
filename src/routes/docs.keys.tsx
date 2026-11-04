@@ -106,7 +106,12 @@ function KeysPage() {
             "Encrypted by the app under the user's own key; recall finds an item by keyed hashes of its words, never the words",
           ],
           [
-            "Chat history, knowledge-base text, notebooks, datasets' rows",
+            "Agent Chat history: every message, its citations and sources, a generated document's name and thumbnail, and every conversation's title",
+            "The database",
+            "Encrypted by the app under the user's own key; a generated document's storage path stays readable",
+          ],
+          [
+            "Swarm and AI Analyst chats, model call traces, knowledge-base text, notebooks, datasets' rows",
             "The database",
             "The database's own encryption at rest: a managed Postgres encrypts its disks; one you run yourself is as safe as its disk",
           ],
@@ -200,7 +205,7 @@ function KeysPage() {
               ▼
    that user's credentials, secrets and connections,
    the documents chat made for them, their dataset copies,
-   what agents remember about them`}</Diagram>
+   what agents remember about them, their Agent Chat history`}</Diagram>
       <UL>
         <li>
           The <strong>deployment key</strong> is the root: derived from <C>PROVIDER_CREDS_SECRET</C>{" "}
@@ -537,9 +542,10 @@ npm run backup`}</Code>
         <li>
           <strong>One person</strong>: <strong>Erase a user&apos;s key</strong> on the Customer keys
           card, then <strong>Erase the key</strong>. Their credentials, connections, secrets,
-          generated documents, dataset copies and what agents remember about them are unreadable at
-          once here, and in every server process within <C>DATA_KEY_CACHE_SECONDS</C> (five minutes
-          by default). Deleting their account does the same.
+          generated documents, dataset copies, what agents remember about them and their Agent Chat
+          history are unreadable at once here, and in every server process within{" "}
+          <C>DATA_KEY_CACHE_SECONDS</C> (five minutes by default). Deleting their account does the
+          same.
         </li>
         <li>
           <strong>One customer</strong>: <strong>Destroy</strong> on their customer key, typing its
@@ -552,8 +558,8 @@ npm run backup`}</Code>
         </li>
       </UL>
       <P>
-        Chat history is database rows that are not under these keys yet: delete the chats, or the
-        account, for that.
+        Swarm and AI Analyst chats, and the prompts kept in model call traces, are not under these
+        keys yet: delete them, or the account, for those.
       </P>
 
       <H2 id="mistakes">Mistakes, and what you see</H2>

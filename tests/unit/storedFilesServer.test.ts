@@ -16,6 +16,14 @@ const h = vi.hoisted(() => ({
   refresh: vi.fn(),
   // The memory pass (R445) runs with the files pass: its own tests are
   // memorySealing.test.ts's; here it says what it was asked and returns this.
+  chat: vi.fn(async (_opts: { limit?: number }) => ({
+    messages: 0,
+    titles: 0,
+    unreadable: 0,
+    left: false,
+    failed: 0,
+    errors: [] as string[],
+  })),
   memory: vi.fn(async (_opts: { limit?: number }) => ({
     items: 0,
     summaries: 0,
@@ -40,6 +48,15 @@ vi.mock("@/integrations/supabase/client.server", () => ({
 vi.mock("@/utils/data/parquet.server", () => ({
   refreshDatasetMirror: (args: unknown) => h.refresh(args),
 }));
+vi.mock("@/utils/chat/sealedChat.server", async () => {
+  const pass =
+    await vi.importActual<typeof import("@/utils/chat/chatPass")>("@/utils/chat/chatPass");
+  return {
+    sealOlderChats: (opts: { limit?: number }) => h.chat(opts),
+    chatSealPerPass: () => 2000,
+    chatPassDetail: pass.chatPassDetail,
+  };
+});
 vi.mock("@/utils/memory/sealed.server", async () => {
   const pass = await vi.importActual<typeof import("@/utils/memory/memoryPass")>(
     "@/utils/memory/memoryPass",
@@ -376,6 +393,8 @@ describe("the background pass", () => {
       // R445: every pass also seals agent memory stored before, bounded, and
       // a pass that sealed only memory is audited, its counts in the same row.
       expect(h.memory).toHaveBeenCalledWith({ limit: 1000 });
+      // R446: and Agent Chat history, bounded too.
+      expect(h.chat).toHaveBeenCalledWith({ limit: 2000 });
       h.memory.mockResolvedValueOnce({
         items: 3,
         summaries: 1,
@@ -394,6 +413,20 @@ describe("the background pass", () => {
           memory_items_sealed: 3,
           summaries_sealed: 1,
         },
+      });
+      // A pass that sealed only chat history is audited too, in the same row.
+      h.chat.mockResolvedValueOnce({
+        messages: 12,
+        titles: 2,
+        unreadable: 0,
+        left: false,
+        failed: 0,
+        errors: [],
+      });
+      expect(await sweepStoredFiles(true)).not.toBeNull();
+      expect(h.audits).toHaveLength(4);
+      expect(h.audits[3]).toMatchObject({
+        detail: { trigger: "scheduled", messages_sealed: 12, titles_sealed: 2 },
       });
     } finally {
       delete process.env.STORED_FILES_PER_PASS;

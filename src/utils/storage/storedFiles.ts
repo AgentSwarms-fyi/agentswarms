@@ -92,6 +92,18 @@ export function storedFilesPassLine(d: Record<string, unknown>): string {
     );
   if (d.memory_left === true) parts.push("more agent memory left for the next pass");
   if (n(d.memory_failed)) parts.push(`${n(d.memory_failed)} of agent memory failed`);
+  // And Agent Chat history kept before R446.
+  const chat = [
+    n(d.messages_sealed) ? plural(n(d.messages_sealed), "chat message") : null,
+    n(d.titles_sealed) ? plural(n(d.titles_sealed), "chat title") : null,
+  ].filter(Boolean);
+  if (chat.length) parts.push(`${chat.join(", ")} encrypted under their owner's key`);
+  if (n(d.chat_unreadable))
+    parts.push(
+      `${n(d.chat_unreadable)} of chat history whose owner's key cannot be had now, left as they are`,
+    );
+  if (d.chat_left === true) parts.push("more chat history left for the next pass");
+  if (n(d.chat_failed)) parts.push(`${n(d.chat_failed)} of chat history failed`);
   if (typeof d.skipped === "string" && d.skipped) parts.push(d.skipped);
   return parts.join(" · ");
 }

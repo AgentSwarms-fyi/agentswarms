@@ -40,6 +40,7 @@ import {
   type StoredFilesPass,
 } from "@/utils/storage/storedFiles.server";
 import type { MemoryPass } from "@/utils/memory/memoryPass";
+import type { ChatPass } from "@/utils/chat/chatPass";
 import { customerKeyProvider, keyHierarchy } from "./crypto.server";
 import {
   expectedCustomerKeys,
@@ -707,7 +708,11 @@ export const reEncryptLakehouseFilesNow = createServerFn({ method: "POST" })
 export const sealStoredFilesNow = createServerFn({ method: "POST" })
   .validator((input: unknown) => token.parse(input))
   .handler(
-    async ({ data }): Promise<({ ok: true } & StoredFilesPass & { memory: MemoryPass }) | Fail> => {
+    async ({
+      data,
+    }): Promise<
+      ({ ok: true } & StoredFilesPass & { memory: MemoryPass; chat: ChatPass }) | Fail
+    > => {
       const guard = await requireSuperadmin(data.access_token);
       if (!guard.ok) return { ok: false, error: guard.error };
       try {
@@ -715,6 +720,9 @@ export const sealStoredFilesNow = createServerFn({ method: "POST" })
         // And what agents kept before R445: one pass, one audit row.
         const { memoryPassDetail, sealOlderMemory } = await import("@/utils/memory/sealed.server");
         const m = await sealOlderMemory();
+        // And Agent Chat history kept before R446.
+        const { chatPassDetail, sealOlderChats } = await import("@/utils/chat/sealedChat.server");
+        const c = await sealOlderChats();
         auditEvent({
           userId: guard.userId,
           actorEmail: guard.email,
@@ -725,9 +733,10 @@ export const sealStoredFilesNow = createServerFn({ method: "POST" })
             trigger: "Encrypt stored files",
             ...storedFilesPassDetail(r),
             ...memoryPassDetail(m),
+            ...chatPassDetail(c),
           },
         });
-        return { ok: true, ...r, memory: m };
+        return { ok: true, ...r, memory: m, chat: c };
       } catch (e) {
         return { ok: false, error: (e as Error).message };
       }

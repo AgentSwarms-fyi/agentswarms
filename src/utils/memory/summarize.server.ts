@@ -7,6 +7,7 @@ import type { Database } from "@/integrations/supabase/types";
 import { openAiCompatTarget, type CompatTarget } from "@/utils/providers/defaultModel.server";
 import { providerFetch } from "@/utils/ssrfGuard.server";
 import { openSummary, sealSummary } from "./sealed.server";
+import { openMessage } from "@/utils/chat/sealedChat.server";
 
 type DbMessage = {
   id: string;
@@ -149,7 +150,17 @@ export async function summarizeIfNeeded(opts: {
     .order("created_at", { ascending: true })
     .limit(FOLD_BATCH + windowMessages);
   if (msgErr) throw new Error(`could not read the conversation's messages: ${msgErr.message}`);
-  const unfolded = (msgs ?? []) as DbMessage[];
+  // Sealed under the user's key since R446. A message that does not open stops
+  // the fold, as a failed read does, rather than fold the turns around it.
+  const unfolded = await Promise.all(
+    ((msgs ?? []) as DbMessage[]).map(async (m) => {
+      const opened = await openMessage({ id: m.id, content: m.content, metadata: null });
+      if (opened.unreadable) {
+        throw new Error(`could not read the conversation's messages: ${opened.unreadable}`);
+      }
+      return { ...m, content: opened.content };
+    }),
+  );
   // The read's last `windowMessages` may be the live window, which the model
   // is sent whole; only what comes before them is folded.
   const fresh = unfolded.slice(0, Math.max(0, unfolded.length - windowMessages));

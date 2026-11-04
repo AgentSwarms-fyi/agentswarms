@@ -126,6 +126,9 @@ beforeEach(async () => {
   // Agent memory (R445), which the stored-files pass also seals.
   t.agent_memory_items = [];
   t.conversation_memory = [];
+  // And Agent Chat history (R446).
+  t.messages = [];
+  t.conversations = [];
   fake = fakePostgrest(t);
   h.db = fake.client;
   const kek = await importDataKey(crypto.getRandomValues(new Uint8Array(32)));
@@ -523,6 +526,7 @@ describe("Encrypt stored files (R441)", () => {
       }),
     ]);
     expect(h.audits[0]!.detail).not.toHaveProperty("memory_failed");
+    expect(h.audits[0]!.detail).not.toHaveProperty("chat_failed");
   });
 
   it("also seals what agents kept before R445, under each owner's key, in the same row", async () => {

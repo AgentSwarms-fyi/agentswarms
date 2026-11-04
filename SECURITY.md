@@ -68,9 +68,10 @@ be had is an error that says why; a value is never written under another key
 in its place. Erasure in the app does not reach a database backup taken
 before it; deleting a customer key in the customer's own KMS does. These keys
 cover the credentials above, the documents chat generates, the copies of
-uploaded datasets and what agents remember about each user (encrypted by the
-app), and, for a key in a KMS the object store can use, lakehouse files, model
-artifacts and run staging (encrypted by the store). Chat history,
+uploaded datasets, what agents remember about each user and Agent Chat
+history (encrypted by the app), and, for a key in a KMS the object store can
+use, lakehouse files, model artifacts and run staging (encrypted by the
+store). Swarm and AI Analyst chats, the prompts kept in model call traces,
 knowledge-base text and datasets' rows are not under them yet; the design is in
 [KEY_MANAGEMENT.md](./docs/KEY_MANAGEMENT.md#data-beyond-credentials-design).
 
@@ -402,12 +403,13 @@ Stated plainly because you will ask:
   variable. AWS KMS, Azure Key Vault, Cloud KMS and OCI Vault have been tested
   against emulators (the AWS signing against the published SigV4 vectors, the
   OCI signing against the OCI Go SDK's), not yet against a real cloud account.
-- **Customer keys cover credentials, not yet data.** Per-customer keys
-  (each customer's stored credentials under a key it can hold in its own KMS
-  and revoke) are built. Chat history, knowledge-base documents and lakehouse
-  files are encrypted only by their storage, under the operator's keys; the
-  per-customer design for them is written, not built. Erasing a key in the
-  app does not reach backups taken before it.
+- **Customer keys do not cover all data yet.** They cover stored
+  credentials, generated documents and dataset copies, agent memory and Agent
+  Chat history (encrypted by the app), and lakehouse files where the store can
+  use the key. Swarm and AI Analyst chats, model call traces, knowledge-base
+  documents and datasets' rows are encrypted only by their storage, under the
+  operator's keys; the per-customer design for them is written, not built.
+  Erasing a key in the app does not reach backups taken before it.
 - **Moving between two external key providers is a re-key.** From the
   default `env` key to a provider is a rotation: everything stays readable
   while the sweep moves it. From one provider to another (Vault, AWS KMS,

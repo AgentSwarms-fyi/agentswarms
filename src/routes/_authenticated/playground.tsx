@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
+import * as chatHistory from "@/lib/chatHistory";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -119,7 +120,14 @@ type Agent = {
   system_prompt: string | null;
   tools?: Json;
 };
-type Conversation = { id: string; title: string; agent_id: string; created_at: string };
+type Conversation = {
+  id: string;
+  title: string;
+  agent_id: string;
+  created_at: string;
+  /** Why its title cannot be read, when its key is gone (R446). */
+  unreadable?: string | null;
+};
 type Citation = {
   index: number;
   documentId: string;
@@ -158,6 +166,8 @@ type Message = {
   metadata?: MessageMeta | null;
   /** Why this message could not be saved to the conversation, when it could not. */
   unsaved?: string;
+  /** Why this stored message cannot be read, when its key is gone (R446). */
+  unreadable?: string | null;
 };
 
 // Hoisted to module scope so helper components (AttachmentChips, ToolEventsPanel)
@@ -308,7 +318,8 @@ function PlaygroundPage() {
       metadata?: Json;
     },
   ): Promise<string | null> {
-    const { data, error } = await supabase.from("messages").insert(row).select("id").single();
+    // Through the server, which seals it under the user's key (R446).
+    const { data, error } = await chatHistory.saveMessage(row);
     if (error || !data?.id) {
       const why = error?.message ?? "no id came back from the insert";
       setMessages((prev) => prev.map((m) => (m.id === localId ? { ...m, unsaved: why } : m)));
@@ -482,11 +493,8 @@ function PlaygroundPage() {
 
   async function loadConversations() {
     const req = convoReq.current;
-    const { data, error } = await supabase
-      .from("conversations")
-      .select("*")
-      .eq("agent_id", selectedAgent)
-      .order("updated_at", { ascending: false });
+    // Through the server, which opens the sealed titles (R446).
+    const { data, error } = await chatHistory.conversationsOf(selectedAgent);
     if (req !== convoReq.current) return; // another agent was picked meanwhile
     // A failed read used to be an empty list — and an empty list creates a
     // fresh "New Chat", so a network blip could bury the real conversations
@@ -505,11 +513,8 @@ function PlaygroundPage() {
         // Auto-create a first conversation so the input is usable.
         // FOUND IN R206: a failed insert was dropped, and the page stood with
         // its message box disabled under "Ask a question, share a task".
-        const { data: newConvo, error: insertError } = await supabase
-          .from("conversations")
-          .insert({ user_id: user.id, agent_id: selectedAgent, title: "New Chat" })
-          .select()
-          .single();
+        const { data: newConvo, error: insertError } =
+          await chatHistory.startConversation(selectedAgent);
         if (insertError || !newConvo) {
           const why = insertError?.message ?? "no conversation came back";
           setConvoError(why);
@@ -526,11 +531,8 @@ function PlaygroundPage() {
 
   async function loadMessages() {
     const req = messageReq.current;
-    const { data, error } = await supabase
-      .from("messages")
-      .select("*")
-      .eq("conversation_id", activeConvo)
-      .order("created_at", { ascending: true });
+    // Through the server, which opens the sealed messages (R446).
+    const { data, error } = await chatHistory.messagesOf(activeConvo);
     if (req !== messageReq.current) return; // another conversation was picked
     // A failed read used to leave whatever was on screen, or nothing, with
     // no word — an empty conversation that is not empty.
@@ -553,15 +555,7 @@ function PlaygroundPage() {
     const previous = activeConvo;
     setActiveConvo("");
     setMessages([]);
-    const { data, error } = await supabase
-      .from("conversations")
-      .insert({
-        user_id: user.id,
-        agent_id: selectedAgent,
-        title: "New Chat",
-      })
-      .select()
-      .single();
+    const { data, error } = await chatHistory.startConversation(selectedAgent);
     // FOUND IN R206: New Chat read `error` and never looked at it, so a failed
     // insert did nothing at all.
     if (error || !data) {
@@ -581,7 +575,7 @@ function PlaygroundPage() {
   async function renameConversation(id: string, title: string) {
     const t = title.trim().slice(0, 80);
     if (!t) return;
-    const { error } = await supabase.from("conversations").update({ title: t }).eq("id", id);
+    const { error } = await chatHistory.setTitle(id, t);
     if (error) {
       toast.error(`Could not rename chat: ${error.message}`);
       return;
@@ -799,10 +793,7 @@ function PlaygroundPage() {
               metadata: meta as unknown as Json,
             });
             if (opts.isFirstUserMessage && lastUserMsg) {
-              await supabase
-                .from("conversations")
-                .update({ title: lastUserMsg.content.slice(0, 50) })
-                .eq("id", activeConvo);
+              await chatHistory.setTitle(activeConvo, lastUserMsg.content.slice(0, 50));
               loadConversations();
             }
             return { ok: true };
@@ -1016,12 +1007,7 @@ function PlaygroundPage() {
       if (opts.isFirstUserMessage) {
         const lastUser = [...opts.historySnapshot].reverse().find((m) => m.role === "user");
         if (lastUser) {
-          await supabase
-            .from("conversations")
-            .update({
-              title: lastUser.content.slice(0, 50),
-            })
-            .eq("id", activeConvo);
+          await chatHistory.setTitle(activeConvo, lastUser.content.slice(0, 50));
           loadConversations();
         }
       }
@@ -1267,17 +1253,12 @@ function PlaygroundPage() {
       // the document in the conversation after a reload, and a silent failure
       // looks exactly like the feature not saving anything.
       if (activeConvo && user) {
-        const { data: savedDoc, error: saveErr } = await supabase
-          .from("messages")
-          .insert({
-            conversation_id: activeConvo,
-            user_id: user.id,
-            role: "assistant",
-            content: `Here's your ${DOC_FORMAT_LABEL[format]} — **${built.filename}**`,
-            metadata: { doc: docMeta } as unknown as Json,
-          })
-          .select("id")
-          .single();
+        const { data: savedDoc, error: saveErr } = await chatHistory.saveMessage({
+          conversation_id: activeConvo,
+          role: "assistant",
+          content: `Here's your ${DOC_FORMAT_LABEL[format]} — **${built.filename}**`,
+          metadata: { doc: docMeta } as unknown as Json,
+        });
         if (savedDoc?.id) dbIdMap.current.set(docId, savedDoc.id);
         if (saveErr) {
           toast.warning("Document built, but not saved to this conversation", {
@@ -1346,10 +1327,7 @@ function PlaygroundPage() {
         // Doc-gen never went through the normal reply path, so a conversation
         // that only ever generated documents stayed titled "New Chat".
         if (isFirstDocMessage) {
-          await supabase
-            .from("conversations")
-            .update({ title: p.slice(0, 50) })
-            .eq("id", activeConvo);
+          await chatHistory.setTitle(activeConvo, p.slice(0, 50));
           loadConversations();
         }
       }
@@ -3067,7 +3045,13 @@ function MessageBubble({
             </div>
           )}
         </div>
-        {isUser ? (
+        {message.unreadable ? (
+          // Stored under a key that is gone (erased, destroyed, refused): the
+          // conversation loads around it and says why (R446).
+          <p className="text-sm italic text-muted-foreground" data-message-unreadable>
+            This message cannot be read: {message.unreadable}
+          </p>
+        ) : isUser ? (
           <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
             {message.content}
           </p>
