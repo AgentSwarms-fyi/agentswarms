@@ -32,7 +32,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
-import { asSentence, openChat, saveChat, type ChatMsg } from "@/lib/swarmChatStore";
+import { asSentence, listChats, openChat, saveChat, type ChatMsg } from "@/lib/swarmChatStore";
 
 type ChatRow = { id: string; title: string; updated_at: string };
 
@@ -115,11 +115,8 @@ export function SwarmChatDialog({
 
   const loadChats = useCallback(async () => {
     if (!swarmId) return;
-    const { data, error: listErr } = await supabase
-      .from("swarm_chats")
-      .select("id, title, updated_at")
-      .eq("swarm_id", swarmId)
-      .order("updated_at", { ascending: false });
+    // Through the server, which opens the sealed titles (R447).
+    const { data, error: listErr } = await listChats(swarmId);
     // A list that could not be read is not an empty one.
     if (listErr) return setChatsError(listErr.message);
     setChatsError(null);
@@ -181,7 +178,7 @@ export function SwarmChatDialog({
   }, [messages, liveText, running]);
 
   const selectChat = async (id: string) => {
-    const opened = await openChat(supabase, id);
+    const opened = await openChat(id);
     // FOUND IN R109. A failed read used to select the conversation anyway,
     // over an empty thread, and the next message saved over the stored
     // transcript. A conversation is entered only once it has been read.
@@ -247,9 +244,8 @@ export function SwarmChatDialog({
   const persist = useCallback(
     async (msgs: ChatMsg[], state: Record<string, string>): Promise<boolean> => {
       if (!user || !swarmId) return false;
-      const saved = await saveChat(supabase, {
+      const saved = await saveChat({
         chatId: chatIdRef.current,
-        userId: user.id,
         swarmId,
         messages: msgs,
         state,
@@ -285,9 +281,8 @@ export function SwarmChatDialog({
     state: Record<string, string>,
   ): Promise<void> => {
     if (!user || !swarmId) return;
-    const saved = await saveChat(supabase, {
+    const saved = await saveChat({
       chatId,
-      userId: user.id,
       swarmId,
       messages: msgs,
       state,

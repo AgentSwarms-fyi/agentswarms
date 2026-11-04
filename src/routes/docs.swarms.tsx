@@ -730,7 +730,8 @@ input ──▶ split ┼──▶ legal analysis ─────┼──▶ me
           <strong>Chat</strong> — a multi-turn conversation with the swarm, saved as you go. A turn
           belongs to the conversation it was sent in: New chat, or opening another conversation,
           stops it and saves what it had there. Closing the dialog lets it finish, and reopening
-          shows it.
+          shows it. The transcript and the state it carries are stored encrypted under your own key,
+          with nothing to set up (<DocLink to="/docs/keys">Keys &amp; encryption</DocLink>).
         </li>
         <li>
           <strong>Traces</strong> — per-node steps with prompts, tool calls, tokens and cost.

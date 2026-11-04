@@ -19,6 +19,8 @@ const h = vi.hoisted(() => ({
   chat: vi.fn(async (_opts: { limit?: number }) => ({
     messages: 0,
     titles: 0,
+    swarmChats: 0,
+    analystThreads: 0,
     unreadable: 0,
     left: false,
     failed: 0,
@@ -418,6 +420,8 @@ describe("the background pass", () => {
       h.chat.mockResolvedValueOnce({
         messages: 12,
         titles: 2,
+        swarmChats: 1,
+        analystThreads: 3,
         unreadable: 0,
         left: false,
         failed: 0,
@@ -426,7 +430,13 @@ describe("the background pass", () => {
       expect(await sweepStoredFiles(true)).not.toBeNull();
       expect(h.audits).toHaveLength(4);
       expect(h.audits[3]).toMatchObject({
-        detail: { trigger: "scheduled", messages_sealed: 12, titles_sealed: 2 },
+        detail: {
+          trigger: "scheduled",
+          messages_sealed: 12,
+          titles_sealed: 2,
+          swarm_chats_sealed: 1,
+          analyst_threads_sealed: 3,
+        },
       });
     } finally {
       delete process.env.STORED_FILES_PER_PASS;

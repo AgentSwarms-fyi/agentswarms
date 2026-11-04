@@ -15,6 +15,36 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-04 — R447: swarm chats and AI Analyst threads under each user's key
+
+The two stores of conversation text R446 found. The real environment as a fresh install has it (no
+customer key, no KMS). The browser pane lost its sign-in between sessions and the user signed in;
+nothing else about the account changed.
+
+| Page / surface | What was driven | Result |
+| --- | --- | --- |
+| Hot deploy; Admin → IAM → Settings → Customer keys | read | The pass that runs at a restart: "Last pass 4 minutes ago (system:kms): 6 files checked (5 documents, 1 dataset copy) · 6 already under it · 8 swarm chats, 27 AI Analyst threads encrypted under their owner's key." No failure. The Stored files text names swarms and AI Analyst, and only datasets' rows and model call traces as not covered |
+| AI Analyst, the Lakehouse analyst | open | Its newest analysis, sealed by that pass ("how many schemas are there · 10/28/2026"), opened in full; none unreadable |
+| **New analysis**: "How many tables does the ontology_sample schema have?" | Ask | One step, TABLE_COUNT 6, "Check passed."; listed in the picker, no "could not be saved" |
+| Reload | | The analysis back in full, from the server |
+| Schedule → **Run now** (no schedule made) | click | "Refreshed — nothing measurable changed"; TABLE_COUNT 6: the server opened the sealed analysis, re-ran its pinned step and sealed the result. After a reload it opens, with "written before a step was re-run" |
+| Follow-up: "And how many rows does ontology_sample.customers have?" | Ask | ROW_COUNT 120, no save warning; after a reload both turns in one thread: the save went over the sealed row, not beside it |
+| Past analyses list | open | Eight titles, all opened, none "Cannot be read" |
+| "Which 10 orders in analytics.revenue_facts …" | select | An older analysis with real result rows, sealed by the pass, opened with its SQL and steps |
+| Swarms → R109 chat echo → Chat | open | Three saved chats, titles opened |
+| "R109 after a failed read" | select | Its six messages, sealed by the pass, read back in full |
+| **New chat**: "R447 turn one", then "R447 turn two" | Send ×2 | Replies shown, no "not saved" line; "R447 turn one" joined the list: a first turn inserted a sealed row, the second updated it |
+| Full reload; Chat; "R447 turn one" | select | The four messages, in order, from the server |
+| App log since the deploy | read | No warning or error |
+
+Not driven live: a swarm chat or an analysis whose key is gone (the only account's key is never
+erased; `swarmChatStore.test.ts` and `threadSealing.test.ts` cover the refusal, "Cannot be read", and
+a next turn not saving over it); a scheduled run on its timer (**Run now** takes the identical path);
+a swarm's flow state beyond the empty one this echo swarm carries (tested).
+
+Fixtures kept: the analysis "How many tables does the ontology_sample schema have?" on the Lakehouse
+analyst, and the swarm chat "R447 turn one" on R109 chat echo. No schedule was made.
+
 ## 2026-11-04 — R446: Agent Chat history under each user's key
 
 The next roadmap item, on the user's "continue with the next item on the roadmap". The real

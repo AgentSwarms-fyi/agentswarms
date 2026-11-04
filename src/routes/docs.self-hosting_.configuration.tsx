@@ -793,8 +793,9 @@ AUDIT_ARCHIVE_ON_PURGE="1"
         one hourly pass encrypts), and so is what agents remember about each user (
         <C>MEMORY_SEAL_PER_PASS</C>, 1000, how many values kept before one hourly pass encrypts). So
         is Agent Chat history (<C>CHAT_SEAL_PER_PASS</C>, 2000, how many chat values kept before one
-        hourly pass encrypts). Swarm and AI Analyst chats and model call traces are not under these
-        keys yet (the design is in <C>docs/KEY_MANAGEMENT.md</C>).
+        hourly pass encrypts). Swarm chats and AI Analyst threads are too, under the same pass.
+        Model call traces are not under these keys yet (the design is in{" "}
+        <C>docs/KEY_MANAGEMENT.md</C>).
       </Callout>
 
       <H3 id="recipe-fleet">Autoscaled behind a load balancer</H3>

@@ -23,6 +23,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { DataKeyUnavailableError } from "@/utils/kms/keyHierarchy.server";
 import { isSealedText, openText, sealText } from "@/utils/providers/crypto.server";
 import type { ChatPass } from "./chatPass";
+import { sealOlderThreads } from "./sealedThreads.server";
 
 export { chatPassDetail, type ChatPass } from "./chatPass";
 
@@ -145,13 +146,23 @@ const PAGE = 200;
 const NO_ID = "00000000-0000-0000-0000-000000000000";
 
 /**
- * Seal Agent Chat history kept before R446: every message (text and metadata)
- * and every title a person wrote or that came from their first message. At
- * most `limit` values; nothing at all before the user-key tables exist. A value
- * is written only if it is still the one that was read.
+ * Seal chat history kept before R446 and R447: every Agent Chat message (text
+ * and metadata), every title a person wrote or that came from their first
+ * message, and every swarm chat and analysis. At most `limit` values; nothing
+ * at all before the user-key tables exist. A value is written only if it is
+ * still the one that was read.
  */
 export async function sealOlderChats(opts: { limit?: number } = {}): Promise<ChatPass> {
-  const r: ChatPass = { messages: 0, titles: 0, unreadable: 0, left: false, failed: 0, errors: [] };
+  const r: ChatPass = {
+    messages: 0,
+    titles: 0,
+    swarmChats: 0,
+    analystThreads: 0,
+    unreadable: 0,
+    left: false,
+    failed: 0,
+    errors: [],
+  };
   let budget = opts.limit ?? Number.POSITIVE_INFINITY;
   const fail = (what: string, e: unknown) => {
     if (e instanceof DataKeyUnavailableError) {
@@ -252,5 +263,8 @@ export async function sealOlderChats(opts: { limit?: number } = {}): Promise<Cha
     }
     if (!data || data.length < PAGE || r.left) break;
   }
+
+  // Swarm chats and AI Analyst threads (R447).
+  await sealOlderThreads(r, budget);
   return r;
 }

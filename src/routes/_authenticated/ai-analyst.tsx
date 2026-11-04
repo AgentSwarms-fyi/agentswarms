@@ -72,6 +72,7 @@ import {
 } from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
+import { saveThread, threadById, threadsOf } from "@/lib/analystThreads";
 import { clickable } from "@/lib/clickable";
 import {
   analystModelsAllowed,
@@ -171,6 +172,8 @@ type ThreadRow = {
   title: string;
   turns: AnalystTurn[];
   updated_at?: string;
+  /** Why it cannot be read, when its key is gone (R447). */
+  unreadable?: string | null;
 };
 
 /** How many past analyses an analyst lists. Enough to find one, not a log. */
@@ -365,21 +368,16 @@ function AiAnalystPage() {
     setThreads([]);
     if (!selectedId) return;
     setThreadLoading(true);
-    supabase
-      .from("ai_analyst_threads")
-      .select("id, analyst_id, title, turns, updated_at")
-      .eq("analyst_id", selectedId)
-      .order("updated_at", { ascending: false })
-      .limit(ANALYST_THREAD_HISTORY)
-      .then(({ data, error }) => {
-        setThreadLoading(false);
-        if (error) return toast.error(error.message);
-        const rows = (data ?? []).map(
-          (r) => ({ ...r, turns: (r.turns ?? []) as AnalystTurn[] }) as ThreadRow,
-        );
-        setThreads(rows);
-        if (rows[0]) setThread(rows[0]);
-      });
+    // Through the server, which opens the sealed analyses (R447).
+    void threadsOf(selectedId, ANALYST_THREAD_HISTORY).then(({ data, error }) => {
+      setThreadLoading(false);
+      if (error) return toast.error(error.message);
+      const rows = (data ?? []).map(
+        (r) => ({ ...r, turns: (r.turns ?? []) as unknown as AnalystTurn[] }) as ThreadRow,
+      );
+      setThreads(rows);
+      if (rows[0]) setThread(rows[0]);
+    });
   }, [selectedId]);
 
   // Keep the newest content in view while a turn streams in.
@@ -470,32 +468,35 @@ function AiAnalystPage() {
   const persistTurns = useCallback(
     async (nextTurns: AnalystTurn[], titleFrom: string) => {
       if (!selected || !user?.id) return;
-      if (thread) {
-        const { error } = await supabase
-          .from("ai_analyst_threads")
-          .update({ turns: nextTurns as never, updated_at: new Date().toISOString() })
-          .eq("id", thread.id);
+      // Sealed by the server (R447). A thread that could not be read is not
+      // saved over: what follows it starts a new one.
+      if (thread && !thread.unreadable && thread.id !== "unsaved") {
+        const { error } = await saveThread({
+          id: thread.id,
+          analyst: selected.id,
+          title: thread.title,
+          turns: nextTurns,
+        });
         if (error) toast.error(`The analysis ran but could not be saved: ${error.message}`);
         const updated = { ...thread, turns: nextTurns };
         setThread(updated);
         setThreads((cur) => cur.map((t) => (t.id === updated.id ? updated : t)));
         return;
       }
-      const { data, error } = await supabase
-        .from("ai_analyst_threads")
-        .insert({
-          analyst_id: selected.id,
-          user_id: user.id,
-          title: titleFrom.slice(0, 80),
-          turns: nextTurns as never,
-        })
-        .select("id, analyst_id, title, turns, updated_at")
-        .single();
-      if (error) {
-        toast.error(`The analysis ran but could not be saved: ${error.message}`);
+      const { data, error } = await saveThread({
+        id: null,
+        analyst: selected.id,
+        title: titleFrom.slice(0, 80),
+        turns: nextTurns,
+      });
+      if (error || !data) {
+        toast.error(`The analysis ran but could not be saved: ${error?.message ?? "no row"}`);
         setThread({ id: "unsaved", analyst_id: selected.id, title: titleFrom, turns: nextTurns });
       } else {
-        const created = { ...data, turns: (data.turns ?? []) as AnalystTurn[] } as ThreadRow;
+        const created = {
+          ...data,
+          turns: (data.turns ?? []) as unknown as AnalystTurn[],
+        } as ThreadRow;
         setThread(created);
         setThreads((cur) => [created, ...cur]);
       }
@@ -963,11 +964,7 @@ function AiAnalystPage() {
    */
   async function reloadThread() {
     if (!thread || thread.id === "unsaved") return;
-    const { data, error } = await supabase
-      .from("ai_analyst_threads")
-      .select("id, analyst_id, title, turns")
-      .eq("id", thread.id)
-      .maybeSingle();
+    const { data, error } = await threadById(thread.id);
     if (error || !data) return;
     setThread({ ...data, turns: (data.turns ?? []) as unknown as AnalystTurn[] } as ThreadRow);
   }
@@ -1263,6 +1260,13 @@ function AiAnalystPage() {
             </div>
 
             <div ref={threadRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+              {thread?.unreadable ? (
+                // Stored under a key that is gone: the page says so, and what
+                // is asked next starts a new analysis (R447).
+                <p className="text-sm italic text-muted-foreground" data-thread-unreadable>
+                  This analysis cannot be read: {thread.unreadable}
+                </p>
+              ) : null}
               {threadLoading ? (
                 <p className="text-xs text-muted-foreground">Loading the last analysis…</p>
               ) : turnsToRender.length === 0 ? (

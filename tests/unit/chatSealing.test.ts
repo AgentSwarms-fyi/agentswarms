@@ -93,7 +93,13 @@ let mem: MemoryKeyStore;
 beforeEach(() => {
   process.env.PROVIDER_CREDS_SECRET = "d".repeat(64);
   process.env.DATA_KEY_CACHE_SECONDS = "0";
-  fake = fakePostgrest({ conversations: [], messages: [], conversation_memory: [] });
+  fake = fakePostgrest({
+    conversations: [],
+    messages: [],
+    conversation_memory: [],
+    swarm_chats: [],
+    ai_analyst_threads: [],
+  });
   h.db = fake.client as never;
   h.turnsSent = [];
   mem = memoryKeyStore();

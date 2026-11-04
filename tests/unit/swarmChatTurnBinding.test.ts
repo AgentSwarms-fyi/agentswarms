@@ -49,7 +49,7 @@ describe("a turn knows where it was sent", () => {
   });
 
   it("saves away without selecting what it saved", () => {
-    expect(SAVE_AWAY).toMatch(/await saveChat\(supabase, \{\s*chatId,/);
+    expect(SAVE_AWAY).toMatch(/await saveChat\(\{\s*chatId,/);
     expect(SAVE_AWAY).not.toMatch(/\bset[A-Z]\w*\(/);
     expect(SAVE_AWAY).not.toContain("chatIdRef.current =");
     expect(SAVE_AWAY).toContain("toast.error(");
@@ -64,7 +64,7 @@ describe("the screen changes", () => {
   });
 
   it("on a switch, only once the conversation has been read", () => {
-    const read = SELECT.indexOf("await openChat(supabase, id);");
+    const read = SELECT.indexOf("await openChat(id);");
     const failed = SELECT.indexOf("if (!opened.ok) {");
     const abort = SELECT.indexOf("abortRef.current?.abort();");
     expect(read).toBeGreaterThan(0);

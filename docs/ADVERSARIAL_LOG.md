@@ -109,6 +109,59 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-04 — R447: swarm chats and AI Analyst threads under each user's key
+
+**What was built.** The two stores of conversation text R446 found. A swarm chat's transcript, flow
+state and title, and an analysis's turns (the question, the SQL, the write-up, samples of the rows
+it read) and title, are sealed by the app under their owner's user key, bound to their row and
+column. Both pages read and wrote these rows from the browser, so they now go through server
+functions acting for the signed-in user on their own rows only. A scheduled analysis opens and
+seals on the server.
+
+**Checked first.** Analyses carry result rows keyed by column names through server functions, and a
+project note said a key named `constructor` makes such a response a 500. If that were still so, R446
+had already shipped the fault: a Visual BI answer's rows travel in chat metadata. Measured against
+the installed seroval 1.6.12 with the calls TanStack's handler and fetcher make
+(`toCrossJSONStream`, `toCrossJSONAsync`, `fromCrossJSON`, `toJSONAsync`, `fromJSON`): `constructor`,
+`toString` and `valueOf` all round-trip. R446 was never at risk. `threadSealing.test.ts` pins the
+round trip, so an upgrade that brings the fault back fails a test rather than a page.
+
+**Attacks considered.**
+
+- *An unreadable transcript treated as an empty one.* This is R109's failure reached a new way: a
+  chat that opens empty is saved over on the next turn. A transcript that does not open is a failed
+  read, so the dialog stays where it was (test; a mutant reading it as empty is caught).
+- *An unreadable analysis saved over.* A follow-up on one starts a new analysis instead (pinned; a
+  mutant saving over it is caught).
+- *Read or save over another user's chat or analysis.* Every function filters by the caller from the
+  token (mutants dropping each filter are caught). Saving an analysis filters twice, on the read and
+  on the update, so removing one alone changes nothing; removing both is caught.
+- *A scheduled run on a key that is gone.* It fails with the reason, which the schedule records, and
+  writes nothing (test).
+- *Move a sealed value onto another row.* Title, transcript, state and turns are each bound to their
+  own row and column (tests; mutants dropping each binding are caught).
+- *The pass double-sealing.* A save of an older analysis seals its turns and title; an older row
+  whose turns alone were sealed is opened before sealing (test; a mutant sealing the sealed form is
+  caught). The pass shares its limit across all the stores (test; caught).
+
+**Found by mutation.** "A transcript not bound to its row" survived the first run: the test moved
+the transcript and the state together, and the state's own binding failed first and hid it. Each is
+now moved alone. Removing the owner filter from one of an analysis save's two queries survives by
+design, as above.
+
+**Proved.**
+
+| Check | Result |
+| --- | --- |
+| `threadSealing.test.ts` (17) | an analysis stored with nothing readable and opened; saved over its own row, an older one's title sealed with it; the caller's alone; a key gone says so and the list loads; moved, it does not open; as before with no user-key tables; a scheduled refresh opens, runs and seals, and fails with the reason when the key is gone; a swarm list's owner filter and unreadable title; the pass (both stores, the starting titles too, no double sealing, the shared limit, a refused owner left, nothing with no tables); neither page reads a thread itself; the `constructor` round trip |
+| `swarmChatStore.test.ts` | every R109 case, now through the server; a transcript stored with nothing readable; one that does not open is an error, never empty, the transcript and the state each bound |
+| `storedFiles.test.ts`, `storedFilesServer.test.ts`, `chatSealing.test.ts`, `customerKeyFunctions.test.ts` | the pass's counts in the same audited row, and the card's line |
+| mutation | 23 of 23 (one after its test was tightened, one with both filters removed), the control survived |
+| UI | UI_TEST_RESULTS, R447: 8 swarm chats and 27 analyses sealed at restart and still read; a new analysis saved, re-run through **Run now**, followed up and reloaded; a new swarm chat saved twice and reloaded |
+
+**Not covered.** Model call traces (next). The notification and email a scheduled analysis leaves.
+Datasets' rows, knowledge-base text. Erasure live.
+
 ### 2026-11-04 — R446: Agent Chat history under each user's key
 
 **What was built.** The roadmap's next item, chat text. Every Agent Chat message (its text and its

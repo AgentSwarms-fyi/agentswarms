@@ -93,6 +93,25 @@ describe("the pass line", () => {
     );
   });
 
+  it("says what chat history the same pass encrypted, and what it left (R446, R447)", () => {
+    expect(
+      storedFilesPassLine({
+        files: 0,
+        documents: 0,
+        copies: 0,
+        messages_sealed: 20,
+        titles_sealed: 1,
+        swarm_chats_sealed: 2,
+        analyst_threads_sealed: 3,
+        chat_unreadable: 1,
+        chat_left: true,
+        chat_failed: 1,
+      }),
+    ).toBe(
+      "0 files checked (0 documents, 0 dataset copies) · 20 chat messages, 1 chat title, 2 swarm chats, 3 AI Analyst threads encrypted under their owner's key · 1 of chat history whose owner's key cannot be had now, left as they are · more chat history left for the next pass · 1 of chat history failed",
+    );
+  });
+
   it("says what agent memory the same pass encrypted, and what it left (R445)", () => {
     expect(
       storedFilesPassLine({

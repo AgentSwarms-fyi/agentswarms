@@ -229,6 +229,15 @@ function BiPage() {
         rows between runs would invent findings — and says so plainly when nothing changed.{" "}
         <strong>Run now</strong> takes the identical path.
       </P>
+      <P>
+        An analysis is stored encrypted under your own key, with nothing to set up: its questions,
+        SQL, write-up and result samples, and its title (
+        <DocLink to="/docs/keys">Keys &amp; encryption</DocLink>). A schedule opens and reseals it
+        on the server. If your key cannot be had, the run fails with the reason and stores nothing,
+        and an analysis that cannot be read says why; what you ask next starts a new one. The
+        notification a schedule leaves, and its email, carry the title and what moved, and are not
+        under your key.
+      </P>
       <H3 id="analyst-sharing">Sharing an analyst</H3>
       <P>
         <strong>Sharing an analyst shares the analyst, not your data access.</strong> Grant it to

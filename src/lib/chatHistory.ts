@@ -17,7 +17,7 @@ import type { Json } from "@/integrations/supabase/types";
 
 type Result<T> = { data: T | null; error: { message: string } | null };
 
-async function withToken<T>(
+export async function withToken<T>(
   run: (accessToken: string) => Promise<({ ok: true } & T) | { ok: false; error: string }>,
 ): Promise<Result<T>> {
   try {

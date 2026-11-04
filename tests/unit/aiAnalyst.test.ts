@@ -1426,8 +1426,8 @@ describe("governed steps — the compiler writes the SQL, not the model", () => 
     const { readFileSync } = await import("node:fs");
     const page = readFileSync("src/routes/_authenticated/ai-analyst.tsx", "utf8");
     // `.limit(1)` meant every earlier analysis was stored and unreachable.
-    expect(page).toContain("limit(ANALYST_THREAD_HISTORY)");
-    expect(page).not.toMatch(/ai_analyst_threads[\s\S]{0,400}\.limit\(1\)/);
+    expect(page).toContain("threadsOf(selectedId, ANALYST_THREAD_HISTORY)");
+    expect(page).not.toMatch(/threadsOf\([^)]*,\s*1\)/);
     // A new analysis joins the list, or the picker goes stale the moment you
     // use it. ("setThreads" alone matched the loader and stayed green.)
     expect(page).toMatch(/setThreads\(\(cur\) => \[created, \.\.\.cur\]\)/);

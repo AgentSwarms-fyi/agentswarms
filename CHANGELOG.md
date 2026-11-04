@@ -96,6 +96,18 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Swarm chats and AI Analyst threads under each user's key** (R447). A swarm
+  chat's transcript, flow state and title, and an analysis's turns (questions,
+  SQL, write-ups, samples of result rows) and title, are now encrypted by the
+  app under their owner's user key, as Agent Chat is. Both pages read and write
+  them through the server, for the signed-in user's own rows only; a scheduled
+  analysis opens and reseals on the server. One that cannot be opened says why
+  and is never saved over: a swarm chat does not open, and what you ask after
+  an unreadable analysis starts a new one. Older rows are encrypted by the same
+  hourly pass and button as chats (`CHAT_SEAL_PER_PASS`). Nothing to set up,
+  and no migration. Not covered yet: model call traces, and the notification a
+  scheduled analysis leaves. See
+  [Key management → Chat history](./docs/KEY_MANAGEMENT.md#chat-history).
 - **Agent Chat history under each user's key** (R446). Every Agent Chat
   message (its text, and its metadata: citations, the knowledge-base passages
   it quotes, a generated document's name and thumbnail) and every

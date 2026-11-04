@@ -129,6 +129,8 @@ beforeEach(async () => {
   // And Agent Chat history (R446).
   t.messages = [];
   t.conversations = [];
+  t.swarm_chats = [];
+  t.ai_analyst_threads = [];
   fake = fakePostgrest(t);
   h.db = fake.client;
   const kek = await importDataKey(crypto.getRandomValues(new Uint8Array(32)));

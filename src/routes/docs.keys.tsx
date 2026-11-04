@@ -111,7 +111,12 @@ function KeysPage() {
             "Encrypted by the app under the user's own key; a generated document's storage path stays readable",
           ],
           [
-            "Swarm and AI Analyst chats, model call traces, knowledge-base text, notebooks, datasets' rows",
+            "Swarm chats (transcript, flow state, title) and AI Analyst threads (questions, SQL, write-ups, samples of result rows, title)",
+            "The database",
+            "Encrypted by the app under the user's own key",
+          ],
+          [
+            "Model call traces, knowledge-base text, notebooks, datasets' rows",
             "The database",
             "The database's own encryption at rest: a managed Postgres encrypts its disks; one you run yourself is as safe as its disk",
           ],
@@ -205,7 +210,7 @@ function KeysPage() {
               ▼
    that user's credentials, secrets and connections,
    the documents chat made for them, their dataset copies,
-   what agents remember about them, their Agent Chat history`}</Diagram>
+   what agents remember about them, their chats and analyses`}</Diagram>
       <UL>
         <li>
           The <strong>deployment key</strong> is the root: derived from <C>PROVIDER_CREDS_SECRET</C>{" "}
@@ -542,8 +547,8 @@ npm run backup`}</Code>
         <li>
           <strong>One person</strong>: <strong>Erase a user&apos;s key</strong> on the Customer keys
           card, then <strong>Erase the key</strong>. Their credentials, connections, secrets,
-          generated documents, dataset copies, what agents remember about them and their Agent Chat
-          history are unreadable at once here, and in every server process within{" "}
+          generated documents, dataset copies, what agents remember about them and their chats and
+          analyses are unreadable at once here, and in every server process within{" "}
           <C>DATA_KEY_CACHE_SECONDS</C> (five minutes by default). Deleting their account does the
           same.
         </li>
@@ -558,8 +563,8 @@ npm run backup`}</Code>
         </li>
       </UL>
       <P>
-        Swarm and AI Analyst chats, and the prompts kept in model call traces, are not under these
-        keys yet: delete them, or the account, for those.
+        The prompts kept in model call traces, and the notifications a scheduled analysis leaves,
+        are not under these keys yet: delete the account for those.
       </P>
 
       <H2 id="mistakes">Mistakes, and what you see</H2>

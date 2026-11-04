@@ -96,6 +96,8 @@ export function storedFilesPassLine(d: Record<string, unknown>): string {
   const chat = [
     n(d.messages_sealed) ? plural(n(d.messages_sealed), "chat message") : null,
     n(d.titles_sealed) ? plural(n(d.titles_sealed), "chat title") : null,
+    n(d.swarm_chats_sealed) ? plural(n(d.swarm_chats_sealed), "swarm chat") : null,
+    n(d.analyst_threads_sealed) ? plural(n(d.analyst_threads_sealed), "AI Analyst thread") : null,
   ].filter(Boolean);
   if (chat.length) parts.push(`${chat.join(", ")} encrypted under their owner's key`);
   if (n(d.chat_unreadable))

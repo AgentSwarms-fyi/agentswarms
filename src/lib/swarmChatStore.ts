@@ -10,13 +10,22 @@
 // chat held only that message and its reply. A save that failed, update or
 // insert, left the turn on screen with nothing said, and it was gone when
 // the conversation was reopened.
-import type { SupabaseClient } from "@supabase/supabase-js";
+//
+// Since R447 these go through the server (src/utils/swarmChats.functions.ts),
+// which seals a transcript under the user's key. Deleting stays in the dialog.
+import { supabase } from "@/integrations/supabase/client";
+import {
+  listSwarmChats,
+  openSwarmChat,
+  saveSwarmChat,
+  type OpenedChat,
+  type SavedChat,
+  type SwarmChatRow,
+} from "@/utils/swarmChats.functions";
 
-import type { Database } from "@/integrations/supabase/types";
+export type { OpenedChat, SavedChat } from "@/utils/swarmChats.functions";
 
 export type ChatMsg = { role: "user" | "assistant"; content: string; ts: number };
-
-type Client = Pick<SupabaseClient<Database>, "from">;
 
 /** An error message as a sentence, so the one after it does not run on. */
 export function asSentence(s: string): string {
@@ -24,70 +33,63 @@ export function asSentence(s: string): string {
   return /[.!?]$/.test(t) ? t : `${t}.`;
 }
 
-export type OpenedChat =
-  | { ok: true; messages: ChatMsg[]; state: Record<string, string> }
-  | { ok: false; error: string; gone: boolean };
-
-/** A conversation's transcript, or why it could not be read. Never an empty stand-in. */
-export async function openChat(sb: Client, id: string): Promise<OpenedChat> {
-  const { data, error } = await sb
-    .from("swarm_chats")
-    .select("messages, state")
-    .eq("id", id)
-    .maybeSingle();
-  if (error) return { ok: false, error: error.message, gone: false };
-  if (!data) return { ok: false, error: "That conversation no longer exists.", gone: true };
-  return {
-    ok: true,
-    messages: ((data.messages as ChatMsg[] | null) ?? []) as ChatMsg[],
-    state: ((data.state as Record<string, string> | null) ?? {}) as Record<string, string>,
-  };
+async function token(): Promise<string | null> {
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token ?? null;
 }
 
-export type SavedChat = { ok: true; id: string } | { ok: false; error: string; gone: boolean };
+const SIGNED_OUT = "You are signed out";
+
+/** The signed-in user's chats with a swarm, newest first. */
+export async function listChats(
+  swarmId: string,
+): Promise<{ data: SwarmChatRow[] | null; error: { message: string } | null }> {
+  try {
+    const t = await token();
+    if (!t) return { data: null, error: { message: SIGNED_OUT } };
+    const r = await listSwarmChats({ data: { access_token: t, swarm_id: swarmId } });
+    return r.ok ? { data: r.chats, error: null } : { data: null, error: { message: r.error } };
+  } catch (e) {
+    return { data: null, error: { message: (e as Error).message } };
+  }
+}
+
+/** A conversation's transcript, or why it could not be read. Never an empty stand-in. */
+export async function openChat(id: string): Promise<OpenedChat> {
+  try {
+    const t = await token();
+    if (!t) return { ok: false, error: SIGNED_OUT, gone: false };
+    return await openSwarmChat({ data: { access_token: t, id } });
+  } catch (e) {
+    return { ok: false, error: (e as Error).message, gone: false };
+  }
+}
 
 /**
  * Save the whole transcript: over the conversation's row when it has one,
- * as a new row when it does not. An update that reaches no row is not a
- * save: the conversation was deleted elsewhere, and saying "saved" would
- * put the turn nowhere.
+ * as a new row when it does not.
  */
-export async function saveChat(
-  sb: Client,
-  args: {
-    chatId: string | null;
-    userId: string;
-    swarmId: string;
-    messages: ChatMsg[];
-    state: Record<string, string>;
-    title: string;
-  },
-): Promise<SavedChat> {
-  if (args.chatId) {
-    const { data, error } = await sb
-      .from("swarm_chats")
-      .update({ messages: args.messages as never, state: args.state as never, title: args.title })
-      .eq("id", args.chatId)
-      .select("id");
-    if (error) return { ok: false, error: error.message, gone: false };
-    if (!data?.length) {
-      return { ok: false, error: "This conversation is no longer in the database.", gone: true };
-    }
-    return { ok: true, id: args.chatId };
+export async function saveChat(args: {
+  chatId: string | null;
+  swarmId: string;
+  messages: ChatMsg[];
+  state: Record<string, string>;
+  title: string;
+}): Promise<SavedChat> {
+  try {
+    const t = await token();
+    if (!t) return { ok: false, error: SIGNED_OUT, gone: false };
+    return await saveSwarmChat({
+      data: {
+        access_token: t,
+        chat_id: args.chatId,
+        swarm_id: args.swarmId,
+        title: args.title,
+        messages: args.messages,
+        state: args.state,
+      },
+    });
+  } catch (e) {
+    return { ok: false, error: (e as Error).message, gone: false };
   }
-  const { data, error } = await sb
-    .from("swarm_chats")
-    .insert({
-      user_id: args.userId,
-      swarm_id: args.swarmId,
-      messages: args.messages as never,
-      state: args.state as never,
-      title: args.title,
-    })
-    .select("id")
-    .single();
-  if (error) return { ok: false, error: error.message, gone: false };
-  if (!data?.id)
-    return { ok: false, error: "The new conversation came back without an id.", gone: false };
-  return { ok: true, id: data.id };
 }

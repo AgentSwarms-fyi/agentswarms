@@ -379,7 +379,7 @@ export async function sweepStoredFiles(force = false): Promise<StoredFilesPass |
   const { chatPassDetail, chatSealPerPass, sealOlderChats } =
     await import("@/utils/chat/sealedChat.server");
   const c = await sealOlderChats({ limit: chatSealPerPass() });
-  const chatChanged = c.messages + c.titles + c.failed;
+  const chatChanged = c.messages + c.titles + c.swarmChats + c.analystThreads + c.failed;
   if (r.sealedNow + r.rebuilt + r.failed + memoryChanged + chatChanged > 0) {
     auditEvent({
       userId: null,

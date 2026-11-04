@@ -18,6 +18,12 @@ import {
   type StepResult,
 } from "@/lib/analystSchedule";
 import { trimTurnForStorage, type AnalystSource, type AnalystTurn } from "@/lib/aiAnalyst";
+import {
+  openAnalystTitle,
+  openAnalystTurns,
+  sealJson,
+  threadWhere,
+} from "@/utils/chat/sealedThreads.server";
 import { computeNextRun, runLocalSqlForUser } from "@/utils/bi/refresh.server";
 
 /** How many schedules one pass will process. */
@@ -82,8 +88,12 @@ export async function refreshAnalysisServer(threadId: string): Promise<{
   if (!analyst) throw new Error("The analyst this analysis belongs to no longer exists");
   const source = analyst.source as AnalystSource;
 
-  const turns = (Array.isArray(thread.turns) ? thread.turns : []) as unknown as AnalystTurn[];
+  // Sealed under the owner's key since R447. One whose key is gone throws
+  // here, and the schedule records why.
+  const opened = await openAnalystTurns<unknown>(thread);
+  const turns = (Array.isArray(opened) ? opened : []) as AnalystTurn[];
   if (turns.length === 0) throw new Error("This analysis has no turns to refresh");
+  const title = await openAnalystTitle(thread);
 
   // The LAST turn is the analysis; earlier ones are its conversation history
   // and re-running them would rewrite answers nobody asked to refresh.
@@ -101,13 +111,17 @@ export async function refreshAnalysisServer(threadId: string): Promise<{
 
   const next = turns.slice();
   next[index] = trimTurnForStorage(after);
+  const stored = await sealJson(next, {
+    owner: thread.user_id,
+    where: threadWhere.analystTurns(threadId),
+  });
   const { error: writeErr } = await supabaseAdmin
     .from("ai_analyst_threads")
-    .update({ turns: next as never, updated_at: new Date().toISOString() })
+    .update({ turns: (stored ?? next) as never, updated_at: new Date().toISOString() })
     .eq("id", threadId);
   if (writeErr) throw new Error(writeErr.message);
 
-  return { userId: thread.user_id, title: thread.title, changes, failures };
+  return { userId: thread.user_id, title, changes, failures };
 }
 
 /** Refresh every due analysis (idempotent, internally throttled). */
