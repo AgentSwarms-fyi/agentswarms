@@ -26,6 +26,15 @@ const h = vi.hoisted(() => ({
     failed: 0,
     errors: [] as string[],
   })),
+  inbox: vi.fn(async (_opts: { limit?: number }) => ({
+    approvals: 0,
+    notifications: 0,
+    unreadable: 0,
+    left: false,
+    needsMigration: false,
+    failed: 0,
+    errors: [] as string[],
+  })),
   runs: vi.fn(async (_opts: { limit?: number }) => ({
     runs: 0,
     steps: 0,
@@ -66,6 +75,10 @@ vi.mock("@/integrations/supabase/client.server", () => ({
 }));
 vi.mock("@/utils/data/parquet.server", () => ({
   refreshDatasetMirror: (args: unknown) => h.refresh(args),
+}));
+vi.mock("@/utils/sealedInbox.server", () => ({
+  sealOlderInbox: (opts: { limit?: number }) => h.inbox(opts),
+  inboxSealPerPass: () => 2000,
 }));
 vi.mock("@/utils/observability/sealedRuns.server", () => ({
   sealOlderRuns: (opts: { limit?: number }) => h.runs(opts),
@@ -493,6 +506,34 @@ describe("the background pass", () => {
       expect(h.audits[5]).toMatchObject({
         detail: { trigger: "scheduled", swarm_runs_sealed: 2, run_steps_sealed: 6 },
       });
+      // And one that sealed only approval requests and notifications.
+      expect(h.inbox).toHaveBeenCalledWith({ limit: 2000 });
+      h.inbox.mockResolvedValueOnce({
+        approvals: 3,
+        notifications: 9,
+        unreadable: 0,
+        left: false,
+        needsMigration: false,
+        failed: 0,
+        errors: [],
+      });
+      expect(await sweepStoredFiles(true)).not.toBeNull();
+      expect(h.audits).toHaveLength(7);
+      expect(h.audits[6]).toMatchObject({
+        detail: { trigger: "scheduled", approvals_sealed: 3, notifications_sealed: 9 },
+      });
+      // Waiting for a migration is not news every hour.
+      h.inbox.mockResolvedValueOnce({
+        approvals: 0,
+        notifications: 0,
+        unreadable: 0,
+        left: false,
+        needsMigration: true,
+        failed: 0,
+        errors: [],
+      });
+      await sweepStoredFiles(true);
+      expect(h.audits).toHaveLength(7);
     } finally {
       delete process.env.STORED_FILES_PER_PASS;
     }

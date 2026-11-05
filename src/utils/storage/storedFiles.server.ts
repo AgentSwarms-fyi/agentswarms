@@ -26,6 +26,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { auditEvent } from "@/utils/audit.server";
 import { DataKeyUnavailableError } from "@/utils/kms/keyHierarchy.server";
 import { KMS_AUDIT_ACTOR } from "@/utils/kms/keyring.server";
+import { inboxPassDetail } from "@/utils/inboxPass";
 import { runPassDetail, tracePassDetail } from "@/utils/observability/tracePass";
 import {
   assertStoredFileKey,
@@ -392,8 +393,12 @@ export async function sweepStoredFiles(force = false): Promise<StoredFilesPass |
   const { sealOlderRuns } = await import("@/utils/observability/sealedRuns.server");
   const p = await sealOlderRuns({ limit: traceSealPerPass() });
   const runsChanged = p.runs + p.steps + p.edges + p.checkpoints + p.failed;
+  // And approval requests and notifications kept before R450.
+  const { inboxSealPerPass, sealOlderInbox } = await import("@/utils/sealedInbox.server");
+  const i = await sealOlderInbox({ limit: inboxSealPerPass() });
+  const inboxChanged = i.approvals + i.notifications + i.failed;
   const changed = r.sealedNow + r.rebuilt + r.failed + memoryChanged + chatChanged;
-  if (changed + tracesChanged + runsChanged > 0) {
+  if (changed + tracesChanged + runsChanged + inboxChanged > 0) {
     auditEvent({
       userId: null,
       actorEmail: KMS_AUDIT_ACTOR,
@@ -407,6 +412,7 @@ export async function sweepStoredFiles(force = false): Promise<StoredFilesPass |
         ...chatPassDetail(c),
         ...tracePassDetail(t),
         ...runPassDetail(p),
+        ...inboxPassDetail(i),
       },
     });
   }
@@ -415,5 +421,6 @@ export async function sweepStoredFiles(force = false): Promise<StoredFilesPass |
   if (c.failed) console.warn(`[chat-history] ${c.failed} failed`, c.errors);
   if (t.failed) console.warn(`[traces] ${t.failed} failed`, t.errors);
   if (p.failed) console.warn(`[swarm-trace] ${p.failed} failed`, p.errors);
+  if (i.failed) console.warn(`[inbox] ${i.failed} failed`, i.errors);
   return r;
 }

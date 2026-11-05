@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { supabase } from "@/integrations/supabase/client";
+import { pendingApprovals } from "@/lib/inboxReads";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
 
@@ -40,6 +41,10 @@ type Approval = {
   action_title: string;
   description: string | null;
   payload: Json;
+  /** Raised without its text: the owner's key could not be had at the time. */
+  body_dropped?: boolean;
+  /** Why its text cannot be read now. */
+  body_unreadable?: string | null;
   risk_level: string;
   status: string;
   created_at: string;
@@ -117,11 +122,9 @@ export function ApprovalInbox() {
       });
 
     const load = async () => {
-      const { data } = await supabase
-        .from("approvals")
-        .select("*")
-        .eq("status", "pending")
-        .order("created_at", { ascending: false });
+      // Through the server: a request's text is sealed under its owner's key
+      // (R450). Row-level security still decides which rows come back.
+      const { data } = await pendingApprovals();
       if (!mounted || !data) return;
       const list = data as Approval[];
       setApprovals(list);
@@ -353,6 +356,23 @@ export function ApprovalInbox() {
                         <Icon className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />
                         <div className="min-w-0">
                           <p className="text-xs font-semibold">{ap.action_title}</p>
+                          {ap.body_unreadable && (
+                            <p
+                              data-approval-unreadable
+                              className="mt-1 text-xs text-amber-600 dark:text-amber-400"
+                            >
+                              This request's text cannot be read: {ap.body_unreadable}
+                            </p>
+                          )}
+                          {ap.body_dropped && (
+                            <p
+                              data-approval-dropped
+                              className="mt-1 text-xs text-amber-600 dark:text-amber-400"
+                            >
+                              Raised without its text, because its owner's key could not be had at
+                              the time.
+                            </p>
+                          )}
                           <p className="text-[11px] text-muted-foreground mt-0.5">
                             {ap.description}
                           </p>

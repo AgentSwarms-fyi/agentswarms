@@ -15,6 +15,37 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-05 — R450: approval requests and notifications under each user's key
+
+What the approvals inbox and the bell show, sealed under the owner's key. The real environment as a
+fresh install has it (no customer key, no KMS). Migrations `20261106000000`, `20261107000000` and
+`20261108000000` were applied by the user during the round, which let both sides of the migration be
+seen.
+
+| Page / surface | What was driven | Result |
+| --- | --- | --- |
+| Hot deploy; any page | read | Pending approvals 126 and 30 unread, as before; the browser made no direct read of either table |
+| The bell | open | Its notifications read through the server, older ones as they were |
+| The swarm "Approval durability check" on the canvas: "R450 Trondheim refund: the customer wants 310 back for a late delivery." | Run | A real run reached its approval; the request was raised through the server, and the live count went 126 → 127 from the realtime event |
+| The inbox | open | The new request's text and its payload, opened; nothing of the sealed form on screen |
+| That request | Approve | The count went back to 126; the canvas run went on and completed |
+| A fixture workflow, "R450 notify", with one Notify step (no notification channel is connected, so nothing left the app) | Run now | The bell showed "R450 Stavanger load finished: 4 tables moved." as a new notification, written sealed and read back |
+| The pass, before the migration | waited for it | Audit Log: "98 notifications encrypted under their owner's key · older approval requests wait for migration 20261108000000". The real trigger refused the payload, the pass recognised it, and nothing failed |
+| The pass, after the user applied the migrations | restart, waited | "131 approval requests encrypted under their owner's key", no failure, and the waiting note gone: the changed trigger let the service role seal a swarm step's payload |
+| The inbox, after it | open | All 126 pending requests, sealed by the pass, read in full, payloads included; none unreadable or marked dropped |
+| Customer keys, Stored files text | read | Names what approval requests and notifications say; "Not covered" names only a dataset's own rows |
+| App log since each deploy | read | No warning or error from a request, a notification or the pass |
+
+Not driven live: an approver who is not the owner (the only account is both; `inboxSealing.test.ts`
+reads as such a caller, through row-level security); a key gone or refused (the only account's key is
+never erased; tested); a server run or a workflow raising a sealed request (no API key or schedule was
+made; the daily probes will raise one on the server; tested); the email to approvers (none routed;
+tested, opened and with the text left out when it cannot be); a channel mirror (none connected;
+tested); a scheduled analysis's own notification, which takes the same path as the one driven.
+
+Fixtures kept: the workflow "R450 notify", and the run "R450 Trondheim refund" on Approval durability
+check. The only approval decided was the one that run raised; the other 126 were not touched.
+
 ## 2026-11-05 — R449: swarm run traces under each user's key
 
 What a run keeps of what was said, sealed under its owner's key. The real environment as a fresh

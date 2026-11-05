@@ -106,6 +106,20 @@ export function storedFilesPassLine(d: Record<string, unknown>): string {
     );
   if (d.chat_left === true) parts.push("more chat history left for the next pass");
   if (n(d.chat_failed)) parts.push(`${n(d.chat_failed)} of chat history failed`);
+  // And approval requests and notifications kept before R450.
+  const inbox = [
+    n(d.approvals_sealed) ? plural(n(d.approvals_sealed), "approval request") : null,
+    n(d.notifications_sealed) ? plural(n(d.notifications_sealed), "notification") : null,
+  ].filter(Boolean);
+  if (inbox.length) parts.push(`${inbox.join(", ")} encrypted under their owner's key`);
+  if (n(d.inbox_unreadable))
+    parts.push(
+      `${n(d.inbox_unreadable)} of approvals and notifications whose owner's key cannot be had now, left as they are`,
+    );
+  if (d.inbox_left === true) parts.push("more approvals and notifications left for the next pass");
+  if (d.approvals_need_migration === true)
+    parts.push("older approval requests wait for migration 20261108000000");
+  if (n(d.inbox_failed)) parts.push(`${n(d.inbox_failed)} of approvals and notifications failed`);
   // And swarm run traces kept before R449.
   const runs = [
     n(d.swarm_runs_sealed) ? plural(n(d.swarm_runs_sealed), "swarm run") : null,

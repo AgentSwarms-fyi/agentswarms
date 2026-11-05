@@ -109,6 +109,79 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-05 — R450: approval requests and notifications under each user's key
+
+**What was built.** What an approval request shows (a swarm step's text, a workflow's message) and
+every notification in the bell is sealed by the app under its owner's user key, bound to its row and
+column. The inbox and the bell read through the server. A canvas run raises its request through the
+server. Older rows are sealed by the same pass.
+
+**What was different about this one.** Everything sealed until now was read by its owner. An approval
+is read by other people. Its text stays under the OWNER'S key and the server opens it for an approver,
+so the question is who may ask. The inbox reads with the caller's own token rather than the service
+role, so row-level security decides exactly as it did and there is no second copy of that rule to fall
+out of step with it. The server opens only the rows that came back.
+
+**Checked first, which shaped the job.**
+
+- `approvals_structural_immutable` refuses any change to a payload, the service role's included,
+  because on a model promotion the payload names what the approval acts on. So the pass could not seal
+  an older request at all. Migration `20261108000000` allows one change: the service role, on a swarm
+  step, from a value not yet sealed to one that is. A promotion's payload is as immutable as it was.
+  Until it runs, the pass recognises the trigger's refusal, says what it is waiting for, and is not a
+  failure.
+- The canvas inserted requests from the browser, which cannot seal. That path now runs under the
+  service role, which bypasses the insert policy, so `raiseSwarmApproval` makes the policy's check
+  itself: the caller's own request, naming only the caller's run, always `pending`.
+- Only `swarm_step` and `workflow_step` hold anyone's words. A promotion's payload is matched by SQL
+  and its text is fixed wording, so sealing it would break it for nothing. A workflow's payload is ids;
+  only its message is sealed.
+
+**Attacks considered.**
+
+- *An approver reads what they should not.* Reads run as the caller; a caller who cannot see a row
+  gets nothing opened (test; a mutant reading past row-level security is caught).
+- *A request names someone else's run, from the new server path.* The check the insert policy made is
+  made here (test; caught). Owner, kind and status are not taken from the browser (test).
+- *A client uses the trigger's new allowance.* It requires the service role, a swarm step, and a move
+  from unsealed to sealed; each condition is pinned (test; mutants dropping each are caught).
+- *A key failure hides a parked run.* A request is the only thing that puts one in front of a person,
+  so it is raised without its text and says so (test; mutants stopping it or keeping the text are
+  caught). A workflow keeps its ids, which it needs.
+- *A key failure swallows an alert.* A notification may be the only sign that something happened, so
+  it is written saying its text was not kept (test; caught).
+- *The sealed form reaches an email.* An email to approvers opens the text, and goes without it when it
+  cannot be opened, rather than send the sealed form (test; caught).
+- *The realtime toast.* The inbox's event carries the sealed row, and its toast reads only the title
+  (test).
+- *A writer around the one way in.* Three schedulers inserted notifications directly; they all go
+  through `storeNotification` now (test; caught).
+- *An unreadable row takes a list down.* One value that does not open costs one row and does not
+  refuse the key for the rest; a key that is gone is asked for once (tests; caught).
+
+**Found by mutation.** 67 of 72 at first. Two survivors were guards that could never run, since the
+pass only ever selects plaintext; they are gone. Two were weak tests: `toMatchObject({ payload: {} })`
+matches anything, and a count used `<=`. One, the pass continuing rather than stopping when there are
+no key tables, changes nothing that can be observed, and was dropped as equivalent.
+
+**Proved on the real database.** Before the migration the real trigger refused, the pass recognised it,
+and the card said "older approval requests wait for migration 20261108000000" beside 98 notifications
+sealed. After the user applied it, 131 older requests were sealed with no failure, and all 126 pending
+ones read back in the inbox.
+
+**Proved.**
+
+| Check | Result |
+| --- | --- |
+| `inboxSealing.test.ts` (57) | a request stored with nothing readable and opened; each column moved alone; a workflow's ids readable; a promotion untouched; a key failure at each write; the inbox as the caller, pending only, no session, a gone key once, one bad value; raising from a canvas run (bound, cut, the run's owner, no session, nothing taken from the browser); the email; what writes a request; a notification (bound, empty body, a key failure, no tables, its id, its lengths, the channel copy, the one way in); the bell; neither page reading a body; the toast; the pass (both, what it leaves, empty values, a workflow's payload, before the migration, each race, the limit, a refused owner, no tables, failed reads and writes); the migration's conditions; the audit detail and the card's line |
+| `storedFilesServer.test.ts`, `customerKeyFunctions.test.ts` | both in the same audited row, with their own limit, from the sweep and the button; waiting for the migration is not an audit row every hour |
+| mutation | 70 of 70 after tightening, the control survived |
+| UI | UI_TEST_RESULTS, R450: a canvas request raised sealed, read and approved; a new notification read back; the pass on both sides of the migration |
+
+**Not covered.** Copies that have left the app: the email to approvers, a scheduled analysis's email,
+and anything mirrored to a channel. A request's title, which is the node's setting. Datasets' rows and
+knowledge-base text. Erasure live.
+
 ### 2026-11-05 — R449: swarm run traces under each user's key
 
 **What was built.** What a run keeps of what was said is sealed by the app under its owner's user key,

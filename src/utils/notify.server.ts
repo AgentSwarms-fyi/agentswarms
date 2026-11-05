@@ -9,6 +9,7 @@
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { resolveIntegrationConfig } from "@/utils/providers/integrationConfig.server";
+import { sealNotification } from "@/utils/sealedInbox.server";
 
 export type UserNotification = {
   title: string;
@@ -18,15 +19,28 @@ export type UserNotification = {
   kind?: string;
 };
 
-export async function notifyUser(userId: string, n: UserNotification): Promise<void> {
-  const { error } = await supabaseAdmin.from("notifications").insert({
-    user_id: userId,
-    kind: n.kind ?? "alert",
+/**
+ * The in-app row, sealed under its owner's key and bound to its id (R450). The
+ * one way a notification is written: it needs no channel to be sealed.
+ */
+export async function storeNotification(userId: string, n: UserNotification): Promise<void> {
+  const id = crypto.randomUUID();
+  const sealed = await sealNotification(userId, id, {
     title: n.title.slice(0, 200),
     body: n.body.slice(0, 2000),
+  });
+  const { error } = await supabaseAdmin.from("notifications").insert({
+    id,
+    user_id: userId,
+    kind: n.kind ?? "alert",
+    ...sealed,
     link: n.link ?? null,
   });
   if (error) console.warn("[notify] in-app insert failed:", error.message);
+}
+
+export async function notifyUser(userId: string, n: UserNotification): Promise<void> {
+  await storeNotification(userId, n);
   await mirrorToChannels(userId, n);
 }
 

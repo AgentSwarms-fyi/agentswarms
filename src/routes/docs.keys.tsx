@@ -126,6 +126,11 @@ function KeysPage() {
             "Encrypted by the app under the user's own key",
           ],
           [
+            "What approval requests and notifications say",
+            "The database",
+            "Encrypted by the app under the user's own key",
+          ],
+          [
             "Knowledge-base text, notebooks, datasets' rows",
             "The database",
             "The database's own encryption at rest: a managed Postgres encrypts its disks; one you run yourself is as safe as its disk",
@@ -573,8 +578,8 @@ npm run backup`}</Code>
         </li>
       </UL>
       <P>
-        The text an approval request shows its approver, and the notifications a scheduled analysis
-        leaves, are not under these keys yet: delete the account for those.
+        Emails and channel messages the app has already sent are copies outside it, so erasing a key
+        does not reach them.
       </P>
 
       <H2 id="mistakes">Mistakes, and what you see</H2>

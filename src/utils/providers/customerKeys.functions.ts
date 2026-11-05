@@ -47,6 +47,7 @@ import {
   type RunPass,
   type TracePass,
 } from "@/utils/observability/tracePass";
+import { inboxPassDetail, type InboxPass } from "@/utils/inboxPass";
 import { customerKeyProvider, keyHierarchy } from "./crypto.server";
 import {
   expectedCustomerKeys,
@@ -722,6 +723,7 @@ export const sealStoredFilesNow = createServerFn({ method: "POST" })
             chat: ChatPass;
             traces: TracePass;
             runs: RunPass;
+            inbox: InboxPass;
           })
       | Fail
     > => {
@@ -741,6 +743,9 @@ export const sealStoredFilesNow = createServerFn({ method: "POST" })
         // And swarm run traces kept before R449.
         const { sealOlderRuns } = await import("@/utils/observability/sealedRuns.server");
         const p = await sealOlderRuns();
+        // And approval requests and notifications kept before R450.
+        const { sealOlderInbox } = await import("@/utils/sealedInbox.server");
+        const i = await sealOlderInbox();
         auditEvent({
           userId: guard.userId,
           actorEmail: guard.email,
@@ -754,9 +759,10 @@ export const sealStoredFilesNow = createServerFn({ method: "POST" })
             ...chatPassDetail(c),
             ...tracePassDetail(t),
             ...runPassDetail(p),
+            ...inboxPassDetail(i),
           },
         });
-        return { ok: true, ...r, memory: m, chat: c, traces: t, runs: p };
+        return { ok: true, ...r, memory: m, chat: c, traces: t, runs: p, inbox: i };
       } catch (e) {
         return { ok: false, error: (e as Error).message };
       }

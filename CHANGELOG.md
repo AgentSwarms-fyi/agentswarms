@@ -16,6 +16,12 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Apply `20261108000000` to seal older approval requests** (R450). An approval's
+  payload cannot be changed once written, so without this the pass leaves older
+  swarm requests as they are, and the Customer keys card says so. It allows one
+  change only: the service role, on a swarm step, from text to its sealed form.
+  New requests and all notifications are sealed without it. It also adds indexes
+  that keep the pass cheap.
 - **Apply `20261107000000` when convenient** (R449). It adds partial indexes for
   the pass that seals older swarm run traces, so the pass stays cheap once they
   are done. Everything works without them, more slowly.
@@ -102,6 +108,16 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Approval requests and notifications under each user's key** (R450). What a
+  swarm or workflow approval shows, and every notification in the bell, is sealed
+  by the app under its owner's user key. Nothing to set up, and nothing stops
+  working. An approval's readers are other users: the inbox reads as the caller, so
+  row-level security still decides who sees what, and the server opens only those
+  rows. A canvas run raises its request through the server now. Neither is lost to
+  a key problem: a request or notification that cannot be sealed is still written,
+  without its text, and says so. Older ones are sealed by the hourly pass
+  (`INBOX_SEAL_PER_PASS`, 2000) and **Encrypt stored files**. Emails and channel
+  messages are copies that have left the app, and are not covered.
 - **Swarm run traces under each user's key** (R449). What a run keeps of what
   was said (its input and output, each step's input, output, thinking, tool calls,
   memory, passages and extractions, what passed along each link, the state of a

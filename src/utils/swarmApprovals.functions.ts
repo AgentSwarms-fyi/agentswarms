@@ -191,6 +191,11 @@ export const notifySwarmApprovers = createServerFn({ method: "POST" })
       const { data: runnerAuth } = await supabaseAdmin.auth.admin.getUserById(approval.user_id);
       const runnerName = runnerProfile?.display_name || runnerAuth.user?.email || "A teammate";
 
+      // Sealed under the owner's key (R450). What the email carries is a copy that
+      // has left the app; if it cannot be opened the email goes without it.
+      const { openApprovalDescription } = await import("@/utils/sealedInbox.server");
+      const description = await openApprovalDescription(approval);
+
       let notified = 0;
       await Promise.all(
         Array.from(recipientIds).map(async (uid) => {
@@ -202,7 +207,7 @@ export const notifySwarmApprovers = createServerFn({ method: "POST" })
             actionTitle: approval.action_title,
             swarmName: approval.agent_name,
             riskLevel: approval.risk_level,
-            description: approval.description ?? "",
+            description,
             appOrigin: data.app_origin,
           });
           const res = await sendMail({

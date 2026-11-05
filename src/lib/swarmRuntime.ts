@@ -18,6 +18,7 @@
 // browser supabase client.
 
 import { supabase } from "@/integrations/supabase/client";
+import { raiseApproval } from "@/lib/inboxReads";
 import { sessionUser } from "@/lib/sessionUser";
 import type { Node, Edge } from "@xyflow/react";
 import { buildUserMessage, invokeAgent, type AgentCard } from "@/lib/a2aClient";
@@ -1193,23 +1194,18 @@ export async function runSwarm(
           const approverGroupIds = Array.isArray(node.data.approverGroupIds)
             ? node.data.approverGroupIds
             : [];
-          const { data: created, error } = await supabase
-            .from("approvals")
-            .insert({
-              user_id: approver.id,
-              agent_name: node.data.label || "Approval gate",
-              agent_avatar: node.data.avatar || "🛡️",
-              action_type: "swarm_step",
-              action_title: node.data.approvalTitle || `Approve step: ${node.data.label}`,
-              description: approvalContent.slice(0, 1000),
-              risk_level: node.data.approvalRisk || "medium",
-              payload: { last_output: approvalContent.slice(0, 4000) },
-              approver_user_ids: approverUserIds,
-              approver_group_ids: approverGroupIds,
-              swarm_run_id: dbRunId ?? null,
-            })
-            .select("id")
-            .single();
+          // Through the server, which seals the step's text under the user's key
+          // and holds the checks the insert policy made (R450).
+          const { data: created, error } = await raiseApproval({
+            runId: dbRunId ?? null,
+            label: node.data.label || "Approval gate",
+            avatar: node.data.avatar || "🛡️",
+            title: node.data.approvalTitle || `Approve step: ${node.data.label}`,
+            risk: node.data.approvalRisk || "medium",
+            content: approvalContent.slice(0, 4000),
+            approverUserIds,
+            approverGroupIds,
+          });
           if (error || !created) throw new Error(error?.message || "Could not create approval");
           // Best-effort: email the targeted approvers (users + group members).
           // Never blocks the run — the in-app approvals bell is the source of

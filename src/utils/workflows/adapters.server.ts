@@ -228,16 +228,24 @@ export async function startNode(args: StartArgs): Promise<StartResult> {
         // The same table the approvals inbox already reads, so a workflow's
         // question arrives where a swarm's does rather than in a new place
         // nobody has learned to check.
+        // Its message is sealed under the owner's key, bound to this id (R450).
+        const approvalId = crypto.randomUUID();
+        const { sealApprovalBody } = await import("@/utils/sealedInbox.server");
+        const body = await sealApprovalBody(userId, approvalId, "workflow_step", {
+          description: text(node, params).slice(0, 1000) || null,
+          payload: { workflow_run_id: args.runId, node_run_id: args.nodeRunId },
+        });
         const { data: approval, error } = await supabaseAdmin
           .from("approvals")
           .insert({
+            id: approvalId,
             user_id: userId,
             agent_name: "Workflow",
             action_type: "workflow_step",
             action_title: node.label || "A workflow is waiting for approval",
-            description: text(node, params).slice(0, 1000) || null,
+            description: body.description,
             risk_level: "medium",
-            payload: { workflow_run_id: args.runId, node_run_id: args.nodeRunId },
+            payload: body.payload,
             approver_user_ids: [userId],
             approver_group_ids: [],
           } as never)

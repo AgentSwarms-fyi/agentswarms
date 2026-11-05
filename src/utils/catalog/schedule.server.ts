@@ -5,6 +5,7 @@
 // for the owning user) and the owner is notified when the crawl detects
 // schema drift — new, removed or changed assets.
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { storeNotification } from "@/utils/notify.server";
 import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.server";
 import {
   loadStorageConfig,
@@ -70,8 +71,7 @@ export async function processDueCatalogCrawls(force = false): Promise<number> {
         );
         const { added, removed, changed } = stats.changes;
         if (added.length + removed.length + changed.length > 0) {
-          await supabaseAdmin.from("notifications").insert({
-            user_id: source.user_id,
+          await storeNotification(source.user_id, {
             kind: "catalog",
             title: `Catalog changes — "${source.name}"`,
             body: describeChanges(stats.changes).slice(0, 800),
@@ -81,8 +81,7 @@ export async function processDueCatalogCrawls(force = false): Promise<number> {
       } catch (e) {
         // A crawl someone started by hand is running; it will report itself.
         if (e instanceof CrawlAlreadyRunning) continue;
-        await supabaseAdmin.from("notifications").insert({
-          user_id: source.user_id,
+        await storeNotification(source.user_id, {
           kind: "error",
           title: `Scheduled catalog crawl failed — "${source.name}"`,
           body: (e as Error).message.slice(0, 500),

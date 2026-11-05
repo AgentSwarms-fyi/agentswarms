@@ -8,6 +8,7 @@
 // why the failure path gets the attention.
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { storeNotification } from "@/utils/notify.server";
 import { decryptJson } from "@/utils/providers/crypto.server";
 import { nextSyncAt, runConnectionSync } from "./sync.server";
 import type { SaasConfig } from "./types";
@@ -62,8 +63,7 @@ async function claim(row: DueRow, nowIso: string): Promise<boolean> {
 }
 
 async function notify(row: DueRow, title: string, body: string): Promise<void> {
-  await supabaseAdmin.from("notifications").insert({
-    user_id: row.user_id,
+  await storeNotification(row.user_id, {
     kind: "error",
     title: title.slice(0, 200),
     body: body.slice(0, 500),

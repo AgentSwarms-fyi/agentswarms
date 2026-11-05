@@ -49,6 +49,7 @@ import { captureCheckpoint, restoreTracker, type SwarmCheckpoint } from "@/lib/s
 import { commitLevelWrites, type StagedWrites, type StateReducer } from "@/lib/swarmGraph";
 import { clearCheckpoint, loadCheckpoint, saveCheckpoint } from "@/utils/swarmCheckpoint.server";
 import { openRunInput } from "@/utils/observability/sealedRuns.server";
+import { sealApprovalBody } from "@/utils/sealedInbox.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { readChatStream, toolNodeEvents } from "@/lib/chatStream";
 import { createServerSwarmTracer } from "@/utils/observability/serverTracer.server";
@@ -234,15 +235,24 @@ async function createApprovalRequest(args: {
     // answer never reaches, so a failed insert was not even the warn this
     // comment promises: the run parked, the inbox stayed empty, and nothing
     // anywhere said why nobody was asked.
+    // Sealed under the run's owner, bound to this id (R450). Never throws: a
+    // request is what puts a parked run in front of a person, so a key that
+    // cannot be had costs it its text, not its being raised.
+    const id = crypto.randomUUID();
+    const body = await sealApprovalBody(args.userId, id, "swarm_step", {
+      description: args.content.slice(0, 1000),
+      payload: { last_output: args.content.slice(0, 4000) },
+    });
     const { error } = await supabaseAdmin.from("approvals").insert({
+      id,
       user_id: args.userId,
       agent_name: d.label || "Approval gate",
       agent_avatar: d.avatar || "🛡️",
       action_type: "swarm_step",
       action_title: d.approvalTitle || `Approve step: ${d.label ?? "step"}`,
-      description: args.content.slice(0, 1000),
+      description: body.description,
       risk_level: d.approvalRisk || "medium",
-      payload: { last_output: args.content.slice(0, 4000) },
+      payload: body.payload,
       approver_user_ids: Array.isArray(d.approverUserIds) ? d.approverUserIds : [],
       approver_group_ids: Array.isArray(d.approverGroupIds) ? d.approverGroupIds : [],
       swarm_run_id: args.runId,

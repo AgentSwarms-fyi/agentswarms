@@ -10,6 +10,7 @@
 // failure cannot tight-loop — the next attempt is a whole interval away.
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { storeNotification } from "@/utils/notify.server";
 import { nextSyncAt, syncKbSource } from "./sync.server";
 
 const MIN_PROCESS_INTERVAL_MS = 60_000;
@@ -50,8 +51,7 @@ async function claim(row: DueRow, nowIso: string): Promise<boolean> {
 
 async function notify(row: DueRow, title: string, body: string): Promise<void> {
   if (!row.user_id) return;
-  await supabaseAdmin.from("notifications").insert({
-    user_id: row.user_id,
+  await storeNotification(row.user_id, {
     kind: "error",
     title: title.slice(0, 200),
     body: body.slice(0, 500),

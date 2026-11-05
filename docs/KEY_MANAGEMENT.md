@@ -23,7 +23,9 @@ members' generated documents and dataset copies
 ([Agent memory](#agent-memory)), their chats with agents and swarms and their
 AI Analyst threads ([Chat history](#chat-history)), what their model calls
 keep ([Model call traces](#model-call-traces)), what their swarm runs keep
-([Swarm run traces](#swarm-run-traces)), and their lakehouse files,
+([Swarm run traces](#swarm-run-traces)), what their approval requests and
+notifications say ([Approval requests and notifications](#approval-requests-and-notifications)),
+and their lakehouse files,
 model artifacts and run staging where the object store can use the key: a key
 in AWS KMS on S3, a key in Cloud KMS on Cloud Storage
 ([Lakehouse files](#lakehouse-files)). Knowledge-base text and datasets' rows
@@ -71,6 +73,7 @@ optional parts are worth it.
 | Swarm chats (transcript, flow state, title) and AI Analyst threads (questions, SQL, write-ups, samples of result rows, title)                                                                                 | The database                               | Encrypted by the app under the user's own key                                                                                                                                                                                        |
 | Model call traces: the prompt, messages, tool calls and reply                                                                                                                                                 | The database                               | Encrypted by the app under the user's own key                                                                                                                                                                                        |
 | Swarm run traces: input and output, each step's text and tool calls, parked runs' state                                                                                                                       | The database                               | Encrypted by the app under the user's own key                                                                                                                                                                                        |
+| What approval requests and notifications say                                                                                                                                                                  | The database                               | Encrypted by the app under the user's own key                                                                                                                                                                                        |
 | Lakehouse tables, model artifacts, the rows a run stages                                                                                                                                                      | The object store                           | The store's own encryption: AWS S3 and Cloud Storage encrypt every object with keys they manage; the bundled SILO (a MinIO fork) and MinIO write files as they are, unless their encryption is configured or their disk is encrypted |
 | Knowledge-base text, notebooks, datasets' rows, and the rest of the database                                                                                                                                  | The database                               | The database's own encryption at rest: a managed Postgres (Supabase's hosted service, RDS, Cloud SQL) encrypts its disks; a database you run yourself is as safe as the disk it is on                                                |
 
@@ -401,9 +404,8 @@ destroy it.
   customer's own KMS, **deleted in that KMS**, makes those backups unreadable
   too ([What erasure covers](#what-erasure-covers-and-what-it-does-not)).
 
-The text an approval request shows its approver, and the notifications a
-scheduled analysis leaves, are not under these keys yet, so erasing a key does
-not make them unreadable; delete the account for that.
+Emails and channel messages the app has already sent are copies outside it, so
+erasing a key does not reach them.
 
 ### Mistakes, and what you see
 
@@ -1540,8 +1542,9 @@ What it does not cover:
   [Model call traces](#model-call-traces).
 - **What a swarm run keeps** is too, from R449: see
   [Swarm run traces](#swarm-run-traces).
-- **Notifications** a scheduled analysis leaves: its title and what moved, in
-  the notification and in the email if you asked for one.
+- **What a scheduled analysis leaves** is too, from R450: see
+  [Approval requests and notifications](#approval-requests-and-notifications).
+  The email it sends, if you asked for one, is a copy outside the app.
 - A message's role and time, which conversation it is in, and a
   conversation's agent, swarm or analyst and times.
 - A **backup** taken before, as [above](#what-erasure-covers-and-what-it-does-not).
@@ -1679,11 +1682,68 @@ export carries figures and error messages only.
 
 What it does not cover:
 
-- The **approval request** a parked run raises: up to 4,000 characters of what the
-  step produced, for its approvers. Those are other users, reading directly, so
-  this needs its own change, and is noted as the next item with the notifications
-  a scheduled analysis leaves.
+- The **approval request** a parked run raises is covered from R450: see
+  [Approval requests and notifications](#approval-requests-and-notifications).
 - A swarm's **definition**, the graph snapshot and the figures above.
+- A **backup** taken before, as [above](#what-erasure-covers-and-what-it-does-not).
+
+### Approval requests and notifications
+
+Since R450 what these two say is encrypted by the app under its owner's user key:
+
+- an **approval request**: what the step before it produced, up to 4,000
+  characters, for a swarm; the message, for a workflow;
+- a **notification** in the bell: its title and text, whatever raised it. That is
+  a scheduled analysis, a BI alert, a data monitor, a pipeline, a model, a sync.
+
+**Nothing to set up, and nothing stops working.** The approvals inbox and the bell
+read through the server, which opens them.
+
+An approval is different from everything else here, because **the people reading
+it are not its owner**. Its text stays under the owner's key: the server opens it
+for an approver, after the database's row-level security has said they may see the
+row. The server reads as the caller, so those rules decide, exactly as they did.
+If the owner's key is erased, destroyed or revoked, the approver cannot read it
+either: they see its title and why, and can still decide.
+
+What stays readable:
+
+- an approval's title (the node's own setting), status, risk, who it is routed to,
+  and a workflow's or a model promotion's ids, which the app acts on;
+- a model promotion's text, which is fixed wording with no one's words in it;
+- a notification's kind, link and times.
+
+How it behaves:
+
+- **Neither is lost to a key problem.** A request is the only thing that puts a
+  parked run in front of a person, and a notification may be the only sign that
+  something happened. So each is written without its text, and says so: "Raised
+  without its text", and "A notification could not be kept". Nothing is left in the
+  clear, and nothing goes under another key.
+- One that cannot be opened later says why, in its own place, and the rest of the
+  list loads.
+- What was kept **before** R450 is plaintext, and read as it is. The stored-files
+  pass seals it: every hour, at most `INBOX_SEAL_PER_PASS` values (2000 by default),
+  and all of it with **Encrypt stored files**, in the same
+  `security.stored_files.seal` row.
+- **Older swarm requests need migration `20261108000000`.** An approval's payload
+  cannot be changed once it is written, by anyone, because on a model promotion it
+  names what the approval acts on. The migration allows one change only: the service
+  role, on a swarm step, from text to its sealed form. Until it is applied those
+  older requests stay as they are, and the Customer keys card says so; new ones are
+  sealed when they are raised.
+- Before the user-key tables exist, both are stored as they always were.
+
+| Setting               | Default | What it is                                                                                   |
+| --------------------- | ------- | -------------------------------------------------------------------------------------------- |
+| `INBOX_SEAL_PER_PASS` | 2000    | Older approval requests and notifications one background pass encrypts; the button has none. |
+
+What it does not cover:
+
+- **Copies that have left the app.** The email to approvers and the email a
+  scheduled analysis sends, and anything mirrored to a Slack, Teams or Discord
+  channel, are sent in the clear, as a message is. Erasing a key does not reach them.
+- The title of a request, and the figures above.
 - A **backup** taken before, as [above](#what-erasure-covers-and-what-it-does-not).
 
 ## Data beyond credentials (design)
@@ -1692,9 +1752,10 @@ What it does not cover:
 copies (R441), model artifacts and run staging on S3 (R442), all of these on
 Cloud Storage under Cloud KMS keys (R443), agent memory (R445), Agent Chat
 history (R446), swarm chats and AI Analyst threads (R447), model call traces
-(R448), and swarm run traces (R449) are built, above; the rest is designed, not
-built.** The app encrypts credentials, generated documents, dataset copies, agent
-memory, chat history and both kinds of trace itself. The rest of the data a
+(R448), swarm run traces (R449), and approval requests and notifications (R450)
+are built, above; the rest is designed, not built.** The app encrypts credentials,
+generated documents, dataset copies, agent memory, chat history, both kinds of
+trace, approval requests and notifications itself. The rest of the data a
 customer's users bring and make is stored in places the app does not encrypt
 today: Postgres rows (knowledge-base documents and chunks, notebooks, BI
 definitions, uploaded datasets' rows) and
@@ -1710,6 +1771,7 @@ store needs its own scheme, under the same customer key:
 | Notebook source                                                       | Postgres text and JSON columns                                                         | As Agent Chat: the browser's reads and writes moved behind the server, which seals them.                                                                                                                                                                                                    | —                                                                                                                                 |
 | Model call traces (prompts, requests, responses)                      | Postgres (`execution_traces`)                                                          | **Built (R448):** sealed by the app under the owner's user key. The figures budgets and the reprice sweep read stay readable; the request payload's other keys are sealed, a new one included. The Traces page and the Agent Chat panel read through the server; nothing else reads a body. | The OpenTelemetry export would carry opened text to the collector, as it does today.                                              |
 | Swarm run traces (inputs, outputs, step text, tool calls, flow state) | Postgres (`swarm_runs`, `swarm_run_steps`, `swarm_run_edges`, `swarm_run_checkpoints`) | **Built (R449):** sealed by the app under the owner's user key. The figures and statuses stay readable, and so does the graph snapshot, which is the swarm's definition. Swarm Traces and Quality trends read through the server.                                                           | The OpenTelemetry export would carry opened text to the collector, as it does today.                                              |
+| Approval requests, notifications                                      | Postgres (`approvals`, `notifications`)                                                | **Built (R450):** sealed by the app under the owner's user key. An approval's approvers are other users: the server opens it for whoever row-level security lets see the row.                                                                                                               | The OpenTelemetry export would carry opened text to the collector, as it does today.                                              |
 | Agent memory (long-term items, conversation summaries, scratchpads)   | Postgres                                                                               | **Built (R445):** sealed by the app under the owner's user key; recall matches keyed hashes of the words (a blind index) ([Agent memory](#agent-memory)).                                                                                                                                   | Which of one user's items share a word is visible to someone who can read the database.                                           |
 | Knowledge-base documents and chunks                                   | Postgres (`kb_chunks`, its text) and the vector store                                  | The chunk text encrypted as above; the embeddings left in clear, since search needs them, and stated as such (an embedding reveals something about its text). Or a vector store per customer.                                                                                               | Keyword search over chunk text (Postgres full text) stops working unless it moves to the server; embeddings are a known residual. |
 | Lakehouse tables                                                      | The object store (SILO, MinIO, S3, Azure Blob, GCS)                                    | The store's own server-side encryption under the customer's KMS key. **Built for S3 (R440) and Cloud Storage (R443):** SSE-KMS, or CMEK, the key passed per request. Azure Blob: not a lakehouse store.                                                                                     | SILO and MinIO need their KMS integration (MinIO KES) configured.                                                                 |
@@ -1784,8 +1846,14 @@ for an `Idempotency-Key`. Two pages read it from the browser, the run page and
 Quality trends, so both moved behind the server. A checkpoint is not treated as
 a trace: a run resumes from it, so it is not written rather than written without
 its text. Reading what a run leaves found one more store, the text an approval
-request shows, which other users read directly; it is the next item, with
-datasets' rows and knowledge-base text.
+request shows, which other users read directly.
+
+Approval requests and notifications followed (R450, 2026-11-05). An approval was
+the first text read by someone other than its owner, so the inbox reads as the
+caller and row-level security still decides, and the server opens what it allows.
+The canvas raised requests from the browser, so that moved behind the server too,
+making the checks the insert policy made. Still to do: datasets' rows, and
+knowledge-base text.
 
 ---
 

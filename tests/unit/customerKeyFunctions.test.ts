@@ -136,6 +136,8 @@ beforeEach(async () => {
   t.swarm_run_steps = [];
   t.swarm_run_edges = [];
   t.swarm_run_checkpoints = [];
+  t.approvals = [];
+  t.notifications = [];
   fake = fakePostgrest(t);
   h.db = fake.client;
   const kek = await importDataKey(crypto.getRandomValues(new Uint8Array(32)));
@@ -534,6 +536,22 @@ describe("Encrypt stored files (R441)", () => {
     ]);
     expect(h.audits[0]!.detail).not.toHaveProperty("memory_failed");
     expect(h.audits[0]!.detail).not.toHaveProperty("chat_failed");
+  });
+
+  it("seals approval requests and notifications too, in the same audited row", async () => {
+    fake.tables.notifications.push({
+      id: "77777777-7777-4777-8777-777777777777",
+      user_id: ALICE,
+      title: "The Halvard renewal",
+      body: "Renewed",
+    });
+    const r = ok(await sealStoredFilesNow({ data: { access_token: T } }));
+    expect(r.inbox).toMatchObject({ notifications: 1, failed: 0 });
+    expect(JSON.stringify(fake.tables.notifications)).not.toMatch(/Halvard|Renewed/);
+    expect(h.audits.at(-1)).toMatchObject({
+      action: "security.stored_files.seal",
+      detail: { trigger: "Encrypt stored files", notifications_sealed: 1 },
+    });
   });
 
   it("seals swarm run traces too, in the same audited row", async () => {

@@ -12,6 +12,7 @@ import { BellRing, CheckCheck, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { supabase } from "@/integrations/supabase/client";
+import { myNotifications } from "@/lib/inboxReads";
 import { cn } from "@/lib/utils";
 
 type Notification = {
@@ -44,11 +45,9 @@ export function NotificationBell() {
   const [open, setOpen] = useState(false);
 
   const load = useCallback(async () => {
-    const { data } = await supabase
-      .from("notifications")
-      .select("id, kind, title, body, link, read_at, created_at")
-      .order("created_at", { ascending: false })
-      .limit(30);
+    // Through the server: a notification's text is sealed under the user's key
+    // (R450). Marking and clearing stay here: they read nothing.
+    const { data } = await myNotifications();
     if (data) setItems(data);
   }, []);
 

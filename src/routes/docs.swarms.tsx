@@ -265,6 +265,12 @@ function SwarmsPage() {
         a second, from another tab or another approver, is told it was already decided.
       </Callout>
 
+      <P>
+        What an approval request shows is stored encrypted under the key of whoever ran the swarm.
+        Its approvers read it through the server, so they see it as before. If that key is gone they
+        see the request&apos;s title and why its text cannot be read, and can still decide.
+      </P>
+
       <H3 id="n-evaluate">evaluate</H3>
       <P>LLM-as-a-judge scoring. Five metrics ship enabled, with these default weights:</P>
       <Table
