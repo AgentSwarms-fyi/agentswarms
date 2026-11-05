@@ -114,6 +114,11 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Hide the BI Agent and SQL Chat panel in the Workbench.** A button in the SQL
+  Editor's title row hides the panel and gives its width to the editor, and shows it
+  again. The choice is kept per browser. A chat in progress and a half-typed question
+  survive being hidden. While hidden, the page makes no model call for suggested
+  questions, and opening the panel loads them.
 - **A dataset can say its rows go through the server** (R452). A dataset is marked
   when rows are written for an owner under a customer key, and the browser then
   reads and saves that dataset's rows through the server, which holds the key, and

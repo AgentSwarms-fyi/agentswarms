@@ -2,7 +2,7 @@
 // 3-pane layout: Database Explorer · SQL Editor (light) + Results · Agent Chat
 import { createFileRoute } from "@tanstack/react-router";
 import { summarizeTablesForPrompt } from "@/lib/sqlSchemaSummary";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -43,6 +43,8 @@ import {
   BookOpen,
   BarChart3,
   Plus,
+  PanelRightClose,
+  PanelRightOpen,
   Server,
   Table2,
 } from "lucide-react";
@@ -109,6 +111,7 @@ import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import { useBiModelPref } from "@/components/bi/biModelPref";
 import type { BiWidgetSource } from "@/lib/biDashboards";
 import { SuggestedQuestions } from "@/components/data-sql/SuggestedQuestions";
+import { readAgentPanelOpen, writeAgentPanelOpen } from "@/lib/workbenchPanel";
 import { SemanticLayerEditor } from "@/components/data-sql/SemanticLayerEditor";
 import { CatalogView } from "@/components/catalog/CatalogView";
 import { extractTableRefs } from "@/lib/dataCatalog";
@@ -346,6 +349,20 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
 
   // BI Agent state
   const [rightTab, setRightTab] = useState<"sql" | "bi">("bi");
+  // The panel can be hidden, and the choice is kept per browser. Read after mount:
+  // the server renders this page open, and a class that differs from the server's
+  // HTML is not applied on hydration, so reading it in useState would leave the
+  // panel showing with the toggle saying it was hidden. It stays mounted while
+  // hidden, so a chat in progress, its scroll and a half-typed question survive.
+  const [agentPanelOpen, setAgentPanelOpen] = useState(true);
+  useLayoutEffect(() => {
+    setAgentPanelOpen(readAgentPanelOpen());
+  }, []);
+  const toggleAgentPanel = () => {
+    const next = !agentPanelOpen;
+    setAgentPanelOpen(next);
+    writeAgentPanelOpen(next);
+  };
   const [biTurns, setBiTurns] = useState<BiTurn[]>([]);
   const [biInput, setBiInput] = useState("");
   const [biBusy, setBiBusy] = useState(false);
@@ -951,12 +968,19 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
     setSuggestions([]);
   }, [dataSource]);
 
+  // A model call, so not while the panel that shows the chips is hidden: someone
+  // who hid it should not pay for questions they cannot see. Opening it loads them.
   useEffect(() => {
-    if (suggestionDatasets.length > 0 && suggestions.length === 0 && !suggestionsLoading) {
+    if (
+      agentPanelOpen &&
+      suggestionDatasets.length > 0 &&
+      suggestions.length === 0 &&
+      !suggestionsLoading
+    ) {
       void refreshSuggestions();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [suggestionDatasets.length, suggestions.length]);
+  }, [agentPanelOpen, suggestionDatasets.length, suggestions.length]);
 
   async function handleBiSend(question?: string) {
     const q = (question ?? biInput).trim();
@@ -1328,7 +1352,7 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
             the dataset badge truncate, and `shrink-0` keeps the buttons intact.
           */}
           <div className="px-4 py-2.5 border-b border-slate-200 bg-white dark:border-border dark:bg-card flex flex-wrap items-center justify-between gap-y-2">
-            <div className="flex items-center gap-2 min-w-0">
+            <div className="flex items-center gap-2 min-w-0 flex-auto">
               <div className="h-6 w-6 shrink-0 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center">
                 <Wand2 className="h-3 w-3 text-primary" />
               </div>
@@ -1343,6 +1367,28 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
                   {activeDataset.name}
                 </Badge>
               )}
+              {/* In the title row, which always has room: the group of controls wraps
+                  on a narrow window, and a row of its own would come out of the editor. */}
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={toggleAgentPanel}
+                aria-expanded={agentPanelOpen}
+                aria-controls="workbench-agent-panel"
+                aria-label={
+                  agentPanelOpen ? "Hide BI Agent and SQL Chat" : "Show BI Agent and SQL Chat"
+                }
+                title={agentPanelOpen ? "Hide BI Agent and SQL Chat" : "Show BI Agent and SQL Chat"}
+                className="ml-auto h-7 shrink-0 px-1.5 text-xs text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-foreground dark:hover:text-foreground dark:hover:bg-accent"
+              >
+                {agentPanelOpen ? (
+                  <PanelRightClose className="h-3.5 w-3.5" />
+                ) : (
+                  <>
+                    <PanelRightOpen className="h-3.5 w-3.5 mr-1.5" /> BI Agent
+                  </>
+                )}
+              </Button>
             </div>
             {/*
               This group wraps INTERNALLY. `shrink-0` here was what kept it at
@@ -1519,8 +1565,8 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
                   Press{" "}
                   <kbd className="mx-1 rounded border border-border bg-accent px-1.5 py-0.5 text-foreground shadow-sm">
                     Run Query
-                  </kbd>{" "}
-                  or ask the BI agent →
+                  </kbd>
+                  {agentPanelOpen ? " or ask the BI agent →" : ""}
                 </div>
               </div>
             ) : result.row_count === 0 ? (
@@ -1569,7 +1615,12 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
       </main>
 
       {/* ── Right: Agent panel (BI + SQL chat tabs) ─────────────── */}
-      <aside className="w-[26rem] shrink-0 border-l border-slate-200 bg-white dark:border-border dark:bg-card flex flex-col">
+      <aside
+        id="workbench-agent-panel"
+        className={`w-[26rem] shrink-0 border-l border-slate-200 bg-white dark:border-border dark:bg-card flex-col ${
+          agentPanelOpen ? "flex" : "hidden"
+        }`}
+      >
         <Tabs
           value={rightTab}
           onValueChange={(v) => setRightTab(v as "sql" | "bi")}

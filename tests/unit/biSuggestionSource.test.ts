@@ -53,7 +53,7 @@ describe("suggestions and answers read the same tables", () => {
   });
 
   it("and refetches whenever the list it should describe changes", () => {
-    expect(PAGE).toMatch(/\[suggestionDatasets\.length, suggestions\.length\]/);
+    expect(PAGE).toMatch(/\[agentPanelOpen, suggestionDatasets\.length, suggestions\.length\]/);
     expect(PAGE, "the refetch still keys off the local dataset count").not.toMatch(
       /\}, \[datasets\.length\]\);/,
     );

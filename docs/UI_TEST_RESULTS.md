@@ -15,6 +15,27 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-06 — Hide the BI Agent and SQL Chat panel in the Workbench
+
+Asked for by the user from a screenshot of the Workbench. Driven on the deployed build.
+
+| Page / surface | What was driven | Result |
+| --- | --- | --- |
+| Workbench, panel showing, 1235 wide | read | Button "Hide BI Agent and SQL Chat", `aria-expanded` true; editor column 307 px, panel 416 px |
+| Type a question into the panel, unsent; press the button | click | Panel `display: none` and still mounted; editor column 723 px; the draft kept; the button now reads "BI Agent" |
+| Reload | read | Still hidden, and the load made no `/api/bi` call: no suggestions asked for while nobody can see them |
+| Run a query with the panel hidden | click | `SUM(amount)` over `r452_default`: APAC 80, EMEA 165 |
+| Press **BI Agent** | click | Panel back; `/api/bi` called once and the suggestion chips appear; the query's result still on screen |
+| Empty results, panel hidden | read | "Press Run Query", with no "or ask the BI agent →" pointing at nothing |
+| 1100 wide, panel showing | measured | The button is reachable in the title row, 16 px clear of the panel; Run Query clear of it too, and disabled only because the editor was empty |
+| Console | read | No hydration error |
+
+Two things the first version got wrong, seen only in the browser. The button sat after Run Query, and at
+1100 wide the controls stack, so it took a row of its own from the editor. It is in the title row now.
+The empty-results hint still pointed at the hidden panel.
+
+No fixture. The panel was left showing, as it was found.
+
 ## 2026-11-05 — R452: a dataset that says its rows go through the server
 
 **The new path was not driven live.** It only runs for an account under a customer key, and this
