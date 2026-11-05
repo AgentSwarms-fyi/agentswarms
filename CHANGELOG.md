@@ -16,6 +16,12 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Apply `20261109000000` before putting anyone under a customer key** (R452). It
+  adds `user_data_tables.rows_sealed`, off by default. Either order with the build
+  is safe, and nobody's reads depend on it until they are under a customer key. If
+  it has not run when such a user writes rows, the write still succeeds, the dataset
+  stays on the direct path, and the log says `[dataset-rows] ... was not marked`.
+  Nothing is encrypted by this yet; the next round needs it.
 - **Apply `20261108000000` to seal older approval requests** (R450). An approval's
   payload cannot be changed once written, so without this the pass leaves older
   swarm requests as they are, and the Customer keys card says so. It allows one
@@ -108,6 +114,13 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **A dataset can say its rows go through the server** (R452). A dataset is marked
+  when rows are written for an owner under a customer key, and the browser then
+  reads and saves that dataset's rows through the server, which holds the key, and
+  not directly. A grantee reads through the same filter and mask, and a grant is
+  checked before the rows are read. Users with no customer key are not touched:
+  same direct reads, no new column read or written. Nothing is encrypted yet: this
+  is the second of three rounds, and the third does the sealing.
 - **One path for a dataset's rows on the server** (R451). Every server read and
   write of `user_data_rows` goes through `data/datasetRows.server`, in place of the
   same calls written out at each of ten files, and a test holds new code to it. No

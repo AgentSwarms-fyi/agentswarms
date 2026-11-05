@@ -22,6 +22,12 @@
 
 import Papa from "papaparse";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  datasetWindow,
+  savesGoThroughServer,
+  sharedDatasetRows,
+  writeRowsThroughServer,
+} from "@/lib/datasetRowReads";
 import type { Json } from "@/integrations/supabase/types";
 import { sessionUser } from "@/lib/sessionUser";
 import { selectAllWindows } from "@/lib/pagedSelect";
@@ -188,7 +194,9 @@ async function hydrateFromSupabaseUncoordinated(): Promise<DatasetMeta[]> {
 
   const { data: tables, error } = await supabase
     .from("user_data_tables")
-    .select("id, name, source_filename, columns, is_sample, user_id, data_loaded_at, parquet_bytes")
+    // Every column, not a list: `rows_sealed` arrives with a migration, and naming
+    // it here would fail this read, and every page on it, until that has run.
+    .select("*")
     // An upload in flight owns a staging dataset until it is promoted; showing
     // it would put a half-written table in the picker.
     .not("name", "like", `${STAGING_PREFIX}%`)
@@ -237,11 +245,15 @@ async function hydrateFromSupabaseUncoordinated(): Promise<DatasetMeta[]> {
     user_id: string | null;
     data_loaded_at: string | null;
     parquet_bytes: number | null;
+    rows_sealed?: boolean;
   }): Promise<DatasetMeta> {
     const cols = (Array.isArray(t.columns) ? t.columns : []) as ColumnDef[];
     const shared = !t.is_sample && !!myId && t.user_id !== myId;
+    // Rows of a user under a customer key come through the server, which holds
+    // the key (R452). The browser holds none, so it cannot read them itself.
+    const throughServer = t.rows_sealed === true;
     if (shared) {
-      const rows = await loadShared(t.id);
+      const rows = throughServer ? await sharedDatasetRows(t.id) : await loadShared(t.id);
       await registerTable(t.name, rows, cols);
       // Report the columns actually present after masking, so pickers and
       // the AI never offer a column the viewer cannot see.
@@ -275,6 +287,7 @@ async function hydrateFromSupabaseUncoordinated(): Promise<DatasetMeta[]> {
         return count ?? 0;
       },
       fetchWindow: async (from, size) => {
+        if (throughServer) return datasetWindow(t.id, from, size);
         const { data, error } = await supabase
           .from("user_data_rows")
           .select("row")
@@ -414,7 +427,14 @@ export async function saveDataset(args: {
 
   // Insert rows in batches of 500 to stay under request size limits.
   const BATCH = 500;
+  // The rows of a user under a customer key go through the server, which holds
+  // the key (R452). Everyone else's are written here, as they always were.
+  const throughServer = await savesGoThroughServer();
   for (let i = 0; i < args.rows.length; i += BATCH) {
+    if (throughServer) {
+      await writeRowsThroughServer(tableId, args.rows.slice(i, i + BATCH));
+      continue;
+    }
     const slice = args.rows.slice(i, i + BATCH).map((row) => ({
       table_id: tableId,
       // Parsed cells: text, numbers, booleans and nulls, JSON as they are.

@@ -225,7 +225,7 @@ export async function restoreDatasetVersion(args: {
   const { error: delErr } = await clearDatasetRows(version.table_id);
   if (delErr) throw new Error(delErr.message);
 
-  const { error: insErr } = await insertDatasetRows(version.table_id, rows);
+  const { error: insErr } = await insertDatasetRows(version.table_id, args.userId, rows);
   if (insErr) throw new Error(insErr.message);
 
   // The schema travels with the rows — restoring 2020's rows under 2026's

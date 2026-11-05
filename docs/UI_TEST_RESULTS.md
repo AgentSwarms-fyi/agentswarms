@@ -15,6 +15,37 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-05 — R452: a dataset that says its rows go through the server
+
+**The new path was not driven live.** It only runs for an account under a customer key, and this
+account was not under one: the Customer keys card, read from a freshly loaded page, still said
+"0 under a customer key" and "Nobody is assigned yet" for R438 Acme at the end of the round, and the
+Audit Log had no assign entry for it. The user chose to finish with it tested below the browser and to
+drive it in R453, which needs the assignment too. Whether migration `20261109000000` has been applied is
+unconfirmed as well: nothing on the default path uses the column, and the browser pane cannot show the
+database's requests. Check it first in R453.
+
+What was driven is the promise to everyone else, on the deployed build:
+
+| Page / surface | What was driven | Result |
+| --- | --- | --- |
+| Data Catalog, on opening | measured | The list reads `select=*`; 99 direct row reads, none of the four new server functions; no error |
+| Workbench → **Upload data**: `r452_default.csv`, three rows | Create dataset | "3 rows · 2 columns": a server write with the owner's lookup, and nothing about marking in the log |
+| The same, `r452_sealed.csv`, four rows | Create dataset | "4 rows · 2 columns". Not marked, despite its name: it was uploaded expecting the account to be under a key |
+| Data preparation → flow `r452_prep` over `r452_default`, **Run & save dataset** | click | "Saved "r452_prep" with 3 rows". This saves on the server (`asked: 0`), so it says nothing about the browser's save |
+| Data preparation → External tables → Lakehouse → **Snapshot** | click | The browser's save: the server asked once, no server writes, rows written directly; the catalog shows `analytics_authz_probe`, 10 rows, 10 columns |
+| App log since the deploy | read | No warning or error |
+
+The Snapshot was aimed at `analytics.bi_demo_sales`; the click landed on the first table in the list.
+It is the only live caller of `saveDataset`: data prep saves on the server, and `runAndSavePrep` has no
+callers.
+
+Not driven live, and tested: a marked dataset's read, a grantee's read, a save through the server, the
+mark on an upload, swap, merge and restore (`datasetSealedPath.test.ts`, `datasetSealedBrowser.test.ts`).
+
+Fixtures kept: the datasets `r452_default`, `r452_sealed`, `r452_prep` (with its flow) and
+`analytics_authz_probe`.
+
 ## 2026-11-05 — R451: one path for a dataset's rows
 
 A refactor with no change meant, so this round drives the paths it moved and looks for what changed.

@@ -526,7 +526,7 @@ export async function materialisePrepOutput(args: {
     tableId = created.id;
   }
 
-  const { error: insertErr } = await insertDatasetRows(tableId, args.rows);
+  const { error: insertErr } = await insertDatasetRows(tableId, args.userId, args.rows);
   if (insertErr) throw new Error(insertErr.message);
 
   // Refresh the columnar mirror off the write path. Best-effort: the rows are
@@ -589,6 +589,7 @@ export async function refreshPrepIncremental(args: {
 
   const { error: insertErr } = await insertDatasetRows(
     args.tableId,
+    args.userId,
     result.rows as unknown as DatasetRow[],
   );
   if (insertErr) throw new Error(insertErr.message);

@@ -109,6 +109,61 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-05 — R452: a dataset that says its rows go through the server
+
+**What was built.** `user_data_tables.rows_sealed` (migration `20261109000000`), set when rows are written
+for an owner under a customer key, and four server functions so the browser can read and write those
+datasets without touching the table: `readDatasetWindow`, `readSharedDataset`, `writeDatasetBatch` and
+`datasetRowsGoThroughServer`. `insertDatasetRows`, `moveDatasetRows` and `mergeDatasetRows` now take the
+owner. Rows stay plain: this is the path, and the sealing is the next round.
+
+**The promise to everyone else.** Users with no customer key were told nothing would block them, so the
+new column is touched only for someone under a key, and the browser's list reads `select=*`, because
+naming the column would fail every page until the migration ran.
+
+**The risks, and what answers them.**
+
+- *A service-role read has no row-level security.* These functions run as the service role, so they make
+  its checks themselves: an owner reads and writes their own, anyone reads a sample, and a grantee goes
+  through `restrictSharedDataset`, which answers nothing without a grant (tests; mutants for each).
+- *A stranger making the server work.* As first written, the shared read scanned up to 200,000 rows and
+  then asked whether the caller had a grant. Any signed-in user could have made the server page through
+  any table to be told there was nothing for them. Grants are read first now (test: no rows are read;
+  mutant caught). Found by reading the path while writing its tests.
+- *A failed read taken for an empty table.* A dataset that registers with some of its rows answers a query
+  wrongly with no sign of it. A failed window, a failed lookup and a failed write each say so, and the page
+  registers nothing (tests).
+- *An upload asking hundreds of times.* The first version looked the owner up on every flush, a cost
+  everyone would have paid for a feature few use. `datasetWriter` asks once for a whole upload (test: one
+  lookup across three writes).
+- *A lookup that fails.* It counts as yes. The server path works for anyone, and the other answer could
+  leave a customer's rows where the browser wrote them. Only tables that do not exist yet mean no (tests;
+  mutants both ways).
+
+**Found by mutation.** 51 of 51, 2 of them run by hand. All were caught first time because the gaps were
+closed while listing them: `datasetRowReads.ts` had no tests at all, and the failed-read, failed-write and
+limit cases were missing. Its first run left one mutant unrun on a bad anchor, so the two uploads' owners
+were mutated by hand.
+
+**Found in the UI round.** The first "browser save" check proved nothing: data prep saves on the server, and
+counting calls showed `asked: 0`. The browser's `saveDataset` has one live caller, an external table's
+Snapshot; `runAndSavePrep` has none.
+
+**Proved.**
+
+| Check | Result |
+| --- | --- |
+| `datasetSealedPath.test.ts` (49) | who goes through the server; marking on each write, once, on the right dataset; each function's owner, sample, grantee, stranger, failure and limits |
+| `datasetSealedBrowser.test.ts` (12) | the real engine and helpers: unmarked and missing column read directly, marked read through the server, per dataset, nothing registered on a failure |
+| `datasetRows`, `browserDatasetWrites`, `prepOutputWrites` | their guarantees, with the owner passed |
+| mutation | 51 of 51 |
+| UI | UI_TEST_RESULTS, R452: the default path only |
+
+**Not covered.** The new path has not run on the real app, because no account was under a customer key:
+everything above about a marked dataset is proved by tests below the browser, and R453 must drive it
+first. Whether `20261109000000` is applied is unconfirmed. `docGen.functions` still reads shared rows
+through the database function, which R453 has to move. Nothing is sealed yet.
+
 ### 2026-11-05 — R451: one path for a dataset's rows
 
 **What was built.** `data/datasetRows.server` is the one way the server reads and writes a dataset's

@@ -7,7 +7,7 @@
 // a path around it would read ciphertext as data, or write plaintext beside it.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 type Call = [string, ...unknown[]];
 
@@ -44,6 +44,8 @@ vi.mock("@/integrations/supabase/client.server", () => ({
   },
 }));
 
+import { __setKeyHierarchyForTests } from "@/utils/providers/crypto.server";
+import { missingKeyStore } from "../fixtures/keyStores";
 import {
   clearDatasetRows,
   countDatasetRows,
@@ -57,12 +59,16 @@ import {
 } from "@/utils/data/datasetRows.server";
 
 const T = "11111111-1111-4111-8111-111111111111";
+const OWNER = "00000000-0000-4000-8000-00000000a11c";
 const called = (m: string) => (h.calls as Call[]).filter((c) => c[0] === m);
 
 beforeEach(() => {
   h.calls.length = 0;
   h.answers.length = 0;
+  // Nobody here is under a customer key: this file is about the plain path.
+  __setKeyHierarchyForTests(missingKeyStore());
 });
+afterEach(() => __setKeyHierarchyForTests(null));
 
 describe("reading a dataset's rows", () => {
   it("gives back the rows themselves, from the one table, in a stable order", async () => {
@@ -134,7 +140,7 @@ describe("writing a dataset's rows", () => {
   it("inserts in batches, each row under the dataset", async () => {
     h.answers.push({ error: null }, { error: null }, { error: null });
     const rows = Array.from({ length: 1200 }, (_, i) => ({ i }));
-    expect(await insertDatasetRows(T, rows)).toEqual({ error: null });
+    expect(await insertDatasetRows(T, OWNER, rows)).toEqual({ error: null });
     const batches = called("insert").map((c) => c[1] as Array<{ table_id: string; row: unknown }>);
     expect(batches.map((b) => b.length)).toEqual([500, 500, 200]);
     expect(batches[2]![199]).toEqual({ table_id: T, row: { i: 1199 } });
@@ -143,12 +149,12 @@ describe("writing a dataset's rows", () => {
   it("stops at the first batch that fails, and returns why", async () => {
     h.answers.push({ error: { message: "disk full" } }, { error: null });
     const rows = Array.from({ length: 700 }, (_, i) => ({ i }));
-    expect(await insertDatasetRows(T, rows)).toEqual({ error: { message: "disk full" } });
+    expect(await insertDatasetRows(T, OWNER, rows)).toEqual({ error: { message: "disk full" } });
     expect(called("insert")).toHaveLength(1);
   });
 
   it("writes nothing for no rows", async () => {
-    expect(await insertDatasetRows(T, [])).toEqual({ error: null });
+    expect(await insertDatasetRows(T, OWNER, [])).toEqual({ error: null });
     expect(h.calls).toEqual([]);
   });
 
@@ -175,13 +181,13 @@ describe("writing a dataset's rows", () => {
 
   it("moves an upload's rows from its staging dataset", async () => {
     h.answers.push({ error: null });
-    await moveDatasetRows("staging", "target");
+    await moveDatasetRows("staging", "target", OWNER);
     expect(called("update")[0]).toEqual(["update", { table_id: "target" }]);
     expect(called("eq")[0]).toEqual(["eq", "table_id", "staging"]);
   });
 
   it("merges in the database, and reads back what it did in either shape", async () => {
-    const args = { targetId: "t", stagingId: "s", key: "id" };
+    const args = { targetId: "t", stagingId: "s", key: "id", owner: OWNER };
     h.answers.push({ data: [{ updated: 3, inserted: 4 }], error: null });
     expect(await mergeDatasetRows(args)).toEqual({ updated: 3, inserted: 4, error: null });
     expect(called("rpc")[0]).toEqual([
@@ -215,14 +221,15 @@ describe("what the sites do with it", () => {
 
   it("an upload writes what it buffered, to its staging dataset", () => {
     const src = read("src/utils/data/ingest.server.ts");
-    expect(src).toContain("await insertDatasetRows(this.stagingId, slice as DatasetRow[]);");
+    expect(src).toContain("this.writer ??= datasetWriter(this.stagingId, this.owner);");
+    expect(src).toContain("await (await this.writer).insert(slice as DatasetRow[]);");
   });
 
   it("an upload's swap clears, stops if it could not, then moves, and stops again", () => {
     inOrder(read("src/utils/data/ingest.server.ts"), [
       "const { error: delErr } = await clearDatasetRows(existing.id);",
       "if (delErr) throw",
-      "const { error: moveErr } = await moveDatasetRows(args.stagingId, existing.id);",
+      "const { error: moveErr } = await moveDatasetRows(",
       "if (moveErr) throw",
     ]);
   });
@@ -231,7 +238,7 @@ describe("what the sites do with it", () => {
     inOrder(read("src/utils/bi/versions.server.ts"), [
       "const { error: delErr } = await clearDatasetRows(version.table_id);",
       "if (delErr) throw",
-      "const { error: insErr } = await insertDatasetRows(version.table_id, rows);",
+      "const { error: insErr } = await insertDatasetRows(version.table_id, args.userId, rows);",
       "if (insErr) throw",
     ]);
   });

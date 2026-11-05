@@ -660,6 +660,8 @@ export function createKeyHierarchy(deps: HierarchyDeps) {
     writeKey,
     readKey,
     reconcile,
+    /** The customer key over a user, or null when they are under the deployment's. */
+    customerKeyOver: targetFor,
     makeCustomerKeyMaterial,
     checkCustomerKey,
     rewrapAppCustomerKey,

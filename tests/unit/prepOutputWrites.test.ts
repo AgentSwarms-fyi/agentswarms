@@ -20,7 +20,7 @@ describe("a prep flow's rebuild", () => {
     expect(rebuild).toContain("The dataset's previous rows could not be cleared");
     expect(rebuild).toContain("Nothing was written, so");
     // The throw stands between the delete and the insert.
-    const insert = src.indexOf("await insertDatasetRows(tableId, args.rows);");
+    const insert = src.indexOf("await insertDatasetRows(tableId, args.userId, args.rows);");
     expect(insert).toBeGreaterThan(0);
     expect(src.indexOf("if (clearErr) {")).toBeLessThan(insert);
     expect(src.slice(insert, insert + 120)).toContain("if (insertErr) throw");

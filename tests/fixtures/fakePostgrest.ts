@@ -115,6 +115,7 @@ export function fakePostgrest(seed: Record<string, Row[]> = {}) {
     let selectCols = "*";
     let single: "one" | "maybe" | null = null;
     let returning = false;
+    let window: [number, number] | null = null;
 
     const embed = (r: Row): Row => {
       const out = { ...r };
@@ -134,7 +135,10 @@ export function fakePostgrest(seed: Record<string, Row[]> = {}) {
       if (!rows) return { data: null, error: missing(name) };
       const match = (r: Row) => filters.every((f) => f(r));
       let result: Row[] = [];
-      if (mode === "select") result = rows.filter(match).map(embed);
+      if (mode === "select") {
+        result = rows.filter(match).map(embed);
+        if (window) result = result.slice(window[0], window[1] + 1);
+      }
       if (mode === "insert") {
         const list = Array.isArray(payload) ? payload : [payload as Row];
         const added: Row[] = [];
@@ -272,6 +276,10 @@ export function fakePostgrest(seed: Record<string, Row[]> = {}) {
         return q;
       },
       order() {
+        return q;
+      },
+      range(from: number, to: number) {
+        window = [from, to];
         return q;
       },
       limit() {

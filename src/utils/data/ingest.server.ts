@@ -42,10 +42,11 @@ import {
 } from "@/lib/datasetParse";
 import {
   clearDatasetRows,
-  insertDatasetRows,
+  datasetWriter,
   mergeDatasetRows,
   moveDatasetRows,
   type DatasetRow,
+  type DatasetWriter,
 } from "@/utils/data/datasetRows.server";
 
 /** Largest upload accepted, in bytes. */
@@ -102,8 +103,12 @@ class RowSink {
 
   constructor(
     private readonly stagingId: string,
+    private readonly owner: string,
     private readonly maxRows: number,
   ) {}
+
+  // One writer for the whole upload: it decides once, not once a flush.
+  private writer: Promise<DatasetWriter> | null = null;
 
   async push(input: Record<string, unknown>): Promise<void> {
     // At the door: the sample, the inferred columns and their distinct values
@@ -146,7 +151,8 @@ class RowSink {
     if (this.buffer.length === 0) return;
     const slice = this.buffer;
     this.buffer = [];
-    const { error } = await insertDatasetRows(this.stagingId, slice as DatasetRow[]);
+    this.writer ??= datasetWriter(this.stagingId, this.owner);
+    const { error } = await (await this.writer).insert(slice as DatasetRow[]);
     if (error) throw new IngestError(error.message);
   }
 }
@@ -403,7 +409,7 @@ export async function ingestUpload(args: {
     .single();
   if (stErr || !staging) throw new Error(stErr?.message ?? "Could not start the upload");
 
-  const sink = new RowSink(staging.id, maxRows);
+  const sink = new RowSink(staging.id, args.userId, maxRows);
   try {
     if (args.format === "csv" || args.format === "tsv") {
       await streamDelimited(args.body, args.format, sink, maxBytes);
@@ -504,7 +510,7 @@ export async function ingestRows(args: {
     .single();
   if (stErr || !staging) throw new Error(stErr?.message ?? "Could not start the sync");
 
-  const sink = new RowSink(staging.id, maxRows);
+  const sink = new RowSink(staging.id, args.userId, maxRows);
   try {
     for await (const row of args.rows) await sink.push(row);
     await sink.finish();
@@ -620,6 +626,7 @@ async function promoteStaging(args: {
       targetId: existing.id,
       stagingId: args.stagingId,
       key: args.mergeKey,
+      owner: args.userId,
     });
     if (error) throw new Error(error.message);
     merged = { updated, inserted };
@@ -627,7 +634,7 @@ async function promoteStaging(args: {
     const { error: delErr } = await clearDatasetRows(existing.id);
     if (delErr) throw new Error(delErr.message);
 
-    const { error: moveErr } = await moveDatasetRows(args.stagingId, existing.id);
+    const { error: moveErr } = await moveDatasetRows(args.stagingId, existing.id, args.userId);
     if (moveErr) throw new Error(moveErr.message);
   }
 

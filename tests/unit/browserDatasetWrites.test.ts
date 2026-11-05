@@ -24,6 +24,7 @@ const state = {
     error: null as { message: string } | null,
   },
   calls: [] as string[],
+  through: false,
 };
 
 /** A stand-in for a Supabase query chain: each call returns the chain or a result. */
@@ -62,6 +63,15 @@ vi.mock("@/integrations/supabase/client", () => {
   return { supabase: { from, auth: { getSession: async () => ({ data: { session: null } }) } } };
 });
 
+vi.mock("@/lib/datasetRowReads", () => ({
+  savesGoThroughServer: async () => state.through,
+  writeRowsThroughServer: async (tableId: string, rows: unknown[]) => {
+    state.calls.push(`server.write:${tableId}:${rows.length}`);
+  },
+  datasetWindow: async () => [],
+  sharedDatasetRows: async () => [],
+}));
+
 vi.mock("@/lib/browserDuckdb", () => ({
   dropBrowserTable: async (name: string) => {
     state.calls.push(`engine.drop:${name}`);
@@ -88,6 +98,7 @@ beforeEach(() => {
   state.metaErr = null;
   state.deleteResult = { data: [{ id: "t-1" }], error: null };
   state.calls = [];
+  state.through = false;
 });
 
 describe("a delete says Deleted only when the row is gone", () => {
@@ -154,5 +165,12 @@ describe("a replace never appends to rows it could not clear", () => {
     const saved = await saveDataset(SAVE);
     expect(saved.id).toBe("new-id");
     expect(state.calls).toEqual(["user_data_tables.insert", "user_data_rows.insert"]);
+  });
+
+  it("sends the rows through the server for someone under a customer key", async () => {
+    state.through = true;
+    const saved = await saveDataset(SAVE);
+    expect(state.calls).toEqual(["user_data_tables.insert", "server.write:new-id:2"]);
+    expect(saved.id).toBe("new-id");
   });
 });

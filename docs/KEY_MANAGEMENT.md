@@ -1885,10 +1885,31 @@ promised that their data is unreadable once the key is gone, so they take the co
 Everyone else keeps today's speed and storage, with nothing changed, and erasing an
 ordinary user key does not reach a dataset's rows: deleting the dataset does. In three
 rounds: one path for every read and write on the server (R451, done); a dataset that
-says it is sealed, and the browser reading those through the server; then the sealing
-itself, with the filter and mask moved to the server (`restrictSharedDataset` already
-applies them there for headless runs), and blind tokens for merges and watermarks, as
-agent memory's recall uses. Knowledge-base text is the last store after that.
+says its rows go through the server, and the browser doing that (R452, done); then the
+sealing itself, with the filter and mask moved to the server (`restrictSharedDataset`
+already applies them there for headless runs), and blind tokens for merges and
+watermarks, as agent memory's recall uses. Knowledge-base text is the last store after
+that.
+
+**How a dataset is marked (R452).** `user_data_tables.rows_sealed`, from migration
+`20261109000000`, is off by default. It means "this dataset's rows go through the
+server", and until the next round that is all it means: rows stay plain. It is set when
+rows are written for an owner under a customer key: by an upload, a swap, a merge, a
+data-prep save, a restore, or a batch from the browser. Nothing clears it, and a read
+never sets it.
+
+The browser asks each dataset, not the account: a marked dataset comes through
+`readDatasetWindow`, a marked dataset shared with you through `readSharedDataset`, and
+every other dataset is read directly, as before. What the browser saves goes through
+the server when its user is under a customer key. An upload asks once, not once a
+batch, so users with no customer key pay one lookup and no new read or write.
+
+If the lookup itself fails, the answer is "through the server": that path works for
+anyone, and the other answer could leave a customer's rows where the browser wrote
+them. Only key tables that do not exist yet mean no. A server read of a shared dataset
+checks for a grant before it reads a row, so someone with no grant cannot make the
+server page through a table to be told there is nothing for them. A failed read of the
+grants says so, and is not shown as an empty dataset.
 
 Still to do: the two rounds above, and knowledge-base text.
 
