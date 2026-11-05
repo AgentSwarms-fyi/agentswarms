@@ -6,7 +6,6 @@ import { z } from "zod";
 import { createServerFn } from "@tanstack/react-start";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { selectAllPages } from "@/lib/pagedSelect";
 import { auditEvent } from "@/utils/audit.server";
 import {
   accessibleSchemas,
@@ -610,19 +609,12 @@ export const importDatasetToLakehouse = createServerFn({ method: "POST" })
     // dataset by SQL models, widgets and training runs. It also ended on a
     // short page, which is only the end when the server returns everything it
     // is asked for, and db-max-rows belongs to whoever runs the database.
-    const imported = await selectAllPages<{ row: unknown }>(
-      () =>
-        supabaseAdmin
-          .from("user_data_rows")
-          .select("row")
-          .eq("table_id", data.table_id)
-          .order("id", { ascending: true }),
-      IMPORT_MAX_ROWS,
-    );
+    const { scanDatasetRows } = await import("@/utils/data/datasetRows.server");
+    const imported = await scanDatasetRows(data.table_id, IMPORT_MAX_ROWS);
     // Refusing beats importing a prefix: the caller can raise the ceiling, but
     // nothing downstream can tell a short table from a small one.
     if (imported.truncated) throw new Error("Dataset too large to import (500k row cap)");
-    let rows = imported.rows.map((r) => r.row as Record<string, unknown>);
+    let rows = imported.rows;
     // A dataset shared BY A GRANT is imported through the same row filters and
     // column masks its owner set, not whole: reading with the service role
     // turns RLS off, so the restriction the database would apply to the

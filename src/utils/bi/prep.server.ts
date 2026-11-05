@@ -14,7 +14,6 @@
 import { createRequire } from "node:module";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { selectAllPages } from "@/lib/pagedSelect";
 import { registerPrepFns } from "@/lib/alasqlPrepFns";
 import { STAGING_PREFIX } from "@/lib/datasetParse";
 import type { Json } from "@/integrations/supabase/types";
@@ -34,6 +33,14 @@ import {
   type PrepDialect,
   type PrepFlowConfig,
 } from "@/lib/dataPrepCore";
+import {
+  clearDatasetRows,
+  deleteDatasetRowsSince,
+  insertDatasetRows,
+  newestDatasetRow,
+  scanDatasetRows,
+  type DatasetRow,
+} from "@/utils/data/datasetRows.server";
 
 function envInt(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -204,16 +211,8 @@ async function loadFlowTables(
     // described the ceiling, never the rows a failed or clamped page dropped on
     // the way to it. A prep flow reading a dataset with gaps produces a
     // perfectly ordinary-looking output.
-    const scan = await selectAllPages<{ row: unknown }>(
-      () =>
-        supabaseAdmin
-          .from("user_data_rows")
-          .select("row")
-          .eq("table_id", t.id)
-          .order("id", { ascending: true }),
-      sourceCap,
-    );
-    const rows = scan.rows.map((c) => c.row as Record<string, unknown>);
+    const scan = await scanDatasetRows(t.id, sourceCap);
+    const rows = scan.rows;
     if (scan.truncated) truncated.push(t.name);
     let columns = Array.isArray(t.columns) ? (t.columns as FlowTable["columns"]) : [];
     let visibleRows = rows;
@@ -448,8 +447,6 @@ function columnMetaFor(cfg: PrepFlowConfig): Record<string, { semantic_type?: st
   return meta;
 }
 
-const INSERT_BATCH = 500;
-
 /** A dataset loaded for a flow, in the shape both local engines accept. */
 type FlowTable = {
   name: string;
@@ -498,10 +495,7 @@ export async function materialisePrepOutput(args: {
     // average over it wrong — under a flow that reported success. Nothing
     // downstream recomputes this; the insert must not run unless the delete
     // did.
-    const { error: clearErr } = await supabaseAdmin
-      .from("user_data_rows")
-      .delete()
-      .eq("table_id", tableId);
+    const { error: clearErr } = await clearDatasetRows(tableId);
     if (clearErr) {
       throw new Error(
         `The dataset's previous rows could not be cleared: ${clearErr.message}. Nothing was written, so "${args.tableName}" still holds the rows it had.`,
@@ -532,14 +526,8 @@ export async function materialisePrepOutput(args: {
     tableId = created.id;
   }
 
-  for (let i = 0; i < args.rows.length; i += INSERT_BATCH) {
-    const slice = args.rows.slice(i, i + INSERT_BATCH).map((row) => ({
-      table_id: tableId,
-      row: row as unknown as Json,
-    }));
-    const { error } = await supabaseAdmin.from("user_data_rows").insert(slice);
-    if (error) throw new Error(error.message);
-  }
+  const { error: insertErr } = await insertDatasetRows(tableId, args.rows);
+  if (insertErr) throw new Error(insertErr.message);
 
   // Refresh the columnar mirror off the write path. Best-effort: the rows are
   // already committed, and a stale mirror is detected on read (its sync stamp
@@ -579,13 +567,7 @@ export async function refreshPrepIncremental(args: {
 
   // Newest watermark already in the output. Dates are stored as YYYY-MM-DD,
   // so lexicographic ordering IS chronological ordering.
-  const { data: newest } = await supabaseAdmin
-    .from("user_data_rows")
-    .select("row")
-    .eq("table_id", args.tableId)
-    .order(`row->>${column}`, { ascending: false })
-    .limit(1);
-  const since = (newest?.[0]?.row as Record<string, unknown> | undefined)?.[column];
+  const since = (await newestDatasetRow(args.tableId, column))?.[column];
   if (typeof since !== "string" || !since) return null; // empty output → full build
 
   const windowed = withIncrementalWindow(args.cfg, since);
@@ -602,21 +584,14 @@ export async function refreshPrepIncremental(args: {
   });
 
   // Replace exactly the reprocessed range.
-  const { error: delErr } = await supabaseAdmin
-    .from("user_data_rows")
-    .delete()
-    .eq("table_id", args.tableId)
-    .gte(`row->>${column}`, since);
+  const { error: delErr } = await deleteDatasetRowsSince(args.tableId, column, since);
   if (delErr) throw new Error(delErr.message);
 
-  for (let i = 0; i < result.rows.length; i += INSERT_BATCH) {
-    const slice = result.rows.slice(i, i + INSERT_BATCH).map((row) => ({
-      table_id: args.tableId,
-      row: row as unknown as Json,
-    }));
-    const { error } = await supabaseAdmin.from("user_data_rows").insert(slice);
-    if (error) throw new Error(error.message);
-  }
+  const { error: insertErr } = await insertDatasetRows(
+    args.tableId,
+    result.rows as unknown as DatasetRow[],
+  );
+  if (insertErr) throw new Error(insertErr.message);
 
   // The output schema can still drift (a renamed column); keep it current.
   // The rows are in; this puts the schema they were written under on the

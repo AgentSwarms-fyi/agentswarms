@@ -6,7 +6,6 @@
 // lib/dataQualityCore, so the same logic is testable without a database.
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { selectAllPages } from "@/lib/pagedSelect";
 import type { Json } from "@/integrations/supabase/types";
 import {
   anyTestNeedsRows,
@@ -19,6 +18,7 @@ import {
   type QualityTestConfig,
   type QualityTestKind,
 } from "@/lib/dataQualityCore";
+import { countDatasetRows, scanDatasetRows } from "@/utils/data/datasetRows.server";
 
 /** How many rows a check will read. Read per call so a deployment can raise
  *  it without a restart. */
@@ -62,10 +62,7 @@ async function loadRows(
   tableId: string,
   cap: number,
 ): Promise<{ rows: Record<string, unknown>[]; total: number; capped: boolean }> {
-  const { count } = await supabaseAdmin
-    .from("user_data_rows")
-    .select("id", { count: "exact", head: true })
-    .eq("table_id", tableId);
+  const { count } = await countDatasetRows(tableId);
   const total = count ?? 0;
 
   // `capped` was doing honest work on a dishonest read.
@@ -77,16 +74,8 @@ async function loadRows(
   // rate, a distinct count or a min/max over a scatter is not a partial answer,
   // it is a wrong one — and the flag beside it describes the wrong defect,
   // which is worse than no flag at all.
-  const scan = await selectAllPages<{ row: unknown }>(
-    () =>
-      supabaseAdmin
-        .from("user_data_rows")
-        .select("row")
-        .eq("table_id", tableId)
-        .order("id", { ascending: true }),
-    cap,
-  );
-  const rows = scan.rows.map((c) => c.row as Record<string, unknown>);
+  const scan = await scanDatasetRows(tableId, cap);
+  const rows = scan.rows;
   return {
     rows,
     total: Math.max(total, rows.length),
@@ -101,10 +90,7 @@ async function loadRows(
  * what makes an hourly sweep over large tables affordable.
  */
 async function countRows(tableId: string): Promise<number> {
-  const { count } = await supabaseAdmin
-    .from("user_data_rows")
-    .select("id", { count: "exact", head: true })
-    .eq("table_id", tableId);
+  const { count } = await countDatasetRows(tableId);
   return count ?? 0;
 }
 

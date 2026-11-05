@@ -109,6 +109,55 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-05 — R451: one path for a dataset's rows
+
+**What was built.** `data/datasetRows.server` is the one way the server reads and writes a dataset's
+rows, in place of the same calls written out across ten files. No change in behaviour is meant, and a
+test holds every server file to it.
+
+**Why this comes first.** The decision recorded in `KEY_MANAGEMENT.md` is to seal rows only for users
+under a customer key. A sealed row is ciphertext to anything that goes around the seal, so a path left
+outside would read it as data, or write plaintext beside it. With 32 sites that risk was real; with one
+it is a test.
+
+**Measured before deciding.** The design said "as chat messages", and that was wrong. Postgres reads
+inside these rows in four places (a grant's filter and mask, a sync's merge by key, an incremental
+refresh's order and delete), and the browser loads every row. A row at a time costs about 1.7 times the
+storage and 31 s per 250,000 rows through WebCrypto, or 1.6 times and 5 s through Node's AES; a block of
+1,000 compressed rows costs about a third of the storage and 1 to 1.5 s, and replaces how rows are
+stored. The bench is synthetic, and blocks depend on how the data compresses. The user chose: only users
+under a customer key.
+
+**The refactor's own risks.**
+
+- *A caller's client lost.* The SQL tool and doc generation read with the caller's own client, so that
+  row-level security applies. A helper that reached for the service role would read past a grant, so it
+  takes the client as an argument (test; mutants for both are caught).
+- *An error's meaning changed.* Failures come back as `{ error }`, as Supabase gave them, because a failed
+  clear must stop a rebuild and each site says so in its own words. An upload's flush, which throws its
+  own error type, still does (test).
+- *A guarantee lost in moving it.* `rowPagers` and `offsetAdvance` pin that every site pages properly and in
+  a stable order. They were not relaxed: each site must now call the module, the module must do the paging,
+  and a site that went back to its own pager fails.
+
+**Found by mutation.** 28 of 33 at first. Five survivors were all at call sites no test had ever reached:
+an upload's swap (clear, move), its flush, a version restore's clear, and the columnar copy's row ceiling.
+That gap predates this round. Each site is now pinned, the order of a clear and what follows it included,
+since a swap that goes on past a failed clear doubles a dataset.
+
+**Proved.**
+
+| Check | Result |
+| --- | --- |
+| `datasetRows.test.ts` (23) | a stable order, a page's error, a cap that says so, the caller's client; counting without reading; clearing; batches stopping at the first failure; the watermark; the refreshed range; a swap; a merge in either shape; what the upload, restore and copy sites do; no server file around the module, and the browser's two remaining paths named |
+| `rowPagers`, `offsetAdvance`, `lakehouseImportNoReplace`, `prepOutputWrites`, `saasIncremental` | their guarantees, now through the module |
+| mutation | 33 of 33 after tightening, the control survived |
+| UI | UI_TEST_RESULTS, R451: an upload, a replace, a restore and a quality check, on a dataset made for it |
+
+**Not covered.** The browser still reads and writes rows directly (`sqlEngine.ts`, `sampleData.ts`); the
+next round gives a dataset a way to say it is sealed and sends those through the server. Nothing is sealed
+yet.
+
 ### 2026-11-05 — R450: approval requests and notifications under each user's key
 
 **What was built.** What an approval request shows (a swarm step's text, a workflow's message) and

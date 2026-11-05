@@ -40,6 +40,13 @@ import {
   type ColumnDef,
   type DatasetFormat,
 } from "@/lib/datasetParse";
+import {
+  clearDatasetRows,
+  insertDatasetRows,
+  mergeDatasetRows,
+  moveDatasetRows,
+  type DatasetRow,
+} from "@/utils/data/datasetRows.server";
 
 /** Largest upload accepted, in bytes. */
 export function uploadMaxBytes(): number {
@@ -139,9 +146,7 @@ class RowSink {
     if (this.buffer.length === 0) return;
     const slice = this.buffer;
     this.buffer = [];
-    const { error } = await supabaseAdmin
-      .from("user_data_rows")
-      .insert(slice.map((row) => ({ table_id: this.stagingId, row: row as unknown as Json })));
+    const { error } = await insertDatasetRows(this.stagingId, slice as DatasetRow[]);
     if (error) throw new IngestError(error.message);
   }
 }
@@ -611,28 +616,18 @@ async function promoteStaging(args: {
     // the key set can be tens of thousands of ids, and shipping them to the
     // app to build an `in (...)` filter would be slower and would race a
     // concurrent sync of the same stream.
-    const { data, error } = await supabaseAdmin.rpc("merge_dataset_rows", {
-      p_target: existing.id,
-      p_staging: args.stagingId,
-      p_key: args.mergeKey,
+    const { updated, inserted, error } = await mergeDatasetRows({
+      targetId: existing.id,
+      stagingId: args.stagingId,
+      key: args.mergeKey,
     });
     if (error) throw new Error(error.message);
-    const row = (Array.isArray(data) ? data[0] : data) as {
-      updated?: number;
-      inserted?: number;
-    } | null;
-    merged = { updated: Number(row?.updated ?? 0), inserted: Number(row?.inserted ?? 0) };
+    merged = { updated, inserted };
   } else {
-    const { error: delErr } = await supabaseAdmin
-      .from("user_data_rows")
-      .delete()
-      .eq("table_id", existing.id);
+    const { error: delErr } = await clearDatasetRows(existing.id);
     if (delErr) throw new Error(delErr.message);
 
-    const { error: moveErr } = await supabaseAdmin
-      .from("user_data_rows")
-      .update({ table_id: existing.id })
-      .eq("table_id", args.stagingId);
+    const { error: moveErr } = await moveDatasetRows(args.stagingId, existing.id);
     if (moveErr) throw new Error(moveErr.message);
   }
 

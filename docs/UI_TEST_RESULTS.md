@@ -15,6 +15,35 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-05 — R451: one path for a dataset's rows
+
+A refactor with no change meant, so this round drives the paths it moved and looks for what changed.
+The real environment, with one dataset made for it.
+
+| Page / surface | What was driven | Result |
+| --- | --- | --- |
+| Data Catalog, on opening | measured | 29 local tables, 34,308 rows, the largest about 10,000; the page made 97 row reads from the browser, which this round does not touch |
+| Workbench → **Upload data**: `r451_rows.csv`, three rows | Create dataset | "3 rows · 2 columns"; the schema detected: written through `insertDatasetRows` |
+| Upload a different two-row file under the same name | Create dataset | "2 rows · 2 columns", and the catalog says 2: the swap cleared and moved, and the dataset did not come out doubled |
+| The dataset's version history | read | "File upload 3 rows · Replaced by r451_rows.csv": the old contents were kept before the swap |
+| **Restore** that version | click | "Restored 3 rows"; the sheet then showed 3, and the 2-row state joined the history as "Replaced by a restore" |
+| Quality checks: "city is never empty" | Add, Run | "All 1 checks pass.": the rows read through `scanDatasetRows` |
+| App log since the deploy | read | No warning or error |
+
+Also seen, from R449 and R450's "not driven live" lists. Today's daily probes on Approval durability
+check ran by themselves after those builds:
+
+| Page / surface | What was read | Result |
+| --- | --- | --- |
+| Run 51c3fc53, started by the server on its schedule | open | suspended, **Encrypted under your key**, its input read: a new server run's start, sealed |
+| The request it raised, in the inbox | open | Its text opened; none of the 131 pending unreadable or dropped: a server run raising a sealed request |
+
+Not driven live, and tested: an agent's SQL tool (the agent on hand has none; it passes the caller's
+client, which a test and a mutant pin); a prep flow's rebuild and incremental refresh; a SaaS merge; the
+columnar copy's refresh; a lakehouse import; an ETL read.
+
+Fixture kept: the dataset `r451_rows`, with its three rows, two versions and one quality check.
+
 ## 2026-11-05 — R450: approval requests and notifications under each user's key
 
 What the approvals inbox and the bell show, sealed under the owner's key. The real environment as a

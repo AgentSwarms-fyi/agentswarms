@@ -43,7 +43,7 @@ describe("a new table is new", () => {
 
   it("asks before paging a single row out of the store", () => {
     const asked = IMPORT.indexOf("await lakehouseTableExists(");
-    const paged = IMPORT.indexOf("await selectAllPages");
+    const paged = IMPORT.indexOf("await scanDatasetRows(");
     expect(asked).toBeGreaterThan(-1);
     expect(paged).toBeGreaterThan(-1);
     expect(asked).toBeLessThan(paged);

@@ -302,7 +302,7 @@ describe("the ingest path still replaces for everything else", () => {
     // The recovery story for a sync that pulls a truncated source.
     const src = rd("src/utils/data/ingest.server.ts");
     const snap = src.indexOf("snapshotDatasetQuiet");
-    const merge = src.indexOf("merge_dataset_rows");
+    const merge = src.indexOf("await mergeDatasetRows(");
     expect(snap).toBeGreaterThan(0);
     expect(merge).toBeGreaterThan(snap);
   });

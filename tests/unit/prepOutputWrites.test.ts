@@ -12,23 +12,18 @@ const between = (start: string, end: string) =>
   src.slice(src.indexOf(start), src.indexOf(end, src.indexOf(start)));
 
 const rebuild = between("const { snapshotDatasetQuiet } = await import", "} else {");
-const insertLoop = src.slice(
-  src.indexOf("for (let i = 0; i < args.rows.length; i += INSERT_BATCH)"),
-);
 const semantics = src.slice(src.indexOf("export async function savePrepSemantics("));
 
 describe("a prep flow's rebuild", () => {
   it("does not write the new rows when the old ones could not be cleared", () => {
-    expect(rebuild).toContain("const { error: clearErr } = await supabaseAdmin");
+    expect(rebuild).toContain("const { error: clearErr } = await clearDatasetRows(tableId);");
     expect(rebuild).toContain("The dataset's previous rows could not be cleared");
     expect(rebuild).toContain("Nothing was written, so");
-    // The throw stands between the delete and the insert loop.
-    expect(src.indexOf("if (clearErr) {")).toBeLessThan(
-      src.indexOf("for (let i = 0; i < args.rows.length; i += INSERT_BATCH)"),
-    );
-    expect(insertLoop).toContain(
-      'const { error } = await supabaseAdmin.from("user_data_rows").insert(slice);',
-    );
+    // The throw stands between the delete and the insert.
+    const insert = src.indexOf("await insertDatasetRows(tableId, args.rows);");
+    expect(insert).toBeGreaterThan(0);
+    expect(src.indexOf("if (clearErr) {")).toBeLessThan(insert);
+    expect(src.slice(insert, insert + 120)).toContain("if (insertErr) throw");
   });
 });
 

@@ -363,6 +363,7 @@ export const gatherDocContext = createServerFn({ method: "POST" })
           .slice(0, allowedTableNames ? allowedTableNames.length : MAX_TABLES)
           .map((x) => x.t);
 
+        const { sampleDatasetRows } = await import("@/utils/data/datasetRows.server");
         for (const t of ranked) {
           const cols = columnsOf(t);
           // A dataset SHARED with this caller has no readable rows in
@@ -376,12 +377,7 @@ export const gatherDocContext = createServerFn({ method: "POST" })
                 .rpc("shared_dataset_rows", { _table_id: t.id })
                 .limit(SAMPLE_ROWS)
                 .then(({ data }) => (data ?? []).map((row) => ({ row })))
-            : await sb
-                .from("user_data_rows")
-                .select("row")
-                .eq("table_id", t.id)
-                .limit(SAMPLE_ROWS)
-                .then(({ data }) => data ?? []);
+            : (await sampleDatasetRows(t.id, SAMPLE_ROWS, sb)).map((row) => ({ row }));
           tables.push({
             name: t.name,
             columns: cols,

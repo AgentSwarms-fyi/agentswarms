@@ -13,8 +13,13 @@
 // shows up in production.
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { selectAllPages } from "@/lib/pagedSelect";
 import type { Json } from "@/integrations/supabase/types";
+import {
+  clearDatasetRows,
+  countDatasetRows,
+  insertDatasetRows,
+  scanDatasetRows,
+} from "@/utils/data/datasetRows.server";
 
 export type VersionReason = "upload" | "prep_run" | "prep_refresh" | "restore" | "overwrite";
 
@@ -61,10 +66,7 @@ export async function snapshotDataset(args: {
     .maybeSingle();
   if (!table || table.user_id !== args.userId || table.is_sample) return null;
 
-  const { count } = await supabaseAdmin
-    .from("user_data_rows")
-    .select("id", { count: "exact", head: true })
-    .eq("table_id", args.tableId);
+  const { count } = await countDatasetRows(args.tableId);
   const rowCount = count ?? 0;
   // Nothing to protect: an empty table's "previous state" is the empty state,
   // and recording it would just push a real version out of the retention window.
@@ -82,16 +84,8 @@ export async function snapshotDataset(args: {
     // tell. Ordering by id for the same reason: offsets without an order are
     // not a sequence.
     try {
-      const scan = await selectAllPages<{ row: unknown }>(
-        () =>
-          supabaseAdmin
-            .from("user_data_rows")
-            .select("row")
-            .eq("table_id", args.tableId)
-            .order("id", { ascending: true }),
-        rowCount,
-      );
-      rows = scan.truncated ? null : scan.rows.map((c) => c.row as Record<string, unknown>);
+      const scan = await scanDatasetRows(args.tableId, rowCount);
+      rows = scan.truncated ? null : scan.rows;
       if (rows === null) {
         console.warn("[versions] row copy incomplete, storing metadata only");
       }
@@ -189,8 +183,6 @@ export async function listDatasetVersions(
   }));
 }
 
-const INSERT_BATCH = 500;
-
 /**
  * Replace a dataset's contents with a stored version.
  *
@@ -230,20 +222,11 @@ export async function restoreDatasetVersion(args: {
   });
 
   const rows = version.rows as unknown as Record<string, unknown>[];
-  const { error: delErr } = await supabaseAdmin
-    .from("user_data_rows")
-    .delete()
-    .eq("table_id", version.table_id);
+  const { error: delErr } = await clearDatasetRows(version.table_id);
   if (delErr) throw new Error(delErr.message);
 
-  for (let i = 0; i < rows.length; i += INSERT_BATCH) {
-    const slice = rows.slice(i, i + INSERT_BATCH).map((row) => ({
-      table_id: version.table_id,
-      row: row as unknown as Json,
-    }));
-    const { error: insErr } = await supabaseAdmin.from("user_data_rows").insert(slice);
-    if (insErr) throw new Error(insErr.message);
-  }
+  const { error: insErr } = await insertDatasetRows(version.table_id, rows);
+  if (insErr) throw new Error(insErr.message);
 
   // The schema travels with the rows — restoring 2020's rows under 2026's
   // column list would leave the dataset describing columns it no longer has.

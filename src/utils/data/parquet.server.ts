@@ -38,7 +38,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { selectAllPages } from "@/lib/pagedSelect";
 import { assertStoredFileKey } from "@/utils/providers/crypto.server";
 import { getStoredFile, putStoredFile } from "@/utils/storage/storedFiles.server";
 import {
@@ -49,6 +48,7 @@ import {
   type MirrorEntry,
   type StorageMode,
 } from "@/lib/capacityPlan";
+import { countDatasetRows, scanDatasetRows } from "@/utils/data/datasetRows.server";
 
 const BUCKET = "datasets";
 
@@ -160,10 +160,7 @@ export async function refreshDatasetMirror(args: {
       .maybeSingle();
     if (!table || table.user_id !== args.userId) return null;
 
-    const { count } = await supabaseAdmin
-      .from("user_data_rows")
-      .select("id", { count: "exact", head: true })
-      .eq("table_id", args.tableId);
+    const { count } = await countDatasetRows(args.tableId);
     const rowCount = count ?? 0;
 
     // The owner's choice decides, and `auto` falls back to the size heuristic
@@ -190,15 +187,7 @@ export async function refreshDatasetMirror(args: {
     // ORDER BY. Postgres promises no order without one, so two pages could
     // repeat a row and drop another, into a mirror that is then read INSTEAD of
     // the table it mirrors. A wrong mirror is worse than no mirror.
-    const mirrored = await selectAllPages<{ row: unknown }>(
-      () =>
-        supabaseAdmin
-          .from("user_data_rows")
-          .select("row")
-          .eq("table_id", args.tableId)
-          .order("id", { ascending: true }),
-      maxRowsToMirror(),
-    );
+    const mirrored = await scanDatasetRows(args.tableId, maxRowsToMirror());
     if (mirrored.truncated) {
       // `auto` never reaches this: it leaves anything above PARQUET_MAX_ROWS on
       // direct query. A mode forced by hand can, and a prefix presented as the
@@ -208,7 +197,7 @@ export async function refreshDatasetMirror(args: {
           `refusing to mirror a prefix of it`,
       );
     }
-    const rows = mirrored.rows.map((c) => c.row as Record<string, unknown>);
+    const rows = mirrored.rows;
     if (rows.length === 0) return null;
 
     const columns = Array.isArray(table.columns)

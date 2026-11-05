@@ -16,10 +16,10 @@
 // created — is gone.
 
 import { auditEvent } from "@/utils/audit.server";
-import { selectAllPages } from "@/lib/pagedSelect";
 import { resultDigest } from "@/utils/provenance/canonical";
 import { restrictSharedDataset } from "@/utils/data/sharedDatasets.server";
 import type { ToolDef, AgentToolContext } from "./registry.server";
+import { scanDatasetRows } from "@/utils/data/datasetRows.server";
 
 const ROW_CAP = 50;
 
@@ -141,22 +141,14 @@ async function loadUserTables(
     // nothing about the result says a row is absent. It also folded the page's
     // error into the exhaustion test, and ordered by nothing at all, which is
     // its own way of reading the same row twice.
-    const scan = await selectAllPages<{ row: unknown }>(
-      () =>
-        ctx.sb
-          .from("user_data_rows")
-          .select("row")
-          .eq("table_id", t.id)
-          .order("id", { ascending: true }),
-      SQL_TOOL_MAX_ROWS,
-    );
+    const scan = await scanDatasetRows(t.id, SQL_TOOL_MAX_ROWS, ctx.sb);
     if (scan.truncated) {
       throw new Error(
         `"${t.name}" has more than ${SQL_TOOL_MAX_ROWS.toLocaleString()} rows — refusing to answer ` +
           `from a prefix of it; narrow the question or raise SQL_TOOL_MAX_ROWS`,
       );
     }
-    const allRows: Row[] = scan.rows.map((c) => c.row as Row);
+    const allRows = scan.rows as Row[];
     let columns = (Array.isArray(t.columns) ? t.columns : []) as ColumnDef[];
     let rows = allRows;
     // A dataset SHARED with this caller carries the grant's row filter and

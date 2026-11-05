@@ -11,7 +11,6 @@
 // sandbox process's memory — never in container env, never in the script text,
 // and scrubbed from captured logs before they are persisted.
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { selectAllPages } from "@/lib/pagedSelect";
 import type { Database, Json } from "@/integrations/supabase/types";
 import { loadStorageConfig } from "@/utils/catalog/crawler.server";
 import {
@@ -54,6 +53,7 @@ import {
 } from "@/utils/etl/streaming";
 import { egressPortRefusal, egressReaches, staticEgressHost } from "@/utils/notebookRuntime/egress";
 import { platformEgressHosts } from "@/utils/notebookRuntime/egressApply.server";
+import { scanDatasetRows } from "@/utils/data/datasetRows.server";
 
 export type EtlPipelineRow = Database["public"]["Tables"]["etl_pipelines"]["Row"];
 export type EtlRunRow = Database["public"]["Tables"]["etl_runs"]["Row"];
@@ -1018,16 +1018,8 @@ export async function etlDatasetFor(
   let rows: Record<string, unknown>[];
   let truncated = false;
   try {
-    const scan = await selectAllPages<{ row: unknown }>(
-      () =>
-        supabaseAdmin
-          .from("user_data_rows")
-          .select("row")
-          .eq("table_id", tableId)
-          .order("id", { ascending: true }),
-      ETL_DATASET_MAX_ROWS,
-    );
-    rows = scan.rows.map((c) => c.row as Record<string, unknown>);
+    const scan = await scanDatasetRows(tableId, ETL_DATASET_MAX_ROWS);
+    rows = scan.rows;
     truncated = scan.truncated;
   } catch (err) {
     return { error: err instanceof Error ? err.message : "could not read the dataset" };

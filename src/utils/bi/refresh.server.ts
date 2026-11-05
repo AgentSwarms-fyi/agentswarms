@@ -21,7 +21,6 @@ import { beginDecision } from "@/utils/provenance/decision.server";
 import { createRequire } from "node:module";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { selectAllPages } from "@/lib/pagedSelect";
 import type { Json } from "@/integrations/supabase/types";
 import type { SemanticQuery, SqlDialect } from "@/lib/semanticLayer";
 import type { ChartSpec } from "@/lib/biAgent";
@@ -52,6 +51,7 @@ import { restateWidgetNote } from "@/lib/biTitleClaims";
 import { restateWidgetNarrative } from "@/lib/biNumericClaims";
 import { STAGING_PREFIX } from "@/lib/datasetParse";
 import { localEngineName } from "@/utils/data/localEngine.server";
+import { scanDatasetRows } from "@/utils/data/datasetRows.server";
 
 // One definition, shared with the client that creates the snapshot in the
 // first place — a second copy here is how the two silently drift apart.
@@ -198,15 +198,7 @@ async function loadLocalTables(userId: string): Promise<LocalTable[]> {
     // exhaustion test was the short page. And the offsets had no ORDER BY at
     // all, so two pages could repeat a row and drop another — which does not
     // merely undercount, it changes the answer in either direction.
-    const scanned = await selectAllPages<{ row: unknown }>(
-      () =>
-        supabaseAdmin
-          .from("user_data_rows")
-          .select("row")
-          .eq("table_id", t.id)
-          .order("id", { ascending: true }),
-      localRowsPerTableCap(),
-    );
+    const scanned = await scanDatasetRows(t.id, localRowsPerTableCap());
     if (scanned.truncated) {
       // Datasets this size normally have a Parquet mirror and never reach here
       // (PARQUET_MIN_ROWS defaults to 5,000). One that does — mirroring off, or
@@ -219,7 +211,7 @@ async function loadLocalTables(userId: string): Promise<LocalTable[]> {
           `refresh from a prefix of it`,
       );
     }
-    const rows = scanned.rows.map((c) => c.row as Record<string, unknown>);
+    const rows = scanned.rows;
     let columns = Array.isArray(t.columns) ? (t.columns as LocalTable["columns"]) : [];
     let visibleRows = rows;
     if (isShared) {

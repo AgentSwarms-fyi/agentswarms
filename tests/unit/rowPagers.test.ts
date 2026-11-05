@@ -26,11 +26,15 @@ import { describe, expect, it } from "vitest";
 const LAKE = readFileSync("src/utils/lakehouse.functions.ts", "utf8");
 const PARQ = readFileSync("src/utils/data/parquet.server.ts", "utf8");
 const REFRESH = readFileSync("src/utils/bi/refresh.server.ts", "utf8");
+// Since R451 every server read goes through scanDatasetRows, so the paging and the
+// order are pinned once on the module, and each site is held to calling it.
+const ROWS = readFileSync("src/utils/data/datasetRows.server.ts", "utf8");
+const THE_SCAN = ROWS.slice(ROWS.indexOf("export async function scanDatasetRows"));
 
 /** The call and its arguments, bounded by the statement that follows it. */
 function scanBlock(src: string, label: string): string {
-  const i = src.indexOf("selectAllPages<");
-  expect(i, `${label}: no selectAllPages call — the hand-rolled loop is back`).toBeGreaterThan(0);
+  const i = src.indexOf("await scanDatasetRows(");
+  expect(i, `${label}: no scanDatasetRows call — the hand-rolled loop is back`).toBeGreaterThan(0);
   return src.slice(i, i + 700);
 }
 
@@ -44,8 +48,9 @@ describe("row pagers that persist or compute", () => {
   for (const [label, src] of SITES) {
     describe(label, () => {
       it("reads through the shared pager rather than a hand-rolled loop", () => {
-        expect(src).toContain('from "@/lib/pagedSelect"');
-        expect(scanBlock(src, label)).toContain("selectAllPages<");
+        expect(scanBlock(src, label)).toContain("scanDatasetRows(");
+        expect(src).not.toContain("selectAllPages<");
+        expect(THE_SCAN).toContain("await selectAllPages<{ row: unknown }>(");
       });
 
       it("no longer ends a read on a short page", () => {
@@ -58,7 +63,7 @@ describe("row pagers that persist or compute", () => {
       it("orders by a unique column, so offsets mean something", () => {
         // Without this, page 2 is not "the rows after page 1" — it is whatever
         // the planner returned second.
-        expect(scanBlock(src, label)).toContain('.order("id", { ascending: true })');
+        expect(THE_SCAN.slice(0, 500)).toContain('.order("id", { ascending: true })');
       });
 
       it("refuses at its ceiling instead of persisting a prefix", () => {
@@ -94,7 +99,9 @@ describe("row pagers that persist or compute", () => {
     // a bare 20_000 to the scan and left the knob in the error message survived
     // a plain toContain: the sibling occurrence answered for the one under
     // test. Third time this session that a symmetric copy has stood in.
-    expect(scanBlock(REFRESH, "widget refresh")).toMatch(/localRowsPerTableCap\(\),/);
+    expect(scanBlock(REFRESH, "widget refresh")).toMatch(
+      /scanDatasetRows\(t\.id, localRowsPerTableCap\(\)\)/,
+    );
   });
 });
 
@@ -114,8 +121,8 @@ describe("the tail of the sweep: flags that described the wrong defect", () => {
   ] as const) {
     describe(label, () => {
       it("reads through the shared pager", () => {
-        expect(src).toContain('from "@/lib/pagedSelect"');
-        expect(src).toContain("await selectAllPages<{ row: unknown }>(");
+        expect(src).toContain("await scanDatasetRows(");
+        expect(THE_SCAN).toContain("await selectAllPages<{ row: unknown }>(");
       });
 
       it("no longer advances an offset by the page it asked for", () => {
@@ -123,8 +130,7 @@ describe("the tail of the sweep: flags that described the wrong defect", () => {
       });
 
       it("orders by a unique column", () => {
-        const i = src.indexOf("selectAllPages<");
-        expect(src.slice(i, i + 500)).toContain('.order("id", { ascending: true })');
+        expect(THE_SCAN.slice(0, 500)).toContain('.order("id", { ascending: true })');
       });
     });
   }

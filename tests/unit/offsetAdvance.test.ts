@@ -90,6 +90,11 @@ describe("advancing by the request rather than by the response", () => {
   });
 });
 
+// Since R451 every server read goes through scanDatasetRows, so the paging and the
+// order are pinned once on the module, and each site is held to calling it.
+const ROWS = readFileSync("src/utils/data/datasetRows.server.ts", "utf8");
+const THE_SCAN = ROWS.slice(ROWS.indexOf("export async function scanDatasetRows"));
+
 describe("the three sites that had no way to tell", () => {
   const SITES: [string, string][] = [
     ["sql tool", readFileSync("src/utils/tools/sql.server.ts", "utf8")],
@@ -104,13 +109,13 @@ describe("the three sites that had no way to tell", () => {
       });
 
       it("reads through the shared pager", () => {
-        expect(src).toContain('from "@/lib/pagedSelect"');
-        expect(src).toContain("await selectAllPages<{ row: unknown }>(");
+        expect(src).toContain("await scanDatasetRows(");
+        expect(src).not.toContain("selectAllPages<");
+        expect(THE_SCAN).toContain("await selectAllPages<{ row: unknown }>(");
       });
 
       it("orders by a unique column", () => {
-        const i = src.indexOf("selectAllPages<");
-        expect(src.slice(i, i + 500)).toContain('.order("id", { ascending: true })');
+        expect(THE_SCAN.slice(0, 500)).toContain('.order("id", { ascending: true })');
       });
     });
   }

@@ -108,6 +108,12 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **One path for a dataset's rows on the server** (R451). Every server read and
+  write of `user_data_rows` goes through `data/datasetRows.server`, in place of the
+  same calls written out at each of ten files, and a test holds new code to it. No
+  change in behaviour: this is the first of three rounds towards sealing the rows of
+  users under a customer key, a decision recorded with its measurements in
+  `docs/KEY_MANAGEMENT.md`. Rows of everyone else stay as they are.
 - **Approval requests and notifications under each user's key** (R450). What a
   swarm or workflow approval shows, and every notification in the bell, is sealed
   by the app under its owner's user key. Nothing to set up, and nothing stops

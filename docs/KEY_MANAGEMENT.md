@@ -1775,7 +1775,7 @@ store needs its own scheme, under the same customer key:
 | Agent memory (long-term items, conversation summaries, scratchpads)   | Postgres                                                                               | **Built (R445):** sealed by the app under the owner's user key; recall matches keyed hashes of the words (a blind index) ([Agent memory](#agent-memory)).                                                                                                                                   | Which of one user's items share a word is visible to someone who can read the database.                                           |
 | Knowledge-base documents and chunks                                   | Postgres (`kb_chunks`, its text) and the vector store                                  | The chunk text encrypted as above; the embeddings left in clear, since search needs them, and stated as such (an embedding reveals something about its text). Or a vector store per customer.                                                                                               | Keyword search over chunk text (Postgres full text) stops working unless it moves to the server; embeddings are a known residual. |
 | Lakehouse tables                                                      | The object store (SILO, MinIO, S3, Azure Blob, GCS)                                    | The store's own server-side encryption under the customer's KMS key. **Built for S3 (R440) and Cloud Storage (R443):** SSE-KMS, or CMEK, the key passed per request. Azure Blob: not a lakehouse store.                                                                                     | SILO and MinIO need their KMS integration (MinIO KES) configured.                                                                 |
-| Uploaded datasets' rows                                               | Postgres (`user_data_rows`)                                                            | As chat messages.                                                                                                                                                                                                                                                                           | Filtering and sorting a dataset in Postgres would move to the server (its columnar copy already does).                            |
+| Uploaded datasets' rows                                               | Postgres (`user_data_rows`)                                                            | **Decided (R451), being built:** sealed only for users under a customer key; everyone else's stay as they are. See [Datasets' rows](#datasets-rows-decided-r451).                                                                                                                           | Filtering and sorting a dataset in Postgres would move to the server (its columnar copy already does).                            |
 | Model artifacts, run staging                                          | The lake bucket (`ml-artifacts/`, `_sandbox_staging/`)                                 | **Built for S3 (R442):** SSE-KMS under the owner's key, as lakehouse files; a sandbox's upload URL is signed for the key ([Lakehouse files](#lakehouse-files)).                                                                                                                             | No runtime image change: the code that uploads is sent by the app.                                                                |
 | The lakehouse catalog                                                 | Postgres (DuckLake metadata)                                                           | Metadata only (names, statistics, file paths); left under the database's encryption, documented.                                                                                                                                                                                            | —                                                                                                                                 |
 | Generated documents, dataset copies                                   | Supabase Storage (`chat-docs`, `datasets`)                                             | **Built (R441):** encrypted by the app under the owner's user key, since the store cannot use a customer's key ([Stored files](#stored-files)).                                                                                                                                             | —                                                                                                                                 |
@@ -1852,8 +1852,45 @@ Approval requests and notifications followed (R450, 2026-11-05). An approval was
 the first text read by someone other than its owner, so the inbox reads as the
 caller and row-level security still decides, and the server opens what it allows.
 The canvas raised requests from the browser, so that moved behind the server too,
-making the checks the insert policy made. Still to do: datasets' rows, and
-knowledge-base text.
+making the checks the insert policy made.
+
+#### Datasets' rows (decided, R451)
+
+Datasets' rows cannot be sealed the way everything above was, and the first line
+of this table was wrong to say "as chat messages". Three things differ:
+
+- **Postgres reads inside them.** `shared_dataset_rows()` applies a grant's row
+  filter and column mask, `merge_dataset_rows()` matches a sync's rows by key, and
+  an incremental data-prep refresh orders and deletes by a column's value. A sealed
+  row is opaque to all of them.
+- **The browser loads every row** into its SQL engine, wherever a page needs a
+  dataset, so it cannot be left to read the table directly.
+- **There are many of them.** A chat has hundreds of values; a dataset has hundreds
+  of thousands, opened on page load.
+
+Measured on 250,000 rows of ten columns (2026-11-05):
+
+| Approach                                    | Stored, against today | To open          |
+| ------------------------------------------- | --------------------- | ---------------- |
+| One sealed value a row, through WebCrypto   | about 1.7 times       | about 31 s       |
+| One sealed value a row, Node's AES directly | about 1.6 times       | about 5 s        |
+| One per 1,000 rows, compressed first        | about a third         | about 1 to 1.5 s |
+
+Blocks are fastest and smallest, and also replace how rows are stored, so every
+reader and writer would be rewritten and row-level SQL would go. The size depends
+on how the data compresses.
+
+**Decided: rows are sealed only for users under a customer key.** They are the ones
+promised that their data is unreadable once the key is gone, so they take the cost.
+Everyone else keeps today's speed and storage, with nothing changed, and erasing an
+ordinary user key does not reach a dataset's rows: deleting the dataset does. In three
+rounds: one path for every read and write on the server (R451, done); a dataset that
+says it is sealed, and the browser reading those through the server; then the sealing
+itself, with the filter and mask moved to the server (`restrictSharedDataset` already
+applies them there for headless runs), and blind tokens for merges and watermarks, as
+agent memory's recall uses. Knowledge-base text is the last store after that.
+
+Still to do: the two rounds above, and knowledge-base text.
 
 ---
 
