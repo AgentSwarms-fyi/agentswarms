@@ -1365,7 +1365,7 @@ and both of those are one advisory that cannot be triggered here (see
   Supabase CLI were both taken from "latest", so upstream changes broke installs
   with nothing changed here; both are now pinned to proved versions, and only
   Supabase's `docker` folder is downloaded rather than the whole repository. A
-  slow first start now waits and tries three times. Line endings stay intact on
+  slow first start now waits and tries five times. Line endings stay intact on
   Windows, a quote in the admin password no longer breaks account creation, and the
   fallback that could never work on the current stack has gone. `docs/INSTALL.md`
   has an entry for each of these.

@@ -625,7 +625,7 @@ real project is selected by `supabase link`); restore it if it got blanked.
 
 **`bash scripts/setup-selfhosted.sh` stops with `dependency failed to start`.**
 The first start is slow, and Docker can give up before Postgres has finished
-setting itself up. The script already waits and tries three times. If that still
+setting itself up. The script already waits and tries five times. If that still
 fails, look at what is stuck, then give it longer:
 
 ```bash

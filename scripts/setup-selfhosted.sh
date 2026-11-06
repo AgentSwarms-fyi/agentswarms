@@ -207,6 +207,8 @@ say "Starting Supabase (docker compose up -d) — first pull downloads ~2 GB of 
 # Postgres itself goes healthy minutes later. Starting again at once only runs
 # into the same wait, so let what is running settle first, then start the ones
 # that gave up. A genuinely broken database fails every attempt and stops here.
+# Five, because a real first install on a busy Windows machine took three: Studio
+# and the gateway each outlasted Compose's wait once, and that left no margin.
 start_stack() { ( cd "$SB_DIR/docker" && docker compose up -d ); }
 stack_settled() {
   ! ( cd "$SB_DIR/docker" && docker compose ps --format '{{.Health}}' 2>/dev/null ) \
@@ -214,7 +216,7 @@ stack_settled() {
 }
 start_attempts=1
 until start_stack; do
-  [ "$start_attempts" -ge 3 ] && die "Supabase stack failed to start - check: (cd $SB_DIR/docker && docker compose ps && docker compose logs db)"
+  [ "$start_attempts" -ge 5 ] && die "Supabase stack failed to start - check: (cd $SB_DIR/docker && docker compose ps && docker compose logs db)"
   start_attempts=$(( start_attempts + 1 ))
   warn "Still initialising - this is normal on a first start. Waiting up to ${WAIT_SECS}s, then trying again"
   settle_deadline=$(( $(date +%s) + WAIT_SECS ))

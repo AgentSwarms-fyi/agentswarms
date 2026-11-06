@@ -237,11 +237,17 @@ describe.skipIf(!hasBash)("setup-selfhosted.sh", { timeout: 180_000 }, () => {
       expect(output).toContain("normal on a first start");
     });
 
-    it("tries three times, then stops and says where to look", () => {
+    it("gets there on the last attempt", () => {
+      const s = sandbox({ env: { ...NOTHING_PENDING, UP_FAILS: "4" } });
+      expect(s.run().status).toBe(0);
+      expect(s.calls("docker compose up -d")).toHaveLength(5);
+    });
+
+    it("tries five times, then stops and says where to look", () => {
       const s = sandbox({ env: { ...NOTHING_PENDING, UP_FAILS: "9" } });
       const { status, output } = s.run();
       expect(status).not.toBe(0);
-      expect(s.calls("docker compose up -d")).toHaveLength(3);
+      expect(s.calls("docker compose up -d")).toHaveLength(5);
       expect(output).toContain("docker compose logs db");
       expect(s.calls("npx")).toHaveLength(0);
     });

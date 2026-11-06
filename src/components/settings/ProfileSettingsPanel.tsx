@@ -281,7 +281,7 @@ export function ProfileSettingsPanel({ goneRef }: { goneRef?: { current: boolean
               </Button>
             )}
           </div>
-          <p className="text-xs text-muted-foreground">PNG or JPG, up to 5 MB.</p>
+          <p className="text-xs text-muted-foreground">PNG, JPEG, WebP or GIF, up to 5 MB.</p>
         </div>
       </div>
 

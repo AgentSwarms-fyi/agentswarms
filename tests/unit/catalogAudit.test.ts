@@ -87,6 +87,11 @@ describe("the R454 migration", () => {
     expect(types(bucket)).not.toContain("image/svg+xml");
   });
 
+  it("tells people the same types the page accepts", () => {
+    const page = readFileSync("src/components/settings/ProfileSettingsPanel.tsx", "utf8");
+    expect(page).toContain("PNG, JPEG, WebP or GIF, up to 5 MB.");
+  });
+
   it("uses the same size limit in the bucket as in the page", () => {
     expect(MIGRATION).toContain("file_size_limit = 5242880");
     expect(readFileSync("src/components/settings/ProfileSettingsPanel.tsx", "utf8")).toContain(
