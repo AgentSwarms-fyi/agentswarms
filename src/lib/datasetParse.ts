@@ -246,6 +246,16 @@ export function cleanRow(
   return touched ? out : raw;
 }
 
+/** A CSV parser's rows as a dataset: the empty ones dropped, every value typed. */
+export function typedDataset(parsed: Record<string, unknown>[]): {
+  rows: Record<string, unknown>[];
+  columns: ColumnDef[];
+} {
+  const rows = parsed.filter((r) => r && typeof r === "object" && Object.keys(r).length > 0);
+  const columns = inferColumns(rows);
+  return { rows: rows.map((r) => coerceRow(r, columns)), columns };
+}
+
 /** Coerce values to their inferred type so SQL can SUM, AVG and ORDER BY. */
 export function coerceRow(
   row: Record<string, unknown>,

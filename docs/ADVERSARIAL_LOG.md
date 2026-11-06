@@ -109,6 +109,53 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-06 — R454: what the migrated catalog actually says
+
+**Why this round.** A scanner-led test of the running application was planned and did
+not run. So this read the database instead: Postgres's own catalog, with all 288
+migrations applied, on an empty throwaway stack. `docs/security/scripts/schema-audit.sql`
+repeats it, and `docs/security/assessments/2026-11-06-schema.md` has the measurements.
+
+| Finding | Sev | What the screen would never show |
+| --- | --- | --- |
+| `budget_spend_since` readable signed out | S1 | `IF NOT (auth.uid() = x ...)` is NULL with nobody signed in, and `IF NULL` does not refuse. The function looks guarded, and its error path exists. It returned `1.23` to `anon` |
+| ...and any credential's spend, signed in | S1 | The guard took the caller's own id, and the query then ignored it when a scope was set |
+| Publishing into every tenant's samples | S1 | INSERT refused the flag, so it looked closed. UPDATE never looked at it. A knowledge base published this way reaches other tenants' agents |
+| Writing into the shared samples | S1 | The seeding functions took the browser's content, checking only that someone was signed in |
+| Contact form skippable | S2 | The route's checks all worked. A policy offered a way round them |
+| Avatars unlimited | S2 | The limit was in the page, and the bucket took anything |
+| `anon` write grants on 164 tables, `TRUNCATE` for both client roles on 168 | S3 | Row-level security held, but it was the only thing that did |
+
+**What would have been wrong to conclude.**
+
+- *"It mentions `auth.uid()`, so it checks it."* That is how the first one survived a
+  read of the code. Only running it as `anon` showed it. The audit now lists that shape.
+- *"Anon holds write on 164 tables" as a finding.* On its own it is Supabase's default,
+  and nothing was reachable through it. It is recorded as hardening, not as a hole.
+- *"Fix it with `WITH CHECK (is_sample = false)`."* A policy cannot see the old value, so
+  that would have refused any edit to a row that is already a sample. A trigger refuses
+  only the change, and a before and after shows such an edit still works.
+
+**The proof.** Fifteen attacks and nine things that must keep working, each in a
+subtransaction, in one transaction that rolled back. Fourteen attacks succeeded before
+and were refused after, and the fifteenth was refused both ways. All nine worked both
+ways. Three times that proof showed less than it appeared to:
+
+- `EXECUTE ... INTO` fails on a statement returning nothing, so half the first run's
+  cases reported an error, not a result. They were not counted, and were rerun.
+- Breaking the `COALESCE` went unnoticed, because the new `REVOKE` and the new scope check
+  each stopped every case first. The fix was not proved until cases reached that guard
+  alone: a token with no user read `1.23` before and is refused now.
+- Two tests failed on the baseline, and the mutation run stopped there rather than
+  reporting on a red suite. One was a comment still naming a dropped function. The other
+  was a mock that did not turn `ok: false` into an error, as the real one does.
+
+Mutation: 21 of 21 on the migration, on the real schema, and 30 of 30 on the code, on a
+green baseline, with a control surviving each run.
+
+**Not done.** The running application was not tested over HTTP. Nothing here is evidence
+about it.
+
 ### 2026-11-05 — R452: a dataset that says its rows go through the server
 
 **What was built.** `user_data_tables.rows_sealed` (migration `20261109000000`), set when rows are written

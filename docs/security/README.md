@@ -7,6 +7,8 @@ so the next one can be run the same way and compared against the last. It holds:
   scan covers.
 - `scripts/scan.sh` — one script that runs the automated half (dependency and
   image scanning) and writes timestamped output under `reports/` (git-ignored).
+- `scripts/schema-audit.sql` — a read-only audit of what the migrated database
+  actually ended up with. See [The schema audit](#the-schema-audit).
 - `assessments/<YYYY-MM-DD>.md` — one dated report per assessment: what was
   scanned, what was found, each finding's severity and status, and the commit
   that fixed it.
@@ -21,6 +23,7 @@ directory is the evidence they were _checked_, and when.
 - [Scope](#scope)
 - [The tools](#the-tools)
 - [Running the automated scans](#running-the-automated-scans)
+- [The schema audit](#the-schema-audit)
 - [The manual review](#the-manual-review)
 - [Writing the report](#writing-the-report)
 - [Fixing findings](#fixing-findings)
@@ -118,6 +121,39 @@ with a finding to point at. The Dockerfiles' bases are
 pinned by digest, and Dependabot proposes the next digest weekly (R406). A
 digest bump on the same tag is the base image's security rebuild, and that pull
 request is how the OS layer gets refreshed.
+
+## The schema audit
+
+Reading the migrations tells you what was written. This reads Postgres's own
+catalog, so it sees the sum of all of them, and Supabase's default grants, which
+no migration here mentions. It runs in a read-only transaction and changes nothing:
+
+```bash
+docker exec -i supabase-db psql -U postgres -d postgres < docs/security/scripts/schema-audit.sql
+```
+
+Or `psql "$DATABASE_URL" -f docs/security/scripts/schema-audit.sql` against a hosted
+database. Run it after any migration that touches access, and before a release.
+
+Each section says what healthy looks like. Sections marked "Healthy: none" should print
+nothing. The others are lists to read, and what matters there is a new entry:
+[the last run](./assessments/2026-11-06-schema.md) says why each one that is there is
+allowed to be.
+
+Treat its output as somewhere to start. A function that mentions `auth.uid()` has
+not been shown to check it, so read the body. Then prove a suspicion by attacking it as
+the real role, in a transaction you roll back:
+
+```sql
+begin;
+set local role anon;
+select public.some_function('00000000-0000-4000-8000-000000000001');
+rollback;
+```
+
+The bug to look for first is a guard that comes out NULL. `IF NOT (auth.uid() = x)`
+does not refuse a signed-out caller: the comparison is NULL, `NOT NULL` is NULL, and
+`IF NULL` skips the branch. Write `IF NOT COALESCE(..., false)`.
 
 ## The manual review
 

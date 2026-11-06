@@ -33,13 +33,7 @@ import { sessionUser } from "@/lib/sessionUser";
 import { selectAllWindows } from "@/lib/pagedSelect";
 // Type inference and coercion are shared with the streaming server upload —
 // two implementations would eventually disagree about what a date is.
-import {
-  coerceRow,
-  inferColumns,
-  safeTableName,
-  STAGING_PREFIX,
-  type ColumnDef,
-} from "@/lib/datasetParse";
+import { safeTableName, STAGING_PREFIX, typedDataset, type ColumnDef } from "@/lib/datasetParse";
 import { holdQueriesUntil } from "@/lib/queryGate";
 import { isLocalReadOnlySql } from "@/lib/sqlSafety";
 import {
@@ -112,14 +106,7 @@ export function parseCsv(input: string | File): Promise<ParsedCsv> {
       header: true,
       skipEmptyLines: true,
       dynamicTyping: false, // we coerce ourselves so date strings stay strings
-      complete: (res) => {
-        const rows = res.data.filter(
-          (r) => r && typeof r === "object" && Object.keys(r).length > 0,
-        );
-        const columns = inferColumns(rows);
-        const coerced = rows.map((r) => coerceRow(r, columns));
-        resolve({ rows: coerced, columns });
-      },
+      complete: (res) => resolve(typedDataset(res.data)),
       error: (err: Error) => reject(err),
     });
   });
@@ -319,7 +306,7 @@ async function hydrateFromSupabaseUncoordinated(): Promise<DatasetMeta[]> {
 
 // Persist a parsed dataset to Supabase AND register it in the engine.
 // Always inserts as a PRIVATE user-owned table (is_sample = false). Public
-// sample datasets are seeded separately via the upsert_sample_dataset RPC
+// sample datasets are seeded on the server (sampleDatasets.server.ts)
 // (see src/lib/sampleData.ts) and are read-only from the client.
 /**
  * Ask the server to record the dataset's current contents as a restorable

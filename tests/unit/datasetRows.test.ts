@@ -277,8 +277,8 @@ describe("the one way in", () => {
     expect(around).toEqual([]);
   });
 
-  it("the browser's two remaining paths are the ones the next round moves", () => {
+  it("the browser's one remaining path is the one the next round moves", () => {
     const browser = walk("src/lib").filter((f) => /\.from\(\s*"user_data_rows"/.test(code(f)));
-    expect(browser.map((f) => path.basename(f)).sort()).toEqual(["sampleData.ts", "sqlEngine.ts"]);
+    expect(browser.map((f) => path.basename(f)).sort()).toEqual(["sqlEngine.ts"]);
   });
 });

@@ -12,6 +12,9 @@ import { Separator } from "@/components/ui/separator";
 import { Upload, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
+/** What the avatars bucket accepts. No SVG: it can carry script, and avatars are public. */
+const AVATAR_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+
 export type ProfileRow = {
   id?: string;
   user_id: string;
@@ -143,8 +146,8 @@ export function ProfileSettingsPanel({ goneRef }: { goneRef?: { current: boolean
   async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file || !user) return;
-    if (!file.type.startsWith("image/")) {
-      toast.error("Please select an image file");
+    if (!AVATAR_TYPES.includes(file.type)) {
+      toast.error("Please choose a PNG, JPEG, WebP or GIF image");
       return;
     }
     if (file.size > 5 * 1024 * 1024) {
@@ -247,7 +250,7 @@ export function ProfileSettingsPanel({ goneRef }: { goneRef?: { current: boolean
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept={AVATAR_TYPES.join(",")}
             className="hidden"
             onChange={handleAvatarChange}
           />

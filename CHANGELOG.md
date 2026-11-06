@@ -16,6 +16,12 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Deploy the build first, then apply `20261110000000`** (R454). The migration drops
+  the two functions the browser used to seed sample datasets with. In that order nothing
+  breaks. The other way round, a new instance can't seed its samples until the build
+  arrives, and existing samples are unaffected either way. Before you upgrade, or after,
+  see `docs/security/assessments/2026-11-06-schema.md` for how to check whether a
+  running install was affected.
 - **`bash scripts/setup-selfhosted.sh` now needs `--yes` when nobody is at a
   terminal.** The Supabase CLI asks before it applies migrations, so an unattended
   install stops and says so instead of failing halfway. At a terminal, it just asks.
@@ -655,6 +661,34 @@ development branch and may be ahead of the latest tag.
   never ran a page in a browser. `npm run test:e2e` runs them locally after a
   build (`E2E_CHANNEL=chrome` uses the Chrome you have). Signed-in pages are
   not covered yet.
+
+### Security: 2026-11-06 schema audit
+
+Found by reading what the migrated database actually ended up with, and proved by
+attacking it as the real database roles. Details and measurements are in
+`docs/security/assessments/2026-11-06-schema.md`. `docs/security/scripts/schema-audit.sql`
+repeats the audit, and changes nothing. This was a schema audit and not a penetration
+test: the running application was not tested over HTTP.
+
+- **Anyone could read anyone's spend** (R454). `budget_spend_since` guarded itself with
+  `IF NOT (auth.uid() = _user_id ...)`. Signed out, that comparison is NULL, the whole
+  condition is NULL, and `IF NULL` does not refuse. A signed-in user could also read any
+  credential's spend, by passing their own id with the credential's scope.
+- **Any user could publish into every tenant's samples** (R454). Setting `is_sample` on
+  their own table or knowledge base made it readable by everyone, and agents read
+  knowledge bases, so that was a stored prompt injection across tenants. A trigger on
+  all ten tables with the flag now refuses it from clients.
+- **Any user could write into the shared sample datasets** (R454). The browser seeded
+  them through two functions that took whatever it sent. Those are gone: the server
+  seeds samples from the CSVs it ships with.
+- **The contact form's checks could be skipped** (R454). A policy let anyone insert
+  straight through the database API, past the validation, the rate limit and the
+  honeypot. The form writes with the service role, and is unchanged.
+- **The public avatars bucket took any file of any size** (R454). It now enforces 5 MB
+  and PNG, JPEG, WebP or GIF itself. SVG is refused, because it can carry script.
+- **The signed-out role no longer holds write grants** (R454). Row-level security was
+  already refusing these, but it was the only thing doing so, on 164 of 169 tables.
+  `TRUNCATE`, which ignores row-level security, is revoked from both client roles.
 
 ### Security: 2026-10-25 assessment
 

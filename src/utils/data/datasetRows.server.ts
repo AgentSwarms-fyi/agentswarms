@@ -134,18 +134,23 @@ export type DatasetWriter = {
  */
 export async function datasetWriter(tableId: string, owner: string): Promise<DatasetWriter> {
   await markIfSealed(tableId, owner);
-  return {
-    async insert(rows) {
-      for (let i = 0; i < rows.length; i += INSERT_BATCH) {
-        const slice = rows
-          .slice(i, i + INSERT_BATCH)
-          .map((row) => ({ table_id: tableId, row: row as unknown as Json }));
-        const { error } = await supabaseAdmin.from("user_data_rows").insert(slice);
-        if (error) return { error };
-      }
-      return { error: null };
-    },
-  };
+  return { insert: (rows) => insertInBatches(tableId, rows) };
+}
+
+async function insertInBatches(tableId: string, rows: DatasetRow[]): Promise<{ error: DbError }> {
+  for (let i = 0; i < rows.length; i += INSERT_BATCH) {
+    const slice = rows
+      .slice(i, i + INSERT_BATCH)
+      .map((row) => ({ table_id: tableId, row: row as unknown as Json }));
+    const { error } = await supabaseAdmin.from("user_data_rows").insert(slice);
+    if (error) return { error };
+  }
+  return { error: null };
+}
+
+/** Add rows to a shared sample, which has no owner and so no customer key to ask about. */
+export function insertSampleRows(tableId: string, rows: DatasetRow[]): Promise<{ error: DbError }> {
+  return insertInBatches(tableId, rows);
 }
 
 /** Add rows to a dataset, in one go. */

@@ -15,6 +15,43 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-06 — R454: samples seeded on the server, and the avatar limits
+
+Driven on the deployed build, before migration `20261110000000` was applied to this
+project. The build does not need it.
+
+| Page / surface | What was driven | Result |
+| --- | --- | --- |
+| Data Catalog, opening with an account that has tables | load, then read the network | `seedSampleDatasetsFn` called once, 200. No error toast. 18 samples listed |
+| Sample row counts | read, compared with the CSVs | `saas_sales` 9,994 and `hr_roster` 420, each exactly its CSV: nothing added |
+| Workbench | open the tab | Hydrates; `saas_sales` listed as a sample |
+| Account, the picture input | read | `accept` is `image/png,image/jpeg,image/webp,image/gif` |
+| Offer an SVG | a file set on the input | "Please choose a PNG, JPEG, WebP or GIF image". No upload |
+| Offer a 5 MB + 1 byte PNG | a file set on the input | "Image must be under 5 MB". No upload |
+| Profile afterwards | read | Unchanged |
+
+Seen and not caused by this round: "An unknown error occurred when fetching the script" in
+the console. `/sw.js` answers 200, and this embedded browser refuses to register a service
+worker. The app ignores that failure on purpose.
+
+**What this round does not show.** The page cannot show what the seeder answered: the
+response body is not readable here, and with an account that already has tables the page
+ignores a failure (`.catch(() => {})`). So a 200 and no toast prove less than they look
+like they do, and the unchanged counts are the real evidence for this path.
+
+**A new install, which matters more, was run separately.** The real production chunk,
+against a local stand-in for the database API with dummy keys, and a guard refusing any
+other host. A new database got all 18 samples and 14,904 rows, with `saas_sales` and
+`hr_roster` matching their CSVs and a number column holding numbers. The next load wrote
+nothing, a refill left full samples alone, and an emptied sample was refilled to 9,994.
+All 120 requests were local. That was a stand-in, not Postgres. The migration proof
+covers service-role writes against the real schema.
+
+**Refilling cannot be driven from the page.** `handleResetSample` has no caller, and did
+not before this round, so `forceSeedSampleDataset` is unreachable from the UI.
+
+No fixture. Nothing was uploaded or changed.
+
 ## 2026-11-06 — Hide the BI Agent and SQL Chat panel in the Workbench
 
 Asked for by the user from a screenshot of the Workbench. Driven on the deployed build.
