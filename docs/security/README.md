@@ -78,11 +78,22 @@ previous run recorded, or by the tag below and record the digest you got.
 | **gitleaks**           | `zricethezav/gitleaks`           | committed secrets                                       |
 | **hadolint**           | `hadolint/hadolint`              | Dockerfile hardening lint                               |
 | **Semgrep**            | `semgrep/semgrep`                | code-pattern SAST (optional, high-signal rulesets)      |
+| **OWASP ZAP**          | `zaproxy/zap-stable`             | DAST: the running app's headers, framing, CORS, disclosure (against a throwaway) |
+| **Nuclei**             | `projectdiscovery/nuclei`        | DAST: ~10,500 web/CVE templates against the running app (throwaway, no OAST)      |
 
 The code and RLS review is done by reading the code, not only by a scanner — the
 findings that have mattered here (a read-only SQL guard bypassed by a comment
 inside a string literal; a `SECURITY DEFINER` RPC that trusted a caller-supplied
 user id) are not ones a generic ruleset flags.
+
+The dynamic scan (ZAP, Nuclei) runs only against a **throwaway copy** of the
+stack, never the hosted project: the production image is rebuilt with throwaway
+Supabase keys, the served bundle is checked to hold zero references to the real
+project, and every scanner is scoped to that one origin, with no out-of-band
+interaction and no DoS/fuzz/intrusive templates. Each match is then triaged
+against the source, because the High a DAST tool reports is as often a test card
+on a documentation page as it is a hole. The 2026-11-07 assessment is the worked
+example.
 
 ## Running the automated scans
 

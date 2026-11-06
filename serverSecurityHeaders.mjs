@@ -73,6 +73,20 @@ const SANDBOX_WORKER_CSP = "default-src 'none'; script-src 'unsafe-eval'";
 /** HSTS lifetime when HSTS_MAX_AGE is not set: 180 days. */
 const DEFAULT_HSTS_MAX_AGE = 15552000;
 
+/**
+ * Powerful browser features the app never uses, denied for every origin
+ * (`feature=()`) so a compromised or injected script — and any widget an
+ * embed page frames — cannot reach them either. MEASURED against the source
+ * (R454 pentest pass): no getUserMedia, geolocation, PaymentRequest, WebUSB
+ * or motion-sensor API appears anywhere in src, so naming only these keeps
+ * this a pure hardening header with no effect on what the app does. A browser
+ * ignores any token it does not recognise. Copy-to-clipboard, fullscreen and
+ * media playback are deliberately left unrestricted.
+ */
+const DEFAULT_PERMISSIONS_POLICY =
+  "accelerometer=(), camera=(), display-capture=(), geolocation=(), " +
+  "gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()";
+
 const truthy = (v) => /^(1|true|yes|on)$/i.test(String(v ?? "").trim());
 
 const directivesOf = (policy) =>
@@ -127,6 +141,8 @@ export const newNonce = () => randomBytes(16).toString("base64");
  *                                 allow-list still gates what they show)
  * HSTS_MAX_AGE                    seconds; 0 sends no HSTS
  * HSTS_INCLUDE_SUBDOMAINS         add includeSubDomains
+ * PERMISSIONS_POLICY              the Permissions-Policy header; unset uses
+ *                                 the default above, empty sends none
  */
 export function securityHeaderPolicy(env = process.env) {
   if (/^(0|false|no|off)$/i.test(String(env.SECURITY_HEADERS ?? "").trim())) return null;
@@ -144,6 +160,10 @@ export function securityHeaderPolicy(env = process.env) {
     hsts: hstsAge
       ? `max-age=${hstsAge}${truthy(env.HSTS_INCLUDE_SUBDOMAINS) ? "; includeSubDomains" : ""}`
       : "",
+    permissionsPolicy:
+      env.PERMISSIONS_POLICY === undefined
+        ? DEFAULT_PERMISSIONS_POLICY
+        : env.PERMISSIONS_POLICY.trim(),
   };
 }
 
@@ -176,6 +196,7 @@ export function headersFor(request, policy, nonce = newNonce()) {
       ? SANDBOX_WORKER_CSP
       : shaped(frameable ? policy.embedCsp : policy.appCsp, url.pathname, nonce),
   };
+  if (policy.permissionsPolicy) out["permissions-policy"] = policy.permissionsPolicy;
   // The legacy header has no way to say "these sites", so a frameable page
   // simply does not send it.
   if (!frameable) out["x-frame-options"] = "SAMEORIGIN";

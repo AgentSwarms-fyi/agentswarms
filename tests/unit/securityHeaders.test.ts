@@ -427,6 +427,42 @@ describe("HSTS", () => {
   });
 });
 
+describe("Permissions-Policy (R454)", () => {
+  const pp = (path: string, env: Env = {}) =>
+    headersFor(page(path), securityHeaderPolicy(env)!)["permissions-policy"];
+
+  it("denies the powerful features the app never uses, on app and embed pages", () => {
+    for (const path of ["/dashboard", "/embed/bi/emk_abc"]) {
+      const value = pp(path);
+      for (const feature of [
+        "camera=()",
+        "microphone=()",
+        "geolocation=()",
+        "payment=()",
+        "usb=()",
+        "display-capture=()",
+      ]) {
+        expect(value, `${path}: ${feature}`).toContain(feature);
+      }
+      // Pure deny-list: it never widens anything to '*' or 'self'.
+      expect(value, path).not.toContain("*");
+    }
+  });
+
+  it("reaches real responses through the middleware", async () => {
+    expect((await through("/dashboard")).headers.get("permissions-policy")).toContain("camera=()");
+  });
+
+  it("follows PERMISSIONS_POLICY, and an empty value sends none", async () => {
+    expect(pp("/", { PERMISSIONS_POLICY: "geolocation=(self)" })).toBe("geolocation=(self)");
+    expect((await through("/", { PERMISSIONS_POLICY: "" })).headers.get("permissions-policy")).toBeNull();
+  });
+
+  it("SECURITY_HEADERS=off sends none", async () => {
+    expect((await through("/", { SECURITY_HEADERS: "off" })).headers.get("permissions-policy")).toBeNull();
+  });
+});
+
 describe("the operator's own policy", () => {
   it("replaces the default, and frame-ancestors stays per page", async () => {
     const env = {

@@ -109,6 +109,49 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-07 — R455: the running application, over HTTP, finally scanned
+
+**Why this round.** R454 ended: "the running application was not tested over HTTP.
+Nothing here is evidence about it." This is that test. OWASP ZAP 2.17.0 and Nuclei
+v3.11.1 ran against a throwaway copy of `fae657bd` on `:8080` — the production image
+rebuilt with throwaway Supabase keys, its bundle checked to hold zero references to the
+real project first. Unauthenticated surface only; safe flags (no OAST, no dos/fuzz/
+intrusive, rate-limited); scoped to the one origin. Full record:
+`docs/security/assessments/2026-11-07.md`.
+
+| Finding | Sev | Disposition |
+| --- | --- | --- |
+| No `Permissions-Policy` header | S3 | A standard hardening header the app did not send. The one real gap. Fixed: a deny-list of the powerful features the app provably never uses (`getUserMedia`, geolocation, `PaymentRequest`, WebUSB, motion sensors — zero uses in `src`), env-configurable, tested through the real middleware and srvx |
+| ZAP "PII Disclosure" `4111 1111 1111 1111` | — | False positive: the canonical test Visa on the Guardrails & PII docs page |
+| ZAP CSP "no default-src / wildcard / style unsafe-inline" (×3) | — | By design (R396/R397): `script-src` is nonce-locked; `default-src` is deliberately omitted so connectors work. Tighten per deployment via the built-in report-only trial |
+| ZAP `ACAO:*` on `/api/v1/metrics` | — | By design: bearer-key gateway API, fails closed, returns metadata not SQL; `*` carries no credentials |
+| ZAP "missing clickjacking header" on `/share/bi/…` | — | By design: published dashboards are in the `FRAMEABLE` set and are meant to be embedded |
+| ZAP "HTTP only", "private IP in bundle", "email in URL" | — | Environmental (local rig has no TLS) / example strings in docs / ZAP's own fabricated GET |
+| Nuclei Redis CVEs + default-login (`:6379`), SMB signing (`:445`) | — | Not the app: Nuclei's network templates fan out to the host's other ports. The CVEs are a `redis_version`-banner heuristic against **Valkey 8.1.11** (pinned, loopback-bound); the no-password is the dev default, already documented (VA-41, installer-generated, app sends it). SMB is the test host itself |
+
+**What would have been wrong to conclude.**
+
+- *"ZAP reports a High, so there is a High."* The High was `4111 1111 1111 1111` on the
+  guardrails documentation page — the test card the page exists to explain. Reading the
+  source, not the severity label, is what told them apart.
+- *"The CSP has no `default-src`, so add `default-src 'self'`."* That breaks every data
+  connector, image and style the app loads from elsewhere. The nonce-locked `script-src`
+  is the part that stops XSS, and it is already there. The rest is a report-only trial's
+  job, per deployment — not a blind edit.
+- *"Critical Redis CVEs on the target."* On `:6379`, not `:8080`. Nuclei scanned the host's
+  other ports, and matched a `redis_version` banner against loopback-bound Valkey 8.1.11 —
+  a version to confirm, not an application finding.
+
+**The proof.** 39 of 39 in `tests/unit/securityHeaders.test.ts` (34 prior + 5 for the new
+header), including assertions that the header reaches real responses through the
+middleware and through srvx as `server.mjs` serves, and that `PERMISSIONS_POLICY` and
+`SECURITY_HEADERS=off` both behave. A confirming DAST re-scan folds into the AWS staging
+pass rather than a 6 GB image rebuild to observe one static header.
+
+**Not done.** Authenticated active scanning, sqlmap/ffuf, and the Spark/lakehouse/Qdrant/
+notebook/docgen service suite. All belong to the AWS staging penetration test, ~1 month
+out. SECURITY.md's "no penetration-test report" stays true until then.
+
 ### 2026-11-06 — R454: what the migrated catalog actually says
 
 **Why this round.** A scanner-led test of the running application was planned and did
