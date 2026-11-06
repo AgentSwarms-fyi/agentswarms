@@ -289,7 +289,7 @@ writes all of it into `.env` automatically before bringing up the app:
 
 ```bash
 bash scripts/setup-selfhosted.sh      # Supabase + EVERYTHING  →  http://localhost:8080
-# ADMIN_EMAIL=you@corp.com bash scripts/setup-selfhosted.sh   # non-interactive
+# ADMIN_EMAIL=you@corp.com bash scripts/setup-selfhosted.sh --yes   # non-interactive
 # Windows: run it in WSL or Git Bash, with Docker Desktop running
 ```
 

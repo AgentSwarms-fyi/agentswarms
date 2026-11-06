@@ -16,6 +16,10 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **`bash scripts/setup-selfhosted.sh` now needs `--yes` when nobody is at a
+  terminal.** The Supabase CLI asks before it applies migrations, so an unattended
+  install stops and says so instead of failing halfway. At a terminal, it just asks.
+  A self-hosted stack that already exists keeps its data where it is.
 - **Apply `20261109000000` before putting anyone under a customer key** (R452). It
   adds `user_data_tables.rows_sealed`, off by default. Either order with the build
   is safe, and nobody's reads depend on it until they are under a customer key. If
@@ -1321,6 +1325,16 @@ and both of those are one advisory that cannot be triggered here (see
 
 ### Fixed
 
+- **The self-hosted install could not finish on Windows, and could break on any
+  machine.** From a Windows folder, Postgres stalled in its first-time setup; a new
+  install there now keeps the database in a Docker volume. The stack and the
+  Supabase CLI were both taken from "latest", so upstream changes broke installs
+  with nothing changed here; both are now pinned to proved versions, and only
+  Supabase's `docker` folder is downloaded rather than the whole repository. A
+  slow first start now waits and tries three times. Line endings stay intact on
+  Windows, a quote in the admin password no longer breaks account creation, and the
+  fallback that could never work on the current stack has gone. `docs/INSTALL.md`
+  has an entry for each of these.
 - **`PERSIST_PROMPT_BODIES=false` did not reach a server run's link previews**
   (R449). A deployed or scheduled run kept what passed between its steps with the
   setting off; a canvas run did not. Both drop it now.

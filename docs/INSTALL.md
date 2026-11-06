@@ -8,13 +8,13 @@ storage), configuring environment variables, and running the app.
 
 ## 1. Prerequisites
 
-| Requirement                                   | Version              | Why                                                                                                                              |
-| --------------------------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| **Node.js**                                   | `20.19+` or `22.12+` | Required by Vite 7. Older Node 18 will fail to start the dev server.                                                             |
+| Requirement                                   | Version              | Why                                                                                                                                    |
+| --------------------------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| **Node.js**                                   | `20.19+` or `22.12+` | Required by Vite 7. Older Node 18 will fail to start the dev server.                                                                   |
 | **npm** (bundled with Node) or **Bun** `1.1+` | —                    | `package-lock.json` is the one lockfile (CI, the Docker build and the audits use it). Bun converts it on its first install; see below. |
-| **Git**                                       | any recent           | to clone the repo                                                                                                                |
-| **A Supabase account**                        | free tier is enough  | [supabase.com](https://supabase.com) — this is your database, auth, and file storage                                             |
-| **Supabase CLI**                              | `2.x`                | _(recommended, not strictly required)_ — the fastest way to apply the project's SQL migrations (over two hundred) in one command |
+| **Git**                                       | any recent           | to clone the repo                                                                                                                      |
+| **A Supabase account**                        | free tier is enough  | [supabase.com](https://supabase.com) — this is your database, auth, and file storage                                                   |
+| **Supabase CLI**                              | `2.x`                | _(recommended, not strictly required)_ — the fastest way to apply the project's SQL migrations (over two hundred) in one command       |
 
 Optional, but needed for a fully working app:
 
@@ -141,31 +141,33 @@ cd agentswarms
 bash scripts/setup-selfhosted.sh     # → app on :8080, Supabase on :8000
 ```
 
-Prompts for your admin email and password (or pass them non-interactively):
+It prompts for your admin email and password, and the Supabase CLI asks you to
+confirm before it applies the migrations. If nobody will be at a terminal, pass
+all three up front:
 
 ```bash
-ADMIN_EMAIL=you@corp.com ADMIN_PASSWORD='a-strong-one' bash scripts/setup-selfhosted.sh
+ADMIN_EMAIL=you@corp.com ADMIN_PASSWORD='a-strong-one' bash scripts/setup-selfhosted.sh --yes
 ```
 
 What the script does, in order — each step is the automated version of the
 manual walkthrough in
 [DEPLOYMENT.md § Self-hosted Supabase](./DEPLOYMENT.md#self-hosted-supabase-complete-data-residency):
 
-| Step                 | What happens                                                                                                                                                                                           |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Download & run**   | Clones the official `supabase/docker` stack into `supabase-docker/` (git-ignored) and starts it. First run pulls ~2 GB of images.                                                                      |
-| **Generate secrets** | Postgres password, `JWT_SECRET`, and the `ANON` / `SERVICE_ROLE` API keys **signed from that secret** (HS256, locally — nothing leaves your machine), plus the Studio dashboard login and vault keys.  |
-| **Wait properly**    | Waits for the auth service to answer **and for the storage service to finish its own boot migrations** — pushing the schema too early fails three migrations (see DEPLOYMENT.md § "Apply the schema"). |
-| **Extensions**       | Ensures the five required Postgres extensions exist (`vector`, `pg_net`, `pg_cron`, `pgmq`, `supabase_vault`).                                                                                         |
-| **Schema**           | Applies all migrations with `npx supabase db push --db-url ...` pointed at your own database.                                                                                                          |
-| **Admin user**       | Creates your account via the auth admin API, email pre-confirmed, and sets it as `ADMIN_EMAIL` — the instance's bootstrap superadmin.                                                                  |
-| **Wire the app**     | Writes `SUPABASE_URL`, both keys, the `VITE_` copies, `ADMIN_EMAIL`/`VITE_ADMIN_EMAIL` and `SITE_URL` into `.env` — nothing to copy by hand.                                                           |
-| **Install & start**  | Hands over to `scripts/setup.sh` (same flags: `--all`, `--dev`, `--docgen`, ...) which installs dependencies, generates the remaining app secrets, and brings the stack up.                            |
+| Step                 | What happens                                                                                                                                                                                              |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Download & run**   | Downloads the `docker` folder of the official Supabase repository into `supabase-docker/` (git-ignored), at a commit this script has been proved against, and starts it. First run pulls ~2 GB of images. |
+| **Generate secrets** | Postgres password, `JWT_SECRET`, and the `ANON` / `SERVICE_ROLE` API keys **signed from that secret** (HS256, locally — nothing leaves your machine), plus the Studio dashboard login and vault keys.     |
+| **Wait properly**    | Waits for the auth service to answer **and for the storage service to finish its own boot migrations** — pushing the schema too early fails three migrations (see DEPLOYMENT.md § "Apply the schema").    |
+| **Extensions**       | Ensures the five required Postgres extensions exist (`vector`, `pg_net`, `pg_cron`, `pgmq`, `supabase_vault`).                                                                                            |
+| **Schema**           | Applies all migrations with a pinned Supabase CLI (`supabase db push`), pointed at your own database. The CLI asks you to confirm first; `--yes` answers for you when nobody is at a terminal.            |
+| **Admin user**       | Creates your account via the auth admin API, email pre-confirmed, and sets it as `ADMIN_EMAIL` — the instance's bootstrap superadmin.                                                                     |
+| **Wire the app**     | Writes `SUPABASE_URL`, both keys, the `VITE_` copies, `ADMIN_EMAIL`/`VITE_ADMIN_EMAIL` and `SITE_URL` into `.env` — nothing to copy by hand.                                                              |
+| **Install & start**  | Hands over to `scripts/setup.sh` (same flags: `--all`, `--dev`, `--docgen`, ...) which installs dependencies, generates the remaining app secrets, and brings the stack up.                               |
 
 Notes worth knowing before you run it:
 
-- **Where things end up.** App: `http://localhost:8080`. Supabase API (Kong):
-  `http://localhost:8000` — that URL and the generated keys are what landed in
+- **Where things end up.** App: `http://localhost:8080`. Supabase API (the
+  gateway): `http://localhost:8000` — that URL and the generated keys are what landed in
   your `.env`. Supabase Studio: `http://localhost:8000` (user `supabase`,
   password in `supabase-docker/docker/.env`).
 - **No "organisation/project" step.** Self-hosted Supabase has no dashboard
@@ -177,7 +179,16 @@ Notes worth knowing before you run it:
   key. To start truly fresh: `cd supabase-docker/docker && docker compose down -v`,
   then delete the directory.
 - **Windows:** run the script in **WSL** or **Git Bash** with Docker Desktop
-  running.
+  running. From a Windows folder, Postgres can't run from
+  `supabase-docker/docker/volumes/db/data`: its first-time setup stalls on
+  Docker Desktop's file sharing. So a new install there keeps the database in a
+  Docker volume called `supabase_db-data`, and the script tells you when it has.
+  **`docker compose down -v` deletes that volume, and your database with it.**
+  Back up with `pg_dump`, not by copying the folder.
+- **Pinned versions.** Supabase's stack and CLI both change often, so the script
+  uses versions it has been proved against, not "latest". To try newer ones:
+  `SUPABASE_STACK_REF=<commit> SUPABASE_CLI_VERSION=<version> bash scripts/setup-selfhosted.sh`.
+  `SUPABASE_STACK_REF` applies only to a new download.
 - **Sizing:** budget roughly **+2 vCPU / +4 GB RAM / +20 GB disk** for the
   Supabase stack on top of the app's own requirements.
 - **Before production:** TLS in front of both origins, keep Studio and
@@ -611,6 +622,48 @@ copying.
 `supabase/config.toml` must contain a non-empty `project_id`. It ships
 pre-filled with `"agentswarms"` (the value is just a local label — your
 real project is selected by `supabase link`); restore it if it got blanked.
+
+**`bash scripts/setup-selfhosted.sh` stops with `dependency failed to start`.**
+The first start is slow, and Docker can give up before Postgres has finished
+setting itself up. The script already waits and tries three times. If that still
+fails, look at what is stuck, then give it longer:
+
+```bash
+cd supabase-docker/docker && docker compose ps && docker compose logs db
+SUPABASE_WAIT_SECS=600 bash scripts/setup-selfhosted.sh
+```
+
+Run the second command from the repository root. If `docker compose ps` is itself
+taking minutes, the machine is short of memory or disk: the stack needs about
+4 GB of RAM free, so close what you can.
+
+**Postgres never finishes its first start on Windows.** Its log stops at
+`selecting default "shared_buffers"`, and `supabase-docker/docker/volumes/db/data`
+stays almost empty. That stack was set up in a Windows folder by an older version
+of this script. Delete it and run the script again, and it will use a Docker
+volume. These commands delete the database, so use them only on a stack that never
+finished starting:
+
+```bash
+(cd supabase-docker/docker && docker compose down -v) && rm -rf supabase-docker
+bash scripts/setup-selfhosted.sh
+```
+
+**"migrations to apply and no terminal to confirm them", or
+`HostedMutationConsentRequiredError`.** The Supabase CLI asks before it applies
+migrations, and refuses when it can't ask: in CI, for example, or when an AI agent
+runs it. Nothing has been changed. If you meant to apply them, rerun with `--yes`.
+
+**`no tenant identifier provided` from `supabase db push`.** On a self-hosted
+stack, port 5432 is the connection pooler, which needs to know which tenant you
+mean. The user name has to be `postgres.<tenant>`, not `postgres`, where the tenant
+is `POOLER_TENANT_ID` in `supabase-docker/docker/.env`. The script does this for
+you, so you only meet this running the command by hand.
+
+**A `docker-compose.override.yml` you added to the Supabase stack has no effect.**
+The stack's own `.env` sets `COMPOSE_FILE`, which turns off Compose's automatic
+pick-up of override files. Add yours to that list, separated with a colon, and set
+`COMPOSE_PATH_SEPARATOR=:` so it reads the same on Windows.
 
 **`failed to parse environment file: .env (unexpected character ...)`.**
 Your editor saved `.env` with a UTF-8 BOM (byte-order mark), which the

@@ -7,12 +7,13 @@
 #   bash scripts/setup-selfhosted.sh              # Supabase + core app  → :8080
 #   bash scripts/setup-selfhosted.sh --all        # Supabase + EVERY service
 #   bash scripts/setup-selfhosted.sh --dev        # Supabase + local dev server
+#   bash scripts/setup-selfhosted.sh --yes        # unattended: nobody to confirm migrations
 #   ADMIN_EMAIL=you@corp.com ADMIN_PASSWORD='...' bash scripts/setup-selfhosted.sh --all
 #
 # What it does, in order — the scripted version of
 # docs/DEPLOYMENT.md § "Self-hosted Supabase":
 #   1. downloads the official Supabase Docker stack (Postgres, GoTrue auth,
-#      PostgREST, Storage, Realtime, Kong, Studio)
+#      PostgREST, Storage, Realtime, the API gateway, Studio)
 #   2. generates every secret — Postgres password, JWT secret, the ANON and
 #      SERVICE_ROLE keys signed from it, Studio dashboard login, vault keys
 #   3. starts the stack and WAITS for auth + storage to be genuinely ready
@@ -41,14 +42,22 @@ die()  { printf '\033[1;31m✗ %s\033[0m\n' "$*"; exit 1; }
 
 # Where the Supabase stack lives (git-ignored; delete it + its volumes to reset).
 SB_DIR="${SUPABASE_DIR:-$ROOT/supabase-docker}"
-SB_URL="${SUPABASE_PUBLIC_URL:-http://localhost:8000}"   # Kong, the API gateway
+SB_URL="${SUPABASE_PUBLIC_URL:-http://localhost:8000}"   # the API gateway
 APP_URL="${SITE_URL:-http://localhost:8080}"
 WAIT_SECS="${SUPABASE_WAIT_SECS:-240}"
 
+# The versions this script was last proved against. Both move upstream and have
+# changed shape under it, so a new install takes these rather than "latest".
+# docs/INSTALL.md says how to move them.
+SUPABASE_STACK_REF="${SUPABASE_STACK_REF:-9eecc75e017c587641cf04db66408a96a2f37d53}"
+SUPABASE_CLI_VERSION="${SUPABASE_CLI_VERSION:-3.0.0}"
+
+ASSUME_YES=0
 APP_FLAGS=()
 for arg in "$@"; do
   case "$arg" in
     -h|--help) sed -n '2,/^set -euo pipefail/p' "$0" | sed '$d'; exit 0 ;;
+    -y|--yes) ASSUME_YES=1 ;;
     *) APP_FLAGS+=("$arg") ;;    # everything else is forwarded to setup.sh
   esac
 done
@@ -94,7 +103,17 @@ sb_set() {
 # ── 2. download the Supabase stack ───────────────────────────────────────────
 if [ ! -d "$SB_DIR/docker" ]; then
   say "Downloading the official Supabase Docker stack → $SB_DIR"
-  git clone --depth 1 https://github.com/supabase/supabase "$SB_DIR"
+  # Only its docker folder, at the proved commit: the whole repository is far
+  # bigger and nothing else in it is used. core.autocrlf stays off because these
+  # files are mounted into Linux containers, and Git's default on Windows would
+  # give the init SQL and shell scripts CRLF line endings.
+  git init --quiet "$SB_DIR"
+  git -C "$SB_DIR" config core.autocrlf false
+  git -C "$SB_DIR" remote get-url origin >/dev/null 2>&1 \
+    || git -C "$SB_DIR" remote add origin https://github.com/supabase/supabase
+  git -C "$SB_DIR" sparse-checkout set docker
+  git -C "$SB_DIR" fetch --quiet --depth 1 --filter=blob:none origin "$SUPABASE_STACK_REF"
+  git -C "$SB_DIR" checkout --quiet FETCH_HEAD
 else
   say "Reusing the Supabase stack already in $SB_DIR"
 fi
@@ -139,23 +158,73 @@ else
 fi
 TENANT="$(sb_get POOLER_TENANT_ID)"; TENANT="${TENANT:-agentswarms}"
 
+# ── 3b. keep Postgres off a Windows folder ──────────────────────────────────
+# The stack bind-mounts ./volumes/db/data. From a Windows folder every fsync goes
+# through Docker Desktop's file sharing, and first-time init stalls for good: the
+# directory sat at 5 KB after nine minutes. A Docker volume has no such layer.
+windows_folder() {
+  case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) return 0 ;; esac
+  case "$SB_DIR" in /mnt/[a-zA-Z]/*) grep -qi microsoft /proc/version 2>/dev/null ;; *) return 1 ;; esac
+}
+OVERRIDE="$SB_DIR/docker/docker-compose.override.yml"
+if [ ! -f "$OVERRIDE" ] && windows_folder; then
+  if [ -f "$SB_DIR/docker/volumes/db/data/PG_VERSION" ]; then
+    # Moving it would silently start an empty database in place of this one.
+    warn "Postgres already has data in $SB_DIR/docker/volumes/db/data - leaving it there."
+    warn "If first start stalls, delete $SB_DIR and rerun: a new install uses a Docker volume."
+  else
+    say "Keeping Postgres in a Docker volume (a Windows folder is too slow for it)"
+    cat > "$OVERRIDE" <<'YAML'
+# Written by scripts/setup-selfhosted.sh: Postgres cannot run from a Windows folder.
+# `docker compose down -v` deletes this volume, and the database with it.
+services:
+  db:
+    volumes:
+      - db-data:/var/lib/postgresql/data
+
+volumes:
+  db-data:
+YAML
+  fi
+fi
+# The stack's .env pins COMPOSE_FILE, which turns off Compose's automatic pick-up
+# of an override file. The separator is ":" here, and ";" by default on Windows.
+if [ -f "$OVERRIDE" ]; then
+  compose_files="$(sb_get COMPOSE_FILE)"
+  case ":$compose_files:" in
+    ::|*:docker-compose.override.yml:*) : ;;
+    *) sb_set COMPOSE_FILE "$compose_files:docker-compose.override.yml" ;;
+  esac
+  grep -qE '^COMPOSE_PATH_SEPARATOR=' "$SB_DIR/docker/.env" \
+    || printf 'COMPOSE_PATH_SEPARATOR=:\n' >> "$SB_DIR/docker/.env"
+fi
+
 # ── 4. start the stack and wait until it is REALLY ready ────────────────────
 say "Starting Supabase (docker compose up -d) — first pull downloads ~2 GB of images"
 # First boot initialises Postgres (bootstrap migrations, the extra databases,
 # the pg_graphql migrations). On slower volume I/O that outlasts the health wait
 # Compose gives the services depending on it, and they abort in "created" while
-# Postgres itself goes healthy moments later. Retrying starts the ones that gave
-# up; it is not a fix for a genuinely broken database, which fails again here.
+# Postgres itself goes healthy minutes later. Starting again at once only runs
+# into the same wait, so let what is running settle first, then start the ones
+# that gave up. A genuinely broken database fails every attempt and stops here.
 start_stack() { ( cd "$SB_DIR/docker" && docker compose up -d ); }
-if ! start_stack; then
-  warn "Services gave up waiting on Postgres first-boot init - retrying once"
-  start_stack || die "Supabase stack failed to start - check: (cd $SB_DIR/docker && docker compose ps && docker compose logs db)"
-fi
+stack_settled() {
+  ! ( cd "$SB_DIR/docker" && docker compose ps --format '{{.Health}}' 2>/dev/null ) \
+    | grep -qE 'starting|unhealthy'
+}
+start_attempts=1
+until start_stack; do
+  [ "$start_attempts" -ge 3 ] && die "Supabase stack failed to start - check: (cd $SB_DIR/docker && docker compose ps && docker compose logs db)"
+  start_attempts=$(( start_attempts + 1 ))
+  warn "Still initialising - this is normal on a first start. Waiting up to ${WAIT_SECS}s, then trying again"
+  settle_deadline=$(( $(date +%s) + WAIT_SECS ))
+  until stack_settled || [ "$(date +%s)" -ge "$settle_deadline" ]; do sleep 5; done
+done
 
 say "Waiting for the auth service (up to ${WAIT_SECS}s)"
 deadline=$(( $(date +%s) + WAIT_SECS ))
 until curl -fsS --max-time 4 "$SB_URL/auth/v1/health" -H "apikey: $ANON_KEY" >/dev/null 2>&1; do
-  [ "$(date +%s)" -ge "$deadline" ] && die "Supabase auth never became healthy — check: (cd $SB_DIR/docker && docker compose ps && docker compose logs auth kong)"
+  [ "$(date +%s)" -ge "$deadline" ] && die "Supabase auth never became healthy — check: (cd $SB_DIR/docker && docker compose ps && docker compose logs auth)"
   sleep 3
 done
 
@@ -179,15 +248,28 @@ done
 
 # ── 6. apply the AgentSwarms schema ──────────────────────────────────────────
 # supabase link is for Cloud projects; against self-hosted we point the CLI at
-# the database directly, through the session pooler the stack publishes on 5432.
-DB_URL="postgresql://postgres.${TENANT}:${PG_PW}@127.0.0.1:5432/postgres?sslmode=disable"
-say "Applying database migrations (npx supabase db push)"
-if ! npx --yes supabase db push --db-url "$DB_URL"; then
-  # Older stacks publish Postgres directly instead of through the pooler.
-  warn "Push via the pooler failed — retrying against Postgres directly"
+# the database directly. Port 5432 is the session pooler on stacks that run one,
+# which needs the tenant in the user name, and Postgres itself on older ones.
+if ( cd "$SB_DIR/docker" && docker compose ps --services --status running ) | grep -qx supavisor; then
+  DB_URL="postgresql://postgres.${TENANT}:${PG_PW}@127.0.0.1:5432/postgres?sslmode=disable"
+else
   DB_URL="postgresql://postgres:${PG_PW}@127.0.0.1:5432/postgres?sslmode=disable"
-  npx --yes supabase db push --db-url "$DB_URL" || die "Migrations failed — see output above"
 fi
+
+# The CLI asks before it applies migrations, and refuses where it cannot ask. Say
+# so here, rather than after it fails: a rerun with nothing to apply needs no answer.
+migration_files=(supabase/migrations/*.sql)
+migrations_applied="$(psql_db "select count(*) from supabase_migrations.schema_migrations" || true)"
+migrations_pending=$(( ${#migration_files[@]} - ${migrations_applied:-0} ))
+if [ "$migrations_pending" -gt 0 ] && [ "$ASSUME_YES" -eq 0 ] && [ ! -t 0 ]; then
+  die "$migrations_pending migrations to apply and no terminal to confirm them. Rerun with --yes to apply them: bash scripts/setup-selfhosted.sh --yes"
+fi
+PUSH_FLAGS=()
+[ "$ASSUME_YES" -eq 1 ] && PUSH_FLAGS+=(--yes)
+
+say "Applying database migrations (supabase db push, CLI $SUPABASE_CLI_VERSION)"
+npx --yes "supabase@$SUPABASE_CLI_VERSION" db push --remote="$DB_URL" "${PUSH_FLAGS[@]+"${PUSH_FLAGS[@]}"}" \
+  || die "Migrations failed - see the output above. If the CLI asked for a confirmation it could not get, rerun with --yes"
 
 # ── 7. create the admin user ─────────────────────────────────────────────────
 ADMIN_EMAIL="${ADMIN_EMAIL:-}"
@@ -205,10 +287,15 @@ if [ -z "$ADMIN_PASSWORD" ]; then
 fi
 
 say "Creating the admin user ($ADMIN_EMAIL)"
+# Built by node so a quote or backslash in the password stays part of the password.
+admin_json="$(ADMIN_EMAIL="$ADMIN_EMAIL" ADMIN_PASSWORD="$ADMIN_PASSWORD" node -e '
+  const { ADMIN_EMAIL: email, ADMIN_PASSWORD: password } = process.env;
+  console.log(JSON.stringify({ email, password, email_confirm: true }));
+')"
 create_out="$(curl -fsS --max-time 15 -X POST "$SB_URL/auth/v1/admin/users" \
   -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" \
   -H "Content-Type: application/json" \
-  -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\",\"email_confirm\":true}" 2>&1)" \
+  -d "$admin_json" 2>&1)" \
   && say "Admin user created and confirmed" \
   || {
     case "$create_out" in
@@ -229,7 +316,7 @@ setenv() {
   fi
 }
 # The browser and the SERVER HALF need DIFFERENT URLs when the app runs in a
-# container. localhost:8000 is Kong from the host and from a browser, but
+# container. localhost:8000 is the gateway from the host and a browser, but
 # inside the app container localhost is that container -- the fetch simply
 # fails, and the app reports it as an auth error because every server-side
 # Supabase call goes through it. Supabase self-hosted is its own compose
@@ -263,6 +350,9 @@ fi
 echo "  Supabase API:     $SB_URL"
 echo "  Supabase Studio:  http://localhost:8000  (user: supabase / password in $SB_DIR/docker/.env)"
 echo "  Stack lives in:   $SB_DIR/docker    (docker compose ps / logs / down)"
+if [ -f "$OVERRIDE" ]; then
+  echo "  Database:         the Docker volume supabase_db-data (docker compose down -v deletes it)"
+fi
 echo
 warn "Before production: put TLS in front of both origins, keep Studio and Postgres"
 warn "off the public network, and back up Postgres AND your PROVIDER_CREDS_SECRET —"
