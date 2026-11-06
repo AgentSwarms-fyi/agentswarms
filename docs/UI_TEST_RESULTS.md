@@ -52,6 +52,28 @@ not before this round, so `forceSeedSampleDataset` is unreachable from the UI.
 
 No fixture. Nothing was uploaded or changed.
 
+### Applied to the real project
+
+`20261110000000` was applied with `supabase db push`, run by the owner from the repository
+folder. Everything below was measured on the real project afterwards, and all of it only
+reads.
+
+- `supabase migration list --linked`: all 289 migrations on both sides.
+- Every section of `schema-audit.sql`, one at a time through `supabase db query --linked`:
+  sections 1 to 4, 8, 10, 11 and 12 printed nothing. Sections 5 and 6 list the seven
+  functions and the one guard that the assessment explains.
+- 17 checks of the fixes by name all came back as expected: `anon` can't call
+  `budget_spend_since`, both browser sample writers are gone, clients can't insert into
+  `contact_messages`, all 10 sample triggers are enabled, and `avatars` has its limits
+  and refuses SVG. Signed-in users kept their write access.
+- The section 11 check in `docs/security/README.md` listed all 10 tables before the push,
+  in Git Bash and in PowerShell, and none after it.
+- `/data-sql` showed 113 of 113 assets with the samples listed, and all 127 Supabase
+  requests answered 200 or 206. `/account` loaded. The app log had no permission errors.
+
+Not exercised: the contact form, which is off here because `CONTACT_ADMIN_EMAIL` is unset
+(`service_role` can still insert), and an avatar upload against the new bucket limits.
+
 ## 2026-11-06 — Hide the BI Agent and SQL Chat panel in the Workbench
 
 Asked for by the user from a screenshot of the Workbench. Driven on the deployed build.
