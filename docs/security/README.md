@@ -135,6 +135,18 @@ docker exec -i supabase-db psql -U postgres -d postgres < docs/security/scripts/
 Or `psql "$DATABASE_URL" -f docs/security/scripts/schema-audit.sql` against a hosted
 database. Run it after any migration that touches access, and before a release.
 
+No `psql` on your machine? It doesn't come with Windows. The Supabase CLI can still
+ask a linked project the question that matters most after applying `20261110000000`.
+Run this from the repository folder, in any shell. It reads and changes nothing, and it
+should list no tables. Before that migration it lists ten:
+
+```bash
+supabase db query --linked "select c.table_name from information_schema.columns c where c.table_schema = 'public' and c.column_name = 'is_sample' and not exists (select 1 from pg_trigger t where t.tgrelid = format('public.%I', c.table_name)::regclass and t.tgname = 'refuse_client_sample_flag') order by 1"
+```
+
+This is section 11 of the audit, not all of it, so it doesn't replace a full run before
+a release.
+
 Each section says what healthy looks like. Sections marked "Healthy: none" should print
 nothing. The others are lists to read, and what matters there is a new entry:
 [the last run](./assessments/2026-11-06-schema.md) says why each one that is there is

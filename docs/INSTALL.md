@@ -623,6 +623,13 @@ copying.
 pre-filled with `"agentswarms"` (the value is just a local label — your
 real project is selected by `supabase link`); restore it if it got blanked.
 
+**`Cannot find project ref. Have you run supabase link?` from `supabase db push`.**
+The link is saved inside the repository, in `supabase/.temp/`, so the CLI can only
+find it from there. You're probably in another folder: `cd` into the repository and
+run the command again. If you're already there, this copy has never been linked, which
+is normal for a new clone or worktree. Run `npx supabase link --project-ref <your-project-id>`
+first.
+
 **`bash scripts/setup-selfhosted.sh` stops with `dependency failed to start`.**
 The first start is slow, and Docker can give up before Postgres has finished
 setting itself up. The script already waits and tries five times. If that still

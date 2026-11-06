@@ -19,9 +19,11 @@ development branch and may be ahead of the latest tag.
 - **Deploy the build first, then apply `20261110000000`** (R454). The migration drops
   the two functions the browser used to seed sample datasets with. In that order nothing
   breaks. The other way round, a new instance can't seed its samples until the build
-  arrives, and existing samples are unaffected either way. Before you upgrade, or after,
-  see `docs/security/assessments/2026-11-06-schema.md` for how to check whether a
-  running install was affected.
+  arrives, and existing samples are unaffected either way. Run `supabase db push` from
+  the repository folder, because the link to your project is saved there. To confirm it
+  landed without `psql`, see the [schema audit](docs/security/README.md#the-schema-audit).
+  Before you upgrade, or after, see `docs/security/assessments/2026-11-06-schema.md` for
+  how to check whether a running install was affected.
 - **`bash scripts/setup-selfhosted.sh` now needs `--yes` when nobody is at a
   terminal.** The Supabase CLI asks before it applies migrations, so an unattended
   install stops and says so instead of failing halfway. At a terminal, it just asks.
