@@ -38,10 +38,17 @@ import {
   describeIcebergEndpoint,
   ICEBERG_AUTH_LABELS,
   ICEBERG_AUTH_TYPES,
+  icebergLayoutError,
+  keyable,
+  upsertKeyError,
+  v3OnlyColumns,
   validateIcebergCatalog,
   type IcebergCatalogConfig,
+  type IcebergPartitionKey,
+  type IcebergPartitionTransform,
 } from "@/utils/lakehouse/iceberg";
 import { reportFailure } from "@/lib/silentFailureNet";
+import { partitionable } from "@/utils/lakehouse/partitioning";
 
 /** A schema name for a namespace: ice_<namespace>, made safe. */
 function suggestedSchemaName(namespace: string): string {
@@ -184,10 +191,11 @@ export function IcebergCatalogsDialog({ onChanged }: { onChanged: () => void }) 
         <DialogHeader>
           <DialogTitle>Iceberg catalogs</DialogTitle>
           <DialogDescription>
-            Register an Iceberg REST catalog (Lakekeeper, Polaris, Nessie, Glue, Unity, Snowflake
-            Open Catalog…), mount one of its namespaces as a read-only schema, or publish lakehouse
-            tables into it. Nothing is copied on a mount; the engine reads the Parquet the catalog
-            points at.
+            Register an Iceberg REST catalog (Lakekeeper, Polaris, Nessie, Unity, Snowflake Open
+            Catalog…), mount one of its namespaces as a read-only schema, or publish lakehouse
+            tables into it. Glue&apos;s and S3 Tables&apos; endpoints need AWS SigV4 signing, which
+            is not offered yet. Nothing is copied on a mount; the engine reads the Parquet the
+            catalog points at.
           </DialogDescription>
         </DialogHeader>
 
@@ -548,8 +556,41 @@ export function IcebergCatalogsDialog({ onChanged }: { onChanged: () => void }) 
   );
 }
 
-/** "Publish to Iceberg" on a table tab. */
-export function PublishToIcebergDialog({ schema, table }: { schema: string; table: string }) {
+const TRANSFORM_LABELS: Record<IcebergPartitionTransform, string> = {
+  identity: "value",
+  year: "year",
+  month: "month",
+  day: "day",
+  hour: "hour",
+  bucket: "hash bucket",
+  truncate: "truncate",
+};
+
+/** The transforms a source column can take in an Iceberg partition spec, most useful first. */
+function icebergTransformsFor(type: string): IcebergPartitionTransform[] {
+  if (/^TIMESTAMP/i.test(type)) return ["day", "month", "year", "hour", "identity", "bucket"];
+  if (/^DATE/i.test(type)) return ["day", "month", "year", "identity", "bucket"];
+  if (/^(VARCHAR|TEXT|STRING)/i.test(type)) return ["identity", "truncate", "bucket"];
+  if (/^(TINYINT|SMALLINT|INTEGER|INT|BIGINT|DECIMAL|NUMERIC)/i.test(type)) {
+    return ["identity", "bucket", "truncate"];
+  }
+  return ["identity", "bucket"];
+}
+
+/**
+ * "Publish to Iceberg" on a table tab: which catalog and name, what the table
+ * is written as (format version, partition spec), and what happens when it
+ * exists already: refuse, replace, or upsert by key (R457).
+ */
+export function PublishToIcebergDialog({
+  schema,
+  table,
+  columns,
+}: {
+  schema: string;
+  table: string;
+  columns: { name: string; type: string }[];
+}) {
   const { session } = useAuth();
   const token = session?.access_token ?? "";
   const [open, setOpen] = useState(false);
@@ -560,8 +601,49 @@ export function PublishToIcebergDialog({ schema, table }: { schema: string; tabl
   const [namespaces, setNamespaces] = useState<string[]>([]);
   const [namespace, setNamespace] = useState("");
   const [name, setName] = useState(table);
-  const [mode, setMode] = useState<"create" | "replace">("create");
+  const [mode, setMode] = useState<"create" | "replace" | "upsert">("create");
   const [busy, setBusy] = useState(false);
+  const needsV3 = v3OnlyColumns(columns);
+  const [formatVersion, setFormatVersion] = useState<2 | 3>(needsV3.length ? 3 : 2);
+  const [partition, setPartition] = useState<IcebergPartitionKey[]>([]);
+  const [keys, setKeys] = useState<string[]>([]);
+  useEffect(() => {
+    if (open && needsV3.length) setFormatVersion(3);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+  const layoutProblem =
+    mode === "upsert" ? null : icebergLayoutError({ formatVersion, partition }, columns);
+  const problem =
+    layoutProblem ??
+    (mode !== "upsert"
+      ? null
+      : keys.length
+        ? upsertKeyError(keys, columns)
+        : "Pick the key columns an upsert matches rows on.");
+  const addKey = (column: string) => {
+    const col = columns.find((c) => c.name === column);
+    if (!col || partition.length >= 4) return;
+    const transform = icebergTransformsFor(col.type)[0];
+    setPartition([
+      ...partition,
+      {
+        column,
+        transform,
+        ...(transform === "bucket" ? { width: 16 } : transform === "truncate" ? { width: 4 } : {}),
+      },
+    ]);
+  };
+  const setKey = (i: number, patch: Partial<IcebergPartitionKey>) =>
+    setPartition(
+      partition.map((k, j) => {
+        if (j !== i) return k;
+        const next = { ...k, ...patch };
+        if (next.transform === "bucket" && !next.width) next.width = 16;
+        if (next.transform === "truncate" && !next.width) next.width = 4;
+        if (next.transform !== "bucket" && next.transform !== "truncate") delete next.width;
+        return next;
+      }),
+    );
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -638,15 +720,146 @@ export function PublishToIcebergDialog({ schema, table }: { schema: string; tabl
               <select
                 className={selectClass}
                 value={mode}
-                onChange={(e) => setMode(e.target.value as "create" | "replace")}
+                onChange={(e) => setMode(e.target.value as "create" | "replace" | "upsert")}
               >
                 <option value="create">Refuse (keep the existing table)</option>
                 <option value="replace">Replace it (swap the new table in)</option>
+                <option value="upsert">Upsert into it by key (update matches, add the rest)</option>
               </select>
             </div>
+            {mode === "upsert" ? (
+              <div className="space-y-1" data-testid="iceberg-upsert-keys">
+                <Label className="text-xs">Key columns</Label>
+                <div className="flex flex-wrap gap-1">
+                  {columns.map((c) => {
+                    const on = keys.includes(c.name);
+                    const usable = keyable(c.type);
+                    return (
+                      <button
+                        key={c.name}
+                        aria-pressed={on}
+                        disabled={!usable && !on}
+                        title={usable ? undefined : `A ${c.type.toLowerCase()} cannot be a key`}
+                        className={`rounded-md border px-1.5 py-0.5 font-mono text-[11px] disabled:cursor-not-allowed disabled:opacity-40 ${on ? "border-primary/60 bg-primary/10" : ""}`}
+                        onClick={() =>
+                          setKeys(on ? keys.filter((k) => k !== c.name) : [...keys, c.name])
+                        }
+                      >
+                        {c.name}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  The catalog&apos;s table must already have this table&apos;s columns. Rows whose
+                  keys match are updated, the rest added, in one commit; a key that appears twice
+                  here is refused.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2 rounded-md border p-2" data-testid="iceberg-layout">
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs">Format</Label>
+                  <select
+                    className={`${selectClass} w-auto`}
+                    value={formatVersion}
+                    aria-label="Iceberg format version"
+                    onChange={(e) => setFormatVersion(Number(e.target.value) as 2 | 3)}
+                  >
+                    <option value={2}>v2 (read by every engine)</option>
+                    <option value={3}>v3 (deletion vectors, row lineage, VARIANT)</option>
+                  </select>
+                </div>
+                {needsV3.length > 0 && (
+                  <p className="text-[11px] text-muted-foreground">
+                    {needsV3.join(", ")} {needsV3.length === 1 ? "needs" : "need"} v3.
+                  </p>
+                )}
+                <div className="space-y-1">
+                  <Label className="text-xs">Partitioned by</Label>
+                  {partition.map((k, i) => {
+                    const type = columns.find((c) => c.name === k.column)?.type ?? "";
+                    return (
+                      <div key={`${k.column}-${i}`} className="flex items-center gap-1 text-xs">
+                        <span className="min-w-0 flex-1 truncate font-mono">{k.column}</span>
+                        <select
+                          className="h-7 rounded-md border border-input bg-background px-1 text-xs"
+                          value={k.transform}
+                          aria-label={`Transform for ${k.column}`}
+                          onChange={(e) =>
+                            setKey(i, { transform: e.target.value as IcebergPartitionTransform })
+                          }
+                        >
+                          {icebergTransformsFor(type).map((t) => (
+                            <option key={t} value={t}>
+                              {TRANSFORM_LABELS[t]}
+                            </option>
+                          ))}
+                        </select>
+                        {(k.transform === "bucket" || k.transform === "truncate") && (
+                          <Input
+                            type="number"
+                            min={1}
+                            max={1024}
+                            className="h-7 w-16 text-xs"
+                            aria-label={
+                              k.transform === "bucket"
+                                ? `Buckets for ${k.column}`
+                                : `Width for ${k.column}`
+                            }
+                            value={k.width ?? ""}
+                            onChange={(e) => setKey(i, { width: Number(e.target.value) })}
+                          />
+                        )}
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7"
+                          aria-label={`Remove ${k.column} from the partition spec`}
+                          onClick={() => setPartition(partition.filter((_, j) => j !== i))}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    );
+                  })}
+                  {partition.length < 4 && (
+                    <select
+                      className={selectClass}
+                      value=""
+                      aria-label="Add a partition column"
+                      onChange={(e) => addKey(e.target.value)}
+                    >
+                      <option value="">
+                        {partition.length
+                          ? "Add another column…"
+                          : "Not partitioned · add a column…"}
+                      </option>
+                      {columns
+                        .filter(
+                          (c) =>
+                            !partition.some((k) => k.column === c.name) && partitionable(c.type),
+                        )
+                        .map((c) => (
+                          <option key={c.name} value={c.name}>
+                            {c.name} ({c.type.toLowerCase()})
+                          </option>
+                        ))}
+                    </select>
+                  )}
+                </div>
+                {mode === "replace" && (
+                  <p className="text-[11px] text-muted-foreground">
+                    A replace into a table with the same columns keeps that table&apos;s format and
+                    partitioning; these apply when the table is new or its columns changed.
+                  </p>
+                )}
+              </div>
+            )}
+            {problem && <p className="text-xs text-destructive">{problem}</p>}
             <Button
               className="w-full"
-              disabled={busy || !catalogId || !namespace.trim() || !name.trim()}
+              disabled={busy || !catalogId || !namespace.trim() || !name.trim() || Boolean(problem)}
               onClick={async () => {
                 setBusy(true);
                 try {
@@ -659,11 +872,16 @@ export function PublishToIcebergDialog({ schema, table }: { schema: string; tabl
                       source_schema: schema,
                       source_table: table,
                       mode,
+                      ...(mode === "upsert"
+                        ? { keys }
+                        : { layout: { format_version: formatVersion, partition } }),
                     },
                   });
                   if (!r.ok) return toast.error(r.error);
                   toast.success(
-                    `Published ${r.rows.toLocaleString()} row(s) to ${namespace}.${name}`,
+                    mode === "upsert"
+                      ? `Upserted into ${namespace}.${name}: it now has ${r.rows.toLocaleString()} row(s)`
+                      : `Published ${r.rows.toLocaleString()} row(s) to ${namespace}.${name}${r.format_version ? ` as Iceberg v${r.format_version}` : ""}`,
                   );
                   setOpen(false);
                 } catch (e) {

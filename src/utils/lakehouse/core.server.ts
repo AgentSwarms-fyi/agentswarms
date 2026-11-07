@@ -1140,6 +1140,53 @@ function jsValue(v: unknown): LakehouseCell {
 }
 
 /**
+ * A read the server writes itself because the statement guard cannot
+ * express it (R457): time travel on an Iceberg mount, which names the
+ * attached catalog the guard refuses in user SQL, and a table's change feed,
+ * a table function. The CALLER decides that the user may read it, schema
+ * access and policy included; this runs it the way a user's SELECT runs:
+ * the same row cap and interrupt-based timeout, the same value conversion,
+ * and errors redacted the same way, so the grid cannot tell the two apart.
+ */
+export async function runServerRead(
+  c: DuckDBConnection,
+  sql: string,
+  opts?: { rowCap?: number; timeoutMs?: number },
+): Promise<LakehouseResult> {
+  const started = Date.now();
+  const rowCap = Math.min(opts?.rowCap ?? ROW_CAP, 100_000);
+  const timer = setTimeout(() => {
+    try {
+      c.interrupt();
+    } catch {
+      /* already finished */
+    }
+  }, opts?.timeoutMs ?? TIMEOUT_MS);
+  try {
+    const reader = await c.runAndReadUntil(sql, rowCap + 1);
+    const names = reader.columnNames();
+    const types = reader.columnTypes();
+    const raw = reader.getRows();
+    const truncated = raw.length > rowCap;
+    const rows = (truncated ? raw.slice(0, rowCap) : raw).map((r) => r.map(jsValue));
+    return {
+      columns: names.map((name, i) => ({ name, type: String(types[i]) })),
+      rows,
+      row_count: rows.length,
+      truncated,
+      duration_ms: Date.now() - started,
+      kind: "select",
+    };
+  } catch (e) {
+    throw new Error(
+      redactLakehouseSecrets(describeMissingDataFile((e as Error).message) ?? (e as Error).message),
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Run ONE governed statement for a user. Classification, access checks,
  * execution with a row cap and an interrupt-based timeout, audit and history
  * — the single chokepoint every caller (UI, BI, agents, NL2SQL) goes through.

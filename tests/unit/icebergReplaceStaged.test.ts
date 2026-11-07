@@ -206,7 +206,7 @@ describe("a swap that fails", () => {
 describe("after the swap", () => {
   it("does not fail a publish that landed because the old table's removal failed", async () => {
     state.failWhen = (sql) => sql.startsWith("DROP TABLE IF EXISTS") && RETIRED.test(sql);
-    await expect(publish("replace")).resolves.toEqual({ rows: 1 });
+    await expect(publish("replace")).resolves.toEqual({ rows: 1, format_version: null }); // no layout asked: the engine default, as before R457
     expect(
       state.warnings.some((w) => /could not drop r107\.r107_pub__replaced_[0-9a-f]{8}/.test(w)),
     ).toBe(true);

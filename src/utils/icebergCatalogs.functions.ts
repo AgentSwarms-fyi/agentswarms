@@ -11,11 +11,16 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { auditEvent } from "@/utils/audit.server";
 import {
   ICEBERG_AUTH_TYPES,
+  ICEBERG_NAMESPACE,
+  ICEBERG_PARTITION_TRANSFORMS,
   ICEBERG_STORAGE_MODES,
+  ICEBERG_TABLE,
   validateIcebergCatalog,
   type IcebergCatalogConfig,
 } from "@/utils/lakehouse/iceberg";
 import type { IcebergCatalogRow } from "@/utils/lakehouse/iceberg.server";
+import type { IcebergInspection } from "@/utils/lakehouse/icebergInspect";
+import type { LakehouseResult } from "@/utils/lakehouse/core.server";
 import { callerFailure } from "@/utils/callerLookup.server";
 
 type Fail = { ok: false; error: string };
@@ -56,8 +61,24 @@ const NEEDS_MIGRATION =
   "20261104000000_iceberg_catalog_require_private. Apply it, or add the catalog without the rule.";
 
 const NAME = /^[a-z][a-z0-9_]{0,62}$/;
-const NAMESPACE = /^[A-Za-z0-9_]{1,128}$/;
-const TABLE = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
+// One rule with the engine module (R457): a hyphen is a name catalogs use.
+const NAMESPACE = ICEBERG_NAMESPACE;
+const TABLE = ICEBERG_TABLE;
+const LAKE_TABLE = /^[a-z][a-z0-9_]{0,62}$/;
+
+const layoutSchema = z.object({
+  format_version: z.union([z.literal(2), z.literal(3)]),
+  partition: z
+    .array(
+      z.object({
+        column: z.string().min(1).max(128),
+        transform: z.enum(ICEBERG_PARTITION_TRANSFORMS),
+        width: z.number().int().min(1).max(1024).optional(),
+      }),
+    )
+    .max(4)
+    .default([]),
+});
 
 async function ownCatalog(userId: string, id: string): Promise<IcebergCatalogRow | null> {
   const { data } = await supabaseAdmin
@@ -427,39 +448,180 @@ export const icebergPublish = createServerFn({ method: "POST" })
         namespace: z.string().regex(NAMESPACE),
         table: z.string().regex(TABLE),
         source_schema: z.string().regex(NAME),
-        source_table: z.string().regex(TABLE),
-        mode: z.enum(["create", "replace"]),
+        source_table: z.string().regex(LAKE_TABLE),
+        mode: z.enum(["create", "replace", "upsert"]),
+        layout: layoutSchema.optional(),
+        keys: z.array(z.string().min(1).max(128)).max(8).optional(),
       })
       .parse(input),
   )
-  .handler(async ({ data }): Promise<{ ok: true; rows: number } | Fail> => {
-    const caller = await resolveCaller(data.access_token);
-    if (!caller.ok) return caller;
-    const row = await ownCatalog(caller.userId, data.id);
-    if (!row) return { ok: false, error: "Catalog not found" };
-    try {
-      const { icebergPublishRefusal } = await import("@/utils/lakehouse/publishGuard.server");
-      const refusal = await icebergPublishRefusal(
+  .handler(
+    async ({ data }): Promise<{ ok: true; rows: number; format_version: number | null } | Fail> => {
+      const caller = await resolveCaller(data.access_token);
+      if (!caller.ok) return caller;
+      const row = await ownCatalog(caller.userId, data.id);
+      if (!row) return { ok: false, error: "Catalog not found" };
+      try {
+        const { icebergPublishRefusal } = await import("@/utils/lakehouse/publishGuard.server");
+        const refusal = await icebergPublishRefusal(
+          caller.userId,
+          data.source_schema,
+          data.source_table,
+        );
+        if (refusal) return { ok: false, error: refusal };
+        const { publishToIceberg } = await import("@/utils/lakehouse/iceberg.server");
+        const res = await publishToIceberg({
+          row,
+          namespace: data.namespace,
+          table: data.table,
+          sourceSchema: data.source_schema,
+          sourceTable: data.source_table,
+          mode: data.mode,
+          userId: caller.userId,
+          layout: data.layout
+            ? { formatVersion: data.layout.format_version, partition: data.layout.partition }
+            : undefined,
+          keys: data.keys,
+        });
+        return { ok: true, ...res };
+      } catch (e) {
+        return { ok: false, error: (e as Error).message };
+      }
+    },
+  );
+
+/**
+ * The mount a schema is, for a caller who can read it: the schema row with
+ * its catalog row. A grantee reads a mount through its owner's catalog, as a
+ * query on its views does, so the catalog is looked up by id, not by caller.
+ */
+async function readableMount(
+  userId: string,
+  schemaName: string,
+): Promise<{ row: IcebergCatalogRow; schemaName: string } | Fail> {
+  const { accessibleSchemas } = await import("@/utils/lakehouse/core.server");
+  const schema = (await accessibleSchemas(userId)).find((s) => s.name === schemaName);
+  if (!schema) return { ok: false, error: `No access to schema "${schemaName}"` };
+  if (!schema.iceberg_catalog_id)
+    return { ok: false, error: `${schemaName} is not an Iceberg mount.` };
+  const { data: row, error: rowError } = await supabaseAdmin
+    .from("iceberg_catalogs")
+    .select("*")
+    .eq("id", schema.iceberg_catalog_id)
+    .maybeSingle();
+  if (rowError) return { ok: false, error: `Could not read the catalog: ${rowError.message}` };
+  if (!row) return { ok: false, error: "The catalog behind this mount is gone." };
+  return { row: row as IcebergCatalogRow, schemaName };
+}
+
+/** A mounted table, from its own Iceberg metadata (R457). */
+export const icebergMountInspect = createServerFn({ method: "POST" })
+  .validator((input: unknown) =>
+    z
+      .object({
+        access_token: z.string().min(1),
+        schema: z.string().regex(NAME),
+        table: z.string().regex(LAKE_TABLE),
+      })
+      .parse(input),
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<
+      | {
+          ok: true;
+          inspection: IcebergInspection & { namespace: string; table: string; catalog: string };
+        }
+      | Fail
+    > => {
+      const caller = await resolveCaller(data.access_token);
+      if (!caller.ok) return caller;
+      const mount = await readableMount(caller.userId, data.schema);
+      if ("ok" in mount) return mount;
+      try {
+        const { inspectMountedTable } = await import("@/utils/lakehouse/iceberg.server");
+        const inspection = await inspectMountedTable({
+          row: mount.row,
+          schemaName: data.schema,
+          view: data.table,
+        });
+        const { policedReadRefusal } = await import("@/utils/lakehouse/publishGuard.server");
+        // Snapshot summaries count rows; a reader under a row filter is not
+        // told how many rows the filter hides.
+        if (await policedReadRefusal(caller.userId, data.schema, data.table, "time travel")) {
+          for (const s of inspection.snapshots) {
+            s.added_records = null;
+            s.deleted_records = null;
+            s.total_records = null;
+            s.rows = null;
+          }
+          inspection.files = null;
+          inspection.advice = inspection.advice.filter((a) => a.kind === "upgrade");
+        }
+        return { ok: true, inspection };
+      } catch (e) {
+        return { ok: false, error: (e as Error).message };
+      }
+    },
+  );
+
+/** A mounted table as it was at a snapshot, a branch or a tag (R457). */
+export const icebergMountTimeTravel = createServerFn({ method: "POST" })
+  .validator((input: unknown) =>
+    z
+      .object({
+        access_token: z.string().min(1),
+        schema: z.string().regex(NAME),
+        table: z.string().regex(LAKE_TABLE),
+        ref: z.string().trim().min(1).max(256),
+        row_cap: z.number().int().min(1).max(10_000).default(100),
+      })
+      .parse(input),
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<{ ok: true; result: LakehouseResult; snapshot_id: string } | Fail> => {
+      const caller = await resolveCaller(data.access_token);
+      if (!caller.ok) return caller;
+      const mount = await readableMount(caller.userId, data.schema);
+      if ("ok" in mount) return mount;
+      const { policedReadRefusal } = await import("@/utils/lakehouse/publishGuard.server");
+      const refusal = await policedReadRefusal(
         caller.userId,
-        data.source_schema,
-        data.source_table,
+        data.schema,
+        data.table,
+        "time travel",
       );
       if (refusal) return { ok: false, error: refusal };
-      const { publishToIceberg } = await import("@/utils/lakehouse/iceberg.server");
-      const res = await publishToIceberg({
-        row,
-        namespace: data.namespace,
-        table: data.table,
-        sourceSchema: data.source_schema,
-        sourceTable: data.source_table,
-        mode: data.mode,
-        userId: caller.userId,
-      });
-      return { ok: true, ...res };
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
-    }
-  });
+      try {
+        const { timeTravelMountedTable } = await import("@/utils/lakehouse/iceberg.server");
+        const out = await timeTravelMountedTable({
+          row: mount.row,
+          schemaName: data.schema,
+          view: data.table,
+          ref: data.ref,
+          rowCap: data.row_cap,
+        });
+        auditEvent({
+          userId: caller.userId,
+          action: "lakehouse.iceberg.time_travel",
+          resourceType: "lakehouse_table",
+          resourceName: `${data.schema}.${data.table}`,
+          detail: {
+            catalog: mount.row.name,
+            ref: data.ref,
+            snapshot_id: out.snapshot_id,
+            rows: out.result.row_count,
+          },
+        });
+        return { ok: true, ...out };
+      } catch (e) {
+        return { ok: false, error: (e as Error).message };
+      }
+    },
+  );
 
 export const icebergImport = createServerFn({ method: "POST" })
   .validator((input: unknown) =>

@@ -2477,23 +2477,31 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "UPDATE",
       "agentswarms-lake-dev",
       "auto",
+      "bucket(N)",
       "cached",
       "change-me",
       "count(*)",
+      "day",
+      "day(ts)",
       "docs/KEY_MANAGEMENT.md",
       "docs/LAKEHOUSE.md",
       "f1_standings",
+      "finance.eu",
       "generate_series",
       "glob",
+      "hour",
       "iceberg_catalog",
+      "lakehouse.changes",
       "lakehouse.iceberg.import",
       "lakehouse.iceberg.mount",
       "lakehouse.iceberg.network_rule",
       "lakehouse.iceberg.private_path.refused",
       "lakehouse.iceberg.publish",
       "lakehouse.iceberg.refresh",
+      "lakehouse.iceberg.time_travel",
       "minio",
       "minio:9000",
+      "month",
       "orders",
       "pgsty/silo",
       "pii",
@@ -2502,7 +2510,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "read_text",
       "record_count",
       "restricted",
-      "spark"
+      "spark",
+      "year"
     ],
     "headings": [
       {
@@ -2523,6 +2532,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "fast",
         "text": "Making queries fast",
+        "level": 2
+      },
+      {
+        "id": "history",
+        "text": "A table&apos;s history and what changed",
         "level": 2
       },
       {

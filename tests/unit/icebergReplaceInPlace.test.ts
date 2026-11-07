@@ -95,7 +95,7 @@ beforeEach(() => {
 describe("the old table has the new data's columns", () => {
   it("replaces its rows in one transaction, and nothing else", async () => {
     state.current = SOURCE;
-    await expect(publish()).resolves.toEqual({ rows: 836 });
+    await expect(publish()).resolves.toEqual({ rows: 836, format_version: null }); // no layout asked: the engine default, as before R457
     expect(writes()).toEqual([
       'BEGIN TRANSACTION; DELETE FROM "ice_cat1"."r181"."swap_target"; ' +
         'INSERT INTO "ice_cat1"."r181"."swap_target" ("order_id", "region", "net_usd") ' +

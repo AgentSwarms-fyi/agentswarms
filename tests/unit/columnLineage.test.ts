@@ -226,6 +226,72 @@ describe("the SQL tracer, over DuckDB's own parse", () => {
   });
 });
 
+describe("the SQL tracer, over DuckDB 2.0's tree", () => {
+  // DuckDB 2.0.0 (LTS, 2026-10-21) moved a CTE's body to `value.query_node`
+  // and a set operation's sides to `children`. Measured in R457: on 2.0 the
+  // tracer returned no sources through a CTE and none through a UNION. These
+  // trees are 2.0's shape, trimmed to what the tracer reads; the same
+  // statements traced on a real 2.0.0 engine gave these answers.
+  const columnsOf = (s: string, t: string) =>
+    ({ "analytics.orders": ["id", "amount"], "analytics.customers": ["id"] })[`${s}.${t}`] ?? null;
+  const col = (...names: string[]) => ({ class: "COLUMN_REF", column_names: names, alias: "" });
+  const base = (table: string) => ({
+    type: "BASE_TABLE",
+    schema_name: "analytics",
+    table_name: table,
+    alias: "",
+  });
+  const select = (list: unknown[], from: unknown, cte: unknown[] = []) => ({
+    type: "SELECT_NODE",
+    cte_map: { map: cte },
+    select_list: list,
+    from_table: from,
+  });
+  const flat = (cols: ReturnType<typeof traceSelectColumns>) =>
+    Object.fromEntries(
+      (cols ?? []).map((c) => [c.name, c.sources.map((s) => `${s.table}.${s.column}`).sort()]),
+    );
+
+  it("reads a CTE's body from query_node", () => {
+    const tree = {
+      error: false,
+      statements: [
+        {
+          node: select(
+            [{ ...col("amount"), alias: "a" }],
+            { type: "BASE_TABLE", schema_name: "", table_name: "x", alias: "" },
+            [{ key: "x", value: { query_node: select([col("amount")], base("orders")) } }],
+          ),
+        },
+      ],
+    };
+    expect(flat(traceSelectColumns(tree, columnsOf))).toEqual({ a: ["orders.amount"] });
+  });
+
+  it("feeds a set operation's column from every child, three or more included", () => {
+    const tree = {
+      error: false,
+      statements: [
+        {
+          node: {
+            type: "SET_OPERATION_NODE",
+            left: null,
+            right: null,
+            children: [
+              select([{ ...col("id"), alias: "k" }], base("orders")),
+              select([col("id")], base("customers")),
+              select([col("amount")], base("orders")),
+            ],
+          },
+        },
+      ],
+    };
+    expect(flat(traceSelectColumns(tree, columnsOf))).toEqual({
+      k: ["customers.id", "orders.amount", "orders.id"],
+    });
+  });
+});
+
 describe("the wiring", () => {
   const graph = {
     nodes: [src("a"), tr("d", { type: "derive", column: "two", expr: "id * 2" }), tgt("t", "x")],

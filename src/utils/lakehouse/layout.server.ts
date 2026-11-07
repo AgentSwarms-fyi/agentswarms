@@ -3,13 +3,18 @@
 // rewrite that puts files in key order. Everything here takes an open
 // lakehouse connection; access checks and audit belong to the callers.
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { keyable } from "@/utils/lakehouse/iceberg";
 import {
   adviseLayout,
   bucketCount,
   columnLayout,
   cutsStatement,
+  describeSortKey,
   filteredColumns,
+  resetSortedSql,
   rewriteStatements,
+  sortKeysSql,
+  sortedBySql,
   type ColumnLayout,
   type FileRange,
   type LayoutAdvice,
@@ -262,6 +267,11 @@ export async function rewriteClustered(
   const types = new Map(cols.map((r) => [String(r[0]), String(r[1])]));
   for (const k of args.keys) {
     if (!types.has(k)) throw new Error(`No column "${k}" on ${args.schema}.${args.table}`);
+    if (!keyable(types.get(k)!)) {
+      throw new Error(
+        `${k} is a ${types.get(k)!.toLowerCase()}, which has no order to cluster on.`,
+      );
+    }
   }
   // Rows still inlined in the catalog have no file statistics; give them
   // files first so the rewrite sees the whole table the same way.
@@ -301,6 +311,17 @@ export async function rewriteClustered(
     throw new Error(`Rewrite rolled back: ${(e as Error).message}`);
   }
   const ms = Date.now() - started;
+  // The rewrite ranged the files; DuckLake's own sort order keeps what is
+  // written after it in key order when inlined rows are flushed (R457). Best
+  // effort: an engine without SET SORTED BY still has the rewrite.
+  try {
+    await c.run(sortedBySql(args.schema, args.table, args.keys));
+  } catch (e) {
+    console.warn(
+      `[lakehouse] could not record the sort order of ${args.schema}.${args.table}:`,
+      (e as Error).message,
+    );
+  }
   const after = await readFileStats(c, id, null);
   let snapshot: number | null = null;
   try {
@@ -467,4 +488,39 @@ export async function reclusterDueTables(c: LakeConnection): Promise<Maintenance
 export async function clusteredBy(schema: string, table: string): Promise<string[]> {
   const row = await readLayoutRow(schema, table);
   return row?.cluster_columns ?? [];
+}
+
+/**
+ * The sort order DuckLake itself has recorded for a table, read from its
+ * catalog: set by a clustered rewrite here, or by `ALTER TABLE … SET SORTED
+ * BY` from the SQL editor. Empty when none, or when the catalog predates it.
+ */
+export async function sortedBy(
+  c: LakeConnection,
+  schema: string,
+  table: string,
+): Promise<string[]> {
+  try {
+    return (await rows(c, sortKeysSql(schema, table))).map((r) =>
+      describeSortKey(String(r[0]), r[1] === null ? null : String(r[1])),
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** Forget DuckLake's sort order for a table, when its layout is cleared. Best effort. */
+export async function resetSortOrder(
+  c: LakeConnection,
+  schema: string,
+  table: string,
+): Promise<void> {
+  try {
+    await c.run(resetSortedSql(schema, table));
+  } catch (e) {
+    console.warn(
+      `[lakehouse] could not reset the sort order of ${schema}.${table}:`,
+      (e as Error).message,
+    );
+  }
 }

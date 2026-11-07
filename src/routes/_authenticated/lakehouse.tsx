@@ -65,6 +65,24 @@ import {
   IcebergCatalogsDialog,
   PublishToIcebergDialog,
 } from "@/components/lakehouse/IcebergDialog";
+import {
+  IcebergSnapshotsCard,
+  IcebergTablePanel,
+  useIcebergInspection,
+} from "@/components/lakehouse/IcebergTablePanel";
+import { keyable } from "@/utils/lakehouse/iceberg";
+import {
+  MAX_PARTITION_KEYS,
+  PARTITION_TRANSFORM_LABELS,
+  describePartitionKey,
+  partitionAdvice,
+  partitionKeyError,
+  partitionable,
+  transformsFor,
+  type PartitionKey,
+  type PartitionTransform,
+} from "@/utils/lakehouse/partitioning";
+import { changesRows, describeChangeCounts } from "@/utils/lakehouse/tableHistory";
 import { downloadCsv } from "@/lib/exportData";
 import { useSingleFlight } from "@/lib/singleFlight";
 import { pollSparkQuery } from "@/lib/sparkPoll";
@@ -80,6 +98,7 @@ import {
   getLakehouseIntegrity,
   getLakehouseOverview,
   getLakehouseTable,
+  getLakehouseTableChanges,
   importDatasetToLakehouse,
   listLakeMountCandidates,
   listLakehouseHistory,
@@ -94,6 +113,7 @@ import {
   refreshLakehouseMatview,
   saveLakehouseMatview,
   setLakehousePartitioning,
+  estimateLakehousePartitioning,
   getLakehouseLayout,
   rewriteLakehouseLayout,
   clearLakehouseLayout,
@@ -423,19 +443,35 @@ function SchemaRail({
                       size="icon"
                       variant="ghost"
                       className="h-6 w-6"
-                      title="Drop schema and everything in it"
+                      title={
+                        s.lake_source_id || s.iceberg_catalog_id
+                          ? "Remove this mount (the source's tables are not touched)"
+                          : "Drop schema and everything in it"
+                      }
                       onClick={async () => {
+                        // A mount's schema holds only views over the source, so
+                        // dropping it removes the mount and nothing else. The
+                        // dialog said every table would be dropped (R457).
+                        const mount = Boolean(s.lake_source_id || s.iceberg_catalog_id);
                         if (
                           !(await confirmAsk({
-                            title: `Drop schema "${s.name}"?`,
-                            body: "Every table in it is dropped too. This cannot be undone.",
-                            actionLabel: "Drop schema",
+                            title: mount
+                              ? `Remove the mount "${s.name}"?`
+                              : `Drop schema "${s.name}"?`,
+                            body: !mount
+                              ? "Every table in it is dropped too. This cannot be undone."
+                              : s.iceberg_catalog_id
+                                ? "Its tables stay in the Iceberg catalog, untouched; only this schema and its views go. You can mount the namespace again."
+                                : "The files stay where they are, untouched; only this schema and its views go. You can mount them again.",
+                            actionLabel: mount ? "Remove mount" : "Drop schema",
                           }))
                         )
                           return;
                         try {
                           await dropFn({ data: { access_token: token, name: s.name } });
-                          toast.success(`Dropped ${s.name}`);
+                          toast.success(
+                            mount ? `Removed the mount ${s.name}` : `Dropped ${s.name}`,
+                          );
                           onChanged();
                         } catch (e) {
                           toast.error((e as Error).message);
@@ -918,9 +954,45 @@ function TableTab({
   const [matview, setMatview] = useState<LakehouseMatview | null>(null);
   const matviewState = matview ? matviewBadge(matview) : null;
   const [preview, setPreview] = useState<LakehouseResult | null>(null);
+  /** What the grid shows when it is not the table now: a snapshot, or one snapshot's changed rows. */
+  const [previewNote, setPreviewNote] = useState<string | null>(null);
+  const [changesBusy, setChangesBusy] = useState<number | null>(null);
+  const changesFn = useServerFn(getLakehouseTableChanges);
+  const iceberg = useIcebergInspection(schema, table, detail?.mount === "iceberg");
+
+  const loadPreview = async () => {
+    setPreviewNote(null);
+    setPreview(
+      await runFn({
+        data: {
+          access_token: token,
+          sql: `SELECT * FROM "${schema}"."${table}" LIMIT 100`,
+          row_cap: 100,
+        },
+      }),
+    );
+  };
+
+  async function showChanges(snapshot: number) {
+    setChangesBusy(snapshot);
+    try {
+      const r = await changesFn({
+        data: { access_token: token, schema, table, snapshot, row_cap: 200 },
+      });
+      setPreview(r.result);
+      setPreviewNote(
+        `Rows changed in v${snapshot}: ${describeChangeCounts(r.counts)}${r.result.truncated ? " (first 200 shown)" : ""}`,
+      );
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setChangesBusy(null);
+    }
+  }
 
   useEffect(() => {
     if (!token) return;
+    setPreviewNote(null);
     void (async () => {
       try {
         setDetail(await detailFn({ data: { access_token: token, schema, table } }));
@@ -958,6 +1030,19 @@ function TableTab({
             {detail.row_count.toLocaleString()} row(s)
           </span>
         )}
+        {detail.mount && (
+          <Badge
+            variant="outline"
+            className="text-[10px]"
+            title={
+              detail.mount === "iceberg"
+                ? "A view over a table in an Iceberg catalog: read here, written by the catalog's own engines"
+                : "A view over files in a storage source: read here, written where the files live"
+            }
+          >
+            {detail.mount === "iceberg" ? "Iceberg mount" : "data-lake mount"} · read-only
+          </Badge>
+        )}
         {detail.partitioned_by.length > 0 && (
           <Badge
             variant="outline"
@@ -976,6 +1061,16 @@ function TableTab({
             clustered by {detail.clustered_by.join(", ")}
           </Badge>
         )}
+        {detail.sorted_by.length > 0 &&
+          detail.sorted_by.join(",") !== detail.clustered_by.join(",") && (
+            <Badge
+              variant="outline"
+              className="font-mono text-[10px]"
+              title="DuckLake's own sort order: rows it flushes from the catalog and files it compacts are written in this order"
+            >
+              sorted by {detail.sorted_by.join(", ")}
+            </Badge>
+          )}
         <Link
           to="/data-monitors"
           search={{ source: "lakehouse", schema, table, create: true }}
@@ -992,7 +1087,9 @@ function TableTab({
         >
           Define metrics on this
         </Link>
-        <PublishToIcebergDialog schema={schema} table={table} />
+        {!detail.mount && (
+          <PublishToIcebergDialog schema={schema} table={table} columns={detail.columns} />
+        )}
         {matviewState && (
           // FOUND IN R185: a failed rebuild read "materialized", the failure
           // only in this badge's hover title.
@@ -1084,19 +1181,25 @@ function TableTab({
             current={policy}
             onChanged={setPolicy}
           />
-          <PartitionDialog
-            schema={schema}
-            table={table}
-            columns={detail.columns.map((c) => c.name)}
-            current={detail.partitioned_by}
-            onChanged={(cols) => setDetail({ ...detail, partitioned_by: cols })}
-          />
-          <LayoutDialog
-            schema={schema}
-            table={table}
-            current={detail.clustered_by}
-            onChanged={(cols) => setDetail({ ...detail, clustered_by: cols })}
-          />
+          {!detail.mount && (
+            <>
+              <PartitionDialog
+                schema={schema}
+                table={table}
+                columns={detail.columns}
+                current={detail.partition_keys}
+                onChanged={(display, keys) =>
+                  setDetail({ ...detail, partitioned_by: display, partition_keys: keys })
+                }
+              />
+              <LayoutDialog
+                schema={schema}
+                table={table}
+                current={detail.clustered_by}
+                onChanged={(cols) => setDetail({ ...detail, clustered_by: cols })}
+              />
+            </>
+          )}
           <Button
             size="sm"
             variant="outline"
@@ -1115,10 +1218,10 @@ function TableTab({
               <FileSpreadsheet className="h-3.5 w-3.5" />
               Held by Sheets · {detail.sheet_owner.workbook} › {detail.sheet_owner.sheet}
             </Link>
-          ) : (
+          ) : detail.mount ? null : (
             <InsertRowDialog schema={schema} table={table} columns={detail.columns} />
           )}
-          {!detail.sheet_owner && (
+          {!detail.sheet_owner && !detail.mount && (
             <Button
               size="sm"
               variant="ghost"
@@ -1172,44 +1275,106 @@ function TableTab({
             ))}
           </div>
         </div>
-        <div className="overflow-hidden rounded-lg border bg-card">
-          <div className="flex items-center gap-1 border-b px-2.5 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            <Clock3 className="h-3 w-3" /> Snapshots
-            <span className="ml-auto font-normal normal-case tracking-normal">
-              click to time-travel
-            </span>
+        {detail.mount === "iceberg" ? (
+          <IcebergSnapshotsCard
+            schema={schema}
+            table={table}
+            inspection={iceberg.inspection}
+            onResult={(result, label) => {
+              setPreview(result);
+              setPreviewNote(label);
+            }}
+          />
+        ) : (
+          <div className="overflow-hidden rounded-lg border bg-card" data-testid="table-snapshots">
+            <div className="flex items-center gap-1 border-b px-2.5 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              <Clock3 className="h-3 w-3" /> Snapshots of this table
+              <span className="ml-auto font-normal normal-case tracking-normal">
+                click to time-travel
+              </span>
+            </div>
+            <div className="max-h-32 overflow-y-auto px-2.5 py-1.5">
+              {detail.snapshots.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {detail.mount
+                    ? "A mount has no snapshots of its own: its files belong to the source."
+                    : "No snapshots yet."}
+                </p>
+              )}
+              {detail.snapshots.map((snap) => (
+                <div
+                  key={snap.id}
+                  className="flex items-center gap-1 rounded text-[11px] leading-5 hover:bg-muted"
+                >
+                  <button
+                    className="flex min-w-0 flex-1 items-center gap-1.5 px-1 py-0.5 text-left"
+                    title={`Query this table as of snapshot ${snap.id}`}
+                    onClick={() =>
+                      onQueryIt(
+                        `SELECT *\nFROM "${schema}"."${table}" AT (VERSION => ${snap.id})\nLIMIT 100`,
+                      )
+                    }
+                  >
+                    <span className="font-mono">v{snap.id}</span>
+                    <span className="truncate">{snap.kinds.join(", ")}</span>
+                    {snap.message && (
+                      <span className="truncate text-muted-foreground" title={snap.message}>
+                        · {snap.message}
+                      </span>
+                    )}
+                    <span className="ml-auto flex-none text-muted-foreground">
+                      {snap.time ? new Date(snap.time).toLocaleString() : ""}
+                    </span>
+                  </button>
+                  {changesRows(snap.kinds) &&
+                    (detail.history_since === null || snap.id >= detail.history_since) && (
+                      <button
+                        className="flex-none rounded px-1 text-primary hover:underline disabled:opacity-50"
+                        title={`The rows v${snap.id} inserted, updated or deleted`}
+                        disabled={changesBusy !== null}
+                        onClick={() => void showChanges(snap.id)}
+                      >
+                        {changesBusy === snap.id ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          "rows"
+                        )}
+                      </button>
+                    )}
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="max-h-32 overflow-y-auto px-2.5 py-1.5">
-            {detail.snapshots.length === 0 && (
-              <p className="text-xs text-muted-foreground">No snapshots yet.</p>
-            )}
-            {detail.snapshots.map((snap) => (
-              <button
-                key={snap.id}
-                className="block w-full rounded px-1 py-0.5 text-left text-[11px] leading-5 hover:bg-muted"
-                title={`Query this table as of snapshot ${snap.id}`}
-                onClick={() =>
-                  onQueryIt(
-                    `SELECT *\nFROM "${schema}"."${table}" AT (VERSION => ${snap.id})\nLIMIT 100`,
-                  )
-                }
-              >
-                <span className="font-mono">v{snap.id}</span>{" "}
-                <span className="text-muted-foreground">
-                  {snap.time ? new Date(snap.time).toLocaleString() : ""}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
+        )}
       </div>
 
-      <div className="min-h-0 flex-1">
-        {preview ? (
-          <ResultGrid result={preview} fill />
-        ) : (
-          <Skeleton className="h-full min-h-32 w-full" />
+      {detail.mount === "iceberg" && (
+        <IcebergTablePanel inspection={iceberg.inspection} error={iceberg.error} />
+      )}
+
+      <div className="flex min-h-0 flex-1 flex-col gap-1">
+        {previewNote && (
+          <div
+            className="flex flex-none items-center gap-2 rounded-md border border-sky-500/40 bg-sky-500/5 px-2.5 py-1 text-xs"
+            data-testid="preview-note"
+          >
+            <Clock3 className="h-3.5 w-3.5 flex-none text-sky-600 dark:text-sky-400" />
+            <span className="min-w-0 truncate">{previewNote}</span>
+            <button
+              className="ml-auto flex-none text-primary hover:underline"
+              onClick={() => void loadPreview().catch((e) => toast.error((e as Error).message))}
+            >
+              Back to the table now
+            </button>
+          </div>
         )}
+        <div className="min-h-0 flex-1">
+          {preview ? (
+            <ResultGrid result={preview} fill />
+          ) : (
+            <Skeleton className="h-full min-h-32 w-full" />
+          )}
+        </div>
       </div>
     </div>
   );
@@ -1563,7 +1728,11 @@ function PolicyDialog({
   );
 }
 
-/** Set or clear a table's partition columns — the biggest scan-reduction lever. */
+/**
+ * Set or clear a table's partition keys — the biggest scan-reduction lever.
+ * A key is a column's value, or the column through a transform (R457):
+ * day/month/year/hour of a date or timestamp, or a hash bucket.
+ */
 function PartitionDialog({
   schema,
   table,
@@ -1573,20 +1742,73 @@ function PartitionDialog({
 }: {
   schema: string;
   table: string;
-  columns: string[];
-  current: string[];
-  onChanged: (cols: string[]) => void;
+  columns: { name: string; type: string }[];
+  current: PartitionKey[];
+  onChanged: (display: string[], keys: PartitionKey[]) => void;
 }) {
   const { session } = useAuth();
   const token = session?.access_token ?? "";
   const setFn = useServerFn(setLakehousePartitioning);
   const [open, setOpen] = useState(false);
-  const [picked, setPicked] = useState<string[]>(current);
+  const [keys, setKeys] = useState<PartitionKey[]>(current);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    if (open) setPicked(current);
+    if (open) setKeys(current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+  const typeOf = (name: string) => columns.find((c) => c.name === name)?.type ?? "";
+  const problem =
+    keys.map((k) => partitionKeyError(k, typeOf(k.column) || undefined)).find(Boolean) ?? null;
+  // What the spec would do to today's rows, counted on the table: a spec that
+  // cuts a small table into hundreds of partitions makes every insert slow.
+  const estimateFn = useServerFn(estimateLakehousePartitioning);
+  const [estimate, setEstimate] = useState<{
+    spec: string;
+    advice: ReturnType<typeof partitionAdvice>;
+  } | null>(null);
+  const spec = keys.map(describePartitionKey).join(", ");
+  useEffect(() => {
+    if (!open || !keys.length || problem) return;
+    let live = true;
+    const timer = setTimeout(() => {
+      estimateFn({ data: { access_token: token, schema, table, keys } })
+        .then((e) => {
+          if (live) setEstimate(e ? { spec, advice: partitionAdvice(e) } : null);
+        })
+        .catch(() => {
+          if (live) setEstimate(null);
+        });
+    }, 400);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, spec, problem]);
+  const shownEstimate = keys.length && !problem && estimate?.spec === spec ? estimate.advice : null;
+  const toggle = (col: { name: string; type: string }) => {
+    if (keys.some((k) => k.column === col.name)) {
+      setKeys(keys.filter((k) => k.column !== col.name));
+      return;
+    }
+    const transform = transformsFor(col.type)[0];
+    setKeys(
+      [
+        ...keys,
+        { column: col.name, transform, ...(transform === "bucket" ? { buckets: 16 } : {}) },
+      ].slice(0, MAX_PARTITION_KEYS),
+    );
+  };
+  const setKey = (column: string, patch: Partial<PartitionKey>) =>
+    setKeys(
+      keys.map((k) => {
+        if (k.column !== column) return k;
+        const next = { ...k, ...patch };
+        if (next.transform === "bucket" && !next.buckets) next.buckets = 16;
+        if (next.transform !== "bucket") delete next.buckets;
+        return next;
+      }),
+    );
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -1604,44 +1826,102 @@ function PartitionDialog({
         <div className="space-y-3">
           <p className="text-xs text-muted-foreground">
             Files are written one set per partition value, so a query filtering on these columns
-            opens only the matching files. Pick columns with few distinct values (a date, a region,
-            a tenant) — never a high-cardinality id, which produces a file per row.
+            opens only the matching files. Partition a timestamp by its day or month, not its value,
+            and a high-cardinality id by a hash bucket: a key with a value per row writes a file per
+            row.
           </p>
-          <div className="max-h-56 space-y-1 overflow-y-auto">
+          <div className="max-h-64 space-y-1 overflow-y-auto">
             {columns.map((col) => {
-              const on = picked.includes(col);
+              const key = keys.find((k) => k.column === col.name);
+              const index = key ? keys.indexOf(key) : -1;
               return (
-                <button
-                  key={col}
-                  className={`flex w-full items-center justify-between rounded-md border px-2 py-1.5 text-left text-xs ${on ? "border-primary/60 bg-primary/5" : ""}`}
-                  onClick={() =>
-                    setPicked(on ? picked.filter((x) => x !== col) : [...picked, col].slice(0, 4))
-                  }
+                <div
+                  key={col.name}
+                  className={`flex items-center gap-2 rounded-md border px-2 py-1 text-xs ${key ? "border-primary/60 bg-primary/5" : ""}`}
                 >
-                  <span className="font-mono">{col}</span>
-                  {on && (
-                    <span className="text-[10px] text-muted-foreground">
-                      key {picked.indexOf(col) + 1}
+                  <button
+                    className="flex min-w-0 flex-1 items-center gap-2 py-0.5 text-left disabled:cursor-not-allowed disabled:opacity-50"
+                    onClick={() => toggle(col)}
+                    aria-pressed={Boolean(key)}
+                    disabled={!key && !partitionable(col.type)}
+                    title={
+                      key
+                        ? "Remove this key"
+                        : partitionable(col.type)
+                          ? "Partition by this column"
+                          : `A ${col.type.toLowerCase()} column cannot be a partition key`
+                    }
+                  >
+                    <span className="truncate font-mono">{col.name}</span>
+                    <span className="flex-none text-[10px] text-muted-foreground">
+                      {col.type.toLowerCase()}
                     </span>
+                  </button>
+                  {key && (
+                    <>
+                      <select
+                        className="h-7 rounded-md border border-input bg-background px-1 text-xs"
+                        value={key.transform}
+                        aria-label={`Transform for ${col.name}`}
+                        onChange={(e) =>
+                          setKey(col.name, { transform: e.target.value as PartitionTransform })
+                        }
+                      >
+                        {transformsFor(col.type).map((t) => (
+                          <option key={t} value={t}>
+                            {PARTITION_TRANSFORM_LABELS[t]}
+                          </option>
+                        ))}
+                      </select>
+                      {key.transform === "bucket" && (
+                        <Input
+                          type="number"
+                          min={2}
+                          max={1024}
+                          className="h-7 w-16 text-xs"
+                          aria-label={`Buckets for ${col.name}`}
+                          value={key.buckets ?? 16}
+                          onChange={(e) => setKey(col.name, { buckets: Number(e.target.value) })}
+                        />
+                      )}
+                      <span className="flex-none text-[10px] text-muted-foreground">
+                        key {index + 1}
+                      </span>
+                    </>
                   )}
-                </button>
+                </div>
               );
             })}
           </div>
+          {keys.length > 0 && (
+            <p className="font-mono text-[11px]" data-testid="partition-spec">
+              PARTITIONED BY ({keys.map(describePartitionKey).join(", ")})
+            </p>
+          )}
+          {problem && <p className="text-xs text-destructive">{problem}</p>}
+          {shownEstimate && (
+            <p
+              className={`text-[11px] ${shownEstimate.level === "warn" ? "rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-amber-800 dark:text-amber-300" : "text-muted-foreground"}`}
+              data-testid="partition-estimate"
+              role={shownEstimate.level === "warn" ? "status" : undefined}
+            >
+              {shownEstimate.text}
+            </p>
+          )}
           <p className="text-[11px] text-muted-foreground">
             Applies to files written from now on; run maintenance or rewrite the table to
             re-partition what already exists.
           </p>
           <Button
             className="w-full"
-            disabled={busy}
+            disabled={busy || Boolean(problem)}
             onClick={async () => {
               setBusy(true);
               try {
                 const res = await setFn({
-                  data: { access_token: token, schema, table, columns: picked },
+                  data: { access_token: token, schema, table, keys },
                 });
-                onChanged(res.partitioned_by);
+                onChanged(res.partitioned_by, res.partition_keys);
                 toast.success(
                   res.partitioned_by.length
                     ? `Partitioned by ${res.partitioned_by.join(", ")}`
@@ -1656,7 +1936,7 @@ function PartitionDialog({
             }}
           >
             {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
-            {picked.length ? "Apply partitioning" : "Clear partitioning"}
+            {keys.length ? "Apply partitioning" : "Clear partitioning"}
           </Button>
         </div>
       </DialogContent>
@@ -1811,10 +2091,18 @@ function LayoutDialog({
                 )}
                 {columns.map((col) => {
                   const on = picked.includes(col.name);
+                  // A document or a nested value has no order to cluster on.
+                  const sortable = keyable(col.type);
                   return (
                     <button
                       key={col.name}
-                      className={`grid w-full grid-cols-[1fr_auto_auto] items-center gap-x-3 px-2 py-1 text-left text-xs ${on ? "bg-primary/5" : "hover:bg-muted"}`}
+                      disabled={!sortable && !on}
+                      title={
+                        sortable
+                          ? undefined
+                          : `A ${col.type.toLowerCase()} column has no order to cluster on`
+                      }
+                      className={`grid w-full grid-cols-[1fr_auto_auto] items-center gap-x-3 px-2 py-1 text-left text-xs disabled:cursor-not-allowed disabled:opacity-50 ${on ? "bg-primary/5" : "hover:bg-muted"}`}
                       onClick={() =>
                         setPicked(
                           on

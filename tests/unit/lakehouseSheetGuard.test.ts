@@ -250,8 +250,14 @@ describe("every way the lakehouse writes a table asks first", () => {
   it("the table's page says who holds it and offers no Drop or Insert row", () => {
     const page = readFileSync("src/routes/_authenticated/lakehouse.tsx", "utf8");
     expect(page).toContain('data-testid="sheet-owner"');
-    expect(page).toMatch(/\{detail\.sheet_owner \? \([\s\S]{0,1200}\) : \(\s*<InsertRowDialog/);
-    expect(page).toMatch(/\{!detail\.sheet_owner && \(\s*<Button[\s\S]{0,400}Drop table/);
+    // Since R457 a mount is also offered neither (a mount is read-only), so
+    // each condition carries the mount test beside the Sheets one.
+    expect(page).toMatch(
+      /\{detail\.sheet_owner \? \([\s\S]{0,1200}\) : detail\.mount \? null : \(\s*<InsertRowDialog/,
+    );
+    expect(page).toMatch(
+      /\{!detail\.sheet_owner && !detail\.mount && \(\s*<Button[\s\S]{0,400}Drop table/,
+    );
   });
 });
 

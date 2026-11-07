@@ -108,6 +108,26 @@ function outputName(expr: Node): string {
   return "";
 }
 
+/**
+ * A CTE's query node, in either engine's tree. DuckDB 1.5 writes it at
+ * `value.query.node`; DuckDB 2.0 at `value.query_node` (R457, measured on
+ * 2.0.0: the lineage of every column read through a CTE came back empty).
+ */
+function cteBody(value: Node | null): Node | null {
+  if (!value) return null;
+  return asNode(value.query_node) ?? asNode(asNode(value.query)?.node);
+}
+
+/**
+ * The sides of a UNION, EXCEPT or INTERSECT, in either engine's tree:
+ * `left` and `right` on DuckDB 1.5, a `children` list on 2.0 (where a chain
+ * of three may also be one node with three children).
+ */
+function setOperands(node: Node): unknown[] {
+  if (Array.isArray(node.children) && node.children.length) return node.children as unknown[];
+  return [node.left, node.right].filter((x) => x !== null && x !== undefined);
+}
+
 function traceSelectNode(
   node: Node,
   outerCtes: Map<string, SqlOutputColumn[]>,
@@ -117,9 +137,9 @@ function traceSelectNode(
   const map = (asNode(node.cte_map)?.map ?? []) as unknown[];
   for (const entry of map) {
     const e = asNode(entry);
-    const q = asNode(asNode(e?.value)?.query);
-    if (!e || !q) continue;
-    const cols = traceQueryNode(q.node, ctes, columnsOf);
+    const body = cteBody(asNode(e?.value));
+    if (!e || !body) continue;
+    const cols = traceQueryNode(body, ctes, columnsOf);
     ctes.set(str(e.key).toLowerCase(), cols ?? []);
   }
   const rels = relations(node.from_table, ctes, columnsOf);
@@ -156,12 +176,13 @@ function traceQueryNode(
   if (!node) return null;
   if (node.type === "SELECT_NODE") return traceSelectNode(node, ctes, columnsOf);
   if (node.type === "SET_OPERATION_NODE") {
-    // UNION and friends: columns by position, each fed by both sides.
-    const left = traceQueryNode(node.left, ctes, columnsOf) ?? [];
-    const right = traceQueryNode(node.right, ctes, columnsOf) ?? [];
-    return left.map((c, i) => ({
+    // UNION and friends: columns by position, named by the first side, each
+    // fed by every side.
+    const sides = setOperands(node).map((s) => traceQueryNode(s, ctes, columnsOf) ?? []);
+    const [first = [], ...rest] = sides;
+    return first.map((c, i) => ({
       name: c.name,
-      sources: uniq([...c.sources, ...(right[i]?.sources ?? [])]),
+      sources: uniq([...c.sources, ...rest.flatMap((side) => side[i]?.sources ?? [])]),
     }));
   }
   return null;

@@ -123,7 +123,12 @@ describe("the publish button reports both ways a publish can fail", () => {
 
   it("catches a rejection as well as an ok:false", () => {
     const at = SRC.indexOf("const r = await publishFn(");
-    const handler = SRC.slice(at, at + 1600);
+    // Up to the handler's own finally, not a fixed window: R457's upsert
+    // branch made the handler longer than the 1,600 characters this read.
+    const end = SRC.indexOf("} finally", at);
+    expect(at).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(at);
+    const handler = SRC.slice(at, end + "} finally".length);
     expect(handler).toContain("if (!r.ok) return toast.error(r.error);");
     expect(handler).toMatch(/\} catch \([^)]*\) \{/);
     expect(handler).toContain("publishFailureHelp(");

@@ -8,6 +8,16 @@
 // an attached catalog directly (the guard refuses every catalog but `lake`).
 // Publishing and importing run here, as the caller, after ownership checks.
 import type { DuckDBConnection } from "@duckdb/node-api";
+import type { LakehouseResult } from "@/utils/lakehouse/core.server";
+import {
+  allSnapshotIds,
+  fileCountsFrom,
+  inspectIcebergMetadata,
+  mountViewTarget,
+  resolveSnapshotRef,
+  type IcebergFileCounts,
+  type IcebergInspection,
+} from "@/utils/lakehouse/icebergInspect";
 import { assertPrivatePath, describeConnectivity } from "@/utils/providers/connectivityPath.server";
 import { assertPublicUrl } from "@/utils/ssrfGuard.server";
 import { randomBytes } from "node:crypto";
@@ -18,7 +28,13 @@ import { auditEvent } from "@/utils/audit.server";
 import {
   ICEBERG_NAME,
   ICEBERG_NAMESPACE,
+  ICEBERG_TABLE,
+  duplicateKeysSql,
+  upsertKeyError,
   icebergAlias,
+  icebergLayoutError,
+  icebergMergeSql,
+  type IcebergPublishLayout,
   icebergAttachSql,
   icebergDescribeSql,
   icebergDetachSql,
@@ -28,6 +44,7 @@ import {
   icebergListTablesSql,
   icebergOverwriteSql,
   icebergPublishSql,
+  v3OnlyColumns,
   icebergRetiredName,
   icebergSourceColumnsSql,
   icebergStagingName,
@@ -532,7 +549,137 @@ export async function detachIcebergCatalog(catalogId: string): Promise<void> {
   }
 }
 
-const TABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
+/**
+ * A table name in the catalog. FOUND IN R457: this refused hyphens, so a
+ * table like `daily-metrics` could be mounted (its view is daily_metrics) but
+ * not imported, and no table could be published under such a name.
+ */
+const TABLE_NAME = ICEBERG_TABLE;
+
+// ── Inspecting a mounted table, and time travel on it (R457) ────────────────
+
+/**
+ * The Iceberg table behind a mount's view, from the view's SQL as the engine
+ * keeps it. The view name alone does not say: icebergViewName lowercases and
+ * replaces characters, so `Daily-Metrics` and `daily_metrics` map to the same
+ * view, and only the view body names the table it reads.
+ */
+async function mountTarget(
+  c: DuckDBConnection,
+  row: IcebergCatalogRow,
+  schemaName: string,
+  view: string,
+): Promise<{ alias: string; namespace: string; table: string; qualified: string }> {
+  const rows = await (
+    await c.run(
+      `SELECT sql FROM duckdb_views() WHERE database_name = 'lake' AND schema_name = ` +
+        `'${schemaName.replace(/'/g, "''")}' AND view_name = '${view.replace(/'/g, "''")}'`,
+    )
+  ).getRows();
+  const target = rows.length ? mountViewTarget(String(rows[0][0])) : null;
+  if (!target || target.alias !== icebergAlias(row.id)) {
+    throw new Error(`${schemaName}.${view} is not a table of this Iceberg mount.`);
+  }
+  return {
+    ...target,
+    qualified: `${qi(target.alias)}.${qi(target.namespace)}.${qi(target.table)}`,
+  };
+}
+
+async function tableMetadata(c: DuckDBConnection, qualified: string): Promise<unknown> {
+  // Only the metadata column: the same answer carries the catalog's config
+  // and any storage credentials it vended, and neither leaves this function.
+  const reader = await c.runAndReadAll(
+    `SELECT metadata FROM iceberg_load_table_response(${qualified})`,
+  );
+  const rows = reader.getRowObjectsJson() as { metadata?: unknown }[];
+  if (!rows.length) throw new Error("The catalog returned no metadata for this table.");
+  return rows[0].metadata ?? null;
+}
+
+async function tableFileCounts(
+  c: DuckDBConnection,
+  qualified: string,
+): Promise<IcebergFileCounts | null> {
+  try {
+    const rows = await (
+      await c.run(
+        // Manifests also list the files a snapshot removed (status DELETED):
+        // counted, they made 48 live deletion vectors read as 50 (R457, UI).
+        `SELECT manifest_content, content, file_format, count(*)::BIGINT, ` +
+          `coalesce(sum(record_count), 0)::BIGINT FROM iceberg_metadata(${qualified}) ` +
+          `WHERE status <> 'DELETED' GROUP BY ALL`,
+      )
+    ).getRows();
+    return fileCountsFrom(
+      rows.map((r) => ({
+        manifest_content: String(r[0] ?? ""),
+        content: String(r[1] ?? ""),
+        file_format: String(r[2] ?? ""),
+        files: Number(r[3] ?? 0),
+        records: Number(r[4] ?? 0),
+      })),
+    );
+  } catch {
+    // The file listing reads every manifest; a table too large or a manifest
+    // the engine cannot read costs the upkeep advice, never the panel.
+    return null;
+  }
+}
+
+/** What a mounted Iceberg table is: format, schema history, partitioning, snapshots, refs, upkeep. */
+export async function inspectMountedTable(args: {
+  row: IcebergCatalogRow;
+  schemaName: string;
+  view: string;
+}): Promise<IcebergInspection & { namespace: string; table: string; catalog: string }> {
+  return withCatalog(args.row, async (c) => {
+    const t = await mountTarget(c, args.row, args.schemaName, args.view);
+    const metadata = await tableMetadata(c, t.qualified);
+    const files = await tableFileCounts(c, t.qualified);
+    return {
+      ...inspectIcebergMetadata(metadata, files, {
+        catalog: args.row.name,
+        namespace: t.namespace,
+        table: t.table,
+      }),
+      namespace: t.namespace,
+      table: t.table,
+      catalog: args.row.name,
+    };
+  });
+}
+
+/**
+ * The mounted table as it was at a snapshot, a branch or a tag. The caller
+ * has checked schema access and that no policy applies to this reader.
+ */
+export async function timeTravelMountedTable(args: {
+  row: IcebergCatalogRow;
+  schemaName: string;
+  view: string;
+  ref: string;
+  rowCap: number;
+}): Promise<{ result: LakehouseResult; snapshot_id: string }> {
+  const { runServerRead } = await import("@/utils/lakehouse/core.server");
+  return withCatalog(args.row, async (c) => {
+    const t = await mountTarget(c, args.row, args.schemaName, args.view);
+    const metadata = await tableMetadata(c, t.qualified);
+    const view = inspectIcebergMetadata(metadata, null, {
+      catalog: args.row.name,
+      namespace: t.namespace,
+      table: t.table,
+    });
+    const id = resolveSnapshotRef(view.refs, allSnapshotIds(metadata), args.ref.trim());
+    if (!id) throw new Error(`This table has no snapshot, branch or tag named "${args.ref}".`);
+    const result = await runServerRead(
+      c,
+      `SELECT * FROM ${t.qualified} AT (VERSION => ${id}) LIMIT ${args.rowCap + 1}`,
+      { rowCap: args.rowCap },
+    );
+    return { result, snapshot_id: id };
+  });
+}
 
 /**
  * Publish a lakehouse table into the catalog: the namespace if needed, then
@@ -545,12 +692,17 @@ export async function publishToIceberg(args: {
   table: string;
   sourceSchema: string;
   sourceTable: string;
-  mode: "create" | "replace";
+  mode: "create" | "replace" | "upsert";
   userId: string;
-}): Promise<{ rows: number }> {
+  /** Format version and partition spec for a table this publish creates. */
+  layout?: IcebergPublishLayout;
+  /** Key columns, for an upsert. */
+  keys?: string[];
+}): Promise<{ rows: number; format_version: number | null }> {
   if (!ICEBERG_NAMESPACE.test(args.namespace))
     throw new Error("That namespace name is not usable here.");
   if (!TABLE_NAME.test(args.table)) throw new Error("That table name is not usable here.");
+  let writtenAs: number | null = null;
   const rows = await withCatalog(args.row, async (c, alias) => {
     const token = randomBytes(4).toString("hex");
     const staging = icebergStagingName(args.table, token);
@@ -558,7 +710,76 @@ export async function publishToIceberg(args: {
     const columns = (
       await (await c.run(icebergSourceColumnsSql(args.sourceSchema, args.sourceTable))).getRows()
     ).map((r) => ({ name: String(r[0]), type: String(r[1]) }));
+    // A VARIANT, TIMESTAMP_NS or GEOMETRY column fits only format v3, and in
+    // a v2 table the catalog answers a bare HTTP 500 (R457, measured). Asked
+    // for v2, the publish is refused in words; asked for nothing (a caller
+    // from before layouts), such a table is written as v3.
+    const layout =
+      args.layout ??
+      (v3OnlyColumns(columns).length ? ({ formatVersion: 3, partition: [] } as const) : undefined);
+    if (layout) {
+      const bad = icebergLayoutError(layout, columns);
+      if (bad) throw new Error(bad);
+      writtenAs = layout.formatVersion;
+    }
+    const countRows = async () => {
+      const [n] = await firstColumn(
+        c,
+        `SELECT count(*) FROM ${qi(alias)}.${qi(args.namespace)}.${qi(args.table)}`,
+      );
+      return Number(n ?? 0);
+    };
+    if (args.mode === "upsert") {
+      const keys = args.keys ?? [];
+      const badKeys = upsertKeyError(keys, columns);
+      if (badKeys) throw new Error(badKeys);
+      const current = await c
+        .run(icebergDescribeSql(alias, args.namespace, args.table))
+        .then(async (r) =>
+          (await r.getRows()).map((row) => ({ name: String(row[0]), type: String(row[1]) })),
+        )
+        .catch(() => null);
+      if (!current) {
+        throw new Error(
+          `${args.namespace}.${args.table} does not exist yet; publish it once, then upsert into it.`,
+        );
+      }
+      if (!sameColumns(current, columns)) {
+        throw new Error(
+          `${args.namespace}.${args.table} has other columns than ${args.sourceSchema}.${args.sourceTable}; an upsert needs the same columns in the same order. Replace it instead.`,
+        );
+      }
+      const [dups] = await firstColumn(
+        c,
+        duplicateKeysSql(args.sourceSchema, args.sourceTable, keys),
+      );
+      if (Number(dups ?? 0) > 0) {
+        throw new Error(
+          `${Number(dups).toLocaleString()} key value(s) appear more than once in ${args.sourceSchema}.${args.sourceTable}, so the upsert could not tell which row to keep. Nothing was written.`,
+        );
+      }
+      try {
+        await c.run(
+          icebergMergeSql({
+            alias,
+            namespace: args.namespace,
+            table: args.table,
+            sourceSchema: args.sourceSchema,
+            sourceTable: args.sourceTable,
+            columns,
+            keys,
+          }),
+        );
+      } catch (e) {
+        await c.run("ROLLBACK;").catch(() => {});
+        throw new Error(
+          `${(e as Error).message}. ${args.namespace}.${args.table} was not changed.`,
+        );
+      }
+      return countRows();
+    }
     const plan = icebergPublishSql({
+      layout,
       alias,
       namespace: args.namespace,
       table: args.table,
@@ -569,13 +790,6 @@ export async function publishToIceberg(args: {
       staging,
       retired,
     });
-    const countRows = async () => {
-      const [n] = await firstColumn(
-        c,
-        `SELECT count(*) FROM ${qi(alias)}.${qi(args.namespace)}.${qi(args.table)}`,
-      );
-      return Number(n ?? 0);
-    };
     // FOUND IN R182. A replace left the catalog without the table while it
     // dropped, recreated and refilled it. When the old table already has the
     // new data's columns, the replace is one transaction instead: its rows
@@ -674,9 +888,12 @@ export async function publishToIceberg(args: {
       table: args.table,
       mode: args.mode,
       rows,
+      ...(writtenAs ? { format_version: writtenAs } : {}),
+      ...(args.layout?.partition.length ? { partition: args.layout.partition } : {}),
+      ...(args.mode === "upsert" ? { keys: args.keys ?? [] } : {}),
     },
   });
-  return { rows };
+  return { rows, format_version: writtenAs };
 }
 
 /** Copy an Iceberg table into a lakehouse table the caller owns: a real DuckLake table, no dependence on the catalog. */

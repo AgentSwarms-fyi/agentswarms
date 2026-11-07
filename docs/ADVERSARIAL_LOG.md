@@ -109,6 +109,62 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-07 — R457: an Iceberg mount was a black box, and a table's history was the lakehouse's
+
+**Why this round.** The ask was to make the lakehouse and its Iceberg support current
+with the industry and to keep BI, ETL, SQL chat and the ontology working. The benchmark
+is `docs/LAKEHOUSE_ASSESSMENT.md`. A throwaway Iceberg REST catalog was seeded by Spark
+4.1 with Iceberg 1.12 (a v3 table with deletion vectors, a branch and a tag, an evolved
+schema and partition spec; a v2 table; hyphenated and nested namespaces), and every
+change was driven through the real pages against it and against the development
+lakehouse. UI record: `docs/UI_TEST_RESULTS.md`.
+
+| Finding                                                                               | Sev | What was wrong                                                                                                                                                                                                               |
+| ------------------------------------------------------------------------------------- | --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A table's Snapshots were the lakehouse's                                              | S3  | The panel listed `lake.snapshots()`'s latest twelve, whatever they touched. With fifteen commits on another table in between, none of the twelve was the table's own (pinned in a test)                                      |
+| "Read with the lakehouse's own credentials" did nothing                               | S3  | The choice was stored and never reached `ATTACH`, which asked every catalog to vend                                                                                                                                          |
+| Hyphenated namespaces and tables refused                                              | S3  | `sales-prod`.`daily-metrics` is listed by the engine and reads 100 rows; the name rule refused the mount and the import                                                                                                      |
+| The docs said AWS Glue's Iceberg endpoint worked                                      | S3  | It needs SigV4; nothing here could sign a request                                                                                                                                                                            |
+| A mount's tab offered what always fails                                               | S3  | Partition, Layout, Insert row, Drop and Publish, each refused by the server                                                                                                                                                  |
+| A mount's Snapshots offered time travel that cannot run                               | S3  | A view cannot be time-travelled (`Catalog type does not support time travel`); a tag is not an id (`could not convert 'q3-close' to INT64`)                                                                                  |
+| VARIANT into Iceberg v2                                                               | S3  | The catalog answered a bare HTTP 500                                                                                                                                                                                         |
+| _New code:_ a snapshot's "rows" were data-file records                                | S3  | 10,176 for a table that reads 10,125: deleted rows stay in data files until rewritten. Found in the UI after the unit tests passed on the same fixture                                                                       |
+| _New code:_ removed files counted as live                                             | S3  | Manifests list files a later snapshot removed; 48 deletion vectors read as 50                                                                                                                                                |
+| _New code:_ a branch's head unlabelled                                                | S3  | The newest snapshot in the list belonged to `audit`, not main                                                                                                                                                                |
+| _New code:_ a VARIANT offered as a partition key                                      | S3  | A key with a value per row writes a file per row                                                                                                                                                                             |
+| _New code:_ a VARIANT offered as an upsert key and as a cluster key                   | S3  | The server took one too. A document is not a key and has no order                                                                                                                                                            |
+| _New code:_ a partition spec could cut a small table into hundreds of files, silently | S2  | `day(ts), bucket(16, id)` on 498 rows made 263 partitions; the clustered rewrite in the UI then ran 145 s, one upload per file, and left 527 files where there had been 2. Looked like a hang until each statement was timed |
+| *New code:* the Iceberg panel reloaded on every session refresh | S4 | Keyed on the token, it blanked and read the catalog again about hourly. Caught by the R125 token sweep, not by the UI pass; now keyed on being signed in |
+| Removing a mount warned of dropping every table | S3 | "Every table in it is dropped too. This cannot be undone." A mount's schema holds only views; the catalog's tables are untouched. Found while removing this round's own mounts |
+| `LAKEHOUSE.md` described the ETL sandbox attaching the catalog                        | S3  | The app reads and loads for it; the sandbox holds no lakehouse credential. The ETL page was right, the lakehouse doc was stale                                                                                               |
+| DuckDB 2.0's parse tree                                                               | S3  | Measured on 2.0.0: the column-lineage tracer returned nothing through a CTE or a UNION. Not live (the app runs 1.5.5); fixed ahead of the upgrade                                                                            |
+
+**Consumers.** SQL, BI (a 44-widget lakehouse dashboard refreshed, a chart on the v3
+mount, a VARIANT column in a table), ETL (the source picker, and the read path the sandbox
+is served by, as the owner: 10,125 live rows from the deletion-vector table), the
+ontology (Explore, a metric, 29 rules with only the sample's 4 planted failures), a data
+monitor on the VARIANT table, and a semantic model on the mount all worked. The one
+consumer limit is documented, not fixed: a VARIANT column reaches a Python pipeline as
+dicts and would be written back as a STRUCT or MAP.
+
+**What would have been wrong to conclude.**
+
+- _"A MERGE is one commit, so one snapshot."_ It is one catalog commit (one new metadata
+  file) holding two snapshots, an overwrite and an append, when it both updates and
+  inserts; one overwrite when every row matched. Readers never see between them; the
+  history does.
+- _"The rewrite hangs."_ The UI waited minutes with no error and no catalog activity
+  visible. Timing each statement showed the `INSERT` taking 150 s, not stuck: a file per
+  partition, one upload each. The fix is advice before the spec is set, not a timeout.
+- _"The catalog was idle."_ The first check of `pg_stat_activity` printed nothing because
+  PowerShell 5.1 had mangled the quotes in the query; SQL sent on stdin read it properly.
+- _"The mounts lost their tables."_ After the dev server reloaded server modules, twelve
+  tables on the older catalog's mounts read as none: the engine had been recreated while
+  the module that tracks attachments had not. A restart brought all 83 back. Production
+  recreates the engine only after a failed boot, when nothing is attached.
+- _"Upgrade to DuckDB 2.0, it's LTS."_ The policy rewrite holds on 2.0, but duckdb-wasm has
+  no stable 2.0, and the browser and server engines are kept on one minor version.
+
 ### 2026-11-07 — R456: a catalog that did not understand a data lake
 
 **Why this round.** The ask was to assess the Data Catalog against the industry and make

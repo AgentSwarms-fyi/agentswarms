@@ -43,7 +43,19 @@ export type IcebergCatalogConfig = {
 };
 
 export const ICEBERG_NAME = /^[a-z][a-z0-9_]{0,62}$/;
-export const ICEBERG_NAMESPACE = /^[A-Za-z0-9_]{1,128}$/;
+/**
+ * A namespace or table name in the catalog, as the engine can address it.
+ * FOUND IN R457: this allowed letters, digits and underscores only, so a
+ * namespace like `sales-prod`, which catalogs commonly hold and which the
+ * engine reads (measured: 100 rows from Spark's `sales-prod`.`daily-metrics`),
+ * could be listed but not mounted, and such a table not imported. A hyphen is
+ * fine: every statement quotes the name. A dot is not: a nested namespace
+ * (`finance.eu`) is not listed by the engine at all on DuckDB 1.5, and its
+ * SUPPORT_NESTED_NAMESPACES option requests `/namespaces/financeeu/tables`,
+ * dropping the separator, and breaks the listing of every other namespace.
+ */
+export const ICEBERG_NAMESPACE = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,127}$/;
+export const ICEBERG_TABLE = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,127}$/;
 const SECRET_NAME = /^[A-Za-z][A-Za-z0-9_]*$/;
 
 export function defaultIcebergCatalog(): IcebergCatalogConfig {
@@ -136,7 +148,15 @@ export function icebergAttachSql(alias: string, cfg: IcebergCatalogConfig): stri
   // READ_ONLY false: the extension attaches read-only unless told otherwise,
   // and publishing needs the write path. Who may write is decided here, not
   // in the engine: a mount exposes views, and publishing checks ownership.
-  return `ATTACH IF NOT EXISTS ${lit(cfg.warehouse.trim())} AS ${ident(alias)} (TYPE iceberg, ENDPOINT ${lit(endpoint)}, ${auth}, READ_ONLY false);`;
+  //
+  // FOUND IN R457: the form's "Table files are read with" choice was stored
+  // and never reached the engine, which asks every catalog to vend storage
+  // credentials (its default ACCESS_DELEGATION_MODE). "The lakehouse's own
+  // storage credentials" now tells the catalog not to: a catalog that cannot
+  // vend need not be asked, and the files are read with the lakehouse's S3
+  // secret, which is what the choice says.
+  const delegation = cfg.storage === "lakehouse" ? ", ACCESS_DELEGATION_MODE 'none'" : "";
+  return `ATTACH IF NOT EXISTS ${lit(cfg.warehouse.trim())} AS ${ident(alias)} (TYPE iceberg, ENDPOINT ${lit(endpoint)}, ${auth}, READ_ONLY false${delegation});`;
 }
 
 export function icebergDetachSql(alias: string): string {
@@ -187,6 +207,129 @@ export function icebergViewSql(
 /** A source column as the engine describes it (`duckdb_columns()`). */
 export type PublishColumn = { name: string; type: string };
 
+/** The Iceberg partition transforms a publish can write. */
+export const ICEBERG_PARTITION_TRANSFORMS = [
+  "identity",
+  "year",
+  "month",
+  "day",
+  "hour",
+  "bucket",
+  "truncate",
+] as const;
+export type IcebergPartitionTransform = (typeof ICEBERG_PARTITION_TRANSFORMS)[number];
+
+export type IcebergPartitionKey = {
+  column: string;
+  transform: IcebergPartitionTransform;
+  /** Bucket count for `bucket`, width for `truncate`. */
+  width?: number;
+};
+
+/** What a published table is written as: its format version and partition spec. */
+export type IcebergPublishLayout = {
+  formatVersion: 2 | 3;
+  partition: IcebergPartitionKey[];
+};
+
+const TEMPORAL = /^(DATE|TIMESTAMP)/i;
+const TIMESTAMP_TYPE = /^TIMESTAMP/i;
+/** Iceberg's truncate takes strings, integers and decimals; bucket refuses floats and booleans. */
+const TRUNCATABLE =
+  /^(VARCHAR|TEXT|STRING|BLOB|TINYINT|SMALLINT|INTEGER|INT|BIGINT|DECIMAL|NUMERIC)/i;
+const UNBUCKETABLE = /^(FLOAT|REAL|DOUBLE|BOOLEAN|BOOL)/i;
+/** Types only format v3 can hold (measured: a VARIANT column in a v2 table makes the catalog answer HTTP 500). */
+const V3_ONLY = /\b(VARIANT|TIMESTAMP_NS|GEOMETRY)\b/i;
+
+/** The source columns that need format v3. */
+export function v3OnlyColumns(columns: PublishColumn[]): string[] {
+  return columns.filter((c) => V3_ONLY.test(c.type)).map((c) => c.name);
+}
+
+/**
+ * The first thing wrong with a publish layout for these source columns, in
+ * the words the dialog shows; null when it can be written.
+ */
+export function icebergLayoutError(
+  layout: IcebergPublishLayout,
+  columns: PublishColumn[],
+): string | null {
+  if (layout.formatVersion !== 2 && layout.formatVersion !== 3) {
+    return "The format version is 2 or 3.";
+  }
+  const needsV3 = v3OnlyColumns(columns);
+  if (layout.formatVersion === 2 && needsV3.length) {
+    return `${needsV3.join(", ")} ${needsV3.length === 1 ? "is a type" : "are types"} only Iceberg format v3 holds; publish as v3.`;
+  }
+  if (layout.partition.length > 4) return "Partition by four columns at most.";
+  const seen = new Set<string>();
+  for (const key of layout.partition) {
+    const col = columns.find((c) => c.name === key.column);
+    if (!col) return `There is no column "${key.column}" to partition by.`;
+    const label = `${key.transform}(${key.column})`;
+    if (seen.has(label)) return `${label} is in the partition spec twice.`;
+    seen.add(label);
+    const type = col.type;
+    if (["year", "month", "day"].includes(key.transform) && !TEMPORAL.test(type)) {
+      return `${key.transform}() needs a date or a timestamp; ${key.column} is ${type.toLowerCase()}.`;
+    }
+    if (key.transform === "hour" && !TIMESTAMP_TYPE.test(type)) {
+      return `hour() needs a timestamp; ${key.column} is ${type.toLowerCase()}.`;
+    }
+    if (key.transform === "truncate") {
+      if (!TRUNCATABLE.test(type)) {
+        return `truncate() takes text, integers or decimals; ${key.column} is ${type.toLowerCase()}.`;
+      }
+      if (
+        !Number.isInteger(key.width) ||
+        (key.width as number) < 1 ||
+        (key.width as number) > 1024
+      ) {
+        return "truncate() needs a width from 1 to 1024.";
+      }
+    }
+    if (key.transform === "bucket") {
+      if (UNBUCKETABLE.test(type)) {
+        return `bucket() cannot hash ${type.toLowerCase()}; pick another column.`;
+      }
+      if (
+        !Number.isInteger(key.width) ||
+        (key.width as number) < 2 ||
+        (key.width as number) > 1024
+      ) {
+        return "bucket() needs a bucket count from 2 to 1024.";
+      }
+    }
+    if (V3_ONLY.test(type) || /\[\]$|^(STRUCT|MAP|LIST|UNION)/i.test(type)) {
+      return `${key.column} is ${type.toLowerCase()}, which cannot be a partition key.`;
+    }
+  }
+  return null;
+}
+
+/** One partition key as the engine's CREATE TABLE … PARTITIONED BY takes it. */
+export function icebergPartitionSql(key: IcebergPartitionKey): string {
+  const col = ident(key.column);
+  if (key.transform === "identity") return col;
+  if (key.transform === "bucket" || key.transform === "truncate") {
+    return `${key.transform}(${key.width}, ${col})`;
+  }
+  return `${key.transform}(${col})`;
+}
+
+/**
+ * The tail of a CREATE TABLE for a layout: the partition spec, then the
+ * format version. Measured on the engine: this order parses and the reverse
+ * is a syntax error, and with no WITH a table is written as v2.
+ */
+export function icebergLayoutSql(layout: IcebergPublishLayout | undefined): string {
+  if (!layout) return "";
+  const partition = layout.partition.length
+    ? ` PARTITIONED BY (${layout.partition.map(icebergPartitionSql).join(", ")})`
+    : "";
+  return `${partition} WITH ('format-version' = ${layout.formatVersion})`;
+}
+
 /**
  * Publishing a lakehouse table into the catalog: the namespace first, then
  * the table from the source's own column list, then its rows. `replace`
@@ -216,6 +359,8 @@ export function icebergPublishSql(args: {
   staging?: string;
   /** Where a replace moves the old table, from icebergRetiredName; unused by create. */
   retired?: string;
+  /** Format version and partition spec of the table written; the engine's default (v2, unpartitioned) without. */
+  layout?: IcebergPublishLayout;
 }): string[] {
   if (args.columns.length === 0) {
     throw new Error(`${args.sourceSchema}.${args.sourceTable} has no columns to publish.`);
@@ -226,7 +371,7 @@ export function icebergPublishSql(args: {
   const schema = `CREATE SCHEMA IF NOT EXISTS ${ns};`;
   const defs = args.columns.map((col) => `${ident(col.name)} ${col.type}`).join(", ");
   const names = args.columns.map((col) => ident(col.name)).join(", ");
-  const make = (t: string) => `CREATE TABLE ${t} (${defs});`;
+  const make = (t: string) => `CREATE TABLE ${t} (${defs})${icebergLayoutSql(args.layout)};`;
   const fill = (t: string, from: string) =>
     `INSERT INTO ${t} (${names}) SELECT ${names} FROM ${from};`;
   if (args.mode === "create") {
@@ -281,6 +426,85 @@ export function icebergOverwriteSql(args: {
   return (
     `BEGIN TRANSACTION; DELETE FROM ${target}; ` +
     `INSERT INTO ${target} (${names}) SELECT ${names} FROM ${source}; COMMIT;`
+  );
+}
+
+/**
+ * An upsert into the catalog's table by key columns (R457): rows whose keys
+ * match are updated, the rest inserted, in one transaction and so one
+ * catalog commit. Measured on the development catalog: one new metadata
+ * file. When the merge both updates and inserts it holds two snapshots (an
+ * overwrite of the rows it rewrote, then an append); when every row matched,
+ * one overwrite. A reader goes from the old table to the new one and never
+ * sees the rows in between; an intermediate snapshot is visible only in the
+ * table's history. Keys compare with IS NOT DISTINCT FROM, so a row whose key
+ * is null updates the row with the same null key instead of adding another
+ * each time. The caller has checked that the table has the source's columns
+ * and that the source holds each key once: a key that appears twice in the
+ * source would match one target row twice.
+ */
+export function icebergMergeSql(args: {
+  alias: string;
+  namespace: string;
+  table: string;
+  sourceSchema: string;
+  sourceTable: string;
+  columns: PublishColumn[];
+  keys: string[];
+}): string {
+  if (!args.keys.length) throw new Error("An upsert needs at least one key column.");
+  const target = `${ident(args.alias)}.${ident(args.namespace)}.${ident(args.table)}`;
+  const source = `${ident("lake")}.${ident(args.sourceSchema)}.${ident(args.sourceTable)}`;
+  const names = args.columns.map((col) => ident(col.name));
+  const keys = new Set(args.keys);
+  const on = args.keys.map((k) => `t.${ident(k)} IS NOT DISTINCT FROM s.${ident(k)}`).join(" AND ");
+  const sets = args.columns
+    .filter((col) => !keys.has(col.name))
+    .map((col) => `${ident(col.name)} = s.${ident(col.name)}`);
+  const matched = sets.length ? ` WHEN MATCHED THEN UPDATE SET ${sets.join(", ")}` : "";
+  return (
+    `BEGIN TRANSACTION; MERGE INTO ${target} AS t USING (SELECT ${names.join(", ")} FROM ${source}) AS s ` +
+    `ON ${on}${matched} WHEN NOT MATCHED THEN INSERT (${names.join(", ")}) ` +
+    `VALUES (${names.map((n) => `s.${n}`).join(", ")}); COMMIT;`
+  );
+}
+
+/**
+ * A document, a nested value or a geometry is not a key: two payloads that
+ * mean the same thing need not compare equal, and Iceberg cannot use one as an
+ * identifier field. The upsert dialog offered a VARIANT column as a key until
+ * the UI showed it (R457).
+ */
+const UNKEYABLE = /(\bVARIANT\b|\bSTRUCT\b|\bMAP\b|\bUNION\b|\bGEOMETRY\b|\bJSON\b|\[\]$|^LIST\b)/i;
+
+/** Whether a column of this engine type can be an upsert key. */
+export function keyable(type: string): boolean {
+  return !UNKEYABLE.test(type.trim());
+}
+
+/** The first thing wrong with these upsert keys, in the dialog's words; null when they are usable. */
+export function upsertKeyError(keys: string[], columns: PublishColumn[]): string | null {
+  if (!keys.length) return "An upsert needs at least one key column.";
+  for (const k of keys) {
+    const col = columns.find((c) => c.name === k);
+    if (!col) return `${k} is not a column of the source.`;
+    if (!keyable(col.type)) {
+      return `${k} is a ${col.type.toLowerCase()}, which cannot be a key: pick columns holding plain values.`;
+    }
+  }
+  return null;
+}
+
+/** Source keys that appear more than once: an upsert by them would be ambiguous. */
+export function duplicateKeysSql(
+  sourceSchema: string,
+  sourceTable: string,
+  keys: string[],
+): string {
+  const cols = keys.map(ident).join(", ");
+  return (
+    `SELECT count(*)::BIGINT FROM (SELECT ${cols} FROM ${ident("lake")}.${ident(sourceSchema)}.` +
+    `${ident(sourceTable)} GROUP BY ALL HAVING count(*) > 1)`
   );
 }
 

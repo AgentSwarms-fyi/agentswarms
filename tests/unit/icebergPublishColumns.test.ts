@@ -90,7 +90,7 @@ describe("a publish never asks the extension for a CREATE TABLE AS", () => {
   it("creates the table from the columns, then inserts, in both modes", async () => {
     for (const mode of ["create", "replace"] as const) {
       state.statements = [];
-      await expect(publish(mode)).resolves.toEqual({ rows: 836 });
+      await expect(publish(mode)).resolves.toEqual({ rows: 836, format_version: null }); // no layout asked: the engine default, as before R457
       expect(state.statements.some((s) => /^CREATE TABLE [^(]* AS /.test(s))).toBe(false);
       // A create makes the table itself; a replace makes its staging table,
       // which is swapped into the name (R182).

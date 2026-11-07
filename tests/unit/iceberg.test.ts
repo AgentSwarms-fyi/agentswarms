@@ -263,8 +263,10 @@ describe("the wiring", () => {
           /schemaRow\.lake_source_id \|\| schemaRow\.iceberg_catalog_id/g,
         ) ?? []
       ).length,
-      // Partitioning, the clustered rewrite, and the security policy.
-    ).toBe(3);
+      // Partitioning, the clustered rewrite, the security policy, and (R457)
+      // the change feed, which a mount does not have, and the partition
+      // estimate, which gives a mount no numbers.
+    ).toBe(5);
     expect(rd("src/utils/lakehouse/matviews.server.ts")).toContain(
       "schemaRow.lake_source_id || schemaRow.iceberg_catalog_id",
     );
@@ -278,7 +280,11 @@ describe("the wiring", () => {
   it("the page offers the catalogs, the badge, no new-table on a mount, and publish on a table tab; the docs and migration follow", () => {
     const page = rd("src/routes/_authenticated/lakehouse.tsx");
     expect(page).toContain("<IcebergCatalogsDialog onChanged={reload} />");
-    expect(page).toContain("<PublishToIcebergDialog schema={schema} table={table} />");
+    // Publish takes the table's columns for its layout form (R457), and is
+    // not offered on a mount, which is someone else's table already.
+    expect(page).toMatch(
+      /\{!detail\.mount && \(\s*<PublishToIcebergDialog schema=\{schema\} table=\{table\} columns=\{detail\.columns\} \/>/,
+    );
     expect(page).toContain("{!s.lake_source_id && !s.iceberg_catalog_id && (");
     const sql = rd("supabase/migrations/20260867000000_iceberg_catalogs.sql");
     expect(sql).toContain("CREATE TABLE IF NOT EXISTS public.iceberg_catalogs");

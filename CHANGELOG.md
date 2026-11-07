@@ -16,6 +16,24 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **A mounted Iceberg table reads as what it is:** format version and the v3 features in
+  use, partition spec and its history, sort order, schema evolution, branches, tags and
+  snapshots with the rows each left, live files, and upkeep advice with the Spark
+  procedure for it. Measured against v3 tables Spark 4.1 and Iceberg 1.12 wrote. See
+  [Iceberg interop](docs/LAKEHOUSE.md#iceberg-interop).
+- **Time travel on a mounted Iceberg table**, to any snapshot, branch or tag.
+- **Publish to Iceberg as v3, partitioned, or as an upsert by key.** v2 stays the default.
+- **A lakehouse table's own history,** and the rows each snapshot changed, from DuckLake's
+  change feed.
+- **Partition transforms** for lakehouse tables: day, month, year, hour and bucket. The
+  dialog counts the partitions a spec would make of today's rows and warns before one cuts
+  a table into many small files (a 498-row table cut into 263 partitions took 150 s to
+  re-insert on object storage).
+- **Clustered tables keep their order:** a clustered rewrite also records its keys as
+  DuckLake's sort order, so rows flushed after it are written in key order.
+- **An assessment of the lakehouse against the field,** with what DuckDB 2.0 would change:
+  [docs/LAKEHOUSE_ASSESSMENT.md](docs/LAKEHOUSE_ASSESSMENT.md).
+
 - **Hive Metastore as a catalog source**, read over Thrift. Tested against Hive 3.1.3
   and 4.0.1. Databases, tables, partitions, locations, formats and view SQL, with view
   lineage. See [Hive Metastore and AWS Glue](docs/DATA_SOURCES.md#hive-metastore-and-aws-glue).
@@ -29,6 +47,24 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **A table's Snapshots panel listed the whole lakehouse's latest twelve snapshots,**
+  whatever table they touched, so a click often queried a version where nothing about
+  that table had changed. It now lists the table's own.
+- **"Table files are read with the lakehouse's own storage credentials" did nothing:**
+  the choice was stored and never reached the engine, which asked every catalog to vend
+  credentials. It now tells the catalog not to.
+- **An Iceberg namespace or table with a hyphen in its name** could be listed but not
+  mounted or imported.
+- **The docs said AWS Glue's Iceberg endpoint worked;** it needs SigV4 signing, which is
+  not offered. The docs now say so, and why.
+- A VARIANT column published to Iceberg v2 failed with the catalog's bare HTTP 500; the
+  dialog now says the column needs v3.
+- A VARIANT, nested or JSON column was offered as an upsert key and as a cluster key; it
+  is now refused in the dialogs and on the server.
+- Removing a mounted schema warned that every table in it would be dropped. Only the
+  mount's views go; the source's tables and files are untouched, and the dialog now says so.
+- `docs/LAKEHOUSE.md` said the ETL sandbox attaches the lakehouse catalog itself; the app
+  reads and loads for it, and the sandbox holds no lakehouse credential.
 - A bucket with more objects than a crawl lists lost its catalog entries past the cap,
   curation included, because a crawl removes what it did not see. The cap is now 50,000,
   and a listing that reaches it removes nothing and says so.

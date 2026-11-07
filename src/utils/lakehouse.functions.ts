@@ -23,6 +23,24 @@ import {
   type SparkQueryView,
 } from "@/utils/lakehouse/sparkQuery.server";
 import { callerFailure } from "@/utils/callerLookup.server";
+import {
+  MAX_PARTITION_KEYS,
+  PARTITION_TRANSFORMS,
+  describePartitionKeys,
+  fromDuckLakeTransform,
+  partitionEstimateSql,
+  partitionKeyError,
+  partitionKeySql,
+  type PartitionEstimate,
+  type PartitionKey,
+} from "@/utils/lakehouse/partitioning";
+import {
+  changeCountsSql,
+  changeFeedSql,
+  snapshotKinds,
+  tableIdentitySql,
+  tableSnapshotsSql,
+} from "@/utils/lakehouse/tableHistory";
 
 async function resolveCaller(accessToken: string): Promise<string> {
   const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
@@ -150,11 +168,31 @@ export const getLakehouseOverview = createServerFn({ method: "POST" })
 export type LakehouseTableDetail = {
   columns: { name: string; type: string; nullable: boolean }[];
   row_count: number | null;
-  snapshots: { id: number; time: string | null; changes: string }[];
-  /** Partition key columns, in key order. Empty = unpartitioned. */
+  /**
+   * The snapshots that changed THIS table, newest first, with what each did
+   * (R457; this listed the whole lakehouse's latest twelve before). Empty for
+   * a mount, whose history is its source's.
+   */
+  snapshots: {
+    id: number;
+    time: string | null;
+    changes: string;
+    kinds: string[];
+    author: string | null;
+    message: string | null;
+  }[];
+  /** The first snapshot the change feed can be asked about under this name. */
+  history_since: number | null;
+  /** Set when the schema is a mount: what reads it, and that it is read-only. */
+  mount: "iceberg" | "lake" | null;
+  /** Partition keys as people read them (`region`, `day(ts)`), in key order. Empty = unpartitioned. */
   partitioned_by: string[];
+  /** The same keys, structured, for the dialog that edits them. */
+  partition_keys: PartitionKey[];
   /** Cluster key columns from the table's layout row. Empty = never clustered. */
   clustered_by: string[];
+  /** The sort order DuckLake has recorded (R457): `k`, `k DESC`. Empty = none. */
+  sorted_by: string[];
   /** The Sheets table sheet that holds its rows, when one does: read-only here. */
   sheet_owner: { workbook_id: string; workbook: string; sheet: string } | null;
 };
@@ -164,15 +202,15 @@ export type LakehouseTableDetail = {
  * metadata rather than from anything we recorded. A user can partition from
  * the SQL editor too, so app-side bookkeeping would drift; this cannot.
  */
-async function readPartitionColumns(
+async function readPartitionKeys(
   c: Awaited<ReturnType<typeof lakehouseConnection>>,
   schema: string,
   table: string,
-): Promise<string[]> {
+): Promise<(PartitionKey & { unknown?: string })[]> {
   try {
     const rows = await (
       await c.run(
-        `SELECT col.column_name
+        `SELECT col.column_name, pc.transform
          FROM __ducklake_metadata_lake.ducklake_partition_info pi
          JOIN __ducklake_metadata_lake.ducklake_partition_column pc
            ON pc.partition_id = pi.partition_id AND pc.table_id = pi.table_id
@@ -188,7 +226,9 @@ async function readPartitionColumns(
          ORDER BY pc.partition_key_index`,
       )
     ).getRows();
-    return rows.map((r) => String(r[0]));
+    return rows.map((r) =>
+      fromDuckLakeTransform(String(r[0]), r[1] === null ? null : String(r[1])),
+    );
   } catch {
     // Metadata layout is DuckLake-internal; a change there costs the badge,
     // never the page.
@@ -209,7 +249,13 @@ export const getLakehouseTable = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<LakehouseTableDetail> => {
     const userId = await resolveCaller(data.access_token);
     const allowed = await accessibleSchemas(userId);
-    if (!allowed.some((s) => s.name === data.schema)) throw new Error("No access to this schema");
+    const schemaRow = allowed.find((s) => s.name === data.schema);
+    if (!schemaRow) throw new Error("No access to this schema");
+    const mount: LakehouseTableDetail["mount"] = schemaRow.iceberg_catalog_id
+      ? "iceberg"
+      : schemaRow.lake_source_id
+        ? "lake"
+        : null;
     const c = await lakehouseConnection();
     try {
       const cols = await (
@@ -230,22 +276,32 @@ export const getLakehouseTable = createServerFn({ method: "POST" })
       } catch {
         /* count stays null */
       }
+      // This table's own snapshots (R457). A mount is views, and has none.
       let snapshots: LakehouseTableDetail["snapshots"] = [];
-      try {
-        const sn = await (
-          await c.run(
-            `SELECT snapshot_id::BIGINT, snapshot_time::VARCHAR, changes::VARCHAR
-             FROM lake.snapshots() ORDER BY snapshot_id DESC LIMIT 12`,
-          )
-        ).getRows();
-        snapshots = sn.map((r) => ({
-          id: Number(r[0]),
-          time: r[1] === null ? null : String(r[1]),
-          changes: String(r[2]).slice(0, 300),
-        }));
-      } catch {
-        /* snapshots stay empty */
+      let historySince: number | null = null;
+      if (!mount) {
+        try {
+          const identity = await (await c.run(tableIdentitySql(data.schema, data.table))).getRows();
+          if (identity.length) {
+            const tableId = String(identity[0][0]);
+            const names = [...new Set(identity.map((r) => String(r[1])))];
+            const current = identity.find((r) => r[3] === true) ?? identity[identity.length - 1];
+            historySince = current[2] === null ? null : Number(current[2]);
+            const sn = await (await c.run(tableSnapshotsSql(tableId, names, 20))).getRows();
+            snapshots = sn.map((r) => ({
+              id: Number(r[0]),
+              time: r[1] === null ? null : String(r[1]),
+              changes: String(r[2] ?? "").slice(0, 300),
+              kinds: snapshotKinds(String(r[2] ?? "{}"), tableId, names),
+              author: r[3] === null ? null : String(r[3]),
+              message: r[4] === null ? null : String(r[4]),
+            }));
+          }
+        } catch {
+          /* snapshots stay empty: the metadata layout is DuckLake's own */
+        }
       }
+      const partitionKeys = mount ? [] : await readPartitionKeys(c, data.schema, data.table);
       return {
         columns: cols.map((r) => ({
           name: String(r[0]),
@@ -254,10 +310,18 @@ export const getLakehouseTable = createServerFn({ method: "POST" })
         })),
         row_count: rowCount,
         snapshots,
-        partitioned_by: await readPartitionColumns(c, data.schema, data.table),
+        history_since: historySince,
+        mount,
+        partitioned_by: describePartitionKeys(partitionKeys),
+        partition_keys: partitionKeys.filter((k) => !k.unknown),
         clustered_by: await import("@/utils/lakehouse/layout.server").then((m) =>
           m.clusteredBy(data.schema, data.table),
         ),
+        sorted_by: mount
+          ? []
+          : await import("@/utils/lakehouse/layout.server").then((m) =>
+              m.sortedBy(c, data.schema, data.table),
+            ),
         sheet_owner: await import("@/utils/sheets/owned.server").then(async (m) => {
           const o = (await m.sheetOwners([{ schema: data.schema, table: data.table }])).get(
             `${data.schema.toLowerCase()}.${data.table.toLowerCase()}`,
@@ -816,9 +880,13 @@ export const mountLakeSource = createServerFn({ method: "POST" })
 // ── Performance surfaces ────────────────────────────────────────────────────
 
 /**
- * Set (or clear) a table's partition columns. Partitioning is the biggest
+ * Set (or clear) a table's partition keys. Partitioning is the biggest
  * scan-reduction lever we have: DuckLake writes one file set per partition
  * value, and a query filtering on that column opens only the matching files.
+ * A key may go through a transform (R457): day(ts) writes a file set per day
+ * where ts itself would write one per instant, bucket(16, id) spreads a
+ * high-cardinality id over sixteen. `columns` is the older form, each one a
+ * key on the column's value.
  */
 export const setLakehousePartitioning = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
@@ -827,40 +895,220 @@ export const setLakehousePartitioning = createServerFn({ method: "POST" })
         access_token: z.string().min(1),
         schema: z.string().regex(SCHEMA_NAME),
         table: z.string().regex(TABLE_NAME),
-        columns: z.array(z.string().regex(TABLE_NAME)).max(4),
+        columns: z.array(z.string().regex(TABLE_NAME)).max(MAX_PARTITION_KEYS).optional(),
+        keys: z
+          .array(
+            z.object({
+              column: z.string().regex(TABLE_NAME),
+              transform: z.enum(PARTITION_TRANSFORMS),
+              buckets: z.number().int().optional(),
+            }),
+          )
+          .max(MAX_PARTITION_KEYS)
+          .optional(),
       })
       .parse(input),
   )
-  .handler(async ({ data }): Promise<{ partitioned_by: string[] }> => {
+  .handler(
+    async ({ data }): Promise<{ partitioned_by: string[]; partition_keys: PartitionKey[] }> => {
+      const userId = await resolveCaller(data.access_token);
+      const allowed = await accessibleSchemas(userId);
+      const schemaRow = allowed.find((sch) => sch.name === data.schema);
+      if (!schemaRow) throw new Error("No access to this schema");
+      if (schemaRow.lake_source_id || schemaRow.iceberg_catalog_id) {
+        throw new Error("Data-lake mounts are read-only — partitioning belongs to the source");
+      }
+      const keys: PartitionKey[] =
+        data.keys ?? (data.columns ?? []).map((column) => ({ column, transform: "identity" }));
+      const c = await lakehouseConnection();
+      try {
+        const target = `${qi(data.schema)}.${qi(data.table)}`;
+        if (keys.length) {
+          const types = new Map(
+            (
+              await (
+                await c.run(
+                  `SELECT column_name, data_type FROM information_schema.columns
+                   WHERE table_catalog = 'lake' AND table_schema = '${data.schema}' AND table_name = '${data.table}'`,
+                )
+              ).getRows()
+            ).map((r) => [String(r[0]), String(r[1])]),
+          );
+          // The engine accepts year() of a VARCHAR and means nothing by it
+          // (measured), so every key is checked against its column's type here.
+          for (const key of keys) {
+            const bad = partitionKeyError(key, types.get(key.column));
+            if (bad) throw new Error(bad);
+          }
+          await c.run(
+            `ALTER TABLE ${target} SET PARTITIONED BY (${keys.map(partitionKeySql).join(", ")})`,
+          );
+        } else {
+          await c.run(`ALTER TABLE ${target} RESET PARTITIONED BY`);
+        }
+        const now = await readPartitionKeys(c, data.schema, data.table);
+        auditEvent({
+          userId,
+          action: "lakehouse.partitioning",
+          resourceType: "lakehouse_schema",
+          resourceId: schemaRow.id,
+          resourceName: `${data.schema}.${data.table}`,
+          detail: { partitioned_by: describePartitionKeys(now) },
+        });
+        return {
+          partitioned_by: describePartitionKeys(now),
+          partition_keys: now.filter((k) => !k.unknown),
+        };
+      } finally {
+        c.closeSync();
+      }
+    },
+  );
+
+/**
+ * How many partitions a spec would cut the table into today, and how big each
+ * would be, so the dialog can say so before the spec is set (R457: a spec
+ * that made ~330 partitions of a 498-row table turned a re-insert into
+ * minutes of uploads). Counts are whole-table, so a reader under someone
+ * else's policy gets no numbers, and a mount gets none either.
+ */
+export const estimateLakehousePartitioning = createServerFn({ method: "POST" })
+  .validator((input: unknown) =>
+    z
+      .object({
+        access_token: z.string().min(1),
+        schema: z.string().regex(SCHEMA_NAME),
+        table: z.string().regex(TABLE_NAME),
+        keys: z
+          .array(
+            z.object({
+              column: z.string().regex(TABLE_NAME),
+              transform: z.enum(PARTITION_TRANSFORMS),
+              buckets: z.number().int().optional(),
+            }),
+          )
+          .min(1)
+          .max(MAX_PARTITION_KEYS),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }): Promise<PartitionEstimate | null> => {
     const userId = await resolveCaller(data.access_token);
     const allowed = await accessibleSchemas(userId);
     const schemaRow = allowed.find((sch) => sch.name === data.schema);
-    if (!schemaRow) throw new Error("No access to this schema");
-    if (schemaRow.lake_source_id || schemaRow.iceberg_catalog_id) {
-      throw new Error("Data-lake mounts are read-only — partitioning belongs to the source");
+    if (!schemaRow || schemaRow.lake_source_id || schemaRow.iceberg_catalog_id) return null;
+    const { policedReadRefusal } = await import("@/utils/lakehouse/publishGuard.server");
+    if (await policedReadRefusal(userId, data.schema, data.table, "a partition estimate")) {
+      return null;
     }
     const c = await lakehouseConnection();
     try {
-      const target = `${qi(data.schema)}.${qi(data.table)}`;
-      if (data.columns.length) {
-        const cols = data.columns.map((col) => qi(col)).join(", ");
-        await c.run(`ALTER TABLE ${target} SET PARTITIONED BY (${cols})`);
-      } else {
-        await c.run(`ALTER TABLE ${target} RESET PARTITIONED BY`);
-      }
-      auditEvent({
-        userId,
-        action: "lakehouse.partitioning",
-        resourceType: "lakehouse_schema",
-        resourceId: schemaRow.id,
-        resourceName: `${data.schema}.${data.table}`,
-        detail: { partitioned_by: data.columns },
-      });
-      return { partitioned_by: await readPartitionColumns(c, data.schema, data.table) };
+      const types = new Map(
+        (
+          await (
+            await c.run(
+              `SELECT column_name, data_type FROM information_schema.columns
+               WHERE table_catalog = 'lake' AND table_schema = '${data.schema}' AND table_name = '${data.table}'`,
+            )
+          ).getRows()
+        ).map((r) => [String(r[0]), String(r[1])]),
+      );
+      if (data.keys.some((k) => partitionKeyError(k, types.get(k.column)))) return null;
+      const [counts] = await (
+        await c.run(partitionEstimateSql(data.schema, data.table, data.keys))
+      ).getRows();
+      const [size] = await (
+        await c.run(
+          `SELECT coalesce(sum(ti.file_size_bytes), 0)::BIGINT
+           FROM ducklake_table_info('lake') ti
+           JOIN __ducklake_metadata_lake.ducklake_schema sc
+             ON sc.schema_id = ti.schema_id AND sc.end_snapshot IS NULL
+           WHERE sc.schema_name = '${data.schema}' AND ti.table_name = '${data.table}'`,
+        )
+      ).getRows();
+      return {
+        rows: Number(counts?.[0] ?? 0),
+        partitions: Number(counts?.[1] ?? 0),
+        bytes: Number(size?.[0] ?? 0),
+      };
     } finally {
       c.closeSync();
     }
   });
+
+/**
+ * The rows one snapshot changed in a table, and how many of each kind (R457):
+ * DuckLake's change feed, which the statement guard refuses as a table
+ * function. A change feed returns rows as they were, the before-image of an
+ * update included, so a table under someone else's policy is refused rather
+ * than shown unfiltered; its owner reads it whole.
+ */
+export const getLakehouseTableChanges = createServerFn({ method: "POST" })
+  .validator((input: unknown) =>
+    z
+      .object({
+        access_token: z.string().min(1),
+        schema: z.string().regex(SCHEMA_NAME),
+        table: z.string().regex(TABLE_NAME),
+        snapshot: z.number().int().min(0),
+        row_cap: z.number().int().min(1).max(10_000).default(200),
+      })
+      .parse(input),
+  )
+  .handler(
+    async ({ data }): Promise<{ result: LakehouseResult; counts: Record<string, number> }> => {
+      const userId = await resolveCaller(data.access_token);
+      const allowed = await accessibleSchemas(userId);
+      const schemaRow = allowed.find((sch) => sch.name === data.schema);
+      if (!schemaRow) throw new Error("No access to this schema");
+      if (schemaRow.lake_source_id || schemaRow.iceberg_catalog_id) {
+        throw new Error("A mount has no change feed: its rows are its source's.");
+      }
+      const { policedReadRefusal } = await import("@/utils/lakehouse/publishGuard.server");
+      const refusal = await policedReadRefusal(userId, data.schema, data.table, "a change feed");
+      if (refusal) throw new Error(refusal);
+      const { runServerRead } = await import("@/utils/lakehouse/core.server");
+      const c = await lakehouseConnection();
+      try {
+        const identity = await (await c.run(tableIdentitySql(data.schema, data.table))).getRows();
+        const current = identity.find((r) => r[3] === true);
+        if (!current) throw new Error("Table not found");
+        const since = current[2] === null ? 0 : Number(current[2]);
+        if (data.snapshot < since) {
+          throw new Error(
+            `Snapshot ${data.snapshot} is from before ${data.schema}.${data.table} had this name (snapshot ${since}); the change feed starts there.`,
+          );
+        }
+        const counts: Record<string, number> = {};
+        for (const r of await (
+          await c.run(changeCountsSql(data.schema, data.table, data.snapshot))
+        ).getRows()) {
+          counts[String(r[0])] = Number(r[1]);
+        }
+        const result = await runServerRead(
+          c,
+          changeFeedSql({
+            schema: data.schema,
+            table: data.table,
+            snapshot: data.snapshot,
+            rowCap: data.row_cap,
+          }),
+          { rowCap: data.row_cap },
+        );
+        auditEvent({
+          userId,
+          action: "lakehouse.changes",
+          resourceType: "lakehouse_schema",
+          resourceId: schemaRow.id,
+          resourceName: `${data.schema}.${data.table}`,
+          detail: { snapshot: data.snapshot, counts },
+        });
+        return { result, counts };
+      } finally {
+        c.closeSync();
+      }
+    },
+  );
 
 // ── Layout: clustering and the advisor ──────────────────────────────────────
 
@@ -975,6 +1223,17 @@ export const clearLakehouseLayout = createServerFn({ method: "POST" })
       .delete()
       .eq("schema_name", data.schema)
       .eq("table_name", data.table);
+    // A clustered rewrite also recorded the keys as DuckLake's own sort
+    // order (R457); clearing the layout clears that too. A mount has none.
+    if (!schemaRow.lake_source_id && !schemaRow.iceberg_catalog_id) {
+      const c = await lakehouseConnection();
+      try {
+        const { resetSortOrder } = await import("@/utils/lakehouse/layout.server");
+        await resetSortOrder(c, data.schema, data.table);
+      } finally {
+        c.closeSync();
+      }
+    }
     auditEvent({
       userId,
       action: "lakehouse.layout.clear",

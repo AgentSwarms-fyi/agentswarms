@@ -208,15 +208,27 @@ datasets become views; anything else is skipped and counted in the result.
 
 Five levers, in the order they usually matter.
 
-**Partitioning.** `Partition` on a table's toolbar picks up to four columns;
+**Partitioning.** `Partition` on a table's toolbar picks up to four keys;
 DuckLake then writes one file set per partition value, and a query filtering
-on those columns opens only the matching files. Pick columns with few distinct
-values — a date, a region, a tenant. Never a high-cardinality id: that writes
-a file per row and makes everything slower. Partitioning applies to files
-written from then on, so run maintenance (or rewrite the table) to re-lay what
-already exists. The setting is read back from DuckLake's own catalog rather
-than from anything the app recorded, so a partition applied from the SQL
-editor shows up in the UI too.
+on those columns opens only the matching files. A key is a column's value, or
+the column through a transform (R457): `day`, `month`, `year` or `hour` of a
+date or timestamp, or a `bucket(N)` hash of anything. Partition a timestamp by
+its day, never by its value, and a high-cardinality id by a bucket: a key
+with a value per row writes a file per row and makes everything slower. These
+are the transforms DuckLake accepts on DuckDB 1.5.5, measured; it refuses
+`truncate`, and it accepts `year()` of a text column and means nothing by it,
+so the server checks every key against its column's type. A VARIANT, a nested
+value or a blob cannot be a key. While keys are picked, the dialog counts how
+many partitions today's rows would fall in and how big each would be, and
+warns when a spec cuts the table into many small ones: DuckLake writes a file
+per partition an insert touches, so on object storage such a spec makes every
+insert slow. Measured in R457: `day(ts), bucket(16, id)` on a 498-row table
+made 263 partitions, and re-inserting the rows took 150 s against the
+development object store (under 4 s on local disk), leaving 2.4 KB files.
+Partitioning applies to files written from then on, so run maintenance (or
+rewrite the table) to re-lay what already exists. The setting is read back from DuckLake's own catalog rather than from
+anything the app recorded, transforms included, so a partition applied from
+the SQL editor shows up in the UI too.
 
 **Clustering.** Partitioning decides which file a new row goes to; clustering
 decides the order of what is already there. **Layout** on a table's toolbar
@@ -231,15 +243,26 @@ and inserted back — one transaction, rolled back whole on any failure, with th
 old files dropped at commit and time travel to the previous snapshot intact. A
 filter on the key then opens only the files whose range matches; the toast
 says how many it opened before and after. Up to four keys; the first one
-ranges the files, the rest order rows inside them. The target file size is per
+ranges the files, the rest order rows inside them. A VARIANT, a nested value
+or a geometry has no order to cluster on and is not offered. On a partitioned
+table a rewrite still writes at least one file per partition. The target file size is per
 table (default `LAKEHOUSE_CLUSTER_FILE_BYTES`, else 128 MiB, never capped) —
 small on purpose for a demo table, so the effect shows on a few files.
 **Keep clustered** hands the table to the hourly maintenance pass, which
 rewrites it again whenever files were written since the last rewrite and
 leaves it out of file merging (merging concatenates neighbours and would fold
-the ranges back together). DuckLake keeps no sort order of its own, so the keys
-live in `lakehouse_table_layouts`; a table clustered from elsewhere would not
-be known here. Verified live on the compose lakehouse: four files each spanning
+the ranges back together). The keys live in `lakehouse_table_layouts`; a table
+clustered from elsewhere would not be known here.
+
+Since R457 a clustered rewrite also records its keys as DuckLake's own sort
+order (`ALTER TABLE … SET SORTED BY`, DuckLake 1.0), which DuckLake applies
+when it flushes inlined rows to files and when it compacts: the small inserts
+that land after a rewrite are written in key order at the next hourly flush,
+not in arrival order. Measured on DuckDB 1.5.5: 400 rows inserted in reverse
+key order were flushed to one file that reads back in key order. Clearing the
+layout resets it. The table tab shows DuckLake's sort when it differs from the
+cluster keys, so a sort set from the SQL editor shows up too. The rewrite is
+still what ranges the files; the sort only orders what is written after it. Verified live on the compose lakehouse: four files each spanning
 the whole key range became five ranged ones and a point lookup went from
 opening all four to one; after one more unsorted load the advisor asked for a
 rewrite, and the top-of-the-hour maintenance pass rewrote the table on its own
@@ -289,6 +312,29 @@ memory limit and _no_ temp directory is to fail the query rather than spill, so
 a large GROUP BY would error instead of running slower. Set the memory limit to
 roughly half a container's RAM, since several requests can hold an engine at
 once.
+
+## A table's history and what changed
+
+The table tab lists **the snapshots that changed this table**, newest first,
+with what each did (created, inserted, deleted, altered), and a click queries
+the table as of one. **rows** beside a snapshot that inserted or deleted shows
+the rows it changed, from DuckLake's change feed (`ducklake_table_changes`):
+what was inserted, what was deleted, and both sides of an update. The feed
+starts at the snapshot that gave the table its current name, because DuckLake
+looks a table up by name at both ends of the range.
+
+FOUND IN R457: this panel listed the last twelve snapshots of the whole
+lakehouse, whatever table they touched. On a lakehouse where anything else is
+written, those were mostly other tables' commits, and the table's own history
+was further back than the list reached. It now follows the table: by its id,
+which survives a rename, and by every `schema.table` name it has had, which is
+how DuckLake records the snapshot that created or renamed it.
+
+The feed is a read the statement guard cannot express (a table function), so
+the server writes it. It returns rows as they were, the before-image of an
+update included, and a security policy cannot filter that: a table under
+someone else's policy shows its readers no change feed, and its owner sees it
+whole. Each read is audited as `lakehouse.changes`.
 
 ## Materialized views
 
@@ -627,8 +673,30 @@ without a copy.
 catalog: its endpoint, the warehouse it serves, and how to authenticate -
 none, a bearer token, or OAuth2 client credentials - given as **secret
 names** (Settings → Secrets); the values never enter the row. Lakekeeper,
-Apache Polaris, Nessie, AWS Glue's REST endpoint, Unity Catalog and Snowflake
-Open Catalog all speak this protocol. The catalog is attached and asked for
+Apache Polaris, Nessie, Unity Catalog and Snowflake Open Catalog speak this
+protocol with those. AWS Glue's and S3 Tables' REST endpoints need AWS SigV4
+signing, which this form does not offer; this page said Glue worked until
+R457, and nothing here could have signed its requests. It was left out on
+purpose: the engine signs those requests with a DuckDB secret of type `s3`,
+the same kind it reads `s3://` files with, and this engine is shared by every
+user. A catalog's AWS keys held in an unscoped `s3` secret would be offered to
+other users' reads of S3 paths. Doing it safely needs the secret scoped to the
+catalog's own storage prefix and the table files read only with credentials
+the catalog vends, and it needs testing against AWS, which this round could
+not do. **Table files are read
+with** decides where the file credentials come from: the catalog vends them
+(the engine's default), or the lakehouse's own storage credentials read them
+when both live in one store, and the catalog is then told not to vend
+(`ACCESS_DELEGATION_MODE 'none'`). Until R457 that choice was stored and never
+reached the engine, which asked every catalog to vend. A namespace or a table
+with a hyphen in its name (`sales-prod`, `daily-metrics`) mounts and imports
+like any other; until R457 the name rule refused both, though the engine reads
+them. A nested namespace (`finance.eu`) is not listed by the engine on DuckDB
+1.5.5, and its `SUPPORT_NESTED_NAMESPACES` option asks the catalog for
+`/namespaces/financeeu/tables`, dropping the separator, and breaks the listing
+of every other namespace, so it is not turned on. DuckDB 2.0.0 lists and reads
+one with the same option (measured), so nested namespaces come with the engine
+upgrade (see [the assessment](./LAKEHOUSE_ASSESSMENT.md#duckdb-20-measured)). The catalog is attached and asked for
 its namespaces before it is saved, so a wrong endpoint or a missing secret is
 refused with the engine's own words. Registered catalogs attach when the
 engine boots; one that fails to attach is marked on its row and skipped,
@@ -661,10 +729,63 @@ namespace when tables appear or are renamed. A user statement can never name
 an attached catalog directly; the guard refuses every catalog but the
 lakehouse's own, so the only way to an Iceberg table is a mount you can see.
 
+**Read a mounted table.** A mounted table's tab shows what the table is, read
+from its own metadata (the catalog's LoadTable answer; only its `metadata`,
+never the catalog's config or the storage credentials the same answer can
+carry): the format version and the v3 features in use (deletion vectors, row
+lineage, VARIANT, nanosecond timestamps, geospatial types, column defaults),
+the partition spec and how often it changed, the sort order, how the schema
+evolved (matched by field id, so a rename is told apart from a drop and an
+add), its branches, tags and snapshots with the rows each one left, its live
+files by kind, and upkeep: delete files every scan applies, small files, a
+long history, and for a v2 table what v3 would bring. Each item carries the
+Spark procedure that deals with it, with the catalog named as registered here.
+The lakehouse reads Iceberg tables and does not rewrite them: their upkeep
+belongs to the engine that owns them. Measured against tables Spark 4.1 and
+Iceberg 1.12 wrote (R457): a v3 table with 48 deletion vectors read 10,125
+rows here, as it did in Spark.
+
+Two counts on that panel were wrong in the UI pass and are worth knowing
+about. A snapshot's `total-records` is the records in its data files, deleted
+rows included until the files are rewritten, so the panel shows records less
+position deletes (10,175 records, 10,125 rows); with equality deletes there
+is no such count and it says so. And the file manifests also list files a
+later snapshot removed (status `DELETED`): counted, 48 live deletion vectors
+read as 50.
+
+**Time travel on a mounted table.** Click a snapshot, a branch or a tag to see
+the table as it was there, with that snapshot's columns (a column renamed
+since shows under its old name). A mount's view cannot be time-travelled
+(`Catalog type does not support time travel`), and the engine's `AT (VERSION
+=> …)` takes only an id (`'q3-close'` fails to cast to INT64), so the server
+resolves a branch or a tag to its snapshot id from the table's refs and reads
+the Iceberg table itself. A reader of a table under someone else's security
+policy is refused, as for Spark and publishing: a policy cannot apply to the
+past. Audited as `lakehouse.iceberg.time_travel`.
+
 **Publish a table.** On a table tab, **Publish to Iceberg** writes a copy of
 the table into a catalog namespace as an Iceberg table: a `CREATE TABLE`
 with the source's own column list, then an `INSERT` of its rows, through the
-catalog, which commits the metadata and owns the files from then on. It is
+catalog, which commits the metadata and owns the files from then on. The
+dialog sets the **format version**, v2 (read by every engine, and the
+engine's default) or v3, and a **partition spec** of up to four keys: a
+column's value, `year`/`month`/`day`/`hour`, `bucket(N)` or `truncate(W)`.
+Measured: `PARTITIONED BY` must come before `WITH ('format-version' = …)`, and
+the reverse is a syntax error. A VARIANT, TIMESTAMP_NS or GEOMETRY column fits
+only v3, and in a v2 table the catalog answered a bare HTTP 500, so the dialog
+says which column needs v3 before anything is sent, and a caller that asks for
+no layout gets v3 for such a table. **Upsert into it by key** updates the rows
+whose keys match and adds the rest with one `MERGE`, in one transaction: one
+new metadata file at the catalog, so a reader goes from the old table to the
+new one. Measured: a merge that updates and inserts is recorded as two
+snapshots in that one file (an overwrite of the rows it rewrote, then an
+append); one in which every row matched, as one overwrite. On a v3 table the
+rewritten rows are marked with deletion vectors (measured: a 498-row upsert
+wrote 9 data files and 9 deletion vectors, no positional delete files). Keys compare with `IS NOT DISTINCT FROM`, so a null
+key updates its row rather than adding another each time, and a source in
+which a key appears twice is refused before anything is written. A VARIANT, a
+nested value, a JSON document or a geometry cannot be a key. The catalog's
+table must already have the source's columns. It is
 not a `CREATE TABLE AS`: the iceberg extension build a fresh image bakes
 writes a `CREATE TABLE AS`'s files to a relative `data/` directory whenever
 the ducklake extension is loaded, as it always is here, and every publish
@@ -703,13 +824,25 @@ schemas first and leaves the catalog's tables untouched.
 ## ETL pipelines
 
 Pipelines read and write the lakehouse with dedicated **Lakehouse table**
-source and target nodes. The sandbox attaches the same DuckLake catalog the
-app uses (credentials arrive as env, resolved server-side — never in code
-text), so a pipeline's writes are ordinary ACID commits that other readers see
-immediately. Targets support replace, append and merge (upsert as
+source and target nodes. The sandbox holds no lakehouse credential: the app
+reads each source for it, as the pipeline's owner and through the same policy
+rewrite as the SQL editor, and hands it the rows as one staged Parquet file;
+a target's rows are staged by the sandbox (on the Spark engine, by the
+cluster) and committed by the app, so a pipeline's writes are ordinary ACID
+commits that other readers see immediately. Targets support replace, append and merge (upsert as
 delete-then-insert in one transaction). Schema access is checked server-side as
 the **pipeline's owner** before the run starts, so naming a schema in a graph
 grants nothing.
+
+A mounted Iceberg table is a source like any other (R457, measured through
+the read path: a Spark-written v3 table with deletion vectors read as its
+10,125 live rows, and a table with hyphens and spaces in its column names
+kept them). A VARIANT column reaches Python as dicts, on the notebook image's
+DuckDB 1.5.6; written back to a lakehouse target it lands as a STRUCT, or as a
+MAP of strings when the payloads differ in shape, not as VARIANT. Keep a
+VARIANT column out of a pipeline's target, or cast it in a SQL transform to
+the shape the target should have. A DECIMAL reaches pandas as a float and a
+DATE as a timestamp, as for every pandas frame.
 
 The runtime image ships the ducklake, postgres and httpfs extensions under
 `/opt/agentswarms/duckdb-ext`, read-only, and the generated code loads them

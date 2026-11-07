@@ -340,8 +340,15 @@ describe("performance surfaces", () => {
     expect(fns).toContain("RESET PARTITIONED BY");
     expect(fns).toContain("schemaRow.lake_source_id");
     // A high-cardinality key would write one file per row; four is already
-    // generous for a Parquet layout.
-    expect(fns).toContain("z.array(z.string().regex(TABLE_NAME)).max(4)");
+    // generous for a Parquet layout. Since R457 the keys can carry transforms,
+    // and both forms of the input are capped by the one constant.
+    expect(read("src/utils/lakehouse/partitioning.ts")).toContain(
+      "export const MAX_PARTITION_KEYS = 4;",
+    );
+    expect(fns).toContain(
+      "z.array(z.string().regex(TABLE_NAME)).max(MAX_PARTITION_KEYS).optional()",
+    );
+    expect(fns).toMatch(/\.max\(MAX_PARTITION_KEYS\)\s*\.optional\(\),\s*\}\)/);
     expect(fns).toContain('action: "lakehouse.partitioning"');
   });
 

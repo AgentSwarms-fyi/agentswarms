@@ -107,13 +107,21 @@ function LakehouseDocsPage() {
 
       <H2 id="fast">Making queries fast</H2>
       <P>
-        <strong>Partition</strong> on a table&apos;s toolbar picks up to four columns; DuckLake then
+        <strong>Partition</strong> on a table&apos;s toolbar picks up to four keys; DuckLake then
         writes one file set per partition value, so a query filtering on those columns opens only
-        the matching files. Pick columns with few distinct values — a date, a region, a tenant —
-        never a high-cardinality id, which writes a file per row and makes everything slower. It
-        applies to files written from then on, so run maintenance or rewrite the table to re-lay
-        what already exists. The badge reads back from DuckLake&apos;s own catalog, so partitioning
-        applied from the SQL editor shows up here too.
+        the matching files. A key is a column&apos;s value or the column through a transform: the{" "}
+        <C>day</C>, <C>month</C>, <C>year</C> or <C>hour</C> of a date or timestamp, or a{" "}
+        <C>bucket(N)</C> hash of anything. Partition a timestamp by its day, never by its value, and
+        a high-cardinality id by a bucket: a key with a value per row writes a file per row and
+        makes everything slower. A VARIANT, a nested value or a blob cannot be a key. While you pick
+        keys the dialog counts the partitions today&apos;s rows would fall in and how big each would
+        be, and warns when a spec cuts the table into many small ones: DuckLake writes a file per
+        partition an insert touches, so on object storage such a spec makes every insert slow
+        (measured: <C>day(ts), bucket(16, id)</C> on a 498-row table made 263 partitions, and
+        re-inserting its rows took 150 s). It applies to files written from then on, so run
+        maintenance or rewrite the table to re-lay what already exists. The badge reads back from
+        DuckLake&apos;s own catalog, transforms included, so partitioning applied from the SQL
+        editor shows up here too.
       </P>
       <P>
         Partitioning decides which file a new row goes to; <strong>clustering</strong> decides the
@@ -129,7 +137,10 @@ function LakehouseDocsPage() {
         and after. The target file size is per table (default <C>LAKEHOUSE_CLUSTER_FILE_BYTES</C>,
         else 128 MiB, never capped). <strong>Keep clustered</strong> hands the table to the hourly
         maintenance pass, which rewrites it again when files were written since and leaves it out of
-        file merging, since merging would fold the ranges back together.
+        file merging, since merging would fold the ranges back together. A rewrite also records its
+        keys as DuckLake&apos;s own sort order (<C>SET SORTED BY</C>), so the small inserts that
+        land after it are written in key order when the hourly pass flushes them; clearing the
+        layout resets it. A sort set from the SQL editor shows as its own badge.
       </P>
       <P>
         A repeated SELECT is served from memory and marked <C>cached</C> in the toolbar and in
@@ -168,6 +179,17 @@ function LakehouseDocsPage() {
         large <C>GROUP BY</C> would error instead of just running slower. Set the memory limit to
         roughly half a container&apos;s RAM, and give each replica real scratch disk rather than a
         tmpfs.
+      </P>
+
+      <H2 id="history">A table&apos;s history and what changed</H2>
+      <P>
+        The table tab lists <strong>the snapshots that changed this table</strong>, newest first,
+        with what each did: created, inserted, deleted, altered. Click one to query the table as it
+        was then. <strong>rows</strong> beside a snapshot that inserted or deleted shows the rows it
+        changed, from DuckLake&apos;s change feed: what was inserted, what was deleted, and both
+        sides of an update. The feed starts at the snapshot that gave the table its current name. A
+        table under someone else&apos;s security policy shows no change feed to its readers: the
+        feed returns rows as they were, which the policy cannot filter. Its owner sees it whole.
       </P>
 
       <H2 id="matviews">Materialized views</H2>
@@ -415,10 +437,16 @@ function LakehouseDocsPage() {
           <strong>Register a catalog.</strong> Under Lakehouse → <strong>Iceberg</strong>, add an
           Iceberg REST catalog: its endpoint, the warehouse it serves, and how to authenticate
           (none, a bearer token, or OAuth2 client credentials) given as secret names from{" "}
-          <strong>Integrations → Secrets</strong>. Lakekeeper, Apache Polaris, Nessie, Glue, Unity
-          Catalog and Snowflake Open Catalog speak this protocol. The catalog is attached and asked
-          for its namespaces before it is saved; registered catalogs attach when the engine boots,
-          and one that fails is marked on its row and skipped, then tried again every five minutes.
+          <strong>Integrations → Secrets</strong>. Lakekeeper, Apache Polaris, Nessie, Unity Catalog
+          and Snowflake Open Catalog speak this protocol with those. AWS Glue&apos;s and S3
+          Tables&apos; REST endpoints need AWS SigV4 signing, which this form does not offer yet.{" "}
+          <em>Table files are read with</em> decides where the file credentials come from: the
+          catalog vends them, or the lakehouse&apos;s own storage credentials read them when both
+          live in one store, and the catalog is then not asked to vend. The catalog is attached and
+          asked for its namespaces before it is saved; registered catalogs attach when the engine
+          boots, and one that fails is marked on its row and skipped, then tried again every five
+          minutes. A namespace or table with a hyphen in its name mounts like any other; a nested
+          namespace (<C>finance.eu</C>) is not listed by the engine on this DuckDB version.
         </li>
         <li>
           <strong>Over a private path.</strong> The engine calls the catalog itself, so a catalog on
@@ -440,24 +468,48 @@ function LakehouseDocsPage() {
           a mount you can see.
         </li>
         <li>
+          <strong>Read a mounted table.</strong> Its tab shows what the table is, from its own
+          metadata: the format version and the v3 features in use (deletion vectors, row lineage,
+          VARIANT, nanosecond timestamps, column defaults), the partition spec and whether it
+          changed, the sort order, how the schema evolved (renames are told apart from a drop and an
+          add), its branches, tags and snapshots with the rows each one left, and upkeep: delete
+          files read on every scan, small files, a long history, each with the Spark procedure that
+          deals with it. The lakehouse reads Iceberg tables; their upkeep belongs to the engine that
+          owns them.
+        </li>
+        <li>
+          <strong>Time travel on a mounted table.</strong> Click a snapshot, a branch or a tag to
+          see the table as it was there, with that snapshot&apos;s columns. Only the owner of a
+          table under a security policy can, since the policy cannot apply to the past.
+        </li>
+        <li>
           <strong>Publish a table.</strong> On a table tab, <em>Publish to Iceberg</em> writes a
           copy into a catalog namespace as an Iceberg table: the table from the source&apos;s own
-          columns, then its rows. A publish whose rows do not go in removes the empty table it made.
-          Replace never leaves the name empty: over a table with the same columns it swaps the rows
-          in one commit, so readers see the old rows or the new ones; otherwise it stages the new
-          table and renames it into place (a reader can miss the table for the moment between the
-          two renames, never find it empty), and a swap that fails puts the old table back. Refuse
-          keeps an existing one. Only the owner can publish a table that has a security policy: a
-          reader sees it through the owner&apos;s filter and masks, which an Iceberg copy cannot
-          carry. Import is the reverse: an Iceberg table copied into a schema you created, as a real
-          lakehouse table.
+          columns, then its rows, as format v2 (read by every engine) or v3, partitioned by up to
+          four keys (<C>day(ts)</C>, <C>bucket(16, id)</C>, <C>truncate(2, code)</C> and the rest).
+          A table with a VARIANT or nanosecond column is v3 only, and the dialog says so before
+          anything is sent. <em>Upsert into it by key</em> updates the rows whose keys match and
+          adds the rest, in one catalog commit (one snapshot when every row matched, two when it
+          also added rows; on v3 the rewritten rows are marked with deletion vectors); a key that
+          appears twice in the source is refused, since the merge could not tell which row to keep,
+          and a VARIANT, nested or JSON column cannot be a key. A publish whose rows do not go in
+          removes the empty table it made. Replace never leaves the name empty: over a table with
+          the same columns it swaps the rows in one commit, so readers see the old rows or the new
+          ones; otherwise it stages the new table and renames it into place (a reader can miss the
+          table for the moment between the two renames, never find it empty), and a swap that fails
+          puts the old table back. Refuse keeps an existing one. Only the owner can publish a table
+          that has a security policy: a reader sees it through the owner&apos;s filter and masks,
+          which an Iceberg copy cannot carry. Import is the reverse: an Iceberg table copied into a
+          schema you created, as a real lakehouse table.
         </li>
         <li>
           <strong>Audited:</strong> catalog definitions through the <C>iceberg_catalog</C> row
           trigger; <C>lakehouse.iceberg.mount</C>, <C>lakehouse.iceberg.refresh</C>,{" "}
-          <C>lakehouse.iceberg.publish</C> and <C>lakehouse.iceberg.import</C> with the catalog,
-          namespace, table and row counts; <C>lakehouse.iceberg.network_rule</C> and{" "}
-          <C>lakehouse.iceberg.private_path.refused</C> for the private-path rule.
+          <C>lakehouse.iceberg.publish</C> (with the format version, partition spec or upsert keys),{" "}
+          <C>lakehouse.iceberg.import</C> and <C>lakehouse.iceberg.time_travel</C> with the catalog,
+          namespace, table and row counts; <C>lakehouse.changes</C> for a change feed read;{" "}
+          <C>lakehouse.iceberg.network_rule</C> and <C>lakehouse.iceberg.private_path.refused</C>{" "}
+          for the private-path rule.
         </li>
       </UL>
 

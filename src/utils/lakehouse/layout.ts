@@ -180,6 +180,39 @@ export function rewriteStatements(args: {
   return out;
 }
 
+/**
+ * DuckLake's own sort order for a table (R457): DuckLake 1.0 records it and
+ * applies it when it flushes inlined rows to files and when it compacts.
+ * Measured on DuckDB 1.5.5: 400 rows inserted in reverse key order were
+ * flushed to one file that reads back in key order. The clustered rewrite
+ * ranges files; this keeps the small writes that land after it in order too.
+ */
+export function sortedBySql(schema: string, table: string, keys: string[]): string {
+  return `ALTER TABLE ${qi(schema)}.${qi(table)} SET SORTED BY (${keys.map(qi).join(", ")})`;
+}
+
+export function resetSortedSql(schema: string, table: string): string {
+  return `ALTER TABLE ${qi(schema)}.${qi(table)} RESET SORTED BY`;
+}
+
+/** The sort DuckLake has recorded for a table, as `k` or `k DESC`, in key order. */
+export function sortKeysSql(schema: string, table: string): string {
+  const lit = (s: string) => `'${s.replace(/'/g, "''")}'`;
+  return (
+    `SELECT e.expression, e.sort_direction FROM __ducklake_metadata_lake.ducklake_sort_info si ` +
+    `JOIN __ducklake_metadata_lake.ducklake_sort_expression e ON e.sort_id = si.sort_id ` +
+    `JOIN __ducklake_metadata_lake.ducklake_table t ON t.table_id = si.table_id AND t.end_snapshot IS NULL ` +
+    `JOIN __ducklake_metadata_lake.ducklake_schema sc ON sc.schema_id = t.schema_id AND sc.end_snapshot IS NULL ` +
+    `WHERE si.end_snapshot IS NULL AND sc.schema_name = ${lit(schema)} AND t.table_name = ${lit(table)} ` +
+    `ORDER BY e.sort_key_index`
+  );
+}
+
+/** A sort key as people read it: the expression, with DESC when it descends. */
+export function describeSortKey(expression: string, direction: string | null): string {
+  return /^desc/i.test(direction ?? "") ? `${expression} DESC` : expression;
+}
+
 /** The quantiles that split the first key into `buckets` ranges of similar row count. */
 export function cutsStatement(schema: string, table: string, key: string, buckets: number): string {
   const fractions = Array.from({ length: Math.max(0, buckets - 1) }, (_, i) =>

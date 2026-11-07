@@ -15,6 +15,50 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-07 — R457: Iceberg mounts, a table's history, and the consumers
+
+Driven on a dev server from the worktree (`:8102`), signed in as the owner, against the
+development lakehouse. Fixtures: an Apache Iceberg REST catalog on the development object
+store, seeded by Spark 4.1.1 with Iceberg 1.12.0 (`sales.orders_v3`: format 3, deletion
+vectors, `days(ts)` and `bucket(4, id)` with a field added later, a renamed and an added
+column, branch `audit`, tag `q3-close`; `sales.orders_v2`; `` `sales-prod`.`daily-metrics` ``;
+a nested namespace; every nested type), mounted as `zz_r457_sales`, `zz_r457_prod` and
+`zz_r457_pub`, and a lakehouse table `zz_r457.events` with a VARIANT column.
+
+| Page / surface             | What was driven                                                                                                         | Result                                                                                                                                                                                                                     |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Table tab, Iceberg mount   | `orders_v3`                                                                                                             | Format v3, deletion vectors, row lineage, VARIANT; spec `day(ts), bucket[4](id)` and its history; sort order; schema history by field id; 10,125 rows on main; 48 live deletion vectors; upkeep advice with the Spark call |
+| Time travel, Iceberg mount | a snapshot, `audit`, `q3-close`                                                                                         | 10,125, 10,126 and 9,975 rows, Spark's counts                                                                                                                                                                              |
+| Mount of hyphenated names  | `` `sales-prod`.`daily-metrics` ``                                                                                      | Mounts, lists, reads 100 rows; `Order Id`, `Net-Revenue`, `select` kept                                                                                                                                                    |
+| Table tab, lakehouse table | Snapshots of this table, then "rows" on one                                                                             | Only the table's own snapshots; the rows that snapshot changed                                                                                                                                                             |
+| Partition dialog           | `day(ts), bucket(16, id)`; a VARIANT column; then `month(ts)`                                                           | 263 partitions of 2.4 KB warned about in amber; VARIANT disabled with the reason; `month(ts)` shows 2 partitions, no warning. Dark theme read properly                                                                     |
+| Publish to Iceberg         | v2 with VARIANT; v3 partitioned; upsert by `id`                                                                         | v2 refused before sending; v3 written; upsert one commit, 9 deletion vectors, 498 live rows, inspector right. VARIANT disabled as an upsert key                                                                            |
+| Layout                     | rewrite clustered by `region`; Forget layout                                                                            | `region ASC` recorded as DuckLake's sort order at snapshot 753, then removed. VARIANT disabled as a cluster key. The rewrite took 145 s: see the partition row                                                             |
+| ETL                        | Lakehouse table source; the read path the sandbox is served by                                                          | Every mount listed. 100, 498 and 10,125 rows read as the owner. Staged files read by the notebook image's DuckDB 1.5.6: VARIANT arrives as dicts                                                                           |
+| BI                         | refresh of "Reconciled titles - lakehouse"; new project with a chart on `orders_v3`; a VARIANT column in a table widget | 31 tiles refreshed, no error; 3 regions, saved and refreshed on the server; VARIANT shows as `{'kind': 'spec2'}`                                                                                                           |
+| Ontology                   | Northwind Outfitters 2: Explore, a metric, Run all rules                                                                | 120 customers; Customers = 120; 25 pass, the sample's 4 failing, 0 errored                                                                                                                                                 |
+| Data monitors              | Monitor this table on `zz_r457.events`, Schema check, run now                                                           | "5 columns recorded as the baseline"                                                                                                                                                                                       |
+| Semantic layer             | Define metrics on `orders_v3`; Validate, Save, query by region                                                          | "All 2 checks pass"; 3 regions summing to 62,505,705.25                                                                                                                                                                    |
+| SQL Workbench, SQL Chat    | a join of a mount and a lakehouse table; a question in words                                                            | Right rows                                                                                                                                                                                                                 |
+
+**Found here, all fixed and re-driven:** a snapshot's rows counted from data files;
+removed files counted as live; a branch's head unlabelled; VARIANT offered as a
+partition key, an upsert key and a cluster key; a partition spec cutting a small table
+into hundreds of files without a word; removing a mount warning that its tables would
+be dropped.
+
+**Removed afterwards, through the UI:** the BI project, the data monitor, the semantic
+model, the test pipeline (pipelines back to 31), the schema `zz_r457`, the three mounts
+(now "Remove the mount", which says the catalog's tables stay), and the test catalog.
+The REST catalog container, its network and its bucket were then removed.
+
+**What this round does not show.** The ETL preview could not start a sandbox from this
+dev server (no route to the Docker socket proxy), so the sandbox's read was driven
+through the function that serves it and the staged files read in the notebook image.
+At 375px the lab pages show their "Best on a larger screen" notice and hide the object
+explorer, as before this round. `:8080` runs a prebuilt image and shows none of this
+until it is rebuilt.
+
 ## 2026-11-07 — R456: Hive Metastore, Glue and data lakes in the Data Catalog
 
 Driven on a dev server from the worktree (`:8102`), signed in as the owner, against
