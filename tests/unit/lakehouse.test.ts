@@ -642,7 +642,18 @@ describe("materialized views", () => {
     // an empty or partial table to anyone querying during the rebuild.
     expect(mv).toContain("CREATE OR REPLACE TABLE");
     expect(mv).not.toContain("DROP TABLE");
-    expect(mv).not.toContain("DELETE FROM");
+    // R458: a refresh may now append the new rows instead, and records what
+    // it read in the state table. Both happen between one BEGIN and one
+    // COMMIT, and the only rows ever deleted are the view's own state row.
+    const tx = mv.slice(
+      mv.indexOf('await c.run("BEGIN TRANSACTION")'),
+      mv.indexOf('await c.run("COMMIT")'),
+    );
+    expect(tx).toContain("INSERT INTO ${viewTable} BY NAME");
+    expect(tx).toContain("CREATE OR REPLACE TABLE ${viewTable} AS ${body}");
+    expect(mv.match(/DELETE FROM [^\n]*/g)).toEqual([
+      "DELETE FROM ${STATE} WHERE view_id = ${sq(view.id)}`);",
+    ]);
   });
 
   it("re-checks the definition at every refresh, not only when it was saved", () => {
@@ -657,7 +668,12 @@ describe("materialized views", () => {
     // revoked since the view was saved stops the refresh and a shared table is
     // never materialized whole.
     expect(mv).toContain(
-      "const { sql: governed } = await governSelect(c, view.user_id, view.sql, allowed)",
+      "const { sql: governed, policyTables } = await governSelect(c, view.user_id, view.sql, allowed)",
+    );
+    // R458: the rows an append adds are the view's own SELECT, governed again
+    // for its owner, never the body text with a floor pasted in.
+    expect(mv).toMatch(
+      /const fresh = await governSelect\(\s*c,\s*view\.user_id,\s*await appendSql\(/,
     );
   });
 
@@ -683,9 +699,14 @@ describe("materialized views", () => {
     // Stale data a user can see and diagnose beats an empty table.
     expect(mv).toContain('last_status: "error"');
     expect(mv).toContain("last_error: message.slice(0, 2000)");
-    // The failure path must not touch the table itself.
-    const failure = mv.slice(mv.indexOf("} catch (e) {"));
-    expect(failure).not.toContain("c.run(");
+    // The failure path must not touch the table itself. R458: inside the
+    // refresh's transaction a failure only rolls back; the handler that
+    // records the failure runs no statement at all.
+    const failure = mv.slice(mv.indexOf("const message = (e as Error).message;"));
+    expect(failure.slice(0, failure.indexOf("} finally {"))).not.toContain("c.run(");
+    const inner = mv.slice(mv.indexOf('await c.run("BEGIN TRANSACTION")'));
+    const handler = inner.slice(inner.indexOf("} catch (e) {"), inner.indexOf("throw e;"));
+    expect(handler.match(/c\.run\([^)]*\)/g)).toEqual(['c.run("ROLLBACK")']);
   });
 
   it("rides the shared scheduler sweep", () => {
@@ -718,7 +739,7 @@ describe("materialized views", () => {
     // The badge's words moved into lib/matviewBadge.ts in R185, which also
     // says when the last rebuild failed.
     expect(page).toContain("matviewBadge(matview)");
-    expect(read("src/lib/matviewBadge.ts")).toContain("rebuilt ${mv.schedule}");
+    expect(read("src/lib/matviewBadge.ts")).toContain("refreshed ${mv.schedule}");
   });
 });
 

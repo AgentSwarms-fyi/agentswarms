@@ -339,23 +339,51 @@ whole. Each read is audited as `lakehouse.changes`.
 ## Materialized views
 
 A query whose answer is worth keeping becomes a table. **Save as view** in the
-query editor stores the result and rebuilds it on a schedule — manual, hourly,
+query editor stores the result and refreshes it on a schedule — manual, hourly,
 daily or weekly — so dashboards read stored rows instead of recomputing.
 
 The result is an ordinary lakehouse table: queryable, joinable, partitionable,
 and governed by the same chokepoint as everything else. What the view record
-adds is the definition, the schedule, and how the last rebuild went.
+adds is the definition, the schedule, and how the last refresh went.
+
+**A refresh does only what the answer needs (R458).** Each refresh reads one
+snapshot of the lakehouse and decides, from what the last one recorded:
+
+| What changed since the last refresh                                   | What the refresh does                                                    |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Nothing the view reads                                                | Leaves the table as it is: no rows written, no snapshot                  |
+| Its one table only gained rows, and the view keeps or drops rows one by one | Appends the view's answer for the new rows only                    |
+| Anything else                                                         | Rebuilds it, as every refresh used to                                    |
+
+"Keeps or drops rows one by one" means one table, no aggregate, window,
+DISTINCT, LIMIT, join or subquery: a filter and a projection. The new rows are
+those whose `rowid` is at or above the floor the last refresh recorded, which
+holds because DuckLake assigns row ids in increasing order and keeps them
+through updates, flushes and compaction (measured on DuckDB 1.5.5). A view is
+rebuilt whenever it cannot be sure: its definition or a policy applied to it
+changed; it reads a mount, a view, a table function or a name without a
+schema; it calls something whose answer can change between runs (`now()`,
+`current_date`, `random()`; the engine's own `duckdb_functions().stability`
+decides); a policy applies to what it reads; rows were updated or deleted; or
+its own table was written by anything but a refresh. The maintenance pass's
+flushes and compactions leave rows as they were and do not count as changes.
+What each refresh read is recorded in the hidden `_agentswarms.matview_state`
+table in the same commit as the rows, so the record and the rows cannot
+disagree; a view's first refresh after this change rebuilds once to make it.
+**Refresh** on the table's tab says which of the three it did and why;
+**Rebuild** recomputes every row whatever changed.
 
 Three properties are worth knowing, because they decide how it behaves when
 something goes wrong:
 
-- **A rebuild is one commit.** It runs as `CREATE OR REPLACE TABLE … AS
-<query>`, so anyone querying during a rebuild sees the old rows or the new
-  ones, never a half-built table.
-- **A failed rebuild keeps the previous data.** Stale rows a user can see and
+- **A refresh is one commit.** A rebuild runs `CREATE OR REPLACE TABLE … AS
+<query>` and an append an `INSERT`, each in one transaction with the record
+  of what it read, so anyone querying during a refresh sees the old rows or
+  the new ones, never a half-built table.
+- **A failed refresh keeps the previous data.** Stale rows a user can see and
   diagnose beat an empty table. The failure is recorded on the view, and the
-  table's tab says so where people look: the badge reads **last rebuild
-  failed** in red, beside the reason's first line and the time of the rebuild
+  table's tab says so where people look: the badge reads **last refresh
+  failed** in red, beside the reason's first line and the time of the refresh
   the rows are from (the whole error on hover). Until R185 the badge went on
   reading "materialized" and the failure lived only in its hover title.
 - **The definition is re-checked every time, not just when saved.** A grant
@@ -674,7 +702,21 @@ catalog: its endpoint, the warehouse it serves, and how to authenticate -
 none, a bearer token, or OAuth2 client credentials - given as **secret
 names** (Settings → Secrets); the values never enter the row. Lakekeeper,
 Apache Polaris, Nessie, Unity Catalog and Snowflake Open Catalog speak this
-protocol with those. AWS Glue's and S3 Tables' REST endpoints need AWS SigV4
+protocol with those. OAuth2's server URI is optional: left empty, the token is
+asked for at the catalog's own `<endpoint>/v1/oauth/tokens`. Until R458 it was
+not optional in practice. The engine refused the secret without it ("no
+'oauth2_server_uri' was provided, and no 'endpoint' was provided to fall back
+on"), because the secret is made apart from the `ATTACH` that names the
+endpoint, so every OAuth2 catalog saved without a URI failed to attach. It
+was found by testing against **Apache Polaris 1.8.0** (R458), the first test
+of OAuth2 and vended credentials against a production catalog. With the fix,
+an engine holding no storage credential of its own signed in, published a v3
+partitioned table, read it, upserted into it and read an earlier snapshot, all
+through credentials Polaris vended, scoped to the table's own prefix. A wrong
+client secret is refused in Polaris's words ("OAuth2 token request failed
+(Unauthorized_401)"). Polaris on a MinIO-style store needs `"kmsUnavailable":
+true` in the catalog's storage config: without it, the store's STS refuses the
+session policy Polaris asks for, over a KMS key resource (measured). AWS Glue's and S3 Tables' REST endpoints need AWS SigV4
 signing, which this form does not offer; this page said Glue worked until
 R457, and nothing here could have signed its requests. It was left out on
 purpose: the engine signs those requests with a DuckDB secret of type `s3`,
@@ -837,11 +879,18 @@ grants nothing.
 A mounted Iceberg table is a source like any other (R457, measured through
 the read path: a Spark-written v3 table with deletion vectors read as its
 10,125 live rows, and a table with hyphens and spaces in its column names
-kept them). A VARIANT column reaches Python as dicts, on the notebook image's
-DuckDB 1.5.6; written back to a lakehouse target it lands as a STRUCT, or as a
-MAP of strings when the payloads differ in shape, not as VARIANT. Keep a
-VARIANT column out of a pipeline's target, or cast it in a SQL transform to
-the shape the target should have. A DECIMAL reaches pandas as a float and a
+kept them). A VARIANT column reaches Python as dicts and lists, and goes back
+as a VARIANT (R458): the sandbox remembers which columns it read as VARIANT,
+stages them as JSON text and names them, and the app casts each to the type
+its target column already has, or to VARIANT in a table the load creates or
+replaces. A NULL stays a NULL; each row keeps its own shape and scalar types
+(measured end to end with the notebook image's pandas and DuckDB 1.5.6:
+payloads of three shapes, a NULL and a row built in Python came back as
+`OBJECT(...)` with UINT64, BOOL and DOUBLE values, where a whole number comes
+back as UINT64 rather than the INTEGER it may have been). Before R458 such a
+column landed as a STRUCT, or as a MAP of strings when the payloads differed in
+shape. A column a pipeline renames, or builds from dicts itself, has no VARIANT
+to come from and is staged as before. A DECIMAL reaches pandas as a float and a
 DATE as a timestamp, as for every pandas frame.
 
 The runtime image ships the ducklake, postgres and httpfs extensions under

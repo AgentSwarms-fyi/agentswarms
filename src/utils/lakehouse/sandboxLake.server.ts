@@ -488,6 +488,72 @@ function loadStatements(w: LakeWrite, src: string, rows: number): string[] {
   ];
 }
 
+/** At most this many document columns per load; more is not a frame, it is a mistake. */
+const MAX_DOCUMENTS = 256;
+
+/**
+ * The rows of one load, with its document columns turned back into what they
+ * were (R458).
+ *
+ * A VARIANT column reaches Python as dicts, and a frame of dicts staged as
+ * Parquet becomes a STRUCT, or a MAP of strings when the payloads differ in
+ * shape, so a VARIANT read by a pipeline came back as something else. The
+ * sandbox now stages the columns it read as VARIANT as JSON text and names
+ * them; here each becomes the type its target column already has, or VARIANT
+ * for a table this load creates or replaces. JSON parses into a VARIANT's own
+ * objects, arrays and scalars (measured on DuckDB 1.5.5; an integer comes back
+ * as UINT64). A column the sandbox named but did not stage as text is left as
+ * it is, and so is every column of a load that names none, as before.
+ */
+async function documentSource(
+  c: DuckDBConnection,
+  p: { w: LakeWrite; src: string; documents?: string[] },
+): Promise<string> {
+  const named = [...new Set((p.documents ?? []).map((d) => d.toLowerCase()))];
+  if (!named.length) return p.src;
+  if (named.length > MAX_DOCUMENTS) {
+    throw new Error(`Target "${p.w.label}": more than ${MAX_DOCUMENTS} document columns`);
+  }
+  const staged = new Map(
+    (await (await c.run(`DESCRIBE SELECT * FROM ${p.src}`)).getRows()).map((r) => [
+      String(r[0]).toLowerCase(),
+      { name: String(r[0]), type: String(r[1]) },
+    ]),
+  );
+  const target =
+    p.w.mode === "replace"
+      ? new Map<string, string>()
+      : new Map(
+          (
+            await (
+              await c.run(
+                `SELECT column_name, data_type FROM information_schema.columns
+                 WHERE table_catalog = current_database()
+                   AND lower(table_schema) = lower(${sq(p.w.schema)})
+                   AND lower(table_name) = lower(${sq(p.w.table)})`,
+              )
+            ).getRows()
+          ).map((r) => [String(r[0]).toLowerCase(), String(r[1])]),
+        );
+  const casts: string[] = [];
+  for (const d of named) {
+    const col = staged.get(d);
+    if (!col || !/^(VARCHAR|JSON)$/i.test(col.type)) continue;
+    // The type comes from this catalog's own information_schema, written the
+    // way DuckDB spells types, never from the request.
+    const to = target.get(d) ?? "VARIANT";
+    // A missing value stays missing: cast straight, SQL NULL becomes a
+    // VARIANT holding null, and `payload IS NULL` stops finding it (the test
+    // caught it).
+    const name = qi(col.name);
+    casts.push(
+      `CASE WHEN ${name} IS NULL THEN NULL ELSE CAST(CAST(${name} AS JSON) AS ${to}) END AS ${name}`,
+    );
+  }
+  if (!casts.length) return p.src;
+  return `(SELECT * REPLACE (${casts.join(", ")}) FROM ${p.src})`;
+}
+
 const CURSOR_TABLE = '"_agentswarms"."etl_cursors"';
 
 /**
@@ -499,14 +565,22 @@ export async function lakeCommit(args: {
   userId: string;
   sessionId: string;
   manifest: LakeManifest;
-  loads: { id: string; batch: string; parts?: number; prefix?: boolean }[];
+  loads: {
+    id: string;
+    batch: string;
+    parts?: number;
+    prefix?: boolean;
+    /** Columns staged as JSON text because they were read as VARIANT (R458). */
+    documents?: string[];
+  }[];
   cursors?: Record<string, string>;
   via: string;
   io?: StagingIo;
 }): Promise<{ loads: { id: string; rows: number }[] }> {
   const { target, bucket } = storage();
   const url = args.io?.url ?? ((key: string) => `s3://${bucket}/${key}`);
-  const plan: { id: string; w: LakeWrite; keys: string[]; src: string }[] = [];
+  const plan: { id: string; w: LakeWrite; keys: string[]; src: string; documents?: string[] }[] =
+    [];
   for (const l of args.loads) {
     const w = Object.hasOwn(args.manifest.writes, l.id) ? args.manifest.writes[l.id] : null;
     if (!w) throw new Error(`This run declared no lakehouse target "${l.id}"`);
@@ -521,6 +595,7 @@ export async function lakeCommit(args: {
       w,
       keys,
       src: `read_parquet([${keys.map((k) => sq(url(k))).join(", ")}])`,
+      documents: l.documents,
     });
   }
   const cursorEntries = Object.entries(args.cursors ?? {}).filter(([, v]) => v != null);
@@ -547,11 +622,14 @@ export async function lakeCommit(args: {
     try {
       done = await withTimeout(c, async () => {
         const counted: { id: string; rows: number }[] = [];
+        const sources: string[] = [];
         for (const p of plan) {
-          const r = await (await c.run(`SELECT count(*) FROM ${p.src}`)).getRows();
+          const src = await documentSource(c, p);
+          sources.push(src);
+          const r = await (await c.run(`SELECT count(*) FROM ${src}`)).getRows();
           const rows = Number(r[0]?.[0] ?? 0);
           if (p.w.mode === "upsert" && rows) {
-            const cols = (await (await c.run(`DESCRIBE SELECT * FROM ${p.src}`)).getRows()).map(
+            const cols = (await (await c.run(`DESCRIBE SELECT * FROM ${src}`)).getRows()).map(
               (row) => String(row[0]).toLowerCase(),
             );
             const missing = p.w.primaryKey.filter((k) => !cols.includes(k.toLowerCase()));
@@ -566,7 +644,7 @@ export async function lakeCommit(args: {
         await c.run("BEGIN TRANSACTION");
         try {
           for (const [i, p] of plan.entries()) {
-            for (const s of loadStatements(p.w, p.src, counted[i]!.rows)) await c.run(s);
+            for (const s of loadStatements(p.w, sources[i]!, counted[i]!.rows)) await c.run(s);
           }
           if (cursorEntries.length && args.manifest.cursors) {
             await c.run('CREATE SCHEMA IF NOT EXISTS "_agentswarms"');

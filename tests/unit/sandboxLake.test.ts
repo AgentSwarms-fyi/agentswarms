@@ -197,6 +197,35 @@ const manifest = (
       mode: "append" as const,
       primaryKey: [],
     },
+    // R458: loads of columns the sandbox read as VARIANT.
+    t_docs: {
+      label: "Docs",
+      schema: "mine",
+      table: "docs",
+      mode: "append" as const,
+      primaryKey: [],
+    },
+    t_docs_snap: {
+      label: "Docs snap",
+      schema: "mine",
+      table: "docsnap",
+      mode: "replace" as const,
+      primaryKey: [],
+    },
+    t_structy: {
+      label: "Structy",
+      schema: "mine",
+      table: "structy",
+      mode: "append" as const,
+      primaryKey: [],
+    },
+    t_plain: {
+      label: "Plain",
+      schema: "mine",
+      table: "plain",
+      mode: "append" as const,
+      primaryKey: [],
+    },
   },
   cursors: { pipelineId: "p-1", nodes: ["n_orders"] },
   ...extra,
@@ -442,7 +471,7 @@ async function stage(id: string, select: string, m = manifest()) {
 }
 
 const commit = (
-  loads: { id: string; batch: string; parts: number }[],
+  loads: { id: string; batch: string; parts: number; documents?: string[] }[],
   cursors?: Record<string, string>,
   userId = READER,
 ) =>
@@ -646,6 +675,96 @@ describe("a commit", () => {
       /Not a staging batch/,
     );
     expect(await q("SELECT count(*) FROM sales.orders")).toEqual([[3n]]);
+  });
+});
+
+// R458. A VARIANT column reached Python as dicts and was staged as a STRUCT
+// (or a MAP of strings), so a pipeline that read a VARIANT wrote back
+// something else. The sandbox now stages those columns as JSON text and names
+// them; the commit makes each the type its target already has, or VARIANT.
+describe("a load of columns the sandbox read as VARIANT", () => {
+  const DOC = `'{"n": 5, "tags": ["a", "b"], "o": {"k": true}}'`;
+  const typeOf = async (table: string, column: string) =>
+    (
+      await q(
+        `SELECT data_type FROM information_schema.columns
+         WHERE table_schema = 'mine' AND table_name = '${table}' AND column_name = '${column}'`,
+      )
+    )[0]?.[0];
+
+  it("lands as a VARIANT with the JSON's structure in a table the load creates", async () => {
+    await commit([
+      {
+        ...(await stage("t_docs", `SELECT 1 AS id, ${DOC} AS payload UNION ALL SELECT 2, NULL`)),
+        documents: ["payload"],
+      },
+    ]);
+    expect(await typeOf("docs", "payload")).toBe("VARIANT");
+    expect(
+      await q(
+        `SELECT id, payload IS NULL, variant_typeof(payload), payload.n::INTEGER,
+                payload.o.k::BOOLEAN, CAST(payload AS JSON)::VARCHAR
+         FROM mine.docs WHERE id = 1`,
+      ),
+    ).toEqual([
+      [1, false, "OBJECT(n, tags, o)", 5, true, '{"n":5,"tags":["a","b"],"o":{"k":true}}'],
+    ]);
+    // A missing value stays a SQL NULL. (DuckDB 1.5.5 also names a NULL in a
+    // VARIANT column VARIANT_NULL and casts it to JSON 'null', measured on a
+    // table that never went through a pipeline; IS NULL is what holds.)
+    expect(await q("SELECT payload IS NULL FROM mine.docs WHERE id = 2")).toEqual([[true]]);
+  });
+
+  it("appends into a VARIANT column, and replaces a table as VARIANT", async () => {
+    await commit([
+      {
+        ...(await stage("t_docs", `SELECT 3 AS id, '[1, 2.5]' AS payload`)),
+        documents: ["payload"],
+      },
+    ]);
+    expect(await q("SELECT id, variant_typeof(payload) FROM mine.docs WHERE id = 3")).toEqual([
+      [3, "ARRAY(2)"],
+    ]);
+    await commit([
+      { ...(await stage("t_docs_snap", `SELECT ${DOC} AS payload`)), documents: ["payload"] },
+    ]);
+    expect(await typeOf("docsnap", "payload")).toBe("VARIANT");
+  });
+
+  it("becomes the type a target column already has, as a STRUCT did before", async () => {
+    await q("CREATE TABLE mine.structy (id INTEGER, payload STRUCT(n INTEGER))");
+    await commit([
+      {
+        ...(await stage("t_structy", `SELECT 1 AS id, '{"n": 7}' AS payload`)),
+        documents: ["payload"],
+      },
+    ]);
+    expect(await typeOf("structy", "payload")).toBe("STRUCT(n INTEGER)");
+    expect(await q("SELECT payload.n FROM mine.structy")).toEqual([[7]]);
+  });
+
+  it("leaves text alone when the load names no document, and a named column that is not text", async () => {
+    await commit([await stage("t_plain", `SELECT 1 AS id, ${DOC} AS payload, 9 AS n`)]);
+    expect(await typeOf("plain", "payload")).toBe("VARCHAR");
+    await commit([
+      {
+        ...(await stage("t_plain", `SELECT 2 AS id, ${DOC} AS payload, 10 AS n`)),
+        // n is staged as a number: the sandbox only names what it wrote as JSON.
+        documents: ["n", "not_a_column"],
+      },
+    ]);
+    expect(await typeOf("plain", "n")).toBe("INTEGER");
+    expect(await q("SELECT count(*) FROM mine.plain")).toEqual([[2n]]);
+  });
+
+  it("quotes a document's name, so a name cannot become SQL", async () => {
+    await commit([
+      {
+        ...(await stage("t_docs_snap", `SELECT '{"a": 1}' AS "we""ird) --"`)),
+        documents: ['we"ird) --'],
+      },
+    ]);
+    expect(await typeOf("docsnap", 'we"ird) --')).toBe("VARIANT");
   });
 });
 

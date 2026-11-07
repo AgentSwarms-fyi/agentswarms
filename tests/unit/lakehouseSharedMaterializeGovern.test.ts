@@ -72,9 +72,14 @@ describe("both materialize paths carry the governance", () => {
   it("the matview build governs its body with governSelect, not the raw SQL", () => {
     const src = readFileSync("src/utils/lakehouse/matviews.server.ts", "utf8");
     expect(src).toContain(
-      "const { sql: governed } = await governSelect(c, view.user_id, view.sql, allowed);",
+      "const { sql: governed, policyTables } = await governSelect(c, view.user_id, view.sql, allowed);",
     );
-    expect(src).toContain("CREATE OR REPLACE TABLE ${qi(view.schema_name)}.${qi(view.table_name)}");
+    // R458: the table is named once, and the rebuild writes the governed body.
+    expect(src).toContain('const body = stripSqlComments(governed).replace(/;\\s*$/, "");');
+    expect(src).toContain("const viewTable = `${qi(view.schema_name)}.${qi(view.table_name)}`;");
+    expect(src).toContain("CREATE OR REPLACE TABLE ${viewTable} AS ${body}");
+    // An append's rows are governed too, never the raw SQL with a floor pasted in.
+    expect(src).toMatch(/const fresh = await governSelect\(\s*c,\s*view\.user_id,/);
     // The old ungoverned body is gone.
     expect(src).not.toContain("const body = stripSqlComments(view.sql)");
   });

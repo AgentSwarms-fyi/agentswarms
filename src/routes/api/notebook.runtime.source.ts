@@ -168,7 +168,13 @@ async function lakePart(
     }
     if (part === "lake_commit") {
       const loads = (Array.isArray(body.loads) ? body.loads : []).map((l) => {
-        const o = (l ?? {}) as { id?: unknown; batch?: unknown; parts?: unknown; prefix?: unknown };
+        const o = (l ?? {}) as {
+          id?: unknown;
+          batch?: unknown;
+          parts?: unknown;
+          prefix?: unknown;
+          documents?: unknown;
+        };
         return {
           id: typeof o.id === "string" ? o.id : "",
           batch: typeof o.batch === "string" ? o.batch : "",
@@ -177,6 +183,15 @@ async function lakePart(
           // lists the prefix (R230). Dropping this flag here sent the load
           // down the numbered-parts path, where it asked for 0 of them.
           prefix: o.prefix === true,
+          // Columns staged as JSON text because they were read as VARIANT
+          // (R458). Names only; the app quotes them and checks each against
+          // the staged file, and the type comes from the target, never here.
+          documents: Array.isArray(o.documents)
+            ? o.documents.filter(
+                (d): d is string =>
+                  typeof d === "string" && d.length > 0 && d.length <= 255 && !d.includes("\0"),
+              )
+            : undefined,
         };
       });
       const cursors: Record<string, string> = {};

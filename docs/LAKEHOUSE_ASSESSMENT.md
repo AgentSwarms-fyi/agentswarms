@@ -1,12 +1,14 @@
-# Lakehouse and Iceberg: where it stands (R457, 2026-11-07)
+# Lakehouse and Iceberg: where it stands (R457, R458; 2026-11-08)
 
 The question asked was whether the lakehouse and its Iceberg support are the
 best in the industry and current with where the industry is. They are not the
 best in the industry, and this document says where they lead, where they are
-level, where they trail, and what was changed in R457. Everything marked
-_measured_ was run against a real engine, catalog and object store in this
-round; everything else is read from the code or from the vendors' own
-documentation, and says so.
+level, where they trail, and what was changed in R457 and R458. Everything
+marked _measured_ was run against a real engine, catalog and object store;
+everything else is read from the code or from the vendors' own documentation,
+and says so. R458 was asked to close every gap that could be closed: it closed
+three, found and fixed a fourth that nobody had seen, and the rest are listed
+below with what each is waiting for.
 
 ## The short version
 
@@ -16,39 +18,71 @@ documentation, and says so.
   reads the same governed tables: BI, ETL, SQL chat, agents, the ontology,
   Sheets, the semantic layer, monitors. No lakehouse product ships that set.
 - **Where it is level:** ACID tables with time travel, partition transforms,
-  file-layout tuning, a result cache keyed on the snapshot, scheduled
-  materialized views, an integrity check between catalog and object store,
-  and now reading and writing Iceberg v3 (deletion vectors, row lineage,
-  VARIANT) through any REST catalog that speaks bearer or OAuth2.
+  file-layout tuning, a result cache keyed on the snapshot, materialized views
+  that refresh only what changed (R458), an integrity check between catalog
+  and object store, and reading and writing Iceberg v3 (deletion vectors, row
+  lineage, VARIANT) through any REST catalog that speaks bearer or OAuth2,
+  measured against Apache Polaris with credentials it vends (R458).
 - **Where it trails:** one engine per query (DuckDB on one worker; Spark only
   for SELECTs over DuckLake tables), no Iceberg on our Spark (no runtime
-  exists for Spark 4.2), no Iceberg REST catalog of our own for other engines
-  to use, no Iceberg table maintenance of our own, no incremental
-  materialized views, no branching for DuckLake tables, no SigV4 catalogs
-  (AWS Glue, S3 Tables), no nested Iceberg namespaces on DuckDB 1.5.
+  exists for Spark 4.2), lakehouse tables reach other engines only as a
+  published copy, no Iceberg table maintenance of our own, incremental refresh
+  only for views that filter one table (an aggregate rebuilds), no branching
+  for DuckLake tables, no SigV4 catalogs (AWS Glue, S3 Tables), no nested
+  Iceberg namespaces on DuckDB 1.5.
 
 ## Against the field
 
-| Capability                          | Here (after R457)                                                  | Databricks      | Snowflake      | Dremio / Trino / Starburst | AWS (S3 Tables, Glue, Athena) |
-| ----------------------------------- | ------------------------------------------------------------------ | --------------- | -------------- | -------------------------- | ----------------------------- |
-| Native table format                 | DuckLake 1.0 (catalog in Postgres, Parquet in your store)          | Delta           | Iceberg / FDN  | Iceberg                    | Iceberg                       |
-| Iceberg v3 read                     | Yes, measured (deletion vectors, VARIANT, evolved schema and spec) | Preview to GA   | GA             | Partial                    | DVs and row lineage           |
-| Iceberg v3 write                    | Yes, measured (publish as v3, partitioned; upsert by key)          | Yes             | Yes            | Partial                    | Yes                           |
-| Iceberg time travel, branches, tags | Read: any snapshot, branch or tag; write: none                     | Yes             | Yes            | Yes (Nessie)               | Yes                           |
-| Iceberg REST catalog, as a client   | Bearer and OAuth2; vended or own credentials; private-path rule    | Yes             | Yes            | Yes                        | SigV4                         |
-| Iceberg REST catalog, as a server   | No                                                                 | Unity speaks it | Open Catalog   | Yes                        | Yes                           |
-| Engines over one table              | DuckDB per worker; Spark for DuckLake SELECTs                      | Photon, Spark   | One engine     | Many                       | Many                          |
-| Row and column policies             | Yes, on the AST, by table and by tag, every consumer               | Unity           | Yes            | Ranger etc.                | Lake Formation                |
-| Change feed                         | DuckLake, per snapshot (new)                                       | CDF             | Streams        | Partial                    | No                            |
-| Automatic maintenance               | DuckLake hourly; Iceberg advice only                               | Predictive opt. | Automatic      | Manual / jobs              | S3 Tables automatic           |
-| Incremental materialized views      | No (scheduled full rebuild)                                        | DLT / MV        | Dynamic tables | Reflections                | No                            |
-| Sharing outside the platform        | Delta Sharing read side, governed snapshots                        | Delta Sharing   | Data sharing   | No                         | No                            |
-| Branching / write-audit-publish     | No                                                                 | No (Delta)      | No             | Nessie                     | Iceberg branches              |
+| Capability                          | Here (after R458)                                                                        | Databricks      | Snowflake      | Dremio / Trino / Starburst | AWS (S3 Tables, Glue, Athena) |
+| ----------------------------------- | ---------------------------------------------------------------------------------------- | --------------- | -------------- | -------------------------- | ----------------------------- |
+| Native table format                 | DuckLake 1.0 (catalog in Postgres, Parquet in your store)                                | Delta           | Iceberg / FDN  | Iceberg                    | Iceberg                       |
+| Iceberg v3 read                     | Yes, measured (deletion vectors, VARIANT, evolved schema and spec)                       | Preview to GA   | GA             | Partial                    | DVs and row lineage           |
+| Iceberg v3 write                    | Yes, measured (publish as v3, partitioned; upsert by key)                                | Yes             | Yes            | Partial                    | Yes                           |
+| Iceberg time travel, branches, tags | Read: any snapshot, branch or tag; write: none                                           | Yes             | Yes            | Yes (Nessie)               | Yes                           |
+| Iceberg REST catalog, as a client   | Bearer and OAuth2; vended or own credentials; private-path rule; measured on Polaris 1.8 | Yes             | Yes            | Yes                        | SigV4                         |
+| Iceberg REST catalog, as a server   | No: a published copy (DuckLake's format cannot be served in place)                       | Unity speaks it | Open Catalog   | Yes                        | Yes                           |
+| Engines over one table              | DuckDB per worker; Spark for DuckLake SELECTs                                            | Photon, Spark   | One engine     | Many                       | Many                          |
+| Row and column policies             | Yes, on the AST, by table and by tag, every consumer                                     | Unity           | Yes            | Ranger etc.                | Lake Formation                |
+| Change feed                         | DuckLake, per snapshot (new)                                                             | CDF             | Streams        | Partial                    | No                            |
+| Automatic maintenance               | DuckLake hourly; Iceberg advice only                                                     | Predictive opt. | Automatic      | Manual / jobs              | S3 Tables automatic           |
+| Incremental materialized views      | Skip when unchanged; append for one-table filters; else rebuild                          | DLT / MV        | Dynamic tables | Reflections                | No                            |
+| Sharing outside the platform        | Delta Sharing read side, governed snapshots                                              | Delta Sharing   | Data sharing   | No                         | No                            |
+| Branching / write-audit-publish     | No                                                                                       | No (Delta)      | No             | Nessie                     | Iceberg branches              |
 
 The vendor columns come from their documentation and announcements as of
 November 2026, not from measurement here, and the sources disagree in places
 (Databricks' Iceberg v3 status is called preview by one source and GA by
 another).
+
+## What changed in R458
+
+Each closed gap was measured against a real engine and store, then driven in
+the UI on the development lakehouse.
+
+- **Materialized views refresh only what changed.** A refresh leaves the table
+  alone when nothing it reads changed (no rows written, no snapshot), appends
+  the answer for the new rows when the view filters one table that only gained
+  rows, and rebuilds otherwise. Every case it cannot be sure of rebuilds: a
+  changed definition or policy, a mount, a function the engine calls unstable,
+  an update or delete, or its own table written by anything else. The record
+  of what it read commits with the rows. Measured against a real DuckLake:
+  every refresh's table compared with the view's query run fresh (12 cases),
+  and in the UI: up to date (no rows written), 20 appended of 40 inserted,
+  rebuilt after an update, and up to date again.
+- **A VARIANT column survives a Python pipeline.** It is staged as JSON text
+  and committed as VARIANT (or the target column's own type), where it used
+  to land as a STRUCT or a MAP of strings. Measured end to end on the notebook
+  image with three payload shapes, a NULL and a row built in Python.
+- **OAuth2 and vended credentials, tested against Apache Polaris 1.8.0.** The
+  first test against a production catalog found a defect: an OAuth2 catalog
+  saved without the optional server URI could never attach. Fixed, and then
+  an engine with no storage credential of its own published, read, upserted
+  and time-travelled through what Polaris vended.
+- **Found while building the append:** reading DuckDB's parse tree with
+  JavaScript's `JSON.parse` rounds integers past 2^53, so a statement printed
+  back from it would compare against a different number. The rewrite reads
+  and writes the tree without rounding, pinned by a test with a BIGINT key
+  that rounds to its neighbour.
 
 ## What changed in R457
 
@@ -145,39 +179,49 @@ test catalog's Spark-written tables mounted:
   extensions, read every table with the counts Spark reported (10,125 on main,
   9,975 at the tag, 10,126 on the branch, 1,800 for the v2 table).
 
-## What was not done, and why
+## What is still open, and what each is waiting for
 
-- **DuckDB 2.0 LTS (21 October 2026)** and with it DuckLake 1.1 (nested
+Checked again on 2026-11-08, against the registries rather than articles:
+
+- **DuckDB 2.0 LTS (21 October 2026)**, and with it DuckLake 1.1 (nested
   schemas, faster catalogs) and the Iceberg extension's new attach options.
-  Measured on an isolated copy (below): the security core holds and three tests
-  fail, two of which R457 fixed. It was not upgraded because the browser engine
-  cannot follow yet: duckdb-wasm's stable release is still on 1.5 (its `next`
-  tag is a development build of 3 November), and the server and the browser
+  Waiting for: a stable duckdb-wasm 2.0. On npm, `@duckdb/node-api`'s `latest`
+  is `2.0.0-r.1`, but `@duckdb/duckdb-wasm`'s `latest` is still
+  `1.33.1-dev57.0` (the engine the app pins) and the 2.0 engine exists only as
+  `next`, `1.33.1-dev114.0`, a development build. The server and the browser
   are kept on one minor version so the SQL a person writes means the same in
-  both.
-- **SigV4 catalogs (AWS Glue, S3 Tables).** The engine signs their requests
-  with a DuckDB `s3` secret, the kind it also reads `s3://` files with, and one
-  engine serves every user: a catalog's AWS keys in an unscoped secret would
-  be offered to other users' S3 reads. Safe support needs the secret scoped to
-  the catalog's storage prefix and vended table credentials, tested against
-  AWS. The docs no longer say Glue works.
-- **Iceberg on Spark.** Iceberg 1.12 publishes a runtime for Spark 4.1 and
-  none for 4.2, which the Spark Connect server runs. Moving Spark back a minor
-  version, or waiting for a 4.2 runtime, is the choice; neither was made here.
-- **An Iceberg REST catalog served by the platform**, so Spark, Trino and
-  Snowflake could read DuckLake tables without a copy. The protocol now
-  includes credential vending and remote scan planning; this is the most
-  valuable thing on the list below and the largest.
+  both. Measured on an isolated copy (below): the security core holds and
+  three tests fail, two of which R457 fixed. Moving the browser to the `next`
+  build would be your call, not one to make quietly.
+- **SigV4 catalogs (AWS Glue, S3 Tables).** Waiting for: an AWS account to
+  test against. The engine signs their requests with a DuckDB `s3` secret, the
+  kind it also reads `s3://` files with, and one engine serves every user: a
+  catalog's AWS keys in an unscoped secret would be offered to other users' S3
+  reads. Safe support needs the secret scoped to the catalog's storage prefix
+  and table files read with vended credentials. No emulator here speaks Glue's
+  Iceberg REST endpoint, so it cannot be tested without AWS.
+- **Iceberg on Spark, and Iceberg maintenance run from here.** Waiting for:
+  an Iceberg runtime for Spark 4.2, or a decision to move Spark back to 4.1.
+  `iceberg-spark-runtime-4.2_2.13` returns 404 on Maven Central (checked
+  2026-11-08); Iceberg 1.12 ships 4.2 code in its source release only. The
+  upkeep panel advises and gives the Spark procedure meanwhile.
+- **Lakehouse tables served to other engines in place**, as an Iceberg REST
+  catalog. Not possible on this format today: DuckLake has no supported export
+  to Iceberg metadata, and a DuckLake snapshot can reference part of a file and
+  hold rows inlined in the catalog, which Iceberg metadata cannot describe
+  ([ducklake discussion #663](https://github.com/duckdb/ducklake/discussions/663)).
+  Serving a table means serving a copy, which **Publish to Iceberg** already
+  writes, as v3 or v2, partitioned, or as an upsert by key. Keeping that copy
+  current on a schedule is the next step that can be built.
+- **Incremental refresh of an aggregate.** A view that groups rebuilds when its
+  table gains rows: merging new rows into old groups is right for counts and
+  sums and wrong for averages and distinct counts, and is not done until each
+  aggregate can be shown to merge exactly.
 - **Nested namespaces.** The engine on DuckDB 1.5.5 does not list them, and
   its option for them drops the separator and breaks every other listing. On
   DuckDB 2.0.0 the same option lists `finance.eu` and reads its table (500
   rows, measured on the rig), so they arrive with the upgrade, together with a
   name rule that admits the dot.
-- **Iceberg maintenance run from here.** The panel advises and gives the Spark
-  procedure; running it needs Iceberg on Spark first.
-- **Polaris.** The image was pulled to test OAuth2 and credential vending
-  against a production catalog; the reference fixture was used instead, so
-  those two paths remain untested against a real deployment.
 
 ## DuckDB 2.0, measured
 
@@ -205,13 +249,14 @@ reader (the app and the notebook image's Python `duckdb<2`) is on 2.0.
 
 ## Next, in order
 
-1. Serve DuckLake tables over the Iceberg REST protocol (read-only first, with
-   vended, prefix-scoped credentials), so other engines read them in place.
-   The same reasoning as Delta Sharing applies: DuckLake keeps deleted rows in
-   its files until compaction, and a raw file bypasses every policy, so a
-   table under a policy cannot be served this way.
+1. Keep a published Iceberg copy current on a schedule, appending from the
+   change feed when the source only gained rows, the way a materialized view
+   now does; that is how other engines read lakehouse tables without a
+   by-hand publish. A table under a policy still cannot be published, for the
+   reason Delta Sharing gives: a copy cannot carry the policy.
 2. DuckDB 2.0 when duckdb-wasm has a stable 2.0 (above).
 3. Iceberg on Spark (4.1, or 4.2 when a runtime ships), then Iceberg
    compaction and snapshot expiry run from the upkeep panel.
-4. Incremental materialized views on the change feed.
+4. Incremental refresh for aggregates whose merge is exact (count, sum, min,
+   max), proven per function.
 5. SigV4 for Glue and S3 Tables with prefix-scoped secrets, tested against AWS.

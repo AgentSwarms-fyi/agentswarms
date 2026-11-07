@@ -1514,6 +1514,17 @@ export async function runLakehouseStatement(
         };
         if (cacheSlot) cachePut(cacheSlot.key, cacheSlot.snapshot, result);
         record("ok", rows.length, undefined, { retries: attempt });
+        if (classified.verb === "DROP TABLE") {
+          // A dropped table's view definition goes with it (R458), or a
+          // schedule rebuilds what was just dropped.
+          const dropped = classified.writeSchemas
+            .map((schema, i) => ({ schema, table: classified.writeTables?.[i] ?? "" }))
+            .filter((t) => t.table);
+          const { forgetMatviewsFor } = await import("@/utils/lakehouse/matviews.server");
+          await forgetMatviewsFor(userId, dropped).catch((err) =>
+            console.warn("[lakehouse-matview] forgetting a dropped table's view failed:", err),
+          );
+        }
         return result;
       } catch (e) {
         const message = (e as Error).message;

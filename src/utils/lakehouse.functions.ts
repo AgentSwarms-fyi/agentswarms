@@ -560,6 +560,10 @@ export const dropLakehouseSchema = createServerFn({ method: "POST" })
       resourceId: row.id,
       resourceName: data.name,
     });
+    // Its materialized views go with it (R458): with the schema gone, a
+    // schedule would fail on every run, with no table to say so on.
+    const { forgetMatviewsFor } = await import("@/utils/lakehouse/matviews.server");
+    await forgetMatviewsFor(userId, [{ schema: data.name }]);
     return { ok: true };
   });
 
@@ -1701,24 +1705,52 @@ export const saveLakehouseMatview = createServerFn({ method: "POST" })
     return saveMatviewForUser(userId, data, "save");
   });
 
-/** Rebuild one view now. */
+/**
+ * Refresh one view now: left as it is when nothing it reads changed, the new
+ * rows appended when that is provably the same answer, rebuilt otherwise
+ * (matviewPlan.ts). `full` rebuilds whatever the plan says.
+ */
 export const refreshLakehouseMatview = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
-    z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
+    z
+      .object({
+        access_token: z.string().min(1),
+        id: z.string().uuid(),
+        full: z.boolean().optional(),
+      })
+      .parse(input),
   )
-  .handler(async ({ data }): Promise<{ rows: number | null; error?: string; ms: number }> => {
-    const userId = await resolveCaller(data.access_token);
-    const { data: row } = await supabaseAdmin
-      .from("lakehouse_materialized_views")
-      .select("*")
-      .eq("id", data.id)
-      .single();
-    if (!row) throw new Error("No such materialized view");
-    if (row.user_id !== userId) throw new Error("Only its owner can refresh this view");
-    const { refreshMaterializedView } = await import("@/utils/lakehouse/matviews.server");
-    const res = await refreshMaterializedView(row as never, "manual");
-    return { rows: res.rows ?? null, error: res.error, ms: res.ms };
-  });
+  .handler(
+    async ({
+      data,
+    }): Promise<{
+      rows: number | null;
+      error?: string;
+      ms: number;
+      mode?: "skip" | "append" | "rebuild";
+      why?: string;
+      appended?: number;
+    }> => {
+      const userId = await resolveCaller(data.access_token);
+      const { data: row } = await supabaseAdmin
+        .from("lakehouse_materialized_views")
+        .select("*")
+        .eq("id", data.id)
+        .single();
+      if (!row) throw new Error("No such materialized view");
+      if (row.user_id !== userId) throw new Error("Only its owner can refresh this view");
+      const { refreshMaterializedView } = await import("@/utils/lakehouse/matviews.server");
+      const res = await refreshMaterializedView(row as never, "manual", { full: data.full });
+      return {
+        rows: res.rows ?? null,
+        error: res.error,
+        ms: res.ms,
+        mode: res.mode,
+        why: res.why,
+        appended: res.appended,
+      };
+    },
+  );
 
 /**
  * Forget a materialized view. The TABLE is left in place: it is an ordinary

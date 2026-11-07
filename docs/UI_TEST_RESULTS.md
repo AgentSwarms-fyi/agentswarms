@@ -15,6 +15,38 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-08 — R458: refreshes that do only what changed, VARIANT through pipelines, Polaris
+
+Driven on a dev server from the worktree (`:8102`), signed in as the owner, against the
+development lakehouse and its object store. Fixtures: a schema `zz_r458` with a
+300-row `orders` table, and a throwaway Apache Polaris 1.8.0 with its own bucket.
+
+| Page / surface | What was driven | Result |
+| --- | --- | --- |
+| Save as view | `SELECT … FROM zz_r458.orders AS o WHERE o.region = 'eu' AND o.amount > 30` as `zz_r458.big_eu` | Built, 94 rows; the dialog now says the view is refreshed, not rebuilt |
+| Table tab, Refresh | nothing changed | "Up to date: nothing it reads changed (94 row(s))", checked in 819 ms, no rows written |
+| Table tab, Refresh | 40 rows inserted, 20 of them matching | "Appended 20 new row(s), 114 in all"; the stored rows equal the query's (0 extra, 0 missing) |
+| Table tab, Refresh | one matching row updated out of the filter | "Rebuilt: 113 row(s) … because zz_r458.orders had rows changed or removed" |
+| Table tab, Rebuild, then Refresh | | "Rebuilt … because a full rebuild was asked for", then "Up to date" |
+| Table tab | badge, buttons, hover | "refreshed daily"; the reason on the wrapper, none on the buttons (R274's rule) |
+| Table tab, Stop refreshing | `big_eu` | Its definition removed, its 113 rows kept as an ordinary table |
+| Drop schema | `zz_r458`, holding a second view `by_region` | The schema and the view's definition both gone (read back from the app's database) |
+| ETL | the generated `_lake_read` and `_lake_stage` run in the notebook image on a VARIANT table, then the app's commit | VARIANT back as VARIANT: three shapes, a NULL and a row made in Python |
+| Iceberg, Polaris 1.8.0 | OAuth2 and vended credentials, through the engine path the catalog form leads to | Signed in, published v3 partitioned, read, upserted and time-travelled with no storage credential of its own; a wrong secret refused in Polaris's words |
+
+**Found here, all fixed and re-driven:** an OAuth2 catalog without a server URI never
+attached; a view could not be removed from the app, and dropping its table or schema
+left its definition to rebuild or fail on schedule; the new buttons broke R274's
+title rule.
+
+**What this round does not show.** The Polaris catalog was not registered through the
+form: its OAuth2 fields take secret names from Settings → Secrets, which live in the
+hosted project, and a throwaway credential was not sent there. The form's fields
+reach the same engine statements, which the integration test drove. One table-tab
+load hit a passing network error reaching the hosted database and said so in a
+toast; the next load was fine. The ETL sandbox preview still needs a container
+network, as in R457.
+
 ## 2026-11-07 — R457: Iceberg mounts, a table's history, and the consumers
 
 Driven on a dev server from the worktree (`:8102`), signed in as the owner, against the

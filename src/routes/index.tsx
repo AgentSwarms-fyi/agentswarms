@@ -1107,7 +1107,7 @@ function LandingPage() {
                 {
                   icon: Layers,
                   title: "Materialized views",
-                  body: "Save a query as a table rebuilt hourly, daily or weekly. Each rebuild is one commit, so readers never catch a half-built table — and a failed rebuild leaves the previous data standing.",
+                  body: "Save a query as a table refreshed hourly, daily or weekly: left alone when nothing it reads changed, only new rows appended when that is the same answer, rebuilt otherwise. Each refresh is one commit, so readers never catch a half-built table — and a failed one leaves the previous data standing.",
                 },
                 {
                   icon: Clock,

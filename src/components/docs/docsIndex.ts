@@ -2454,6 +2454,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "description": "The built-in columnar warehouse — DuckDB attached to a DuckLake catalog. Use it wherever you'd reach for a data warehouse: fast analytical SQL over tables you own, with open Parquet in your own object storage, a transactional catalog, and stateless compute on every app replica.",
     "terms": [
       ".env.example",
+      "/v1/oauth/tokens",
       "ATTACH",
       "COPY",
       "DELETE",
@@ -2502,6 +2503,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "minio",
       "minio:9000",
       "month",
+      "now()",
       "orders",
       "pgsty/silo",
       "pii",

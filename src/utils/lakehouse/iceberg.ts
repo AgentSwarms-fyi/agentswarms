@@ -135,8 +135,17 @@ export function icebergSecretSql(
       `CLIENT_ID ${lit(secrets.client_id ?? "")}`,
       `CLIENT_SECRET ${lit(secrets.client_secret ?? "")}`,
     );
-    if (cfg.oauth2_server_uri.trim())
+    if (cfg.oauth2_server_uri.trim()) {
       parts.push(`OAUTH2_SERVER_URI ${lit(cfg.oauth2_server_uri.trim())}`);
+    } else {
+      // FOUND IN R458 against Apache Polaris: with no server URI the engine
+      // refused the secret ("no 'oauth2_server_uri' was provided, and no
+      // 'endpoint' was provided to fall back on"), because the secret is made
+      // apart from the ATTACH that names the endpoint. Every OAuth2 catalog
+      // saved without the "optional" URI failed to attach. Given the
+      // endpoint, the engine asks the REST spec's <endpoint>/v1/oauth/tokens.
+      parts.push(`ENDPOINT ${lit(cfg.endpoint.trim().replace(/\/+$/, ""))}`);
+    }
   }
   return `CREATE OR REPLACE SECRET ${ident(alias)} (${parts.join(", ")});`;
 }

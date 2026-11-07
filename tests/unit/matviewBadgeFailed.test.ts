@@ -26,10 +26,10 @@ describe("a rebuild that worked", () => {
     expect(matviewBadge(view({}), WHEN)).toEqual({
       label: "materialized",
       failed: false,
-      title: "Rebuilt manual",
+      title: "Refreshed manual",
       note: null,
     });
-    expect(matviewBadge(view({ schedule: "hourly" }), WHEN).label).toBe("rebuilt hourly");
+    expect(matviewBadge(view({ schedule: "hourly" }), WHEN).label).toBe("refreshed hourly");
     expect(matviewBadge(view({ last_status: null }), WHEN).failed).toBe(false);
   });
 });
@@ -39,16 +39,16 @@ describe("a rebuild that failed", () => {
     for (const schedule of ["manual", "daily"]) {
       const b = matviewBadge(view({ schedule, last_status: "error", last_error: ERROR }), WHEN);
       expect(b.failed).toBe(true);
-      expect(b.label).toBe("last rebuild failed");
+      expect(b.label).toBe("last refresh failed");
     }
   });
 
   it("gives the reason's first line and how old the rows are, and the whole error on hover", () => {
     const b = matviewBadge(view({ last_status: "error", last_error: ERROR }), WHEN);
     expect(b.note).toBe(
-      "Catalog Error: Table with name r185_base does not exist! These rows are from the rebuild of at 2026-09-30T15:52:16Z.",
+      "Catalog Error: Table with name r185_base does not exist! These rows are from the refresh of at 2026-09-30T15:52:16Z.",
     );
-    expect(b.title).toBe(`Last rebuild failed: ${ERROR}`);
+    expect(b.title).toBe(`Last refresh failed: ${ERROR}`);
   });
 
   it("ends the reason as a sentence, and says when there is none", () => {

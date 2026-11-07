@@ -16,6 +16,15 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Materialized views refresh only what changed.** A refresh leaves the table as it is
+  when nothing the view reads changed, appends only the new rows when the view filters
+  one table that only gained rows, and rebuilds otherwise; **Refresh** says which it did
+  and why, and **Rebuild** recomputes every row. See
+  [Materialized views](docs/LAKEHOUSE.md#materialized-views).
+- **A VARIANT column survives a Python pipeline:** it goes back to a lakehouse target as
+  a VARIANT (or the target column's type), where it used to land as a STRUCT or a MAP.
+- **Tested against Apache Polaris 1.8.0:** OAuth2 client credentials and credentials the
+  catalog vends, with an engine that holds no storage credential of its own.
 - **A mounted Iceberg table reads as what it is:** format version and the v3 features in
   use, partition spec and its history, sort order, schema evolution, branches, tags and
   snapshots with the rows each left, live files, and upkeep advice with the Spark
@@ -47,6 +56,10 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **An OAuth2 Iceberg catalog saved without its "optional" server URI never attached:**
+  the engine refused the secret, which is made apart from the ATTACH that names the
+  endpoint. The token is now asked for at the catalog's own `/v1/oauth/tokens`. Found
+  against Apache Polaris.
 - **A table's Snapshots panel listed the whole lakehouse's latest twelve snapshots,**
   whatever table they touched, so a click often queried a version where nothing about
   that table had changed. It now lists the table's own.

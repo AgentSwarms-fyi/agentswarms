@@ -9,7 +9,8 @@ import { describe, expect, it } from "vitest";
 
 const src = readFileSync(join(process.cwd(), "src/routes/_authenticated/lakehouse.tsx"), "utf8");
 const at = src.indexOf("{matview?.is_owner && (");
-const block = src.slice(at, src.indexOf("Rebuild\n", at));
+// R458: Refresh and Rebuild are one map of two buttons; the block ends at their label.
+const block = src.slice(at, src.indexOf('{kind === "refresh" ? "Refresh" : "Rebuild"}', at));
 
 describe("Rebuild on a held view", () => {
   it("is off while Sheets holds the table", () => {
@@ -30,9 +31,9 @@ describe("Rebuild on a held view", () => {
     expect(block.slice(button)).not.toMatch(/\btitle=/);
   });
 
-  it("still says when an ordinary view was last rebuilt", () => {
+  it("still says when an ordinary view was last refreshed", () => {
     expect(block).toContain(
-      "`Last rebuilt ${new Date(matview.last_refreshed_at).toLocaleString()}`",
+      "`Last refreshed ${new Date(matview.last_refreshed_at).toLocaleString()}`",
     );
   });
 });

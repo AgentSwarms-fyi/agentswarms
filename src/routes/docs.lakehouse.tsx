@@ -195,19 +195,28 @@ function LakehouseDocsPage() {
       <H2 id="matviews">Materialized views</H2>
       <P>
         A query whose answer is worth keeping becomes a table. <strong>Save as view</strong> in the
-        query editor stores the result and rebuilds it on a schedule — manual, hourly, daily or
+        query editor stores the result and refreshes it on a schedule — manual, hourly, daily or
         weekly — so a dashboard reads stored rows instead of recomputing. What you get is an
         ordinary lakehouse table: queryable, joinable, partitionable, and governed by the same
         chokepoint as everything else.
       </P>
       <P>
-        Three properties decide how it behaves when something goes wrong. A rebuild is{" "}
-        <strong>one commit</strong> (<C>CREATE OR REPLACE TABLE … AS query</C>), so anyone querying
-        mid-rebuild sees the old rows or the new ones, never a half-built table. A{" "}
-        <strong>failed rebuild keeps the previous data</strong> — stale rows you can see and
-        diagnose beat an empty table — and the table&apos;s badge reads{" "}
-        <strong>last rebuild failed</strong>, beside the reason and the time of the rebuild the rows
-        are from. And the definition is <strong>re-checked at every rebuild</strong>, not just when
+        A refresh does only what the answer needs. When nothing the view reads has changed, it
+        leaves the table as it is and writes no rows. When the view filters one table without
+        aggregating, joining or limiting it, and that table only gained rows, it appends the
+        view&apos;s answer for the new rows alone. Anything else, or anything it cannot be sure of
+        (a changed definition or policy, a mount, <C>now()</C>, an update or a delete, its own table
+        written by something else), rebuilds it. <strong>Refresh</strong> on the table&apos;s tab
+        says which it did and why; <strong>Rebuild</strong> recomputes every row.
+      </P>
+      <P>
+        Three properties decide how it behaves when something goes wrong. A refresh is{" "}
+        <strong>one commit</strong> (a <C>CREATE OR REPLACE TABLE … AS query</C>, or an append, with
+        the record of what it read), so anyone querying mid-refresh sees the old rows or the new
+        ones, never a half-built table. A <strong>failed refresh keeps the previous data</strong> —
+        stale rows you can see and diagnose beat an empty table — and the table&apos;s badge reads{" "}
+        <strong>last refresh failed</strong>, beside the reason and the time of the refresh the rows
+        are from. And the definition is <strong>re-checked at every refresh</strong>, not just when
         it was saved, so a grant revoked since then stops the refresh and a definition edited into a
         write is refused rather than executed.
       </P>
@@ -438,15 +447,20 @@ function LakehouseDocsPage() {
           Iceberg REST catalog: its endpoint, the warehouse it serves, and how to authenticate
           (none, a bearer token, or OAuth2 client credentials) given as secret names from{" "}
           <strong>Integrations → Secrets</strong>. Lakekeeper, Apache Polaris, Nessie, Unity Catalog
-          and Snowflake Open Catalog speak this protocol with those. AWS Glue&apos;s and S3
-          Tables&apos; REST endpoints need AWS SigV4 signing, which this form does not offer yet.{" "}
-          <em>Table files are read with</em> decides where the file credentials come from: the
-          catalog vends them, or the lakehouse&apos;s own storage credentials read them when both
-          live in one store, and the catalog is then not asked to vend. The catalog is attached and
-          asked for its namespaces before it is saved; registered catalogs attach when the engine
-          boots, and one that fails is marked on its row and skipped, then tried again every five
-          minutes. A namespace or table with a hyphen in its name mounts like any other; a nested
-          namespace (<C>finance.eu</C>) is not listed by the engine on this DuckDB version.
+          and Snowflake Open Catalog speak this protocol with those. OAuth2&apos;s server URI is
+          optional: left empty, the token is asked for at the catalog&apos;s own{" "}
+          <C>/v1/oauth/tokens</C> (before R458 an empty one failed every attach). Tested against
+          Apache Polaris 1.8.0 with OAuth2 and credentials it vends; on a MinIO-style store Polaris
+          needs <C>&quot;kmsUnavailable&quot;: true</C> in the catalog&apos;s storage config. AWS
+          Glue&apos;s and S3 Tables&apos; REST endpoints need AWS SigV4 signing, which this form
+          does not offer yet. <em>Table files are read with</em> decides where the file credentials
+          come from: the catalog vends them, or the lakehouse&apos;s own storage credentials read
+          them when both live in one store, and the catalog is then not asked to vend. The catalog
+          is attached and asked for its namespaces before it is saved; registered catalogs attach
+          when the engine boots, and one that fails is marked on its row and skipped, then tried
+          again every five minutes. A namespace or table with a hyphen in its name mounts like any
+          other; a nested namespace (<C>finance.eu</C>) is not listed by the engine on this DuckDB
+          version.
         </li>
         <li>
           <strong>Over a private path.</strong> The engine calls the catalog itself, so a catalog on

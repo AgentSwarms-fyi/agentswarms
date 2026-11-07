@@ -108,6 +108,40 @@ describe("what the engine is told", () => {
     );
   });
 
+  // FOUND IN R458 against Apache Polaris: with the "optional" server URI left
+  // empty, the engine refused the secret, so every such OAuth2 catalog failed
+  // to attach. The secret now names the catalog's endpoint, from which the
+  // engine asks the REST spec's /v1/oauth/tokens.
+  it("gives an OAuth2 secret with no server URI the catalog's endpoint, which the engine accepts", async () => {
+    const cfg = cat({
+      auth_type: "oauth2",
+      client_id_secret: "A",
+      client_secret_secret: "B",
+      endpoint: "http://127.0.0.1:9/api/catalog/",
+    });
+    const sql = icebergSecretSql(alias, cfg, { client_id: "id", client_secret: "sec" })!;
+    expect(sql).toContain("ENDPOINT 'http://127.0.0.1:9/api/catalog')");
+    expect(sql).not.toContain("OAUTH2_SERVER_URI");
+    const { DuckDBInstance } = await import("@duckdb/node-api");
+    const c = await (await DuckDBInstance.create(":memory:")).connect();
+    try {
+      await c.run("LOAD iceberg");
+      // Without the endpoint: refused as a configuration error, before any call.
+      await expect(c.run(sql.replace(/, ENDPOINT '[^']*'/, ""))).rejects.toThrow(
+        /no 'oauth2_server_uri' was provided, and no 'endpoint'/,
+      );
+      // With it: the configuration passes, and the engine goes on to ask for a
+      // token at a port nothing listens on, which is a different failure.
+      const err = await c.run(sql).then(
+        () => null,
+        (e: Error) => e.message,
+      );
+      expect(err ?? "").not.toMatch(/no 'oauth2_server_uri' was provided/);
+    } finally {
+      c.closeSync();
+    }
+  }, 60_000);
+
   it("lists namespaces and tables through DuckDB's catalog functions (the attached catalog has no information_schema)", () => {
     expect(icebergListNamespacesSql(alias)).toContain(
       `FROM duckdb_schemas() WHERE database_name = '${alias}'`,

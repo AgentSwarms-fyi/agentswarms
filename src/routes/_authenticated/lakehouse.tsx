@@ -111,6 +111,7 @@ import {
   listLakehouseMatviews,
   profileLakehouseQuery,
   refreshLakehouseMatview,
+  deleteLakehouseMatview,
   saveLakehouseMatview,
   setLakehousePartitioning,
   estimateLakehousePartitioning,
@@ -947,6 +948,7 @@ function TableTab({
   const policyFn = useServerFn(getLakehousePolicy);
   const matviewsFn = useServerFn(listLakehouseMatviews);
   const refreshMvFn = useServerFn(refreshLakehouseMatview);
+  const forgetMvFn = useServerFn(deleteLakehouseMatview);
   const [refreshingMv, setRefreshingMv] = useState(false);
   const runFn = useServerFn(runLakehouseQuery);
   const [detail, setDetail] = useState<LakehouseTableDetail | null>(null);
@@ -1136,43 +1138,95 @@ function TableTab({
               title={
                 detail.sheet_owner
                   ? `Held by Sheets: only Sheets changes ${schema}.${table}, so it is not rebuilt here. Delete the sheet "${detail.sheet_owner.sheet}" in Sheets, and it can be.`
-                  : matview.last_refreshed_at
-                    ? `Last rebuilt ${new Date(matview.last_refreshed_at).toLocaleString()}`
-                    : "Never rebuilt"
+                  : `${
+                      matview.last_refreshed_at
+                        ? `Last refreshed ${new Date(matview.last_refreshed_at).toLocaleString()}`
+                        : "Never refreshed"
+                    }. Refresh appends the rows its table gained, or leaves it as it is when nothing it reads changed, and rebuilds otherwise; Rebuild recomputes every row.`
               }
             >
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={refreshingMv || !!detail.sheet_owner}
-                onClick={async () => {
-                  setRefreshingMv(true);
-                  try {
-                    const res = await refreshMvFn({
-                      data: { access_token: token, id: matview.id },
-                    });
-                    if (res.error) toast.error(`Rebuild failed: ${res.error}`);
-                    else toast.success(`Rebuilt — ${res.rows ?? 0} row(s) in ${res.ms} ms`);
-                    const views = await matviewsFn({ data: { access_token: token } });
-                    setMatview(
-                      views.find((v) => v.schema_name === schema && v.table_name === table) ?? null,
-                    );
-                    setDetail(await detailFn({ data: { access_token: token, schema, table } }));
-                  } catch (e) {
-                    toast.error((e as Error).message);
-                  } finally {
-                    setRefreshingMv(false);
-                  }
-                }}
-              >
-                {refreshingMv ? (
-                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <RefreshCw className="mr-1 h-3.5 w-3.5" />
-                )}
-                Rebuild
-              </Button>
+              {(["refresh", "rebuild"] as const).map((kind) => (
+                <Button
+                  key={kind}
+                  size="sm"
+                  variant={kind === "refresh" ? "outline" : "ghost"}
+                  data-testid={`matview-${kind}`}
+                  disabled={refreshingMv || !!detail.sheet_owner}
+                  onClick={async () => {
+                    setRefreshingMv(true);
+                    try {
+                      const res = await refreshMvFn({
+                        data: { access_token: token, id: matview.id, full: kind === "rebuild" },
+                      });
+                      const n = (res.rows ?? 0).toLocaleString();
+                      if (res.error) toast.error(`Refresh failed: ${res.error}`);
+                      else if (res.mode === "skip")
+                        toast.success(`Up to date: nothing it reads changed (${n} row(s))`, {
+                          description: `Checked in ${res.ms} ms; no rows written.`,
+                        });
+                      else if (res.mode === "append")
+                        toast.success(
+                          `Appended ${(res.appended ?? 0).toLocaleString()} new row(s), ${n} in all`,
+                          { description: `${res.why} (${res.ms} ms).` },
+                        );
+                      else
+                        toast.success(`Rebuilt: ${n} row(s) in ${res.ms} ms`, {
+                          description: res.why ? `Rebuilt because ${res.why}.` : undefined,
+                        });
+                      const views = await matviewsFn({ data: { access_token: token } });
+                      setMatview(
+                        views.find((v) => v.schema_name === schema && v.table_name === table) ??
+                          null,
+                      );
+                      setDetail(await detailFn({ data: { access_token: token, schema, table } }));
+                    } catch (e) {
+                      toast.error((e as Error).message);
+                    } finally {
+                      setRefreshingMv(false);
+                    }
+                  }}
+                >
+                  {kind === "refresh" &&
+                    (refreshingMv ? (
+                      <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="mr-1 h-3.5 w-3.5" />
+                    ))}
+                  {kind === "refresh" ? "Refresh" : "Rebuild"}
+                </Button>
+              ))}
             </span>
+          )}
+          {matview?.is_owner && (
+            // R458: the server could forget a view, but nothing in the app
+            // asked it to; a view could only be stopped by dropping its table.
+            <Button
+              size="sm"
+              variant="ghost"
+              data-testid="matview-forget"
+              disabled={refreshingMv}
+              onClick={async () => {
+                if (
+                  !(await confirmAsk({
+                    title: `Stop refreshing ${schema}.${table}?`,
+                    body: "The view's definition and schedule are removed. The table and its rows stay, as an ordinary table nothing refreshes.",
+                    actionLabel: "Stop refreshing",
+                  }))
+                )
+                  return;
+                try {
+                  await forgetMvFn({ data: { access_token: token, id: matview.id } });
+                  toast.success(
+                    `${schema}.${table} is an ordinary table now; nothing refreshes it`,
+                  );
+                  setMatview(null);
+                } catch (e) {
+                  toast.error((e as Error).message);
+                }
+              }}
+            >
+              Stop refreshing
+            </Button>
           )}
           <PolicyDialog
             schema={schema}
@@ -1230,7 +1284,11 @@ function TableTab({
                 if (
                   !(await confirmAsk({
                     title: `Drop table ${schema}.${table}?`,
-                    body: "The table's rows and its Parquet files go, along with the lakehouse's own record of them. Its entry in the Data Catalog stays until the next crawl. This cannot be undone.",
+                    body: `The table's rows and its Parquet files go, along with the lakehouse's own record of them.${
+                      matview?.is_owner
+                        ? " It is a materialized view: its definition and schedule go too, so nothing rebuilds it."
+                        : ""
+                    } Its entry in the Data Catalog stays until the next crawl. This cannot be undone.`,
                     actionLabel: "Drop table",
                   }))
                 )
@@ -1489,9 +1547,9 @@ function SaveMatviewDialog({ sql, onSaved }: { sql: string; onSaved: () => void 
         </DialogHeader>
         <div className="space-y-3">
           <p className="text-xs text-muted-foreground">
-            The answer is stored as a real table and rebuilt on the schedule you pick. Queries then
-            read the stored rows instead of recomputing — the usual reason a dashboard goes from
-            seconds to instant.
+            The answer is stored as a real table and refreshed on the schedule you pick. Queries
+            then read the stored rows instead of recomputing — the usual reason a dashboard goes
+            from seconds to instant.
           </p>
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">
@@ -1520,7 +1578,7 @@ function SaveMatviewDialog({ sql, onSaved }: { sql: string; onSaved: () => void 
             </div>
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-medium">Rebuild</label>
+            <label className="text-xs font-medium">Refresh</label>
             <div className="flex gap-1.5">
               {(["manual", "hourly", "daily", "weekly"] as const).map((opt) => (
                 <Button
@@ -1535,9 +1593,10 @@ function SaveMatviewDialog({ sql, onSaved }: { sql: string; onSaved: () => void 
               ))}
             </div>
             <p className="text-[11px] text-muted-foreground">
-              Rebuilding replaces the table in one commit, so readers see the old rows until the new
-              ones are ready — never a half-built table. A rebuild that fails leaves the previous
-              data in place.
+              A refresh leaves the table as it is when nothing it reads has changed, appends only
+              the new rows when its one table only gained some, and otherwise rebuilds it. Each
+              lands in one commit, so readers never see a half-built table, and one that fails
+              leaves the previous data in place.
             </p>
           </div>
           <Button

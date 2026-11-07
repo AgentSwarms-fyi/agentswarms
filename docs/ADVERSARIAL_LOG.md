@@ -109,6 +109,35 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-08 — R458: the gaps R457 left open, closed where they could be
+
+**Why this round.** Asked whether everything was now good and gap-free: it was not, and
+the ask was to close every gap that could be closed. `docs/LAKEHOUSE_ASSESSMENT.md` lists
+what was closed and what each remaining gap is waiting for. UI record:
+`docs/UI_TEST_RESULTS.md`.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| An OAuth2 catalog without its "optional" server URI never attached | S2 | The engine refused the secret ("no 'oauth2_server_uri' was provided, and no 'endpoint' was provided to fall back on"), made apart from the ATTACH that names the endpoint. Found by the first test against a production catalog, Apache Polaris 1.8.0; the reference fixture R457 used needs no OAuth2 |
+| A VARIANT column came back from a Python pipeline as something else | S3 | Staged from a frame of dicts, it landed as a STRUCT, or a MAP of strings when the payloads differed in shape. R457 documented it; R458 fixed it |
+| Every refresh rebuilt every view | S3 | An hourly view over a table nobody had touched since yesterday rewrote all its rows and left a snapshot, twenty-four times a day |
+| *New code:* a SQL NULL in a document column became a VARIANT holding null | S3 | `payload IS NULL` stopped finding it. Caught by the test before it shipped |
+| *New code:* the parse tree's integers rounded through `JSON.parse` | S2 | 18446744073709551615 ("no location") and a user's BIGINT literal round as doubles; the statement printed back would compare against a different number. The engine refused the rounded location, which is how it showed; a rounded literal would not have failed, only answered wrongly |
+| *New code:* the Refresh and Rebuild buttons carried their own titles | S4 | R274's rule (a disabled button shows no title, so the reason goes on its wrapper) was broken by the new buttons; the source test caught it |
+
+**What would have been wrong to conclude.**
+
+- *"Polaris vends credentials, so the app's vended path works against MinIO."* Polaris
+  1.8 asks the store's STS for a session policy with a KMS key resource, which a
+  MinIO-style store refuses; `"kmsUnavailable": true` on the catalog's storage config is
+  what makes it work there. That is Polaris's configuration, not the app's.
+- *"Serve DuckLake tables over Iceberg REST."* A DuckLake snapshot can reference part of
+  a file and hold rows inlined in its catalog; Iceberg metadata cannot describe either,
+  and DuckLake has no supported export. A served table is a copy, which Publish makes.
+- *"The view list failed, so the UI hid a broken view."* One reload hit a passing
+  network error reaching the hosted database; the page said so in a toast, and the next
+  load was fine.
+
 ### 2026-11-07 — R457: an Iceberg mount was a black box, and a table's history was the lakehouse's
 
 **Why this round.** The ask was to make the lakehouse and its Iceberg support current

@@ -35,17 +35,17 @@ export function matviewBadge(
   mv: MatviewState,
   when: (iso: string) => string = (iso) => new Date(iso).toLocaleString(),
 ): MatviewBadge {
-  const cadence = mv.schedule === "manual" ? "materialized" : `rebuilt ${mv.schedule}`;
+  const cadence = mv.schedule === "manual" ? "materialized" : `refreshed ${mv.schedule}`;
   if (mv.last_status !== "error") {
-    return { label: cadence, failed: false, title: `Rebuilt ${mv.schedule}`, note: null };
+    return { label: cadence, failed: false, title: `Refreshed ${mv.schedule}`, note: null };
   }
   const reason = firstSentence(mv.last_error) || "No reason was recorded.";
   return {
-    label: "last rebuild failed",
+    label: "last refresh failed",
     failed: true,
-    title: `Last rebuild failed: ${mv.last_error ?? ""}`,
+    title: `Last refresh failed: ${mv.last_error ?? ""}`,
     note: mv.last_refreshed_at
-      ? `${reason} These rows are from the rebuild of ${when(mv.last_refreshed_at)}.`
+      ? `${reason} These rows are from the refresh of ${when(mv.last_refreshed_at)}.`
       : `${reason} The view has never been built.`,
   };
 }

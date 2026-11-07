@@ -264,10 +264,11 @@ function EtlDocsPage() {
       </Callout>
       <Callout kind="info" title="Iceberg mounts and VARIANT columns">
         A mounted Iceberg table is a Lakehouse table source like any other: the app reads its live
-        rows, deletion vectors applied. A VARIANT column reaches Python as dicts, and written back
-        to a lakehouse target it lands as a STRUCT, or a MAP of strings when the payloads differ in
-        shape, not as VARIANT: keep it out of a target, or cast it in a SQL transform to the shape
-        the target should have. See <DocLink to="/docs/lakehouse">Lakehouse</DocLink>.
+        rows, deletion vectors applied. A VARIANT column reaches Python as dicts and lists and goes
+        back to a lakehouse target as a VARIANT, each row keeping its own shape (or as the type the
+        target column already has); a NULL stays a NULL. A column the pipeline renames, or builds
+        from dicts itself, is staged as before. See{" "}
+        <DocLink to="/docs/lakehouse">Lakehouse</DocLink>.
       </Callout>
       <Callout kind="warn" title="Spark lakehouse targets need the catalog on the kernel's network">
         On the Spark engine, a pipeline whose target is a lakehouse table attaches the catalog from
