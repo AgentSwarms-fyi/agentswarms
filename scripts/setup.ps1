@@ -221,8 +221,11 @@ if ($Dev) { Say "Installing dependencies"; npm install }
 
 # ── 4. database migrations ────────────────────────────────────────────────────
 if (-not $SkipMigrations) {
-  Say "Applying database migrations (npx supabase db push)"
-  npx --yes supabase db push
+  # The CLI this script was last proved against. 3.0.0 changed what a bare
+  # `db push` targets, so a new install takes this rather than "latest".
+  $supabaseCli = if ($env:SUPABASE_CLI_VERSION) { $env:SUPABASE_CLI_VERSION } else { "3.0.0" }
+  Say "Applying database migrations (supabase db push, CLI $supabaseCli)"
+  npx --yes "supabase@$supabaseCli" db push --remote
   if ($LASTEXITCODE -ne 0) {
     Warn "Could not push migrations - link the project first, then re-run:"
     Write-Host "    npx supabase login"

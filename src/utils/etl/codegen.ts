@@ -508,6 +508,22 @@ const READERS: Record<SourceFileFormat, string> = {
   xlsx: "pd.read_excel(f)",
 };
 
+/**
+ * A partitioned folder is cataloged as one table whose fqn is a recursive glob,
+ * and its partition values are in the paths, not in the files. A frame read
+ * from one file has to take them from there, or a table the catalog lists with
+ * `dt` and `region` reaches the pipeline without them.
+ */
+const PARTITION_READER = [
+  `    from urllib.parse import unquote`,
+  `    def _with_partitions(df, key):`,
+  `        for seg in key.split('/')[:-1]:`,
+  `            name, sep, value = seg.partition('=')`,
+  `            if sep and name and name not in df.columns:`,
+  `                df[name] = None if value == '__HIVE_DEFAULT_PARTITION__' else unquote(value)`,
+  `        return df`,
+];
+
 /** A source node's config as the compiler sees it: a catalog asset is what it resolved to. */
 function effectiveConfig(n: EtlNode): Record<string, unknown> {
   const c = n.config as { type?: string };
@@ -642,8 +658,11 @@ export function sourceFn(node: EtlNode): string {
     ].join("\n");
   }
   if (c.type === "object_storage") {
+    const partitioned = (c.path ?? "").includes("/**/");
+    const read = partitioned ? `_with_partitions(${READERS[c.format]}, k)` : READERS[c.format];
     return [
       head,
+      ...(partitioned ? PARTITION_READER : []),
       `    import fsspec`,
       `    fs = fsspec.filesystem(`,
       `        's3',`,
@@ -697,7 +716,7 @@ export function sourceFn(node: EtlNode): string {
             `    frames = []`,
             `    for k in keys:`,
             `        with fs.open(k, 'rb', compression='infer') as f:`,
-            `            frames.append(${READERS[c.format]})`,
+            `            frames.append(${read})`,
             `    if frames:`,
             `        out = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]`,
             `        _top = max(m for (m, k) in _new)`,
@@ -712,7 +731,7 @@ export function sourceFn(node: EtlNode): string {
             `    frames = []`,
             `    for k in keys:`,
             `        with fs.open(k, 'rb', compression='infer') as f:`,
-            `            frames.append(${READERS[c.format]})`,
+            `            frames.append(${read})`,
             `    out = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]`,
           ]),
       ...(c.incremental?.cursor_column

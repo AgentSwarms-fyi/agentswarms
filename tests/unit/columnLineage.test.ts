@@ -274,8 +274,8 @@ describe("the wiring", () => {
   });
 
   it("the catalog loads the flag and the drawer shows columns apart from tables", () => {
-    expect(rd("src/lib/dataCatalog.ts")).toContain(
-      '.select("upstream_fqn, downstream_fqn, upstream_column, downstream_column, exact")',
+    expect(rd("src/lib/dataCatalog.ts")).toMatch(
+      /"upstream_fqn, downstream_fqn, upstream_column, downstream_column, exact\b/,
     );
     const view = rd("src/components/catalog/CatalogView.tsx");
     expect(view).toContain("Column lineage");

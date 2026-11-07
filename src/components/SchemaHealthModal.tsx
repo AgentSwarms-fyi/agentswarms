@@ -18,7 +18,7 @@ type Command = { command: string; description: string; danger?: boolean };
 
 const COMMANDS: Command[] = [
   {
-    command: "npx supabase db push",
+    command: "npx supabase db push --remote",
     description:
       "Recommended. Pushes local migration files (supabase/migrations) to your linked project.",
   },

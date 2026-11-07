@@ -323,7 +323,7 @@ git clone https://github.com/AgentSwarms-fyi/agentswarms.git
 cd agentswarms
 npm install
 cp .env.example .env   # fill in your Supabase + provider keys
-# apply the database schema once: npx supabase login && npx supabase link && npx supabase db push
+# apply the database schema once: npx supabase login && npx supabase link && npx supabase db push --remote
 npm run dev            # → http://localhost:8080
 ```
 

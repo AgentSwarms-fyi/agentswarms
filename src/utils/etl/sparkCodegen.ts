@@ -486,11 +486,15 @@ function storageSource(node: EtlNode, c: Extract<EtlSourceConfig, { type: "objec
       `Source "${node.label || node.id}" reads only new files, which the sandbox engine does; the Spark engine reads the whole prefix. Turn it off, or run this pipeline on the sandbox engine.`,
     );
   }
+  // A partitioned folder is cataloged as a recursive glob, which Hadoop's glob
+  // does not have: `**` matches one level, so two levels of partitions match
+  // nothing. Spark finds partition columns itself when it reads the folder.
+  const path = (c.path ?? "").replace(/\/\*\*\/\*\.[a-z0-9]+$/i, "/");
   return [
     `def _src_${node.id}():`,
     `    _sp = _spark()`,
     `    _base = os.environ['${key}_BUCKET'].rstrip('/')`,
-    `    _p = 's3a://' + _base + '/' + ${pyStr(c.path)}.lstrip('/')`,
+    `    _p = 's3a://' + _base + '/' + ${pyStr(path)}.lstrip('/')`,
     `    _r = _sp.read.options(**_s3_options('${key}'))`,
     `    _sdf = ${SPARK_READ[c.format]}`,
     ...(c.incremental?.cursor_column

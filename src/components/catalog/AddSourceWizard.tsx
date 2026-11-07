@@ -7,16 +7,19 @@
 // first crawl runs inside the wizard so the user leaves with a populated
 // catalog or a clear error.
 import { useEffect, useState } from "react";
+import { parseMetastoreUri } from "@/lib/hiveMetastoreUri";
 import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import {
   ArrowLeft,
   ArrowRight,
+  Boxes,
   Check,
   Cloud,
   Database,
   HardDrive,
+  Hexagon,
   Loader2,
   Radar,
   Server,
@@ -41,6 +44,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
+import { isAwsRegion } from "@/lib/awsRegion";
 import { validatorErrorText } from "@/lib/validatorError";
 import { catalogCreateSource, catalogCrawlSource } from "@/utils/catalog.functions";
 import { sourceNameProblem } from "@/utils/catalog/sourceName";
@@ -137,7 +141,11 @@ type CrawlResult = {
   duration_ms: number;
   /** Parts of the catalog the crawl could not read (R369). */
   unread?: number;
+  /** A caveat on this crawl, in a sentence. */
+  note?: string;
 };
+
+type SourceKind = "warehouse" | "object_storage" | "iceberg_rest" | "hive_metastore" | "glue";
 
 export function AddSourceWizard({
   open,
@@ -156,7 +164,7 @@ export function AddSourceWizard({
   const listWhFn = useServerFn(listWarehouseConnections);
 
   const [step, setStep] = useState<"type" | "configure" | "crawl">("type");
-  const [kind, setKind] = useState<"warehouse" | "object_storage" | "iceberg_rest">("warehouse");
+  const [kind, setKind] = useState<SourceKind>("warehouse");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState<"idle" | "connecting" | "crawling" | "done">("idle");
@@ -171,6 +179,17 @@ export function AddSourceWizard({
   // Warehouse config
   const [connections, setConnections] = useState<WarehouseConnectionSummary[] | null>(null);
   const [connectionId, setConnectionId] = useState("");
+
+  // Hive Metastore config
+  const [hiveUri, setHiveUri] = useState("");
+  const [hiveRequirePrivate, setHiveRequirePrivate] = useState(false);
+
+  // AWS Glue config
+  const [glueRegion, setGlueRegion] = useState("us-east-1");
+  const [glueKey, setGlueKey] = useState("");
+  const [glueSecret, setGlueSecret] = useState("");
+  const [glueEndpoint, setGlueEndpoint] = useState("");
+  const [glueCatalogId, setGlueCatalogId] = useState("");
 
   // Object storage config
   const [provider, setProvider] = useState<StorageProvider>("aws");
@@ -188,16 +207,40 @@ export function AddSourceWizard({
   const [icebergWarehouse, setIcebergWarehouse] = useState("");
   const [icebergToken, setIcebergToken] = useState("");
 
+  // This component outlives the dialog, and so do its fields. A secret left in
+  // one would be in memory after the dialog closed and sitting in the next
+  // source's form, so secrets go as soon as it closes and the rest on opening.
   useEffect(() => {
+    setSecretKey("");
+    setGlueSecret("");
+    setIcebergToken("");
     if (!open) return;
     setStep("type");
+    setKind("warehouse");
     setPhase("idle");
     setResult(null);
     setCrawlError(null);
     setReachedVia(null);
-    setRequirePrivate(false);
+    setConnectError(null);
     setName("");
     setBusy(false);
+    setConnectionId("");
+    setHiveUri("");
+    setHiveRequirePrivate(false);
+    setGlueRegion("us-east-1");
+    setGlueKey("");
+    setGlueEndpoint("");
+    setGlueCatalogId("");
+    setProvider("aws");
+    setEndpoint("");
+    setRegion("us-east-1");
+    setBucket("");
+    setPrefix("");
+    setAccessKey("");
+    setPathStyle(false);
+    setRequirePrivate(false);
+    setIcebergUri("");
+    setIcebergWarehouse("");
   }, [open]);
 
   useEffect(() => {
@@ -218,6 +261,8 @@ export function AddSourceWizard({
 
   // The server's rule, checked here so it is read beside the field (sourceName.ts).
   const nameProblem = sourceNameProblem(name);
+  const hiveAddress = parseMetastoreUri(hiveUri);
+  const glueRegionOk = isAwsRegion(glueRegion.trim());
   const configValid =
     name.trim().length > 0 &&
     nameProblem === null &&
@@ -225,11 +270,15 @@ export function AddSourceWizard({
       ? connectionId !== ""
       : kind === "iceberg_rest"
         ? /^https?:\/\//.test(icebergUri.trim())
-        : bucket.trim() !== "" &&
-          region.trim() !== "" &&
-          accessKey.trim() !== "" &&
-          secretKey !== "" &&
-          (provider === "aws" || endpoint.trim() !== ""));
+        : kind === "hive_metastore"
+          ? hiveAddress.ok
+          : kind === "glue"
+            ? glueRegionOk && glueKey.trim() !== "" && glueSecret !== ""
+            : bucket.trim() !== "" &&
+              region.trim() !== "" &&
+              accessKey.trim() !== "" &&
+              secretKey !== "" &&
+              (provider === "aws" || endpoint.trim() !== ""));
 
   async function connectAndCrawl() {
     setBusy(true);
@@ -264,6 +313,20 @@ export function AddSourceWizard({
                   token: icebergToken.trim() || undefined,
                 }
               : undefined,
+          hive:
+            kind === "hive_metastore"
+              ? { uri: hiveUri.trim(), require_private: hiveRequirePrivate || undefined }
+              : undefined,
+          glue:
+            kind === "glue"
+              ? {
+                  region: glueRegion.trim(),
+                  access_key_id: glueKey.trim(),
+                  secret_access_key: glueSecret,
+                  endpoint: glueEndpoint.trim() || undefined,
+                  catalog_id: glueCatalogId.trim() || undefined,
+                }
+              : undefined,
         },
       });
       if (!created.ok) throw new Error(created.error);
@@ -296,12 +359,7 @@ export function AddSourceWizard({
     }
   }
 
-  const typeCard = (
-    k: "warehouse" | "object_storage" | "iceberg_rest",
-    icon: React.ReactNode,
-    title: string,
-    desc: string,
-  ) => (
+  const typeCard = (k: SourceKind, icon: React.ReactNode, title: string, desc: string) => (
     <button
       type="button"
       onClick={() => setKind(k)}
@@ -347,13 +405,25 @@ export function AddSourceWizard({
                 "object_storage",
                 <Cloud className="h-4 w-4" />,
                 "Object storage bucket",
-                "Amazon S3 or any S3-compatible store (R2, MinIO, Spaces, B2). CSV/JSON schemas are inferred by sampling.",
+                "Amazon S3 or any S3-compatible store (R2, MinIO, Spaces, B2). Understands partitioned folders and Delta, Iceberg and Hudi tables.",
               )}
               {typeCard(
                 "iceberg_rest",
                 <Database className="h-4 w-4" />,
                 "Iceberg REST catalog",
                 "Apache Iceberg REST catalog (Polaris, Unity, Nessie, Lakekeeper…). Namespaces, tables and schemas — query via Trino/Athena.",
+              )}
+              {typeCard(
+                "hive_metastore",
+                <Hexagon className="h-4 w-4" />,
+                "Hive Metastore",
+                "Any Hive Metastore, the catalog behind Spark, Trino and Flink on a lake. Databases, tables, partitions, locations and views are read over Thrift. Metadata only.",
+              )}
+              {typeCard(
+                "glue",
+                <Boxes className="h-4 w-4" />,
+                "AWS Glue Data Catalog",
+                "The catalog behind Athena, EMR and Redshift Spectrum. Databases, tables and partitions are read with a read-only key. Metadata only.",
               )}
             </div>
             <div className="flex justify-end">
@@ -419,6 +489,124 @@ export function AddSourceWizard({
                   </Link>
                   .
                 </p>
+              </div>
+            ) : kind === "glue" ? (
+              <div className="space-y-2.5">
+                <div className="space-y-1.5">
+                  <Label className="text-xs" htmlFor="glue-region">
+                    Region
+                  </Label>
+                  <Input
+                    id="glue-region"
+                    value={glueRegion}
+                    onChange={(e) => setGlueRegion(e.target.value)}
+                    className="h-9 font-mono text-xs"
+                    placeholder="us-east-1"
+                    aria-invalid={glueRegion.trim() !== "" && !glueRegionOk}
+                  />
+                  {glueRegion.trim() !== "" && !glueRegionOk ? (
+                    <p className="text-[11px] text-destructive">
+                      That is not an AWS region. For example: eu-west-1.
+                    </p>
+                  ) : null}
+                </div>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs" htmlFor="glue-key">
+                      Access key id
+                    </Label>
+                    <Input
+                      id="glue-key"
+                      value={glueKey}
+                      onChange={(e) => setGlueKey(e.target.value)}
+                      className="h-9 font-mono text-xs"
+                      placeholder="AKIA… or {{secret:NAME}}"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs" htmlFor="glue-secret">
+                      Secret access key
+                    </Label>
+                    <Input
+                      id="glue-secret"
+                      type="password"
+                      value={glueSecret}
+                      onChange={(e) => setGlueSecret(e.target.value)}
+                      className="h-9 text-sm"
+                      placeholder="Stored encrypted"
+                    />
+                  </div>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  The key needs only <code>glue:GetDatabases</code>, <code>glue:GetTables</code> and{" "}
+                  <code>glue:GetPartitions</code>. This server&rsquo;s own AWS role is never used
+                  here.
+                </p>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs" htmlFor="glue-endpoint">
+                      VPC endpoint (optional)
+                    </Label>
+                    <Input
+                      id="glue-endpoint"
+                      value={glueEndpoint}
+                      onChange={(e) => setGlueEndpoint(e.target.value)}
+                      className="h-9 font-mono text-xs"
+                      placeholder="https://vpce-….glue…"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs" htmlFor="glue-catalog">
+                      Catalog id (optional)
+                    </Label>
+                    <Input
+                      id="glue-catalog"
+                      value={glueCatalogId}
+                      onChange={(e) => setGlueCatalogId(e.target.value)}
+                      className="h-9 font-mono text-xs"
+                      placeholder="Another account's id"
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : kind === "hive_metastore" ? (
+              <div className="space-y-2.5">
+                <div className="space-y-1.5">
+                  <Label className="text-xs" htmlFor="hive-uri">
+                    Metastore URI
+                  </Label>
+                  <Input
+                    id="hive-uri"
+                    value={hiveUri}
+                    onChange={(e) => setHiveUri(e.target.value)}
+                    className="h-9 font-mono text-xs"
+                    placeholder="thrift://hms.internal:9083"
+                    aria-invalid={hiveUri.trim() !== "" && !hiveAddress.ok}
+                  />
+                  {hiveUri.trim() !== "" && !hiveAddress.ok ? (
+                    <p className="text-[11px] text-destructive">{hiveAddress.error}</p>
+                  ) : (
+                    <p className="text-[11px] text-muted-foreground">
+                      The value of <code>hive.metastore.uris</code> in hive-site.xml. A crawl only
+                      reads: it sends no call that could change the metastore. Kerberos-secured
+                      metastores are not supported.
+                    </p>
+                  )}
+                </div>
+                <label className="flex items-start gap-2 text-xs">
+                  <Checkbox
+                    className="mt-0.5"
+                    checked={hiveRequirePrivate}
+                    onCheckedChange={(v) => setHiveRequirePrivate(v === true)}
+                  />
+                  <span>
+                    <span className="font-medium">Require a private network path</span>
+                    <span className="block text-[11px] text-muted-foreground">
+                      Refuse every call unless the host resolves only to private addresses from this
+                      server.
+                    </span>
+                  </span>
+                </label>
               </div>
             ) : kind === "iceberg_rest" ? (
               <div className="space-y-2.5">
@@ -612,6 +800,10 @@ export function AddSourceWizard({
               <p className="flex items-center gap-2 font-medium">
                 {kind === "object_storage" ? (
                   <HardDrive className="h-3.5 w-3.5 text-primary" />
+                ) : kind === "hive_metastore" ? (
+                  <Hexagon className="h-3.5 w-3.5 text-primary" />
+                ) : kind === "glue" ? (
+                  <Boxes className="h-3.5 w-3.5 text-primary" />
                 ) : (
                   <Database className="h-3.5 w-3.5 text-primary" />
                 )}
@@ -620,10 +812,14 @@ export function AddSourceWizard({
               <p className="mt-1 text-muted-foreground">
                 {kind === "warehouse"
                   ? `${connections?.find((c) => c.id === connectionId)?.name ?? "Connection"} — every schema and table will be cataloged with column types and row estimates.`
-                  : kind === "iceberg_rest"
-                    ? // It described an S3 bucket here, with an empty path (R368).
-                      `${icebergUri.trim()} — its namespaces and tables are listed (up to 300 namespaces and 1,000 tables), each with the columns of its current schema.`
-                    : `${provider === "azure" ? "az" : "s3"}://${bucket}/${prefix} — objects are listed (up to 2,000), partitioned folders are grouped into datasets, and CSV/JSON files are sampled to infer columns.`}
+                  : kind === "hive_metastore"
+                    ? `${hiveAddress.ok ? `${hiveAddress.host}:${hiveAddress.port}` : hiveUri.trim()} — its databases, tables and partitions are read. Nothing is changed.`
+                    : kind === "glue"
+                      ? `The Glue Data Catalog in ${glueRegion.trim()} — its databases, tables and partitions are read. Nothing is changed.`
+                      : kind === "iceberg_rest"
+                        ? // It described an S3 bucket here, with an empty path (R368).
+                          `${icebergUri.trim()} — its namespaces and tables are listed (up to 300 namespaces and 1,000 tables), each with the columns of its current schema.`
+                        : `${provider === "azure" ? "az" : "s3"}://${bucket}/${prefix} — objects are listed (up to 50,000), a partitioned folder becomes one table, Delta, Iceberg and Hudi tables are read from their own metadata, and data files are sampled to infer columns.`}
               </p>
             </div>
 
@@ -659,8 +855,8 @@ export function AddSourceWizard({
                     ) : null}
                     {result?.unread ? (
                       <p className="text-xs text-amber-600 dark:text-amber-400">
-                        {result.unread} part(s) of the catalog could not be read and are not listed
-                        yet. Re-crawl the source once they can be.
+                        {result.note ??
+                          `${result.unread} part(s) of the catalog could not be read and are not listed yet. Re-crawl the source once they can be.`}
                       </p>
                     ) : null}
                   </>

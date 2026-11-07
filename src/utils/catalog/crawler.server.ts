@@ -11,6 +11,8 @@
 // can surface classification at a glance. Crawls are bounded (object,
 // sample and byte caps) so a huge bucket cannot wedge the server.
 import { describeFetchFailure } from "@/lib/fetchFailure";
+import { parseAssetMetadata, type AssetMetadata } from "@/lib/catalogAssetMetadata";
+import { diffColumns } from "@/lib/catalogSchemaDiff";
 import { createHash } from "node:crypto";
 import zlib from "node:zlib";
 
@@ -31,7 +33,7 @@ import {
   computeColumnStats,
   fileFormat,
   inferColumns,
-  listObjects,
+  listObjectsCapped,
   objectExt,
   objectStoreCredentialFields,
   objectStoreHosts,
@@ -40,7 +42,17 @@ import {
   type ObjectStoreConfig,
   type StoredObject,
 } from "./objectStore.server";
-import { countObjectRows, describeObject, duckReadableFormat } from "./objectStoreRead.server";
+import {
+  countObjectRows,
+  countParquetRows,
+  describeObject,
+  duckReadableFormat,
+} from "./objectStoreRead.server";
+import { crawlHiveMetastore } from "./hive/crawl.server";
+import { crawlGlue, glueHosts, type GlueConfig } from "./hive/glue.server";
+import type { HiveMetastoreConfig } from "./hive/metastore.server";
+import { owningRoot, splitPartitionDir, tableFormatRoots, type TableFormat } from "./lakeLayout";
+import { readTableFormat } from "./tableFormats.server";
 
 /**
  * DuckDB's type names, reduced to the catalog's vocabulary.
@@ -64,8 +76,23 @@ export function duckTypeToCatalogType(t: string): string {
   return "string";
 }
 
-const MAX_OBJECTS = 2000;
+/**
+ * Objects one crawl lists. Hive-partitioned lakes run to many files per table,
+ * so this is a memory bound and not a sampling choice. A listing that stops
+ * here says so, and removes nothing (see runCrawl).
+ */
+function maxObjects(): number {
+  const n = Number.parseInt(process.env.CATALOG_MAX_OBJECTS ?? "", 10);
+  return Number.isFinite(n) && n > 0 ? n : 50_000;
+}
 const MAX_SAMPLES = 20;
+
+/**
+ * Parquet files whose footers a crawl will read for an exact count. Each is a
+ * ranged read, so past this a table's count is scaled from its largest file
+ * and marked as an estimate.
+ */
+const MAX_PARQUET_FOOTERS = 500;
 const SAMPLE_BYTES = 128 * 1024;
 /** Warehouse tables profiled per crawl (one LIMIT-200 preview query each). */
 const PROFILE_TABLE_CAP = 15;
@@ -88,6 +115,8 @@ export type CatalogColumn = {
   distinct_count?: number;
   min?: number;
   max?: number;
+  /** A partition key: a directory in the path, not a value in the files. */
+  partition?: boolean;
 };
 
 /** Fingerprint of the column set, for schema-drift detection. */
@@ -116,6 +145,8 @@ export type CrawledAsset = {
   /** External-catalog tags (e.g. Unity Catalog table tags). Seeds tags on
    *  first discovery only. */
   tags?: string[];
+  /** Where it lives and how it is laid out. Crawler-owned: replaced every crawl. */
+  metadata?: AssetMetadata;
 };
 
 export type CrawlChanges = {
@@ -135,6 +166,8 @@ export type CrawlStats = {
    * from them is kept as it was, not taken for removed.
    */
   unread?: number;
+  /** A caveat on this crawl, in a sentence for whoever reads the result. */
+  note?: string;
 };
 
 // ── PII classification (column-name heuristics) ──────────────────────────
@@ -401,9 +434,18 @@ export async function crawlWarehouse(
 // ── Object storage crawling ──────────────────────────────────────────────
 
 type ObjectGroup = {
+  /** The folder, or for a partitioned or table-format group, the table's root. */
   dir: string;
   format: string | null;
   objects: StoredObject[];
+  /** Hive partition keys under `dir`, in path order. */
+  partitionKeys?: string[];
+  /** The distinct partition folders seen, to count them. */
+  partitions?: Set<string>;
+  /** Set when `dir` is a Delta, Iceberg or Hudi table. */
+  tableFormat?: TableFormat;
+  /** A table format's own files: its log, its manifests. */
+  metadataObjects?: StoredObject[];
 };
 
 /**
@@ -431,13 +473,38 @@ export function isMetadataPath(key: string): boolean {
 
 export function groupObjects(objects: StoredObject[]): ObjectGroup[] {
   const groups = new Map<string, ObjectGroup>();
+  // Read before anything is discarded: a table format's markers are exactly
+  // the paths isMetadataPath calls bookkeeping.
+  const tables = tableFormatRoots(objects.map((o) => o.key));
   for (const o of objects) {
+    const root = owningRoot(o.key, tables);
+    if (root !== undefined) {
+      const tableFormat = tables.get(root)!;
+      const gk = `\u0001${root}`;
+      const g: ObjectGroup = groups.get(gk) ?? {
+        dir: root,
+        format: tableFormat,
+        objects: [],
+        tableFormat,
+        metadataObjects: [],
+      };
+      if (isMetadataPath(o.key)) g.metadataObjects!.push(o);
+      else g.objects.push(o);
+      groups.set(gk, g);
+      continue;
+    }
     if (isMetadataPath(o.key)) continue;
     const slash = o.key.lastIndexOf("/");
     const dir = slash === -1 ? "" : o.key.slice(0, slash);
     const format = fileFormat(o.key);
-    const gk = `${dir} ${format ?? "other"}`;
-    const g = groups.get(gk) ?? { dir, format, objects: [] };
+    const { root: tableDir, keys } = splitPartitionDir(dir);
+    // Keyed by the root and the format alone. Two depths of partitioning under
+    // one root (dt=1/ and dt=2/hour=3/) are one table, and two groups here
+    // would write the same fqn twice.
+    const gk = `${tableDir}\u0000${format ?? "other"}`;
+    const g = groups.get(gk) ?? { dir: tableDir, format, objects: [] };
+    if (keys.length > (g.partitionKeys?.length ?? 0)) g.partitionKeys = keys;
+    if (keys.length > 0) (g.partitions ??= new Set()).add(dir);
     g.objects.push(o);
     groups.set(gk, g);
   }
@@ -451,8 +518,11 @@ export function groupObjects(objects: StoredObject[]): ObjectGroup[] {
  * bare file at the bucket root stays a plain file asset.
  */
 export function isDatasetGroup(g: ObjectGroup): boolean {
-  return g.format !== null && (g.objects.length > 1 || g.dir !== "");
+  if (g.tableFormat) return true;
+  return g.format !== null && (g.objects.length > 1 || g.dir !== "" || isPartitioned(g));
 }
+
+const isPartitioned = (g: ObjectGroup) => (g.partitionKeys?.length ?? 0) > 0;
 
 /**
  * The extension a dataset's glob must carry.
@@ -480,7 +550,12 @@ function groupExt(g: ObjectGroup): string | null {
  * over a folder holding `<load>.jsonl.gz` is a catalog entry nothing can open.
  */
 export function datasetFqn(g: ObjectGroup): string {
-  return isDatasetGroup(g) ? `${g.dir || "."}/*.${groupExt(g)}` : g.objects[0].key;
+  // The table's folder, with no glob: there is no set of files to name, since
+  // which files are live is the table's own log's business. Nothing that
+  // reads a glob can pick this up and answer with superseded rows.
+  if (g.tableFormat) return `${g.dir || "."}/`;
+  if (!isDatasetGroup(g)) return g.objects[0].key;
+  return `${g.dir || "."}/${isPartitioned(g) ? "**/" : ""}*.${groupExt(g)}`;
 }
 
 /**
@@ -532,15 +607,18 @@ export function estimateRows(
 }
 
 /** Prior crawl state for incremental sampling: fqn → reusable metadata. */
-export type PriorAssets = Map<string, { columns: CatalogColumn[]; row_count: number | null }>;
+export type PriorAssets = Map<
+  string,
+  { columns: CatalogColumn[]; row_count: number | null; row_count_estimated?: boolean }
+>;
 
 export async function crawlObjectStorage(
   cfg: ObjectStoreConfig,
   prior?: PriorAssets,
   /** Objects unchanged since this ISO timestamp reuse prior schema without re-sampling. */
   since?: string | null,
-): Promise<{ assets: CrawledAsset[]; sampled: number }> {
-  const objects = await listObjects(cfg, MAX_OBJECTS);
+): Promise<{ assets: CrawledAsset[]; sampled: number; capped: boolean }> {
+  const { objects, capped } = await listObjectsCapped(cfg, maxObjects());
   const groups = groupObjects(objects);
   // Sample the biggest groups/files first — they carry the real datasets.
   const ranked = [...groups].sort(
@@ -556,11 +634,18 @@ export async function crawlObjectStorage(
   for (const g of groups) {
     const totalSize = g.objects.reduce((s, o) => s + o.size, 0);
     const isDataset = isDatasetGroup(g);
+    if (g.tableFormat) {
+      const mayRead = sampleBudget.has(g) && sampled < MAX_SAMPLES;
+      assets.push(await tableFormatAsset(cfg, g, totalSize, mayRead, prior));
+      if (mayRead) sampled++;
+      continue;
+    }
     // Sample the largest object of the group for schema inference —
     // unless the group is unchanged since the last crawl and we already
     // hold its inferred schema (incremental crawl: no GETs re-issued).
     let inferred: InferredColumn[] = [];
     let rowEstimate: number | null = null;
+    let rowsEstimated = false;
     // Head-of-file text sampling. Works for anything line-oriented.
     const canSample = g.format === "csv" || g.format === "json" || g.format === "ndjson";
     // Formats DuckDB opens directly from the bucket. Parquet is here and not
@@ -570,9 +655,17 @@ export async function crawlObjectStorage(
     const canDescribe = duckReadableFormat(g.format) !== null;
     const canInfer = canSample || canDescribe;
     const reuse = canInfer && unchangedSince(g) ? prior?.get(datasetFqn(g)) : undefined;
-    if (reuse && reuse.columns.length > 0) {
+    // A multi-file count from before crawls recorded how they got it was
+    // scaled, and looks exact. Replace it once, while the budget allows.
+    const recount =
+      reuse?.row_count_estimated === undefined &&
+      g.objects.length > 1 &&
+      sampleBudget.has(g) &&
+      sampled < MAX_SAMPLES;
+    if (reuse && reuse.columns.length > 0 && !recount) {
       inferred = reuse.columns;
       rowEstimate = reuse.row_count;
+      rowsEstimated = reuse.row_count_estimated ?? g.objects.length > 1;
     } else if (canSample && sampleBudget.has(g) && sampled < MAX_SAMPLES) {
       const biggest = [...g.objects].sort((a, b) => b.size - a.size)[0];
       try {
@@ -582,6 +675,7 @@ export async function crawlObjectStorage(
         if (perFile !== null) {
           // Scale the per-byte density across the whole group.
           rowEstimate = Math.round((perFile / Math.max(biggest.size, 1)) * totalSize);
+          rowsEstimated = g.objects.length > 1 || biggest.size > buf.length;
         }
         sampled++;
       } catch {
@@ -600,12 +694,28 @@ export async function crawlObjectStorage(
           name: c.name,
           type: duckTypeToCatalogType(c.type),
         }));
-        const perFile = await countObjectRows(cfg, biggest.key, format);
-        if (perFile !== null) {
-          rowEstimate =
-            g.objects.length > 1
+        // A Parquet file's count is in its footer, so a table of them can be
+        // counted exactly without reading a row. Scaling the largest file by
+        // size is what is left when there are too many footers to read: it
+        // said 5,956 of a table of exactly 6,000.
+        if (
+          format === "parquet" &&
+          g.objects.length > 1 &&
+          g.objects.length <= MAX_PARQUET_FOOTERS
+        ) {
+          rowEstimate = await countParquetRows(
+            cfg,
+            g.objects.map((o) => o.key),
+          );
+        }
+        if (rowEstimate === null) {
+          const perFile = await countObjectRows(cfg, biggest.key, format);
+          if (perFile !== null) {
+            rowsEstimated = g.objects.length > 1;
+            rowEstimate = rowsEstimated
               ? Math.round((perFile / Math.max(biggest.size, 1)) * totalSize)
               : perFile;
+          }
         }
         sampled++;
       } catch (e) {
@@ -615,7 +725,8 @@ export async function crawlObjectStorage(
         console.warn(`[catalog] could not describe ${biggest.key}: ${(e as Error).message}`);
       }
     }
-    const { columns, pii } = classify(inferred);
+    const partitionKeys = g.partitionKeys ?? [];
+    const { columns, pii } = classify(withPartitionColumns(inferred, partitionKeys));
 
     if (isDataset) {
       const name = g.dir === "" ? `*.${g.format}` : (g.dir.split("/").pop() ?? g.dir);
@@ -630,6 +741,20 @@ export async function crawlObjectStorage(
         format: g.format,
         file_count: g.objects.length,
         pii,
+        ...(partitionKeys.length || g.objects.length > 1 || rowsEstimated
+          ? {
+              metadata: {
+                ...(partitionKeys.length
+                  ? {
+                      location: `${cfg.bucket}/${g.dir}`,
+                      partition_keys: partitionKeys,
+                      ...partitionBounds(g.partitions),
+                    }
+                  : {}),
+                ...(rowEstimate !== null ? { row_count_estimated: rowsEstimated } : {}),
+              },
+            }
+          : {}),
       });
     } else {
       // Non-dataset groups are lone files (or same-dir files of unknown
@@ -651,10 +776,136 @@ export async function crawlObjectStorage(
       }
     }
   }
-  return { assets, sampled };
+  return { assets, sampled, capped };
+}
+
+/**
+ * Mark the partition columns, adding any the file's own schema does not hold.
+ *
+ * DuckDB reports them from the path for formats it DESCRIBEs. Text sampling
+ * reads a file's contents and never sees them: they are in the path, not the
+ * file, and a table missing the column it is partitioned by is wrong.
+ */
+function withPartitionColumns(
+  inferred: InferredColumn[],
+  keys: string[],
+): (InferredColumn & { partition?: boolean })[] {
+  if (keys.length === 0) return inferred;
+  const isKey = new Set(keys.map((k) => k.toLowerCase()));
+  const data = inferred.filter((c) => !isKey.has(c.name.toLowerCase()));
+  const marked = keys.map((k) => ({
+    ...(inferred.find((c) => c.name.toLowerCase() === k.toLowerCase()) ?? {
+      name: k,
+      type: "string",
+    }),
+    partition: true,
+  }));
+  return [...data, ...marked];
+}
+
+/** How many partitions, and the first and last by path. */
+function partitionBounds(partitions: Set<string> | undefined): AssetMetadata {
+  if (!partitions?.size) return {};
+  const sorted = [...partitions].sort();
+  const name = (dir: string) => {
+    const { keys } = splitPartitionDir(dir);
+    return dir.split("/").slice(-keys.length).join("/");
+  };
+  return {
+    partition_count: sorted.length,
+    first_partition: name(sorted[0]),
+    last_partition: name(sorted[sorted.length - 1]),
+  };
+}
+
+/** A Delta, Iceberg or Hudi table in a bucket, from its own metadata. */
+async function tableFormatAsset(
+  cfg: ObjectStoreConfig,
+  g: ObjectGroup,
+  totalSize: number,
+  mayRead: boolean,
+  prior?: PriorAssets,
+): Promise<CrawledAsset> {
+  const name = g.dir === "" ? cfg.bucket : (g.dir.split("/").pop() ?? g.dir);
+  const fqn = datasetFqn(g);
+  const format = g.tableFormat!;
+  const read = mayRead
+    ? await readTableFormat(cfg, format, g.dir, g.metadataObjects ?? []).catch((e: Error) => {
+        console.warn(`[catalog] could not read the ${format} table at ${fqn}: ${e.message}`);
+        return null;
+      })
+    : null;
+  const held = prior?.get(fqn);
+  const formatName = `${format[0].toUpperCase()}${format.slice(1)}`;
+  const keys = read?.metadata.partition_keys ?? [];
+  const known: { name: string; type: string; comment?: string }[] =
+    read?.columns ?? held?.columns ?? [];
+  // Iceberg names a transform (`day(ts)`), which is no column of its own.
+  const plainKeys = keys.filter((k) => !k.includes("("));
+  const { columns, pii } = classify(withPartitionColumns(known, plainKeys));
+  for (const c of columns) {
+    const comment = known.find((f) => f.name === c.name)?.comment;
+    if (comment) c.comment = comment;
+  }
+  return {
+    asset_type: "dataset",
+    schema_name: g.dir || null,
+    name,
+    fqn,
+    columns,
+    // A Delta or Hudi row count needs the whole log, and summing the Parquet
+    // files would count rows the table has deleted. Iceberg records it.
+    row_count: read?.row_count ?? null,
+    // What the folder holds, older versions included. The note says so.
+    size_bytes: read?.size_bytes ?? totalSize,
+    format,
+    file_count: g.objects.length,
+    pii,
+    ...(read?.description ? { description: read.description } : {}),
+    metadata: {
+      location: `${cfg.bucket}/${g.dir}`,
+      ...read?.metadata,
+      note:
+        read?.metadata.note ??
+        (read
+          ? `Read from this ${formatName} table's own metadata. Size and file count are what the folder holds, which can include older versions.`
+          : `Recognised as a ${formatName} table from its folder. Its metadata was not read on this crawl.`),
+    },
+  };
 }
 
 // ── Persistence ──────────────────────────────────────────────────────────
+
+/** What a schema change is recorded as. Not curation: the crawl's own record. */
+export function schemaVersionRows(
+  userId: string,
+  sourceId: string,
+  assets: CrawledAsset[],
+  existing: ExistingAsset[],
+): {
+  user_id: string;
+  source_id: string;
+  fqn: string;
+  schema_hash: string;
+  changes: Json;
+}[] {
+  const before = new Map(existing.map((e) => [e.fqn, e]));
+  return assets.flatMap((a) => {
+    const prev = before.get(a.fqn);
+    if (!prev?.schema_hash) return [];
+    const hash = schemaHash(a.columns);
+    if (hash === prev.schema_hash) return [];
+    return [
+      {
+        user_id: userId,
+        source_id: sourceId,
+        fqn: a.fqn,
+        schema_hash: hash,
+        changes: diffColumns(prev.columns, a.columns) as unknown as Json,
+      },
+    ];
+  });
+}
 
 export type ExistingAsset = {
   id: string;
@@ -664,12 +915,13 @@ export type ExistingAsset = {
   schema_hash: string | null;
   description: string | null;
   tags: string[];
+  metadata?: unknown;
 };
 
 export async function loadExistingAssets(sourceId: string): Promise<ExistingAsset[]> {
   const { data, error } = await supabaseAdmin
     .from("catalog_assets")
-    .select("id, fqn, columns, row_count, schema_hash, description, tags")
+    .select("id, fqn, columns, row_count, schema_hash, description, tags, metadata")
     .eq("source_id", sourceId);
   if (error) throw new Error(error.message);
   return (data ?? []).map((r) => ({
@@ -742,6 +994,7 @@ export async function persistAssets(
       description: prev ? prev.description : (a.description ?? null),
       tags: prev ? prev.tags : (a.tags ?? []),
       schema_hash: hash,
+      metadata: (a.metadata ?? {}) as unknown as Json,
       last_crawled_at: now,
     };
   });
@@ -752,6 +1005,21 @@ export async function persistAssets(
       .from("catalog_assets")
       .upsert(rows.slice(i, i + CHUNK), { onConflict: "source_id,fqn" });
     if (error) throw new Error(error.message);
+  }
+
+  // After the assets, since it describes them. The crawl's result stands
+  // without it, so a failure is said and does not undo what was written.
+  const versions = schemaVersionRows(userId, sourceId, assets, existing);
+  for (let i = 0; i < versions.length; i += CHUNK) {
+    const { error } = await supabaseAdmin
+      .from("catalog_schema_versions")
+      .insert(versions.slice(i, i + CHUNK));
+    if (error) {
+      console.warn(
+        `[catalog] source ${sourceId}: ${versions.length - i} schema change(s) were not recorded: ${error.message}`,
+      );
+      break;
+    }
   }
 
   // Reconcile deletions locally — a NOT IN () URL filter would overflow.
@@ -807,6 +1075,9 @@ export async function loadStorageConfig(
 }
 
 export type CatalogSourceRow = Database["public"]["Tables"]["catalog_sources"]["Row"];
+
+/** Which reader wrote an edge. A crawl replaces only its own. */
+type LineageSystem = "databricks" | "hive" | "glue";
 
 type LineageEdge = {
   upstream_fqn: string;
@@ -884,6 +1155,7 @@ async function persistLineage(
   userId: string,
   sourceId: string,
   edges: LineageEdge[],
+  system: LineageSystem = "databricks",
 ): Promise<void> {
   // Only this reader's own rows: ETL runs write pipeline lineage for the same
   // source under source_system 'etl', and a crawl must not wipe those.
@@ -891,7 +1163,7 @@ async function persistLineage(
     .from("catalog_lineage")
     .delete()
     .eq("source_id", sourceId)
-    .eq("source_system", "databricks");
+    .eq("source_system", system);
   if (clearErr) {
     // The old edges stand; writing the new ones beside them would draw a graph
     // that was never true (R82).
@@ -907,7 +1179,7 @@ async function persistLineage(
     downstream_fqn: e.downstream_fqn,
     upstream_column: e.upstream_column ?? null,
     downstream_column: e.downstream_column ?? null,
-    source_system: "databricks",
+    source_system: system,
   }));
   for (let i = 0; i < rows.length; i += 500) {
     const { error: insErr } = await supabaseAdmin
@@ -986,24 +1258,68 @@ export async function testIcebergCatalog(cfg: IcebergRestConfig): Promise<void> 
 
 type IcebergField = { id?: number; name: string; type: unknown; required?: boolean; doc?: string };
 type IcebergSchema = { "schema-id"?: number; fields?: IcebergField[] };
-type IcebergTableResp = {
+type IcebergPartitionField = { "source-id"?: number; name?: string; transform?: string };
+export type IcebergTableResp = {
   metadata?: {
+    "format-version"?: number;
+    location?: string;
+    properties?: Record<string, string>;
     schemas?: IcebergSchema[];
     "current-schema-id"?: number;
     schema?: IcebergSchema;
     "current-snapshot-id"?: number;
     snapshots?: { "snapshot-id": number; summary?: Record<string, string> }[];
+    "default-spec-id"?: number;
+    "partition-specs"?: { "spec-id"?: number; fields?: IcebergPartitionField[] }[];
+    "partition-spec"?: IcebergPartitionField[];
   };
 };
 
-/** Iceberg type → a display string (nested struct/list/map collapse to a tag). */
-function icebergTypeName(t: unknown): string {
-  if (typeof t === "string") return t;
-  if (t && typeof t === "object") return (t as { type?: string }).type ?? "struct";
-  return "unknown";
+/** What an Iceberg table's own metadata says beyond its columns. */
+export function icebergMetadata(
+  md: NonNullable<IcebergTableResp["metadata"]>,
+  fields: IcebergField[],
+): AssetMetadata {
+  const spec =
+    md["partition-specs"]?.find((s) => s["spec-id"] === md["default-spec-id"])?.fields ??
+    md["partition-spec"] ??
+    [];
+  const nameOf = (id: number | undefined) => fields.find((f) => f.id === id)?.name;
+  // Hidden partitioning: the key is a transform of a column, and the column is
+  // what someone filters on, so that is what is named. `day(ts)`, not `ts_day`.
+  const keys = spec.flatMap((f) => {
+    const col = nameOf(f["source-id"]) ?? f.name;
+    if (!col) return [];
+    return [f.transform && f.transform !== "identity" ? `${f.transform}(${col})` : col];
+  });
+  return {
+    ...(md.location ? { location: md.location } : {}),
+    ...(md["format-version"] ? { format_version: md["format-version"] } : {}),
+    ...(md.snapshots ? { snapshot_count: md.snapshots.length } : {}),
+    ...(keys.length ? { partition_keys: keys } : {}),
+  };
 }
 
-function icebergTableToAsset(
+/** Iceberg type → a display string, nested types spelled out in full. */
+function icebergTypeName(t: unknown): string {
+  if (typeof t === "string") return t;
+  if (!t || typeof t !== "object") return "unknown";
+  const o = t as {
+    type?: string;
+    element?: unknown;
+    key?: unknown;
+    value?: unknown;
+    fields?: { name: string; type: unknown }[];
+  };
+  if (o.type === "list") return `list<${icebergTypeName(o.element)}>`;
+  if (o.type === "map") return `map<${icebergTypeName(o.key)},${icebergTypeName(o.value)}>`;
+  if (o.type === "struct") {
+    return `struct<${(o.fields ?? []).map((f) => `${f.name}:${icebergTypeName(f.type)}`).join(",")}>`;
+  }
+  return o.type ?? "struct";
+}
+
+export function icebergTableToAsset(
   ns: string[],
   name: string,
   resp: IcebergTableResp,
@@ -1045,6 +1361,8 @@ function icebergTableToAsset(
     format: "iceberg",
     file_count: null,
     pii,
+    ...(md.properties?.comment ? { description: md.properties.comment } : {}),
+    metadata: icebergMetadata(md, fields),
   };
 }
 
@@ -1207,6 +1525,43 @@ export async function loadIcebergConfig(source: CatalogSourceRow): Promise<Icebe
   return { uri: cfg.uri, warehouse: cfg.warehouse, token };
 }
 
+/** A metastore source's stored address. It holds no secret: Hive has none to give. */
+export function hiveConfigOf(source: CatalogSourceRow): HiveMetastoreConfig {
+  const cfg = (source.config ?? {}) as Partial<HiveMetastoreConfig>;
+  if (!cfg.host) throw new Error(`Source "${source.name}" has no metastore host`);
+  return {
+    host: cfg.host,
+    port: cfg.port ?? 9083,
+    framed: cfg.framed === true,
+    require_private: cfg.require_private === true,
+  };
+}
+
+/**
+ * A Glue source's config: the public half stored as it is, the keys decrypted
+ * and any {{secret:NAME}} resolved as the source's owner, toward Glue's host
+ * only (R419).
+ */
+export async function loadGlueConfig(source: CatalogSourceRow): Promise<GlueConfig> {
+  const pub = (source.config ?? {}) as Pick<GlueConfig, "region" | "endpoint" | "catalog_id">;
+  if (!pub.region) throw new Error(`Source "${source.name}" has no region`);
+  const enc = source.credentials as { ciphertext?: string; iv?: string; kid?: string } | null;
+  if (!enc?.ciphertext || !enc?.iv) {
+    throw new Error(`Source "${source.name}" has no stored credentials`);
+  }
+  const keys = await decryptJson<Pick<GlueConfig, "access_key_id" | "secret_access_key">>(
+    enc.ciphertext,
+    enc.iv,
+    enc.kid,
+  );
+  return resolveCredentialConfig(
+    source.user_id,
+    { ...pub, ...keys } as GlueConfig,
+    ["access_key_id", "secret_access_key"],
+    glueHosts,
+  );
+}
+
 /** Thrown when another crawl of the same source holds it (R315). */
 export class CrawlAlreadyRunning extends Error {
   constructor() {
@@ -1252,6 +1607,9 @@ export async function runCrawl(
     // What the crawl could not read, kept rather than removed (R369).
     const keep = new Set<string>();
     let unreadCount = 0;
+    let note: string | undefined;
+    let hiveEdges: LineageEdge[] | null = null;
+    let edgeSystem: LineageSystem = "hive";
     let warehouseConfig: WarehouseConfig | null = null;
     if (source.kind === "warehouse") {
       if (!source.connection_id) throw new Error("Source has no linked connection");
@@ -1267,16 +1625,55 @@ export async function runCrawl(
       for (const e of existing) if (unreadCovers(res.unread, e.fqn)) keep.add(e.fqn);
       unreadCount =
         res.unread.namespaces.length + res.unread.deeper.length + res.unread.tables.length;
+    } else if (source.kind === "hive_metastore") {
+      const res = await crawlHiveMetastore(hiveConfigOf(source));
+      assets = res.assets as CrawledAsset[];
+      for (const e of existing) if (unreadCovers(res.unread, e.fqn)) keep.add(e.fqn);
+      unreadCount = res.unread.namespaces.length + res.unread.tables.length;
+      hiveEdges = res.edges;
+    } else if (source.kind === "glue") {
+      const res = await crawlGlue(await loadGlueConfig(source));
+      assets = res.assets as CrawledAsset[];
+      for (const e of existing) if (unreadCovers(res.unread, e.fqn)) keep.add(e.fqn);
+      unreadCount = res.unread.namespaces.length + res.unread.tables.length;
+      hiveEdges = res.edges;
+      edgeSystem = "glue";
     } else {
       const cfg = await decryptStorageConfig(source);
       const prior: PriorAssets = new Map(
-        existing.map((e) => [e.fqn, { columns: e.columns, row_count: e.row_count }]),
+        existing.map((e) => [
+          e.fqn,
+          {
+            columns: e.columns,
+            row_count: e.row_count,
+            row_count_estimated: parseAssetMetadata(e.metadata).row_count_estimated,
+          },
+        ]),
       );
       const res = await crawlObjectStorage(cfg, prior, source.last_crawl_at);
       assets = res.assets;
       sampled = res.sampled;
+      if (res.capped) {
+        // The listing stopped, so an asset not seen may simply be past where
+        // it stopped. Nothing is removed on a listing that did not finish.
+        for (const e of existing) keep.add(e.fqn);
+        unreadCount = 1;
+        note = `The bucket holds more than ${maxObjects().toLocaleString("en-US")} objects, so this crawl listed that many and stopped. Nothing was removed. Narrow the source with a prefix, or raise CATALOG_MAX_OBJECTS.`;
+      }
     }
     const changes = await persistAssets(userId, source.id, assets, existing, keep);
+
+    // A view's upstreams, from its own SQL. Replaced as a set, so an empty set
+    // clears the edges of views that are gone.
+    if (hiveEdges) {
+      try {
+        await persistLineage(userId, source.id, hiveEdges, edgeSystem);
+      } catch (e) {
+        console.warn(
+          `[catalog] source ${source.id}: lineage could not be refreshed: ${(e as Error).message}`,
+        );
+      }
+    }
 
     // Source-derived lineage (Databricks Unity Catalog system tables).
     // Best-effort — refreshes the source's edges, or clears them if the system
@@ -1301,6 +1698,7 @@ export async function runCrawl(
       duration_ms: Date.now() - started,
       changes,
       ...(unreadCount > 0 ? { unread: unreadCount } : {}),
+      ...(note ? { note } : {}),
     };
     auditEvent({
       userId,

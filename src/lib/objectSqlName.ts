@@ -9,7 +9,8 @@
 import { safeTableName } from "@/lib/datasetParse";
 
 /**
- * `data/orders.parquet` -> `orders`, `sales/*.parquet` -> `sales`.
+ * `data/orders.parquet` -> `orders`, `sales/*.parquet` -> `sales`. A partitioned
+ * folder's glob reaches through its partition folders and names the same table.
  *
  * The basename without its extension, because that is what somebody types.
  * A crawled folder of same-format files has a fqn ending in `/*.parquet`; its
@@ -20,7 +21,9 @@ export function objectSqlName(fqn: string): string {
   // ndjson is globbed `*.jsonl.gz`, and without it the trim misses, the name
   // comes out of the glob instead of the folder, and the seeded query names a
   // table the server cannot resolve.
-  const trimmed = fqn.replace(/\/\*\.[a-z0-9]+(\.gz)?$/i, "");
+  //
+  // The `(\/\*\*)?` is a partitioned table: `sales/**/*.parquet` is `sales`.
+  const trimmed = fqn.replace(/(\/\*\*)?\/\*\.[a-z0-9]+(\.gz)?$/i, "");
   const base = (trimmed.split("/").pop() ?? trimmed).replace(/\.[a-z0-9]+(\.gz)?$/i, "");
   return safeTableName(base || "object");
 }

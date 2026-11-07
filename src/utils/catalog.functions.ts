@@ -20,7 +20,10 @@ import {
   type CrawlStats,
   type IcebergRestConfig,
 } from "@/utils/catalog/crawler.server";
+import { testHiveMetastore } from "@/utils/catalog/hive/crawl.server";
+import { glueHosts, testGlue, type GlueConfig } from "@/utils/catalog/hive/glue.server";
 import { nextCrawlAt } from "@/utils/catalog/schedule.server";
+import { parseMetastoreUri } from "@/lib/hiveMetastoreUri";
 import {
   SOURCE_NAME_MAX,
   SOURCE_NAME_PATTERN,
@@ -80,6 +83,24 @@ const IcebergConfigSchema = z.object({
   uri: z.string().url().max(1024),
   warehouse: z.string().max(255).optional(),
   token: z.string().max(4096).optional(),
+});
+
+const HiveConfigSchema = z.object({
+  uri: z.string().min(1).max(300),
+  /** Require a private network path for every call to this metastore (R422). */
+  require_private: z.boolean().optional(),
+});
+
+const GlueConfigSchema = z.object({
+  region: z.string().min(1).max(64),
+  access_key_id: z.string().min(1).max(512),
+  secret_access_key: z.string().min(1).max(512),
+  endpoint: z.string().url().max(512).optional().or(z.literal("")),
+  catalog_id: z
+    .string()
+    .regex(/^\d{12}$/, "An AWS account id is 12 digits")
+    .optional()
+    .or(z.literal("")),
 });
 
 function normalizeStorage(cfg: StorageConfigInput): ObjectStoreConfig {
@@ -159,10 +180,12 @@ export const catalogCreateSource = createServerFn({ method: "POST" })
           .min(1)
           .max(SOURCE_NAME_MAX, SOURCE_NAME_TOO_LONG)
           .regex(SOURCE_NAME_PATTERN, SOURCE_NAME_RULE),
-        kind: z.enum(["warehouse", "object_storage", "iceberg_rest"]),
+        kind: z.enum(["warehouse", "object_storage", "iceberg_rest", "hive_metastore", "glue"]),
         connection_id: z.string().uuid().optional(),
         storage: StorageConfigSchema.optional(),
         iceberg: IcebergConfigSchema.optional(),
+        hive: HiveConfigSchema.optional(),
+        glue: GlueConfigSchema.optional(),
       })
       .parse(input),
   )
@@ -202,6 +225,60 @@ export const catalogCreateSource = createServerFn({ method: "POST" })
                 { owner: userId },
               )) as unknown as Json)
             : null;
+        } else if (data.kind === "glue") {
+          if (!data.glue) return { ok: false, error: "Glue configuration is required" };
+          const glue: GlueConfig = {
+            region: data.glue.region.trim(),
+            access_key_id: data.glue.access_key_id.trim(),
+            secret_access_key: data.glue.secret_access_key,
+            ...(data.glue.endpoint ? { endpoint: data.glue.endpoint.trim() } : {}),
+            ...(data.glue.catalog_id ? { catalog_id: data.glue.catalog_id.trim() } : {}),
+          };
+          // The caller typed the endpoint, so a secret shared with them fills
+          // the keys only toward a host its owner allowed (R419).
+          const live = await resolveCredentialConfig(
+            userId,
+            glue,
+            ["access_key_id", "secret_access_key"],
+            glueHosts,
+          );
+          const probe = await testGlue(live);
+          const { access_key_id, secret_access_key, ...publicCfg } = glue;
+          config = publicCfg as unknown as Json;
+          credentials = (await encryptJson(
+            { access_key_id, secret_access_key },
+            { owner: userId },
+          )) as unknown as Json;
+          path = `AWS Glue in ${glue.region}, with ${probe.more ? `${probe.databases}+` : probe.databases} database${probe.databases === 1 && !probe.more ? "" : "s"}`;
+        } else if (data.kind === "hive_metastore") {
+          if (!data.hive) return { ok: false, error: "The metastore's address is required" };
+          const address = parseMetastoreUri(data.hive.uri);
+          if (!address.ok) return { ok: false, error: address.error };
+          const requirePrivate = data.hive.require_private === true;
+          const hive = {
+            host: address.host,
+            port: address.port,
+            require_private: requirePrivate,
+          };
+          // Connects and lists databases before anything is stored. It also
+          // finds the transport, which most people never had to know.
+          const probe = await testHiveMetastore(hive);
+          // Nothing here is secret: a metastore has no credential to hold.
+          config = {
+            host: hive.host,
+            port: hive.port,
+            framed: probe.framed,
+            ...(requirePrivate ? { require_private: true } : {}),
+            ...(probe.version ? { version: probe.version } : {}),
+          } as Json;
+          const reached = await describeConnectivity(`http://${hive.host}:${hive.port}`, {
+            tls: false,
+            direct: true,
+          })
+            .then((c) => c.summary)
+            .catch(() => `${hive.host}:${hive.port}`);
+          const label = probe.version ? `Hive Metastore ${probe.version}` : "a Hive Metastore";
+          path = `${reached}, ${label} with ${probe.databases} database${probe.databases === 1 ? "" : "s"}`;
         } else {
           if (!data.storage) return { ok: false, error: "Storage configuration is required" };
           const cfg = normalizeStorage(data.storage);

@@ -113,7 +113,7 @@ export const adminDefaultModelSet = createServerFn({ method: "POST" })
       if (!(await columnInstalled())) {
         return {
           ok: false,
-          error: `The default model can't be saved until the migration ${DEFAULT_MODEL_MIGRATION} is applied (npx supabase db push --include-all).`,
+          error: `The default model can't be saved until the migration ${DEFAULT_MODEL_MIGRATION} is applied (npx supabase db push --remote --include-all).`,
         };
       }
       const before = await adminDefaultModelSpec();

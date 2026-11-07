@@ -2237,7 +2237,9 @@ function NodePanel({
                   ...cfg,
                   incremental: c.incremental as { cursor_column: string } | undefined,
                 } as EtlNode["config"],
-                node.label && node.label !== "Data Catalog asset" ? node.label : cfg.fqn,
+                node.label && node.label !== "Data Catalog asset"
+                  ? node.label
+                  : cfg.fqn.replace(/\/(\*\*\/)?\*\.[a-z0-9]+$/i, ""),
               );
               remember(cols);
             }}

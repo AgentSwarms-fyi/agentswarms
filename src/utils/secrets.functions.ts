@@ -38,7 +38,7 @@ function missingAllowedHosts(error: { code?: string; message?: string } | null):
 
 const MIGRATION_NEEDED =
   "Allowed hosts need database migration 20261102000000_secret_allowed_hosts. " +
-  "Ask your operator to run `supabase db push`, then save again.";
+  "Ask your operator to run `supabase db push --remote`, then save again.";
 
 const AllowedHostsSchema = z
   .array(z.string().max(300))

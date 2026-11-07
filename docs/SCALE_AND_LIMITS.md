@@ -196,10 +196,15 @@ a full refresh.
 
 The catalog reads **metadata only** — row counts come from stored statistics,
 never a scan, so a billion-row table costs the same to browse as an empty one.
-The asset table renders the first **500** matches of the current filter.
+The asset table renders the first **500** matches of the current filter, and a
+browser holds at most **20,000** assets; past that the page says how many it
+loaded of how many exist.
 
-A crawl lists at most **2,000 objects** per bucket and infers a schema for the
-**20** largest groups. CSV/JSON schemas come from a **128 KB** head-of-file
+A crawl lists at most **50,000 objects** per bucket (`CATALOG_MAX_OBJECTS`) and
+infers a schema for the **20** largest groups. A listing that stops at the cap
+removes nothing and says so, because an asset it did not see may simply be past
+where it stopped. A Hive Metastore or Glue crawl reads up to **1,000** databases
+and **10,000** tables, and counts up to **1,000** partitions per table. CSV/JSON schemas come from a **128 KB** head-of-file
 sample; Parquet schemas come from the file's **footer**, which is also where
 its exact row count is read from — neither downloads the file.
 

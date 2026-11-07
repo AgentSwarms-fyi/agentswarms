@@ -1,6 +1,8 @@
 // Client-side Data Catalog reads + curation writes. Sources and assets
 // are owner-scoped by RLS, so plain supabase queries are safe here; only
 // credential handling and crawling live in server functions.
+import { parseAssetMetadata, type AssetMetadata } from "@/lib/catalogAssetMetadata";
+import type { SchemaChanges } from "@/lib/catalogSchemaDiff";
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import { parseModelChoice } from "@/utils/providers/modelChoice";
@@ -21,12 +23,14 @@ export type CatalogColumn = {
   distinct_count?: number;
   min?: number;
   max?: number;
+  /** A partition key: a directory in the path, not a value in the files. */
+  partition?: boolean;
 };
 
 export type CatalogSource = {
   id: string;
   user_id: string;
-  kind: "warehouse" | "object_storage" | "iceberg_rest";
+  kind: "warehouse" | "object_storage" | "iceberg_rest" | "hive_metastore" | "glue";
   name: string;
   connection_id: string | null;
   /** Non-secret bucket config (provider, endpoint, region, bucket, prefix). */
@@ -36,7 +40,14 @@ export type CatalogSource = {
   next_crawl_at: string | null;
   last_crawl_at: string | null;
   last_error: string | null;
-  crawl_stats: { assets?: number; columns?: number; sampled?: number; duration_ms?: number };
+  crawl_stats: {
+    assets?: number;
+    columns?: number;
+    sampled?: number;
+    duration_ms?: number;
+    unread?: number;
+    note?: string;
+  };
   created_at: string;
 };
 
@@ -71,6 +82,8 @@ export type CatalogAsset = {
    */
   last_crawled_at: string | null;
   // (freshness rendering lives in assetFreshness below)
+  /** Where it lives and how it is laid out. Absent on local datasets. */
+  metadata?: AssetMetadata;
 };
 
 function parseColumns(v: Json): CatalogColumn[] {
@@ -98,22 +111,89 @@ export async function listCatalogSources(): Promise<CatalogSource[]> {
   }));
 }
 
+/** Rows asked for per read. The API may return fewer, so progress is by what came back. */
+const ASSET_PAGE = 1000;
+/** Assets one browser session holds. Past this the page says it is showing part. */
+export const CATALOG_ASSET_CAP = 20_000;
+
+const ASSET_COLUMNS =
+  "id, user_id, source_id, asset_type, schema_name, name, fqn, columns, row_count, size_bytes, format, file_count, description, tags, owner, status, pii, last_crawled_at, metadata" as const;
+
+/**
+ * Every asset, a page at a time, with how many there really are.
+ *
+ * ONE READ IS CAPPED BY THE API, not by what it asks for: a default Supabase
+ * project returns 1,000 rows from a `.limit(5000)` and says nothing. That was
+ * invisible while a catalog held hundreds of assets. A metastore brings
+ * thousands, and the ones past the cap simply were not there, in the list or
+ * in a search for them.
+ */
+export async function listCatalogAssetsCounted(): Promise<{
+  assets: CatalogAsset[];
+  /** How many exist, when the count could be read. */
+  total: number | null;
+}> {
+  const assets: CatalogAsset[] = [];
+  let total: number | null = null;
+  for (;;) {
+    const { data, error, count } = await supabase
+      .from("catalog_assets")
+      .select(ASSET_COLUMNS, assets.length === 0 ? { count: "exact" } : undefined)
+      .order("fqn", { ascending: true })
+      // fqn repeats across sources, and paging needs an order that cannot tie.
+      .order("id", { ascending: true })
+      .range(assets.length, assets.length + ASSET_PAGE - 1);
+    if (error) throw new Error(error.message);
+    if (assets.length === 0) total = count ?? null;
+    const rows = data ?? [];
+    for (const r of rows) {
+      assets.push({
+        ...r,
+        asset_type: r.asset_type as CatalogAsset["asset_type"],
+        status: (r.status ?? "draft") as CatalogAssetStatus,
+        columns: parseColumns(r.columns),
+        tags: r.tags ?? [],
+        metadata: parseAssetMetadata(r.metadata),
+      });
+    }
+    const done =
+      rows.length === 0 ||
+      assets.length >= CATALOG_ASSET_CAP ||
+      (total !== null && assets.length >= total);
+    if (done) return { assets: assets.slice(0, CATALOG_ASSET_CAP), total };
+  }
+}
+
 export async function listCatalogAssets(): Promise<CatalogAsset[]> {
+  return (await listCatalogAssetsCounted()).assets;
+}
+
+export type SchemaVersion = {
+  id: string;
+  recorded_at: string;
+  schema_hash: string;
+  changes: SchemaChanges;
+};
+
+/** What changed each time this asset's schema changed, newest first. */
+export async function listSchemaVersions(sourceId: string, fqn: string): Promise<SchemaVersion[]> {
   const { data, error } = await supabase
-    .from("catalog_assets")
-    .select(
-      "id, user_id, source_id, asset_type, schema_name, name, fqn, columns, row_count, size_bytes, format, file_count, description, tags, owner, status, pii, last_crawled_at",
-    )
-    .order("fqn", { ascending: true })
-    .limit(5000);
+    .from("catalog_schema_versions")
+    .select("id, recorded_at, schema_hash, changes")
+    .eq("source_id", sourceId)
+    .eq("fqn", fqn)
+    .order("recorded_at", { ascending: false })
+    .limit(50);
   if (error) throw new Error(error.message);
-  return (data ?? []).map((r) => ({
-    ...r,
-    asset_type: r.asset_type as CatalogAsset["asset_type"],
-    status: (r.status ?? "draft") as CatalogAssetStatus,
-    columns: parseColumns(r.columns),
-    tags: r.tags ?? [],
-  }));
+  return (data ?? []).map((r) => {
+    const c = (r.changes ?? {}) as Partial<SchemaChanges>;
+    return {
+      id: r.id,
+      recorded_at: r.recorded_at,
+      schema_hash: r.schema_hash,
+      changes: { added: c.added ?? [], removed: c.removed ?? [], retyped: c.retyped ?? [] },
+    };
+  });
 }
 
 /** Curation fields survive re-crawls (the crawler never writes them). */
@@ -145,7 +225,16 @@ export type CatalogLineageEdge = {
   downstream_column: string | null;
   /** false: through an opaque step — one of every input column, not a traced dependency. */
   exact: boolean;
+  source_id?: string | null;
+  source_system?: string | null;
 };
+
+/**
+ * Systems whose edges mean something only inside the catalog that reported
+ * them. A view in a Hive Metastore reads tables in that metastore, and two
+ * metastores holding `sales.orders` (dev and prod, usually) are two tables.
+ */
+const SELF_CONTAINED_LINEAGE = new Set(["hive", "glue"]);
 
 /**
  * Match lineage FQNs (often catalog.schema.table) to catalog assets
@@ -166,7 +255,9 @@ export function lineageKey(fqn: string): string {
 export async function loadCatalogLineage(): Promise<CatalogLineageEdge[]> {
   const { data, error } = await supabase
     .from("catalog_lineage")
-    .select("upstream_fqn, downstream_fqn, upstream_column, downstream_column, exact")
+    .select(
+      "upstream_fqn, downstream_fqn, upstream_column, downstream_column, exact, source_id, source_system",
+    )
     .limit(20000);
   if (error) return [];
   return (data ?? []).map((r) => ({
@@ -175,6 +266,8 @@ export async function loadCatalogLineage(): Promise<CatalogLineageEdge[]> {
     upstream_column: r.upstream_column,
     downstream_column: r.downstream_column,
     exact: r.exact ?? true,
+    source_id: r.source_id,
+    source_system: r.source_system,
   }));
 }
 
@@ -182,11 +275,27 @@ export async function loadCatalogLineage(): Promise<CatalogLineageEdge[]> {
 export function sourceLineageFor(
   edges: CatalogLineageEdge[],
   assetFqn: string,
+  assetSourceId?: string,
 ): { upstream: CatalogLineageEdge[]; downstream: CatalogLineageEdge[] } {
   const key = lineageKey(assetFqn);
+  const reachable = edges.filter(
+    (e) =>
+      !SELF_CONTAINED_LINEAGE.has(e.source_system ?? "") ||
+      assetSourceId === undefined ||
+      e.source_id === assetSourceId,
+  );
+  // The same edge can arrive from more than one source.
+  const distinct = (list: CatalogLineageEdge[]) => [
+    ...new Map(
+      list.map((e) => [
+        [e.upstream_fqn, e.downstream_fqn, e.upstream_column, e.downstream_column].join("\u0000"),
+        e,
+      ]),
+    ).values(),
+  ];
   return {
-    upstream: edges.filter((e) => lineageKey(e.downstream_fqn) === key),
-    downstream: edges.filter((e) => lineageKey(e.upstream_fqn) === key),
+    upstream: distinct(reachable.filter((e) => lineageKey(e.downstream_fqn) === key)),
+    downstream: distinct(reachable.filter((e) => lineageKey(e.upstream_fqn) === key)),
   };
 }
 
@@ -456,6 +565,12 @@ export function fmtBytes(n: number | null | undefined): string {
   if (n >= 1024 ** 2) return `${(n / 1024 ** 2).toFixed(1)} MB`;
   if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${n} B`;
+}
+
+/** An asset's row count, marked when it was scaled from part of the data. */
+export function fmtRows(a: { row_count: number | null; metadata?: unknown }): string {
+  const estimated = parseAssetMetadata(a.metadata).row_count_estimated === true;
+  return `${estimated && a.row_count !== null ? "≈ " : ""}${fmtCount(a.row_count)}`;
 }
 
 export function fmtCount(n: number | null | undefined): string {

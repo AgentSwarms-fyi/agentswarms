@@ -110,8 +110,9 @@ function SelfHostingPage() {
             title: "Apply migrations",
             body: (
               <>
-                <C>npx supabase link --project-ref &lt;ref&gt;</C> then <C>npx supabase db push</C>.
-                This creates every table, policy and storage bucket.
+                <C>npx supabase link --project-ref &lt;ref&gt;</C> then{" "}
+                <C>npx supabase db push --remote</C>. This creates every table, policy and storage
+                bucket.
               </>
             ),
           },
@@ -129,8 +130,8 @@ function SelfHostingPage() {
       <Callout kind="warn" title="Migrations are not optional">
         Features whose migrations haven't been applied fail quietly rather than loudly — a storage
         bucket that doesn't exist means uploads silently don't persist, and a missing column means a
-        setting has nowhere to save. After any upgrade, run <C>npx supabase db push</C> before
-        concluding a feature is broken.
+        setting has nowhere to save. After any upgrade, run <C>npx supabase db push --remote</C>{" "}
+        before concluding a feature is broken.
       </Callout>
       <Callout kind="info" title="Rebuild every image after an upgrade">
         <C>docker compose up -d --build</C> with no service name rebuilds them all. Naming one, such

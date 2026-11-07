@@ -253,6 +253,30 @@ export async function describeObject(
   return withConnection(cfg, async (run) => toColumns(await run(sql)));
 }
 
+/**
+ * Rows across many Parquet files, from their footers: exact, with no scan.
+ * Null when any of it could not be read, so the caller can fall back.
+ */
+export async function countParquetRows(
+  cfg: ObjectStoreConfig,
+  keys: string[],
+): Promise<number | null> {
+  if (keys.length === 0) return null;
+  try {
+    return await withConnection(cfg, async (run) => {
+      const urls = keys.map((k) => lit(objectUrl(cfg, k))).join(", ");
+      const rows = await run(
+        `SELECT sum(num_rows) AS n, count(*) AS files FROM parquet_file_metadata([${urls}])`,
+      );
+      // A footer that went unread would make this a short count, not a null one.
+      if (Number(rows[0]?.files) !== keys.length) return null;
+      return Number(rows[0]?.n);
+    });
+  } catch {
+    return null;
+  }
+}
+
 /** Row count from Parquet metadata — no scan. Null when unavailable. */
 export async function countObjectRows(
   cfg: ObjectStoreConfig,

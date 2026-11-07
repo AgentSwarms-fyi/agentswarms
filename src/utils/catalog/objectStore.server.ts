@@ -289,7 +289,26 @@ async function readError(res: Response): Promise<string> {
 
 /** List objects under the configured prefix (paginated, capped). */
 export async function listObjects(cfg: ObjectStoreConfig, cap = 2000): Promise<StoredObject[]> {
-  if (cfg.provider === "azure") return azureListObjects(cfg, cap);
+  return (await listObjectsCapped(cfg, cap)).objects;
+}
+
+/**
+ * Up to `cap` objects, and whether there were more.
+ *
+ * The flag is the point. A listing that stops looks exactly like a smaller
+ * bucket, and a crawl removes what it did not see, so a capped listing used to
+ * delete everything past the cap, curation included.
+ */
+export async function listObjectsCapped(
+  cfg: ObjectStoreConfig,
+  cap = 2000,
+): Promise<{ objects: StoredObject[]; capped: boolean }> {
+  if (cfg.provider === "azure") {
+    // One past the cap: an extra object is the only way to tell "exactly cap"
+    // from "more than cap" without changing what the Azure lister returns.
+    const listed = await azureListObjects(cfg, cap + 1);
+    return { objects: listed.slice(0, cap), capped: listed.length > cap };
+  }
   const out: StoredObject[] = [];
   let token: string | undefined;
   while (out.length < cap) {
@@ -311,11 +330,12 @@ export async function listObjects(cfg: ObjectStoreConfig, cap = 2000): Promise<S
         last_modified: xmlTag(m[1], "LastModified") ?? "",
       });
     }
-    if (xmlTag(xml, "IsTruncated") !== "true") break;
+    if (xmlTag(xml, "IsTruncated") !== "true") return { objects: out, capped: false };
     token = xmlTag(xml, "NextContinuationToken") ?? undefined;
-    if (!token) break;
+    if (!token) return { objects: out, capped: false };
   }
-  return out;
+  // Left the loop at the cap with the bucket still saying there is more.
+  return { objects: out, capped: true };
 }
 
 /** Cheap connectivity + credential check: list a single key. */

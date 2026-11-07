@@ -1672,6 +1672,7 @@ export type Database = {
           fqn: string;
           id: string;
           last_crawled_at: string;
+          metadata: Json;
           name: string;
           owner: string | null;
           pii: boolean;
@@ -1694,6 +1695,7 @@ export type Database = {
           fqn: string;
           id?: string;
           last_crawled_at?: string;
+          metadata?: Json;
           name: string;
           owner?: string | null;
           pii?: boolean;
@@ -1716,6 +1718,7 @@ export type Database = {
           fqn?: string;
           id?: string;
           last_crawled_at?: string;
+          metadata?: Json;
           name?: string;
           owner?: string | null;
           pii?: boolean;
@@ -1815,6 +1818,44 @@ export type Database = {
           },
           {
             foreignKeyName: "catalog_lineage_source_id_fkey";
+            columns: ["source_id"];
+            isOneToOne: false;
+            referencedRelation: "catalog_sources";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      catalog_schema_versions: {
+        Row: {
+          changes: Json;
+          fqn: string;
+          id: string;
+          recorded_at: string;
+          schema_hash: string;
+          source_id: string;
+          user_id: string;
+        };
+        Insert: {
+          changes: Json;
+          fqn: string;
+          id?: string;
+          recorded_at?: string;
+          schema_hash: string;
+          source_id: string;
+          user_id: string;
+        };
+        Update: {
+          changes?: Json;
+          fqn?: string;
+          id?: string;
+          recorded_at?: string;
+          schema_hash?: string;
+          source_id?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "catalog_schema_versions_source_id_fkey";
             columns: ["source_id"];
             isOneToOne: false;
             referencedRelation: "catalog_sources";

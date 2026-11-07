@@ -1399,7 +1399,11 @@ describe("etl wiring", () => {
     const src = read("src/utils/catalog/crawler.server.ts");
     const i = src.indexOf('from("catalog_lineage")\n    .delete()');
     expect(i).toBeGreaterThan(-1);
-    expect(src.slice(i, i + 200)).toContain('eq("source_system", "databricks")');
+    expect(src.slice(i, i + 200)).toContain('eq("source_system", system)');
+    // And `system` can only name a crawl's own lineage, never a pipeline's.
+    const systems = /type LineageSystem = ([^;]+);/.exec(src)?.[1] ?? "";
+    expect(systems).toContain('"databricks"');
+    expect(systems).not.toContain('"etl"');
   });
 
   it("schema state round-trips through etl_pipeline_state like watermarks", () => {

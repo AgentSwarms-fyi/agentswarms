@@ -15,6 +15,6 @@ export function notInstalledMessage(error: string | null | undefined): string | 
   if (!tables.test(error) || !missing) return null;
   return (
     "Enterprise Ontology is not set up on this database yet. Apply the migration " +
-    `${ONTOLOGY_MIGRATION} (npx supabase db push --include-all), then reload.`
+    `${ONTOLOGY_MIGRATION} (npx supabase db push --remote --include-all), then reload.`
   );
 }

@@ -13,6 +13,8 @@ import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import {
   BadgeCheck,
+  Boxes,
+  Hexagon,
   BookMarked,
   CalendarClock,
   Cloud,
@@ -85,9 +87,10 @@ import {
   assetLineageKeys,
   fmtBytes,
   fmtCount,
+  fmtRows,
   generateAssetDocs,
   isPiiColumnName,
-  listCatalogAssets,
+  listCatalogAssetsCounted,
   listCatalogSources,
   listGlossaryTerms,
   assetFreshness,
@@ -127,7 +130,9 @@ import {
 } from "@/utils/catalog.functions";
 import { AddSourceWizard } from "@/components/catalog/AddSourceWizard";
 import { DatasetQualityPanel, QualityChip } from "@/components/catalog/DatasetQualityPanel";
+import { AssetStorageFacts } from "@/components/catalog/AssetStorageFacts";
 import { GlossaryDialog } from "@/components/catalog/GlossaryDialog";
+import { SchemaHistory } from "@/components/catalog/SchemaHistory";
 import { loadLatestQualityResults, listQualityTests, rollupByTable } from "@/lib/dataQuality";
 import type { QualityRollup } from "@/lib/dataQualityCore";
 
@@ -162,6 +167,8 @@ export function CatalogView({
 
   const [sources, setSources] = useState<CatalogSource[]>([]);
   const [assets, setAssets] = useState<CatalogAsset[]>([]);
+  /** How many crawled assets exist. More than `assets` holds means it is part. */
+  const [assetTotal, setAssetTotal] = useState<number | null>(null);
   const [localAssets, setLocalAssets] = useState<UnifiedAsset[]>([]);
   // MEASURED with every user_data_tables read rejected: the catalog answered
   // "All assets 21 · Local tables 0 · 21 of 21 assets" over a warn nobody
@@ -344,13 +351,14 @@ export function CatalogView({
     try {
       const [src, ast, lin, terms, srcLin] = await Promise.all([
         listCatalogSources(),
-        listCatalogAssets(),
+        listCatalogAssetsCounted(),
         loadLineageIndex(),
         listGlossaryTerms(),
         loadCatalogLineage(),
       ]);
       setSources(src);
-      setAssets(ast);
+      setAssets(ast.assets);
+      setAssetTotal(ast.total);
       setLineage(lin);
       setGlossary(terms);
       setCatalogLineage(srcLin);
@@ -418,7 +426,7 @@ export function CatalogView({
       if (certOnly && a.status !== "certified") return false;
       if (!q) return true;
       const hay =
-        `${a.fqn} ${a.name} ${a.schema_name ?? ""} ${a.tags.join(" ")} ${a.owner ?? ""} ${a.description ?? ""} ${a.columns.map((c) => c.name).join(" ")}`.toLowerCase();
+        `${a.fqn} ${a.name} ${a.schema_name ?? ""} ${a.tags.join(" ")} ${a.owner ?? ""} ${a.description ?? ""} ${a.columns.map((c) => c.name).join(" ")} ${a.metadata?.location ?? ""} ${(a.metadata?.partition_keys ?? []).join(" ")}`.toLowerCase();
       return q.split(/\s+/).every((part) => hay.includes(part));
     });
   }, [allAssets, search, sourceFilter, typeFilter, piiOnly, certOnly]);
@@ -457,7 +465,9 @@ export function CatalogView({
           : "";
       const crawled = `Crawled "${source.name}" — ${res.stats.assets} assets, ${res.stats.columns} columns${drift}`;
       // Part of the catalog could not be read: kept, and said (R369).
-      if (res.stats.unread) {
+      if (res.stats.note) {
+        toast.warning(`${crawled} · ${res.stats.note}`);
+      } else if (res.stats.unread) {
         toast.warning(
           `${crawled} · ${res.stats.unread} part(s) of the catalog could not be read; what was cataloged from them was kept`,
         );
@@ -572,6 +582,10 @@ export function CatalogView({
       <Server className="h-3.5 w-3.5" />
     ) : s.kind === "iceberg_rest" ? (
       <Database className="h-3.5 w-3.5" />
+    ) : s.kind === "hive_metastore" ? (
+      <Hexagon className="h-3.5 w-3.5" />
+    ) : s.kind === "glue" ? (
+      <Boxes className="h-3.5 w-3.5" />
     ) : (
       <Cloud className="h-3.5 w-3.5" />
     );
@@ -705,7 +719,10 @@ export function CatalogView({
             <Plus className="h-3 w-3" /> Add
           </Button>
         </div>
-        <ScrollArea className="flex-1">
+        {/* Radix lays its content out as a table, which grows to the longest
+            name instead of truncating it, and one long source name then pushes
+            every source's menu out of the rail. */}
+        <ScrollArea className="flex-1 [&>[data-radix-scroll-area-viewport]>div]:!block">
           <div className="space-y-0.5 p-2">
             <button
               type="button"
@@ -1081,6 +1098,16 @@ export function CatalogView({
               {localUnknown || localLoading ? "+" : ""} assets
               {localLoading ? " so far" : ""}
             </span>
+            {assetTotal !== null && assetTotal > assets.length && (
+              <span
+                data-testid="catalog-assets-partial"
+                className="text-amber-600 dark:text-amber-400"
+                title="Search and filters cover the assets held here, which are the first by name."
+              >
+                ({assets.length.toLocaleString("en-US")} of {assetTotal.toLocaleString("en-US")}{" "}
+                crawled assets loaded)
+              </span>
+            )}
           </span>
         </div>
 
@@ -1273,15 +1300,15 @@ export function CatalogView({
                       <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-normal">
                         {a.asset_type}
                         {a.format ? ` · ${a.format}` : ""}
-                        {a.file_count ? ` · ${a.file_count} files` : ""}
+                        {a.file_count
+                          ? ` · ${a.file_count} ${a.file_count === 1 ? "file" : "files"}`
+                          : ""}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right text-xs tabular-nums">
                       {a.columns.length || "—"}
                     </TableCell>
-                    <TableCell className="text-right text-xs tabular-nums">
-                      {fmtCount(a.row_count)}
-                    </TableCell>
+                    <TableCell className="text-right text-xs tabular-nums">{fmtRows(a)}</TableCell>
                     <TableCell className="text-right text-xs tabular-nums">
                       {fmtBytes(a.size_bytes)}
                     </TableCell>
@@ -1346,6 +1373,17 @@ export function CatalogView({
                     </TableCell>
                   </TableRow>
                 ))}
+                {filtered.length > 500 && (
+                  <TableRow data-testid="catalog-list-capped">
+                    <TableCell
+                      colSpan={99}
+                      className="py-3 text-center text-xs text-muted-foreground"
+                    >
+                      Showing the first 500 of {filtered.length.toLocaleString("en-US")} matches.
+                      Search or filter to narrow them.
+                    </TableCell>
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
           )}
@@ -1358,7 +1396,7 @@ export function CatalogView({
         lineage={selected ? lineageFor(selected) : { usedBy: [], derivedFrom: [] }}
         sourceLineage={
           selected
-            ? sourceLineageFor(catalogLineage, selected.fqn)
+            ? sourceLineageFor(catalogLineage, selected.fqn, selected.source_id)
             : { upstream: [], downstream: [] }
         }
         onJumpToAsset={(name) => {
@@ -1586,7 +1624,7 @@ function AssetSheet({
           {[
             ["Source", sourceName],
             ["Type", `${asset.asset_type}${asset.format ? ` \u00b7 ${asset.format}` : ""}`],
-            ["Rows", fmtCount(asset.row_count)],
+            ["Rows", fmtRows(asset)],
             [
               asset.file_count ? "Files" : "Size",
               asset.file_count ? String(asset.file_count) : fmtBytes(asset.size_bytes),
@@ -1749,6 +1787,8 @@ function AssetSheet({
               </div>
             )}
 
+            {!asset.local && <SchemaHistory sourceId={asset.source_id} fqn={asset.fqn} />}
+
             {/* Quality checks and version history apply to datasets stored in
                 this app; a warehouse table is governed where it lives. */}
             {asset.local && (
@@ -1761,16 +1801,17 @@ function AssetSheet({
               />
             )}
 
+            <AssetStorageFacts metadata={asset.metadata} />
+
             <div>
               <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Columns ({asset.columns.length})
               </p>
               {asset.columns.length === 0 ? (
                 <p className="text-xs text-muted-foreground">
-                  No column metadata —{" "}
-                  {asset.format === "parquet" || asset.format === "compressed"
-                    ? "binary formats aren't sampled."
-                    : "this asset wasn't sampled during the crawl."}
+                  {asset.metadata?.note
+                    ? "The columns are not listed, for the reason above."
+                    : "No column metadata \u2014 this asset wasn\u2019t sampled during the crawl."}
                 </p>
               ) : (
                 <>
@@ -1818,6 +1859,15 @@ function AssetSheet({
                                     className="h-3 w-3 shrink-0 text-amber-500"
                                     aria-label="likely PII"
                                   />
+                                )}
+                                {c.partition && (
+                                  <Badge
+                                    variant="outline"
+                                    className="h-3.5 px-1 font-sans text-[9px] font-normal"
+                                    title="A partition key: a directory in the path, not a value in the files."
+                                  >
+                                    partition
+                                  </Badge>
                                 )}
                               </span>
                               {(c.description || c.comment) && (

@@ -389,8 +389,8 @@ export function CustomerKeysCard(props: {
           <p className="text-sm text-muted-foreground">
             Needs the database migration{" "}
             <code className="font-mono text-xs">20261105000000_customer_keys.sql</code> (
-            <code className="font-mono text-xs">npx supabase db push</code>). Until then every
-            credential is under the deployment&apos;s key, as before.
+            <code className="font-mono text-xs">npx supabase db push --remote</code>). Until then
+            every credential is under the deployment&apos;s key, as before.
           </p>
         ) : (
           <>

@@ -11,11 +11,11 @@ Data Sources**.
 The word does a lot of work in this business, and two of the three are ours, so
 it is worth being explicit once:
 
-| What you read                                   | What it is                                                                                                                  |
-| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| **Data Catalog** (`/data-sql`)                  | The inventory of every dataset you can reach — columns, tags, PII flags, profile. Describes data **for people and agents**. |
-| **External table catalog**                      | Somebody else's metadata service — Iceberg REST, Unity, Polaris, Nessie. Connected here as a source.                        |
-| **lakehouse catalog** (`LAKEHOUSE_CATALOG_URL`) | The Postgres the built-in lakehouse keeps its table manifests and snapshots in. **Machinery, not an inventory.**            |
+| What you read                                   | What it is                                                                                                                     |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| **Data Catalog** (`/data-sql`)                  | The inventory of every dataset you can reach — columns, tags, PII flags, profile. Describes data **for people and agents**.    |
+| **External table catalog**                      | Somebody else's metadata service — Hive Metastore, AWS Glue, Iceberg REST, Unity, Polaris, Nessie. Connected here as a source. |
+| **lakehouse catalog** (`LAKEHOUSE_CATALOG_URL`) | The Postgres the built-in lakehouse keeps its table manifests and snapshots in. **Machinery, not an inventory.**               |
 
 They sit in a stack rather than side by side: the lakehouse catalog is what
 makes the Parquet in your bucket queryable at all, and the Data Catalog then
@@ -95,11 +95,11 @@ Grant to a user or a group, like any other resource.
 a grantee has none of their own — so the owner's credential is decrypted
 server-side and the query runs against the owner's warehouse.
 
-| Grantee can                                                             | Grantee cannot                                        |
-| ----------------------------------------------------------------------- | ----------------------------------------------------- |
-| Query it from the workbench, BI, prep flows, agents and semantic models | See the credential, in any form                       |
-| Test it, and see its health                                             | Edit or delete it                                     |
-| Trigger a sync on a shared app source                                   | Change what it points at                              |
+| Grantee can                                                             | Grantee cannot                                         |
+| ----------------------------------------------------------------------- | ------------------------------------------------------ |
+| Query it from the workbench, BI, prep flows, agents and semantic models | See the credential, in any form                        |
+| Test it, and see its health                                             | Edit or delete it                                      |
+| Trigger a sync on a shared app source                                   | Change what it points at                               |
 |                                                                         | Use it in an ETL pipeline, whose code would receive it |
 
 The grantee's rows are never readable directly: unlike other shared resources,
@@ -442,6 +442,67 @@ One crawl of a source runs at a time. A crawl claims its source by moving it to
 scheduled pass leaves the source alone (R315). A crawl that died leaves its
 claim; another may take it once the source has not changed for
 `CATALOG_CRAWL_LEASE_MINUTES` (60 by default).
+
+### Hive Metastore and AWS Glue
+
+Add a **Hive Metastore** source with the value of `hive.metastore.uris`, such as
+`thrift://hms.internal:9083`, and an **AWS Glue Data Catalog** source with a
+region and a key. Both are read for metadata and nothing is written back: a
+metastore crawl sends no call that could change it, and a Glue key needs only
+`glue:GetDatabases`, `glue:GetTables` and `glue:GetPartitions`.
+
+Every database and table is listed with its columns, location, table type, file
+format, SerDe, partition keys, partition count, bucketing, owner and view SQL. A
+view's upstreams go into the lineage graph. Tested against Apache Hive 3.1.3 and
+4.0.1, and Glue against moto's implementation of its API. Glue has not been run
+against AWS itself.
+
+What a crawl deliberately leaves out or leaves blank:
+
+- **Table properties are kept by a list of known-safe names.** A JDBC table holds
+  its password in a property, so nothing else is copied. Credentials in a location
+  URI are removed.
+- **A row count appears only when it can be believed.** Hive reported 0 rows, and
+  called that accurate, for an external table with data in it, because a file
+  written from outside Hive does not update the metastore. On such a table a zero
+  is shown as unknown. A non-zero count is whatever the last `ANALYZE` found.
+- **A Spark table's columns come from its properties.** The metastore holds a
+  placeholder, `col array<string>`, for tables Hive cannot read. A Delta table
+  registered in a metastore has no columns there at all, and the asset says why.
+
+Not supported: Kerberos-secured metastores (SASL), and a list of several metastore
+URIs. The tables are not queryable from here. To read one, add its bucket as a
+source. Glue uses the key you give it, never the server's own AWS role.
+
+### Lake layouts in a bucket
+
+A bucket crawl reads two conventions, because each changes what the right answer is.
+
+**Hive partitions.** `sales/dt=2026-01-01/region=emea/part-0.parquet` is one asset,
+`sales`, partitioned by `dt` and `region`, not one asset per folder. Its partition
+columns are listed, and in the Workbench `SELECT * FROM sales WHERE dt = '2026-01-01'`
+works: the read is one glob over every partition, subject to the same row cap as any
+bucket read. A pipeline that reads the table gets the partition columns too, as text,
+taken from each file's path.
+
+**Row counts.** A Parquet table of up to 500 files is counted exactly from the file
+footers, without reading a row. Past that, and for text files, the count is scaled
+from a sample and shown with a `≈`.
+
+**Table formats.** A folder holding `_delta_log/`, `.hoodie/` or
+`metadata/*.metadata.json` is a Delta, Hudi or Iceberg table. It is one asset with
+its columns and partition keys read from that table's own metadata, and it cannot be
+queried here, because scanning its Parquet files would return rows the table has
+deleted. Iceberg records its row count. Delta and Hudi would need their whole log, so
+theirs reads as unknown rather than as a sum of files.
+
+If an earlier crawl listed each partition of a table separately, the next crawl
+replaces those assets with the one table. Anything written on them by hand (owners,
+descriptions) stays with the old rows and goes with them.
+
+Each change to an asset's columns is kept. **Schema history** in its drawer shows when
+a column was added, removed or retyped, and marks a removal or a type change as
+breaking.
 
 ### Reaching a database or warehouse over a private path
 

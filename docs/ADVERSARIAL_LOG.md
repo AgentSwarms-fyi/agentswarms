@@ -109,6 +109,50 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-07 — R456: a catalog that did not understand a data lake
+
+**Why this round.** The ask was to assess the Data Catalog against the industry and make
+it Hive Metastore compatible. The benchmark is `docs/CATALOG_ASSESSMENT.md`. Hive
+Metastore and AWS Glue were added, bucket crawls learned Hive partitions, Delta, Iceberg
+and Hudi, and every change was then driven through the real pages against real Hive 4.0.1
+and 3.1.3, moto, and data written by DuckDB, Spark and Hive. UI record:
+`docs/UI_TEST_RESULTS.md`.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| Reopening Add Source kept the last source's secret | S2 | The component outlives its dialog, and only a few fields were reset. An S3 secret or Glue key sat in memory and in the next source's form. Found by typing into a field that was not empty |
+| A table lost its partition columns in a pipeline | S2 | The catalog listed `dt` and `region`, and offered them to the column picker. They are in the paths, and the reader is one `pd.read_parquet(f)` per file. No test failed, because every part was right alone |
+| Spark matched no files for a partitioned table | S2 | Hadoop's glob has no recursive `**`. Measured on Spark 4.2: `PATH_NOT_FOUND`. Reading the folder gives 6,000 rows and both columns |
+| Lineage merged across metastores | S2 | Edges join on table name, correctly for pipelines and Databricks, and wrongly for a view inside one metastore. Seen as `order_summary` listed twice with Hive 3 and 4 side by side. Dev and prod metastores share names by design |
+| A scaled row count looked exact | S3 | One file's count, scaled by bytes, read as 5,956 of 6,000 with nothing to mark it. Older than this round, and it matters more now that a partitioned table is one row |
+| Hive's zero and Hive's numRows | S3 | `numRows=0` with `COLUMN_STATS_ACCURATE=true` on a table with 3 rows. Iceberg's real `numRows`, without the flag. Both measured |
+| A bucket past 2,000 objects lost assets and curation | S2 | A capped listing was treated as complete, so what it missed was deleted (R369's rule, not applied here) |
+| More than 1,000 assets showed as 1,000 | S3 | The API's own cap, under a `.limit(5000)` that looked like it asked for more |
+| `npx supabase db push` missed the project | S2 | CLI 3.0.0 targets a local stack by default. `setup.sh` and `setup.ps1` took whatever `npx` resolved, failed the same way, and told the user to link their project. Hit by the owner applying this round's migration |
+| Glue region unchecked with an endpoint set | S3 | It goes into every signature. moto answered with S3's XML, shown as `Unexpected token '<'` |
+| A long source name hid every source's menu | S3 | Radix lays content out as a table, which grows rather than truncates. One name pushed all the Re-crawl menus out of the rail |
+
+**What would have been wrong to conclude.**
+
+- *"Hive Metastore compatible, done."* It reads a metastore. It does not answer as one,
+  and that was left out on purpose: the protocol has no credential to check, and a
+  directory scan of a lakehouse table returns deleted rows.
+- *"Tests pass, so test the UI as a formality."* Eight defects came out of the UI pass
+  after every unit and real-Hive test was green. The worst were at the joins between
+  features, and no test crossed those.
+- *"Preview failed, so skip the pipeline path."* The preview could not start a kernel on
+  this server. Reading the code it would have run is what found the lost columns.
+- *"The file is on S3, so `**` works."* It works in DuckDB and fsspec. Spark goes through
+  Hadoop's glob, where it means something else.
+
+**The proof.** Real Hive 4.0.1 and 3.1.3 each 14 passed, 1 skipped. Glue on moto and the
+lake layouts on real data all pass. The generated reader ran in the notebook runtime
+image against the real store: 5 columns, 6,000 rows, 30 days.
+
+**Not done.** Glue has not met real AWS, and moto does not check signatures. Kerberos
+metastores are not supported. A whole pipeline over a partitioned table has not run,
+because this server could not start a kernel. The catalog does not serve engines.
+
 ### 2026-11-07 — R455: the running application, over HTTP, finally scanned
 
 **Why this round.** R454 ended: "the running application was not tested over HTTP.

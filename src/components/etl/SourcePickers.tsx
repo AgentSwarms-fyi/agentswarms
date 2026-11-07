@@ -829,6 +829,8 @@ const KIND_LABEL: Record<string, string> = {
   warehouse: "warehouse",
   object_storage: "bucket",
   iceberg_rest: "Iceberg catalog",
+  hive_metastore: "Hive Metastore",
+  glue: "AWS Glue",
 };
 
 /**
@@ -916,11 +918,13 @@ export function CatalogAssetPicker({
             hint:
               s.kind === "iceberg_rest"
                 ? "Iceberg catalog · read through a lakehouse mount"
-                : `${KIND_LABEL[s.kind] ?? s.kind} · ${plural(
-                    assets.filter((a) => a.source_id === s.id).length,
-                    "asset",
-                  )}`,
-            disabled: s.kind === "iceberg_rest",
+                : s.kind === "hive_metastore" || s.kind === "glue"
+                  ? `${KIND_LABEL[s.kind]} · metadata only`
+                  : `${KIND_LABEL[s.kind] ?? s.kind} · ${plural(
+                      assets.filter((a) => a.source_id === s.id).length,
+                      "asset",
+                    )}`,
+            disabled: s.kind === "iceberg_rest" || s.kind === "hive_metastore" || s.kind === "glue",
           }))}
           loading={!loaded}
           empty="The catalog has no sources yet. Add one under Data Catalog and crawl it."

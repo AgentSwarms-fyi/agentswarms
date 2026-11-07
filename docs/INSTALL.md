@@ -60,7 +60,7 @@ brew install supabase/tap/supabase
 #   Option B — no install needed, invoke on demand via npx:
 #     npx supabase login
 #     npx supabase link --project-ref <your-project-id>
-#     npx supabase db push
+#     npx supabase db push --remote
 #   Option C — grab the current Linux binary from the releases page and put
 #   it on your PATH: https://github.com/supabase/cli/releases (look for the
 #   linux_amd64 or linux_arm64 asset matching your CPU architecture).
@@ -243,7 +243,7 @@ free tier, no manual extension setup required.
 ```bash
 npx supabase login
 npx supabase link --project-ref <your-project-id>   # the Project ID from 3.1
-npx supabase db push                                 # applies all migrations, in order
+npx supabase db push --remote                                 # applies all migrations, in order
 ```
 
 `supabase link` records which remote project you're targeting (under the
@@ -578,7 +578,7 @@ is **off by default**; instances that don't enable it are unaffected.
 
 If any of these fail, check your terminal's `vite dev` output and the
 browser console first — most first-run issues trace back to a missing/typo'd
-env var or a migration that didn't apply (re-run `supabase db push` if you
+env var or a migration that didn't apply (re-run `npx supabase db push --remote` if you
 suspect the latter; it's safe to re-run, already-applied migrations are
 skipped).
 
@@ -629,6 +629,17 @@ find it from there. You're probably in another folder: `cd` into the repository 
 run the command again. If you're already there, this copy has never been linked, which
 is normal for a new clone or worktree. Run `npx supabase link --project-ref <your-project-id>`
 first.
+
+**`failed to connect to postgres` on `127.0.0.1:54322` from `supabase db push`.**
+Supabase CLI 3.0.0 pushes to a local Supabase stack unless told otherwise, and the
+output says so on its first line: `Target: local stack`. Nothing was applied. Add
+`--remote` to push to the linked project: `npx supabase db push --remote`. Earlier CLI
+versions push to the linked project on their own and may not know that flag, so leave
+it off there.
+
+**`The token '&&' is not a valid statement separator` in PowerShell.**
+Windows PowerShell 5.1 has no `&&`, and because it fails while reading the line, none
+of the line ran. Run each command on its own line.
 
 **`bash scripts/setup-selfhosted.sh` stops with `dependency failed to start`.**
 The first start is slow, and Docker can give up before Postgres has finished
@@ -689,7 +700,7 @@ value later invalidates previously saved credentials — re-enter them.
 **"Unsupported provider: lovable_ai" when messaging an agent.** Your
 database schema predates the `20260719000000_fix_new_user_seed_provider`
 migration (the signup trigger used to seed sample agents on a provider
-that only exists on the hosted platform). Run `npx supabase db push` —
+that only exists on the hosted platform). Run `npx supabase db push --remote` —
 it updates the trigger and repairs already-created agents.
 
 **Changes to `.env` not taking effect.** Vite bakes `VITE_*` values into

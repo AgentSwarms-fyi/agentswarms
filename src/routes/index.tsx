@@ -181,7 +181,7 @@ const deploySteps = [
     step: "01",
     icon: Database,
     title: "Create a Supabase project",
-    body: "The free tier is the entire backend — Postgres, auth, storage, vector search. One `npx supabase db push` applies the full schema.",
+    body: "The free tier is the entire backend — Postgres, auth, storage, vector search. One `npx supabase db push --remote` applies the full schema.",
   },
   {
     step: "02",
@@ -201,7 +201,11 @@ function TerminalMock() {
   const lines = [
     { prompt: true, text: `git clone ${GITHUB_URL.replace("https://", "")} && cd agentswarms` },
     { prompt: true, text: "cp .env.example .env", comment: "# your Supabase + model keys" },
-    { prompt: true, text: "npx supabase db push", comment: "# entire schema, one command" },
+    {
+      prompt: true,
+      text: "npx supabase db push --remote",
+      comment: "# entire schema, one command",
+    },
     { prompt: true, text: "docker compose up --build", comment: "" },
     { prompt: false, text: "➜  ready — http://localhost:8080" },
   ];

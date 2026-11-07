@@ -14,13 +14,65 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
+### Added
+
+- **Hive Metastore as a catalog source**, read over Thrift. Tested against Hive 3.1.3
+  and 4.0.1. Databases, tables, partitions, locations, formats and view SQL, with view
+  lineage. See [Hive Metastore and AWS Glue](docs/DATA_SOURCES.md#hive-metastore-and-aws-glue).
+- **AWS Glue Data Catalog as a catalog source**, with the same mapping. Tested against
+  moto's implementation of the Glue API, not against AWS itself.
+- **Bucket crawls understand a lake.** A Hive-partitioned folder is one table. A Delta,
+  Iceberg or Hudi table is one asset read from its own metadata.
+- **Schema history.** Each change to an asset's columns is kept, with breaking changes
+  marked.
+- **Storage facts on an asset:** location, table type, SerDe, partition keys and count.
+
+### Fixed
+
+- A bucket with more objects than a crawl lists lost its catalog entries past the cap,
+  curation included, because a crawl removes what it did not see. The cap is now 50,000,
+  and a listing that reaches it removes nothing and says so.
+- A catalog with more than 1,000 assets showed only the first 1,000, with no sign of it.
+  A single read is capped by the API, whatever it asks for. Assets now load a page at a
+  time, up to 20,000, and the page says when it holds only part.
+- **The commands that apply migrations reach your project again.** Supabase CLI 3.0.0
+  pushes to a local stack unless told otherwise, so `npx supabase db push` failed with a
+  connection error, and `scripts/setup.sh` and `setup.ps1` failed the same way and blamed
+  a missing link. Both scripts now pin the CLI and pass `--remote`, and the docs and the
+  app's own messages give the command that works.
+- **Adding a source starts from an empty form.** Reopening the dialog kept what the last
+  source was given, including an S3 secret or a Glue key, ready for the next source to
+  inherit. Secrets now go when the dialog closes.
+- **A long source name no longer hides the source menus.** It pushed every source's
+  Re-crawl menu out of the rail.
+- **A pipeline reading a partitioned table keeps its partition columns.** They are in
+  the folder paths, so a file-by-file read lost them, and on the Spark engine two levels
+  of partitions matched no files at all.
+- **Parquet row counts are exact.** A table of up to 500 files is counted from its
+  footers. A count scaled from a sample now shows with a `≈`. One of 6,000 rows used
+  to read as 5,956, with nothing to say it was an estimate.
+- **Two metastores with the same table names keep their lineage apart.** A view's
+  lineage stays in the catalog that reported it, and one edge is no longer listed twice.
+- **A Glue region is checked** beside the field and on the server, even with an endpoint
+  set, and a reply that isn't from Glue says so instead of showing a parser error.
+- **Hive reports what it actually knows about Iceberg and Spark tables.** An Iceberg
+  table shows its row count, and a Spark table no longer shows Spark's placeholder
+  storage as its SerDe and input format.
+
 ### Upgrading
 
+- **Apply `20261111000000` first, then deploy the build** (R456). The catalog page now
+  reads the new `metadata` column by name, so the new build fails on a database that does
+  not have it yet. The migration only adds things, so the running build is unaffected by
+  it. A bucket with Hive-partitioned folders is re-grouped on its next crawl: the
+  per-folder assets are replaced by one table, and anything written on those old assets
+  by hand goes with them.
 - **Deploy the build first, then apply `20261110000000`** (R454). The migration drops
   the two functions the browser used to seed sample datasets with. In that order nothing
   breaks. The other way round, a new instance can't seed its samples until the build
-  arrives, and existing samples are unaffected either way. Run `supabase db push` from
-  the repository folder, because the link to your project is saved there. To confirm it
+  arrives, and existing samples are unaffected either way. Run
+  `npx supabase db push --remote` from the repository folder, because the link to your
+  project is saved there. To confirm it
   landed without `psql`, see the [schema audit](docs/security/README.md#the-schema-audit).
   Before you upgrade, or after, see `docs/security/assessments/2026-11-06-schema.md` for
   how to check whether a running install was affected.

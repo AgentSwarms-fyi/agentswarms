@@ -519,21 +519,40 @@ function DataPage() {
       <Callout kind="why" title="Three different things are called a catalog">
         The word does a lot of work in this business, so: the <strong>Data Catalog</strong> is this
         page — an inventory of every dataset you can reach, with its columns, tags and profile. An{" "}
-        <strong>external table catalog</strong> is somebody else&apos;s metadata service — Iceberg
-        REST, Unity, Polaris, Nessie — which you connect as a source here. And the{" "}
-        <strong>lakehouse catalog</strong> (<C>LAKEHOUSE_CATALOG_URL</C>) is the Postgres the
-        built-in lakehouse keeps its own table manifests and snapshots in; it is machinery, not an
-        inventory, and you never browse it. The first describes data for people; the third is what
-        makes the Parquet in your bucket queryable at all.
+        <strong>external table catalog</strong> is somebody else&apos;s metadata service — Hive
+        Metastore, AWS Glue, Iceberg REST, Unity, Polaris, Nessie — which you connect as a source
+        here. And the <strong>lakehouse catalog</strong> (<C>LAKEHOUSE_CATALOG_URL</C>) is the
+        Postgres the built-in lakehouse keeps its own table manifests and snapshots in; it is
+        machinery, not an inventory, and you never browse it. The first describes data for people;
+        the third is what makes the Parquet in your bucket queryable at all.
       </Callout>
       <P>
         S3, Cloudflare R2, MinIO, DigitalOcean Spaces, Backblaze B2, GCS over its S3 API, any other
         S3-compatible endpoint, and Azure Blob Storage / ADLS Gen2 (account key or SAS token) are
         added as <strong>catalog sources</strong> through <strong>Data Catalog → Add source</strong>
         . A crawl lists the bucket, groups a folder of same-format files into one dataset, and
-        records each file&rsquo;s columns. Iceberg REST and Unity Catalog are connected for metadata
-        only.
+        records each file&rsquo;s columns. A Hive-partitioned folder such as{" "}
+        <C>sales/dt=2026-01-01/</C> is one table with <C>dt</C> as a partition column, not one asset
+        per folder, and a pipeline reading it gets the partition columns too. A row count marked{" "}
+        <C>≈</C> was scaled from a sample rather than counted. A folder holding <C>_delta_log/</C>,{" "}
+        <C>.hoodie/</C> or Iceberg metadata is cataloged as that table, read from its own metadata,
+        and is not queried here: scanning its Parquet files would return rows the table has deleted.
+        Iceberg REST, Unity Catalog, Hive Metastore and AWS Glue are connected for metadata only.
       </P>
+      <P>
+        <strong>Hive Metastore and AWS Glue.</strong> Add a metastore with the value of{" "}
+        <C>hive.metastore.uris</C> from hive-site.xml, such as <C>thrift://hms.internal:9083</C>,
+        and Glue with a region and a key. A crawl reads databases, tables, columns, locations,
+        formats, partition keys and counts, bucketing and view SQL, and a view&rsquo;s upstreams
+        join the lineage graph. It writes nothing. Kerberos-secured metastores are not supported.
+      </P>
+      <Callout kind="warn" title="A blank row count on a Hive table is deliberate">
+        Hive can report 0 rows for an external table with data in it, and call that accurate,
+        because a file written from outside Hive does not update the metastore. So a zero on such a
+        table reads as unknown. A non-zero count is whatever the last <C>ANALYZE</C> found. Table
+        properties are kept by a list of known-safe names, because a JDBC table holds its password
+        in one.
+      </Callout>
       <P>
         <strong>A bucket can be reached over a private path.</strong> Public is the default. The{" "}
         <strong>Network</strong> box in Add source says how each provider is reached privately: an

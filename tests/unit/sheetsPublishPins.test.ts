@@ -35,8 +35,9 @@ describe("the catalog entry Sheets writes", () => {
   it("records lineage as Sheets, which a crawl does not clear", () => {
     const src = read("src/utils/sheetsPublish.functions.ts");
     expect(src).toContain('source_system: "sheets"');
-    // A crawl clears only its own (Databricks) edges.
+    // A crawl clears only the edges of the system it reads, and Sheets is not one.
     const crawler = read("src/utils/catalog/crawler.server.ts");
-    expect(crawler).toMatch(/\.eq\("source_system", "databricks"\)/);
+    expect(crawler).toContain('.eq("source_system", system)');
+    expect(/type LineageSystem = ([^;]+);/.exec(crawler)?.[1]).not.toContain('"sheets"');
   });
 });

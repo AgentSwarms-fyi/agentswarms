@@ -92,6 +92,13 @@ export function resolveCatalogAsset(
         "An Iceberg catalog table is read through the lakehouse: mount its namespace under Lakehouse → Iceberg, then pick it as a Lakehouse table.",
     };
   }
+  if (source.kind === "hive_metastore" || source.kind === "glue") {
+    return {
+      ok: false,
+      error:
+        "This table is cataloged for its metadata. To read its files, add the bucket they live in as a source and pick the folder there.",
+    };
+  }
   if (source.kind === "warehouse") {
     if (asset.asset_type !== "table" && asset.asset_type !== "view") {
       return { ok: false, error: `"${asset.fqn}" is not a table or a view.` };

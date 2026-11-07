@@ -455,11 +455,15 @@ describe("Permissions-Policy (R454)", () => {
 
   it("follows PERMISSIONS_POLICY, and an empty value sends none", async () => {
     expect(pp("/", { PERMISSIONS_POLICY: "geolocation=(self)" })).toBe("geolocation=(self)");
-    expect((await through("/", { PERMISSIONS_POLICY: "" })).headers.get("permissions-policy")).toBeNull();
+    expect(
+      (await through("/", { PERMISSIONS_POLICY: "" })).headers.get("permissions-policy"),
+    ).toBeNull();
   });
 
   it("SECURITY_HEADERS=off sends none", async () => {
-    expect((await through("/", { SECURITY_HEADERS: "off" })).headers.get("permissions-policy")).toBeNull();
+    expect(
+      (await through("/", { SECURITY_HEADERS: "off" })).headers.get("permissions-policy"),
+    ).toBeNull();
   });
 });
 

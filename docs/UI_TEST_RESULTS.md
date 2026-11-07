@@ -15,6 +15,50 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-07 — R456: Hive Metastore, Glue and data lakes in the Data Catalog
+
+Driven on a dev server from the worktree (`:8102`), signed in as the owner, against
+this project with migration `20261111000000` applied. Fixtures: real Apache Hive
+4.0.1 and 3.1.3 metastores with HiveServer2, moto for Glue, and an S3 store holding
+Parquet and CSV written by DuckDB, Delta written by Spark and Iceberg written by Hive.
+
+| Page / surface | What was driven | Result |
+| --- | --- | --- |
+| Add source, Hive form | `http://`, two URIs, port 99999, then a bare `localhost:19084` | The first three are refused beside the field with Continue disabled. The last is accepted |
+| Add source, Hive | a port with nothing listening | "refused the connection: nothing is listening on that port". Nothing saved |
+| Add source, Hive | a port answering HTTP | "The port answered, but not with Thrift", after the 30-second call timeout. Nothing saved |
+| Add source, Hive 4.0.1 and 3.1.3 | connect and crawl | 11 and 10 tables, version and database count reported, in 1.2s each |
+| Asset list | formats, PII badges, counts | Counts checked against `SELECT count(*)` in Hive. The four zero-row tables hold 0 rows |
+| Asset drawer | `orders`, `events`, `order_summary`, `spark_users`, `ledger_iceberg` | Lineage, Storage, partition range, partition badges, view SQL, properties |
+| JDBC table with a password in its properties | drawer, then the stored row | Absent from both. `password` and `dbcp` not in the stored metadata |
+| Search and filters | a location, a partition key, PII, Certified | Location finds 3. `region` finds `sales.events` among 28. PII and Certified as expected |
+| Curation, then `ALTER TABLE` and `DROP TABLE` in Hive, then Re-crawl | owner, description, tags, Certified | Toast "1 removed, 1 schema-changed". History "1 added, 1 retyped", Breaking, old and new type. All four curated values kept |
+| Metastore frozen (`docker pause`) | Re-crawl | Failed after 30s with the reason, source marked failed, 10 assets and curation kept |
+| Same, unfrozen | Re-crawl from the banner | Banner and failed state clear |
+| Metastore stopped | Re-crawl | "refused the connection", 10 assets kept |
+| Add source, Glue | a bad region, then valid | Refused beside the field. 132 tables across pages, partitions, Athena view SQL decoded, lineage |
+| Add source, S3 | real lake layouts | 6 assets from 71 objects: `sales` is one table of 30 files, Delta and Iceberg one asset each |
+| Delta and Iceberg drawers | read | Own metadata, partition keys, no Query button. Iceberg 3 rows, Delta unknown |
+| Query in Workbench | `SELECT *`, `WHERE dt = '2026-01-05'`, count | `dt` and `region` present. 200 rows for the day. 6,000 rows over 30 days |
+| ETL, Data Catalog source | pick each kind | Metastores disabled as metadata only. Delta refused with the reason. `sales` picks and saves |
+| Layout | dark theme, 375px | Both read properly. Drawer has no overflow at 375px |
+| Remove | all four sources, the test pipeline | Removed through the UI. 0 sources, orphan assets, orphan versions or Hive lineage left. Catalog back to 113 assets, pipelines to 31 |
+
+**Found here, all fixed and re-driven:** the form keeping the last source's values,
+secrets included; a long source name hiding every source's menu; a Glue region
+unchecked with an endpoint set, and a parser error for a non-Glue reply; 5,956 shown
+for 6,000 rows; partition columns lost in pipelines; lineage from two metastores
+merged; no row count for a Hive Iceberg table; Spark's placeholder storage shown as
+the table's.
+
+**What this round does not show.** Pipeline preview could not start a kernel from this
+dev server, so the partition read was tested by running the generated code in the
+notebook runtime image against the real store (5 columns, 6,000 rows, 30 days), and on
+Spark 4.2 from local copies of those files. Existing sources were listed but not
+re-crawled, because they use addresses inside Docker that this server cannot reach. The
+unit tests cover that path. `:8080` runs a prebuilt image and shows none of this until
+it is rebuilt.
+
 ## 2026-11-06 — R454: samples seeded on the server, and the avatar limits
 
 Driven on the deployed build, before migration `20261110000000` was applied to this

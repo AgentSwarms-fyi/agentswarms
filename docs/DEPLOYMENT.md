@@ -60,7 +60,7 @@ All options share the same two prerequisites.
    ```
 
    ```bash
-   npx supabase db push
+   npx supabase db push --remote
    ```
 
 2. **A filled-in `.env`.** Copy the template and set your Supabase URL/keys and
@@ -1587,7 +1587,7 @@ superuser first. What each is for:
 the CLI at the database directly:
 
 ```bash
-npx supabase db push --db-url "postgresql://postgres:<POSTGRES_PASSWORD>@<db-host>:5432/postgres?sslmode=disable"
+npx supabase db push --remote="postgresql://postgres:<POSTGRES_PASSWORD>@<db-host>:5432/postgres?sslmode=disable"
 ```
 
 `?sslmode=disable` is not optional: the CLI negotiates TLS by default, and a
@@ -2510,7 +2510,7 @@ required. Order matters:
 2. **Application database.**
    `npm run restore -- backups/<timestamp> --supabase --db-url "postgresql://…" --yes`
    (hosted projects: `psql` the two `.sql` files into the new project, then
-   `npx supabase db push` to confirm it is at the current migration).
+   `npx supabase db push --remote` to confirm it is at the current migration).
 3. **Lakehouse catalog.** `npm run restore -- backups/<timestamp> --catalog --yes`
    (or `--catalog-db <name>` to restore beside the live catalog and swap
    `LAKEHOUSE_CATALOG_URL`).
@@ -2754,7 +2754,7 @@ docker ps -a --filter name=nb-
 
 Docker: `git pull`, then `node scripts/upgrade-qdrant.mjs`, then
 `docker compose up -d --build`. Apply any new migrations with
-`npx supabase db push` (already-applied migrations are skipped; it's safe to
+`npx supabase db push --remote` (already-applied migrations are skipped; it's safe to
 re-run). Re-running `scripts/setup.sh` or `setup.ps1` does all of this.
 
 **Qdrant before `up`.** Qdrant opens storage from the previous minor release

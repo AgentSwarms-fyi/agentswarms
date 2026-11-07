@@ -101,8 +101,8 @@ export function DefaultModelCard(props: { token: string }) {
             <p className="flex items-start gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-xs">
               <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" aria-hidden />
               The database does not have this setting yet: apply the migration
-              20261031000000_default_model.sql (npx supabase db push --include-all). Until then the
-              built-in default, {state.builtIn}, is in force.
+              20261031000000_default_model.sql (npx supabase db push --remote --include-all). Until
+              then the built-in default, {state.builtIn}, is in force.
             </p>
           )}
           <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_14rem_auto] sm:items-end">

@@ -377,8 +377,8 @@ function KeysPage() {
               <>
                 &ldquo;No customer keys yet. Every user key is wrapped by the deployment&apos;s
                 key.&rdquo; is the normal state for most deployments. If it says a migration is
-                needed instead, apply it with <C>npx supabase db push</C>; until then everything is
-                under the deployment key, and nothing is wrong.
+                needed instead, apply it with <C>npx supabase db push --remote</C>; until then
+                everything is under the deployment key, and nothing is wrong.
               </>
             ),
           },

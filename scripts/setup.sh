@@ -25,6 +25,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+# The CLI this script was last proved against. 3.0.0 changed what a bare
+# `db push` targets, so a new install takes this rather than "latest".
+SUPABASE_CLI_VERSION="${SUPABASE_CLI_VERSION:-3.0.0}"
 cd "$ROOT"
 
 MODE="docker"
@@ -218,8 +222,8 @@ if [ "$MODE" = "dev" ]; then say "Installing dependencies"; npm install; fi
 
 # ── 4. database migrations ───────────────────────────────────────────────────
 if [ "$SKIP_MIGRATIONS" -eq 0 ]; then
-  say "Applying database migrations (npx supabase db push)"
-  if ! npx --yes supabase db push; then
+  say "Applying database migrations (supabase db push, CLI $SUPABASE_CLI_VERSION)"
+  if ! npx --yes "supabase@$SUPABASE_CLI_VERSION" db push --remote; then
     warn "Could not push migrations — link the project first, then re-run:"
     echo "    npx supabase login"
     # The project ref is NOT an env var (nothing at runtime reads one).
