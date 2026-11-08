@@ -555,6 +555,27 @@ export function gatherInputs(
   return present.map((n) => `${n}: ${ctx[n]}`).join("\n\n");
 }
 
+/**
+ * The context variable a node's output goes to on the canvas: the name it was
+ * given, or a default that depends on its kind. The headless executor has one
+ * default for every kind, so this is the canvas's alone.
+ */
+export function outputVarOf(node: Pick<Node<SwarmNodeData>, "id" | "data">): string {
+  if (node.data.outputVar) return node.data.outputVar;
+  switch (node.data.kind) {
+    case "input":
+      return "input";
+    case "condition":
+      return `cond_${node.id}`;
+    case "router":
+      return `route_${node.id}`;
+    case "evaluate":
+      return `eval_${node.id}`;
+    default:
+      return `out_${node.id}`;
+  }
+}
+
 // Stream a chat completion through /api/chat. Returns the final assistant text
 // and emits per-token events via onToken.
 //
@@ -1151,8 +1172,10 @@ export async function runSwarm(
         stepInputByNode.set(node.id, resolvedInput);
         if (tracer) {
           for (const e of flow.liveIncoming(node.id)) {
-            const upstreamVar = `out_${e.source}`;
-            const payload = ctx[upstreamVar] ?? "";
+            const source = nodeById.get(e.source);
+            // A node that failed and carried on left its fallback in out_<id>,
+            // whatever its kind.
+            const payload = (source && ctx[outputVarOf(source)]) ?? ctx[`out_${e.source}`] ?? "";
             tracer.recordEdge({
               sourceNodeId: e.source,
               targetNodeId: e.target,

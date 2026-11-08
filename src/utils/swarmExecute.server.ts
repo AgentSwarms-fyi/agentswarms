@@ -500,6 +500,7 @@ export async function executeSwarmServer(opts: {
     // agent call or an HTTP POST is not free and not idempotent.
     const completed = new Set<string>(resumed?.completedNodeIds ?? []);
     const levels = topoLevels(nodes, edges);
+    const nodeById = new Map(nodes.map((n) => [n.id, n]));
 
     const graph = indexEdges(edges);
     const { outgoing } = graph;
@@ -582,7 +583,9 @@ export async function executeSwarmServer(opts: {
             input: { prompt: stepInput },
           });
           for (const e of flow.liveIncoming(node.id)) {
-            const payload = ctx[`out_${e.source}`] ?? "";
+            // Where the source wrote, as `outVar` above.
+            const sourceVar = nodeById.get(e.source)?.data.outputVar || `out_${e.source}`;
+            const payload = ctx[sourceVar] ?? "";
             await tracer.recordEdge({
               sourceNodeId: e.source,
               targetNodeId: e.target,

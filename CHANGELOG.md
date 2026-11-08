@@ -81,6 +81,14 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **A run's Data flow tab showed `0b` and no preview for most links** (R460).
+  Recording a link read `out_<source>`, but a node writes to its `outputVar`
+  when it has one, so a named output always recorded nothing. On the canvas an
+  unnamed input, condition, router or evaluate node has a default of its own and
+  recorded nothing either. Both runners now read where the source really wrote.
+  These previews now hold real text, sealed under the owner's key and behind
+  `PERSIST_PROMPT_BODIES` as R449 left them. Runs already recorded keep their
+  empty previews.
 - **Security: a user could rewrite a queued Spark query's plan and read another user's
   lakehouse files (R459).** The row a Spark job's sandbox is built from was writable by its
   owner, and its file list decides which prefixes the job's credential covers. Plans are

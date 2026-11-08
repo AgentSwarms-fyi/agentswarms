@@ -15,6 +15,25 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-09 — R460: a link records what its source node left
+
+Driven on the 8080 stack, signed in as the owner, first on the R459 image and then on
+one built from this round. The swarm was `r309_slow`, a kept fixture: an unnamed input
+feeding six JS function nodes and an output, so no LLM is called. An unnamed input
+writes to `input`, not `out_<id>`, which is the canvas case the old reader missed. Each
+run was started from the canvas with tracing on, and each result read from the run
+page's Data flow tab, which opens the sealed previews under the owner's key.
+
+| Build | What was driven | Data flow |
+| --- | --- | --- |
+| R459 | run `R460 before: link payload check` (31 characters) | `in → f1` recorded `0b` with no preview. The run then stopped at `f1`, which timed out at 5 s while an image build loaded the host, so it holds one link |
+| R460 | run `R460 after: link payload check` (30 characters), to completion | 7 links: `in → f1` 30b with the input's text, then `f1 → f2` to `f6 → out` at 40b to 90b, each preview the step's own text; the run reads "Encrypted under your key" |
+
+A named output on the canvas was not driven here. Its case runs the real canvas runner
+in `tests/unit/swarmLinkPayload.test.ts`, which fails with the old reader put back. The
+server's reader was seen on a real run when the fix was written (run `da081e63` in the
+commit). Fixtures: the two runs' traces stay in the owner's run history, as any run's do.
+
 ## 2026-11-08 — R459: one version set, Iceberg on Spark, and the sealed plan
 
 Driven on a container built from the worktree (`:8102`), signed in as the owner,
