@@ -109,6 +109,27 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-09 — R461: the image scan went red on valkey's zlib
+
+**Why this round.** The push of R458 and R459 ran `.github/workflows/image-scan.yml`, and its
+third-party job failed. Nothing those rounds changed was the cause. The one critical was in
+`valkey/valkey:8.1.11-alpine`, pinned by digest since before 2026-11-02, when the same scan
+passed on the same digest.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| A new advisory turned the weekly scan red on an image nothing here changed | S4 | Grype's database gained CVE-2026-4738 (critical) for Alpine's zlib 1.3.2-r1, fixed in 1.4-r0. The pinned valkey image carries 1.3.2-r1 (Alpine 3.24.3). Docker Hub has no later build to move to: the pinned digest is the newest 8.1.11, and every valkey Alpine tag (8.0, 8.1, 9.0, 9.1) was rebuilt on 2026-10-27. Measured in the image: only `/sbin/apk` links `libz`, and `valkey-server` links musl and OpenSSL alone, so the cache never calls zlib and nothing in a running container runs `apk`. Accepted under the baseline's rule, as VA-2026-10-25-25's third-party criticals were: `.github/grype-baseline.yaml` names CVE-2026-4738 at zlib 1.3.2-r1 exactly, so the next valkey digest, which Dependabot's docker-compose entry proposes, drops the match. Measured with the workflow's own gate command (grype v0.120.1, the database of 2026-11-08, `--only-fixed --fail-on critical`) on the pinned digest: exit 2 on this one finding with the old baseline, exit 0 and "No vulnerabilities found" with the new one, so the image has nothing else fixable |
+
+**What would have been wrong to conclude.**
+
+- *"R459 broke the scan."* The failing job scanned only third-party images, and the
+  only finding over the line was in one R459 did not touch. Spark 4.1.4's two criticals
+  were already in the baseline, and they passed.
+- *"Move to a newer valkey tag."* There is none with a newer zlib; 9.x was rebuilt the
+  same day on the same Alpine.
+- *"Patch zlib with `apk upgrade` in a derived image."* That would make valkey a
+  first-party image to build and scan, and fixes an advisory valkey cannot reach.
+
 ### 2026-11-08 — R459: one version set, and Iceberg on Spark
 
 **Why this round.** Asked to use "the versions where everything works with everything".

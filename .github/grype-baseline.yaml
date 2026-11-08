@@ -4,8 +4,22 @@
 # each says why it is here and what tracks it. Delete a rule when its finding
 # is fixed; a new critical anywhere still fails the scan (R406, VA-25).
 # Generated from grype v0.120.1 on 2026-10-30; the Spark rules re-measured on
-# 2026-11-08 for R459's move to Spark 4.1.4. The scan reports list the rest.
+# 2026-11-08 for R459's move to Spark 4.1.4; the valkey rule added 2026-11-09
+# (R461). The scan reports list the rest.
 ignore:
+  # valkey/valkey:8.1.11-alpine (Alpine 3.24.3). Its zlib 1.3.2-r1 has
+  # CVE-2026-4738, fixed in Alpine's zlib 1.4-r0. The scan of 2026-11-02 passed
+  # on this same digest; the advisory reached grype's database after it. The
+  # pinned digest is the newest 8.1 build (2026-10-27), and every valkey Alpine
+  # tag was rebuilt that day, so there is no image to move to. In the image only
+  # apk links libz: valkey-server links musl and OpenSSL alone, and nothing runs
+  # apk in the container. Dependabot's docker-compose entry proposes the next
+  # digest; delete this rule when the scan stops matching it.
+  - vulnerability: CVE-2026-4738
+    reason: "valkey/valkey 8.1.11-alpine (newest build, 2026-10-27) ships it; only apk links zlib, not valkey-server; checked 2026-11-09; R461 in docs/ADVERSARIAL_LOG.md, accepted as VA-2026-10-25-25 was"
+    package:
+      name: zlib
+      version: "1.3.2-r1"
   # apache/spark:4.1.4-python3. R459 moved Spark from 4.2.0 to 4.1.4, the
   # newest Spark that Iceberg publishes a runtime for (sparkVersions.ts). Both
   # images carry the same two criticals; 4.1.4 bundles netty 4.2.7 where 4.2.0

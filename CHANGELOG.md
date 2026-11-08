@@ -81,6 +81,13 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **The image scan failed on valkey's zlib** (R461). A new critical advisory,
+  CVE-2026-4738 in Alpine's zlib 1.3.2-r1, is in the pinned
+  `valkey/valkey:8.1.11-alpine`, and no valkey build carries the fix yet. In that
+  image only `apk` uses zlib, not `valkey-server`. `.github/grype-baseline.yaml`
+  accepts it at that exact version with its reason, so the next valkey digest
+  drops the rule. See the R461 entry in the
+  [Adversarial log](docs/ADVERSARIAL_LOG.md).
 - **A run's Data flow tab showed `0b` and no preview for most links** (R460).
   Recording a link read `out_<source>`, but a node writes to its `outputVar`
   when it has one, so a named output always recorded nothing. On the canvas an
