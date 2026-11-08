@@ -130,7 +130,7 @@
     "react-day-picker": "^9.14.0",
     "react-dom": "^19.3.0",
     "react-dropzone": "^15.0.0",
-    "react-email": "^6.11.0",
+    "react-email": "^6.11.8",
     "react-hook-form": "^7.89.0",
     "react-markdown": "^10.1.0",
     "react-resizable-panels": "^4.14.1",
