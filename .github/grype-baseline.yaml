@@ -3,16 +3,22 @@
 # package version, so a pin bump that changes the package drops the rule, and
 # each says why it is here and what tracks it. Delete a rule when its finding
 # is fixed; a new critical anywhere still fails the scan (R406, VA-25).
-# Generated from grype v0.120.1 on 2026-10-30; the scan reports list the rest.
+# Generated from grype v0.120.1 on 2026-10-30; the Spark rules re-measured on
+# 2026-11-08 for R459's move to Spark 4.1.4. The scan reports list the rest.
 ignore:
-  # apache/spark:4.2.0-python3
+  # apache/spark:4.1.4-python3. R459 moved Spark from 4.2.0 to 4.1.4, the
+  # newest Spark that Iceberg publishes a runtime for (sparkVersions.ts). Both
+  # images carry the same two criticals; 4.1.4 bundles netty 4.2.7 where 4.2.0
+  # had 4.2.13. 4.1.4 is the newest 4.1 image (2026-10-28), so there is no
+  # later one to move to; the server is on loopback and the internal networks
+  # only, and token-authenticated. Accepted as VA-2026-10-25-25 was.
   - vulnerability: GHSA-c4c3-7fpv-j4q5
-    reason: "apache/spark 4.2.0 bundles it and no later 4.2 image exists (checked 2026-10-30); accepted in VA-2026-10-25-25"
+    reason: "apache/spark 4.1.4 (the newest 4.1, the Spark Iceberg supports) bundles it; checked 2026-11-08; accepted as VA-2026-10-25-25"
     package:
       name: netty-handler
-      version: "4.2.13.Final"
+      version: "4.2.7.Final"
   - vulnerability: GHSA-rcjc-c4pj-xxrp
-    reason: "apache/spark 4.2.0 bundles it and no later 4.2 image exists (checked 2026-10-30); accepted in VA-2026-10-25-25"
+    reason: "apache/spark 4.1.4 (the newest 4.1, the Spark Iceberg supports) bundles it; checked 2026-11-08; accepted as VA-2026-10-25-25"
     package:
       name: derby
       version: "10.16.1.1"

@@ -19,6 +19,14 @@
 // scheme stripped.
 
 import { SPARK_CONNECT_FN, sparkConnectClientFragment } from "@/utils/etl/sparkConnectClient";
+import type { IcebergCatalogConfig } from "./iceberg";
+import {
+  icebergSparkCatalog,
+  icebergSparkConfLines,
+  icebergSparkTableRef,
+  type IcebergMaintenance,
+  type IcebergSparkTarget,
+} from "./icebergSpark";
 
 export type SparkQueryTable = {
   schema: string;
@@ -27,6 +35,13 @@ export type SparkQueryTable = {
   columns: { name: string; type: string }[];
   dataFiles: string[];
   deleteFiles: string[];
+  /**
+   * R459: a table of the caller's own Iceberg mount. Spark reads it from its
+   * catalog at the pinned snapshot; it has no lakehouse files.
+   */
+  iceberg?: IcebergSparkTarget;
+  /** R459: the job is this table's maintenance, not a SELECT. */
+  maintain?: IcebergMaintenance;
 };
 
 export type SparkQueryPlan = {
@@ -38,6 +53,8 @@ export type SparkQueryPlan = {
   rowCap: number;
   /** The DuckLake snapshot every table was resolved at. */
   snapshot: number | null;
+  /** The Iceberg catalogs the tables name, in env order (ETL_ICEBERG_<n>_*). */
+  catalogs?: { id: string; cfg: IcebergCatalogConfig }[];
 };
 
 /** The temporary view a table becomes on the cluster: `schema__table`. */
@@ -174,9 +191,43 @@ export function compileSparkQuery(plan: SparkQueryPlan): string {
     `        return [_j(x) for x in v]`,
     `    return str(v)`,
     ``,
+    `def _iceview(name, ref, snapshot_id):`,
+    `    # VERSION AS OF, not the snapshot-id read option, which Iceberg 1.12 on`,
+    `    # Spark 4.1 refuses ("no longer supported, use Spark built-in`,
+    `    # versionAsOf"), measured R459. The id is digits, checked at compile.`,
+    `    q = 'SELECT * FROM ' + ref + ((' VERSION AS OF ' + snapshot_id) if snapshot_id else '')`,
+    `    spark.sql(q).createOrReplaceTempView(name)`,
+    `    print('[sparkq] view ' + name + ': Iceberg ' + ref + (' at snapshot ' + snapshot_id if snapshot_id else ''))`,
+    ``,
     `def entrypoint(inputs):`,
+    // The statement is the user's. A catalog credential set below sits in the
+    // session's settings, and ${spark.sql.catalog.x.token} in a SELECT would be
+    // replaced by it before the parser ever saw the statement (R459).
+    `    spark.conf.set('spark.sql.variable.substitute', 'false')`,
   ];
+  const catalogs = plan.catalogs ?? [];
+  for (const [n, c] of catalogs.entries()) {
+    lines.push(...icebergSparkConfLines(icebergSparkCatalog(c.id), c.cfg, n));
+  }
   for (const t of plan.tables) {
+    if (t.iceberg) {
+      const ice = t.iceberg;
+      if (!catalogs.some((c) => c.id === ice.catalog_id)) {
+        throw new Error(`No catalog configured for ${t.schema}.${t.table}`);
+      }
+      const ref = icebergSparkTableRef(
+        icebergSparkCatalog(ice.catalog_id),
+        ice.namespace,
+        ice.table,
+      );
+      if (ice.snapshot_id !== null && !/^-?\d{1,20}$/.test(ice.snapshot_id)) {
+        throw new Error(`"${ice.snapshot_id}" is not a snapshot id`);
+      }
+      lines.push(
+        `    _iceview(${py(viewNameFor(t.schema, t.table))}, ${py(ref)}, ${ice.snapshot_id === null ? "None" : py(ice.snapshot_id)})`,
+      );
+      continue;
+    }
     const schema =
       "T.StructType([" +
       t.columns

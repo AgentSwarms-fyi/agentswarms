@@ -33,6 +33,7 @@ import { connect } from "node:net";
 
 import { k8sFetch } from "@/utils/notebookRuntime/k8s.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { SPARK_IMAGE, SPARK_PACKAGES, SPARK_SQL_EXTENSIONS } from "@/utils/etl/sparkVersions";
 
 export type SparkProvider = "static" | "k8s";
 
@@ -49,12 +50,10 @@ const BLOCK_MANAGER_PORT = 7079;
  * empty string and skips the resolution — worth doing, because it is the
  * slowest part of starting a per-run cluster.
  */
-const DEFAULT_PACKAGES =
-  "org.apache.hadoop:hadoop-aws:3.5.0,io.delta:delta-spark_2.13:4.4.0," +
-  "org.postgresql:postgresql:42.7.13,com.mysql:mysql-connector-j:9.7.0";
+const DEFAULT_PACKAGES = SPARK_PACKAGES;
 
-const DEFAULT_IMAGE =
-  "apache/spark:4.2.0-python3@sha256:fc64959c04bd87b0ac686be9aaa9008b69cdb1afc695400528279c8b01f43d89";
+/** One version set for every Spark this platform starts (sparkVersions.ts). */
+const DEFAULT_IMAGE = SPARK_IMAGE;
 
 function envInt(name: string): number | undefined {
   const n = Number(process.env[name]?.trim());
@@ -231,10 +230,14 @@ function driverArgs(s: SparkClusterSettings, name: string, ns: string): string[]
     `spark.executor.cores=${s.executorCores}`,
     `spark.executor.memory=${s.executorMemMb}m`,
     `spark.jars.ivy=/tmp/ivy`,
-    // Delta, so a Delta target and its MERGE work the way they do on the
-    // Compose profile. Harmless when no pipeline writes Delta.
-    `spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension`,
+    // Delta and Iceberg, so a Delta target and its MERGE, an Iceberg target,
+    // and an Iceberg table's maintenance procedures work the way they do on
+    // the Compose profile. Harmless when a run uses neither.
+    `spark.sql.extensions=${SPARK_SQL_EXTENSIONS}`,
     `spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog`,
+    // R459: no Spark UI. Each Connect request's plan is its job's call site,
+    // and a plan carries the run's per-read S3 options; the UI listed them.
+    `spark.ui.enabled=false`,
     `spark.connect.grpc.binding.port=${CONNECT_PORT}`,
     ...(podTemplate ? [`spark.kubernetes.executor.podTemplateFile=${podTemplate}`] : []),
     ...(process.env.SPARK_K8S_EXTRA_CONF ?? "")

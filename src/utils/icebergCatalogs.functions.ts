@@ -20,6 +20,7 @@ import {
 } from "@/utils/lakehouse/iceberg";
 import type { IcebergCatalogRow } from "@/utils/lakehouse/iceberg.server";
 import type { IcebergInspection } from "@/utils/lakehouse/icebergInspect";
+import { EXPIRE_DEFAULTS, ICEBERG_MAINTENANCE } from "@/utils/lakehouse/icebergSpark";
 import type { LakehouseResult } from "@/utils/lakehouse/core.server";
 import { callerFailure } from "@/utils/callerLookup.server";
 
@@ -532,6 +533,12 @@ export const icebergMountInspect = createServerFn({ method: "POST" })
       | {
           ok: true;
           inspection: IcebergInspection & { namespace: string; table: string; catalog: string };
+          /**
+           * R459: whether the upkeep panel may run maintenance here: the caller
+           * owns the catalog and the Spark engine is configured. Null when
+           * not, with the reason to show.
+           */
+          maintenance: { available: true } | { available: false; reason: string };
         }
       | Fail
     > => {
@@ -546,6 +553,24 @@ export const icebergMountInspect = createServerFn({ method: "POST" })
           schemaName: data.schema,
           view: data.table,
         });
+        let maintenance: { available: true } | { available: false; reason: string } = {
+          available: true,
+        };
+        if (mount.row.user_id !== caller.userId) {
+          maintenance = {
+            available: false,
+            reason: "Only the catalog's owner can run maintenance on its tables.",
+          };
+        } else {
+          const { sparkEngineAvailability } = await import("@/utils/etl/sparkCluster.server");
+          if (!(await sparkEngineAvailability()).configured) {
+            maintenance = {
+              available: false,
+              reason:
+                "Maintenance runs on the Spark engine, which is not configured (Admin → Developer runtime → Spark engine).",
+            };
+          }
+        }
         const { policedReadRefusal } = await import("@/utils/lakehouse/publishGuard.server");
         // Snapshot summaries count rows; a reader under a row filter is not
         // told how many rows the filter hides.
@@ -559,12 +584,53 @@ export const icebergMountInspect = createServerFn({ method: "POST" })
           inspection.files = null;
           inspection.advice = inspection.advice.filter((a) => a.kind === "upgrade");
         }
-        return { ok: true, inspection };
+        return { ok: true, inspection, maintenance };
       } catch (e) {
         return { ok: false, error: (e as Error).message };
       }
     },
   );
+
+/**
+ * Run an upkeep item on the Spark engine (R459): compaction, rewriting away
+ * deletes, or expiring snapshots. Owner only; the job is polled like a Spark
+ * query (getLakehouseSparkQuery).
+ */
+export const icebergMountMaintain = createServerFn({ method: "POST" })
+  .validator((input: unknown) =>
+    z
+      .object({
+        access_token: z.string().min(1),
+        schema: z.string().regex(NAME),
+        table: z.string().regex(LAKE_TABLE),
+        action: z.enum(ICEBERG_MAINTENANCE),
+        older_than_days: z.number().int().min(1).max(3650).optional(),
+        retain_last: z.number().int().min(1).max(10_000).optional(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }): Promise<{ ok: true; id: string; sql: string } | Fail> => {
+    const caller = await resolveCaller(data.access_token);
+    if (!caller.ok) return caller;
+    try {
+      const { startIcebergMaintenance } = await import("@/utils/lakehouse/sparkQuery.server");
+      const out = await startIcebergMaintenance(caller.userId, {
+        schema: data.schema,
+        view: data.table,
+        maintenance:
+          data.action === "expire"
+            ? {
+                action: "expire",
+                older_than_days: data.older_than_days ?? EXPIRE_DEFAULTS.older_than_days,
+                retain_last: data.retain_last ?? EXPIRE_DEFAULTS.retain_last,
+              }
+            : { action: data.action },
+      });
+      return { ok: true, ...out };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  });
 
 /** A mounted table as it was at a snapshot, a branch or a tag (R457). */
 export const icebergMountTimeTravel = createServerFn({ method: "POST" })

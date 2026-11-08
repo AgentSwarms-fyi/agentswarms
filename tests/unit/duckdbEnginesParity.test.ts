@@ -13,6 +13,7 @@
 // engine) beside the server's, and holds them to one minor version and to
 // the same result types.
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 
 import { DuckDBInstance } from "@duckdb/node-api";
@@ -69,6 +70,20 @@ describe("the browser's DuckDB and the server's", { timeout: 60_000 }, () => {
     const [a, b] = await both("SELECT version() AS v");
     const minor = (v: unknown) => String(v).split(".").slice(0, 2).join(".");
     expect(minor(a.v)).toBe(minor(b.v));
+  });
+
+  // R459: one engine, not one line. The browser ran DuckDB 1.5.4 (duckdb-wasm
+  // 1.33.1-dev57.0, npm's `latest`), the server 1.5.5 and the sandbox image's
+  // Python whatever a rebuild picked (1.5.6). All three now run v1.5.5
+  // (duckdb-wasm 1.33.1-dev64.0 is its 1.5.5 build). Not 1.5.6: the ORC reader
+  // is a community extension published for 1.5.5 and not for 1.5.6.
+  it("are the same release, and the sandbox image's Python DuckDB is too", async () => {
+    const [a, b] = await both("SELECT version() AS v");
+    expect(a.v).toBe(b.v);
+    const req = readFileSync("docker/notebook-runtime/requirements.txt", "utf8");
+    const py = /^duckdb==(\d+\.\d+\.\d+)$/m.exec(req)?.[1];
+    expect(py, "the sandbox image pins one DuckDB").toBeTruthy();
+    expect(`v${py}`).toBe(b.v);
   });
 
   it.each([

@@ -307,11 +307,11 @@ describe("every write mode and table format a target offers", () => {
           } as EtlTargetConfig,
         });
         compilesAsPython(compileGraph(g), `object storage ${mode}/${table_format} (pandas)`);
-        // Spark's two documented gaps — Iceberg, and merge without Delta —
-        // are refusals in words, not silent failures on a cluster. Asserted
-        // here so a future Spark Iceberg writer has to update this row.
+        // Spark's documented gap — merge into plain files — is a refusal in
+        // words, not a silent failure on a cluster. Iceberg was the other one
+        // until R459 moved Spark to 4.1, which has an Iceberg runtime.
         const refusal = sparkRefusal(g);
-        if (table_format === "iceberg" || (mode === "merge" && table_format !== "delta")) {
+        if (mode === "merge" && table_format !== "delta" && table_format !== "iceberg") {
           expect(refusal, `spark should refuse ${mode}/${table_format}`).toBeTruthy();
         } else {
           expect(refusal, `spark refused ${mode}/${table_format}`).toBeNull();

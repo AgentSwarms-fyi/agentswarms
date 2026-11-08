@@ -782,10 +782,35 @@ add), its branches, tags and snapshots with the rows each one left, its live
 files by kind, and upkeep: delete files every scan applies, small files, a
 long history, and for a v2 table what v3 would bring. Each item carries the
 Spark procedure that deals with it, with the catalog named as registered here.
-The lakehouse reads Iceberg tables and does not rewrite them: their upkeep
-belongs to the engine that owns them. Measured against tables Spark 4.1 and
-Iceberg 1.12 wrote (R457): a v3 table with 48 deletion vectors read 10,125
-rows here, as it did in Spark.
+Measured against tables Spark 4.1 and Iceberg 1.12 wrote (R457): a v3 table
+with 48 deletion vectors read 10,125 rows here, as it did in Spark.
+
+**Maintain a mounted table (R459).** Where the deployment has a Spark engine,
+the catalog's owner runs the upkeep items from the panel, each as a Spark job
+like a query on Spark: **Compact on Spark** (`rewrite_data_files`), **Rewrite
+on Spark** for delete files (`rewrite_data_files` with
+`delete-file-threshold` 1, so a file with any delete applied is rewritten
+without it), and **Expire on Spark** (`expire_snapshots` older than the days
+you set, keeping at least the newest you set; branches and tags stay). Each
+asks first and says what it does, and expiry says it cannot be undone. The job
+configures the catalog on its own Spark Connect session (REST, the catalog's
+auth, vended credentials or the lakehouse's keys scoped to the table's
+location), with every credential from the job's environment and `${...}`
+substitution switched off first, so no statement can read one back. When it
+ends the panel says what the procedure did, in its own counts, and reads the
+table again. Only the owner: the commit is made with the owner's catalog
+credentials, and expiry deletes files. Audited as `lakehouse.iceberg.maintain`.
+
+Measured on Spark 4.1.4 against a REST catalog on the development object
+store, with the app's DuckDB 1.5.5 reading the same table before and after
+every job (rows by region unchanged each time): a v2 table of 320 data files
+and 200 positional delete files rewrote to 1 data file and 0 delete files, and
+expiry with "keep 2" left 2 snapshots and deleted the 320 old data files. The
+first version of the rewrite did not pass `remove-dangling-deletes`, and the
+run showed why it must: 832 data files became 1, and all 520 delete files
+stayed listed, still opened by every read. Spark had no Iceberg before R459:
+Iceberg publishes no runtime for Spark 4.2, which the platform ran, so the
+panel could only hand over the SQL.
 
 Two counts on that panel were wrong in the UI pass and are worth knowing
 about. A snapshot's `total-records` is the records in its data files, deleted
@@ -859,7 +884,8 @@ dependence on the catalog afterwards.
 
 Every action is audited: catalog definitions through the `iceberg_catalog`
 row trigger; `lakehouse.iceberg.mount`, `lakehouse.iceberg.refresh`,
-`lakehouse.iceberg.publish` and `lakehouse.iceberg.import` with the catalog,
+`lakehouse.iceberg.publish`, `lakehouse.iceberg.import` and (R459)
+`lakehouse.iceberg.maintain` with the catalog,
 namespace, table and row counts. Removing a catalog removes its mounted
 schemas first and leaves the catalog's tables untouched.
 
@@ -929,12 +955,29 @@ statement and posts the rows back. The cluster never opens a catalog session:
 the catalog Postgres is the lakehouse's narrow point, and a hundred executors
 against it would be the outage this exists to avoid.
 
-Three things run on DuckDB only, and the page says which. A **mounted**
-schema (data lake or Iceberg) — its views read raw files through
-server-authored bodies Spark cannot see. A table under **another owner's
-security policy** — Spark has no way to apply the filter, and an unfiltered
-read is never the answer. An **encrypted** lakehouse — the Spark reader does
-not decrypt DuckLake files yet. Writes never go to Spark.
+A table of your own **Iceberg mount** is read differently (R459): Spark reads
+it from its catalog, configured on the job's own session, at the snapshot
+that was current when the query was planned (`VERSION AS OF`, so a commit to
+the catalog while the job waits is not in the answer), and it joins lakehouse
+tables in the same statement. Before R459 every mount was refused, because the
+cluster had no Iceberg.
+
+Four things run on DuckDB only, and the page says which. A **data-lake
+mount** — its views read raw files through server-authored bodies Spark
+cannot see. An **Iceberg mount shared with you** — the session would need its
+owner's catalog credentials, which a job of yours is not given. A table under
+**another owner's security policy** — Spark has no way to apply the filter,
+and an unfiltered read is never the answer. An **encrypted** lakehouse — the
+Spark reader does not decrypt DuckLake files yet. Writes never go to Spark.
+
+A job's plan is sealed (R459). The row a Spark job's sandbox is built from —
+its statement and the files it reads — was writable by its owner, and the
+scoped credential is minted for the prefixes that list names, so a user who
+rewrote their queued query's file list was handed a credential for another
+user's files. The plan is now sealed with the runtime's signing secret when
+it is recorded, the seal travels in the session's inputs, and no program or
+environment is built from a row that no longer matches. Migration
+`20261112000000` also leaves users read-only on the table.
 
 Two things to know. The dialect is **Spark SQL**, not DuckDB's: a statement
 that leans on DuckDB-only functions is rewritten before it runs, not
@@ -956,7 +999,8 @@ query ran on and finished.
 Verified live on the compose Spark 4.2 endpoint: a table written, flushed,
 then edited (so it had both a data file and a delete file) returned the same
 rows and aggregates on Spark as on DuckDB, from the page, with the deleted
-rows absent.
+rows absent. Spark is 4.1.4 since R459 (one version set with Delta 4.4.1 and
+Iceberg 1.12.0; see [ETL pipelines](ETL_PIPELINES.md)).
 
 ## Scaling behind a load balancer
 

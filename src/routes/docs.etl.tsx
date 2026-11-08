@@ -309,7 +309,7 @@ function EtlDocsPage() {
         headers={["On the cluster", "In the sandbox, then lifted into Spark"]}
         rows={[
           [
-            "Object-storage reads and writes (CSV, TSV, JSON, JSONL, Parquet; Delta including merge)",
+            "Object-storage reads and writes (CSV, TSV, JSON, JSONL, Parquet; Delta and Iceberg, including merge)",
             "Spreadsheets, HTTP API fetches, platform datasets",
           ],
           [
@@ -328,19 +328,31 @@ function EtlDocsPage() {
         <C>_y</C>, a null fails a range or regex check — so a pipeline gives the same answer on
         either engine. Filter and derive expressions keep their pandas spelling and are translated
         to Spark SQL at save time; a construct Spark cannot express is refused at save, naming it
-        and the fix. The engine also refuses, at save: Iceberg targets (write Delta), merge into
-        plain files (merge needs a Delta table), merge into a database, and a SQL step calling{" "}
-        <C>regexp_extract</C> without its third argument — DuckDB returns the whole match there
-        while Spark reads the missing argument as capture group 1, so the step is asked which it
-        means rather than left to fail minutes into a cluster run.
+        and the fix. The engine also refuses, at save: merge into plain files (merge needs a Delta
+        or an Iceberg table), merge into a database, and a SQL step calling <C>regexp_extract</C>{" "}
+        without its third argument — DuckDB returns the whole match there while Spark reads the
+        missing argument as capture group 1, so the step is asked which it means rather than left to
+        fail minutes into a cluster run.
       </P>
       <P>
         <strong>Where the cluster comes from</strong> is one choice for the deployment, in Admin →
         Developer runtime → Spark engine. <strong>An endpoint you run</strong> is the default: one
         Spark Connect endpoint shared by every run, set there or as <C>SPARK_CONNECT_URL</C> — and
         until it is set the engine picker says so. Locally, <C>docker compose up -d</C> gives you
-        one at <C>sc://spark-connect:15002</C> with the S3A, Delta and JDBC connectors already on
-        it.
+        one at <C>sc://spark-connect:15002</C> with the S3A, Delta, Iceberg and JDBC connectors
+        already on it.
+      </P>
+      <P>
+        <strong>One version set.</strong> Spark 4.1.4, Delta 4.4.1, Iceberg 1.12.0,{" "}
+        <C>hadoop-aws</C> 3.4.2 and the sandbox image&apos;s <C>pyspark-client</C> 4.1.4: the newest
+        Spark that every one of them is built for. Spark 4.2 is newer, but Iceberg publishes no
+        runtime for it. An <strong>Iceberg target</strong> on Spark writes the same table the pandas
+        engine writes at <C>dataset/table</C> in the bucket: the run registers its latest metadata
+        file (the one dlt itself would pick) in a catalog that lives in the run&apos;s own Spark
+        session, commits, and the next file is where either engine finds it, so a pipeline can move
+        between engines and both read what the other wrote. A new table is created as format v2.
+        Like the pandas engine&apos;s, the commit has no catalog to lock it against a second writer
+        at the same moment: one pipeline per table.
       </P>
       <P>
         The Compose endpoint runs its driver as a non-root user and requires a pre-shared{" "}

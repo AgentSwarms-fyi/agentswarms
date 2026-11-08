@@ -136,7 +136,13 @@ describe("a v3 table Spark wrote", () => {
     expect(kinds).not.toContain("upgrade");
     const compact = t.advice.find((a) => a.kind === "compact");
     expect(compact?.title).toBe("153 data files averaging 67 rows");
-    expect(compact?.sql).toBe("CALL rig.system.rewrite_data_files(table => 'sales.orders_v3')");
+    expect(compact?.sql).toBe(
+      "CALL rig.system.rewrite_data_files(table => 'sales.orders_v3', options => map('remove-dangling-deletes', 'true'))",
+    );
+    // R459: without remove-dangling-deletes a rewrite keeps every delete file listed.
+    expect(t.advice.find((a) => a.kind === "deletes")?.sql).toContain(
+      "map('delete-file-threshold', '1', 'remove-dangling-deletes', 'true')",
+    );
   });
 
   it("time-travels to a branch or a tag through its snapshot id", () => {

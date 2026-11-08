@@ -126,6 +126,10 @@ describe("what the engine is told", () => {
     const c = await (await DuckDBInstance.create(":memory:")).connect();
     try {
       await c.run("LOAD iceberg");
+      // R459: no retries against the closed port. With the default three, the
+      // token request alone took 22 s, and under a full suite's load the test
+      // ran past its minute (LOAD iceberg measured at 80 s on a busy machine).
+      await c.run("SET http_retries = 0");
       // Without the endpoint: refused as a configuration error, before any call.
       await expect(c.run(sql.replace(/, ENDPOINT '[^']*'/, ""))).rejects.toThrow(
         /no 'oauth2_server_uri' was provided, and no 'endpoint'/,
@@ -140,7 +144,7 @@ describe("what the engine is told", () => {
     } finally {
       c.closeSync();
     }
-  }, 60_000);
+  }, 180_000);
 
   it("lists namespaces and tables through DuckDB's catalog functions (the attached catalog has no information_schema)", () => {
     expect(icebergListNamespacesSql(alias)).toContain(

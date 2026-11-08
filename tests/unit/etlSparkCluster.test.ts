@@ -13,7 +13,7 @@ const SETTINGS: SparkClusterSettings = {
   provider: "k8s",
   staticUrl: null,
   token: null,
-  image: "apache/spark:4.2.0-python3",
+  image: "apache/spark:4.1.4-python3",
   executors: 3,
   executorCores: 2,
   executorMemMb: 4096,
@@ -160,7 +160,7 @@ describe("sparkDriverManifests — sizing and placement", () => {
     expect(conf(m, "spark.executor.cores")).toBe("2");
     expect(conf(m, "spark.executor.memory")).toBe("4096m");
     expect(conf(m, "spark.driver.memory")).toBe("2048m");
-    expect(conf(m, "spark.kubernetes.container.image")).toBe("apache/spark:4.2.0-python3");
+    expect(conf(m, "spark.kubernetes.container.image")).toBe("apache/spark:4.1.4-python3");
   });
 
   it("the pod's memory limit leaves room beside the JVM heap", () => {
@@ -183,8 +183,14 @@ describe("sparkDriverManifests — sizing and placement", () => {
   it("resolves the connectors by default, and skips it for an image that has them", () => {
     const cmd = podOf(build()).spec.containers[0].command;
     expect(cmd).toContain("--packages");
-    expect(cmd.join(" ")).toContain("io.delta:delta-spark_2.13");
-    expect(conf(build(), "spark.sql.extensions")).toBe("io.delta.sql.DeltaSparkSessionExtension");
+    // R459: one version set (sparkVersions.ts): Delta and Iceberg built for Spark 4.1.
+    expect(cmd.join(" ")).toContain("io.delta:delta-spark_4.1_2.13:4.4.1");
+    expect(cmd.join(" ")).toContain("org.apache.iceberg:iceberg-spark-runtime-4.1_2.13:1.12.0");
+    expect(cmd.join(" ")).toContain("org.apache.iceberg:iceberg-aws-bundle:1.12.0");
+    expect(cmd.join(" ")).toContain("org.apache.hadoop:hadoop-aws:3.4.2");
+    expect(conf(build(), "spark.sql.extensions")).toBe(
+      "io.delta.sql.DeltaSparkSessionExtension,org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
+    );
     process.env.SPARK_PACKAGES = "";
     expect(podOf(build()).spec.containers[0].command).not.toContain("--packages");
   });

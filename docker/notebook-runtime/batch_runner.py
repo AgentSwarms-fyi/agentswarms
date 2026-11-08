@@ -59,6 +59,17 @@ def _headers():
 def fetch_source() -> str:
     with httpx.Client(timeout=60, trust_env=True) as c:
         r = c.post(ORIGIN + "/api/notebook/runtime/source", json={}, headers=_headers())
+    # R459: when the server will not hand over the program it says why (a
+    # Spark job whose plan no longer matches its seal, a session it has no
+    # record of), and that sentence is the run's error, not httpx's
+    # "Client error '404' for url ...", which was all a refused job showed.
+    if getattr(r, "status_code", 200) >= 400:
+        try:
+            why = (r.json() or {}).get("error")
+        except Exception:
+            why = None
+        if why:
+            raise RuntimeError(str(why))
     r.raise_for_status()
     return r.json().get("code", "")
 

@@ -1407,7 +1407,14 @@ function TableTab({
       </div>
 
       {detail.mount === "iceberg" && (
-        <IcebergTablePanel inspection={iceberg.inspection} error={iceberg.error} />
+        <IcebergTablePanel
+          inspection={iceberg.inspection}
+          error={iceberg.error}
+          schema={schema}
+          table={table}
+          maintenance={iceberg.maintenance}
+          onChanged={iceberg.reload}
+        />
       )}
 
       <div className="flex min-h-0 flex-1 flex-col gap-1">

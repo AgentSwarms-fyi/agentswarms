@@ -849,11 +849,11 @@ export function RuntimeTab({
                       className="h-8 font-mono text-xs"
                       value={form.spark_image}
                       onChange={(e) => set("spark_image", e.target.value)}
-                      placeholder="apache/spark:4.2.0-python3"
+                      placeholder="apache/spark:4.1.4-python3"
                     />
                     <p className="text-[10px] text-muted-foreground">
-                      Driver and executors. Must be Spark 4.2 — the client in the sandbox image
-                      speaks that protocol version.
+                      Driver and executors. Must be Spark 4.1 — the client in the sandbox image
+                      speaks that protocol version, and Delta and Iceberg are built for it.
                     </p>
                   </div>
                   <NumberField

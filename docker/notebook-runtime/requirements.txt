@@ -31,11 +31,16 @@ numpy
 scikit-learn>=1.4
 lightgbm>=4.0
 statsmodels>=0.14
-# Below 2: lakehouse nodes write the DuckLake catalog that the app's DuckDB
-# (@duckdb/node-api 1.5, package.json) also reads, and a newer DuckLake extension
-# may move the catalog to a version the app's cannot open. An unpinned rebuild
-# took 2.0.0. Raise the bound together with the app's package.
-duckdb>=1.4,<2
+# Exactly the app's DuckDB (R459): the server's @duckdb/node-api and the
+# browser's duckdb-wasm are 1.5.5 too (package.json), so a lakehouse node, a
+# query on the server and one in the browser run one engine. 1.5.5 and not
+# 1.5.6: the ORC reader is a community extension, published for v1.5.5 and
+# not for v1.5.6 (404 on every platform, checked 2026-11-08). Lakehouse nodes
+# write the DuckLake catalog the app also reads, and a DuckDB 2 would move a
+# catalog it creates to a DuckLake version 1.5 cannot open (an unpinned rebuild
+# took 2.0.0). Move all three together: tests/unit/duckdbEnginesParity.test.ts
+# holds them to one version.
+duckdb==1.5.5
 pyarrow>=15
 s3fs>=2024.2
 # ETL streaming sources (Kafka / Redpanda, Kinesis, Pub/Sub), read in micro-batches.
@@ -46,8 +51,9 @@ joblib>=1.3
 scipy>=1.11
 
 # Spark engine: the pure-Python Spark Connect client (no JVM, ~1.5 MB).
-# Pinned to the server's major.minor - the protocol is versioned.
-pyspark-client==4.2.0
+# Pinned to the server's exact version, Spark 4.1.4 (src/utils/etl/sparkVersions.ts
+# says why 4.1 and not 4.2: Iceberg has no Spark 4.2 runtime).
+pyspark-client==4.1.4
 
 # Security floors (VA-2026-10-25-26). Most of the above is unpinned, so a fresh
 # build takes current releases, but Docker reuses the cached install layer

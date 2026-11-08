@@ -14,7 +14,32 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
+### Changed
+
+- **One version set where everything works with everything (R459).** Spark moves from
+  4.2.0 to **4.1.4**, the newest Spark every connector is built for: Delta 4.4.1, Iceberg
+  1.12.0 (Iceberg publishes no runtime for Spark 4.2), `hadoop-aws` 3.4.2 to match the
+  image's Hadoop, and the sandbox image's `pyspark-client` 4.1.4. DuckDB is **1.5.5** in
+  all three places it runs: the server (`@duckdb/node-api` 1.5.5-r.2), the browser
+  (`@duckdb/duckdb-wasm` 1.33.1-dev64.0, its 1.5.5 build; the npm `latest` tag still
+  points at a 1.5.4 build) and the sandbox image (`duckdb==1.5.5`). Before, the three
+  ran 1.5.5, 1.5.4 and whatever a rebuild picked (1.5.6). Not 1.5.6: the ORC reader is a
+  community extension published for 1.5.5 and not for 1.5.6. DuckDB 2.0 waits for a
+  stable duckdb-wasm 2.0. See
+  [ETL pipelines](docs/ETL_PIPELINES.md) and
+  [the assessment](docs/LAKEHOUSE_ASSESSMENT.md).
+- **The Spark servers no longer run the Spark UI.** A Spark Connect job's call site is its
+  request, which carries a read's S3 options, so the UI listed every run's keys.
+
 ### Added
+
+- **Iceberg on the Spark engine.** A pipeline's Iceberg target runs on Spark and writes the
+  same table the pandas engine writes, so a pipeline can move between engines (append,
+  replace and merge). A lakehouse query on Spark reads your own Iceberg mounts from their
+  catalog, at a pinned snapshot, beside lakehouse tables.
+- **Iceberg maintenance from the upkeep panel:** compaction, rewriting away deletes, and
+  snapshot expiry run as Spark jobs, by the catalog's owner, after a confirmation that says
+  what each does.
 
 - **Materialized views refresh only what changed.** A refresh leaves the table as it is
   when nothing the view reads changed, appends only the new rows when the view filters
@@ -56,6 +81,18 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **Security: a user could rewrite a queued Spark query's plan and read another user's
+  lakehouse files (R459).** The row a Spark job's sandbox is built from was writable by its
+  owner, and its file list decides which prefixes the job's credential covers. Plans are
+  now sealed when recorded and refused when they no longer match; migration
+  `20261112000000` makes the table server-written.
+- **A Delta target on Spark failed when the frame's columns changed:** "evolve" now adds
+  columns there as the pandas engine does, and a replace takes the new shape.
+- **A sandbox job the server refused showed only "Client error '404'":** the runner now
+  shows the server's reason.
+- **The upkeep panel's Spark SQL for delete files left them in place:** a rewrite without
+  `remove-dangling-deletes` kept every delete file listed (measured: 832 data files
+  rewritten into 1, all 520 delete files still read). The SQL, and the job, now pass it.
 - **An OAuth2 Iceberg catalog saved without its "optional" server URI never attached:**
   the engine refused the secret, which is made apart from the ATTACH that names the
   endpoint. The token is now asked for at the catalog's own `/v1/oauth/tokens`. Found

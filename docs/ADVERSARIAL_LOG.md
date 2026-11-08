@@ -109,6 +109,41 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-08 — R459: one version set, and Iceberg on Spark
+
+**Why this round.** Asked to use "the versions where everything works with everything".
+Spark moved from 4.2.0 to 4.1.4 because Iceberg has no Spark 4.2 runtime; DuckDB is
+1.5.5 in the server, the browser and the sandbox image, which had run three different
+patch releases (1.5.6 was tried first and has no ORC extension). With Iceberg on the cluster, the gaps waiting on it were built and run
+against Spark 4.1.4, a REST catalog and the development object store. Versions and
+what was measured: `docs/LAKEHOUSE_ASSESSMENT.md`; UI record: `docs/UI_TEST_RESULTS.md`.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| A user could rewrite their queued Spark query's plan and be handed another user's files | S1 | `lakehouse_spark_queries` had one policy, `FOR ALL` with `auth.uid() = user_id`, and `authenticated` keeps INSERT and UPDATE on public tables (measured on the live project: `has_table_privilege(..., 'UPDATE')` true, policy cmd ALL). The `tables` column is the list of Parquet files the cluster reads, and the scoped credential is minted for the prefixes it names; rewritten between the insert and the sandbox's start, it named another user's files. Pre-existing since Spark queries were added (b92593d3). Fixed in code (the plan is sealed with the runtime secret when recorded, the seal rides in the session, a row that no longer matches is refused) and by migration `20261112000000` (users read only) |
+| The Spark UI listed every run's S3 keys | S2 | A Spark Connect job's call site is its request, and a read's data-source options carry its keys (per call, so that no session holds another's). Measured on 4.2.0 and 4.1.4 alike: the key appeared in the job's call site and, once, in the server log when a listener event ran slow. The UI is not published, but code on the cluster could reach `:4040`. Both servers now run without it; the slow-event log line remains, operator-visible only |
+| "Rewrite deletes" left every delete file in place | S2 | *New code, caught live:* `rewrite_data_files` rewrote 832 data files into 1 and left all 520 delete files listed (`removed_delete_files_count` 0), so each read kept opening them. The advice's copyable SQL had the same gap. Both now pass `remove-dangling-deletes` |
+| Iceberg's in-memory catalog cannot commit a real table | S2 | *New code, caught live:* it reads and writes metadata through an in-memory file store whatever `io-impl` says ("No in-memory file found for location"). The pipeline target uses the JDBC catalog over an in-memory SQLite database instead, which is what pyiceberg's SQL catalog is |
+| A job the server refused showed only "Client error '404' for url …/source" | S4 | *Found in the UI:* the sandbox's runner raised httpx's status error and threw away the server's reason. It now raises the server's own sentence; driven again with a tampered job, the page said the plan was not the one the server recorded |
+| A Delta target on Spark failed when its frame's columns changed | S3 | No `mergeSchema` on append and no `overwriteSchema` on replace, so "evolve" failed on Spark where the pandas engine evolves |
+| The three DuckDB engines ran three releases | S3 | Browser 1.5.4 (duckdb-wasm's npm `latest`, a CI bump on the 1.5.4 build), server 1.5.5, sandbox image 1.5.6 (an unpinned rebuild's pick). All three now run v1.5.5 (duckdb-wasm 1.33.1-dev64.0 is its 1.5.5 build), and the parity test holds them to one release |
+| *Caught before it shipped:* DuckDB 1.5.6 would have broken ORC | S2 | The first choice was 1.5.6, the newest 1.5 in all three. The ORC reader is a community extension, and `community-extensions.duckdb.org` publishes it for v1.5.5 and not for v1.5.6 (404 on linux_amd64, linux_arm64, windows_amd64 and osx_arm64), so `.orc` files would have stopped reading. Every core extension the app loads exists for both; the community one decided it |
+
+**What would have been wrong to conclude.**
+
+- *"Spark 4.2 is newer, so it is the better choice."* It is the one version Iceberg has
+  no runtime for. Delta has a build for 4.0, 4.1 and 4.2; Iceberg for 4.0 and 4.1.
+- *"duckdb-wasm's `latest` is its newest release."* It points at 1.33.1-dev57.0 (June,
+  DuckDB 1.5.4); dev64.0 (July) is the 1.5.5 build and dev65.0 (September) the 1.5.6
+  one, and all are tagged `-dev`.
+- *"The newest patch release is the one where everything works."* 1.5.6 is newer than
+  1.5.5 and has no ORC extension; "newest" and "works with everything" differ.
+- *"The Delta write fails on 4.1.4."* The first smoke test's Delta write failed for
+  credentials; the app's exact sequence (per-call options, then session settings for
+  MERGE) passed on 4.1.4 in a run of its own. The failure came from the test's order.
+- *"The REST fixture is broken."* Its SQLite file was locked (`SQLITE_BUSY`) by a stale
+  transaction; restarting it was not ours to do, so a throwaway fixture was used.
+
 ### 2026-11-08 — R458: the gaps R457 left open, closed where they could be
 
 **Why this round.** Asked whether everything was now good and gap-free: it was not, and

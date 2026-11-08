@@ -3,17 +3,32 @@
 // from the table as it was), partition spec and sort order, how the schema
 // evolved, and upkeep. Shown on the table tab in place of the lakehouse's own
 // snapshot list, which a mount does not have.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { Clock3, Copy, GitBranch, Loader2, Tag } from "lucide-react";
+import { Clock3, Copy, GitBranch, Loader2, Play, Tag } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { useTokenRef } from "@/hooks/use-token-ref";
-import { icebergMountInspect, icebergMountTimeTravel } from "@/utils/icebergCatalogs.functions";
+import {
+  icebergMountInspect,
+  icebergMountMaintain,
+  icebergMountTimeTravel,
+} from "@/utils/icebergCatalogs.functions";
+import { cancelLakehouseSparkQuery, getLakehouseSparkQuery } from "@/utils/lakehouse.functions";
 import type { LakehouseResult } from "@/utils/lakehouse/core.server";
 import type { IcebergInspection } from "@/utils/lakehouse/icebergInspect";
+import {
+  EXPIRE_DEFAULTS,
+  describeMaintenanceResult,
+  maintenanceError,
+  maintenanceSummary,
+  type IcebergMaintenance,
+  type IcebergMaintenanceAction,
+} from "@/utils/lakehouse/icebergSpark";
+import { pollSparkQuery } from "@/lib/sparkPoll";
 import { reportFailure } from "@/lib/silentFailureNet";
 
 type Inspection = IcebergInspection & { namespace: string; table: string; catalog: string };
@@ -139,6 +154,8 @@ export function IcebergSnapshotsCard({
   );
 }
 
+type Maintenance = { available: true } | { available: false; reason: string };
+
 /** Loads the inspection once per table; the snapshots card and the details panel share it. */
 export function useIcebergInspection(schema: string, table: string, enabled: boolean) {
   const { session } = useAuth();
@@ -148,9 +165,20 @@ export function useIcebergInspection(schema: string, table: string, enabled: boo
   const { tokenRef, signedIn } = useTokenRef(session?.access_token);
   const inspectFn = useServerFn(icebergMountInspect);
   const [inspection, setInspection] = useState<Inspection | null>(null);
+  const [maintenance, setMaintenance] = useState<Maintenance | null>(null);
   const [error, setError] = useState("");
+  // Bumped after a maintenance run, so the panel reads the table as it is now.
+  const [generation, setGeneration] = useState(0);
+  const shown = useRef("");
   useEffect(() => {
-    setInspection(null);
+    // A reload after maintenance keeps the panel up while it reads; another
+    // table, or the panel switched off, starts blank.
+    const key = `${schema}.${table}`;
+    if (shown.current !== key || !enabled || !signedIn) {
+      setInspection(null);
+      setMaintenance(null);
+      shown.current = key;
+    }
     setError("");
     if (!enabled || !signedIn) return;
     let live = true;
@@ -160,8 +188,10 @@ export function useIcebergInspection(schema: string, table: string, enabled: boo
           data: { access_token: tokenRef.current, schema, table },
         });
         if (!live) return;
-        if (r.ok) setInspection(r.inspection);
-        else setError(r.error);
+        if (r.ok) {
+          setInspection(r.inspection);
+          setMaintenance(r.maintenance);
+        } else setError(r.error);
       } catch (e) {
         if (live) setError((e as Error).message);
       }
@@ -170,16 +200,194 @@ export function useIcebergInspection(schema: string, table: string, enabled: boo
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schema, table, signedIn, enabled]);
-  return { inspection, error };
+  }, [schema, table, signedIn, enabled, generation]);
+  return { inspection, error, maintenance, reload: () => setGeneration((g) => g + 1) };
+}
+
+/** The maintenance an upkeep item runs, when it is one the panel can run. */
+const ACTION_FOR: Partial<
+  Record<IcebergInspection["advice"][number]["kind"], IcebergMaintenanceAction>
+> = {
+  compact: "compact",
+  deletes: "deletes",
+  snapshots: "expire",
+};
+
+const RUN_LABEL: Record<IcebergMaintenanceAction, string> = {
+  compact: "Compact on Spark",
+  deletes: "Rewrite on Spark",
+  expire: "Expire on Spark",
+};
+
+/** One upkeep item's Run control: the confirm, the job, its progress, the outcome. */
+function MaintainButton({
+  schema,
+  table,
+  action,
+  onDone,
+}: {
+  schema: string;
+  table: string;
+  action: IcebergMaintenanceAction;
+  onDone: () => void;
+}) {
+  const { session } = useAuth();
+  const { tokenRef } = useTokenRef(session?.access_token);
+  const maintainFn = useServerFn(icebergMountMaintain);
+  const pollFn = useServerFn(getLakehouseSparkQuery);
+  const cancelFn = useServerFn(cancelLakehouseSparkQuery);
+  const [days, setDays] = useState<number>(EXPIRE_DEFAULTS.older_than_days);
+  const [keep, setKeep] = useState<number>(EXPIRE_DEFAULTS.retain_last);
+  const [job, setJob] = useState<{ id: string; status: string; started: number } | null>(null);
+  const [outcome, setOutcome] = useState<{ ok: boolean; text: string } | null>(null);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!job) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [job]);
+
+  const m: IcebergMaintenance =
+    action === "expire" ? { action, older_than_days: days, retain_last: keep } : { action };
+  const invalid = maintenanceError(m);
+
+  async function run() {
+    if (invalid) return toast.error(invalid);
+    const ok = await confirmAsk({
+      title: `${RUN_LABEL[action]}: ${schema}.${table}`,
+      body:
+        maintenanceSummary(m) +
+        " It runs as a job on the Spark engine; the panel shows when it ends.",
+      actionLabel: action === "expire" ? "Expire snapshots" : "Rewrite files",
+    });
+    if (!ok) return;
+    setOutcome(null);
+    try {
+      const r = await maintainFn({
+        data: {
+          access_token: tokenRef.current,
+          schema,
+          table,
+          action,
+          ...(action === "expire" ? { older_than_days: days, retain_last: keep } : {}),
+        },
+      });
+      if (!r.ok) {
+        setOutcome({ ok: false, text: r.error });
+        return;
+      }
+      const started = Date.now();
+      setJob({ id: r.id, status: "queued", started });
+      const result = await pollSparkQuery<LakehouseResult>(
+        () => pollFn({ data: { access_token: tokenRef.current, id: r.id } }),
+        (q) => setJob({ id: r.id, status: q.status, started }),
+      );
+      if (!result) {
+        setOutcome({ ok: false, text: "Cancelled." });
+        return;
+      }
+      const text = describeMaintenanceResult(action, result.columns, result.rows);
+      setOutcome({ ok: true, text });
+      toast.success(text);
+      onDone();
+    } catch (e) {
+      setOutcome({ ok: false, text: (e as Error).message });
+    } finally {
+      setJob(null);
+    }
+  }
+
+  async function cancel() {
+    if (!job) return;
+    try {
+      await cancelFn({ data: { access_token: tokenRef.current, id: job.id } });
+    } catch (e) {
+      reportFailure("cancel the maintenance job", e);
+    }
+  }
+
+  const secs = job ? Math.max(0, Math.round((now - job.started) / 1000)) : 0;
+  return (
+    <div className="mt-1 space-y-1" data-testid={`iceberg-maintain-${action}`}>
+      {action === "expire" && !job && (
+        <div className="flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
+          <label className="inline-flex items-center gap-1">
+            older than
+            <input
+              type="number"
+              min={1}
+              max={3650}
+              value={days}
+              onChange={(e) => setDays(Number(e.target.value))}
+              className="h-5 w-12 rounded border bg-background px-1 text-[11px] text-foreground"
+              aria-label="Expire snapshots older than this many days"
+            />
+            days, keep
+          </label>
+          <label className="inline-flex items-center gap-1">
+            <input
+              type="number"
+              min={1}
+              max={10000}
+              value={keep}
+              onChange={(e) => setKeep(Number(e.target.value))}
+              className="h-5 w-14 rounded border bg-background px-1 text-[11px] text-foreground"
+              aria-label="Keep at least this many snapshots"
+            />
+            newest
+          </label>
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {job ? (
+          <>
+            <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              {job.status === "queued" ? "Starting on Spark" : "Running on Spark"} · {secs}s
+            </span>
+            <button
+              className="rounded border px-1.5 py-0.5 text-[10px] hover:bg-muted"
+              onClick={() => void cancel()}
+            >
+              Cancel
+            </button>
+          </>
+        ) : (
+          <button
+            className="inline-flex items-center gap-1 rounded border border-primary/40 px-1.5 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/10 disabled:opacity-50"
+            disabled={Boolean(invalid)}
+            onClick={() => void run()}
+          >
+            <Play className="h-3 w-3" />
+            {RUN_LABEL[action]}
+          </button>
+        )}
+      </div>
+      {outcome && (
+        <p
+          className={`whitespace-pre-wrap text-[11px] ${outcome.ok ? "text-emerald-700 dark:text-emerald-400" : "text-destructive"}`}
+        >
+          {outcome.text}
+        </p>
+      )}
+    </div>
+  );
 }
 
 export function IcebergTablePanel({
   inspection,
   error,
+  schema,
+  table,
+  maintenance,
+  onChanged,
 }: {
   inspection: Inspection | null;
   error: string;
+  schema: string;
+  table: string;
+  maintenance: Maintenance | null;
+  onChanged: () => void;
 }) {
   if (error) {
     return (
@@ -311,9 +519,20 @@ export function IcebergTablePanel({
                     <span className="truncate">{a.sql}</span>
                   </button>
                 )}
+                {ACTION_FOR[a.kind] && maintenance?.available && (
+                  <MaintainButton
+                    schema={schema}
+                    table={table}
+                    action={ACTION_FOR[a.kind]!}
+                    onDone={onChanged}
+                  />
+                )}
               </li>
             ))}
           </ul>
+          {maintenance && !maintenance.available && t.advice.some((a) => ACTION_FOR[a.kind]) && (
+            <p className="text-[11px] text-muted-foreground">{maintenance.reason}</p>
+          )}
         </section>
       </div>
     </div>

@@ -155,6 +155,14 @@ describe("the session stash", () => {
   it("round-trips a query id and rejects anything else", () => {
     expect(sparkQueryStashOf({ [SPARK_QUERY_KEY]: { query_id: "abc" } })).toEqual({
       query_id: "abc",
+      seal: null,
+    });
+    // R459: the plan's seal rides beside the id.
+    expect(
+      sparkQueryStashOf({ [SPARK_QUERY_KEY]: { query_id: "abc", seal: "f".repeat(64) } }),
+    ).toEqual({
+      query_id: "abc",
+      seal: "f".repeat(64),
     });
     expect(sparkQueryStashOf({ [SPARK_QUERY_KEY]: { query_id: "" } })).toBeNull();
     expect(sparkQueryStashOf({ __ml_job: { job_id: "x" } })).toBeNull();
@@ -217,10 +225,14 @@ describe("limits", () => {
 describe("governance the planner keeps", () => {
   const src = rd("src/utils/lakehouse/sparkQuery.server.ts");
 
-  it("refuses everything but a SELECT, a mounted schema, a policed table and encrypted files", () => {
+  it("refuses everything but a SELECT, a file mount, another's Iceberg mount, a policed table and encrypted files", () => {
     expect(src).toContain('if (classified.kind !== "select")');
     expect(src).toContain("assertSchemasAllowed(schemas, allowed)");
-    expect(src).toContain("row?.lake_source_id || row?.iceberg_catalog_id");
+    // R459: a file mount is still refused; an Iceberg mount is read from its
+    // catalog, and only the caller's own (its credentials go to the session).
+    expect(src).toContain("if (row?.lake_source_id) {");
+    expect(src).toContain("if (row.user_id !== userId) {");
+    expect(src).toContain("is an Iceberg mount shared with you");
     expect(src).toContain("has a security policy, which Spark cannot enforce");
     expect(src).toContain("is stored encrypted");
   });

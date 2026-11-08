@@ -15,6 +15,50 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-08 — R459: one version set, Iceberg on Spark, and the sealed plan
+
+Driven on a container built from the worktree (`:8102`), signed in as the owner,
+beside the 8080 stack and without touching it: its own sandbox image (DuckDB 1.5.5,
+pyspark-client 4.1.4) and sandbox network, where `spark-connect` was a throwaway
+Spark 4.1.4 with this round's package set and no UI. The development lakehouse and
+object store as usual. Fixtures: a throwaway Apache Iceberg REST fixture 1.10.1 with
+a v2 table of 1,872 rows in 104 data files, 104 positional delete files and 105
+snapshots, registered as catalog `r459_rest` and mounted as `ice_r459ui`.
+
+| Page / surface | What was driven | Result |
+| --- | --- | --- |
+| `/engine-check` | the browser's DuckDB (duckdb-wasm 1.33.1-dev64.0) | 10/10; the build reports v1.5.5, source `d8cdaa33fd`, the server's exact build |
+| Iceberg catalogs | add `r459_rest` (no auth, lakehouse storage), mount `r459ui` | Saved after its probe; "Mounted 1 table" |
+| Table tab, upkeep | the three advice items | Each with its Spark procedure (now with `remove-dangling-deletes`) and a Run button: Rewrite, Compact, Expire |
+| Rewrite on Spark | confirm, then the job | The confirm says what it does; "Rewrote 104 data files into 1 file, removing 104 delete files"; the panel then read 1 data file, 0 delete files, and dropped both file items |
+| Expire on Spark | 0 days, then 1 day keep 2 | 0 disables the button; the confirm says it cannot be undone; "No snapshot was old enough to expire" (every snapshot was minutes old) |
+| Query on Spark | the mount, grouped, with a scalar subquery on `analytics.spark_out` | Same rows as the lakehouse engine (624 per region, totals equal, 257), `spark` badge, 13.5 s |
+| Query on Spark, tampered | the job's file list rewritten while queued, as the old policy let its owner | Refused before the sandbox got a program; the page says "This Spark job's plan is not the one the server recorded, so no sandbox is built from it" |
+| ETL, Spark engine | `spark_live` (lakehouse source, filter, lakehouse target) | Succeeded on Spark 4.1.4: 257 rows staged by the cluster and committed, as before |
+
+**Found here and fixed:** the tampered job's refusal first reached the page as
+"Client error '404' for url …/source"; the sandbox's runner now raises the server's
+own sentence (rebuilt and re-driven, above). The first `spark_live` run failed for the
+test rig, not the code: the sandbox network had no egress proxy, which reads the
+staged input; a throwaway proxy with the live config fixed it.
+
+**Measured outside the UI, on the same Spark, catalog and store** (the app's own
+generated programs, run in the sandbox image, every result read back by the app's
+DuckDB 1.5.5): maintenance on a 320-file v2 table (1 file and 0 delete files after,
+expiry to 2 snapshots); a Spark SELECT pinned with `VERSION AS OF` equal to DuckDB's;
+and one Iceberg table written in turn by the pandas engine and the Spark engine
+(create 100, append 200, merge 250, append 350, replace 100, append 200), every count
+equal in pyiceberg and DuckDB.
+
+**What this round does not show.** The 8080 stack still runs Spark 4.2.0 and the old
+sandbox image; it moves when it is rebuilt. Migration `20261112000000` is not applied
+to the hosted project; the seal holds without it (driven above). A Spark pipeline's
+Iceberg target was not driven from the ETL page: the only object-storage connection
+holds encrypted credentials for an endpoint the test network could not be shown to
+reach, so the target ran as the generated program instead. Fixtures removed: the
+catalog and mount (through the dialog), the REST fixture, the throwaway Spark, proxy,
+networks and test container, and every `r459-*` prefix in the `iceberg` bucket.
+
 ## 2026-11-08 — R458: refreshes that do only what changed, VARIANT through pipelines, Polaris
 
 Driven on a dev server from the worktree (`:8102`), signed in as the owner, against the

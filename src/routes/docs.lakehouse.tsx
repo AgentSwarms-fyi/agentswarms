@@ -488,8 +488,19 @@ function LakehouseDocsPage() {
           changed, the sort order, how the schema evolved (renames are told apart from a drop and an
           add), its branches, tags and snapshots with the rows each one left, and upkeep: delete
           files read on every scan, small files, a long history, each with the Spark procedure that
-          deals with it. The lakehouse reads Iceberg tables; their upkeep belongs to the engine that
-          owns them.
+          deals with it.
+        </li>
+        <li>
+          <strong>Maintain a mounted table.</strong> On a deployment with a Spark engine, the
+          catalog&apos;s owner runs an upkeep item from the panel: <em>Compact on Spark</em> merges
+          small files, <em>Rewrite on Spark</em> rewrites the files deletes apply to without the
+          deleted rows, and <em>Expire on Spark</em> removes snapshots older than the days you set,
+          keeping at least the newest you set (branches and tags stay; time travel to a removed
+          snapshot does not, and that cannot be undone). Each asks first, runs as a Spark job (the
+          catalog configured on that job&apos;s own session, its credentials from the job&apos;s
+          environment), says what the procedure did, and reads the table again. The rows never
+          change. Audited as <C>lakehouse.iceberg.maintain</C>. Spark has Iceberg since R459 moved
+          it to 4.1: Iceberg publishes no runtime for Spark 4.2.
         </li>
         <li>
           <strong>Time travel on a mounted table.</strong> Click a snapshot, a branch or a tag to
@@ -520,10 +531,10 @@ function LakehouseDocsPage() {
           <strong>Audited:</strong> catalog definitions through the <C>iceberg_catalog</C> row
           trigger; <C>lakehouse.iceberg.mount</C>, <C>lakehouse.iceberg.refresh</C>,{" "}
           <C>lakehouse.iceberg.publish</C> (with the format version, partition spec or upsert keys),{" "}
-          <C>lakehouse.iceberg.import</C> and <C>lakehouse.iceberg.time_travel</C> with the catalog,
-          namespace, table and row counts; <C>lakehouse.changes</C> for a change feed read;{" "}
-          <C>lakehouse.iceberg.network_rule</C> and <C>lakehouse.iceberg.private_path.refused</C>{" "}
-          for the private-path rule.
+          <C>lakehouse.iceberg.import</C>, <C>lakehouse.iceberg.time_travel</C> and{" "}
+          <C>lakehouse.iceberg.maintain</C> with the catalog, namespace, table and row counts;{" "}
+          <C>lakehouse.changes</C> for a change feed read; <C>lakehouse.iceberg.network_rule</C> and{" "}
+          <C>lakehouse.iceberg.private_path.refused</C> for the private-path rule.
         </li>
       </UL>
 
@@ -538,10 +549,13 @@ function LakehouseDocsPage() {
         builds one view per table on the cluster straight from those files — deletes applied by
         position, the catalog&apos;s internal columns dropped — runs the statement in Spark&apos;s
         SQL dialect, and the rows land in the same grid with a <C>spark</C> badge. The cluster never
-        opens a catalog session.
+        opens a catalog session. A table of your own <strong>Iceberg mount</strong> is read by Spark
+        from its catalog instead, at the snapshot current when the query was planned, beside
+        lakehouse tables in the same statement.
       </P>
       <Callout kind="warn" title="What stays on DuckDB">
-        A mounted schema (its views read raw files Spark cannot see), a table under another
+        A data-lake mount (its views read raw files Spark cannot see), an Iceberg mount shared with
+        you (Spark would need its owner&apos;s catalog credentials), a table under another
         owner&apos;s security policy (Spark cannot apply the filter, and an unfiltered read is never
         the answer), an encrypted lakehouse, and every write. The page names the reason. A query
         holds its cluster for at most <C>LAKEHOUSE_SPARK_QUERY_MINUTES</C> (default 30).

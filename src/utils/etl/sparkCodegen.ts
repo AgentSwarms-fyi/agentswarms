@@ -230,11 +230,15 @@ export function sparkRefusal(graph: EtlGraph): string | null {
     if (n.kind !== "target") continue;
     const c = n.config as EtlTargetConfig;
     const label = n.label || n.id;
-    if (c.type === "object_storage" && c.table_format === "iceberg") {
-      return `Target "${label}": Iceberg is not on the Spark engine yet — write Delta, or land the rows in the lakehouse and publish from there.`;
-    }
-    if (c.type === "object_storage" && c.write_mode === "merge" && c.table_format !== "delta") {
-      return `Target "${label}": on the Spark engine, merge needs a Delta table — plain files have no keys to merge on. Pick Delta as the table format, or use replace/append.`;
+    // R459: an Iceberg target runs on Spark now (Spark 4.1 has Iceberg; 4.2
+    // had no runtime), writing the same table the pandas engine writes.
+    if (
+      c.type === "object_storage" &&
+      c.write_mode === "merge" &&
+      c.table_format !== "delta" &&
+      c.table_format !== "iceberg"
+    ) {
+      return `Target "${label}": on the Spark engine, merge needs a Delta or Iceberg table — plain files have no keys to merge on. Pick a table format, or use replace/append.`;
     }
     if (c.type === "database" && c.write_mode === "merge") {
       return `Target "${label}": on the Spark engine, merge into a database is not supported yet — write append or replace, or merge on the pandas engine.`;
@@ -348,6 +352,56 @@ function prelude(): string[] {
     `    for k, v in _s3_options(stem).items():`,
     `        _sp.conf.set(k, v)`,
     `    return _sp`,
+    ``,
+    `def _iceberg_path_catalog(stem, name):`,
+    `    # R459: a catalog that lives in this run's Spark session only and holds`,
+    `    # only the table a target writes, so an Iceberg table with no catalog of`,
+    `    # its own (what the pandas engine writes) can be committed to: Iceberg's`,
+    `    # JDBC catalog over an in-memory SQLite database named for this run, the`,
+    `    # arrangement pyiceberg's own SQL catalog is. (Its in-memory catalog`,
+    `    # cannot: it keeps metadata in an in-memory file store whatever io-impl`,
+    `    # says, measured.) The credentials are the target's, set on this session;`,
+    `    # substitution is off first, so no statement can read them back as \${...}.`,
+    `    import uuid as _uuid`,
+    `    _sp = _spark()`,
+    `    _sp.conf.set('spark.sql.variable.substitute', 'false')`,
+    `    p = 'spark.sql.catalog.' + name`,
+    `    _sp.conf.set(p, 'org.apache.iceberg.spark.SparkCatalog')`,
+    `    _sp.conf.set(p + '.catalog-impl', 'org.apache.iceberg.jdbc.JdbcCatalog')`,
+    `    _sp.conf.set(p + '.uri', 'jdbc:sqlite:file:' + name + '_' + _uuid.uuid4().hex + '?mode=memory&cache=shared')`,
+    `    _sp.conf.set(p + '.jdbc.schema-version', 'V1')`,
+    `    _sp.conf.set(p + '.warehouse', os.environ[stem + '_BUCKET_URL'].rstrip('/'))`,
+    `    _sp.conf.set(p + '.io-impl', 'org.apache.iceberg.aws.s3.S3FileIO')`,
+    `    _sp.conf.set(p + '.s3.access-key-id', os.environ.get(stem + '_ACCESS_KEY_ID', ''))`,
+    `    _sp.conf.set(p + '.s3.secret-access-key', os.environ.get(stem + '_SECRET_ACCESS_KEY', ''))`,
+    `    _ep = os.environ.get(stem + '_ENDPOINT_URL')`,
+    `    if _ep:`,
+    `        _sp.conf.set(p + '.s3.endpoint', _ep)`,
+    `        _sp.conf.set(p + '.s3.path-style-access', 'true')`,
+    `    _sp.conf.set(p + '.client.region', os.environ.get(stem + '_REGION') or 'us-east-1')`,
+    `    return _sp`,
+    ``,
+    `def _iceberg_add_columns(sp, ident, sdf):`,
+    `    # "evolve": every column the frame has and the table lacks is added, as`,
+    `    # optional, before the write. A name is quoted with its backticks doubled.`,
+    `    _have = {f.name.lower() for f in sp.table(ident).schema.fields}`,
+    `    for f in sdf.schema.fields:`,
+    `        if f.name.lower() not in _have:`,
+    "            sp.sql('ALTER TABLE ' + ident + ' ADD COLUMNS (`' + f.name.replace('`', '``') + '` ' + f.dataType.simpleString() + ')')",
+    `            print('[schema] added column ' + f.name + ' to ' + ident)`,
+    ``,
+    `def _iceberg_latest_metadata(stem, location):`,
+    `    # dlt's own rule (pyiceberg.get_last_metadata_file): the last .json under`,
+    `    # metadata/, by name. None when the table has not been written yet.`,
+    `    import s3fs`,
+    `    _ep = os.environ.get(stem + '_ENDPOINT_URL')`,
+    `    fs = s3fs.S3FileSystem(key=os.environ.get(stem + '_ACCESS_KEY_ID', ''), secret=os.environ.get(stem + '_SECRET_ACCESS_KEY', ''), client_kwargs={'endpoint_url': _ep} if _ep else {})`,
+    `    _path = location.split('://', 1)[-1].rstrip('/') + '/metadata'`,
+    `    try:`,
+    `        _files = [f for f in fs.ls(_path, refresh=True) if f.endswith('.json')]`,
+    `    except FileNotFoundError:`,
+    `        return None`,
+    `    return ('s3://' + sorted(_files)[-1]) if _files else None`,
     ``,
     `def _jdbc(url):`,
     `    # A SQLAlchemy URL, as every warehouse connection is stored, to what the`,
@@ -751,6 +805,7 @@ function storageTarget(
   c: Extract<EtlTargetConfig, { type: "object_storage" }>,
   input: string,
 ): string {
+  if (c.table_format === "iceberg") return icebergStorageTarget(node, c, input);
   const key = envKey(node.id);
   const dataset = pyIdent(c.dataset, "Target dataset");
   const table = pyIdent(c.table, "Target table");
@@ -797,9 +852,16 @@ function storageTarget(
       `        _sp.sql("MERGE INTO delta.\`" + _dest + "\` AS t USING _src_${node.id} AS s ON ${on} WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *")`,
     );
   } else {
+    const evolve = c.schema_policy !== "warn" && c.schema_policy !== "strict";
     const writer = [
       `_sdf.write.options(**_o)`,
       fmt === "csv" ? `.option('header', 'true')` : "",
+      // FOUND IN R459: a Delta table refuses a frame whose columns differ
+      // unless told otherwise, so "evolve" failed on Spark where dlt evolves,
+      // and a replace with a new shape failed outright. Replace takes the new
+      // shape (drift was already judged above); evolve adds columns.
+      delta && c.write_mode === "replace" ? `.option('overwriteSchema', 'true')` : "",
+      delta && c.write_mode !== "replace" && evolve ? `.option('mergeSchema', 'true')` : "",
       `.format('${fmt}').mode('${c.write_mode === "replace" ? "overwrite" : "append"}').save(_dest)`,
     ].join("");
     lines.push(`    ${writer}`);
@@ -807,6 +869,108 @@ function storageTarget(
   lines.push(
     `    print('[etl] spark: wrote ' + str(_n) + ' row(s) to ' + _dest)`,
     `    _loads.append({'node': '${node.id}', 'target': '${dataset}.${table}', 'fqn': ${fqn}, 'rows': int(_n), 'load_id': None})`,
+  );
+  return lines.join("\n");
+}
+
+/**
+ * An Iceberg table in object storage, written by the cluster (R459).
+ *
+ * The pandas engine writes this table with dlt and pyiceberg: no catalog of
+ * its own, the table at `<bucket>/<dataset>/<table>`, and its current state
+ * found by listing `metadata/*.json` and taking the last name in order
+ * (dlt's get_last_metadata_file). A Spark target writes the SAME table, so a
+ * pipeline can move between engines and either can read what the other
+ * wrote: the run registers that latest metadata file in a catalog that lives
+ * in its own Spark session only (Iceberg's JDBC catalog over an in-memory
+ * SQLite database named for the run, with S3 FileIO under the target's
+ * credentials; Iceberg's in-memory catalog was tried first and keeps metadata
+ * in an in-memory file store whatever io-impl says), commits, and leaves the next metadata file
+ * where the listing finds it. A metastore-style commit names it
+ * `NNNNN-<uuid>.metadata.json`, the version one past the file it read, which
+ * is pyiceberg's naming too, so the order holds across engines (measured on
+ * the R459 rig). A table that does not exist yet is created as format v2,
+ * what pyiceberg creates and every reader of it reads.
+ *
+ * Like the pandas engine's, the commit is not guarded against a second writer
+ * of the same path at the same moment: there is no catalog to lock. One
+ * pipeline per table, or a REST catalog, is the rule either way.
+ */
+function icebergStorageTarget(
+  node: EtlNode,
+  c: Extract<EtlTargetConfig, { type: "object_storage" }>,
+  input: string,
+): string {
+  const key = envKey(node.id);
+  const dataset = pyIdent(c.dataset, "Target dataset");
+  const table = pyIdent(c.table, "Target table");
+  const label = node.label || node.id;
+  if (c.write_mode === "merge" && !c.primary_key?.length) {
+    throw new Error(`Merge on target "${label}" needs primary key columns`);
+  }
+  const evolve = c.schema_policy !== "warn" && c.schema_policy !== "strict";
+  const cat = `_etl_ice_${node.id.replace(/[^A-Za-z0-9_]/g, "_")}`;
+  const ident = `${cat}.\`${dataset}\`.\`${table}\``;
+  const lines = [
+    `    # target ${node.id}: object storage → ${dataset}.${table} (${c.write_mode}, iceberg)`,
+    `    _sdf = ${input}`,
+    ...driftLines(node, c),
+    `    _n = _sdf.count()`,
+    // dlt's two bookkeeping columns, which the pandas engine writes on every
+    // row, written here too so the table has one shape whichever engine
+    // wrote it. dlt makes both required, and Iceberg cannot add a required
+    // column to a table: measured, a Spark append without them to a dlt-made
+    // table was refused ("Cannot write incompatible dataset"), and a dlt
+    // append to a table Spark replaced without them failed ("cannot add
+    // required column: _dlt_load_id").
+    `    _load_id = repr(time.time())`,
+    `    _sdf = _sdf.withColumn('_dlt_load_id', F.lit(_load_id)).withColumn('_dlt_id', F.expr('uuid()'))`,
+    `    _sp = _iceberg_path_catalog('${key}', '${cat}')`,
+    `    _loc = os.environ['${key}_BUCKET_URL'].rstrip('/') + '/${dataset}/${table}'`,
+    `    _sp.sql('CREATE NAMESPACE IF NOT EXISTS ${cat}.\`${dataset}\`')`,
+    `    _meta = _iceberg_latest_metadata('${key}', _loc)`,
+    `    if _meta:`,
+    `        _sp.sql("CALL ${cat}.system.register_table(table => '\`${dataset}\`.\`${table}\`', metadata_file => '" + _meta.replace("'", "''") + "')")`,
+    // "evolve": a column the frame has and the table lacks joins it, as dlt
+    // adds one; for an append and a merge alike.
+    ...(evolve && c.write_mode !== "replace"
+      ? [`        _iceberg_add_columns(_sp, '${ident}', _sdf)`]
+      : []),
+    `    if not _meta:`,
+    `        _sdf.writeTo('${ident}').using('iceberg').tableProperty('format-version', '2').create()`,
+  ];
+  if (c.write_mode === "replace") {
+    lines.push(
+      `    else:`,
+      `        _sdf.writeTo('${ident}').using('iceberg').tableProperty('format-version', '2').createOrReplace()`,
+    );
+  } else if (c.write_mode === "merge") {
+    const keys = c.primary_key ?? [];
+    const on = keys
+      .map(
+        (k) =>
+          `t.\`${pyIdent(k, "Primary key column")}\` = s.\`${pyIdent(k, "Primary key column")}\``,
+      )
+      .join(" AND ");
+    lines.push(
+      `    else:`,
+      // The source fixed first: a MERGE refuses a non-deterministic source
+      // ("INVALID_NON_DETERMINISTIC_EXPRESSIONS"), and _dlt_id is uuid().
+      `        _sdf.localCheckpoint().createOrReplaceTempView('_src_${node.id}')`,
+      // Iceberg's own MERGE (the SQL extensions): one commit, recorded as an
+      // overwrite of the files it touched. Not WITH SCHEMA EVOLUTION: on
+      // Spark 4.1.4 with Iceberg 1.12 it failed to resolve the key column it
+      // suggested ("`t`.`id` cannot be resolved. Did you mean `t`.`id`"),
+      // measured; columns are added above instead.
+      `        _sp.sql("MERGE INTO ${ident} AS t USING _src_${node.id} AS s ON ${on} WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *")`,
+    );
+  } else {
+    lines.push(`    else:`, `        _sdf.writeTo('${ident}').append()`);
+  }
+  lines.push(
+    `    print('[etl] spark: wrote ' + str(_n) + ' row(s) to the Iceberg table at ' + _loc)`,
+    // The pandas engine's fqn for this table, so lineage joins the same asset.
+    `    _loads.append({'node': '${node.id}', 'target': '${dataset}.${table}', 'fqn': '${dataset}/${table}/data/*.parquet', 'rows': int(_n), 'load_id': _load_id})`,
   );
   return lines.join("\n");
 }

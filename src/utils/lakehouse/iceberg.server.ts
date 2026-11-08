@@ -627,6 +627,51 @@ async function tableFileCounts(
   }
 }
 
+/**
+ * Where a Spark job finds a mount's table (R459): its names in the catalog,
+ * the snapshot current now (as a string: ids pass 2^53), and its location.
+ */
+export async function icebergSparkTarget(args: {
+  row: IcebergCatalogRow;
+  schemaName: string;
+  view: string;
+}): Promise<{
+  catalog_id: string;
+  namespace: string;
+  table: string;
+  snapshot_id: string | null;
+  location: string | null;
+}> {
+  return withCatalog(args.row, async (c) => {
+    const t = await mountTarget(c, args.row, args.schemaName, args.view);
+    const md = (await tableMetadata(c, t.qualified)) as Record<string, unknown> | null;
+    const raw = md?.["current-snapshot-id"];
+    const snap = raw === null || raw === undefined ? null : String(raw);
+    return {
+      catalog_id: args.row.id,
+      namespace: t.namespace,
+      table: t.table,
+      // -1 is how a v1 table says it has no snapshot yet.
+      snapshot_id: snap && /^\d{1,20}$/.test(snap) ? snap : null,
+      location: typeof md?.location === "string" ? md.location : null,
+    };
+  });
+}
+
+/**
+ * A catalog's credentials for a Spark session, after the same URL checks an
+ * attach makes: the cluster calls the catalog itself, so a catalog this
+ * server would refuse to attach is not handed to it either.
+ */
+export async function icebergSparkCredentials(
+  userId: string,
+  row: IcebergCatalogRow,
+): Promise<{ token?: string; client_id?: string; client_secret?: string }> {
+  const cfg = configOf(row);
+  await assertIcebergUrlsAllowed(cfg, auditRefusal(userId, cfg));
+  return catalogSecrets(row.user_id, cfg);
+}
+
 /** What a mounted Iceberg table is: format, schema history, partitioning, snapshots, refs, upkeep. */
 export async function inspectMountedTable(args: {
   row: IcebergCatalogRow;

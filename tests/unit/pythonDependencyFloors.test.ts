@@ -80,16 +80,18 @@ describe("Python packages with a known advisory below a version", () => {
     }
   });
 
-  it("keeps the kernel image's DuckDB on the app's major version", () => {
+  it("keeps the kernel image's DuckDB on the app's own release", () => {
     // Lakehouse nodes write the DuckLake catalog the app's DuckDB also reads.
     // An unpinned rebuild for R404 took duckdb 2.0.0 while the app ran 1.5.
+    // R459: a major-version bound was not enough either (a rebuild picked
+    // 1.5.6 beside the app's 1.5.5), so the image pins the app's exact release.
     const app = JSON.parse(readFileSync("package.json", "utf8")).dependencies["@duckdb/node-api"];
-    const major = Number(/(\d+)\./.exec(app)![1]);
+    const release = /(\d+\.\d+\.\d+)/.exec(app)![1];
     const line = readFileSync(RUNTIME, "utf8")
       .split("\n")
       .find((l) => /^duckdb\b/.test(l));
     expect(line, "duckdb is listed").toBeDefined();
-    expect(line!.replace(/#.*/, "").replace(/\s/g, "")).toMatch(new RegExp(`,<${major + 1}$`));
+    expect(line!.replace(/#.*/, "").replace(/\s/g, "")).toBe(`duckdb==${release}`);
   });
 
   it("pins every doc-renderer package exactly", () => {

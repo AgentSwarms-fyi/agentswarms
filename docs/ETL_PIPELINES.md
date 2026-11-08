@@ -218,10 +218,10 @@ from inside a cluster, minutes in and after the sources have been read. Write
 the group you mean — `regexp_extract(x, pattern, 0)` for the whole match, `1`
 for the first group — and both engines agree.
 
-**What the Spark engine refuses**, at save time, in words: an Iceberg target
-(write Delta, or land in the lakehouse and publish from there), merge into
-plain files (merge needs a Delta table), merge into a database (append or
-replace, or merge on the pandas engine). Which duplicate `dedupe` keeps is
+**What the Spark engine refuses**, at save time, in words: merge into plain
+files (merge needs a Delta or an Iceberg table), merge into a database
+(append or replace, or merge on the pandas engine). An Iceberg target was
+refused too until R459: there was no Iceberg for Spark 4.2. Which duplicate `dedupe` keeps is
 not defined on a cluster; pandas keeps the first.
 
 ### Where the cluster comes from
@@ -233,8 +233,8 @@ whole deployment.
 shared by every run; the platform does not manage its lifecycle. Set it there
 or as `SPARK_CONNECT_URL` (the setting wins); until one is set the engine
 picker says so and the option is disabled. Locally, Compose runs a single-host
-Spark 4.2 Connect server with the S3A, Delta and JDBC connectors already on
-it, started with everything else:
+Spark 4.1 Connect server with the S3A, Delta, Iceberg and JDBC connectors
+already on it, started with everything else:
 
 ```bash
 docker compose up -d
@@ -320,10 +320,20 @@ Only two targets still take the collected result: **HTTP** and **SaaS**. Both
 post a few hundred records at a time to an API, so there is nothing for a
 cluster to parallelise and the row counts that reach them are small by nature.
 
-**Versions.** The sandbox image carries `pyspark-client` (the Spark Connect
-client, 4.2) and the server must be the same major.minor — the protocol is
-versioned. The Compose service and the per-run default both pin
-`apache/spark:4.2.0-python3`, `delta-spark 4.4`, `hadoop-aws 3.5`.
+**Versions (R459).** One set, chosen so that every piece has a build for the
+same Spark: Spark **4.1.4** (`apache/spark:4.1.4-python3`, Java 21), Delta
+**4.4.1** (its `delta-spark_4.1_2.13` artifact), Iceberg **1.12.0**
+(`iceberg-spark-runtime-4.1_2.13` and `iceberg-aws-bundle`), `hadoop-aws`
+**3.4.2** (the image ships hadoop-client 3.4.2, and S3A must match it), and
+`pyspark-client` **4.1.4** in the sandbox image (the Connect protocol is
+versioned). Spark 4.2 is newer, and was the version until R459, but Iceberg
+publishes no runtime for it (`iceberg-spark-runtime-4.2_2.13` is not on Maven
+Central, checked 2026-11-08), so it meant a Spark engine without Iceberg.
+`src/utils/etl/sparkVersions.ts` is the one place the set is written down;
+`tests/unit/sparkVersionSet.test.ts` holds the Compose file, the sandbox
+image and the admin form to it. Neither server runs the Spark UI: a Spark
+Connect job's call site is its request, and a request carries a read's S3
+options, so the UI listed every run's keys (R459).
 
 **Settings and environment.** Each is the settings row first, then the
 environment, then the default.
@@ -332,7 +342,7 @@ environment, then the default.
 | -------------------- | ------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------ |
 | Clusters come from   | `SPARK_PROVIDER`                                              | `static`                     | `static` (a shared endpoint) or `k8s` (one per run)                      |
 | Endpoint             | `SPARK_CONNECT_URL`                                           | —                            | `static` only: where every run dials                                     |
-| Spark image          | `SPARK_IMAGE`                                                 | `apache/spark:4.2.0-python3` | driver and executors; the default is pinned by digest (the server's)     |
+| Spark image          | `SPARK_IMAGE`                                                 | `apache/spark:4.1.4-python3` | driver and executors; the default is pinned by digest (the server's)     |
 | Executors per run    | `SPARK_EXECUTORS`                                             | 2                            | executor pods one run asks for                                           |
 | Cores per executor   | `SPARK_EXECUTOR_CORES`                                        | 1                            |                                                                          |
 | Executor memory (MB) | `SPARK_EXECUTOR_MEM_MB`                                       | 2048                         |                                                                          |
@@ -679,6 +689,25 @@ each format's bookkeeping (underscore rule for Delta; json/avro under a
 `metadata/` segment for Iceberg) and catalogs the data files as one asset,
 which is also the fqn lineage records. Verified live against MinIO: both
 formats written, crawled as single clean assets with correct row counts.
+
+**On the Spark engine (R459).** Both formats run on the cluster too. Delta is
+Delta Lake's own writer (MERGE included); "evolve" adds new columns
+(`mergeSchema`), and replace takes the frame's shape (`overwriteSchema`), where
+before R459 either failed on Spark. An Iceberg target writes **the same table
+the pandas engine writes**, so a pipeline can move between engines: the run
+lists `metadata/*.json` at `dataset/table` and registers the last one (dlt's own
+rule) in an Iceberg JDBC catalog over an in-memory SQLite database that lives
+in the run's Spark session, commits (append, replace, or Iceberg's MERGE), and
+the next metadata file is named `NNNNN-<uuid>.metadata.json`, one past the
+file it read, which sorts where the pandas engine looks. A new table is
+format v2. The run also writes dlt's two columns, `_dlt_load_id` and
+`_dlt_id`: dlt makes them required, and Iceberg cannot add a required column,
+so without them each engine refused the other's table (measured). Measured on
+one table, in turn: pandas creates 100 rows, Spark appends (200), Spark merges
+by key (250), pandas appends (350), Spark replaces (100), pandas appends (200),
+every count equal in pyiceberg and DuckDB. Neither engine locks the table
+against a second writer at the same moment (there is no catalog to lock), so
+one pipeline per table.
 
 ## Alerts
 

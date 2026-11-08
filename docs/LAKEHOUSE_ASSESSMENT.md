@@ -1,4 +1,4 @@
-# Lakehouse and Iceberg: where it stands (R457, R458; 2026-11-08)
+# Lakehouse and Iceberg: where it stands (R457, R458, R459; 2026-11-08)
 
 The question asked was whether the lakehouse and its Iceberg support are the
 best in the industry and current with where the industry is. They are not the
@@ -23,13 +23,18 @@ below with what each is waiting for.
   and object store, and reading and writing Iceberg v3 (deletion vectors, row
   lineage, VARIANT) through any REST catalog that speaks bearer or OAuth2,
   measured against Apache Polaris with credentials it vends (R458).
-- **Where it trails:** one engine per query (DuckDB on one worker; Spark only
-  for SELECTs over DuckLake tables), no Iceberg on our Spark (no runtime
-  exists for Spark 4.2), lakehouse tables reach other engines only as a
-  published copy, no Iceberg table maintenance of our own, incremental refresh
-  only for views that filter one table (an aggregate rebuilds), no branching
-  for DuckLake tables, no SigV4 catalogs (AWS Glue, S3 Tables), no nested
-  Iceberg namespaces on DuckDB 1.5.
+- **Where it trails:** one engine per query (DuckDB on one worker; Spark for
+  SELECTs over DuckLake tables and your own Iceberg mounts), lakehouse tables
+  reach other engines only as a published copy, Iceberg maintenance run on
+  demand rather than on its own schedule, incremental refresh only for views
+  that filter one table (an aggregate rebuilds), no branching for DuckLake
+  tables, no SigV4 catalogs (AWS Glue, S3 Tables), no nested Iceberg
+  namespaces on DuckDB 1.5.
+- **R459, one version set:** Spark 4.1.4 with Delta 4.4.1 and Iceberg 1.12.0
+  (Iceberg has no Spark 4.2 runtime, so Spark 4.2 meant no Iceberg), and DuckDB
+  1.5.5 in the server, the browser and the sandbox image, which had run three
+  releases (1.5.6 was tried first: the ORC extension is not published for it). That put Iceberg on Spark: a pipeline's Iceberg target, Spark
+  SELECTs over Iceberg mounts, and maintenance from the upkeep panel.
 
 ## Against the field
 
@@ -41,10 +46,10 @@ below with what each is waiting for.
 | Iceberg time travel, branches, tags | Read: any snapshot, branch or tag; write: none                                           | Yes             | Yes            | Yes (Nessie)               | Yes                           |
 | Iceberg REST catalog, as a client   | Bearer and OAuth2; vended or own credentials; private-path rule; measured on Polaris 1.8 | Yes             | Yes            | Yes                        | SigV4                         |
 | Iceberg REST catalog, as a server   | No: a published copy (DuckLake's format cannot be served in place)                       | Unity speaks it | Open Catalog   | Yes                        | Yes                           |
-| Engines over one table              | DuckDB per worker; Spark for DuckLake SELECTs                                            | Photon, Spark   | One engine     | Many                       | Many                          |
+| Engines over one table              | DuckDB per worker; Spark for DuckLake SELECTs and own Iceberg mounts (R459)              | Photon, Spark   | One engine     | Many                       | Many                          |
 | Row and column policies             | Yes, on the AST, by table and by tag, every consumer                                     | Unity           | Yes            | Ranger etc.                | Lake Formation                |
 | Change feed                         | DuckLake, per snapshot (new)                                                             | CDF             | Streams        | Partial                    | No                            |
-| Automatic maintenance               | DuckLake hourly; Iceberg advice only                                                     | Predictive opt. | Automatic      | Manual / jobs              | S3 Tables automatic           |
+| Automatic maintenance               | DuckLake hourly; Iceberg on demand from the panel, on Spark (R459)                       | Predictive opt. | Automatic      | Manual / jobs              | S3 Tables automatic           |
 | Incremental materialized views      | Skip when unchanged; append for one-table filters; else rebuild                          | DLT / MV        | Dynamic tables | Reflections                | No                            |
 | Sharing outside the platform        | Delta Sharing read side, governed snapshots                                              | Delta Sharing   | Data sharing   | No                         | No                            |
 | Branching / write-audit-publish     | No                                                                                       | No (Delta)      | No             | Nessie                     | Iceberg branches              |
@@ -53,6 +58,70 @@ The vendor columns come from their documentation and announcements as of
 November 2026, not from measurement here, and the sources disagree in places
 (Databricks' Iceberg v3 status is called preview by one source and GA by
 another).
+
+## What changed in R459: one version set
+
+Asked to use "the versions where everything works with everything". Checked
+against Maven Central, npm, PyPI and Docker Hub on 2026-11-08:
+
+| Piece                | Was                       | Now                                   | Why this one                                                                                                                                           |
+| -------------------- | ------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Spark                | 4.2.0                     | **4.1.4** (`apache/spark:4.1.4-python3`, Java 21) | Iceberg publishes a Spark runtime for 4.0 and 4.1 only; 4.1.4 (2026-10-28) is the newest 4.1. Spark 4.2.1 and 4.3.0 exist and have no Iceberg runtime |
+| Delta                | 4.4.0 (`delta-spark_2.13`, built for Spark 4.2) | **4.4.1** (`delta-spark_4.1_2.13`, built for Spark 4.1.0) | the newest Delta, in its artifact for this Spark                                                                         |
+| Iceberg on Spark     | none                      | **1.12.0** runtime + `iceberg-aws-bundle` | the newest Iceberg; S3 FileIO is what applies credentials a REST catalog vends                                                                      |
+| hadoop-aws           | 3.5.0                     | **3.4.2**                             | the image ships hadoop-client 3.4.2, and S3A must match it                                                                                             |
+| sqlite-jdbc          | none                      | **3.53.4.0**                          | the per-run catalog an Iceberg pipeline target commits through (below); 3.54.1.0 was ten days old                                                      |
+| pyspark-client       | 4.2.0                     | **4.1.4**                             | the Connect protocol is versioned; the client is the server's exact release                                                                            |
+| DuckDB, server       | 1.5.5 (`@duckdb/node-api` 1.5.5-r.2) | **1.5.5** (1.5.5-r.2, pinned exactly) | one release in all three engines; not 1.5.6, for which the ORC community extension is not published (404 on all four platforms)                                                                                                                         |
+| DuckDB, browser      | 1.5.4 (`duckdb-wasm` 1.33.1-dev57.0, npm `latest`) | **1.5.5** (1.33.1-dev64.0, its 1.5.5 build) | `latest` still points at a CI-dependency bump on the 1.5.4 build; every duckdb-wasm since v1.33.0 is tagged `-dev` |
+| DuckDB, sandbox      | 1.5.6 (`duckdb>=1.4,<2`, a rebuild's pick) | **1.5.5** (`duckdb==1.5.5`)           | pinned, so a rebuild cannot drift                                                                                                                       |
+| DuckDB 2.0           | not adopted               | not adopted                           | the browser has no stable 2.0 (`next` is 1.33.1-dev114.0), so 2.0 is the one choice where everything does not work with everything                     |
+
+`src/utils/etl/sparkVersions.ts` writes the Spark set down once;
+`tests/unit/sparkVersionSet.test.ts` holds the Compose file, the sandbox
+image and the admin form to it, and `tests/unit/duckdbEnginesParity.test.ts`
+now holds the three DuckDBs to one release, not one minor. The image scan
+finds the same two criticals in 4.1.4 as in 4.2.0 (netty-handler, derby; both
+baselined with reasons) and 71 fixable highs against 4.2.0's 61, because its
+netty line is older; the server listens on loopback and the internal
+networks, behind a token.
+
+What the move made possible, each run against Spark 4.1.4 (the app's own
+generated programs, in the sandbox image) and checked against the app's
+DuckDB 1.5.5:
+
+- **Iceberg maintenance from the upkeep panel**, by the catalog's owner, as a
+  Spark job. On a v2 table of 320 data files and 200 positional delete files:
+  rewritten to 1 data file and 0 delete files, then expiry ("keep 2") left 2
+  snapshots and deleted the 320 old files; rows by region identical before and
+  after each job. The first version left every delete file listed (832 data
+  files became 1, 520 delete files stayed); `remove-dangling-deletes` fixed it,
+  in the job and in the advice's SQL.
+- **Spark SELECTs over your own Iceberg mounts**, from the catalog at the
+  planned snapshot (`VERSION AS OF`; the `snapshot-id` read option is refused
+  by Iceberg 1.12), joinable with lakehouse tables: the same totals as DuckDB.
+- **A pipeline's Iceberg target on the Spark engine**, writing the same table
+  the pandas engine writes. Run in turn on one table: pandas creates (100
+  rows), Spark appends (200), Spark merges by key (250: 50 updated, 50 added),
+  pandas appends (350), Spark replaces (100), pandas appends (200); pyiceberg
+  and DuckDB read every step's count, and the metadata files run `00000` to
+  `00007` across both engines.
+  Three things the runs found: Iceberg's in-memory catalog cannot commit a
+  real table (it keeps metadata in memory whatever `io-impl` says), so the
+  target uses Iceberg's JDBC catalog over an in-memory SQLite; dlt's two
+  required columns (`_dlt_load_id`, `_dlt_id`) must be written by Spark too,
+  or each engine refuses the other's table; and a MERGE refuses a
+  non-deterministic source, so the source is checkpointed first.
+
+Found on the way, both pre-existing:
+
+- **A user could rewrite a queued Spark query's plan** (S1). The table the
+  sandbox's plan lives in was writable by its owner, and the plan's file list
+  decides which prefixes the job's credential covers. Plans are now sealed,
+  and migration `20261112000000` makes the table server-written.
+- **The Spark UI listed every run's S3 keys** (S2): a Connect job's call site
+  is its request, and a request carries a read's options. Both servers now
+  run without the UI.
 
 ## What changed in R458
 
@@ -186,13 +255,12 @@ Checked again on 2026-11-08, against the registries rather than articles:
 - **DuckDB 2.0 LTS (21 October 2026)**, and with it DuckLake 1.1 (nested
   schemas, faster catalogs) and the Iceberg extension's new attach options.
   Waiting for: a stable duckdb-wasm 2.0. On npm, `@duckdb/node-api`'s `latest`
-  is `2.0.0-r.1`, but `@duckdb/duckdb-wasm`'s `latest` is still
-  `1.33.1-dev57.0` (the engine the app pins) and the 2.0 engine exists only as
-  `next`, `1.33.1-dev114.0`, a development build. The server and the browser
-  are kept on one minor version so the SQL a person writes means the same in
-  both. Measured on an isolated copy (below): the security core holds and
-  three tests fail, two of which R457 fixed. Moving the browser to the `next`
-  build would be your call, not one to make quietly.
+  is `2.0.0-r.1`, but the 2.0 engine exists for the browser only as
+  duckdb-wasm's `next`, `1.33.1-dev114.0`, a development build. Decided in
+  R459 ("the versions where everything works with everything"): every engine
+  stays on DuckDB 1.5, now one release, 1.5.5, in all three. Measured on an
+  isolated copy (below): on 2.0 the security core holds and three tests fail,
+  two of which R457 fixed.
 - **SigV4 catalogs (AWS Glue, S3 Tables).** Waiting for: an AWS account to
   test against. The engine signs their requests with a DuckDB `s3` secret, the
   kind it also reads `s3://` files with, and one engine serves every user: a
@@ -200,11 +268,13 @@ Checked again on 2026-11-08, against the registries rather than articles:
   reads. Safe support needs the secret scoped to the catalog's storage prefix
   and table files read with vended credentials. No emulator here speaks Glue's
   Iceberg REST endpoint, so it cannot be tested without AWS.
-- **Iceberg on Spark, and Iceberg maintenance run from here.** Waiting for:
-  an Iceberg runtime for Spark 4.2, or a decision to move Spark back to 4.1.
-  `iceberg-spark-runtime-4.2_2.13` returns 404 on Maven Central (checked
-  2026-11-08); Iceberg 1.12 ships 4.2 code in its source release only. The
-  upkeep panel advises and gives the Spark procedure meanwhile.
+- ~~Iceberg on Spark, and Iceberg maintenance run from here.~~ **Closed in
+  R459** by moving Spark to 4.1.4 (above). Still on demand, not scheduled:
+  Iceberg maintenance runs when the owner presses the button; S3 Tables and
+  Snowflake run theirs on their own. A schedule per table is buildable on the
+  same job and is listed below. `remove_orphan_files` is not offered: it
+  lists the table's whole location and deletes what no snapshot references,
+  which needs a dry run shown first and a location the table owns alone.
 - **Lakehouse tables served to other engines in place**, as an Iceberg REST
   catalog. Not possible on this format today: DuckLake has no supported export
   to Iceberg metadata, and a DuckLake snapshot can reference part of a file and
@@ -217,7 +287,7 @@ Checked again on 2026-11-08, against the registries rather than articles:
   table gains rows: merging new rows into old groups is right for counts and
   sums and wrong for averages and distinct counts, and is not done until each
   aggregate can be shown to merge exactly.
-- **Nested namespaces.** The engine on DuckDB 1.5.5 does not list them, and
+- **Nested namespaces.** The engine on DuckDB 1.5 (measured on 1.5.5) does not list them, and
   its option for them drops the separator and breaks every other listing. On
   DuckDB 2.0.0 the same option lists `finance.eu` and reads its table (500
   rows, measured on the rig), so they arrive with the upgrade, together with a
@@ -243,9 +313,10 @@ from `left`/`right` to a `children` list; literals carry `{kind, text}`; table
 functions list `arguments` with a `qualified_name`. The policy rewrite and the
 table-reference checks were unaffected.
 
-The upgrade, when duckdb-wasm ships a stable 2.0: bump both packages, run the
-suite, and check that the lakehouse catalog stays at DuckLake 1.0 until every
-reader (the app and the notebook image's Python `duckdb<2`) is on 2.0.
+The upgrade, when duckdb-wasm ships a stable 2.0: bump all three (the two
+packages and the sandbox image's `duckdb==1.5.5`) together, run the suite,
+and check that the lakehouse catalog stays at DuckLake 1.0 until every reader
+is on 2.0.
 
 ## Next, in order
 
@@ -254,9 +325,13 @@ reader (the app and the notebook image's Python `duckdb<2`) is on 2.0.
    now does; that is how other engines read lakehouse tables without a
    by-hand publish. A table under a policy still cannot be published, for the
    reason Delta Sharing gives: a copy cannot carry the policy.
-2. DuckDB 2.0 when duckdb-wasm has a stable 2.0 (above).
-3. Iceberg on Spark (4.1, or 4.2 when a runtime ships), then Iceberg
-   compaction and snapshot expiry run from the upkeep panel.
-4. Incremental refresh for aggregates whose merge is exact (count, sum, min,
+2. Iceberg maintenance on a schedule per table, on the job R459 runs on
+   demand, so a busy table is compacted and expired without anyone pressing
+   a button.
+3. DuckDB 2.0 when duckdb-wasm has a stable 2.0 (above), all three engines
+   together.
+4. Spark 4.2 or later when Iceberg publishes a runtime for it, moved as one
+   set with Delta and the sandbox client (`sparkVersions.ts`).
+5. Incremental refresh for aggregates whose merge is exact (count, sum, min,
    max), proven per function.
-5. SigV4 for Glue and S3 Tables with prefix-scoped secrets, tested against AWS.
+6. SigV4 for Glue and S3 Tables with prefix-scoped secrets, tested against AWS.

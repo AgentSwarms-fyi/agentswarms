@@ -607,9 +607,111 @@ describe("compileSparkGraph — targets", () => {
       table_format: "delta",
       write_mode: "append",
     });
+    // R459: "evolve" (the default policy) adds columns, as dlt does; it failed
+    // on Spark before, a Delta table refusing a frame of another shape.
     expect(compileSparkGraph(linear(CSV_SRC, appendDelta))).toContain(
+      "_sdf.write.options(**_o).option('mergeSchema', 'true').format('delta').mode('append').save(_dest)",
+    );
+    const strict = node("t1", "target", {
+      type: "object_storage",
+      dataset: "etl",
+      table: "c",
+      format: "parquet",
+      table_format: "delta",
+      write_mode: "append",
+      schema_policy: "strict",
+    });
+    expect(compileSparkGraph(linear(CSV_SRC, strict))).toContain(
       "_sdf.write.options(**_o).format('delta').mode('append').save(_dest)",
     );
+    const replace = node("t1", "target", {
+      type: "object_storage",
+      dataset: "etl",
+      table: "c",
+      format: "parquet",
+      table_format: "delta",
+      write_mode: "replace",
+    });
+    expect(compileSparkGraph(linear(CSV_SRC, replace))).toContain(
+      "_sdf.write.options(**_o).option('overwriteSchema', 'true').format('delta').mode('overwrite').save(_dest)",
+    );
+  });
+
+  describe("an Iceberg target (R459)", () => {
+    const ice = (extra: Record<string, unknown>) =>
+      node("t1", "target", {
+        type: "object_storage",
+        dataset: "etl",
+        table: "orders",
+        format: "parquet",
+        table_format: "iceberg",
+        write_mode: "append",
+        ...extra,
+      });
+
+    it("registers the table the pandas engine wrote, by dlt's own latest-metadata rule", () => {
+      const code = compileSparkGraph(linear(CSV_SRC, ice({})));
+      expect(code).toContain("_sp = _iceberg_path_catalog('ETL_T1', '_etl_ice_t1')");
+      expect(code).toContain("_loc = os.environ['ETL_T1_BUCKET_URL'].rstrip('/') + '/etl/orders'");
+      expect(code).toContain("_meta = _iceberg_latest_metadata('ETL_T1', _loc)");
+      expect(code).toContain("register_table(table => '`etl`.`orders`', metadata_file => '");
+      expect(code).toContain("return ('s3://' + sorted(_files)[-1]) if _files else None");
+      expect(code).toContain("'org.apache.iceberg.jdbc.JdbcCatalog'");
+      expect(code).toContain("'?mode=memory&cache=shared'");
+      expect(code).not.toContain("InMemoryCatalog'");
+      // Substitution off before the target's credentials enter the session.
+      const fn = code.slice(code.indexOf("def _iceberg_path_catalog"));
+      expect(fn.indexOf("spark.sql.variable.substitute")).toBeLessThan(
+        fn.indexOf("s3.secret-access-key"),
+      );
+      assertParsesAsPython(code);
+    });
+
+    it("creates a v2 table when there is none, and appends, replaces or merges when there is", () => {
+      const append = compileSparkGraph(linear(CSV_SRC, ice({})));
+      expect(append).toContain(".tableProperty('format-version', '2')");
+      expect(append).toContain("_sdf.writeTo('_etl_ice_t1.`etl`.`orders`').append()");
+      // "evolve" adds the frame's new columns first, for an append and a merge.
+      expect(append).toContain("_iceberg_add_columns(_sp, '_etl_ice_t1.`etl`.`orders`', _sdf)");
+      const replace = compileSparkGraph(linear(CSV_SRC, ice({ write_mode: "replace" })));
+      expect(replace).toContain(".createOrReplace()");
+      expect(replace).not.toContain("_iceberg_add_columns(_sp");
+      const merge = compileSparkGraph(
+        linear(CSV_SRC, ice({ write_mode: "merge", primary_key: ["id"] })),
+      );
+      expect(merge).toContain(
+        "MERGE INTO _etl_ice_t1.`etl`.`orders` AS t USING _src_t1 AS s ON t.`id` = s.`id`",
+      );
+      // Measured: WITH SCHEMA EVOLUTION failed to resolve the key on 4.1.4.
+      expect(merge).not.toContain("WITH SCHEMA EVOLUTION");
+      // Measured: a MERGE refuses a non-deterministic source, and _dlt_id is uuid().
+      expect(merge).toContain("_sdf.localCheckpoint().createOrReplaceTempView('_src_t1')");
+      expect(merge).toContain("_iceberg_add_columns(_sp, '_etl_ice_t1.`etl`.`orders`', _sdf)");
+      const strict = compileSparkGraph(linear(CSV_SRC, ice({ schema_policy: "strict" })));
+      expect(strict).not.toContain("_iceberg_add_columns(_sp");
+      for (const c of [append, replace, merge, strict]) assertParsesAsPython(c);
+    });
+
+    it("writes dlt's two columns, so the table has one shape whichever engine wrote it", () => {
+      const code = compileSparkGraph(linear(CSV_SRC, ice({})));
+      expect(code).toContain(
+        "_sdf = _sdf.withColumn('_dlt_load_id', F.lit(_load_id)).withColumn('_dlt_id', F.expr('uuid()'))",
+      );
+      // Added before any branch writes, so create, replace and merge all carry them.
+      expect(code.indexOf("withColumn('_dlt_load_id'")).toBeLessThan(code.indexOf(".create()"));
+    });
+
+    it("records the pandas engine's fqn and the run's load id, so lineage joins one asset", () => {
+      const code = compileSparkGraph(linear(CSV_SRC, ice({})));
+      expect(code).toContain(
+        "'fqn': 'etl/orders/data/*.parquet', 'rows': int(_n), 'load_id': _load_id",
+      );
+    });
+
+    it("quotes a new column's name in the ALTER it adds", () => {
+      const code = compileSparkGraph(linear(CSV_SRC, ice({})));
+      expect(code).toContain("f.name.replace('`', '``')");
+    });
   });
 
   it("writes a database table over JDBC", () => {
@@ -902,17 +1004,21 @@ describe("sparkRefusal", () => {
     expect(sparkRefusal(starterGraph())).toBeNull();
   });
 
-  it("Iceberg is not on the Spark engine yet", () => {
+  it("an Iceberg target runs on Spark too since R459 (Spark 4.1 has Iceberg)", () => {
     const g = linear(CSV_SRC, tgt({ table_format: "iceberg" }, "Gold"));
-    expect(sparkRefusal(g)).toMatch(/Target "Gold": Iceberg is not on the Spark engine yet/);
-    expect(() => compileSparkGraph(g)).toThrow(/Iceberg/);
-    // The pandas engine still takes it.
+    expect(sparkRefusal(g)).toBeNull();
+    expect(() => compileSparkGraph(g)).not.toThrow();
     expect(() => compileGraph(g)).not.toThrow();
   });
 
   it("merge into plain files has nothing to merge on", () => {
     const g = linear(CSV_SRC, tgt({ write_mode: "merge", primary_key: ["id"] }));
-    expect(sparkRefusal(g)).toMatch(/merge needs a Delta table/);
+    expect(sparkRefusal(g)).toMatch(/merge needs a Delta or Iceberg table/);
+    const ice = linear(
+      CSV_SRC,
+      tgt({ write_mode: "merge", primary_key: ["id"], table_format: "iceberg" }),
+    );
+    expect(sparkRefusal(ice)).toBeNull();
   });
 
   it("merge into a database is not there yet", () => {

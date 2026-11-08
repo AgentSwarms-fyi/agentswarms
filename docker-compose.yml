@@ -420,9 +420,24 @@ services:
   # against MinIO and the lakehouse on a laptop; production points
   # SPARK_CONNECT_URL at a real cluster instead. Kernels reach it on
   # nb-internal, the same way they reach the lakehouse catalog: gRPC cannot go
-  # through the HTTP egress proxy. The first start downloads the S3, Delta and
-  # JDBC jars (several hundred MB) into the spark-ivy volume; later starts are
-  # fast.
+  # through the HTTP egress proxy. The first start downloads the S3, Delta,
+  # Iceberg and JDBC jars (several hundred MB) into the spark-ivy volume; later
+  # starts are fast.
+  #
+  # ONE VERSION SET (R459). Spark 4.1, not 4.2: Iceberg publishes a Spark
+  # runtime for 4.0 and 4.1 only (iceberg-spark-runtime-4.2_2.13 is not on Maven
+  # Central, checked 2026-11-08), so 4.2 meant Spark without Iceberg. On 4.1.4
+  # every piece has a build for the same Spark: Delta 4.4.1 (its _4.1 artifact),
+  # Iceberg 1.12.0, hadoop-aws equal to the image's own Hadoop (3.4.2; a
+  # different one fails at the first s3a:// read), and the sandbox image's
+  # pyspark-client 4.1.4. Move them together: tests/unit/sparkVersionSet.test.ts
+  # holds every place that names one to the same set.
+  #
+  # NO SPARK UI (R459). Spark Connect makes each request's plan the job's call
+  # site, and a plan carries a read's data-source options, which is where the
+  # S3 keys are passed (per call, so no session holds another's). The UI's job
+  # list showed those keys for every run to anything that could reach :4040,
+  # code on the cluster included. Measured on 4.2.0 and 4.1.4 alike.
   #
   # AUTH + non-root (VA-23). A Spark-engine pipeline runs arbitrary code on the
   # driver, and this endpoint sits on nb-internal where notebook kernels live,
@@ -436,7 +451,7 @@ services:
   # construction. Empty/unset SPARK_CONNECT_TOKEN = no auth, so an existing
   # deployment keeps working unchanged.
   spark-connect:
-    image: apache/spark:4.2.0-python3@sha256:fc64959c04bd87b0ac686be9aaa9008b69cdb1afc695400528279c8b01f43d89
+    image: apache/spark:4.1.4-python3@sha256:847f91f8bb2f28d632064dfe632d423020f8fd60b27c7704c0e5bf5b0c6432c7
     ports:
       - "127.0.0.1:15002:15002"
     # root only for the one-shot chown in the command below; the JVM runs as 185.
@@ -456,11 +471,12 @@ services:
         if [ "$$(stat -c %u /tmp/ivy)" != "185" ]; then chown -R spark:spark /tmp/ivy; fi
         if [ -n "$$SPARK_CONNECT_TOKEN" ]; then export SPARK_CONNECT_AUTHENTICATE_TOKEN="$$SPARK_CONNECT_TOKEN"; fi
         exec gosu spark /opt/spark/sbin/start-connect-server.sh \
-          --packages org.apache.hadoop:hadoop-aws:3.5.0,io.delta:delta-spark_2.13:4.4.0,org.postgresql:postgresql:42.7.13,com.mysql:mysql-connector-j:9.7.0 \
+          --packages org.apache.hadoop:hadoop-aws:3.4.2,io.delta:delta-spark_4.1_2.13:4.4.1,org.apache.iceberg:iceberg-spark-runtime-4.1_2.13:1.12.0,org.apache.iceberg:iceberg-aws-bundle:1.12.0,org.postgresql:postgresql:42.7.13,com.mysql:mysql-connector-j:9.7.0,org.xerial:sqlite-jdbc:3.53.4.0 \
           --conf spark.jars.ivy=/tmp/ivy \
-          --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension \
+          --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension,org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions \
           --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog \
           --conf spark.driver.memory=${SPARK_CONNECT_DRIVER_MEMORY:-2g} \
+          --conf spark.ui.enabled=false \
           --conf spark.connect.grpc.binding.port=15002
     volumes:
       - spark-ivy:/tmp/ivy

@@ -374,7 +374,12 @@ export function icebergAdvice(
         kind: "deletes",
         title: `${plural(deleteFiles, "delete file")} applied on every read`,
         detail: `${plural(f.deleted_records, "deleted row")} are still in the data files and are filtered out each time the table is read${f.equality_delete_files ? "; equality deletes are the costliest kind" : ""}. Rewriting the affected files removes them.`,
-        sql: call("rewrite_data_files", ", options => map('delete-file-threshold', '1')"),
+        // remove-dangling-deletes: without it the rewrite leaves every delete
+        // file in the metadata, still opened by each read (measured, R459).
+        sql: call(
+          "rewrite_data_files",
+          ", options => map('delete-file-threshold', '1', 'remove-dangling-deletes', 'true')",
+        ),
       });
     }
     const avg = f.data_files ? f.data_records / f.data_files : 0;
@@ -387,7 +392,7 @@ export function icebergAdvice(
           (t.partition_spec.length > 1
             ? " A partition spec this fine also writes a file per combination."
             : ""),
-        sql: call("rewrite_data_files"),
+        sql: call("rewrite_data_files", ", options => map('remove-dangling-deletes', 'true')"),
       });
     }
   }

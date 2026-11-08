@@ -416,8 +416,11 @@ describe("every third-party image is pinned by digest (VA-24)", () => {
   });
 
   it("starts per-run Spark clusters on the build the Connect server runs", () => {
-    const src = readFileSync(resolve("src/utils/etl/sparkCluster.server.ts"), "utf-8");
-    const def = /const DEFAULT_IMAGE =\s*"([^"]+)"/.exec(src)?.[1];
+    // R459: the image is written once, in the version set the cluster imports.
+    const cluster = readFileSync(resolve("src/utils/etl/sparkCluster.server.ts"), "utf-8");
+    expect(cluster).toContain("const DEFAULT_IMAGE = SPARK_IMAGE;");
+    const src = readFileSync(resolve("src/utils/etl/sparkVersions.ts"), "utf-8");
+    const def = /export const SPARK_IMAGE =\s*"([^"]+)"/.exec(src)?.[1];
     const server = composeImages.find(([name]) => name === "spark-connect")?.[1];
     expect(def).toMatch(PINNED);
     expect(def).toBe(server);
