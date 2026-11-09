@@ -43,6 +43,20 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **One image for any environment: browser settings read at startup (R464).** Every
+  `VITE_*` setting, which the build bakes into the image, now also has a `PUBLIC_*` name
+  that the server reads when it starts and hands to each page as a JSON data block:
+  `PUBLIC_SUPABASE_URL`, `PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `PUBLIC_ADMIN_EMAIL`,
+  `PUBLIC_BI_SNAPSHOT_ROWS_CAP`, `PUBLIC_GA_ID`, `PUBLIC_GTM_ID` and
+  `PUBLIC_NOTEBOOK_GATEWAY_PORT`. Per setting, the `PUBLIC_` value wins, and changing it
+  takes a restart instead of a rebuild. Staging and production, or one region and
+  another, can now run the same image. The server also reads the `VITE_*` names from its
+  own environment, so an environment made from an existing `.env` (a Kubernetes Secret)
+  configures an image built without them, and nothing changes for an install that sets
+  no `PUBLIC_*` value. The server refuses a service-role, `service_role` or `sb_secret_`
+  key as the browser's key, because the block is sent to every visitor, and the build
+  now stops if `VITE_SUPABASE_PUBLISHABLE_KEY` is one. See
+  [Browser settings at runtime](docs/DEPLOYMENT.md#browser-settings-at-runtime).
 - **Iceberg on the Spark engine.** A pipeline's Iceberg target runs on Spark and writes the
   same table the pandas engine writes, so a pipeline can move between engines (append,
   replace and merge). A lakehouse query on Spark reads your own Iceberg mounts from their
@@ -91,6 +105,16 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **The one-command Kubernetes install's page had no Supabase settings (R464).**
+  `scripts/setup-k8s.sh` builds the app without `VITE_*` values (`.env` never enters the
+  build), so the browser had no Supabase URL and its client threw
+  `process is not defined`. The installer now puts `PUBLIC_SUPABASE_URL` (default
+  `http://localhost:8000`, the port-forward it prints) and the anon key in the app's
+  Secret, and its closing message lists both port-forwards. Set `PUBLIC_SUPABASE_URL`
+  to your Ingress for Supabase when you have one.
+- **Analytics IDs are checked before they are written into a script (R464).** The consent
+  banner puts the GA ID into an inline script; an ID with anything but letters, digits
+  and dashes is now ignored.
 - **Every restart or rolling deploy cut open chat replies mid-sentence (R463).** srvx's own
   SIGTERM handler raced the app's: both closed the server, Node failed the second close at
   once, and the app's handler then exited with the stream still open. Measured on Linux

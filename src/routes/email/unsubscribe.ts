@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { createFileRoute } from "@tanstack/react-router";
 import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
+import { publicConfig } from "@/lib/publicConfig";
 
 function redactEmail(email: string | null | undefined): string {
   if (!email) return "***";
@@ -13,7 +14,7 @@ export const Route = createFileRoute("/email/unsubscribe")({
   server: {
     handlers: {
       GET: async ({ request }) => {
-        const supabaseUrl = process.env.SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL;
+        const supabaseUrl = process.env.SUPABASE_URL || publicConfig().supabaseUrl;
         const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
         if (!supabaseUrl || !supabaseServiceKey) {
@@ -49,7 +50,7 @@ export const Route = createFileRoute("/email/unsubscribe")({
       },
 
       POST: async ({ request }) => {
-        const supabaseUrl = process.env.SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL;
+        const supabaseUrl = process.env.SUPABASE_URL || publicConfig().supabaseUrl;
         const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
         if (!supabaseUrl || !supabaseServiceKey) {

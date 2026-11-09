@@ -26,6 +26,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
+import { publicConfig } from "@/lib/publicConfig";
 
 export type SchemaCheck = {
   /** Table to probe. */
@@ -87,17 +88,16 @@ const MISSING_TABLE_POSTGREST = "PGRST205";
 
 // Mirrors the resolution in src/integrations/supabase/client.ts (which is
 // generated and shouldn't be hand-edited) rather than importing from it, so
-// this module has no dependency on that file's internals.
+// this module has no dependency on that file's internals: publicConfig
+// (runtime PUBLIC_*, then build-time VITE_*), then the server's own values.
 function resolveSupabaseUrl(): string {
   return (
-    import.meta.env.VITE_SUPABASE_URL ||
-    (typeof process !== "undefined" && process.env.SUPABASE_URL) ||
-    ""
+    publicConfig().supabaseUrl || (typeof process !== "undefined" && process.env.SUPABASE_URL) || ""
   );
 }
 function resolveSupabaseKey(): string {
   return (
-    import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+    publicConfig().supabasePublishableKey ||
     (typeof process !== "undefined" && process.env.SUPABASE_PUBLISHABLE_KEY) ||
     ""
   );

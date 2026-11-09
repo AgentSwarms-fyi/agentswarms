@@ -14,6 +14,7 @@ import { ThemeProvider } from "@/components/ThemeProvider";
 import { LayoutPrefsProvider } from "@/components/LayoutPrefsProvider";
 import { CookieConsent } from "@/components/CookieConsent";
 import { SchemaHealthGuard } from "@/components/SchemaHealthGuard";
+import { PUBLIC_CONFIG_ELEMENT_ID, publicConfigScriptText } from "@/lib/publicConfig";
 
 // Runs before React hydrates — sets the theme class (and accent color, if
 // one is set) from localStorage so the page never flashes the wrong one.
@@ -190,6 +191,17 @@ function RootShell({ children }: { children: React.ReactNode }) {
     <html lang="en" suppressHydrationWarning>
       <head>
         <HeadContent />
+        {/* The browser's runtime settings (R464, lib/publicConfig): the
+            server renders its PUBLIC_* values as JSON, and the browser reads
+            them before the build-time VITE_* ones. A data block is never
+            executed, so it needs no CSP nonce. While hydrating, the browser
+            renders back the text the server sent, so the two cannot differ. */}
+        <script
+          id={PUBLIC_CONFIG_ELEMENT_ID}
+          type="application/json"
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: publicConfigScriptText() }}
+        />
         <ScriptOnce>{themeBootScript}</ScriptOnce>
       </head>
       <body>

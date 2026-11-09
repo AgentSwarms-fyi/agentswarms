@@ -327,8 +327,17 @@ describe("the page's own inline scripts (R397)", () => {
 
   it("the theme boot script goes through ScriptOnce, which stamps the nonce", () => {
     expect(root).toContain("<ScriptOnce>{themeBootScript}</ScriptOnce>");
-    // A bare <script> would render without one and be refused.
-    expect(root).not.toMatch(/<script[\s>]/);
+    // A bare executable <script> would render without one and be refused. The
+    // one <script> element allowed is a JSON data block (R464's runtime
+    // config): the browser never executes it, so the policy does not apply.
+    const tags = root.match(/<script\b[^>]*>/g) ?? [];
+    expect(tags.length).toBeLessThanOrEqual(1);
+    for (const tag of tags) {
+      expect(tag, "an inline <script> must be a JSON data block").toContain(
+        'type="application/json"',
+      );
+      expect(tag).not.toMatch(/\bsrc=/);
+    }
   });
 
   it("the head scripts are data only: the service worker registers from an effect", () => {

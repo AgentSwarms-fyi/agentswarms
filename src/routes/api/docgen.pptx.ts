@@ -20,6 +20,7 @@ import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 import { applyDeckFixes, reviewNote } from "@/lib/docGen/deckReview";
 import type { PptxPlan } from "@/lib/docGen/types";
 import { reviewDeck, slideImages } from "@/utils/deckReview.server";
+import { publicConfig } from "@/lib/publicConfig";
 
 /** One LibreOffice render of a deck, slide images included when asked for. */
 const RENDER_TIMEOUT_MS = 90_000;
@@ -58,8 +59,8 @@ export const Route = createFileRoute("/api/docgen/pptx")({
         // the container cannot. Reading the browser copy here made getUser()
         // fail with ECONNREFUSED, which this route reported as "Unauthorized".
         const userClient = createClient(
-          (process.env.SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL)!,
-          import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY!,
+          (process.env.SUPABASE_URL || publicConfig().supabaseUrl)!,
+          (process.env.SUPABASE_PUBLISHABLE_KEY || publicConfig().supabasePublishableKey)!,
           withNulSafeFetch({ global: { headers: { Authorization: `Bearer ${token}` } } }),
         );
         const {

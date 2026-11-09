@@ -5,10 +5,12 @@
 #   not the service-role key, not a provider key — is a build arg or an ENV here.
 # AgentSwarms — self-hosted image (Node).
 #
-# The client bundle needs the VITE_* Supabase values at BUILD time (they are
-# inlined by Vite), so pass them as build args — docker-compose.yml wires them
-# from your .env automatically. All server-side secrets (service-role key,
-# provider keys, SMTP) are read at RUNTIME from the environment.
+# The browser's settings can be baked in here as VITE_* build args (Vite
+# inlines them; docker-compose.yml wires them from your .env automatically), or
+# left out and given at RUNTIME as PUBLIC_* (R464): the server hands those to
+# the page, so one image serves any environment. Per setting, PUBLIC_ wins.
+# All server-side secrets (service-role key, provider keys, SMTP) are read at
+# RUNTIME from the environment.
 #
 #   docker compose up --build
 #
@@ -26,7 +28,8 @@ RUN npm ci
 
 COPY . .
 
-# Client-side (build-time) configuration.
+# Client-side (build-time) configuration. Optional since R464: each one also
+# has a PUBLIC_* name read at runtime (src/lib/publicConfig.ts).
 # EVERY VITE_* the code reads must be listed here. Vite substitutes them by
 # literal text at BUILD time, so a missing one does not error — it resolves to
 # undefined and the setting silently does nothing in the shipped image while

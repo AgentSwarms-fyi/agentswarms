@@ -147,6 +147,7 @@ import {
   type KeyStatusPayload,
 } from "@/utils/providers/keyRotation.functions";
 import { reportFailure } from "@/lib/silentFailureNet";
+import { publicConfig } from "@/lib/publicConfig";
 
 export const Route = createFileRoute("/_authenticated/admin/iam")({
   component: AdminIamPage,
@@ -2305,7 +2306,9 @@ function SsoTab({
   const [busy, setBusy] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<IamSsoProvider | null>(null);
 
-  const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL ?? "").replace(/\/$/, "");
+  // The URL the BROWSER (and so the identity provider) reaches: PUBLIC_SUPABASE_URL
+  // at runtime, else the build-time VITE_SUPABASE_URL (R464).
+  const supabaseUrl = (publicConfig().supabaseUrl ?? "").replace(/\/$/, "");
   const acsUrl = `${supabaseUrl}/auth/v1/sso/saml/acs`;
   const entityId = `${supabaseUrl}/auth/v1/sso/saml/metadata`;
 

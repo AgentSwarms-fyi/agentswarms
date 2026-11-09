@@ -21,6 +21,7 @@ import { extractUsage, recordGatewayCall } from "@/utils/observability/recordGat
 import type { ProviderId } from "@/utils/providers/types";
 import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
 import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
+import { publicConfig } from "@/lib/publicConfig";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -68,8 +69,8 @@ export const Route = createFileRoute("/api/etl/generate")({
           if (!token) return json({ error: "Unauthorized" }, 401);
 
           const userClient = createClient(
-            (process.env.SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL)!,
-            import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY!,
+            (process.env.SUPABASE_URL || publicConfig().supabaseUrl)!,
+            (process.env.SUPABASE_PUBLISHABLE_KEY || publicConfig().supabasePublishableKey)!,
             withNulSafeFetch({ global: { headers: { Authorization: `Bearer ${token}` } } }),
           );
           const {

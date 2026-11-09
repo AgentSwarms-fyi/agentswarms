@@ -302,19 +302,18 @@ pool.
      the rest. An external cron hitting `/api/bi/cron` with `BI_CRON_TOKEN`
      works as well (see [Scheduling](#scheduling--background-jobs)).
 
-**Build once, run many.** The `VITE_*` Supabase values are baked into the
-client bundle at image build time, so build the image once with your production
-values and push it to a registry; every instance pulls the same image and reads
-its runtime secrets (service-role key, provider keys, `PROVIDER_CREDS_SECRET`,
-`BI_CRON_TOKEN`) from the instance environment or the cloud's secret manager.
+**Build once, run many.** Build the image once, push it to a registry, and
+let every instance pull the same image. Each instance reads its runtime secrets
+(service-role key, provider keys, `PROVIDER_CREDS_SECRET`, `BI_CRON_TOKEN`) and
+its browser settings (`PUBLIC_*`, below) from the instance environment or the
+cloud's secret manager, so the image carries no environment's values:
 
 ```bash
-docker build \
-  --build-arg VITE_SUPABASE_URL="$VITE_SUPABASE_URL" \
-  --build-arg VITE_SUPABASE_PUBLISHABLE_KEY="$VITE_SUPABASE_PUBLISHABLE_KEY" \
-  --build-arg VITE_ADMIN_EMAIL="$VITE_ADMIN_EMAIL" \
-  -t <registry>/agentswarms:latest .
+docker build -t <registry>/agentswarms:1.2.3 .
 ```
+
+The build-time route still works: pass the `VITE_*` values as build args and
+the image carries them, as every image did before R464.
 
 The autoscaling primitives on each cloud:
 
@@ -327,6 +326,48 @@ The autoscaling primitives on each cloud:
 **Load-balancer settings:** disable response buffering and use a generous idle
 timeout (≥ 300s) so streamed chat responses (Server-Sent Events) aren't cut
 off. No session affinity needed.
+
+### Browser settings at runtime
+
+The browser needs a few settings of its own. Each can be given two ways, and
+per setting the runtime one wins:
+
+| Setting                                     | Read at startup: restart to change | Baked in at build: rebuild to change |
+| ------------------------------------------- | ---------------------------------- | ------------------------------------ |
+| Supabase URL, as the **browser** reaches it | `PUBLIC_SUPABASE_URL`              | `VITE_SUPABASE_URL`                  |
+| Supabase publishable (anon) key             | `PUBLIC_SUPABASE_PUBLISHABLE_KEY`  | `VITE_SUPABASE_PUBLISHABLE_KEY`      |
+| Bootstrap admin e-mail                      | `PUBLIC_ADMIN_EMAIL`               | `VITE_ADMIN_EMAIL`                   |
+| BI snapshot row cap                         | `PUBLIC_BI_SNAPSHOT_ROWS_CAP`      | `VITE_BI_SNAPSHOT_ROWS_CAP`          |
+| Your Google Analytics / Tag Manager IDs     | `PUBLIC_GA_ID`, `PUBLIC_GTM_ID`    | `VITE_GA_ID`, `VITE_GTM_ID`          |
+| Notebook gateway port                       | `PUBLIC_NOTEBOOK_GATEWAY_PORT`     | `VITE_NOTEBOOK_GATEWAY_PORT`         |
+
+- **How it reaches the browser.** The server renders the `PUBLIC_*` values it
+  was started with into every page, as a JSON data block
+  (`<script type="application/json" id="as-public-config">`). The browser
+  reads it before falling back to what the build inlined. A data block is
+  never executed, so the page's Content-Security-Policy needs no change.
+  Pages are always fetched from the network (the service worker caches only
+  static files and the offline page), so a restart reaches every visitor on
+  their next page load.
+- **Your existing `.env` already works.** The server also reads the `VITE_*`
+  names from its own environment, below `PUBLIC_*`. In Compose the build and
+  the server read the same `.env`, so the page is handed the values its bundle
+  already has, and nothing changes. An image built without them gets them
+  from an environment made from that `.env`, such as a Kubernetes Secret.
+  `npm run dev` is unchanged.
+- **The build refuses a database key in the browser's slot.** If
+  `VITE_SUPABASE_PUBLISHABLE_KEY` is the service-role key (or any
+  `service_role` or `sb_secret_` key), `npm run build` and `docker build` stop
+  with an error instead of inlining it into code every visitor downloads.
+- **Everything here is public.** It is sent to every visitor, so the server
+  refuses a `PUBLIC_SUPABASE_PUBLISHABLE_KEY` that is the service-role key, a
+  JWT whose role is `service_role`, or an `sb_secret_` key. Any value that
+  fails its check (a URL that is not http(s), an analytics ID with anything
+  but letters, digits and dashes, a port out of range) is ignored, so the
+  build-time value applies, and the log names the variable, never the value.
+- **`PUBLIC_SUPABASE_URL` is the URL a browser can reach**, the same rule as
+  for `VITE_SUPABASE_URL`: not a Docker-internal name such as `http://kong:8000`.
+  The server keeps using `SUPABASE_URL` for its own calls.
 
 ### Shutdown and connection timing
 
@@ -375,7 +416,15 @@ ADMIN_EMAIL=you@corp.com ADMIN_PASSWORD='...' bash scripts/setup-k8s.sh
 
 ```bash
 kubectl -n agentswarms port-forward svc/agentswarms 8080:80   # then http://localhost:8080
+kubectl -n agentswarms port-forward svc/<kong service> 8000:8000   # the page's Supabase
 ```
+
+The script prints both commands with the gateway's real name. Both forwards are needed: the page in
+your browser talks to Supabase directly, at `PUBLIC_SUPABASE_URL`, which defaults
+to that second forward (`http://localhost:8000`). For an Ingress, run the script
+with `PUBLIC_SUPABASE_URL` set to the address of Supabase's gateway. The image is
+built without `VITE_*` values, so these browser settings live in the app's Secret
+(see [Browser settings at runtime](#browser-settings-at-runtime)).
 
 Needs `kubectl`, `helm` and a reachable cluster. It generates every secret —
 including the anon and service-role keys **signed** from the JWT secret, because
@@ -1678,6 +1727,10 @@ Then rebuild (the `VITE_` values are build-time) and start:
 docker compose up -d --build
 ```
 
+Or set `PUBLIC_SUPABASE_URL` and `PUBLIC_SUPABASE_PUBLISHABLE_KEY` instead (the
+same values, read when the app starts), and a restart is enough. See
+[Browser settings at runtime](#browser-settings-at-runtime).
+
 ### 6. Before you call it production
 
 - **Put TLS in front of Kong.** Auth cookies and the service-role key travel
@@ -1717,7 +1770,7 @@ Nothing else phones home: there is no telemetry, no licence check and no usage
 reporting. Fonts, the SQL engine (DuckDB-Wasm) and the PDF and DOCX readers
 (pdf.js, mammoth: copied from the installed packages at build, R321) are served
 from the app itself, and so are the provider logos (Simple Icons, R326).
-Analytics exist only if you set `VITE_GA_ID`. See
+Analytics exist only if you set `PUBLIC_GA_ID` or `VITE_GA_ID`. See
 [/architecture](./ARCHITECTURE.md) and [/security](../src/routes/security.tsx).
 
 ## Production checklist (cross-cutting)
@@ -2282,9 +2335,11 @@ deployment in each region**.
 
 Nothing in the application ties one install to another. A deployment is pinned
 to its data entirely by environment — `SUPABASE_URL`, the lake bucket and
-catalog, the key ring — and there is no notion of a region, an instance id, or
-a registry of peers anywhere in the code. Two deployments are two installs that
-happen to run the same image.
+catalog, the key ring, and the browser's `PUBLIC_*` settings — and there is no
+notion of a region, an instance id, or a registry of peers anywhere in the
+code. Two deployments are two installs that run the same image. (Before R464
+the browser's Supabase URL was baked into the image, so each region needed
+its own build; see [Browser settings at runtime](#browser-settings-at-runtime).)
 
 So:
 

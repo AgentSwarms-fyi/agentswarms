@@ -12,6 +12,7 @@ import { isAggregatableChart } from "@/lib/biAggregate";
 import { restateWidgetNarrative } from "@/lib/biNumericClaims";
 import { restateWidgetNote } from "@/lib/biTitleClaims";
 import type { ComparePeriod, SemanticFilter, TimeGrain } from "@/lib/semanticLayer";
+import { publicConfig } from "@/lib/publicConfig";
 
 export const GRID_COLS = 12;
 
@@ -31,17 +32,16 @@ export const WIDGET_ROW_CAP_MAX = 100_000;
  * rows, the cap is a correctness limit: hit it and the total is partial, which
  * is why such widgets get `truncated`.
  *
- * Set `VITE_BI_SNAPSHOT_ROWS_CAP` to raise it. One knob, read the same way on
- * both sides: this module runs in the browser (widgets are created there) and
- * on the server (scheduled refresh), and two constants that could disagree is
- * exactly how this codebase has been bitten before.
+ * Set `PUBLIC_BI_SNAPSHOT_ROWS_CAP` (runtime) or `VITE_BI_SNAPSHOT_ROWS_CAP`
+ * (build time) to raise it. One knob, read the same way on both sides: this
+ * module runs in the browser (widgets are created there) and on the server
+ * (scheduled refresh), and two constants that could disagree is exactly how
+ * this codebase has been bitten before. publicConfig gives both sides the same
+ * value: the server reads PUBLIC_* from its environment and renders it into
+ * the page the browser reads (R464).
  */
 export function widgetRowCap(): number {
-  // Written as the canonical `import.meta.env.VITE_*` form on purpose: the
-  // production build substitutes it by LITERAL TEXT MATCH (see envDefine in
-  // vite.config.ts), so `env?.VITE_…` would silently never be replaced — and
-  // the knob would work in dev and do nothing in the shipped image.
-  const raw = import.meta.env.VITE_BI_SNAPSHOT_ROWS_CAP as string | undefined;
+  const raw = publicConfig().biSnapshotRowsCap;
   const n = Number(raw);
   if (!Number.isFinite(n) || n < 1) return WIDGET_ROW_CAP_DEFAULT;
   return Math.min(Math.trunc(n), WIDGET_ROW_CAP_MAX);

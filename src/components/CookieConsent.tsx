@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Link } from "@tanstack/react-router";
 import { Cookie } from "lucide-react";
 import { withCspNonce } from "@/lib/cspNonce";
+import { publicConfig, rejectPublicValue } from "@/lib/publicConfig";
 
 const STORAGE_KEY = "agentswarms.cookie-consent.v1";
 
@@ -12,8 +13,18 @@ const STORAGE_KEY = "agentswarms.cookie-consent.v1";
 // page analytics to the project author's Google Analytics property. With no
 // IDs configured — the default — there is no banner, no consent to give and
 // no external request to make.
-const GA_ID = (import.meta.env.VITE_GA_ID as string | undefined) || undefined;
-const GTM_ID = (import.meta.env.VITE_GTM_ID as string | undefined) || undefined;
+//
+// The IDs come from publicConfig (R464): PUBLIC_GA_ID / PUBLIC_GTM_ID at
+// runtime, else the build-time VITE_GA_ID / VITE_GTM_ID. Either way an ID is used only if it
+// is letters, digits and dashes, because it is written into a script URL and
+// into an inline script below; a build-time value was never checked before.
+function analyticsIds(): { GA_ID?: string; GTM_ID?: string } {
+  const { gaId, gtmId } = publicConfig();
+  return {
+    GA_ID: gaId && !rejectPublicValue("gaId", gaId) ? gaId : undefined,
+    GTM_ID: gtmId && !rejectPublicValue("gtmId", gtmId) ? gtmId : undefined,
+  };
+}
 
 type Consent = "accepted" | "declined";
 
@@ -28,6 +39,7 @@ function loadAnalytics() {
   };
   if (w.__agentswarmsAnalyticsLoaded) return;
   w.__agentswarmsAnalyticsLoaded = true;
+  const { GA_ID, GTM_ID } = analyticsIds();
 
   if (GTM_ID) {
     const gtm = withCspNonce(document.createElement("script"));
@@ -53,6 +65,7 @@ export function CookieConsent() {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
+    const { GA_ID, GTM_ID } = analyticsIds();
     if (!GA_ID && !GTM_ID) return;
     try {
       const v = window.localStorage.getItem(STORAGE_KEY) as Consent | null;

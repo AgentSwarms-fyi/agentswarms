@@ -42,7 +42,15 @@
 # Settings, all optional: NAMESPACE, RELEASE, SUPABASE_CHART_VERSION,
 # AGENTSWARMS_IMAGE, DOCGEN_IMAGE, JS_SANDBOX_IMAGE, NOTEBOOK_GATEWAY_IMAGE,
 # NOTEBOOK_RUNTIME_IMAGE, ADMIN_EMAIL, ADMIN_PASSWORD, INTERNAL_RUN_SECRET,
-# PROVIDER_CREDS_SECRET, SKIP_IMAGE_CHECK.
+# PROVIDER_CREDS_SECRET, SKIP_IMAGE_CHECK, PUBLIC_SUPABASE_URL.
+#
+# PUBLIC_SUPABASE_URL is where a BROWSER reaches Supabase's API gateway. The
+# default, http://localhost:8000, is the port-forward printed at the end; set
+# it to your Ingress for Supabase when there is one. The app image is built
+# without any VITE_* values (.env never enters the build), so the browser's
+# settings go into the app's Secret as PUBLIC_* and the server hands them to
+# the page at startup (R464). Before R464 they were nowhere, and the page had
+# no Supabase URL at all.
 set -euo pipefail
 for arg in "$@"; do
   case "$arg" in
@@ -67,6 +75,7 @@ NOTEBOOK_GATEWAY_IMAGE="${NOTEBOOK_GATEWAY_IMAGE:-agentswarms/notebook-gateway:l
 NOTEBOOK_RUNTIME_IMAGE="${NOTEBOOK_RUNTIME_IMAGE:-agentswarms/notebook-runtime:latest}"
 ADMIN_EMAIL="${ADMIN_EMAIL:-}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-}"
+PUBLIC_SUPABASE_URL="${PUBLIC_SUPABASE_URL:-http://localhost:8000}"
 
 say() { printf '\n\033[1;36m==>\033[0m %s\n' "$1"; }
 die() { printf '\n\033[1;31mERROR:\033[0m %s\n' "$1" >&2; exit 1; }
@@ -304,6 +313,9 @@ kubectl -n "$NS" create secret generic agentswarms-env \
   --from-literal=SUPABASE_PUBLISHABLE_KEY="$ANON_KEY" \
   --from-literal=SUPABASE_SERVICE_ROLE_KEY="$SERVICE_KEY" \
   --from-literal=ADMIN_EMAIL="${ADMIN_EMAIL:-admin@example.com}" \
+  --from-literal=PUBLIC_SUPABASE_URL="$PUBLIC_SUPABASE_URL" \
+  --from-literal=PUBLIC_SUPABASE_PUBLISHABLE_KEY="$ANON_KEY" \
+  --from-literal=PUBLIC_ADMIN_EMAIL="${ADMIN_EMAIL:-admin@example.com}" \
   --from-literal=INTERNAL_RUN_SECRET="$INTERNAL_RUN_SECRET" \
   --from-literal=PROVIDER_CREDS_SECRET="$PROVIDER_CREDS_SECRET" \
   --from-literal=BI_CRON_TOKEN="$BI_CRON_TOKEN" \
@@ -353,15 +365,15 @@ cat <<EOF
 
   AgentSwarms is running in namespace "$NS".
 
-  Open it:
+  Open it (both forwards: the page talks to Supabase at $PUBLIC_SUPABASE_URL):
       kubectl -n $NS port-forward svc/agentswarms 8080:80
+      kubectl -n $NS port-forward svc/${KONG_SVC} 8000:8000
       then http://localhost:8080
 
-  Supabase Studio:
-      kubectl -n $NS port-forward svc/${KONG_SVC} 8000:8000
-      then http://localhost:8000  (user "supabase")
+  Supabase Studio is on the second forward: http://localhost:8000  (user "supabase")
 
-  For a real address, point an Ingress at the "agentswarms" Service.
+  For a real address, point an Ingress at the "agentswarms" Service and one at
+  "${KONG_SVC}", then re-run with PUBLIC_SUPABASE_URL set to the second.
 
   Keep PROVIDER_CREDS_SECRET safe — it encrypts every stored credential and is
   not recoverable:

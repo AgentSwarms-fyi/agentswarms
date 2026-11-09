@@ -6,6 +6,8 @@
 // There is deliberately no in-browser fallback: this product targets production
 // agentic systems, and a WebAssembly interpreter cannot run LangChain et al.
 
+import { publicConfig } from "@/lib/publicConfig";
+
 /** Output of one executed cell, rendered by the notebook editor. */
 export type CellRunResult = {
   stdout: string;
@@ -115,7 +117,8 @@ export class ServerRuntime {
   private resolveGatewayUrl(): string {
     if (this.gatewayUrl) return this.gatewayUrl;
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const port = import.meta.env.VITE_NOTEBOOK_GATEWAY_PORT || "8090";
+    // PUBLIC_NOTEBOOK_GATEWAY_PORT at runtime, else the build-time value (R464).
+    const port = publicConfig().notebookGatewayPort || "8090";
     return `${proto}//${window.location.hostname}:${port}`;
   }
 

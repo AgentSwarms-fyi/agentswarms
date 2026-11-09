@@ -11,6 +11,7 @@ import { TEMPLATES } from "@/lib/email-templates/registry";
 import { sendMail } from "@/lib/email/mailer.server";
 import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
 import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
+import { publicConfig } from "@/lib/publicConfig";
 
 function redactEmail(email: string | null | undefined): string {
   if (!email) return "***";
@@ -32,7 +33,7 @@ export const Route = createFileRoute("/api/email/send")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const supabaseUrl = process.env.SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL;
+        const supabaseUrl = process.env.SUPABASE_URL || publicConfig().supabaseUrl;
         const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
         if (!supabaseUrl || !supabaseServiceKey) {

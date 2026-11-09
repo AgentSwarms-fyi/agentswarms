@@ -9,6 +9,7 @@ import { Zap, ArrowLeft, Building2, Check } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { toast } from "sonner";
 import agentSwarmsLogo from "@/assets/agentswarms-logo.jpg";
+import { publicConfig } from "@/lib/publicConfig";
 
 export const Route = createFileRoute("/login")({
   head: () => ({
@@ -57,8 +58,7 @@ function LoginPage() {
   } | null>(null);
 
   useEffect(() => {
-    const url = import.meta.env.VITE_SUPABASE_URL;
-    const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+    const { supabaseUrl: url, supabasePublishableKey: key } = publicConfig();
     if (!url || !key) return;
     fetch(`${url}/auth/v1/settings`, { headers: { apikey: key } })
       .then((r) => (r.ok ? r.json() : null))

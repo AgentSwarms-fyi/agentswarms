@@ -15,6 +15,7 @@ import tsConfigPaths from "vite-tsconfig-paths";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
 import { VENDORED_PARSERS } from "./src/lib/vendoredParsers";
+import { assertSafeBuildEnv } from "./src/lib/publicConfig";
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -66,8 +67,15 @@ export default defineConfig(async ({ command, mode }) => {
   plugins.push(tanstackStart());
   plugins.push(viteReact());
 
-  // Expose VITE_* vars to both the client and SSR bundles (the app reads
-  // import.meta.env.VITE_SUPABASE_* in shared code paths).
+  // Expose VITE_* vars to both the client and SSR bundles. Only
+  // src/lib/publicConfig.ts reads them (R464); each also has a PUBLIC_* name
+  // the server reads at startup, which wins.
+  //
+  // First, refuse a database key in the browser's slot: whatever is inlined
+  // here ships to every visitor, and nothing at runtime can take it back.
+  // loadEnv with "" reads every variable, so the check can compare against
+  // SUPABASE_SERVICE_ROLE_KEY; only the VITE_ ones are inlined.
+  assertSafeBuildEnv({ ...process.env, ...loadEnv(mode, process.cwd(), "") });
   const envDefine: Record<string, string> = {};
   for (const [key, value] of Object.entries(loadEnv(mode, process.cwd(), "VITE_"))) {
     envDefine[`import.meta.env.${key}`] = JSON.stringify(value);

@@ -22,7 +22,8 @@
 # and waiting. MCP Builder (Build → MCP Builder) runs on that same runtime.
 #
 # Compose reads .env automatically: the VITE_* values are passed as build args
-# (inlined into the client bundle), everything else is runtime environment.
+# (inlined into the client bundle), everything else is runtime environment,
+# including the PUBLIC_* browser settings that override them without a rebuild.
 services:
   agentswarms:
     build:

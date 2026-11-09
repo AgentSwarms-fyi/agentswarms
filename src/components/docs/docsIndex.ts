@@ -400,6 +400,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "2.6×",
       "410,379.26",
       "LIMIT",
+      "PUBLIC_BI_SNAPSHOT_ROWS_CAP",
       "VITE_BI_SNAPSHOT_ROWS_CAP",
       "answer",
       "area",
@@ -4035,7 +4036,15 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "PERSIST_PROMPT_BODIES",
       "PROVIDER_CREDS_SECRET",
       "PROVIDER_CREDS_SECRET_OLD",
+      "PUBLIC_",
+      "PUBLIC_ADMIN_EMAIL",
       "PUBLIC_APP_URL",
+      "PUBLIC_BI_SNAPSHOT_ROWS_CAP",
+      "PUBLIC_GA_ID",
+      "PUBLIC_GTM_ID",
+      "PUBLIC_NOTEBOOK_GATEWAY_PORT",
+      "PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+      "PUBLIC_SUPABASE_URL",
       "RESEND_API_KEY",
       "RSA-HSM",
       "SECURITY_HEADERS",
@@ -4058,7 +4067,12 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "TRUSTED_PROXY_HOPS",
       "UPLOAD_PER_MINUTE",
       "VAULT_*",
+      "VITE_",
       "VITE_ADMIN_EMAIL",
+      "VITE_BI_SNAPSHOT_ROWS_CAP",
+      "VITE_GA_ID",
+      "VITE_GTM_ID",
+      "VITE_NOTEBOOK_GATEWAY_PORT",
       "VITE_SUPABASE_PUBLISHABLE_KEY",
       "VITE_SUPABASE_URL",
       "WAREHOUSE_ABS_MAX_ROWS",
@@ -4105,6 +4119,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "env-required",
         "text": "Required — Supabase and identity",
+        "level": 3
+      },
+      {
+        "id": "env-public",
+        "text": "Browser settings: at startup or at build",
         "level": 3
       },
       {

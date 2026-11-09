@@ -3,14 +3,18 @@
 //
 // Reads go through the browser Supabase client under RLS: users can see their
 // own user_roles row, their own group memberships, and the model rules that
-// apply to them. The VITE_ADMIN_EMAIL check is kept as a bootstrap fallback so
-// the admin UI is reachable before the IAM migration has run.
+// apply to them. The admin e-mail check (PUBLIC_ADMIN_EMAIL at runtime, else the
+// build-time VITE_ADMIN_EMAIL; see lib/publicConfig) is kept as a bootstrap
+// fallback so the admin UI is reachable before the IAM migration has run.
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { collapseModelPolicy } from "@/lib/iamRules";
+import { publicConfig } from "@/lib/publicConfig";
 
-const ADMIN_EMAIL = (import.meta.env.VITE_ADMIN_EMAIL ?? "").toLowerCase();
+// Read when needed, not at import: in the browser the value comes from the
+// page's config block, which a module evaluated early must not race.
+const adminEmail = () => (publicConfig().adminEmail ?? "").toLowerCase();
 
 export type MyModelRule = { provider: string; model_pattern: string };
 
@@ -85,6 +89,7 @@ export function useIamState(): IamState & { loading: boolean } {
     };
   }, [user?.id]);
 
+  const ADMIN_EMAIL = adminEmail();
   const envAdmin = Boolean(ADMIN_EMAIL) && (user?.email ?? "").toLowerCase() === ADMIN_EMAIL;
   return {
     isSuperadmin: (state?.isSuperadmin ?? false) || envAdmin,

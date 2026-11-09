@@ -152,11 +152,11 @@ prefix from one derived from the table. Datasets this size normally have a
 Parquet mirror (`PARQUET_MIN_ROWS`, 5,000) and never reach it; one that does,
 with mirroring off or not yet synced, names the knob in the error.
 
-| Setting / field             | Default                  | What it bounds                     |
-| --------------------------- | ------------------------ | ---------------------------------- |
-| `VITE_BI_SNAPSHOT_ROWS_CAP` | `500` (ceiling `100000`) | Rows cached in a widget's snapshot |
-| `DIRECT_QUERY_DEFAULT_ROWS` | `50000`                  | Rows for a `direct`-mode widget    |
-| `DIRECT_QUERY_MAX_ROWS`     | `100000`                 | Ceiling for `direct` mode          |
+| Setting / field                                              | Default                  | What it bounds                     |
+| ------------------------------------------------------------ | ------------------------ | ---------------------------------- |
+| `PUBLIC_BI_SNAPSHOT_ROWS_CAP` or `VITE_BI_SNAPSHOT_ROWS_CAP` | `500` (ceiling `100000`) | Rows cached in a widget's snapshot |
+| `DIRECT_QUERY_DEFAULT_ROWS`                                  | `50000`                  | Rows for a `direct`-mode widget    |
+| `DIRECT_QUERY_MAX_ROWS`                                      | `100000`                 | Ceiling for `direct` mode          |
 
 > [!IMPORTANT]
 > **Read this before trusting a total.** Warehouse-backed widgets default to
@@ -173,13 +173,14 @@ with mirroring off or not yet synced, names the knob in the error.
 > - **`query_mode: "direct"`** — re-run the query against the warehouse at view
 >   time for current truth, at the cost of a warehouse query per view.
 >
-> The cap itself is configurable — `VITE_BI_SNAPSHOT_ROWS_CAP`, one value read
-> by both the browser (which creates snapshots) and the server (which refreshes
-> them). Set it in `.env`; `docker compose` passes it through as a build arg
-> automatically, because `VITE_` values are inlined at **build** time rather
-> than read at runtime — so changing it means rebuilding the image, not
-> restarting it. Raising it grows every dashboard record, which is the cost
-> being traded.
+> The cap itself is configurable, one value read by both the browser (which
+> creates snapshots) and the server (which refreshes them).
+> `PUBLIC_BI_SNAPSHOT_ROWS_CAP` is read when the app starts, so changing it
+> takes a restart; the server hands the same value to the page, so both sides
+> agree. `VITE_BI_SNAPSHOT_ROWS_CAP` is the build-time alternative: `docker
+compose` passes it as a build arg, and changing it means rebuilding the image.
+> When both are set, `PUBLIC_` wins. Raising it grows every dashboard record,
+> which is the cost being traded.
 >
 > A widget whose last refresh filled the cap sets `truncated`, and the UI says
 > so rather than showing a confident wrong total. Public embeds and share links

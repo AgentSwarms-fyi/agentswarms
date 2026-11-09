@@ -20,6 +20,7 @@ import { TEMPLATES } from "@/lib/email-templates/registry";
 import { sendMail } from "@/lib/email/mailer.server";
 import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 import type { Database } from "@/integrations/supabase/types";
+import { publicConfig } from "@/lib/publicConfig";
 
 type AppSupabase = SupabaseClient<Database>;
 
@@ -140,7 +141,7 @@ function contactSetup(): {
   supabaseServiceKey: string;
   adminEmail: string;
 } | null {
-  const supabaseUrl = process.env.SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL;
+  const supabaseUrl = process.env.SUPABASE_URL || publicConfig().supabaseUrl;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const adminEmail = process.env.CONTACT_ADMIN_EMAIL;
   if (!supabaseUrl || !supabaseServiceKey || !adminEmail) return null;

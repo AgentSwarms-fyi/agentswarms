@@ -90,6 +90,52 @@ function SelfHostingConfigurationPage() {
         break-glass secrets, and back it up separately from the database.
       </Callout>
 
+      <H3 id="env-public">Browser settings: at startup or at build</H3>
+      <P>
+        Every <C>VITE_</C> setting is baked into the image when it is built. Each also has a{" "}
+        <C>PUBLIC_</C> name that the server reads when it starts and hands to the page, so one image
+        serves any environment and a change takes a restart, not a rebuild. Per setting the{" "}
+        <C>PUBLIC_</C> value wins; leave them unset and nothing changes.
+      </P>
+      <Table
+        headers={["Read at startup", "Baked in at build", "Setting"]}
+        rows={[
+          [
+            <C key="a">PUBLIC_SUPABASE_URL</C>,
+            <C key="b">VITE_SUPABASE_URL</C>,
+            "Supabase URL as the browser reaches it",
+          ],
+          [
+            <C key="a">PUBLIC_SUPABASE_PUBLISHABLE_KEY</C>,
+            <C key="b">VITE_SUPABASE_PUBLISHABLE_KEY</C>,
+            "Anon key; a service-role or secret key is refused",
+          ],
+          [<C key="a">PUBLIC_ADMIN_EMAIL</C>, <C key="b">VITE_ADMIN_EMAIL</C>, "Bootstrap admin"],
+          [
+            <C key="a">PUBLIC_BI_SNAPSHOT_ROWS_CAP</C>,
+            <C key="b">VITE_BI_SNAPSHOT_ROWS_CAP</C>,
+            "BI widget snapshot rows",
+          ],
+          [<C key="a">PUBLIC_GA_ID</C>, <C key="b">VITE_GA_ID</C>, "Your Google Analytics ID"],
+          [<C key="a">PUBLIC_GTM_ID</C>, <C key="b">VITE_GTM_ID</C>, "Your Tag Manager ID"],
+          [
+            <C key="a">PUBLIC_NOTEBOOK_GATEWAY_PORT</C>,
+            <C key="b">VITE_NOTEBOOK_GATEWAY_PORT</C>,
+            "Notebook gateway port",
+          ],
+        ]}
+      />
+      <P>
+        The server also reads the <C>VITE_</C> names from its own environment, after the{" "}
+        <C>PUBLIC_</C> ones, so an environment made from an existing <C>.env</C> (a Kubernetes
+        Secret) configures an image built without them.
+      </P>
+      <P>
+        Everything in this table is sent to every visitor. A value that fails its check is ignored
+        and the next source applies; the server log names the variable, never the value. The build
+        stops if <C>VITE_SUPABASE_PUBLISHABLE_KEY</C> is the service-role key.
+      </P>
+
       <H3 id="env-models">Models and search</H3>
       <P>
         Which model runs is not set here. A superadmin sets the <strong>default model</strong> under

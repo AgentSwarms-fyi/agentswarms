@@ -284,7 +284,7 @@ export function BiWidgetCard({
             title={
               widget.agg_pushdown
                 ? "This widget's result hit the snapshot row cap, so rows beyond the cap are missing " +
-                  "from the chart. Narrow the query, or raise VITE_BI_SNAPSHOT_ROWS_CAP."
+                  "from the chart. Narrow the query, or raise PUBLIC_BI_SNAPSHOT_ROWS_CAP."
                 : "This widget's data hit the snapshot row cap, so totals are computed from part of the " +
                   "table, not all of it. Edit the widget and turn on “Aggregate in SQL” to make them complete."
             }

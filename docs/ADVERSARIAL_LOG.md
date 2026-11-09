@@ -109,6 +109,33 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-09 — R464: an image that carries no environment
+
+**Why this round.** Phase 1 of the AWS plan, part 2. One published image has to serve
+every install, but the browser's Supabase URL, its key and five other settings existed
+only as `VITE_*`, which the build inlines. Every environment needed its own build.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| The one-command Kubernetes install gave the browser no Supabase settings | S2 | `scripts/setup-k8s.sh` builds the app with a bare `docker build`, and `.dockerignore` keeps `.env` out of the build, so the bundle had no `VITE_*` values. The Secret it writes has only the server's `SUPABASE_URL`, an in-cluster name a browser cannot reach. In the browser, the old client code fell through to `process.env.SUPABASE_URL`. **Measured** on a build with no `VITE_*` values: evaluated in that page, the expression throws `ReferenceError: process is not defined`. The installer now writes `PUBLIC_SUPABASE_URL` (default `http://localhost:8000`, the port-forward it prints, which now lists both forwards) and `PUBLIC_SUPABASE_PUBLISHABLE_KEY` into the Secret. Not run on a cluster this round |
+| Nothing could configure the browser without a rebuild | S3 | Every `VITE_*` now has a `PUBLIC_*` name the server reads at startup and renders into each page as a JSON data block (`<script type="application/json" id="as-public-config">`). The browser reads it before the build-time values, and the server reads `VITE_*` from its own environment too, below `PUBLIC_*`. `src/lib/publicConfig.ts` is the one file in `src/` that reads `import.meta.env.VITE_*`, and a test keeps it that way. **Measured** on a production build made with no `VITE_*` values (the Supabase host appears in none of its files) and only `PUBLIC_*` at runtime. The sign-in page's `/auth/v1/settings` returned 200, and it hid the Google button as the response said. The schema health check's `/rest/v1` reads returned 200. A runtime `PUBLIC_GA_ID` made the consent banner appear. The same build with an unchanged `.env` (`VITE_*` names, nothing renamed) also worked |
+| The browser's key slot would have taken the database master key | S2 | Whatever fills it goes to every visitor. At runtime, a service-role key, any JWT with role `service_role`, or an `sb_secret_` key is refused. **Measured:** with `PUBLIC_SUPABASE_PUBLISHABLE_KEY` set to the real service-role key, the key appeared 0 times in `/`, `/login` and `/docs`, and the log said `PUBLIC_SUPABASE_PUBLISHABLE_KEY is the service-role key, which must never reach a browser; ignoring it`. The same key in `VITE_SUPABASE_PUBLISHABLE_KEY` was baked into the bundle with no check, so the build now refuses it. **Measured:** `npm run build` stopped after 6 s with that message, its log does not contain the key, and the previous `dist/` was untouched |
+| Analytics IDs were written into an inline script unchecked | S4 | `CookieConsent` interpolates the GA ID into `gtag('config','…')`. Both the build-time and runtime IDs must now be letters, digits and dashes. **Measured:** `PUBLIC_GTM_ID=GTM-1');alert(1)//` and `PUBLIC_NOTEBOOK_GATEWAY_PORT=70000` were dropped from the page, and the log names each variable without printing its value |
+
+**What would have been wrong to conclude.**
+
+- *"Read `SUPABASE_URL` for the browser when no browser URL is set."* The server's URL
+  is often one only the server can reach: `http://kong:8000` in Compose, an in-cluster
+  service name in Kubernetes. That is why docgen's routes already stopped using the
+  browser's copy. The browser's URL has to be its own setting.
+- *"Only `PUBLIC_*` should count at runtime."* Then every existing Secret or env file made
+  from `.env` would need renaming before a prebuilt image works with it. The server reads
+  `VITE_*` from its environment too, below `PUBLIC_*`. In Compose both copies come from
+  the same `.env`, so the page gets what the bundle already had.
+- *"The console shows the error, so the build is broken."* The browser pane keeps console
+  entries across reloads. The errors cited `index-Djy7SXMS.js`, the previous build's
+  bundle, while the page had loaded `index-Ct6_UG54.js`.
+
 ### 2026-11-09 — R463: what a load balancer and a rolling deploy expose
 
 **Why this round.** This is phase 1 of the AWS deployment plan: high availability
