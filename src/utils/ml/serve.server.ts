@@ -30,6 +30,7 @@ import {
   type SessionRow,
 } from "@/utils/notebookRuntime/service.server";
 import { getOrchestrator, sandboxName } from "@/utils/notebookRuntime/orchestrator";
+import { sandboxAuthHeaders, sandboxToken } from "@/utils/notebookRuntime/sandboxAuth.server";
 import {
   idleSeconds,
   ratePerMinute,
@@ -284,7 +285,9 @@ async function endpointOf(session: SessionRow): Promise<string | null> {
   try {
     const settings = await getRuntimeSettings();
     const orch = await getOrchestrator(settings);
-    const status = await orch.status(sandboxName(session.id), "service");
+    const status = await orch.status(sandboxName(session.id), "service", {
+      token: await sandboxToken(session.id),
+    });
     return status.endpoint ?? null;
   } catch {
     return null;
@@ -484,7 +487,7 @@ export async function ensureDeployment(args: {
     // version nobody approved — the one thing shadowing promises cannot happen.
     for (const replica of await listReplicas(dep.id, true, "primary")) {
       if (replica.status !== "ready" || !replica.endpoint) continue;
-      if (await healthy(replica.endpoint)) {
+      if (await healthy(replica.endpoint, replica.session_id)) {
         return { ok: true, endpoint: replica.endpoint, deployment: dep };
       }
       // This one has gone. Retire it and keep looking; the endpoint as a
@@ -800,10 +803,22 @@ async function retireReplica(replica: MlReplicaRow, reason: string): Promise<str
   );
 }
 
+/**
+ * The scorer sandbox's port token (R466). Every request to it carries one; a
+ * replica with no session cannot be reached, and its request goes without, to
+ * be refused like any other.
+ */
+async function scorerHeaders(sessionId: string | null): Promise<Record<string, string>> {
+  return sessionId ? sandboxAuthHeaders(sessionId) : {};
+}
+
 /** Is the scorer listening AND finished loading its model? */
-async function healthy(endpoint: string): Promise<boolean> {
+async function healthy(endpoint: string, sessionId: string | null): Promise<boolean> {
   try {
-    const res = await fetch(`${endpoint}${HEALTH_PATH}`, { signal: AbortSignal.timeout(3000) });
+    const res = await fetch(`${endpoint}${HEALTH_PATH}`, {
+      headers: await scorerHeaders(sessionId),
+      signal: AbortSignal.timeout(3000),
+    });
     return res.ok;
   } catch {
     return false;
@@ -838,7 +853,10 @@ async function waitReady(
     const endpoint = await endpointOf(session);
     if (endpoint) {
       try {
-        const res = await fetch(`${endpoint}${HEALTH_PATH}`, { signal: AbortSignal.timeout(3000) });
+        const res = await fetch(`${endpoint}${HEALTH_PATH}`, {
+          headers: await scorerHeaders(session.id),
+          signal: AbortSignal.timeout(3000),
+        });
         if (res.ok) return { ok: true, endpoint };
         // 503 while loading carries the reason once it has failed.
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -936,7 +954,7 @@ export async function scoreWarm(args: {
   try {
     const res = await fetch(`${endpoint}${SCORE_PATH}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { ...(await scorerHeaders(replica.session_id)), "Content-Type": "application/json" },
       // THE DECISION LINE RIDES WITH THE REQUEST, not with the deployment.
       //
       // It was sent with neither. The batch path puts decision_threshold and
@@ -1553,7 +1571,7 @@ async function mirrorToCandidate(
   try {
     const res = await fetch(`${target.endpoint}${SCORE_PATH}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { ...(await scorerHeaders(target.session_id)), "Content-Type": "application/json" },
       // THE SAME DECISION LINE THE PRIMARY USED, deliberately.
       //
       // The mirror exists to answer "would this version have said something

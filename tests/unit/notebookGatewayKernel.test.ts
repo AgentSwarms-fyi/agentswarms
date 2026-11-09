@@ -117,8 +117,9 @@ describe("the ordinary case", () => {
 describe("the gateway", () => {
   it("creates its kernels through ensureKernel, and ships the module", () => {
     const index = readFileSync("services/notebook-gateway/index.mjs", "utf8");
-    expect(index).toContain('import { ensureKernel } from "./kernels.mjs";');
-    expect(index).toContain("kernelId = await ensureKernel(endpoint);");
+    expect(index).toContain('import { deriveSandboxToken, ensureKernel } from "./kernels.mjs";');
+    // With the sandbox's port token (R466, sandboxPortAuth.test.ts).
+    expect(index).toContain("kernelId = await ensureKernel(endpoint, { headers: kernelAuth });");
     expect(readFileSync("services/notebook-gateway/Dockerfile", "utf8")).toContain(
       "COPY index.mjs kernels.mjs ./",
     );

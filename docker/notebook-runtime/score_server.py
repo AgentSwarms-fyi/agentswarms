@@ -22,6 +22,7 @@ this container, and a response body is not visible to `docker inspect` or in a
 pod spec.
 """
 
+import hmac
 import json
 import os
 import sys
@@ -36,6 +37,11 @@ ORIGIN = os.environ.get("AGENTSWARMS_ORIGIN", "").rstrip("/")
 TOKEN = os.environ.get("AGENTSWARMS_TOKEN", "")
 HOST = os.environ.get("KG_IP", "0.0.0.0")
 PORT = int(os.environ.get("KG_PORT", "8888"))
+# Who may use this port (R466): the platform, which derives the same value
+# from the session id. Every sandbox shares one network, and "the app never
+# exposes this port" never stopped a neighbouring sandbox from calling it.
+# Taken out of the environment before the model's code runs.
+PORT_TOKEN = os.environ.pop("KG_AUTH_TOKEN", "")
 
 # Bounded so a malformed or hostile request cannot exhaust the sandbox before
 # the pandas frame is even built. The app enforces its own row cap too; this is
@@ -188,7 +194,19 @@ class Handler(BaseHTTPRequestHandler):
             # bury the one log line that matters.
             pass
 
+    def _authorized(self):
+        """This sandbox's port token, or 401 (R466). No token set: open, as before."""
+        if not PORT_TOKEN:
+            return True
+        got = (self.headers.get("Authorization") or "").encode()
+        if hmac.compare_digest(got, ("token " + PORT_TOKEN).encode()):
+            return True
+        self._send(401, {"error": "unauthorized"})
+        return False
+
     def do_GET(self):  # noqa: N802 — BaseHTTPRequestHandler's contract
+        if not self._authorized():
+            return
         if self.path.rstrip("/") in ("/healthz", ""):
             with _lock:
                 self._send(200 if _state["ready"] else 503, dict(_state))
@@ -196,6 +214,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, {"error": "not found"})
 
     def do_POST(self):  # noqa: N802
+        if not self._authorized():
+            return
         if self.path.rstrip("/") != "/score":
             self._send(404, {"error": "not found"})
             return

@@ -18,6 +18,19 @@
 // as a refusal while the previous connection's kernel is still being deleted
 // after a reload, is asked again, until the budget is spent.
 
+import { createHmac } from "node:crypto";
+
+// The sandbox's own port token (R466), mirroring
+// src/utils/notebookRuntime/sandboxAuth.server.ts: an HMAC of the session id
+// under the same signing secret, under a fixed label. The app put it in the
+// sandbox's environment as KG_AUTH_TOKEN, and its Kernel Gateway refuses any
+// request without it, so a neighbouring sandbox cannot open this one's kernel.
+// A test pins that the two derivations agree.
+export const SANDBOX_TOKEN_LABEL = "agentswarms/sandbox-port/v1";
+export function deriveSandboxToken(secret, sessionId) {
+  return createHmac("sha256", secret).update(`${SANDBOX_TOKEN_LABEL}:${sessionId}`).digest("hex");
+}
+
 /** The default budget: under the browser's 30 s wait (src/lib/serverRuntime.ts). */
 export const KERNEL_CREATE_BUDGET_MS = 28000;
 
@@ -30,6 +43,8 @@ export async function ensureKernel(endpoint, opts = {}) {
     retryWaitMs = 2000,
     fetchImpl = fetch,
     log = console.log,
+    // The sandbox's port token (R466): without it the kernel answers 401.
+    headers = {},
   } = opts;
   const deadline = Date.now() + budgetMs;
   let lastErr;
@@ -37,7 +52,7 @@ export async function ensureKernel(endpoint, opts = {}) {
     try {
       const r = await fetchImpl(`${endpoint}/api/kernels`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { ...headers, "Content-Type": "application/json" },
         body: "{}",
         signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
       });

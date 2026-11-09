@@ -71,7 +71,7 @@ export interface NotebookOrchestrator {
    * ready when /api answers, an MCP service when its own path does. The ref
    * alone cannot tell you which.
    */
-  status(ref: string, kind?: KernelKind): Promise<KernelStatus>;
+  status(ref: string, kind?: KernelKind, auth?: SandboxAuth): Promise<KernelStatus>;
   /**
    * Best-effort teardown; must not throw if already gone. It SAYS whether the
    * sandbox is gone, because a caller about to record the session as stopped
@@ -118,9 +118,12 @@ export function sandboxName(sessionId: string): string {
  * "kernel unavailable … fetch failed". Backends call this before reporting
  * `running`, so readiness means "you can talk to it".
  */
-export async function kernelServing(endpoint: string): Promise<boolean> {
+export async function kernelServing(endpoint: string, auth?: SandboxAuth): Promise<boolean> {
   try {
-    const res = await fetch(`${endpoint}/api`, { signal: AbortSignal.timeout(2500) });
+    const res = await fetch(`${endpoint}/api`, {
+      headers: authHeader(auth),
+      signal: AbortSignal.timeout(2500),
+    });
     return res.ok;
   } catch {
     return false;
@@ -139,16 +142,43 @@ export const MCP_SERVICE_PATH = "/mcp";
  * routing, which is exactly what readiness means here. Only a transport failure
  * or a 5xx counts as not-ready.
  */
-export async function serviceServing(endpoint: string, path = MCP_SERVICE_PATH): Promise<boolean> {
+export async function serviceServing(
+  endpoint: string,
+  path = MCP_SERVICE_PATH,
+  auth?: SandboxAuth,
+): Promise<boolean> {
   try {
-    const res = await fetch(`${endpoint}${path}`, { signal: AbortSignal.timeout(2500) });
-    return res.status < 500;
+    const res = await fetch(`${endpoint}${path}`, {
+      headers: authHeader(auth),
+      signal: AbortSignal.timeout(2500),
+    });
+    // 401 is the sandbox refusing this caller's token (R466): listening, but
+    // not to us, so every real request would be refused too.
+    return res.status < 500 && res.status !== 401;
   } catch {
     return false;
   }
 }
 
 /** Readiness probe for a sandbox of the given kind. */
-export async function sandboxServing(endpoint: string, kind: KernelKind): Promise<boolean> {
-  return kind === "service" ? serviceServing(endpoint) : kernelServing(endpoint);
+export async function sandboxServing(
+  endpoint: string,
+  kind: KernelKind,
+  auth?: SandboxAuth,
+): Promise<boolean> {
+  return kind === "service"
+    ? serviceServing(endpoint, MCP_SERVICE_PATH, auth)
+    : kernelServing(endpoint, auth);
+}
+
+/**
+ * The sandbox's own port token (R466, sandboxAuth.server): every request to a
+ * sandbox carries it, readiness probes included, or the sandbox answers 401.
+ * A 401 is not "serving": a probe without the token would read a sandbox that
+ * refuses the gateway as ready.
+ */
+export type SandboxAuth = { token: string };
+
+function authHeader(auth?: SandboxAuth): Record<string, string> {
+  return auth ? { Authorization: `token ${auth.token}` } : {};
 }

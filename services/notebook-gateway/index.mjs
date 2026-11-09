@@ -12,7 +12,7 @@
 import http from "node:http";
 import { createHmac, timingSafeEqual, randomUUID } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
-import { ensureKernel } from "./kernels.mjs";
+import { deriveSandboxToken, ensureKernel } from "./kernels.mjs";
 
 const PORT = Number(process.env.PORT || 8090);
 const SUPABASE_URL = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
@@ -182,12 +182,16 @@ wss.on("connection", async (browser, req) => {
   if (!session.endpoint) return reject(4004, "session has no endpoint yet");
   const endpoint = session.endpoint.replace(/\/$/, "");
   console.log(`[gateway] session ok endpoint=${endpoint}`);
+  // Every request to the kernel carries the sandbox's token (R466).
+  const kernelAuth = {
+    Authorization: `token ${deriveSandboxToken(await getSecret(), claims.sid)}`,
+  };
 
   // Create a kernel on the session's Jupyter Kernel Gateway. A slow first boot
   // is waited for, never asked for twice (R322).
   let kernelId;
   try {
-    kernelId = await ensureKernel(endpoint);
+    kernelId = await ensureKernel(endpoint, { headers: kernelAuth });
   } catch (e) {
     return reject(4500, "kernel unavailable", `${endpoint} — ${e && e.message}`);
   }
@@ -196,6 +200,7 @@ wss.on("connection", async (browser, req) => {
   const pending = new Map(); // jupyter msg_id -> { browserId, timer }
   const kernel = new WebSocket(
     `${endpoint.replace(/^http/, "ws")}/api/kernels/${kernelId}/channels?session_id=${jsession}`,
+    { headers: kernelAuth },
   );
 
   kernel.on("open", () => {
@@ -213,7 +218,10 @@ wss.on("connection", async (browser, req) => {
     if (m.type === "run" && typeof m.code === "string") {
       const msgId = randomUUID();
       const timer = setTimeout(() => {
-        fetch(`${endpoint}/api/kernels/${kernelId}/interrupt`, { method: "POST" }).catch(() => {});
+        fetch(`${endpoint}/api/kernels/${kernelId}/interrupt`, {
+          method: "POST",
+          headers: kernelAuth,
+        }).catch(() => {});
         send({ type: "error", id: m.id, text: `Cell timed out after ${CELL_TIMEOUT}s` });
         send({ type: "done", id: m.id });
         pending.delete(msgId);
@@ -261,7 +269,9 @@ wss.on("connection", async (browser, req) => {
     } catch {
       /* noop */
     }
-    fetch(`${endpoint}/api/kernels/${kernelId}`, { method: "DELETE" }).catch(() => {});
+    fetch(`${endpoint}/api/kernels/${kernelId}`, { method: "DELETE", headers: kernelAuth }).catch(
+      () => {},
+    );
   };
   browser.on("close", cleanup);
   browser.on("error", cleanup);

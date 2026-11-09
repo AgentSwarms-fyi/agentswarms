@@ -23,6 +23,7 @@ import {
   type SessionRow,
 } from "@/utils/notebookRuntime/service.server";
 import { getOrchestrator, MCP_SERVICE_PATH } from "@/utils/notebookRuntime/orchestrator";
+import { sandboxAuthHeaders } from "@/utils/notebookRuntime/sandboxAuth.server";
 import {
   MCP_PROTOCOL_VERSION,
   readRpcBody,
@@ -363,10 +364,14 @@ async function touch(sessionId: string): Promise<void> {
  * worth doing if the server happens to be up (session teardown), cold-starting
  * a container to tell it about a session it has already forgotten is pure cost.
  */
-export async function runningEndpoint(appId: string): Promise<string | null> {
+export async function runningEndpoint(
+  appId: string,
+): Promise<{ endpoint: string; sessionId: string } | null> {
   const session = await liveSession(appId);
-  if (!session || session.status !== "ready") return null;
-  return session.endpoint ?? null;
+  if (!session || session.status !== "ready" || !session.endpoint) return null;
+  // The session id too: every request to the sandbox carries its port token,
+  // which is derived from it (R466).
+  return { endpoint: session.endpoint, sessionId: session.id };
 }
 
 /** Stop whatever sandbox this app is running (no-op when already stopped). */
@@ -444,9 +449,12 @@ function firstError(logs: string): string {
  */
 export async function handshake(
   endpoint: string,
+  sessionId: string,
 ): Promise<{ ok: true; tools: McpTool[] } | { ok: false; message: string }> {
   const url = `${endpoint}${MCP_SERVICE_PATH}`;
   const headers: Record<string, string> = {
+    // The sandbox's port token (R466): without it the server answers 401.
+    ...(await sandboxAuthHeaders(sessionId)),
     "Content-Type": "application/json",
     // The Streamable HTTP spec requires clients to accept BOTH.
     Accept: "application/json, text/event-stream",
@@ -529,7 +537,7 @@ export async function deploy(app: McpAppRow): Promise<DeployResult> {
     return { ok: false, error: started.message, logs: await logsOf(app.id).catch(() => "") };
   }
 
-  const shook = await handshake(started.endpoint);
+  const shook = await handshake(started.endpoint, started.session.id);
   if (!shook.ok) {
     // FOUND FROM THE UI (R366). The server came up but did not answer as an
     // MCP server, and its sandbox was left running under an app marked Error:

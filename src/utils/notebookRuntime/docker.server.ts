@@ -15,7 +15,7 @@ import type {
   NotebookOrchestrator,
   TeardownResult,
 } from "./orchestrator";
-import { sandboxName, sandboxServing } from "./orchestrator";
+import { sandboxName, sandboxServing, type SandboxAuth } from "./orchestrator";
 
 // The socket-proxy is reachable by different names depending on how the app is
 // deployed, so probe rather than assume:
@@ -259,7 +259,11 @@ export class DockerOrchestrator implements NotebookOrchestrator {
     return (await res.json()) as InspectResult;
   }
 
-  async status(ref: string, kind: KernelKind = "interactive"): Promise<KernelStatus> {
+  async status(
+    ref: string,
+    kind: KernelKind = "interactive",
+    auth?: SandboxAuth,
+  ): Promise<KernelStatus> {
     const info = await this.inspect(ref);
     if (!info) return { state: "gone" };
     const s = info.State;
@@ -280,7 +284,7 @@ export class DockerOrchestrator implements NotebookOrchestrator {
       const probeUrl = appInContainer() || !hostPort ? endpoint : `http://127.0.0.1:${hostPort}`;
       // Container up != kernel serving. Stay "starting" until the process
       // answers, so nothing connects to a socket that isn't listening yet.
-      if (!(await sandboxServing(probeUrl, kind))) return { state: "starting" };
+      if (!(await sandboxServing(probeUrl, kind, auth))) return { state: "starting" };
       // Kernels are consumed by the GATEWAY (a container), which reaches them by
       // container IP. A service is consumed by THIS process, which in local dev
       // is on the host and cannot route to that IP — so hand back the URL the

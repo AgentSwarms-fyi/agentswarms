@@ -9,6 +9,7 @@ session token already authenticates this container to the platform, and a
 response body is not visible to `docker inspect` or in a Kubernetes pod spec the
 way env vars are. So bound secrets exist only in this process's memory.
 """
+import hmac
 import os
 import runpy
 import subprocess
@@ -23,6 +24,11 @@ HOST = os.environ.get("KG_IP", "0.0.0.0")
 PORT = int(os.environ.get("KG_PORT", "8888"))
 PATH = os.environ.get("MCP_PATH", "/mcp")
 WORKDIR = os.environ.get("MCP_WORKDIR", "/home/runner/work")
+# Who may use this port (R466): the platform, which derives the same value
+# from the session id. Every sandbox shares one network, and "the app never
+# exposes this port" never stopped a neighbouring sandbox from calling it.
+# Taken out of the environment before the user's code runs.
+PORT_TOKEN = os.environ.pop("KG_AUTH_TOKEN", "")
 
 # Values that must never reach stdout. Container logs are shown to the app's
 # owner, and a traceback through a tool that took a secret as an argument would
@@ -104,7 +110,98 @@ def locate_server(namespace: dict):
     )
 
 
+class TokenGate:
+    """ASGI middleware: a request without this sandbox's port token gets 401 (R466).
+
+    Lifespan events pass straight through, so the MCP library's own startup
+    (its session manager) runs as it would under its own run().
+    """
+
+    def __init__(self, app, token: str):
+        self.app = app
+        self.expected = ("token " + token).encode()
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") in ("http", "websocket"):
+            got = b""
+            for name, value in scope.get("headers") or []:
+                if name.lower() == b"authorization":
+                    got = value
+            if not hmac.compare_digest(got, self.expected):
+                if scope["type"] == "websocket":
+                    await receive()  # websocket.connect
+                    await send({"type": "websocket.close", "code": 4401})
+                    return
+                body = b'{"error":"unauthorized"}'
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": 401,
+                        "headers": [
+                            (b"content-type", b"application/json"),
+                            (b"content-length", str(len(body)).encode()),
+                        ],
+                    }
+                )
+                await send({"type": "http.response.body", "body": body})
+                return
+        await self.app(scope, receive, send)
+
+
+def asgi_app(server):
+    """The server's Streamable HTTP app, from whichever library defined it.
+
+    fastmcp (4.x) has http_app(); the official SDK has streamable_http_app()
+    (MCPServer in 2.x, FastMCP in 1.x). The host is the one run() would have
+    used: the SDK turns on DNS-rebinding protection for a loopback host, which
+    would refuse the platform's requests by container address.
+    """
+    http_app = getattr(server, "http_app", None)
+    if callable(http_app):
+        try:
+            return http_app(path=PATH, transport="http")
+        except TypeError:
+            return http_app(path=PATH)
+    streamable = getattr(server, "streamable_http_app", None)
+    if callable(streamable):
+        try:
+            return streamable(streamable_http_path=PATH, host=HOST)
+        except TypeError:
+            settings = getattr(server, "settings", None)
+            if settings is not None:
+                for attr, value in (("host", HOST), ("port", PORT), ("streamable_http_path", PATH)):
+                    if hasattr(settings, attr):
+                        setattr(settings, attr, value)
+            return streamable()
+    return None
+
+
 def serve(server) -> None:
+    """Run the server over Streamable HTTP, behind this sandbox's port token.
+
+    With a token (every sandbox the platform starts since R466), the library's
+    ASGI app is served here, under uvicorn, behind TokenGate. A server whose
+    library offers no ASGI app cannot be gated, so it is refused rather than
+    served open. Without a token (a sandbox an older app started), it runs as
+    it always did.
+    """
+    if PORT_TOKEN:
+        app = asgi_app(server)
+        if app is None:
+            raise RuntimeError(
+                "This MCP library offers no ASGI app (http_app or streamable_http_app), so the "
+                "server cannot be put behind the sandbox's token. Use fastmcp or the official mcp SDK."
+            )
+        import uvicorn
+
+        _log(f"[mcp] serving on {HOST}:{PORT}{PATH}, platform requests only")
+        uvicorn.run(TokenGate(app, PORT_TOKEN), host=HOST, port=PORT, log_level="warning")
+        return
+    _log("[mcp] no KG_AUTH_TOKEN: serving without a port token, as before R466")
+    _serve_open(server)
+
+
+def _serve_open(server) -> None:
     """Run the server over Streamable HTTP.
 
     The two libraries spell the same transport differently, and neither accepts

@@ -173,17 +173,19 @@ async function duck() {
   return conn;
 }
 
+// Six AssumeRole calls ahead of time: seconds alone, more when the host is
+// busy, so not the default ten-second hook limit.
 beforeAll(async () => {
   if (!live) return;
   await createBucket();
   await startEndpoint();
-});
+}, 120_000);
 
 afterAll(async () => {
   if (!live) return;
   await s3DeletePrefix(ROOT_TARGET, `${ROOT}/`);
   await new Promise<void>((r) => (server ? server.close(() => r()) : r()));
-});
+}, 60_000);
 
 describe("the lake on the app's own identity, not keys", () => {
   withStore(

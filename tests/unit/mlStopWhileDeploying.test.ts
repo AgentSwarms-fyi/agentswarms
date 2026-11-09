@@ -120,6 +120,12 @@ vi.mock("@/utils/notebookRuntime/config.server", () => ({
 vi.mock("@/utils/notebookRuntime/egressApply.server", () => ({
   ensurePlatformEgress: async () => {},
 }));
+// The scorer's port token (R466) needs the runtime's signing secret, which
+// this test's database does not hold; the token itself is pinned elsewhere.
+vi.mock("@/utils/notebookRuntime/sandboxAuth.server", () => ({
+  sandboxToken: async () => "test-port-token",
+  sandboxAuthHeaders: async () => ({ Authorization: "token test-port-token" }),
+}));
 vi.mock("@/utils/notebookRuntime/orchestrator", () => ({
   getOrchestrator: async () => ({
     status: async (name: string) => ({ endpoint: `http://${name}:8080` }),

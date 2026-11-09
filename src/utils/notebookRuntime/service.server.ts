@@ -6,6 +6,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Database } from "@/integrations/supabase/types";
 import { getOrchestrator, type KernelKind } from "./orchestrator";
 import { getRuntimeSettings } from "./config.server";
+import { sandboxToken } from "./sandboxAuth.server";
 import { signSessionToken } from "./token.server";
 import { appInContainer } from "./docker.server";
 
@@ -64,6 +65,8 @@ export function noProxyList(appUrl: string, extraHosts: string[] = []): string {
 function buildKernelEnv(opts: {
   sessionId: string;
   token: string;
+  /** The sandbox's own port token (sandboxAuth.server, R466). */
+  portToken: string;
   kind: KernelKind;
   serviceMode?: ServiceMode;
   entrypoint?: string | null;
@@ -82,6 +85,11 @@ function buildKernelEnv(opts: {
     AGENTSWARMS_TOKEN: opts.token,
     KG_IP: "0.0.0.0",
     KG_PORT: "8888",
+    // Who may use this sandbox's port (R466). Kernel Gateway reads it itself
+    // and refuses any request without it (401); the MCP and score runners
+    // check the same value. Only the platform can derive it, so a neighbouring
+    // sandbox on the same network can no longer open this one's kernel.
+    KG_AUTH_TOKEN: opts.portToken,
   };
   const proxy = egressProxy();
   if (proxy) {
@@ -209,6 +217,7 @@ export async function startSession(opts: {
   const env = buildKernelEnv({
     sessionId: row.id,
     token,
+    portToken: await sandboxToken(row.id),
     kind: opts.kind,
     serviceMode: opts.serviceMode,
     entrypoint: opts.entrypoint,
@@ -274,7 +283,11 @@ export async function refreshSession(row: SessionRow): Promise<SessionRow> {
 
   const settings = await getRuntimeSettings();
   const orch = await getOrchestrator(settings);
-  const st = await orch.status(row.container_ref, row.kind as KernelKind);
+  // The readiness probe carries the sandbox's token: without it the sandbox
+  // answers 401, which must not read as ready (R466).
+  const st = await orch.status(row.container_ref, row.kind as KernelKind, {
+    token: await sandboxToken(row.id),
+  });
 
   const patch: Database["public"]["Tables"]["notebook_runtime_sessions"]["Update"] = {
     last_active_at: new Date().toISOString(),

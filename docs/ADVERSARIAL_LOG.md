@@ -109,6 +109,34 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-09 — R466: a sandbox's port answers only to the platform
+
+**Why this round.** Phase 1 of the AWS plan, part 4: authentication on the kernel.
+Before adding it, the question was who could reach a kernel today. The answer was
+every other sandbox.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| One user's notebook could run code in another user's sandbox | S1 | Every sandbox serves on `:8888`, and every sandbox shares one Compose network (`nb-internal`, inter-container traffic on). None of them asked who was calling: Kernel Gateway ran with no auth token, and the MCP and score runners trusted that "the app never exposes this port". Container addresses on that network are sequential, so a neighbour is a short scan away. **Measured** with the shipped runtime image, two sandboxes hardened as `docker.server.ts` creates them: code in sandbox A created a kernel on sandbox B, ran in it, and printed B's `AGENTSWARMS_TOKEN`. That token lets the holder make model and knowledge-base calls as B. The same run showed a second harm: a sandbox runs one kernel, so once the neighbour held it, the owner's next connection failed with "kernel unavailable". With no tokens, a neighbour also completed the MCP `initialize` handshake (200) and reached the scorer. Kubernetes was not exposed: `kernels-default-deny` admits nothing into a kernel pod |
+| The fix, on real containers | — | Each sandbox's token is an HMAC of its session id under the runtime signing secret (`sandboxAuth.server.ts`; the gateway mirrors it in `kernels.mjs`). It goes in the sandbox's environment as `KG_AUTH_TOKEN`. Kernel Gateway enforces it, and the MCP runner serves the library's ASGI app behind a token gate under uvicorn. The score runner checks it, and every caller sends it. **Measured** with the rebuilt runtime and gateway images, sandboxes given tokens computed independently with `openssl dgst -hmac`. A browser cell through the gateway printed `42`. The neighbour got 401 from the kernel, 401 from the MCP server (no token or a wrong one), and 401 from the scorer. The owner's next cell ran (`owner again`). The app, with the token, completed the MCP handshake (200) and reached the scorer, which gave 503 because this harness gives it no model. Kernel Gateway itself, run separately: 401 without a token, 401 with a wrong one, a kernel with the right one |
+| An upgrade must not cut existing sessions | — | Sandboxes an older app started have no token. **Measured** with the new images and no tokens: the gateway's cell ran (`42`), because a kernel without a token ignores the header. The runner logs that it serves open. The other order would fail: an old gateway sends no token to a new sandbox. The CHANGELOG says to update both together; `docker compose up -d --build` does |
+
+**What would have been wrong to conclude.**
+
+- *"The browser cell failed without tokens, so the new gateway breaks older sandboxes."*
+  The first run did fail, with "kernel unavailable" (403). The neighbour's attack had run
+  first and taken the sandbox's one kernel. With the gateway first, it ran. That failure
+  is itself part of the finding: a neighbour could lock its owner out.
+- *"Kubernetes has the same hole."* Its default-deny policy admits no ingress to kernel
+  pods. That also blocks the gateway, which is blocker 4 in the AWS plan (Phase 6).
+- *"Block traffic between containers on `nb-internal`."* With inter-container traffic
+  off, the gateway and the app could not reach the kernels either; they are on the same
+  bridge.
+
+**Moved, not done:** the bootstrap nonce (tokens fetched at start instead of placed in
+the environment) belongs with the ECS orchestrator (Phase 4). RunTask's 8 KB override
+limit is what needs it, and nothing in Compose or Kubernetes does.
+
 ### 2026-11-09 — R465: the lake as a role, and the feature store over TLS
 
 **Why this round.** Phase 1 of the AWS plan, part 3. On AWS the lake should be reached

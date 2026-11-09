@@ -19,7 +19,7 @@ import type {
   NotebookOrchestrator,
   TeardownResult,
 } from "./orchestrator";
-import { sandboxName, sandboxServing } from "./orchestrator";
+import { sandboxName, sandboxServing, type SandboxAuth } from "./orchestrator";
 
 const SA_DIR = "/var/run/secrets/kubernetes.io/serviceaccount";
 
@@ -208,7 +208,11 @@ export class K8sOrchestrator implements NotebookOrchestrator {
     return { ref: `pod/${name}` };
   }
 
-  async status(ref: string, sandboxKind: KernelKind = "interactive"): Promise<KernelStatus> {
+  async status(
+    ref: string,
+    sandboxKind: KernelKind = "interactive",
+    auth?: SandboxAuth,
+  ): Promise<KernelStatus> {
     const ns = namespace();
     const [kind, name] = ref.split("/");
     if (kind === "job") {
@@ -261,7 +265,7 @@ export class K8sOrchestrator implements NotebookOrchestrator {
     if (phase === "Running" && pod.status?.podIP) {
       const endpoint = `http://${pod.status.podIP}:8888`;
       // Pod Running != process serving; wait for it to answer on its own path.
-      if (!(await sandboxServing(endpoint, sandboxKind))) return { state: "starting" };
+      if (!(await sandboxServing(endpoint, sandboxKind, auth))) return { state: "starting" };
       return { state: "running", endpoint };
     }
     return { state: "starting" };

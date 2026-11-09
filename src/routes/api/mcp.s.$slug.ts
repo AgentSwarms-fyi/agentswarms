@@ -38,6 +38,7 @@ import {
 import { ensureRunning, runningEndpoint, type McpAppRow } from "@/utils/mcpApps/service.server";
 import { forgetServing } from "@/utils/mcpApps/warmPath";
 import { MCP_SERVICE_PATH } from "@/utils/notebookRuntime/orchestrator";
+import { sandboxAuthHeaders } from "@/utils/notebookRuntime/sandboxAuth.server";
 
 /** Largest request body we will read. MCP arguments are small; this is a guard. */
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -381,6 +382,7 @@ async function handlePost(request: Request): Promise<Response> {
 
     const upstream = await forward(
       started.endpoint,
+      started.session.id,
       raw,
       mapping?.upstream_session_id ?? null,
       request.headers.get("mcp-protocol-version"),
@@ -444,6 +446,7 @@ async function handlePost(request: Request): Promise<Response> {
 /** POST the caller's body upstream, with our own headers. */
 async function forward(
   endpoint: string,
+  sandboxSessionId: string,
   bodyText: string,
   upstreamSessionId: string | null,
   protocolVersion: string | null,
@@ -452,6 +455,9 @@ async function forward(
   | { ok: false; message: string }
 > {
   const headers: Record<string, string> = {
+    // The sandbox's port token (R466). The caller's own Authorization (its API
+    // key) was checked here and is never forwarded.
+    ...(await sandboxAuthHeaders(sandboxSessionId)),
     "Content-Type": "application/json",
     // The spec requires clients to accept both; the sandbox may answer either.
     Accept: "application/json, text/event-stream",
@@ -549,11 +555,14 @@ async function handleDelete(request: Request): Promise<Response> {
   // up: our mapping is already gone, so cold-starting a container purely to
   // tell it about a session it has itself forgotten would be pure cost.
   if (mapping.upstream_session_id) {
-    const endpoint = await runningEndpoint(app.id).catch(() => null);
-    if (endpoint) {
-      await fetch(`${endpoint}${MCP_SERVICE_PATH}`, {
+    const running = await runningEndpoint(app.id).catch(() => null);
+    if (running) {
+      await fetch(`${running.endpoint}${MCP_SERVICE_PATH}`, {
         method: "DELETE",
-        headers: { "Mcp-Session-Id": mapping.upstream_session_id },
+        headers: {
+          ...(await sandboxAuthHeaders(running.sessionId)),
+          "Mcp-Session-Id": mapping.upstream_session_id,
+        },
         signal: AbortSignal.timeout(10_000),
       }).catch(() => {});
     }

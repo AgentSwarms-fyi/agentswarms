@@ -58,7 +58,7 @@ The people writing notebooks here are **authenticated enterprise users**, provis
 1. **Egress / SSRF & data exfiltration** — a notebook reaching the cloud metadata endpoint (`169.254.169.254`), internal services, the database, or exfiltrating secrets. **This is the #1 risk and the main thing hardening must stop.**
 2. **Credential theft** — a notebook reading provider API keys or the Supabase service-role key out of its environment.
 3. **Resource abuse** — fork bombs, memory hogs, infinite loops, disk fill (noisy-neighbour / DoS).
-4. **Cross-tenant access** — user A reading user B's files, processes, or attaching to their kernel.
+4. **Cross-tenant access** — user A reading user B's files, processes, or attaching to their kernel. Until R466 the Docker backend left this open: any sandbox could open another's kernel over the shared network. Every sandbox's port now requires its own token ([Who may use a sandbox's port](#who-may-use-a-sandboxs-port)).
 5. **Host/kernel escape** — breaking out of the container to the host. Lowest likelihood given #1–#4 are closed and users are semi-trusted; mitigated further by optional gVisor/microVM tiers (§5.6).
 
 Hardened shared-kernel containers (§5) close #1–#4 well; #5 is defense-in-depth via RuntimeClass/microVM on Linux prod.
@@ -584,6 +584,35 @@ are written to a second ACL file, `allowed_ips` (squid `dst`), mounted next to
 `allowed_domains`. `Safe_ports` additionally includes 9000 and 19000 for
 S3-compatible stores. Both files regenerate whenever an administrator saves
 runtime settings, and the proxy is restarted to pick them up.
+
+## Who may use a sandbox's port
+
+Every sandbox serves on `:8888`: Jupyter Kernel Gateway for a notebook, the
+user's MCP server, or a warm model scorer. Only the platform may call it
+(R466). The gateway opens notebook kernels, and the app reaches MCP servers,
+scorers and readiness checks.
+
+Each sandbox has its own token. It is an HMAC of the session id under the
+runtime signing secret, the one the gateway already shares with the app.
+
+- **Where it lives.** The app puts it in that sandbox's environment as
+  `KG_AUTH_TOKEN`. Kernel Gateway enforces it itself; the MCP and score runners
+  check it, and take it out of the environment before the user's code runs.
+- **Who sends it.** Every request into a sandbox sends `Authorization: token …`.
+- **What is refused.** A request without it, or with another sandbox's, gets 401.
+- **Why no other sandbox can make one.** It needs the secret, and no sandbox
+  holds that.
+
+Before R466 none of the three asked. Every sandbox shares one Compose network
+(`nb-internal`), so code in one user's notebook could open another user's
+kernel, run code in it, and read that user's session token from its
+environment. This was measured: sandbox A created a kernel on sandbox B and
+printed B's `AGENTSWARMS_TOKEN`. Kubernetes was not exposed this way: its
+`kernels-default-deny` policy admits no traffic into a kernel pod.
+
+**Upgrading:** update the gateway image together with the app. A new app
+starts sandboxes that refuse a gateway which sends no token. The new gateway
+works with sandboxes an older app started, which have no token to check.
 
 ## What is never allowed
 

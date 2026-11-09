@@ -405,13 +405,16 @@ export const mcpAppTest = createServerFn({ method: "POST" })
     if (!started.ok) return { ok: false, error: started.message };
 
     if (!data.tool) {
-      const shook = await handshake(started.endpoint);
+      const shook = await handshake(started.endpoint, started.session.id);
       return shook.ok ? { ok: true, result: shook.tools } : { ok: false, error: shook.message };
     }
 
     // A fresh session per test call: the console is stateless, and reusing one
     // would make results depend on the order the user happened to click.
+    const { sandboxAuthHeaders } = await import("@/utils/notebookRuntime/sandboxAuth.server");
     const headers = {
+      // The sandbox's port token (R466).
+      ...(await sandboxAuthHeaders(started.session.id)),
       "Content-Type": "application/json",
       Accept: "application/json, text/event-stream",
       "MCP-Protocol-Version": MCP_PROTOCOL_VERSION,

@@ -119,6 +119,17 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **One user's notebook could run code in another user's sandbox (R466).** Every
+  sandbox serves on `:8888`: Kernel Gateway, an MCP server or a scorer. Every
+  sandbox shares one Compose network, and none of them asked who was calling. Measured:
+  code in sandbox A created a kernel on sandbox B, ran in it, and printed B's session
+  token. Holding B's one kernel also locked B out of it. The MCP and score servers trusted that the app never exposes their port, but
+  a neighbouring sandbox is not the app. Each sandbox now gets its own token,
+  an HMAC of its session id under the runtime signing secret, as `KG_AUTH_TOKEN`.
+  Kernel Gateway enforces it, the runners check it, and the gateway and the app send
+  it. A request without it gets 401. Kubernetes installs were not exposed, because
+  their kernel pods admit no traffic. See
+  [DEVELOPER_WORKSPACE_RUNTIME.md](docs/DEVELOPER_WORKSPACE_RUNTIME.md#who-may-use-a-sandboxs-port).
 - **A `rediss://` feature-store URL sent its password in the clear (R465).** The client
   read any scheme as plain TCP and sent `AUTH` first, so an operator who asked for TLS
   got a connection that put the password on the wire unencrypted (measured), to a store
@@ -250,6 +261,12 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Update the notebook gateway image with the app** (R466). Sandboxes the new app
+  starts refuse a gateway that sends no token, so an old gateway in front of a new app
+  cannot open notebook kernels. The new gateway works with sandboxes an older app
+  started, and `docker compose up -d --build` updates both. Running MCP servers and
+  scorers keep working until they restart; the ones started after the update check the
+  token.
 - **Apply `20261111000000` first, then deploy the build** (R456). The catalog page now
   reads the new `metadata` column by name, so the new build fails on a database that does
   not have it yet. The migration only adds things, so the running build is unaffected by

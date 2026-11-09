@@ -80,7 +80,11 @@ vi.mock("@/utils/notebookRuntime/orchestrator", () => ({
   }),
 }));
 
-vi.mock("@/utils/notebookRuntime/token.server", () => ({ signSessionToken: async () => "t" }));
+vi.mock("@/utils/notebookRuntime/token.server", () => ({
+  signSessionToken: async () => "t",
+  // The readiness probe carries the sandbox's port token (R466), derived from this.
+  getRuntimeSecret: async () => "a-test-signing-secret-of-length",
+}));
 vi.mock("@/utils/notebookRuntime/docker.server", () => ({ appInContainer: () => false }));
 
 const { refreshSession } = await import("@/utils/notebookRuntime/service.server");
