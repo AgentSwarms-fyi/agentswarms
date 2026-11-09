@@ -129,8 +129,10 @@ describe("the sweep", () => {
   });
 
   it("survives its own failure without taking the pass down", () => {
+    // A step of the pass's guard (R463), whose catch folds the failure into
+    // the pass result; cronPassFailures.test.ts pins the guard itself.
     const at = CRON.indexOf("@/utils/ml/evaluate.server");
-    expect(CRON.slice(at, at + 400)).toMatch(/\.catch\(/);
+    expect(CRON.slice(at - 200, at)).toMatch(/await step\(\s*"ml-evaluate",/);
   });
 
   it("is driven from the predictions, with a bound and a cooling-off", () => {

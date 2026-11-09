@@ -1498,46 +1498,61 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
     errors: [],
   };
 
-  const { acquireCronLease, releaseCronLease } = await import("@/utils/cronLock.server");
-  if (!(await acquireCronLease("scheduler"))) return empty;
-  // A failed step is still folded — one sweep must not stop the others — but
-  // it is RECORDED now, not only warned about. MEASURED: /api/bi/cron
-  // answered { ok: true, processed: 0, … } over a pass whose schedule read
-  // had failed, and nothing anywhere said so.
-  const errors: string[] = [];
-  const fold = <T>(step: string, e: unknown, value?: T): T => {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.warn(`[${step}] failed:`, msg);
-    errors.push(`${step}: ${msg}`);
-    return value as T;
-  };
+  const { claimCronLease, holdCronLease, releaseCronLease } =
+    await import("@/utils/cronLock.server");
+  const claim = await claimCronLease("scheduler");
+  if (claim !== "held" && claim !== "unleased") return empty;
+  // Renewed while the pass runs (R463). See cronLock.server.ts.
+  const lease = holdCronLease("scheduler", claim);
+  const { isDraining } = await import("@/utils/drain");
+  // Every step goes through one guard: a failure is folded into the result
+  // (one sweep never stops the others), and once the lease is lost or SIGTERM
+  // arrives no further step starts. See passSteps.ts.
+  const { createPassSteps } = await import("@/utils/bi/passSteps");
+  const { step, errors, finish } = createPassSteps({
+    lost: () => lease.lost(),
+    draining: isDraining,
+  });
   try {
-    const processed = await processDueSchedules(force).catch((e) => fold("bi-schedules", e, 0));
-    const prep_flows = await processDuePrepFlows(force).catch((e) => fold("prep-flows", e, 0));
+    const processed = await step("bi-schedules", () => processDueSchedules(force), 0);
+    const prep_flows = await step("prep-flows", () => processDuePrepFlows(force), 0);
     // Scheduled analyses re-run their pinned SQL. Lazy import for the same
     // reason as the others: it keeps the module graph out of server boot.
-    const analyses = await import("@/utils/analyst/schedule.server")
-      .then((m) => m.processDueAnalyses(force))
-      .catch((e) => fold("analyst-schedule", e, 0));
+    const analyses = await step(
+      "analyst-schedule",
+      () => import("@/utils/analyst/schedule.server").then((m) => m.processDueAnalyses(force)),
+      0,
+    );
     // Freshness SLAs only mean something if they fire when nothing happens —
     // a table that stopped refreshing raises no event of its own.
-    const quality_checks = await import("@/utils/bi/quality.server")
-      .then((m) => m.processDueQualityChecks(force))
-      .catch((e) => fold("data-quality", e, 0));
+    const quality_checks = await step(
+      "data-quality",
+      () => import("@/utils/bi/quality.server").then((m) => m.processDueQualityChecks(force)),
+      0,
+    );
     // Lazy imports keep these module graphs out of server boot and avoid cycles.
-    const catalog_crawls = await import("@/utils/catalog/schedule.server")
-      .then((m) => m.processDueCatalogCrawls(force))
-      .catch((e) => fold("catalog-scheduler", e, 0));
+    const catalog_crawls = await step(
+      "catalog-scheduler",
+      () => import("@/utils/catalog/schedule.server").then((m) => m.processDueCatalogCrawls(force)),
+      0,
+    );
     // Scheduled ETL pipelines ride the same sweep and lease.
-    const etl_runs = await import("@/utils/etl/schedule.server")
-      .then((m) => m.processDueEtlPipelines(force))
-      .catch((e) => fold("etl-scheduler", e, 0));
+    const etl_runs = await step(
+      "etl-scheduler",
+      () => import("@/utils/etl/schedule.server").then((m) => m.processDueEtlPipelines(force)),
+      0,
+    );
 
     // Scheduled materialized-view refreshes ride the same sweep and the same
     // compare-and-set claim, so every replica can run this pass safely.
-    const matview_refreshes = await import("@/utils/lakehouse/matviews.server")
-      .then((m) => m.processDueMaterializedViews(force))
-      .catch((e) => fold("lakehouse-matview", e, 0));
+    const matview_refreshes = await step(
+      "lakehouse-matview",
+      () =>
+        import("@/utils/lakehouse/matviews.server").then((m) =>
+          m.processDueMaterializedViews(force),
+        ),
+      0,
+    );
 
     // SQL models ride the same sweep. A due model builds itself AND its
     // ancestors, and several due models for one owner become one build, so a
@@ -1547,121 +1562,168 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
     // asks which recent runs have gone a day without being measured. On a
     // deployment where no model names an outcome source it is one indexed
     // query that returns nothing.
-    const ml_evaluations = await import("@/utils/ml/evaluate.server")
-      .then((m) => m.runDueEvaluations().then((r) => r.evaluated))
-      .catch((e) => fold("ml-evaluate", e, 0));
+    const ml_evaluations = await step(
+      "ml-evaluate",
+      () =>
+        import("@/utils/ml/evaluate.server").then((m) =>
+          m.runDueEvaluations().then((r) => r.evaluated),
+        ),
+      0,
+    );
 
-    const sql_model_builds = await import("@/utils/sqlModels/run.server")
-      .then((m) => m.processDueSqlModels(force))
-      .catch((e) => fold("sql-models", e, 0));
+    const sql_model_builds = await step(
+      "sql-models",
+      () => import("@/utils/sqlModels/run.server").then((m) => m.processDueSqlModels(force)),
+      0,
+    );
 
     // Lakehouse maintenance rides the same pass, but hourly: compaction is
     // cheap on an idle catalog and pointless every minute. Any replica may run
     // it — the steps are idempotent and DuckLake serialises them through the
     // catalog — and a failure here never touches the rest of the sweep.
     if (force || new Date().getMinutes() < 2) {
-      try {
-        const { runLakehouseMaintenance } = await import("@/utils/lakehouse/core.server");
-        const res = await runLakehouseMaintenance();
-        if (res.ran) {
-          const failed = res.steps.filter((st) => !st.ok).length;
-          console.log(
-            `[lakehouse] maintenance: ${res.steps.length - failed}/${res.steps.length} steps ok`,
-          );
-        }
-      } catch (e) {
-        fold("lakehouse-maintenance", e);
-      }
+      await step(
+        "lakehouse-maintenance",
+        async () => {
+          const { runLakehouseMaintenance } = await import("@/utils/lakehouse/core.server");
+          const res = await runLakehouseMaintenance();
+          if (res.ran) {
+            const failed = res.steps.filter((st) => !st.ok).length;
+            console.log(
+              `[lakehouse] maintenance: ${res.steps.length - failed}/${res.steps.length} steps ok`,
+            );
+          }
+        },
+        undefined,
+      );
     }
-    await import("@/utils/audit.server")
-      .then((m) => m.purgeAuditEvents(force))
-      .catch((e) => fold("audit-purge", e));
-    await import("@/utils/chatRetention.server")
-      .then(async (m) => {
-        await m.purgeExpiredChats(force);
-        await m.purgeExpiredEmbedTranscripts(force);
-      })
-      .catch((e) => fold("chat-retention", e));
-    await import("@/utils/swarmWebhook.server")
-      .then((m) => m.purgeIdempotencyRecords())
-      .catch((e) => fold("idempotency-purge", e));
+    await step(
+      "audit-purge",
+      () => import("@/utils/audit.server").then((m) => m.purgeAuditEvents(force)),
+      undefined,
+    );
+    await step(
+      "chat-retention",
+      () =>
+        import("@/utils/chatRetention.server").then(async (m) => {
+          await m.purgeExpiredChats(force);
+          await m.purgeExpiredEmbedTranscripts(force);
+        }),
+      undefined,
+    );
+    await step(
+      "idempotency-purge",
+      () => import("@/utils/swarmWebhook.server").then((m) => m.purgeIdempotencyRecords()),
+      undefined,
+    );
     // A process killed mid-upload leaves a staging dataset nobody can see and
     // nothing else will ever delete.
-    await import("@/utils/data/ingest.server")
-      .then((m) => m.sweepAbandonedUploads())
-      .catch((e) => fold("upload-sweep", e));
+    await step(
+      "upload-sweep",
+      () => import("@/utils/data/ingest.server").then((m) => m.sweepAbandonedUploads()),
+      undefined,
+    );
     // Rebuild columnar mirrors that browser-side saves left stale, and drop
     // objects whose dataset is gone.
-    await import("@/utils/data/parquet.server")
-      .then((m) => m.sweepDatasetMirrors())
-      .catch((e) => fold("parquet-sweep", e));
+    await step(
+      "parquet-sweep",
+      () => import("@/utils/data/parquet.server").then((m) => m.sweepDatasetMirrors()),
+      undefined,
+    );
     // Generated documents and dataset copies stored before R441, or under a
     // key other than their owner's: put under it, a bounded number an hour.
-    await import("@/utils/storage/storedFiles.server")
-      .then((m) => m.sweepStoredFiles(force))
-      .catch((e) => fold("stored-files", e));
-    await import("@/utils/integrations/health.server")
-      .then(async (m) => {
-        await m.checkIntegrationHealth(force);
-        // Independent of health checks: retire legacy plaintext secrets.
-        await m.sweepPlaintextSecrets();
-      })
-      .catch((e) => fold("integration-health", e));
+    await step(
+      "stored-files",
+      () => import("@/utils/storage/storedFiles.server").then((m) => m.sweepStoredFiles(force)),
+      undefined,
+    );
+    await step(
+      "integration-health",
+      () =>
+        import("@/utils/integrations/health.server").then(async (m) => {
+          await m.checkIntegrationHealth(force);
+          // Independent of health checks: retire legacy plaintext secrets.
+          await m.sweepPlaintextSecrets();
+        }),
+      undefined,
+    );
     // Data connections get the same treatment as LLM keys: a warehouse
     // password expires on the customer's rotation policy, and without this the
     // first sign is a dashboard erroring in front of someone.
-    await import("@/utils/integrations/connectionHealth.server")
-      .then((m) => m.checkConnectionHealth(force))
-      .catch((e) => fold("connection-health", e));
-    await import("@/utils/observability/retention.server")
-      .then((m) => m.purgeTraces(force))
-      .catch((e) => fold("trace-retention", e));
-    await import("@/utils/observability/otelExport.server")
-      .then((m) => m.exportOtelTraces())
-      .catch((e) => fold("otel-export", e));
-    await import("@/utils/saas/schedule.server")
-      .then((m) => m.processDueSaasSyncs(force))
-      .catch((e) => fold("saas-sync", e));
+    await step(
+      "connection-health",
+      () =>
+        import("@/utils/integrations/connectionHealth.server").then((m) =>
+          m.checkConnectionHealth(force),
+        ),
+      undefined,
+    );
+    await step(
+      "trace-retention",
+      () => import("@/utils/observability/retention.server").then((m) => m.purgeTraces(force)),
+      undefined,
+    );
+    await step(
+      "otel-export",
+      () => import("@/utils/observability/otelExport.server").then((m) => m.exportOtelTraces()),
+      undefined,
+    );
+    await step(
+      "saas-sync",
+      () => import("@/utils/saas/schedule.server").then((m) => m.processDueSaasSyncs(force)),
+      undefined,
+    );
     // KB connector sources (Drive / Notion / SharePoint / Dropbox) on the same
     // cadence and claim discipline as SaaS data sources.
-    await import("@/utils/kb/schedule.server")
-      .then((m) => m.processDueKbSyncs(force))
-      .catch((e) => fold("kb-sync", e));
+    await step(
+      "kb-sync",
+      () => import("@/utils/kb/schedule.server").then((m) => m.processDueKbSyncs(force)),
+      undefined,
+    );
     // The external vector index, kept in step with Postgres (R417). Every
     // VECTOR_INDEX_SYNC_MINUTES each knowledge base on it is counted, and one
     // out of step gets its missing vectors copied from Postgres and its stale
     // ones removed: a lost volume, or an install just switched to Qdrant,
     // fills itself without anybody pressing Re-index.
-    await import("@/utils/vector/sync.server")
-      .then((m) => m.syncVectorIndex({ force }))
-      .catch((e) => fold("vector-index", e));
+    await step(
+      "vector-index",
+      () => import("@/utils/vector/sync.server").then((m) => m.syncVectorIndex({ force })),
+      undefined,
+    );
     // Traces recorded before their model had a known price re-resolve here —
     // an alias mapping or a price refresh corrects history, not just the
     // future, so budgets stop summing real spend as $0.
-    await import("@/utils/observability/reprice.server")
-      .then((m) => m.repriceUnpricedTraces(force))
-      .catch((e) => fold("trace-reprice", e));
+    await step(
+      "trace-reprice",
+      () =>
+        import("@/utils/observability/reprice.server").then((m) => m.repriceUnpricedTraces(force)),
+      undefined,
+    );
     // Workflow graphs ride the same sweep, in two halves. Due workflows
     // start; runs already in flight take a step. The second half is what makes
     // a graph move at all — a step only begins once the step before it has
     // been seen to finish, and this is where that is noticed.
-    const workflow_runs = await import("@/utils/workflows/run.server")
-      .then((m) => m.processDueWorkflows(force))
-      .catch((e) => fold("workflow", e, 0));
-    const workflow_steps = await import("@/utils/workflows/run.server")
-      .then((m) => m.advanceLiveWorkflowRuns())
-      .catch((e) => fold("workflow", e, 0));
-    const swarm_schedules = await import("@/utils/swarmSchedules.server")
-      .then((m) => m.processDueSwarmSchedules(force))
-      .catch((e) => fold("swarm-scheduler", e, 0));
-    let kernels_reaped = 0;
-    try {
-      kernels_reaped = await import("@/utils/notebookRuntime/service.server").then((m) =>
-        m.reapSessions(),
-      );
-    } catch (e) {
-      fold("kernel-reap", e);
-    }
+    const workflow_runs = await step(
+      "workflow",
+      () => import("@/utils/workflows/run.server").then((m) => m.processDueWorkflows(force)),
+      0,
+    );
+    const workflow_steps = await step(
+      "workflow",
+      () => import("@/utils/workflows/run.server").then((m) => m.advanceLiveWorkflowRuns()),
+      0,
+    );
+    const swarm_schedules = await step(
+      "swarm-scheduler",
+      () => import("@/utils/swarmSchedules.server").then((m) => m.processDueSwarmSchedules(force)),
+      0,
+    );
+    const kernels_reaped = await step(
+      "kernel-reap",
+      () => import("@/utils/notebookRuntime/service.server").then((m) => m.reapSessions()),
+      0,
+    );
+    finish();
     const result: CronPassResult = {
       ran: true,
       processed,
@@ -1682,6 +1744,7 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
     lastCronPass = { at: new Date().toISOString(), result };
     return result;
   } finally {
+    lease.stop();
     await releaseCronLease("scheduler");
   }
 }
@@ -1701,6 +1764,11 @@ export function ensureScheduler(): void {
   if (/^(1|true|yes)$/i.test(process.env.DISABLE_INPROCESS_SCHEDULER ?? "")) return;
   globalThis.__biSchedulerStarted = true;
   setInterval(() => {
-    runCronPass().catch((e) => console.warn("[scheduler] pass failed:", (e as Error).message));
+    // A draining process starts no new pass; another replica's tick, or this
+    // one's successor, picks the work up (R463).
+    void import("@/utils/drain").then(({ isDraining }) => {
+      if (isDraining()) return;
+      runCronPass().catch((e) => console.warn("[scheduler] pass failed:", (e as Error).message));
+    });
   }, 60_000).unref?.();
 }

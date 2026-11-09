@@ -51,6 +51,7 @@ import {
 /** Every provider id the platform knows; pinned to the type so a new provider cannot be forgotten here. */
 export { GATEWAY_PROVIDERS } from "@/utils/gateway/providers";
 import { GATEWAY_PROVIDERS } from "@/utils/gateway/providers";
+import { withSseHeartbeat } from "@/utils/sse.server";
 type _Exhaustive =
   Exclude<ProviderId, (typeof GATEWAY_PROVIDERS)[number]> extends never ? true : never;
 const _exhaustive: _Exhaustive = true;
@@ -1046,7 +1047,7 @@ export async function runGatewayCompletion(args: {
         },
         args.request.signal,
       );
-      return new Response(out, {
+      return new Response(withSseHeartbeat(out), {
         headers: {
           "Content-Type": "text/event-stream",
           "Cache-Control": "no-cache",

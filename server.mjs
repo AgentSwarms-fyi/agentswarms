@@ -24,6 +24,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { installServerGuards, quietClientGone, rememberClientAborts } from "./serverGuards.mjs";
 import { compressStatic } from "./serverCompression.mjs";
+import { applyKeepAlive, drainTimeoutMs, installDrain } from "./serverDrain.mjs";
 import { securityHeaders } from "./serverSecurityHeaders.mjs";
 import { EXIT_KEYRING, reportListening, superviseWorkers } from "./serverWorkers.mjs";
 
@@ -187,6 +188,9 @@ async function startWorker() {
     // Every worker binds the same port; the OS balances accepts between them.
     // Without this the second worker dies with EADDRINUSE.
     reusePort: true,
+    // Shutdown is ours (serverDrain.mjs). srvx's own SIGTERM handler, left on,
+    // raced the one below and cut every open response at once (R463).
+    gracefulShutdown: false,
     // Client assets are hashed and immutable; the SSR handler should never see
     // a request for one.
     // Order matters: the type fix runs first (innermost) so the compressor
@@ -200,6 +204,9 @@ async function startWorker() {
     fetch: rememberClientAborts(app.fetch),
   });
 
+  // Idle keep-alive sockets outlive a load balancer's, so the balancer never
+  // reuses one Node is closing (an intermittent 502). See serverDrain.mjs.
+  applyKeepAlive(server.node?.server);
   await server.ready?.();
   console.log(`[agentswarms] ${who} listening on http://${HOSTNAME}:${PORT}`);
   if (cluster.isWorker) reportListening();
@@ -243,17 +250,12 @@ async function startWorker() {
     })();
   }
 
-  // SIGTERM is how a container runtime asks for a clean stop. Without a handler
-  // Node exits immediately and in-flight requests are cut mid-response.
-  let closing = false;
-  for (const signal of ["SIGTERM", "SIGINT"]) {
-    process.on(signal, () => {
-      if (closing) return;
-      closing = true;
-      console.log(`[agentswarms] ${who} draining on ${signal}`);
-      Promise.resolve(server.close?.()).finally(() => process.exit(0));
-    });
-  }
+  // SIGTERM is how a container runtime asks for a clean stop. The drain flips
+  // readiness to 503 (the scheduler stops starting steps too), stops taking
+  // connections, gives open requests DRAIN_TIMEOUT_MS (25 s) to finish, then
+  // closes what is left and exits. One handler: see serverDrain.mjs for what
+  // two of them did.
+  installDrain({ server, who });
 }
 
 const workers = workerCount();
@@ -282,7 +284,14 @@ if (workers > 1 && cluster.isPrimary) {
   // See serverWorkers.mjs.
   const pool = superviseWorkers({ cluster });
   for (let i = 0; i < workers; i++) cluster.fork();
-  for (const signal of ["SIGTERM", "SIGINT"]) process.on(signal, () => pool.shutdown(signal));
+  for (const signal of ["SIGTERM", "SIGINT"]) {
+    process.on(signal, () => {
+      pool.shutdown(signal);
+      // The workers drain and exit on their own; this only stops one that
+      // hangs from holding the container past its own drain window.
+      setTimeout(() => process.exit(0), drainTimeoutMs() + 5_000).unref();
+    });
+  }
 } else {
   await startWorker();
 }

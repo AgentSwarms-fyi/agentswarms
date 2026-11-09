@@ -585,6 +585,23 @@ are written to a second ACL file, `allowed_ips` (squid `dst`), mounted next to
 S3-compatible stores. Both files regenerate whenever an administrator saves
 runtime settings, and the proxy is restarted to pick them up.
 
+## What is never allowed
+
+Loopback and link-local destinations (`127.0.0.0/8`, `169.254.0.0/16`,
+`0.0.0.0/8`, `::1`, `fe80::/10`) are refused **before** either allow-list is
+consulted (R463).
+
+Squid resolves an allowed domain itself, and whoever controls that domain's DNS
+can point it anywhere. That includes `169.254.169.254`, the cloud metadata
+service that hands out the host's credentials, `169.254.170.2` (ECS task
+credentials), and squid's own loopback. No kernel has a reason to reach these,
+so no entry, IP or domain, can open them.
+
+Private LAN ranges (`10/8`, `172.16/12`, `192.168/16`) are **not** refused. A
+LAN or Docker object store, such as `192.168.1.10:19000` or the Compose
+service `minio`, is the ordinary self-hosted case. The AWS deployment's egress
+proxy refuses those as well, unless they are listed.
+
 ## What is always allowed, and why you must not hand-edit the files
 
 Two categories bypass the operator's list entirely:

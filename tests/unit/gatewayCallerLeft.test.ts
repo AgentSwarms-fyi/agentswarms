@@ -163,7 +163,8 @@ describe("runGatewayCompletion", () => {
   it("audits a streamed call whose caller left as cancelled, and caches only a whole answer", () => {
     const at = fn.indexOf("const out = adaptUpstreamSse(");
     expect(at).toBeGreaterThan(0);
-    const done = fn.slice(at, fn.indexOf("return new Response(out", at));
+    // The live stream is returned wrapped in the SSE heartbeat (R463).
+    const done = fn.slice(at, fn.indexOf("return new Response(withSseHeartbeat(out)", at));
     expect(done).toMatch(
       /s\.ended === "left" \? "cancelled" : s\.ended === "complete" \? "success"/,
     );

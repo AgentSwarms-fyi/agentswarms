@@ -105,24 +105,24 @@ describe("the pass and the route, when a step fails", () => {
   );
 
   it("records every folded failure instead of only warning", () => {
-    expect(pass).toMatch(/const errors: string\[\] = \[\];/);
-    expect(pass).toMatch(/errors\.push\(`\$\{step\}: \$\{msg\}`\);/);
+    // Since R463 every step goes through one guard, `step(name, fn, fallback)`
+    // from passSteps.ts, which folds a failure into the pass result as the
+    // per-step `.catch(fold)` did. The guard is driven below; here, that the
+    // pass uses it for every step and folds nothing on its own.
+    expect(pass).toContain("const { step, errors, finish } = createPassSteps({");
     expect(pass, "a step still folds to console.warn alone").not.toMatch(
       /\.catch\(\(e\) => console\.warn\(/,
     );
     expect(pass, "a step still folds to warn + return 0").not.toMatch(
       /console\.warn\("\[[a-z-]+\][^"]*", \(e as Error\)\.message\);\s*return 0;/,
     );
-    expect((pass.match(/fold\("[a-z-]+", e/g) ?? []).length).toBeGreaterThanOrEqual(20);
+    expect((pass.match(/await step\(\s*"[a-z-]+"/g) ?? []).length).toBeGreaterThanOrEqual(25);
+    expect(pass).toMatch(/finish\(\);\s*const result: CronPassResult = \{/);
   });
 
   it("does not let a failed schedule read abort the other sweeps", () => {
-    expect(pass).toMatch(
-      /processDueSchedules\(force\)\.catch\(\(e\) => fold\("bi-schedules", e, 0\)\)/,
-    );
-    expect(pass).toMatch(
-      /processDuePrepFlows\(force\)\.catch\(\(e\) => fold\("prep-flows", e, 0\)\)/,
-    );
+    expect(pass).toContain('await step("bi-schedules", () => processDueSchedules(force), 0);');
+    expect(pass).toContain('await step("prep-flows", () => processDuePrepFlows(force), 0);');
   });
 
   it("returns the failures with the counts", () => {
@@ -143,5 +143,67 @@ describe("the pass and the route, when a step fails", () => {
     expect(fn).toMatch(
       /if \(alertsErr\) throw new Error\(`could not read alerts: \$\{alertsErr\.message\}`\);/,
     );
+  });
+});
+
+// The guard itself, driven (R463). Every step of the pass runs through it.
+describe("the pass's step guard", () => {
+  const quiet = () => {};
+
+  it("folds a failing step into the errors and still runs the next one", async () => {
+    const { createPassSteps } = await import("@/utils/bi/passSteps");
+    const g = createPassSteps({ lost: () => false, draining: () => false, warn: quiet });
+    const ran: string[] = [];
+    const a = await g.step(
+      "bi-schedules",
+      async () => {
+        throw new Error("could not read bi_schedules");
+      },
+      0,
+    );
+    const b = await g.step(
+      "prep-flows",
+      async () => {
+        ran.push("prep-flows");
+        return 3;
+      },
+      0,
+    );
+    expect([a, b]).toEqual([0, 3]);
+    expect(ran).toEqual(["prep-flows"]);
+    expect(g.finish()).toEqual(["bi-schedules: could not read bi_schedules"]);
+  });
+
+  it("starts no further step once the lease is lost, and names the ones it left", async () => {
+    const { createPassSteps } = await import("@/utils/bi/passSteps");
+    let lost = false;
+    const g = createPassSteps({ lost: () => lost, draining: () => false, warn: quiet });
+    const ran: string[] = [];
+    await g.step("one", async () => void ran.push("one"), undefined);
+    lost = true;
+    await g.step("two", async () => void ran.push("two"), undefined);
+    lost = false; // a renewal landing late does not restart a stopped pass
+    await g.step("three", async () => void ran.push("three"), undefined);
+    expect(ran).toEqual(["one"]);
+    const [msg] = g.finish();
+    expect(msg).toMatch(/lease passed to another runner/);
+    expect(msg).toMatch(/2 step\(s\) left for the next pass: two, three$/);
+  });
+
+  it("does the same once SIGTERM has arrived", async () => {
+    const { createPassSteps } = await import("@/utils/bi/passSteps");
+    let draining = false;
+    const g = createPassSteps({ lost: () => false, draining: () => draining, warn: quiet });
+    await g.step("one", async () => 1, 0);
+    draining = true;
+    expect(await g.step("two", async () => 2, 0)).toBe(0);
+    expect(g.finish()[0]).toMatch(/this process is shutting down; 1 step\(s\) left/);
+  });
+
+  it("adds nothing when the pass ran to the end", async () => {
+    const { createPassSteps } = await import("@/utils/bi/passSteps");
+    const g = createPassSteps({ lost: () => false, draining: () => false, warn: quiet });
+    await g.step("one", async () => 1, 0);
+    expect(g.finish()).toEqual([]);
   });
 });

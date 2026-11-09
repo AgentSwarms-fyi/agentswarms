@@ -77,7 +77,10 @@ function SelfHostingConfigurationPage() {
             <C key="j">PROVIDER_CREDS_SECRET</C>,
             "Encryption key for every stored credential. Back this up — see the warning below.",
           ],
-          [<C key="k">INTERNAL_RUN_SECRET</C>, "Signs internal service-to-service calls"],
+          [
+            <C key="k">INTERNAL_RUN_SECRET</C>,
+            "Signs internal service-to-service calls; if unset, one is derived from the service-role key",
+          ],
         ]}
       />
       <Callout kind="warn" title="PROVIDER_CREDS_SECRET is not recoverable">

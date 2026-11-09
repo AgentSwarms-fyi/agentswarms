@@ -54,6 +54,11 @@ services:
     # js-internal lets the app reach the (optional) JS sandbox by service name.
     networks: [default, nb-internal, js-internal, docker-api]
     restart: unless-stopped
+    # On `docker compose up -d` / `down` the app drains: open requests (a chat
+    # reply mid-stream) get DRAIN_TIMEOUT_MS, 25 s, to finish. Compose's own
+    # default is 10 s before SIGKILL, which would cut them anyway (R463). A
+    # process with nothing open still exits at once.
+    stop_grace_period: 30s
     # `restart` covers a process that EXITS. It does nothing for one that is
     # running and wedged, which is the failure an operator actually meets — so
     # every service that can answer for itself does. `node -e` rather than curl
@@ -99,6 +104,8 @@ services:
       NOTEBOOK_RUNTIME_SECRET: ${NOTEBOOK_RUNTIME_SECRET:-}
       NOTEBOOK_CELL_TIMEOUT_SECONDS: ${NOTEBOOK_CELL_TIMEOUT_SECONDS:-120}
       KERNEL_CREATE_TIMEOUT_MS: ${KERNEL_CREATE_TIMEOUT_MS:-28000}
+      # Idle keep-alive window, as for the app: above any balancer's (R463).
+      HTTP_KEEPALIVE_TIMEOUT_MS: ${HTTP_KEEPALIVE_TIMEOUT_MS:-75000}
     ports:
       - "8090:8090"
     networks: [default, nb-internal, nb-dev]
@@ -551,9 +558,13 @@ services:
     image: agentswarms/js-sandbox:latest
     environment:
       PORT: "8091"
-      # Shared secret with the app. Defaults to the service-role key, which the
-      # app also falls back to, so no extra wiring is needed.
+      # Shared secret with the app: INTERNAL_RUN_SECRET (setup.sh generates
+      # one). An install without it still works: the service gets the
+      # service-role key instead, KIND says so (empty = the key), and both
+      # sides derive the same secret from it, so the key itself never travels
+      # in a request header (R463).
       INTERNAL_RUN_SECRET: ${INTERNAL_RUN_SECRET:-${SUPABASE_SERVICE_ROLE_KEY}}
+      INTERNAL_RUN_SECRET_KIND: ${INTERNAL_RUN_SECRET:+own}
       JS_SANDBOX_MAX_TIMEOUT_MS: ${JS_SANDBOX_MAX_TIMEOUT_MS:-5000}
       JS_SANDBOX_MAX_CONCURRENT: ${JS_SANDBOX_MAX_CONCURRENT:-4}
       JS_SANDBOX_MEM_MB: ${JS_SANDBOX_MEM_MB:-128}

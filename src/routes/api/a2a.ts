@@ -18,6 +18,7 @@ import { assertPublicUrl, safeFetch } from "@/utils/ssrfGuard.server";
 import { resolveSecretRefs } from "@/utils/secrets.server";
 import { CallerCheckFailed, checkFailed } from "@/utils/callerLookup.server";
 import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
+import { withSseHeartbeat } from "@/utils/sse.server";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -305,7 +306,7 @@ async function handleInvoke(payload: InvokePayload, userId: string): Promise<Res
       clearTimeout(timeout);
       return jsonResponse({ error: "Upstream stream had no body" }, 502);
     }
-    return new Response(upstream.body, {
+    return new Response(withSseHeartbeat(upstream.body), {
       status: 200,
       headers: {
         "Content-Type": "text/event-stream",

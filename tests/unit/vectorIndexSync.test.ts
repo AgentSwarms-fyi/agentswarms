@@ -449,8 +449,9 @@ describe("the scheduler's sweep", () => {
   it("is a step of the scheduler pass, folded like the others", async () => {
     const { readFileSync } = await import("node:fs");
     const pass = readFileSync("src/utils/bi/refresh.server.ts", "utf8");
+    // Through the pass's step guard since R463, which folds a failure.
     expect(pass).toMatch(
-      /import\("@\/utils\/vector\/sync\.server"\)\s*\.then\(\(m\) => m\.syncVectorIndex\(\{ force \}\)\)\s*\.catch\(\(e\) => fold\("vector-index", e\)\)/,
+      /await step\(\s*"vector-index",\s*\(\) => import\("@\/utils\/vector\/sync\.server"\)\.then\(\(m\) => m\.syncVectorIndex\(\{ force \}\)\),/,
     );
   });
 });

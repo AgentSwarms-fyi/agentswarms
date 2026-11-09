@@ -61,15 +61,19 @@ describe("production server entry", () => {
     // The supervisor lives in serverWorkers.mjs since R430, and
     // serverWorkers.test.ts drives it; this pins that server.mjs uses it.
     expect(server).toContain("const pool = superviseWorkers({ cluster });");
-    expect(server).toContain("process.on(signal, () => pool.shutdown(signal))");
+    expect(server).toMatch(/process\.on\(signal, \(\) => \{\s*pool\.shutdown\(signal\);/);
     expect(server.indexOf("superviseWorkers({ cluster })")).toBeLessThan(
       server.indexOf("cluster.fork()"),
     );
   });
 
   it("drains on SIGTERM instead of cutting live requests", () => {
-    expect(server).toContain('"SIGTERM"');
-    expect(server).toContain("server.close?.()");
+    // This used to check only that server.mjs called server.close(), and it
+    // passed while every response was cut at once: srvx's own SIGTERM handler
+    // raced it (R463). serverDrain.test.ts now drives a real server through
+    // the drain; this pins that server.mjs uses it with srvx's handler off.
+    expect(server).toContain("gracefulShutdown: false,");
+    expect(server).toContain("installDrain({ server, who });");
   });
 });
 

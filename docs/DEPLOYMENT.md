@@ -276,17 +276,31 @@ pool.
 
 **Two settings make a fleet correct and healthy:**
 
-1. **Point the load balancer's health check at `GET /api/health`** (returns
-   `200 {"status":"ok"}`, no auth, no DB). Unhealthy instances are pulled
-   automatically.
-2. **Run the scheduler in exactly one place.** The background scheduler (BI
-   refreshes, alerts, scheduled reports, swarm schedules, catalog crawls,
-   kernel reaping) must not fan out across every replica. Set
-   **`DISABLE_INPROCESS_SCHEDULER=1`** on the web tier and drive the work from a
-   single external cron hitting `/api/bi/cron` with `BI_CRON_TOKEN` (see
-   [Scheduling](#scheduling--background-jobs)). A cross-instance database lease
-   already prevents double-firing even if you forget this, but disabling the
-   per-replica tick is the clean setup.
+1. **Point the load balancer's health check at
+   `GET /api/health/ready?scope=local`.** It answers 200 when the process can
+   serve. It answers 503 on an [analytics node](#analytics-only-nodes) and
+   while the process [drains](#shutdown-and-connection-timing). It does **not**
+   check the database. That matters where the health check decides
+   _replacement_, as an ECS target group's does: with the database in the
+   check, a one-to-two-minute database failover fails every instance at once,
+   and the orchestrator replaces the whole fleet. Plain `/api/health` (alive,
+   no database) also works but knows nothing about draining or roles.
+   `/api/health/ready` without the scope adds the database check, for
+   dashboards and alarms.
+2. **Run the scheduler in as few places as you like; it is safe in many.** The
+   background scheduler (BI refreshes, alerts, scheduled reports, swarm
+   schedules, catalog crawls, kernel reaping) holds a cross-instance database
+   lease, so exactly one pass runs at a time however many replicas run it.
+   - The lease lasts 2 minutes (`SCHEDULER_LEASE_TTL_MS`) and is renewed while
+     a pass runs, so a holder that dies is replaced within about two minutes.
+   - It fails closed: if the lease cannot be read, that minute's pass is skipped
+     rather than run unguarded on every replica.
+   - A pass that loses the lease, or whose process receives SIGTERM, starts no
+     further steps and names the ones it left in its result.
+   - The clean setup runs it on two or more instances for availability (the
+     analytics nodes, or any two), with **`DISABLE_INPROCESS_SCHEDULER=1`** on
+     the rest. An external cron hitting `/api/bi/cron` with `BI_CRON_TOKEN`
+     works as well (see [Scheduling](#scheduling--background-jobs)).
 
 **Build once, run many.** The `VITE_*` Supabase values are baked into the
 client bundle at image build time, so build the image once with your production
@@ -307,12 +321,38 @@ The autoscaling primitives on each cloud:
 | Cloud   | Compute group + autoscaler                                            | Load balancer                                                             | Scheduler                                                          |
 | ------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------ |
 | **OCI** | Instance Configuration → **Instance Pool** + **Autoscaling**          | **Flexible Load Balancer** (HTTP backend set, health check `/api/health`) | **Resource Scheduler** or an always-on micro instance running cron |
-| **AWS** | Launch Template → **Auto Scaling Group** (target tracking on CPU/RPS) | **ALB** (target group health check `/api/health`)                         | **EventBridge Scheduler** → API destination, or a scheduled Lambda |
+| **AWS** | Launch Template → **Auto Scaling Group** (target tracking on CPU/RPS) | **ALB** (target group health check `/api/health/ready?scope=local`)       | **EventBridge Scheduler** → API destination, or a scheduled Lambda |
 | **GCP** | Instance Template → **Managed Instance Group** + autoscaler           | **External HTTPS LB** (health check `/api/health`)                        | **Cloud Scheduler** → HTTP target                                  |
 
 **Load-balancer settings:** disable response buffering and use a generous idle
 timeout (≥ 300s) so streamed chat responses (Server-Sent Events) aren't cut
 off. No session affinity needed.
+
+### Shutdown and connection timing
+
+Four settings, all with defaults that suit an ALB or a Kubernetes Service.
+Change them only to match a balancer you have configured differently.
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `DRAIN_TIMEOUT_MS` | `25000` | After SIGTERM, how long open requests (a chat reply mid-stream) get to finish before the process closes them and exits. Readiness answers 503 from the first moment. |
+| `DRAIN_DELAY_MS` | `0` | Keep accepting connections this long after SIGTERM, while readiness already says 503. On Kubernetes without a `preStop` hook, a few seconds let the Service drop the pod before its port closes. |
+| `HTTP_KEEPALIVE_TIMEOUT_MS` | `75000` | How long an idle keep-alive connection stays open. It must be **longer than the balancer's idle timeout**, or the balancer occasionally sends a request down a connection the server is closing (an intermittent 502). Set it about 5 s above yours (an ALB at 120 s wants `125000`). The notebook gateway reads the same setting. |
+| `SSE_HEARTBEAT_MS` | `15000` | A streamed reply that goes quiet gets a comment line (`: ka`) this often. SSE clients ignore it; idle timeouts in between (an ALB, CloudFront's 30 s, nginx) see traffic. `0` turns it off. |
+
+Allow at least `DRAIN_TIMEOUT_MS` plus a few seconds in the platform's own stop
+timeout:
+- **Compose:** `docker-compose.yml` sets `stop_grace_period: 30s` for the app
+  (Compose's default is 10 s).
+- **Kubernetes:** the manifests give the web pods 45 s.
+- **ECS:** the ALB stops routing to a task and waits out its deregistration
+  delay **before** the task receives SIGTERM. Set that delay longer than your
+  longest reply.
+
+Before R463 a SIGTERM cut every open response at once. The web server's own
+shutdown handler raced the app's, so each `docker compose up -d` or rolling
+deploy ended chat replies mid-sentence. Both are measured in the
+[Adversarial log](./ADVERSARIAL_LOG.md).
 
 **One caveat — the Docker notebook runtime is single-host.** Server-side Python
 kernels are addressed by container IP on one Docker host, so a request landing
@@ -2043,13 +2083,21 @@ users links to their own machine.
 
 - `GET /api/health` → `200` **liveness** — the process is up and serving. No
   database work, so it stays green even if Postgres is unreachable. Use it for
-  the K8s liveness probe and as the LB target-health check.
+  the K8s liveness probe.
+- `GET /api/health/ready?scope=local` → `200` when this process can serve:
+  keyring loaded, not an analytics node, not draining. **No database check.**
+  Use it as the **load balancer's** target-health check. A balancer whose health
+  check decides replacement (an ECS target group) must not fail every
+  instance during a database failover.
 - `GET /api/health/ready` → `200` when **ready** to serve (database reachable),
-  `503` otherwise, with a JSON body (`{ status, checks: { db } }`). The DB check
-  has a 3s timeout so a hung database fails fast. Use it for the K8s **readiness**
-  probe so a pod that can't reach its database is pulled from rotation rather
-  than sent traffic. (Don't point liveness at this — a shared-DB blip would then
-  restart every pod at once instead of just draining them.)
+  `503` otherwise, with a JSON body (`{ status, checks: { db, keys } }`). The DB
+  check has a 3s timeout so a hung database fails fast. Use it for the K8s
+  **readiness** probe so a pod that can't reach its database is pulled from
+  rotation rather than sent traffic, and for alarms. (Don't point liveness at
+  this — a shared-DB blip would then restart every pod at once instead of just
+  draining them.)
+- Both `ready` forms answer `503` from the moment the process receives SIGTERM
+  (see [Shutdown and connection timing](#shutdown-and-connection-timing)).
 
 ### High availability: what survives the loss of one instance
 

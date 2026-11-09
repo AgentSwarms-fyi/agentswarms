@@ -195,8 +195,9 @@ describe("lakehouse maintenance", () => {
     const refresh = read("src/utils/bi/refresh.server.ts");
     expect(refresh).toContain("runLakehouseMaintenance");
     // R57: the maintenance catch is folded into the pass result now, and still
-    // never blocks the sweep.
-    expect(refresh).toContain('fold("lakehouse-maintenance", e)');
+    // never blocks the sweep. Since R463 through the pass's one step guard,
+    // whose catch folds (cronPassFailures.test.ts pins that).
+    expect(refresh).toMatch(/await step\(\s*"lakehouse-maintenance",/);
   });
 });
 

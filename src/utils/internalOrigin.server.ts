@@ -10,6 +10,7 @@
 // header, a spoofed `Host:` would make the server POST that secret straight to
 // an attacker's server. So the origin is resolved ONLY from configuration, with
 // a loopback fallback — never from user input.
+import { createHmac } from "node:crypto";
 
 /** Strip trailing slashes so callers can safely append "/api/...". */
 function normalize(url: string): string {
@@ -39,14 +40,36 @@ export function resolveInternalOrigin(): string {
 }
 
 /**
- * Shared secret proving a request to /api/chat came from this server itself.
+ * The label the fallback secret is derived under. services/js-sandbox derives
+ * the same value from the same key, and a test holds the two to one label.
+ */
+export const INTERNAL_SECRET_LABEL = "agentswarms/internal-run/v1";
+
+let derivedFor: string | null = null;
+let derived: string | null = null;
+
+/**
+ * Shared secret proving a request came from this server itself: its own
+ * /api/chat self-calls, and the JS sandbox.
  *
- * Prefers a dedicated INTERNAL_RUN_SECRET; falls back to the service-role key so
- * existing deployments keep working. Setting INTERNAL_RUN_SECRET is strongly
- * recommended — it keeps the database master key out of outbound HTTP headers.
+ * INTERNAL_RUN_SECRET when set; the setup scripts generate one. Without it,
+ * a value DERIVED from the service-role key (an HMAC under a fixed label)
+ * rather than the key itself (R463). The fallback used to be the key, so an
+ * install that never set INTERNAL_RUN_SECRET sent the database master key in
+ * a request header on every internal call, including to the sandbox that runs
+ * users' JavaScript. Deriving it keeps those installs working with no change
+ * to their .env, and the key never leaves the process.
  */
 export function internalRunSecret(): string | null {
-  return process.env.INTERNAL_RUN_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || null;
+  const own = process.env.INTERNAL_RUN_SECRET;
+  if (own) return own;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) return null;
+  if (derivedFor !== key) {
+    derived = createHmac("sha256", key).update(INTERNAL_SECRET_LABEL).digest("hex");
+    derivedFor = key;
+  }
+  return derived;
 }
 
 /**

@@ -109,6 +109,41 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-09 — R463: what a load balancer and a rolling deploy expose
+
+**Why this round.** This is phase 1 of the AWS deployment plan: high availability
+behind a load balancer. Each item was checked against what Node, srvx and an ALB actually
+do before anything changed. None of it needs AWS: Compose and Kubernetes installs hit the
+same problems on every restart.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| Every restart cut every open chat reply at once | S2 | srvx 0.11.22 installs `gracefulShutdownPlugin` unless told not to, and `server.mjs` added its own SIGTERM handler. Both called `close()`; Node fails a second `close()` at once (`ERR_SERVER_NOT_RUNNING`), and the app's `.finally(() => process.exit(0))` exited with the stream open. **Measured** on Linux, real SIGTERM, a 20-tick SSE stream, signal at 2 s: cut after 2 ticks at 2.0 s as shipped; all 20 ticks at 24.1 s with srvx's handler off. The old test only checked that `server.mjs` contained `server.close?.()`, so it passed throughout. Fixed: `gracefulShutdown: false` plus one bounded drain (`serverDrain.mjs`). Driven with a real server in the tests, and with a real SIGTERM on Linux in a fixture (before: cut after 3 ticks; after: all 15, exit 0). **Measured** on the built images too: a 36 MB asset at 3 MB/s, `docker stop` 2 s in. The R462 image cut it at 21.9 MB (curl exit 18); R463's sent all 35,964,036 bytes and the container exited 12 s after the signal |
+| Intermittent 502s behind any balancer with an idle timeout over 5 s | S3 | Node's `keepAliveTimeout` defaults to 5 s and nothing set it, in the app or the notebook gateway; an ALB keeps idle connections 60 s or more. Now 75 s by default, `headersTimeout` 80 s. **Measured** on the built images, one connection idle for 10 s: the R462 server closed it at 6.0 s; R463's reused it |
+| A database failover would have replaced the whole fleet | S2 | *Caught before it shipped (AWS plan):* the plan pointed the ECS target group's health check at `/api/health/ready`, which checks the database. ECS replaces tasks whose targets fail, so a 1–2 minute RDS failover would have failed and replaced every task at once. New `?scope=local` (keyring, role, draining; no database), driven through the real handler. On the built image it answers `{"status":"ready","scope":"local","checks":{"keys":true}}`; the R462 image ignores the parameter and checks the database |
+| The scheduler lease failed open and was held for ten minutes, unrenewed | S3 | An error claiming the lease counted as holding it, so on several replicas every one ran the pass whenever the database stumbled. A holder that died mid-pass blocked scheduled work fleet-wide for up to ten minutes. Now: fail closed (except before the table exists), two minutes, renewed every 40 s, and a pass stops starting steps once the lease is lost or SIGTERM arrives |
+| The database master key in request headers, including to the JS sandbox | S2 | With `INTERNAL_RUN_SECRET` unset, `internalRunSecret()` returned `SUPABASE_SERVICE_ROLE_KEY`, sent as `x-internal-run-secret` on every internal call; Compose passed the same key into the sandbox that runs users' JavaScript. Both now derive an HMAC of the key under a fixed label, and the sandbox deletes the key from its environment. Tested against the real sandbox process with each environment Compose gives it. **Measured** on the built images with the environment Compose gives the sandbox when `INTERNAL_RUN_SECRET` is unset, called from inside the app container: the derived secret ran the code (200, value 42), and the raw service-role key got 401 |
+| The egress proxy could be aimed at the cloud metadata service | S2 | Squid resolves an allowed domain itself, with nothing refusing what it resolves to. Whoever controls an allowed domain's DNS could point it at `169.254.169.254`, `169.254.170.2` or loopback. Loopback and link-local are now refused before any allow rule, in both the Compose file and the Kubernetes copy. Private LAN ranges are deliberately not refused (a LAN MinIO is the normal self-hosted case); the AWS proxy will refuse them unless listed. **Measured** with the pinned squid image, the old and new configs side by side, and an allow-list naming `.nip.io` and `.localtest.me`: `169-254-169-254.nip.io` (resolves to 169.254.169.254) old 503, new 403. The 503 means squid connected to the metadata address and found nothing there; on an EC2 host that connection succeeds. `localtest.me` (127.0.0.1): old 503, new 403. The LAN MinIO at `192.168.1.85:19000`: 200 on both. Docker Desktop's resolver drops the 169.254 answer, so a first run could not tell the two apart (neither saw the address). The measurement uses a public resolver, which, like a VPC's, returns it |
+| A quiet streamed reply could be dropped by anything in between | S3 | No route sent anything during silence. CloudFront waits 30 s by default, and the AWS plan puts it in front. Now a `: ka` comment every 15 s, written only between events, on the five live streams. A test reads it through the app's own stream reader, which sees no difference |
+
+**What would have been wrong to conclude.**
+
+- *"`server.close()` waits for open requests, so shutdown was already graceful."* It does
+  on its own (`gracefulShutdown: false` run: 24 s, every tick). What cut the stream was the
+  second handler. Nothing in the source looks wrong until both are seen to run.
+- *"Block all private addresses in squid."* That breaks every laptop and VM install whose
+  lake is `minio` or a LAN address, the setup this project runs on itself.
+- *"The heartbeat fixes long tool turns behind CloudFront."* It only helps after the first
+  byte. A tool-heavy turn sends nothing until its tool rounds finish, which can take
+  30–95 s, and CloudFront waits at most 60 s for a first byte. That needs the chat route to
+  send its headers first; it is its own round, before the one-click deployment.
+- *"Run the drain test locally and see it pass."* Windows cannot deliver SIGTERM to a child
+  process; it terminates it, which looks exactly like the bug. The signal tests run on
+  Linux only, which is where CI and every container runs.
+- *"Both images drop the download."* The first container run said so: 0 bytes from each.
+  Windows' `curl.exe` could not open `/dev/null`, and its write error (exit 23) ended both
+  downloads before any signal was sent. With a real output file, only the old image cut it.
+
 ### 2026-11-09 — R461: the image scan went red on valkey's zlib
 
 **Why this round.** The push of R458 and R459 ran `.github/workflows/image-scan.yml`, and its

@@ -32,6 +32,7 @@ import {
 } from "@/utils/tools/kb.server";
 import { generateEmbedWidget } from "@/utils/embedBi.server";
 import { EMBED_CONFIG_UNREADABLE } from "@/utils/agents/agentConfigGate";
+import { withSseHeartbeat } from "@/utils/sse.server";
 import {
   applyOutputGuardrails,
   evaluateInputGuardrails,
@@ -623,7 +624,7 @@ export const Route = createFileRoute("/api/embed/chat")({
             void reader.cancel();
           },
         });
-        return new Response(stream, {
+        return new Response(withSseHeartbeat(stream), {
           headers: {
             "Content-Type": "text/event-stream",
             "Cache-Control": "no-cache",

@@ -139,8 +139,12 @@ data:
     acl Safe_ports port 9000
     acl Safe_ports port 19000
     acl CONNECT method CONNECT
+    # Loopback and link-local (cloud metadata, task credentials) are refused
+    # before anything is allowed, whatever an allowed domain resolves to (R463).
+    acl blocked_dst dst 127.0.0.0/8 169.254.0.0/16 0.0.0.0/8 ::1 fe80::/10
     http_access deny CONNECT !SSL_ports
     http_access deny !Safe_ports
+    http_access deny blocked_dst
     http_access allow allowed_domains
     http_access allow allowed_ips
     http_access deny all

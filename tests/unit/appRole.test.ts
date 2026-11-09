@@ -51,10 +51,12 @@ describe("readiness declines traffic while liveness keeps the node alive", () =>
   it("skips the database probe on a node nobody routes to", () => {
     // Postgres is the fleet's real ceiling; probing it every few seconds from a
     // node whose answer is fixed spends the scarcest resource on nothing.
-    const gate = ready.indexOf('if (appRole() === "analytics") return analyticsNotReady();');
-    const dbCall = ready.indexOf("await dbReachable()");
-    expect(gate).toBeGreaterThan(-1);
-    expect(gate).toBeLessThan(dbCall);
+    // Checked by calling the handler with a database that counts its probes:
+    // tests/unit/healthReadyScope.test.ts ("an analytics node"). Here, only
+    // that the gate is the handler's first statement.
+    expect(ready).toMatch(
+      /GET: async \(\{ request \}\) => \{[^}]*?if \(appRole\(\) === "analytics"\) return analyticsNotReady\(\);/,
+    );
   });
 
   it("liveness stays 200 and reports the role", () => {

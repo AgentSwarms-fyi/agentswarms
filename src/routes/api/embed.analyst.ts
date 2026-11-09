@@ -26,6 +26,7 @@ import { touchEmbedKey, validateEmbedKey } from "@/utils/embed.server";
 import { rateLimitedGlobal } from "@/utils/rateLimit.server";
 import { budgetMessage, getBudgetDecision } from "@/utils/budgetGuard.server";
 import { clientIp, clientUserAgent } from "@/utils/requestMeta.server";
+import { withSseHeartbeat } from "@/utils/sse.server";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -147,7 +148,7 @@ export const Route = createFileRoute("/api/embed/analyst")({
           },
         });
 
-        return new Response(stream, {
+        return new Response(withSseHeartbeat(stream), {
           headers: {
             "Content-Type": "text/event-stream; charset=utf-8",
             "Cache-Control": "no-cache, no-transform",

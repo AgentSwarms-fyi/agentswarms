@@ -18,11 +18,40 @@ import http from "node:http";
 import { Worker } from "node:worker_threads";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8091);
-const SECRET = process.env.INTERNAL_RUN_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+
+// Must equal INTERNAL_SECRET_LABEL in src/utils/internalOrigin.server.ts; a
+// test holds the two together.
+const INTERNAL_SECRET_LABEL = "agentswarms/internal-run/v1";
+
+/**
+ * The secret callers must present (R463).
+ *
+ * INTERNAL_RUN_SECRET is the app's own secret, used as is. When an install
+ * never set one, docker-compose.yml hands this service the service-role key in
+ * its place and says so with INTERNAL_RUN_SECRET_KIND=service-role-key (an
+ * empty KIND, which is what Compose writes for an unset secret, means the
+ * same). This service then derives what the app derives in that case, an HMAC
+ * of the key under one label, so the two still agree, and neither the key nor
+ * anything that unlocks the database is what travels in the request header.
+ * The key is then dropped from this process's environment.
+ */
+function resolveSecret({ given, kind, serviceKey }) {
+  const isKey = kind === "service-role-key" || (kind === "" && Boolean(given));
+  if (given && !isKey) return given;
+  const key = isKey ? given : serviceKey || "";
+  return key ? createHmac("sha256", key).update(INTERNAL_SECRET_LABEL).digest("hex") : "";
+}
+const SECRET = resolveSecret({
+  given: process.env.INTERNAL_RUN_SECRET || "",
+  kind: process.env.INTERNAL_RUN_SECRET_KIND,
+  serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+});
+delete process.env.INTERNAL_RUN_SECRET;
+delete process.env.SUPABASE_SERVICE_ROLE_KEY;
 // Ceilings the CALLER cannot raise. A deployed swarm is unattended, so a bad
 // snippet must not be able to pin a core indefinitely.
 const MAX_TIMEOUT_MS = Number(process.env.JS_SANDBOX_MAX_TIMEOUT_MS || 5000);
@@ -31,7 +60,7 @@ const MAX_CONCURRENT = Number(process.env.JS_SANDBOX_MAX_CONCURRENT || 4);
 
 if (!SECRET) {
   console.error(
-    "[js-sandbox] refusing to start: INTERNAL_RUN_SECRET (or SUPABASE_SERVICE_ROLE_KEY) is required.",
+    "[js-sandbox] refusing to start: INTERNAL_RUN_SECRET (or, failing that, SUPABASE_SERVICE_ROLE_KEY to derive one from) is required.",
   );
   process.exit(1);
 }

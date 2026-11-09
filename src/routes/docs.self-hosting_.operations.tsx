@@ -97,14 +97,29 @@ function SelfHostingOperationsPage() {
       <H3 id="scaling-out">Then more machines</H3>
       <P>
         The app tier is stateless — no sticky sessions needed, so put as many instances behind a
-        load balancer as you like. Two things need attention when you do:
+        load balancer as you like. Five things need attention when you do:
       </P>
       <UL>
         <li>
           <strong>The scheduler.</strong> Alerts, refreshes and purges run in-process. A
-          cross-instance lease prevents double-firing, but the tidier arrangement is{" "}
-          <C>DISABLE_INPROCESS_SCHEDULER</C> on the web tier and one external cron hitting the cron
-          endpoint.
+          cross-instance lease means one pass runs at a time however many instances run it. The
+          lease lasts two minutes and is renewed while a pass works, so a crashed holder is replaced
+          within about two minutes. If the lease can't be read, that minute is skipped rather than
+          run unguarded. Run it on two or more instances for availability, with{" "}
+          <C>DISABLE_INPROCESS_SCHEDULER</C> on the rest, or drive it from one external cron hitting
+          the cron endpoint.
+        </li>
+        <li>
+          <strong>The health check.</strong> Point the load balancer at{" "}
+          <C>/api/health/ready?scope=local</C>. It answers 503 while an instance drains or on an
+          analytics node, and it does not check the database, so a database failover does not mark
+          every instance unhealthy at once.
+        </li>
+        <li>
+          <strong>Shutdown.</strong> On SIGTERM an instance stops taking connections and gives open
+          requests, such as a chat reply mid-stream, <C>DRAIN_TIMEOUT_MS</C> (25 s) to finish. Keep
+          the platform&apos;s stop timeout above that, and <C>HTTP_KEEPALIVE_TIMEOUT_MS</C> (75 s)
+          above your load balancer&apos;s idle timeout.
         </li>
         <li>
           <strong>Limits hold across the fleet.</strong> Rate limits and concurrency slots are
@@ -130,7 +145,13 @@ function SelfHostingOperationsPage() {
         items={[
           {
             name: "Health",
-            body: <>A health endpoint reports process liveness — point your load balancer at it.</>,
+            body: (
+              <>
+                <C>/api/health</C> reports process liveness; <C>/api/health/ready?scope=local</C> is
+                the load balancer&apos;s check (ready, not draining, no database);{" "}
+                <C>/api/health/ready</C> adds the database, for alarms and Kubernetes readiness.
+              </>
+            ),
           },
           {
             name: "Backups",

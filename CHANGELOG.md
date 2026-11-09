@@ -16,6 +16,16 @@ development branch and may be ahead of the latest tag.
 
 ### Changed
 
+- **Load balancers should check `/api/health/ready?scope=local` (R463).** It answers 503
+  while an instance drains or on an analytics node, and it leaves the database out, so a
+  database failover no longer marks every instance unhealthy at once (on ECS, that would
+  replace them all). `/api/health/ready` keeps its database check for alarms.
+- **The scheduler lease is two minutes, renewed while a pass runs, and fails closed
+  (R463).** It was ten minutes and never renewed, so a holder that died mid-pass stopped
+  scheduled work fleet-wide for up to ten minutes. An error claiming it used to count as
+  holding it, so every replica ran the pass whenever the database stumbled. Now that minute
+  is skipped. A pass that loses the lease or receives SIGTERM starts no further steps and
+  lists the ones it left. `SCHEDULER_LEASE_TTL_MS` sets the length.
 - **One version set where everything works with everything (R459).** Spark moves from
   4.2.0 to **4.1.4**, the newest Spark every connector is built for: Delta 4.4.1, Iceberg
   1.12.0 (Iceberg publishes no runtime for Spark 4.2), `hadoop-aws` 3.4.2 to match the
@@ -81,6 +91,33 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **Every restart or rolling deploy cut open chat replies mid-sentence (R463).** srvx's own
+  SIGTERM handler raced the app's: both closed the server, Node failed the second close at
+  once, and the app's handler then exited with the stream still open. Measured on Linux
+  with a 20-tick stream and SIGTERM at 2 s: cut after 2 ticks before, all 20 after. Shutdown
+  now has one handler. Readiness turns 503, then the server stops accepting and gives open
+  requests `DRAIN_TIMEOUT_MS` (25 s) to finish. `docker-compose.yml` gives the app 30 s to
+  stop, up from Compose's 10.
+- **Intermittent 502s behind a load balancer (R463).** Node closed idle keep-alive
+  connections after 5 s while an ALB keeps them 60 s or more, so the balancer could reuse
+  one that was closing. The app and the notebook gateway now keep them 75 s
+  (`HTTP_KEEPALIVE_TIMEOUT_MS`).
+- **A quiet streamed reply could be dropped by anything in between (R463).** Chat, the
+  embedded chat and analyst, A2A and the AI gateway now send an SSE comment every 15 s of
+  silence (`SSE_HEARTBEAT_MS`). Every SSE client, the app's own included, ignores it.
+- **The notebook gateway pings its sockets and closes them cleanly on SIGTERM (R463):**
+  every 25 s, ending the ones that stopped answering, and with close code 1012 ("restarting")
+  instead of dying under them.
+- **Security: the database master key travelled in request headers when
+  `INTERNAL_RUN_SECRET` was unset (R463).** That included requests to the JS sandbox,
+  which runs users' code. The app and the sandbox now derive a secret from the key (an HMAC),
+  so such installs keep working with no setting and the key stays in the process. The sandbox
+  also removes it from its environment.
+- **Security: the notebook egress proxy could be pointed at the cloud metadata service
+  (R463).** Squid resolves an allowed domain itself, so whoever controls its DNS could aim
+  it at `169.254.169.254` (or `169.254.170.2`, or loopback). Loopback and link-local
+  destinations are now refused before any allow-list entry. LAN addresses such as a MinIO on
+  `192.168.x.x` still work.
 - **The image scan failed on valkey's zlib** (R461). A new critical advisory,
   CVE-2026-4738 in Alpine's zlib 1.3.2-r1, is in the pinned
   `valkey/valkey:8.1.11-alpine`, and no valkey build carries the fix yet. In that

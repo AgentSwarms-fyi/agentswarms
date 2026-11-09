@@ -109,9 +109,41 @@ const server = http.createServer((req, res) => {
   res.writeHead(200, { "Content-Type": "text/plain" });
   res.end("agentswarms-notebook-gateway");
 });
+// Idle keep-alive sockets must outlive a load balancer's (an AWS ALB keeps
+// them 60 s or more), or the balancer reuses one Node is closing: an
+// intermittent 502 (R463). Same setting and default as the app's server.
+const KEEPALIVE_MS = Number(process.env.HTTP_KEEPALIVE_TIMEOUT_MS) || 75_000;
+server.keepAliveTimeout = KEEPALIVE_MS;
+server.headersTimeout = KEEPALIVE_MS + 5_000;
+
 const wss = new WebSocketServer({ server });
 
+// A notebook websocket can sit idle for minutes while someone reads output.
+// A ping every 25 s keeps it below any balancer's idle timeout, and a browser
+// that did not answer the previous ping is gone — its socket is ended rather
+// than left holding a kernel (R463). Browsers answer pings on their own.
+const PING_MS = 25_000;
+const heartbeat = setInterval(() => {
+  for (const ws of wss.clients) {
+    if (ws.isAlive === false) {
+      ws.terminate();
+      continue;
+    }
+    ws.isAlive = false;
+    try {
+      ws.ping();
+    } catch {
+      /* a socket mid-close; the next round ends it */
+    }
+  }
+}, PING_MS);
+heartbeat.unref();
+
 wss.on("connection", async (browser, req) => {
+  browser.isAlive = true;
+  browser.on("pong", () => {
+    browser.isAlive = true;
+  });
   const send = (obj) => {
     if (browser.readyState === WebSocket.OPEN) browser.send(JSON.stringify(obj));
   };
@@ -254,3 +286,28 @@ wss.on("connection", async (browser, req) => {
 server.listen(PORT, () => {
   console.log(`[notebook-gateway] listening on :${PORT}`);
 });
+
+// SIGTERM (a restart, a rollout, a scale-in): stop taking connections and
+// close each open notebook with 1012 "service restart", the close code that
+// means "come back shortly", instead of letting the process die under it.
+// Closing the browser side runs the same cleanup as a user leaving, so each
+// kernel connection is released.
+let stopping = false;
+for (const signal of ["SIGTERM", "SIGINT"]) {
+  process.on(signal, () => {
+    if (stopping) return;
+    stopping = true;
+    console.log(`[notebook-gateway] ${signal}: closing ${wss.clients.size} notebook connection(s)`);
+    clearInterval(heartbeat);
+    server.close();
+    for (const ws of wss.clients) {
+      try {
+        ws.close(1012, "gateway restarting");
+      } catch {
+        /* already closing */
+      }
+    }
+    // Give the close frames a moment to go out, then exit.
+    setTimeout(() => process.exit(0), 1_000).unref();
+  });
+}

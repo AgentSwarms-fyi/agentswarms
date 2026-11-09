@@ -33,6 +33,7 @@ import {
 } from "@/utils/agents/agentConfigGate";
 import { budgetMessage, getBudgetDecision } from "@/utils/budgetGuard.server";
 import { internalSecretMatches } from "@/utils/internalOrigin.server";
+import { withSseHeartbeat } from "@/utils/sse.server";
 import {
   resolveMemoryConfig,
   loadMemoryContext,
@@ -2494,7 +2495,7 @@ export const Route = createFileRoute("/api/chat")({
                   effectiveGuardrails,
                   citations.length > 0,
                 );
-                return new Response(guarded, {
+                return new Response(withSseHeartbeat(guarded), {
                   headers: {
                     "Content-Type": "text/event-stream",
                     "Cache-Control": "no-cache",
@@ -2537,7 +2538,7 @@ export const Route = createFileRoute("/api/chat")({
               effectiveGuardrails,
               citations.length > 0,
             );
-            return new Response(guarded, {
+            return new Response(withSseHeartbeat(guarded), {
               headers: {
                 "Content-Type": "text/event-stream",
                 "Cache-Control": "no-cache",
