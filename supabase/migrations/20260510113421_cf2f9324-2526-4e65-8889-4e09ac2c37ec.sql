@@ -83,10 +83,21 @@ CREATE INDEX idx_swarm_run_edges_run ON public.swarm_run_edges(run_id, created_a
 CREATE POLICY "Users manage own swarm run edges" ON public.swarm_run_edges
   FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
--- Enable pg_cron and schedule daily purge of runs older than 30 days
-CREATE EXTENSION IF NOT EXISTS pg_cron;
-SELECT cron.schedule(
-  'purge-old-swarm-runs',
-  '0 3 * * *',
-  $$ DELETE FROM public.swarm_runs WHERE started_at < now() - interval '30 days'; $$
-);
+-- Enable pg_cron and schedule daily purge of runs older than 30 days.
+-- Only where pg_cron exists (R467): a plain Postgres without it skips this.
+-- 20261113000000 unschedules the job again: retention is the app's, one
+-- configurable rule on every database (utils/observability/retention.server).
+DO $outer$
+BEGIN
+  BEGIN
+    CREATE EXTENSION IF NOT EXISTS pg_cron;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'pg_cron is not available on this server (%); no purge job scheduled', SQLERRM;
+    RETURN;
+  END;
+  PERFORM cron.schedule(
+    'purge-old-swarm-runs',
+    '0 3 * * *',
+    $$ DELETE FROM public.swarm_runs WHERE started_at < now() - interval '30 days'; $$
+  );
+END $outer$;

@@ -2,15 +2,30 @@
 -- Creates the queue system, send log, send state, suppression, and unsubscribe
 -- tables used by both auth and transactional emails.
 
--- Extensions required for queue processing
-CREATE EXTENSION IF NOT EXISTS pg_net SCHEMA extensions;
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
-    CREATE EXTENSION pg_cron;
-  END IF;
+-- Extensions for queue processing. Each is OPTIONAL since R467: Supabase
+-- (hosted and self-hosted) has all four; a plain Postgres, Amazon RDS among
+-- them, has no pg_net, supabase_vault or pgmq, and pg_cron only when the
+-- server preloads it. The email queue that used them was removed
+-- (20260716000000_opensource_cleanup), so a database without them installs
+-- everything else and says which it skipped. A database that already ran this
+-- file never runs it again; this only changes what a new one does.
+DO $$
+DECLARE
+  ext text;
+BEGIN
+  FOREACH ext IN ARRAY ARRAY['pg_net', 'pg_cron', 'supabase_vault', 'pgmq'] LOOP
+    CONTINUE WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = ext);
+    BEGIN
+      IF ext = 'pg_net' THEN
+        CREATE EXTENSION IF NOT EXISTS pg_net SCHEMA extensions;
+      ELSE
+        EXECUTE format('CREATE EXTENSION IF NOT EXISTS %I', ext);
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      RAISE NOTICE 'extension % is not available on this server (%); skipped', ext, SQLERRM;
+    END;
+  END LOOP;
 END $$;
-CREATE EXTENSION IF NOT EXISTS supabase_vault;
-CREATE EXTENSION IF NOT EXISTS pgmq;
 
 -- Create email queues (auth = high priority, transactional = normal)
 -- Wrapped in DO blocks to handle "queue already exists" errors idempotently.

@@ -374,15 +374,16 @@ per setting the runtime one wins:
 Four settings, all with defaults that suit an ALB or a Kubernetes Service.
 Change them only to match a balancer you have configured differently.
 
-| Setting | Default | What it does |
-| --- | --- | --- |
-| `DRAIN_TIMEOUT_MS` | `25000` | After SIGTERM, how long open requests (a chat reply mid-stream) get to finish before the process closes them and exits. Readiness answers 503 from the first moment. |
-| `DRAIN_DELAY_MS` | `0` | Keep accepting connections this long after SIGTERM, while readiness already says 503. On Kubernetes without a `preStop` hook, a few seconds let the Service drop the pod before its port closes. |
+| Setting                     | Default | What it does                                                                                                                                                                                                                                                                                                                       |
+| --------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DRAIN_TIMEOUT_MS`          | `25000` | After SIGTERM, how long open requests (a chat reply mid-stream) get to finish before the process closes them and exits. Readiness answers 503 from the first moment.                                                                                                                                                               |
+| `DRAIN_DELAY_MS`            | `0`     | Keep accepting connections this long after SIGTERM, while readiness already says 503. On Kubernetes without a `preStop` hook, a few seconds let the Service drop the pod before its port closes.                                                                                                                                   |
 | `HTTP_KEEPALIVE_TIMEOUT_MS` | `75000` | How long an idle keep-alive connection stays open. It must be **longer than the balancer's idle timeout**, or the balancer occasionally sends a request down a connection the server is closing (an intermittent 502). Set it about 5 s above yours (an ALB at 120 s wants `125000`). The notebook gateway reads the same setting. |
-| `SSE_HEARTBEAT_MS` | `15000` | A streamed reply that goes quiet gets a comment line (`: ka`) this often. SSE clients ignore it; idle timeouts in between (an ALB, CloudFront's 30 s, nginx) see traffic. `0` turns it off. |
+| `SSE_HEARTBEAT_MS`          | `15000` | A streamed reply that goes quiet gets a comment line (`: ka`) this often. SSE clients ignore it; idle timeouts in between (an ALB, CloudFront's 30 s, nginx) see traffic. `0` turns it off.                                                                                                                                        |
 
 Allow at least `DRAIN_TIMEOUT_MS` plus a few seconds in the platform's own stop
 timeout:
+
 - **Compose:** `docker-compose.yml` sets `stop_grace_period: 30s` for the app
   (Compose's default is 10 s).
 - **Kubernetes:** the manifests give the web pods 45 s.
@@ -1643,28 +1644,27 @@ Kong now listens on `:8000` (HTTP) — that is your `SUPABASE_URL`.
 
 ### 3. Check the extensions before you migrate
 
-The migrations use five Postgres extensions. Recent `supabase/postgres` images
-ship all of them, but **verify rather than assume** — a missing one fails the
-migration halfway. Run this against your instance:
+One extension is required: `vector` (pgvector), for Knowledge Base embeddings
+and their HNSW index. A database without it fails the migration that creates
+it. Recent `supabase/postgres` images ship it; check rather than assume:
 
 ```sql
-select e.name,
-       case when x.extname is null then 'MISSING' else 'ok' end as status
-from (values ('vector'),('pg_net'),('pg_cron'),('pgmq'),('supabase_vault')) as e(name)
-left join pg_extension x on x.extname = e.name
-order by status desc, e.name;
+select count(*) = 1 as vector_ok from pg_available_extensions where name = 'vector';
 ```
 
-Anything `MISSING` needs `CREATE EXTENSION IF NOT EXISTS <name>;` as a
-superuser first. What each is for:
+Four more are optional (R467). An early migration tries to create them, and a
+database without them skips each one with a `NOTICE` instead of failing:
 
-| Extension        | Used for                                                         |
-| ---------------- | ---------------------------------------------------------------- |
-| `vector`         | Knowledge Base embeddings (pgvector, HNSW cosine index)          |
-| `pg_net`         | Database-initiated HTTP used by scheduled work                   |
-| `pg_cron`        | The in-database purge of runs/traces past their retention window |
-| `pgmq`           | Queue tables behind background jobs                              |
-| `supabase_vault` | Supabase's own secret storage                                    |
+| Extension        | What it was for                                                                |
+| ---------------- | ------------------------------------------------------------------------------ |
+| `pg_net`         | The email queue's database-initiated HTTP; the queue was removed (20260716)    |
+| `pgmq`           | That queue's tables                                                            |
+| `supabase_vault` | That queue's stored key                                                        |
+| `pg_cron`        | Two nightly 30-day purges, unscheduled in 20261113: retention is the app's now |
+
+Supabase's images have all four, so a self-hosted Supabase installs exactly as
+before. A plain PostgreSQL, Amazon RDS among them, has none of the first three;
+see [Plain PostgreSQL](#plain-postgresql-amazon-rds-and-others).
 
 ### 4. Apply the schema
 
@@ -1700,16 +1700,18 @@ Postgres directly.
 Storage buckets and their RLS policies are created by the migrations, so there
 is nothing to click in Studio afterwards.
 
-**Verified, at the 146-migration mark.** The whole set was applied to a stock
-`supabase/postgres:15.8.1.060` container: 146 applied, 0 failed, producing 98
-tables with RLS enabled on all 98, the pgvector HNSW index, 2 `pg_cron` jobs
-and 3 storage buckets. All five required extensions were present in that image.
+**Verified at 292 migrations (R467).** The pinned `supabase/postgres:17.6.1.136`
+ran as a self-hosted install runs it, with GoTrue v2.197.0 and storage-api
+v1.89.12 serving first.
 
-The set has grown since that run (**over two hundred migrations** as of this
-writing) and the bare-container test has not been repeated, so treat the
-numbers above as the last full verification rather than a current guarantee.
-Run the extension preflight regardless — it is what actually protects you, and
-the image you pull may differ from the one tested.
+- The first 291 migrations applied as `postgres`, no extension skipped, all
+  five present.
+- The two 30-day `pg_cron` jobs were there (`0 3 * * *`).
+- `20261113000000` then left none.
+
+The same set also installs on a plain PostgreSQL whose admin is not a superuser
+([Plain PostgreSQL](#plain-postgresql-amazon-rds-and-others)). The extension
+preflight still protects you: the image you pull may differ from the one tested.
 
 ### 5. Point AgentSwarms at it
 
@@ -1779,6 +1781,78 @@ reporting. Fonts, the SQL engine (DuckDB-Wasm) and the PDF and DOCX readers
 from the app itself, and so are the provider logos (Simple Icons, R326).
 Analytics exist only if you set `PUBLIC_GA_ID` or `VITE_GA_ID`. See
 [/architecture](./ARCHITECTURE.md) and [/security](../src/routes/security.tsx).
+
+## Plain PostgreSQL (Amazon RDS and others)
+
+Supabase's services (GoTrue, PostgREST, storage-api) can run on a PostgreSQL
+you do not have a superuser on: Amazon RDS, Aurora, Cloud SQL, Azure Database.
+That is how the AWS deployment runs them, with RDS Multi-AZ underneath. The
+`supabase/postgres` image sets the database up with its own init scripts, as a
+superuser; a managed database's admin cannot run those. It runs
+`deploy/aws/spec/bootstrap/rds-bootstrap.sql` instead (R467).
+
+**What the database needs:**
+
+- PostgreSQL 15 or newer (tested: 17), with `vector` (pgvector) available.
+- An admin that can create roles and databases. The admin must also be able to
+  grant `BYPASSRLS`, because `service_role` has it, as on Supabase, and the
+  app's server-side client relies on it.
+
+  Where the admin may not grant it, the bootstrap stops at once with the
+  server's reason, before anything is installed. Measured:
+  `Only roles with the BYPASSRLS attribute may create roles with the BYPASSRLS attribute`.
+  Whether an RDS master user may grant it is the first thing the AWS plan's
+  Phase 0 checks on a real account.
+
+- `pg_net`, `pgmq`, `supabase_vault` and `pg_cron` are not needed. RDS has
+  none of the first three.
+
+**The order:**
+
+1. The bootstrap, once, as the admin:
+
+   ```bash
+   psql "$ADMIN_URL" -v ON_ERROR_STOP=1 -v authenticator_password=... \
+     -v auth_admin_password=... -v storage_admin_password=... \
+     -f deploy/aws/spec/bootstrap/rds-bootstrap.sql
+   ```
+
+2. Start GoTrue once as `supabase_auth_admin`, and storage-api as
+   `supabase_storage_admin`. Each installs its own schema on first start.
+   Wait until both are **serving**: GoTrue logs `API started`, and storage-api
+   answers `/status`. Each serves only after its own migrations finish. A
+   column storage-api adds partway (`storage.buckets.public`) is not enough.
+   Measured: migrations started at that point locked `storage.buckets` while
+   storage-api was still altering it, and one died with `deadlock detected`.
+3. The migrations, as the admin:
+
+   ```bash
+   DATABASE_URL="$ADMIN_URL" bash docker/db-migrate/apply-migrations.sh
+   ```
+
+   This records each migration where the Supabase CLI does, so the CLI and the
+   script can take turns.
+
+4. PostgREST logs in as `authenticator`.
+
+All four steps are safe to run again.
+
+**Not included:** Supabase Realtime. It needs a true superuser, so it is off on
+a plain Postgres. The live updates it carries (the approval inbox) show up on
+the next refresh until the polling fallback lands, which is the next round of
+Phase 2.
+
+**Measured** with `bash deploy/ci/rds-like/run.sh`. It uses PostgreSQL 17 with
+pgvector, whose admin is not a superuser, and the pinned GoTrue v2.197.0,
+storage-api v1.89.12 and PostgREST v14.18.
+
+- GoTrue applied 75 migrations, storage-api 80, and the runner all 292.
+- The four optional extensions were skipped with a notice each.
+- 170 public tables, every one with RLS.
+- PostgREST served the schema. User A wrote and read only A's rows, and was
+  refused (403) writing one as user B. User B and anonymous callers read none
+  of them, and `service_role` read both users' rows.
+- A second run applied nothing and failed nothing.
 
 ## Production checklist (cross-cutting)
 

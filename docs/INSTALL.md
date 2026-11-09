@@ -158,7 +158,7 @@ manual walkthrough in
 | **Download & run**   | Downloads the `docker` folder of the official Supabase repository into `supabase-docker/` (git-ignored), at a commit this script has been proved against, and starts it. First run pulls ~2 GB of images. |
 | **Generate secrets** | Postgres password, `JWT_SECRET`, and the `ANON` / `SERVICE_ROLE` API keys **signed from that secret** (HS256, locally — nothing leaves your machine), plus the Studio dashboard login and vault keys.     |
 | **Wait properly**    | Waits for the auth service to answer **and for the storage service to finish its own boot migrations** — pushing the schema too early fails three migrations (see DEPLOYMENT.md § "Apply the schema").    |
-| **Extensions**       | Ensures the five required Postgres extensions exist (`vector`, `pg_net`, `pg_cron`, `pgmq`, `supabase_vault`).                                                                                            |
+| **Extensions**       | Ensures the Postgres extensions the migrations use exist: `vector` (required) and `pg_net`, `pg_cron`, `pgmq`, `supabase_vault` (optional since R467).                                                    |
 | **Schema**           | Applies all migrations with a pinned Supabase CLI (`supabase db push`), pointed at your own database. The CLI asks you to confirm first; `--yes` answers for you when nobody is at a terminal.            |
 | **Admin user**       | Creates your account via the auth admin API, email pre-confirmed, and sets it as `ADMIN_EMAIL` — the instance's bootstrap superadmin.                                                                     |
 | **Wire the app**     | Writes `SUPABASE_URL`, both keys, the `VITE_` copies, `ADMIN_EMAIL`/`VITE_ADMIN_EMAIL` and `SITE_URL` into `.env` — nothing to copy by hand.                                                              |
@@ -233,10 +233,11 @@ continue at [§5](#5-run-the-app).
 
 The repo ships over two hundred SQL migrations under `supabase/migrations/` that create
 every table, RLS policy, Postgres function/trigger, index, and the
-`avatars` storage bucket. They also enable the Postgres extensions the app
-needs: `vector` (pgvector, for Knowledge Base embeddings), `pg_cron`,
-`pg_net`, `pgmq`, and `supabase_vault` — all available on Supabase's hosted
-free tier, no manual extension setup required.
+`avatars` storage bucket. They also enable `vector` (pgvector, for Knowledge
+Base embeddings), the one extension the app requires, and, where the server
+has them, `pg_cron`, `pg_net`, `pgmq` and `supabase_vault`, which nothing
+needs any more (a server without them skips each). Supabase's hosted free tier
+has all five, so there is no manual extension setup.
 
 **Recommended: Supabase CLI**
 

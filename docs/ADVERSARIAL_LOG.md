@@ -109,6 +109,40 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-10 — R467: the schema on a plain PostgreSQL, and retention in one place
+
+**Why this round.** Phase 2 of the AWS plan, part 1. On AWS the database is RDS,
+where the admin is not a superuser and Supabase's image cannot set it up. The
+question was what the 292 migrations and Supabase's services actually need.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| Supabase databases deleted runs and traces after 30 days, whatever retention was set | S2 | Two `pg_cron` jobs from 20260510 purge every swarm run (with its steps and edges) and every execution trace older than 30 days, nightly. They read no setting. The app's documented rule (`retention.server.ts`) keeps everything by default, and keeps a trace that carries a decision at least `provenance_retention_days`, 183 by default, the EU AI Act Article 26(6) deployer floor. No later migration removed the jobs. **Measured** on the pinned `supabase/postgres:17.6.1.136` after the first 291 migrations: `cleanup-old-observability-data [0 3 * * *]` and `purge-old-swarm-runs [0 3 * * *]` in `cron.job`. After `20261113000000`, none. A database without `pg_cron` never had them, so the same app kept different histories depending on where it ran. The app's own purge covers the same tables (steps and edges cascade from runs). Nothing is deleted by the fix |
+| The schema needed four extensions RDS does not have | S3 | `pg_net`, `pgmq` and `supabase_vault` were created unguarded in 20260419, and `pg_cron` in two more migrations, although the email queue that used the first three was removed in 20260716. Each is now tried in a guard that skips it with a `NOTICE`; `vector` stays required. **Measured** on PostgreSQL 17 + pgvector: the four were skipped by name and the rest applied. On the Supabase image: no skip, and all five installed as before |
+| A managed Postgres's admin could not set up Supabase's services | S3 | `deploy/aws/spec/bootstrap/rds-bootstrap.sql` does it as that admin, and `docker/db-migrate/apply-migrations.sh` applies the migrations, recording them where the Supabase CLI does. **Measured** with `deploy/ci/rds-like/run.sh` on PostgreSQL 17 + pgvector whose admin has CREATEROLE and CREATEDB but is not a superuser. GoTrue applied 75 migrations and storage-api 80, all 292 migrations applied, and 170 of 170 public tables have RLS. PostgREST checks: user A wrote and read only A's rows, and was refused (403) writing one as user B. User B and anonymous callers read none of them, and `service_role` read both users' rows. A second run applied 0 migrations, and the bootstrap ran again cleanly |
+| Supabase's `service_role` needs BYPASSRLS, which a managed admin may not grant | open | **Measured** with an admin without BYPASSRLS: the bootstrap stops on its first role, `Only roles with the BYPASSRLS attribute may create roles with the BYPASSRLS attribute`, before installing anything. Whether an RDS master user has it is Phase 0's first check on a real account |
+
+**What would have been wrong to conclude.**
+
+- *"The bootstrap failed, so a managed admin cannot give a role a schema."* The first run
+  stopped at `CREATE SCHEMA auth AUTHORIZATION supabase_auth_admin` with "must be able
+  to SET ROLE". Since PostgreSQL 16 a role's creator holds it WITH ADMIN, without being
+  a member. The admin now joins the two service roles first, which it may do.
+- *"The app's migrations deadlock against storage-api."* One run died at 20260422 with
+  `deadlock detected`. The test started the migrations once `storage.buckets.public`
+  existed, which storage-api adds partway through: 16 of its migrations had run. The
+  migrations then locked `storage.buckets` while storage-api was still altering it.
+  Waiting until storage-api serves `/status` fixed it. The docs now say to wait for
+  both services to serve. `setup-selfhosted.sh` and `setup-k8s.sh` wait for that same
+  column; there the CLI download in between outlasts storage-api, so it has not bitten,
+  but the signal is wrong (follow-up).
+- *"`vector` cannot be created by a non-superuser, so RDS needs a superuser."* It is
+  untrusted in a plain Postgres. RDS lets its admin create the extensions on its list,
+  and the test server stands in for that.
+- *"The runner works."* The first repo copy failed on its first real call. An apostrophe
+  in a `${VAR:?message}` opened a quote in bash. A test now runs `bash -n` on all three
+  new scripts.
+
 ### 2026-11-09 — R466: a sandbox's port answers only to the platform
 
 **Why this round.** Phase 1 of the AWS plan, part 4: authentication on the kernel.

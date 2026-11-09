@@ -16,6 +16,10 @@ development branch and may be ahead of the latest tag.
 
 ### Changed
 
+- **`pg_net`, `pgmq`, `supabase_vault` and `pg_cron` are optional (R467).** Only
+  `vector` is required. The email queue that used the first three was removed by
+  migration 20260716000000. A database without them skips each with a notice instead
+  of failing a migration, and Supabase databases install exactly as before.
 - **Load balancers should check `/api/health/ready?scope=local` (R463).** It answers 503
   while an instance drains or on an analytics node, and it leaves the database out, so a
   database failover no longer marks every instance unhealthy at once (on ECS, that would
@@ -43,6 +47,15 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **The schema installs on a plain PostgreSQL: Amazon RDS and others (R467).** A
+  managed database's admin is not a superuser and cannot run the `supabase/postgres`
+  image's init scripts. `deploy/aws/spec/bootstrap/rds-bootstrap.sql` does what
+  Supabase's services need, as that admin: the API roles (`service_role` with
+  `BYPASSRLS`), the auth and storage schemas, the realtime publication and default
+  privileges. `docker/db-migrate/apply-migrations.sh` then applies the migrations,
+  recording them where the Supabase CLI does. `deploy/ci/rds-like/run.sh` checks all of
+  it end to end on an RDS-shaped PostgreSQL 17. See
+  [Plain PostgreSQL](docs/DEPLOYMENT.md#plain-postgresql-amazon-rds-and-others).
 - **The lakehouse on AWS without keys (R465).** Leave `LAKEHOUSE_S3_KEY_ID` and
   `LAKEHOUSE_S3_SECRET` empty with an AWS bucket, and the app reaches it as its own AWS
   identity: an ECS task role, IRSA or Pod Identity on EKS, an instance profile, or
@@ -119,6 +132,15 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **Supabase databases deleted runs and traces after 30 days, whatever retention was
+  set (R467).** Two `pg_cron` jobs from May purged every swarm run, with its steps and
+  edges, and every execution trace older than 30 days, nightly. They read no setting.
+  The documented rule is the app's: keep everything by default, and keep a trace that
+  carries a decision (the evidence behind an answer) at least
+  `provenance_retention_days`, 183 by default (the EU AI Act deployer floor). The jobs
+  overrode both, and a database without `pg_cron` (RDS) never had them. Migration
+  `20261113000000` unschedules them wherever they exist. Nothing is deleted by it. To
+  keep the old behaviour, set trace retention to 30 days under Admin -> IAM -> Settings.
 - **One user's notebook could run code in another user's sandbox (R466).** Every
   sandbox serves on `:8888`: Kernel Gateway, an MCP server or a scorer. Every
   sandbox shares one Compose network, and none of them asked who was calling. Measured:
