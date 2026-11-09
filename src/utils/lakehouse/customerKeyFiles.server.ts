@@ -50,6 +50,7 @@ import {
   type S3Target,
 } from "./presign.server";
 import { lakehouseConfig, lakehouseS3SecretParts, type LakehouseConfig } from "./core.server";
+import { lakeCredentials } from "@/utils/lakehouse/lakeCredentials.server";
 import {
   MODEL_ARTIFACT_ROOT,
   artifactFolderOf,
@@ -94,15 +95,18 @@ function bucketRegion(cfg: LakehouseConfig | null): string {
   return cfg?.s3.region?.trim() || "us-east-1";
 }
 
-function targetFor(cfg: LakehouseConfig, bucket: string): S3Target {
+/** A signing target in the store, with the credentials in force now (R465). */
+async function targetFor(cfg: LakehouseConfig, bucket: string): Promise<S3Target> {
+  const creds = await lakeCredentials();
   return {
     endpoint: cfg.s3.endpoint,
     region: bucketRegion(cfg),
     useSsl: cfg.s3.useSsl,
     urlStyle: cfg.s3.urlStyle === "path" ? "path" : "vhost",
     bucket,
-    accessKeyId: cfg.s3.keyId,
-    secretAccessKey: cfg.s3.secret,
+    accessKeyId: creds.accessKeyId,
+    secretAccessKey: creds.secretAccessKey,
+    ...(creds.sessionToken ? { sessionToken: creds.sessionToken } : {}),
   };
 }
 
@@ -398,7 +402,7 @@ export async function ensureCustomerKeySecrets(
   const plan = await customerKeyFilePlan(c);
   lastPlan = plan;
   const want = new Map<string, string>();
-  const base = lakehouseS3SecretParts(cfg);
+  const base = lakehouseS3SecretParts(cfg, await lakeCredentials());
   const parts = new Map<string, string | null>();
   for (const f of [...plan.schemas, ...plan.shares]) {
     if (f.kmsKeyId && !parts.has(f.kmsKeyId)) {
@@ -487,7 +491,7 @@ async function askStore(keyRef: string): Promise<void> {
   const cfg = lakehouseConfig();
   const lake = cfg ? splitS3Url(cfg.dataUrl) : null;
   if (!cfg || !lake) return;
-  const target = targetFor(cfg, lake.bucket);
+  const target = await targetFor(cfg, lake.bucket);
   try {
     recordVerdict(
       await s3HeaderRoundTrip(
@@ -766,7 +770,7 @@ export async function reEncryptLakehouseFiles(
     const ids = new Set(targets.map((s) => s.schemaId));
     const folders: FolderPlan[] = [...targets, ...plan.shares.filter((t) => ids.has(t.schemaId))];
     for (const f of folders) {
-      const target = targetFor(cfg, f.bucket);
+      const target = await targetFor(cfg, f.bucket);
       let listed: { key: string }[];
       try {
         listed = await s3ListKeys(target, f.keyPrefix);
@@ -778,7 +782,8 @@ export async function reEncryptLakehouseFiles(
       await pool(listed, 8, ({ key }) => reEncryptOne(target, key, f.kmsKeyId, plan, result));
     }
     const lake = splitS3Url(cfg.dataUrl);
-    if (lake) await reEncryptModelArtifacts(targetFor(cfg, lake.bucket), plan, owners, result);
+    if (lake)
+      await reEncryptModelArtifacts(await targetFor(cfg, lake.bucket), plan, owners, result);
   } finally {
     c.closeSync();
   }
@@ -865,7 +870,7 @@ export async function checkStoreUnderKey(row: CustomerKeyRow): Promise<StoreChec
   if (!cfg) return { covered: false, why: "The lakehouse is not configured." };
   const lake = splitS3Url(cfg.dataUrl);
   if (!lake) return { covered: false, why: "The lakehouse's data path is not on S3." };
-  const target = targetFor(cfg, lake.bucket);
+  const target = await targetFor(cfg, lake.bucket);
   const key = `_customer_key_check/${row.id}/${randomUUID()}.txt`;
   if (store === "gcs") return checkCloudStorageUnderKey(target, key, decision.kmsKeyId);
   const put = await s3PutObjectUnderKey(

@@ -96,8 +96,6 @@ vi.mock("@/utils/lakehouse/core.server", async (orig) => {
       catalogUrl: "postgres://x",
       dataUrl: "s3://lake/main",
       s3: {
-        keyId: "AKTEST",
-        secret: "SKTEST",
         endpoint: "minio:9000",
         region: "us-east-1",
         urlStyle: "path",
@@ -106,6 +104,17 @@ vi.mock("@/utils/lakehouse/core.server", async (orig) => {
     }),
   };
 });
+// The store's keys come from the credential resolver, not the config (R465).
+vi.mock("@/utils/lakehouse/lakeCredentials.server", async (orig) => ({
+  ...(await orig<typeof import("@/utils/lakehouse/lakeCredentials.server")>()),
+  lakeCredentials: async () => ({
+    accessKeyId: "AKTEST",
+    secretAccessKey: "SKTEST",
+    expiresAt: null,
+    mode: "keys",
+    source: "test",
+  }),
+}));
 
 const lake = await import("@/utils/lakehouse/sandboxLake.server");
 

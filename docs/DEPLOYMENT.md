@@ -918,6 +918,13 @@ kubectl -n agentswarms patch secret agentswarms-env --type merge -p "{\"stringDa
 Give that key pair `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject` and
 `s3:ListBucket` on that one bucket, and nothing else.
 
+Or use no keys: give the app's own role (IRSA or Pod Identity) those same
+permissions and leave `LAKEHOUSE_S3_KEY_ID` and `LAKEHOUSE_S3_SECRET` out of
+the patch. The app then reaches the bucket as that role, with temporary
+credentials it renews itself (R465, [LAKEHOUSE.md](./LAKEHOUSE.md#configuration)).
+The backup script still needs keys to copy the lake; on AWS, S3 versioning or
+AWS Backup covers the bucket instead.
+
 **11. The notebook namespace, if you train or run pipelines.** Edit the
 gateway image in the manifest first, then:
 

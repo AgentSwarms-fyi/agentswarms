@@ -28,6 +28,7 @@ import {
   type LakehouseResult,
   type SchemaRow,
 } from "./core.server";
+import { knownLakeSecrets, lakeCredentials } from "@/utils/lakehouse/lakeCredentials.server";
 import { loadPolicies } from "./policies.server";
 import { compileSparkQuery, type SparkQueryTable } from "./sparkQueryCodegen";
 import type { IcebergCatalogRow } from "./iceberg.server";
@@ -785,7 +786,7 @@ async function icebergEnv(
     }
     const { lakeTarget } = await import("@/utils/ml/experimentArtifacts.server");
     const { assumeScopedCredentials } = await import("@/utils/lakehouse/sts.server");
-    const lt = lakeTarget();
+    const lt = await lakeTarget();
     const prefixes = tables
       .filter((t) => t.iceberg?.catalog_id === cat.id)
       .map((t) => (lt ? lakePrefix(lt.bucket, t.iceberg!.location) : null));
@@ -807,10 +808,16 @@ async function icebergEnv(
       env[icebergEnvKey(n, "S3_SESSION_TOKEN")] = scoped.sessionToken;
       secretValues.push(scoped.secretAccessKey, scoped.sessionToken);
     } else {
-      // The lakehouse engine reads these tables with the same keys.
-      env[icebergEnvKey(n, "S3_KEY_ID")] = cfg.s3.keyId;
-      env[icebergEnvKey(n, "S3_SECRET")] = cfg.s3.secret;
-      secretValues.push(cfg.s3.secret);
+      // The lakehouse engine reads these tables with the same credentials,
+      // temporary ones with their session token on the AWS chain (R465).
+      const own = await lakeCredentials();
+      env[icebergEnvKey(n, "S3_KEY_ID")] = own.accessKeyId;
+      env[icebergEnvKey(n, "S3_SECRET")] = own.secretAccessKey;
+      secretValues.push(own.secretAccessKey);
+      if (own.sessionToken) {
+        env[icebergEnvKey(n, "S3_SESSION_TOKEN")] = own.sessionToken;
+        secretValues.push(own.sessionToken);
+      }
     }
   }
   return { env, secretValues };
@@ -858,7 +865,7 @@ async function queryEnv(
   // Read, and only of the files this query reads (R230).
   const { lakeTarget } = await import("@/utils/ml/experimentArtifacts.server");
   const { assumeScopedCredentials } = await import("@/utils/lakehouse/sts.server");
-  const lt = lakeTarget();
+  const lt = await lakeTarget();
   // A job that reads no lakehouse file (an Iceberg table's maintenance, or a
   // query of Iceberg mounts only) is given no lakehouse credential at all:
   // its catalogs' own come from icebergEnv. Before R459 every plan read files.
@@ -886,9 +893,15 @@ async function queryEnv(
     env.ETL_LAKEHOUSE_S3_SESSION_TOKEN = scoped.sessionToken;
     secretValues.push(scoped.secretAccessKey, scoped.sessionToken);
   } else {
-    env.ETL_LAKEHOUSE_S3_KEY_ID = cfg.s3.keyId;
-    env.ETL_LAKEHOUSE_S3_SECRET = cfg.s3.secret;
-    secretValues.push(cfg.s3.secret);
+    // The engine's own, with the session token when they are temporary (R465).
+    const own = await lakeCredentials();
+    env.ETL_LAKEHOUSE_S3_KEY_ID = own.accessKeyId;
+    env.ETL_LAKEHOUSE_S3_SECRET = own.secretAccessKey;
+    secretValues.push(own.secretAccessKey);
+    if (own.sessionToken) {
+      env.ETL_LAKEHOUSE_S3_SESSION_TOKEN = own.sessionToken;
+      secretValues.push(own.sessionToken);
+    }
   }
   return withSpark(env, secretValues, storedUrl);
 }
@@ -941,7 +954,8 @@ async function withSpark(
 async function staticSecrets(storedUrl: string | null): Promise<string[]> {
   const cfg = lakehouseConfig();
   if (!cfg) return [];
-  const out = [cfg.s3.secret, catalogUrlToLibpq(cfg.catalog)];
+  // Every store secret and session token this process has used (R465).
+  const out = [...knownLakeSecrets(), catalogUrlToLibpq(cfg.catalog)];
   const { sparkClusterSettings } = await import("@/utils/etl/sparkCluster.server");
   const s = await sparkClusterSettings();
   const url = s.provider === "k8s" ? storedUrl : s.staticUrl;

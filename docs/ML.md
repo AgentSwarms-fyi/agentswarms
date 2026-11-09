@@ -1300,6 +1300,12 @@ its password in the URL: `redis://:PASSWORD@host:6379`, or
 the store reports it as unreachable, with the server's reason, and lookups read
 the lakehouse.
 
+A store with in-transit encryption (ElastiCache among them) is `rediss://`
+(R465). The connection is TLS, and the server's certificate is checked against
+the system's roots plus `NODE_EXTRA_CA_CERTS`, where a private CA goes. There is
+no switch to skip the check: a certificate nobody vouches for is reported like
+a store that does not answer, and lookups read the lakehouse.
+
 It is **valkey** rather than Redis for a licensing reason rather than a
 technical one: Redis moved to RSALv2/SSPL, which this project cannot ship
 inside its own stack. Valkey is the BSD-3 fork of the same server and speaks

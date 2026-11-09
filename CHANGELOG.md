@@ -43,6 +43,20 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **The lakehouse on AWS without keys (R465).** Leave `LAKEHOUSE_S3_KEY_ID` and
+  `LAKEHOUSE_S3_SECRET` empty with an AWS bucket, and the app reaches it as its own AWS
+  identity: an ECS task role, IRSA or Pod Identity on EKS, an instance profile, or
+  `AWS_ACCESS_KEY_ID`. This is the same credential chain its AWS KMS calls use. Those
+  credentials are temporary. Every request the app signs uses the ones in force, session
+  token included. The engine replaces its DuckDB secret, and every customer key's copy,
+  when the chain renews them five minutes before they expire. `LAKEHOUSE_S3_CREDENTIALS=chain`
+  uses the chain with any store; one key without the other, or keys together with
+  `chain`, is refused rather than guessed at. Installs with keys, and any other store
+  without them, behave as before. See [LAKEHOUSE.md](docs/LAKEHOUSE.md#configuration).
+- **The online feature store over TLS: `rediss://` (R465).** This is what a managed store
+  with in-transit encryption, ElastiCache among them, needs. The certificate is always
+  verified against the system's roots plus `NODE_EXTRA_CA_CERTS`; there is no switch to
+  skip it.
 - **One image for any environment: browser settings read at startup (R464).** Every
   `VITE_*` setting, which the build bakes into the image, now also has a `PUBLIC_*` name
   that the server reads when it starts and hands to each page as a JSON data block:
@@ -105,6 +119,19 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **A `rediss://` feature-store URL sent its password in the clear (R465).** The client
+  read any scheme as plain TCP and sent `AUTH` first, so an operator who asked for TLS
+  got a connection that put the password on the wire unencrypted (measured), to a store
+  that then refused it. `rediss://` is TLS now; any other scheme than `redis://`,
+  `valkey://`, `rediss://` or `valkeys://` is refused. The error for an unreadable
+  `FEATURE_STORE_URL` no longer repeats the URL's user and password.
+- **Scoped Spark credentials on AWS asked for twelve hours (R465).** A role's maximum
+  session is one hour unless its owner raised it, and AWS refuses a longer request
+  outright, so on AWS every run fell back to the lakehouse's own credentials. This
+  follows from the code and AWS's documented limit; it was not run on AWS. The default
+  there is now one hour. When the app signs as a role, the call carries its session
+  token and is capped at one hour, which is AWS's limit for role chaining.
+  `LAKEHOUSE_STS_DURATION_SECONDS` still sets it.
 - **The one-command Kubernetes install's page had no Supabase settings (R464).**
   `scripts/setup-k8s.sh` builds the app without `VITE_*` values (`.env` never enters the
   build), so the browser had no Supabase URL and its client threw

@@ -44,14 +44,23 @@ import type { DuckDBConnection, DuckDBInstance } from "@duckdb/node-api";
 import { ENGINE_TIME_ZONE } from "@/lib/duckdbValues";
 import { usesAiSqlFunctions } from "@/utils/aiSql/core";
 import { runWithAiSql, type AiSqlStats } from "@/utils/aiSql/run.server";
+import {
+  credentialStamp,
+  knownLakeSecrets,
+  lakeCredentials,
+  type LakeCredentials,
+} from "@/utils/lakehouse/lakeCredentials.server";
 
 export type LakehouseConfig = {
   catalog: string;
   dataUrl: string;
+  /**
+   * Where the store is and how to address it. Not its credentials: those are
+   * fixed keys or temporary ones from the AWS chain, and every signer asks
+   * lakeCredentials() for them at the moment it signs (R465).
+   */
   s3: {
     endpoint?: string;
-    keyId: string;
-    secret: string;
     region?: string;
     useSsl: boolean;
     urlStyle: string;
@@ -67,8 +76,6 @@ export function lakehouseConfig(): LakehouseConfig | null {
     dataUrl,
     s3: {
       endpoint: process.env.LAKEHOUSE_S3_ENDPOINT?.trim() || undefined,
-      keyId: process.env.LAKEHOUSE_S3_KEY_ID ?? "",
-      secret: process.env.LAKEHOUSE_S3_SECRET ?? "",
       region: process.env.LAKEHOUSE_S3_REGION?.trim() || undefined,
       useSsl: (process.env.LAKEHOUSE_S3_USE_SSL ?? "true").toLowerCase() !== "false",
       urlStyle: process.env.LAKEHOUSE_S3_URL_STYLE?.trim() || "vhost",
@@ -106,12 +113,16 @@ function sq(v: string): string {
  * The lakehouse store's S3 secret, without a scope: the engine's own, and the
  * base of every customer key's scoped one (customerKeyFiles.server), which
  * must reach the same store the same way and differ only in its key.
+ *
+ * `creds` from lakeCredentials(): temporary ones (the AWS chain) carry a
+ * session token, without which the store refuses the key (R465).
  */
-export function lakehouseS3SecretParts(cfg: LakehouseConfig): string[] {
+export function lakehouseS3SecretParts(cfg: LakehouseConfig, creds: LakeCredentials): string[] {
   return [
     "TYPE s3",
-    `KEY_ID ${sq(cfg.s3.keyId)}`,
-    `SECRET ${sq(cfg.s3.secret)}`,
+    `KEY_ID ${sq(creds.accessKeyId)}`,
+    `SECRET ${sq(creds.secretAccessKey)}`,
+    ...(creds.sessionToken ? [`SESSION_TOKEN ${sq(creds.sessionToken)}`] : []),
     ...(cfg.s3.endpoint ? [`ENDPOINT ${sq(cfg.s3.endpoint)}`] : []),
     ...(cfg.s3.region ? [`REGION ${sq(cfg.s3.region)}`] : []),
     `URL_STYLE ${sq(cfg.s3.urlStyle)}`,
@@ -165,7 +176,8 @@ async function createEngine(cfg: LakehouseConfig): Promise<DuckDBInstance> {
         console.warn("[lakehouse] iceberg extension did not load:", firstLine(e));
       }
     }
-    const s3parts = lakehouseS3SecretParts(cfg);
+    const creds = await lakeCredentials();
+    const s3parts = lakehouseS3SecretParts(cfg, creds);
     // MEMORY AND SPILL. Without these a query larger than RAM kills the
     // process — DuckDB's default is "fail rather than spill" when no temp
     // directory is set. A bounded memory limit plus a spill directory turns
@@ -217,6 +229,7 @@ async function createEngine(cfg: LakehouseConfig): Promise<DuckDBInstance> {
     await c.run(`SET pg_pool_max_connections=${Math.max(1, Math.min(256, catalogConns))};`);
     await c.run("SET pg_pool_acquire_mode='wait';");
     await c.run(`CREATE OR REPLACE SECRET lakehouse_s3 (${s3parts.join(", ")});`);
+    engineSecretStamp = credentialStamp(creds);
     await c.run(
       // The postgres: prefix is LOAD-BEARING: without it DuckLake treats the
       // libpq string as a FILE PATH and quietly creates a single-writer
@@ -331,7 +344,9 @@ export function redactLakehouseSecrets(message: string): string {
     .replace(/(\b[a-z+]+:\/\/[^:@\s/]+:)[^@\s]+(@)/gi, "$1[redacted]$2");
 
   const cfg = lakehouseConfig();
-  for (const secret of [cfg?.s3.secret, catalogPassword(cfg?.catalog)]) {
+  // The store's secret key and session tokens, every one this process has
+  // signed with (fixed keys, or the chain's temporary ones), and the catalog's.
+  for (const secret of [...knownLakeSecrets(), catalogPassword(cfg?.catalog)]) {
     // Short values would redact innocuous substrings and make the error
     // unreadable, which is its own kind of failure.
     if (secret && secret.length >= 6) out = out.split(secret).join("[redacted]");
@@ -406,10 +421,39 @@ export function icebergExtensionAvailable(): boolean {
   return icebergLoaded;
 }
 
+/** What the engine's lakehouse_s3 secret was last built from (credentialStamp). */
+let engineSecretStamp: string | null = null;
+
+/**
+ * Rebuild the engine's store secret when its credentials have changed (R465).
+ *
+ * Fixed keys never do, so this is one awaited, already-resolved promise per
+ * connection. The AWS chain's are temporary: lakeCredentials() hands back new
+ * ones five minutes before the old expire, the stamp changes, and the secret
+ * and every customer key's copy of it (customerKeyFiles.server) are replaced
+ * before this connection runs anything. A secret left as it was would start
+ * failing every read the moment the old session token lapsed.
+ */
+export async function refreshEngineSecretIfDue(c: Pick<DuckDBConnection, "run">): Promise<void> {
+  const cfg = lakehouseConfig();
+  if (!cfg) return;
+  const creds = await lakeCredentials();
+  const stamp = credentialStamp(creds);
+  if (stamp === engineSecretStamp) return;
+  await c.run(
+    `CREATE OR REPLACE SECRET lakehouse_s3 (${lakehouseS3SecretParts(cfg, creds).join(", ")});`,
+  );
+  engineSecretStamp = stamp;
+  await import("@/utils/lakehouse/customerKeyFiles.server")
+    .then((m) => m.ensureCustomerKeySecrets(c, true))
+    .catch((e) => console.warn("[lakehouse] customer key files:", (e as Error).message));
+}
+
 export async function lakehouseConnection(): Promise<DuckDBConnection> {
   const engine = await lakehouseEngine();
   const c = await engine.connect();
   await c.run("USE lake;");
+  await refreshEngineSecretIfDue(c);
   if (icebergLoaded) {
     // Catalogs registered on another worker reach this instance here (at
     // most one catalog read every few seconds; nothing per statement).

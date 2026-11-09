@@ -14,6 +14,7 @@
  * cooldown decides whether to close it again.
  */
 import net from "node:net";
+import tls from "node:tls";
 
 import { encodeCommand, parseReplies, RespError, type RespValue } from "@/lib/resp";
 
@@ -43,19 +44,25 @@ export function featureStoreUrl(): string | null {
   return raw && raw.length > 0 ? raw : null;
 }
 
-function parseUrl(
+export function parseUrl(
   url: string,
-): { host: string; port: number; user: string; password: string } | null {
+): { host: string; port: number; user: string; password: string; tls: boolean } | null {
   try {
     // `redis://host:port` and `valkey://host:port` both parse; a bare
     // `host:port` is accepted too, because that is what an operator types.
     const withScheme = /:\/\//.test(url) ? url : `redis://${url}`;
     const u = new URL(withScheme);
+    // `rediss://` (and `valkeys://`) is TLS (R465): what a managed store with
+    // in-transit encryption gives, ElastiCache among them. The certificate is
+    // verified against Node's roots plus NODE_EXTRA_CA_CERTS, never skipped.
+    const secure = u.protocol === "rediss:" || u.protocol === "valkeys:";
+    if (!secure && u.protocol !== "redis:" && u.protocol !== "valkey:") return null;
     return {
-      host: u.hostname,
+      host: u.hostname.replace(/^\[|\]$/g, ""),
       port: Number(u.port || 6379),
       user: decodeURIComponent(u.username),
       password: decodeURIComponent(u.password),
+      tls: secure,
     };
   } catch {
     return null;
@@ -119,17 +126,31 @@ async function connect(): Promise<net.Socket | null> {
   if (!url) return null;
   const addr = parseUrl(url);
   if (!addr) {
-    fail(`FEATURE_STORE_URL is not a host:port — ${url}`);
+    // Without the URL's user and password, which this message would otherwise
+    // carry to the health card.
+    fail(
+      `FEATURE_STORE_URL is not a redis://, rediss:// or host:port address — ${url.replace(/\/\/[^@/]*@/, "//")}`,
+    );
     return null;
   }
   return new Promise<net.Socket | null>((resolve) => {
-    const s = net.createConnection({ host: addr.host, port: addr.port });
+    // Over TLS the socket is usable once the handshake (and the certificate
+    // check) is done, which is "secureConnect"; a refused certificate arrives
+    // as "error" and opens the breaker like any other failure.
+    const s = addr.tls
+      ? tls.connect({
+          host: addr.host,
+          port: addr.port,
+          // SNI takes a name, never an address.
+          ...(net.isIP(addr.host) ? {} : { servername: addr.host }),
+        })
+      : net.createConnection({ host: addr.host, port: addr.port });
     const timer = setTimeout(() => {
       s.destroy();
       fail(`no answer from ${addr.host}:${addr.port} within ${CONNECT_TIMEOUT_MS} ms`);
       resolve(null);
     }, CONNECT_TIMEOUT_MS);
-    s.once("connect", () => {
+    s.once(addr.tls ? "secureConnect" : "connect", () => {
       clearTimeout(timer);
       s.setNoDelay(true);
       s.on("data", onData);

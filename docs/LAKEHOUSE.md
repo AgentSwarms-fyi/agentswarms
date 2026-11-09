@@ -22,11 +22,23 @@ Two pieces of shared infrastructure, both named in `.env`:
 | `LAKEHOUSE_CATALOG_URL`                       | Postgres every replica can reach (`postgres://u:p@host/db`)        |
 | `LAKEHOUSE_DATA_URL`                          | Object-storage prefix for table data (`s3://lakehouse/main`)       |
 | `LAKEHOUSE_S3_ENDPOINT`                       | `host:port` for SILO/MinIO/R2/etc.; omit for AWS S3                |
-| `LAKEHOUSE_S3_KEY_ID` / `LAKEHOUSE_S3_SECRET` | Credentials for that prefix                                        |
+| `LAKEHOUSE_S3_KEY_ID` / `LAKEHOUSE_S3_SECRET` | Keys for that prefix; both empty on AWS: the app's role (below)    |
+| `LAKEHOUSE_S3_CREDENTIALS`                    | `chain` (the AWS credential chain, any endpoint) or `keys`; below  |
 | `LAKEHOUSE_S3_URL_STYLE`                      | `path` for SILO and MinIO, `vhost` for AWS                         |
 | `LAKEHOUSE_S3_USE_SSL`                        | `false` for the plain-HTTP bundled store                           |
 | `LAKEHOUSE_CATALOG_CONNECTIONS`               | Catalog sessions one app worker may hold (default 8); see Scaling  |
 | `LAKEHOUSE_SSE_KMS`                           | `auto` (default), `on` or `off`: files under customer keys (below) |
+
+**Keys or a role.** With no keys, an AWS store is reached as the app's own AWS
+identity: the credential chain the app's AWS KMS calls already use (an ECS
+task role; IRSA or Pod Identity on EKS; an instance profile; or
+`AWS_ACCESS_KEY_ID`). Those credentials are temporary. Every request the app
+signs, and the engine's DuckDB secret, uses the ones in force; the engine
+replaces its secret, and every customer key's copy, when the chain renews them
+five minutes before they expire. A Spark run that cannot get a scoped
+credential receives them, session token included, and has until they expire
+(R465). Another store without keys is reached with none, as before;
+`LAKEHOUSE_S3_CREDENTIALS=chain` uses the chain there too.
 
 Compose ships a catalog Postgres (`lakehouse-catalog`) and starts it with
 everything else; any Postgres 12+ works instead, including a self-hosted

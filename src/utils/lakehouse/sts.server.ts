@@ -53,11 +53,38 @@ export function stsRequired(): boolean {
   return (process.env.LAKEHOUSE_STS_REQUIRED ?? "").trim().toLowerCase() === "true";
 }
 
-function durationSeconds(): number {
+/** One hour: AWS's ceiling for a chained session, and a role's default maximum. */
+export const AWS_CHAINED_MAX_SECONDS = 3600;
+
+let clampWarned = false;
+
+/**
+ * How long a scoped credential is asked to last.
+ *
+ * The floor the stores accept is 900 s; a run that outlives its credential
+ * fails mid-flight, so on MinIO the default stays generous (12 h). On AWS it
+ * is an hour (R465): a role's maximum session is one hour unless its owner
+ * raised it, and asking for more is refused outright (ValidationError), which
+ * sent every Spark run back to the engine's own credentials. And when the app
+ * signs with temporary credentials itself (the AWS chain: a task role, IRSA,
+ * Pod Identity), AssumeRole is role chaining, and AWS refuses a chained
+ * request for more than one hour; so the request is clamped here instead.
+ */
+export function durationSeconds(target: Pick<S3Target, "endpoint" | "sessionToken">): number {
   const n = Number(process.env.LAKEHOUSE_STS_DURATION_SECONDS);
-  // The floor the stores accept is 900s; a run that outlives its credential
-  // fails mid-flight, so the default is generous.
-  return Number.isFinite(n) && n >= 900 ? Math.floor(n) : 12 * 3600;
+  const asked = Number.isFinite(n) && n >= 900 ? Math.floor(n) : null;
+  if (target.sessionToken) {
+    if (asked && asked > AWS_CHAINED_MAX_SECONDS && !clampWarned) {
+      clampWarned = true;
+      console.warn(
+        `[lakehouse] LAKEHOUSE_STS_DURATION_SECONDS=${asked} is above the one hour a role assumed ` +
+          `with temporary credentials can last (role chaining); scoped credentials last one hour.`,
+      );
+    }
+    return Math.min(asked ?? AWS_CHAINED_MAX_SECONDS, AWS_CHAINED_MAX_SECONDS);
+  }
+  if (asked) return asked;
+  return isAwsEndpoint(target.endpoint) ? AWS_CHAINED_MAX_SECONDS : 12 * 3600;
 }
 
 /**
@@ -169,7 +196,7 @@ export async function assumeScopedCredentials(args: {
   const body = formEncode({
     Action: "AssumeRole",
     Version: "2011-06-15",
-    DurationSeconds: String(durationSeconds()),
+    DurationSeconds: String(durationSeconds(target)),
     Policy: policy,
     // AWS requires a role to assume; MinIO derives the session from the
     // calling key and ignores these, so sending them is right for both.
@@ -185,6 +212,9 @@ export async function assumeScopedCredentials(args: {
     "content-type": "application/x-www-form-urlencoded; charset=utf-8",
     "x-amz-content-sha256": createHash("sha256").update(body).digest("hex"),
     "x-amz-date": amzDate,
+    // Temporary credentials (the AWS chain, R465) are honoured only with their
+    // session token, sent and signed.
+    ...(target.sessionToken ? { "x-amz-security-token": target.sessionToken } : {}),
   };
   const { authorization } = signS3Request({
     method: "POST",
@@ -245,7 +275,8 @@ function unavailable(why: string): null {
   return null;
 }
 
-/** For tests: the one-warning-per-process latch. */
+/** For tests: the one-warning-per-process latches. */
 export function resetStsWarning(): void {
   warned = false;
+  clampWarned = false;
 }

@@ -20,6 +20,7 @@ import {
 } from "@/lib/experiments";
 import { auditEvent } from "@/utils/audit.server";
 import { accessibleSchemas, lakehouseConfig } from "@/utils/lakehouse/core.server";
+import { lakeCredentials } from "@/utils/lakehouse/lakeCredentials.server";
 import { s3PutObject, type S3Target } from "@/utils/lakehouse/presign.server";
 import { registerExternalVersion } from "@/utils/ml/api.server";
 import type { MlModelRow } from "@/utils/ml/access.server";
@@ -27,12 +28,22 @@ import { getPlatformResources } from "@/utils/notebookRuntime/config.server";
 
 type Fail = { ok: false; error: string; status: number };
 
-/** The lake bucket as a signing target, from the same settings the engine attaches with. */
-export function lakeTarget(): { target: S3Target; bucket: string; dataUrl: string } | null {
+/**
+ * The lake bucket as a signing target, from the same settings the engine
+ * attaches with, and the credentials in force now (R465: fixed keys, or the
+ * AWS chain's temporary ones with their session token). Async because the
+ * chain may have to fetch; a target is for one use, not to keep.
+ */
+export async function lakeTarget(): Promise<{
+  target: S3Target;
+  bucket: string;
+  dataUrl: string;
+} | null> {
   const cfg = lakehouseConfig();
   if (!cfg) return null;
   const m = /^s3a?:\/\/([^/]+)/.exec(cfg.dataUrl);
   if (!m) return null;
+  const creds = await lakeCredentials();
   return {
     bucket: m[1],
     dataUrl: cfg.dataUrl,
@@ -42,8 +53,9 @@ export function lakeTarget(): { target: S3Target; bucket: string; dataUrl: strin
       useSsl: cfg.s3.useSsl,
       urlStyle: cfg.s3.urlStyle === "path" ? "path" : "vhost",
       bucket: m[1],
-      accessKeyId: cfg.s3.keyId,
-      secretAccessKey: cfg.s3.secret,
+      accessKeyId: creds.accessKeyId,
+      secretAccessKey: creds.secretAccessKey,
+      ...(creds.sessionToken ? { sessionToken: creds.sessionToken } : {}),
     },
   };
 }
@@ -68,7 +80,7 @@ export async function putExperimentArtifact(args: {
   | { ok: true; artifact_uri: string; artifact_sha256: string; bytes: number; max_bytes: number }
   | Fail
 > {
-  const lake = lakeTarget();
+  const lake = await lakeTarget();
   if (!lake) return { ok: false, error: "The lakehouse is not configured", status: 503 };
   const { data: run } = await supabaseAdmin
     .from("ml_experiment_runs")

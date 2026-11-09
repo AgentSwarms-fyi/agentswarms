@@ -44,6 +44,7 @@ import {
   type SchemaRow,
 } from "@/utils/lakehouse/core.server";
 import { loadPolicies } from "@/utils/lakehouse/policies.server";
+import { lakeCredentials } from "@/utils/lakehouse/lakeCredentials.server";
 import {
   presignS3,
   keyHeadersFor,
@@ -125,8 +126,9 @@ function qi(v: string): string {
   return `"${v.replace(/"/g, '""')}"`;
 }
 
-function storage(): { target: S3Target; bucket: string } {
-  const t = lakeTarget();
+/** The lake bucket and a signing target with the credentials in force now (R465). */
+async function storage(): Promise<{ target: S3Target; bucket: string }> {
+  const t = await lakeTarget();
   if (!t) {
     throw new Error(
       "The lakehouse is not configured on this deployment, or its data path is not an s3:// URL.",
@@ -209,7 +211,7 @@ export async function lakeRead(args: {
   if (classifyStatement(body).kind !== "select" || !/^(SELECT|WITH|FROM|\()/i.test(body)) {
     throw new Error(`Lakehouse source "${spec.label}": only a SELECT can be read into a pipeline`);
   }
-  const { target, bucket } = storage();
+  const { target, bucket } = await storage();
   const url = args.io?.url ?? ((key: string) => `s3://${bucket}/${key}`);
   const allowed = await accessibleSchemas(args.userId);
   const c = await lakehouseConnection();
@@ -251,7 +253,7 @@ export async function lakeRead(args: {
       if (!cfg) throw new Error("The lakehouse is not configured on this deployment.");
       await c.run(
         `CREATE SECRET ${secret} (${[
-          ...lakehouseS3SecretParts(cfg),
+          ...lakehouseS3SecretParts(cfg, await lakeCredentials()),
           part!,
           `SCOPE ${sq(`s3://${bucket}/${key}`)}`,
         ].join(", ")});`,
@@ -367,7 +369,7 @@ export async function lakeArtifact(args: {
   /** The run's owner, whose customer key a model is written under (R442). */
   userId: string;
 }): Promise<{ url: string; headers?: Record<string, string> }> {
-  const { target, bucket } = storage();
+  const { target, bucket } = await storage();
   const a = args.manifest.artifacts;
   if (!a) throw new Error("This run declared no model artifacts");
   const key = artifactKey(bucket, args.uri);
@@ -411,7 +413,7 @@ export async function lakeStage(args: {
   if (!Object.hasOwn(args.manifest.writes, args.id)) {
     throw new Error(`This run declared no lakehouse target "${args.id}"`);
   }
-  const { target } = storage();
+  const { target } = await storage();
   const batch = randomUUID();
   const keys = stagedKeys(args.sessionId, batch, args.parts);
   const kms = args.sendsHeaders ? await ownerKmsKey(args.userId) : null;
@@ -577,7 +579,7 @@ export async function lakeCommit(args: {
   via: string;
   io?: StagingIo;
 }): Promise<{ loads: { id: string; rows: number }[] }> {
-  const { target, bucket } = storage();
+  const { target, bucket } = await storage();
   const url = args.io?.url ?? ((key: string) => `s3://${bucket}/${key}`);
   const plan: { id: string; w: LakeWrite; keys: string[]; src: string; documents?: string[] }[] =
     [];
@@ -736,7 +738,7 @@ export async function lakeCursors(manifest: LakeManifest): Promise<Record<string
 
 /** Delete a session's staging, when it ends. */
 export async function dropSessionStaging(sessionId: string): Promise<number> {
-  const t = lakeTarget();
+  const t = await lakeTarget();
   if (!t) return 0;
   return s3DeletePrefix(t.target, stagingPrefix(sessionId));
 }
@@ -746,7 +748,7 @@ export async function dropSessionStaging(sessionId: string): Promise<number> {
  * what a crashed sandbox, or a delete that failed, left behind.
  */
 export async function sweepSandboxStaging(liveSessionIds: Set<string>): Promise<number> {
-  const t = lakeTarget();
+  const t = await lakeTarget();
   if (!t) return 0;
   const cutoff = Date.now() - 60 * 60_000;
   let n = 0;

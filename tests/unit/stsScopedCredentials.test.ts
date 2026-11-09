@@ -197,3 +197,77 @@ describe("a deployment whose store has no STS", () => {
     expect(stsRequired()).toBe(false);
   });
 });
+
+// R465: on AWS the app may sign as a role (the credential chain), and
+// AssumeRole from temporary credentials is role chaining, which AWS refuses
+// above one hour. A role's own maximum is one hour unless its owner raised it.
+describe("how long a scoped credential is asked to last (R465)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("one hour when the app signs with temporary credentials, whatever is configured", async () => {
+    const { durationSeconds, resetStsWarning } = await import("@/utils/lakehouse/sts.server");
+    resetStsWarning();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(durationSeconds({ sessionToken: "t" })).toBe(3600);
+      expect(durationSeconds({ sessionToken: "t", endpoint: "minio:9000" })).toBe(3600);
+      vi.stubEnv("LAKEHOUSE_STS_DURATION_SECONDS", "43200");
+      expect(durationSeconds({ sessionToken: "t" })).toBe(3600);
+      expect(String(warn.mock.calls[0]?.[0])).toMatch(/role chaining/);
+      vi.stubEnv("LAKEHOUSE_STS_DURATION_SECONDS", "1800");
+      expect(durationSeconds({ sessionToken: "t" })).toBe(1800);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("an hour by default on AWS, twelve on MinIO, and what is configured otherwise", async () => {
+    const { durationSeconds } = await import("@/utils/lakehouse/sts.server");
+    expect(durationSeconds({})).toBe(3600);
+    expect(durationSeconds({ endpoint: "s3.eu-west-1.amazonaws.com" })).toBe(3600);
+    expect(durationSeconds({ endpoint: "minio:9000" })).toBe(12 * 3600);
+    vi.stubEnv("LAKEHOUSE_STS_DURATION_SECONDS", "7200");
+    expect(durationSeconds({})).toBe(7200);
+    vi.stubEnv("LAKEHOUSE_STS_DURATION_SECONDS", "60");
+    expect(durationSeconds({ endpoint: "minio:9000" })).toBe(12 * 3600);
+  });
+
+  it("the call is signed with the session token, which goes in a signed header", async () => {
+    const { assumeScopedCredentials } = await import("@/utils/lakehouse/sts.server");
+    const seen: Array<{ headers: Record<string, string>; body: string }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_u: unknown, init?: RequestInit) => {
+        seen.push({
+          headers: init?.headers as Record<string, string>,
+          body: String(init?.body ?? ""),
+        });
+        return new Response(
+          "<AssumeRoleResponse><Credentials><AccessKeyId>A</AccessKeyId><SecretAccessKey>S</SecretAccessKey><SessionToken>T</SessionToken><Expiration>2026-11-09T00:00:00Z</Expiration></Credentials></AssumeRoleResponse>",
+          { status: 200 },
+        );
+      }),
+    );
+    try {
+      await assumeScopedCredentials({
+        target: {
+          region: "eu-west-1",
+          useSsl: true,
+          urlStyle: "vhost",
+          bucket: "lake",
+          accessKeyId: "ASIAROLE",
+          secretAccessKey: "SECRET",
+          sessionToken: "the-task-role-token",
+        },
+        scope: { read: ["main/a/t/"] },
+        label: "q",
+      });
+      const { headers, body } = seen[0]!;
+      expect(headers["x-amz-security-token"]).toBe("the-task-role-token");
+      expect(headers.Authorization).toMatch(/SignedHeaders=[^,]*x-amz-security-token/);
+      expect(new URLSearchParams(body).get("DurationSeconds")).toBe("3600");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

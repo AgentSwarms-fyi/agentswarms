@@ -186,6 +186,18 @@ for the cluster and says so in the log once per process;
 role to assume (`LAKEHOUSE_STS_ROLE_ARN`); SILO and MinIO derive the session
 from the calling key.
 
+How long the credential lasts (R465): 12 hours by default on SILO and MinIO,
+one hour on AWS, where a role's maximum session is an hour unless its owner
+raised it (asking for more is refused outright, and the run fell back to the
+lakehouse's own credentials). When the app reaches the store as its own role,
+not with keys (docs/LAKEHOUSE.md, "Keys or a role"), AssumeRole is role
+chaining: the call carries the app's session token, and AWS refuses more than
+an hour, so the request is capped at one hour whatever
+`LAKEHOUSE_STS_DURATION_SECONDS` says. SILO and MinIO do not chain at all:
+there a Spark run gets the app's own temporary credentials, token included
+(`tests/unit/lakeCredentialChainLive.test.ts`). A run longer than an hour on
+AWS needs keys with a raised role maximum, or a role of its own (EKS, per run).
+
 A scoped credential is not value-scrubbed out of a run's log the way the
 deployment's own secrets are: it is minted per session, so the code that
 scrubs a log later cannot know it. It expires, it reaches one run's files, and

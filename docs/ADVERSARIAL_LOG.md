@@ -109,6 +109,35 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-09 — R465: the lake as a role, and the feature store over TLS
+
+**Why this round.** Phase 1 of the AWS plan, part 3. On AWS the lake should be reached
+the way everything else on AWS is: as the app's role, with temporary credentials, not
+an IAM user's keys in the environment. And ElastiCache encrypts in transit only for
+clients that speak TLS.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| `rediss://` sent the store's password in the clear | S2 | The client read any URL scheme as plain TCP and sent `AUTH` first. An operator who wrote `rediss://` to get TLS got the opposite. **Measured** with the R464 client and a listener: given `rediss://:s3cretpw@…`, its first bytes were `*2 $4 AUTH $8 s3cretpw`. With R465's client they are a TLS ClientHello. Against a real valkey listening on TLS only (the pinned image, with a password and a throwaway CA): with the CA in `NODE_EXTRA_CA_CERTS`, PING, SET, GET and DEL work. Without it, the connection is refused with `self-signed certificate in certificate chain`, and no command is sent (also tested in-process). Plain TCP to that port gets no answer. The error for an unreadable URL also printed the URL, password included; it no longer does |
+| The lake could only use long-lived keys | S3 | With no keys, an AWS store is now reached through the credential chain AWS KMS already used: task role, IRSA or Pod Identity, instance profile. Temporary credentials expire, so nothing keeps a copy: each signer asks `lakeCredentials()`, and the engine rebuilds its secret, and the customer keys' copies, when the stamp changes. **Measured** against SILO (`lakeCredentialChainLive.test.ts`), with a container-credentials endpoint in the shape ECS serves, handing out the store's own temporary credentials. The chain, the resolver and the engine's secret wrote and read 50,000 Parquet rows. The same credentials in a secret without `SESSION_TOKEN`, which is how R464 built it, were refused. Signed PUT, HEAD and LIST worked with the token and got 403 without it. The credentials stayed cached at 5½ minutes from expiry and were replaced at 4½ minutes, and the rebuilt secret read the earlier file |
+| Scoped Spark credentials on AWS asked for twelve hours | S3 | AssumeRole was sent with `DurationSeconds=43200` everywhere. A role's maximum is one hour unless raised, and AWS refuses a longer request, so on AWS every Spark run fell back to the lake's own credentials. This follows from the code and AWS's documented limit; it was not run on AWS. Now the default is one hour on AWS and twelve on SILO and MinIO. When the app signs as a role, the call carries the session token in a signed header and is capped at one hour, AWS's limit for role chaining. **Measured** on SILO: it refuses AssumeRole from temporary credentials (`AccessDenied`), so the run falls back to the app's own credentials, with their token. SILO gives the same answer without the token, so it cannot show whether the token authenticated; the signed header is pinned by a unit test |
+
+**What would have been wrong to conclude.**
+
+- *"SILO said AccessDenied, not InvalidToken, so the session token was accepted."* It
+  says `AccessDenied` without the token as well. The first version of the test claimed
+  the distinction, and the store refuted it.
+- *"Credentials valid for six minutes are cached for four."* The chain renews five
+  minutes before expiry, so they are cached for one. The first rotation test assumed the
+  other, and failed.
+- *"The fake endpoint can mint per request."* Minting at SILO sometimes took longer than
+  the chain's 2 s metadata timeout. ECS's agent answers from its own cache, so the test
+  endpoint does too.
+- *"Unset keys on AWS meant anonymous access before, so the chain changes nothing."*
+  It does change one thing: an AWS store with no keys now uses the app's identity. The
+  only install it affects is one that had no keys and an AWS bucket, which could not
+  read a private bucket before.
+
 ### 2026-11-09 — R464: an image that carries no environment
 
 **Why this round.** Phase 1 of the AWS plan, part 2. One published image has to serve

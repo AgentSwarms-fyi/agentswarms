@@ -583,7 +583,7 @@ export async function resolveRunEnv(
       const { stagingPrefix } = await import("@/utils/lakehouse/sandboxLake.server");
       const { assumeScopedCredentials } = await import("@/utils/lakehouse/sts.server");
       const { lakeTarget } = await import("@/utils/ml/experimentArtifacts.server");
-      const lt = lakeTarget();
+      const lt = await lakeTarget();
       if (!lt) throw new Error("The lakehouse's data path is not an s3:// URL.");
       const prefix = `${stagingPrefix(opts.sessionId)}out/`;
       const scoped = await assumeScopedCredentials({
@@ -610,10 +610,18 @@ export async function resolveRunEnv(
       } else {
         // No STS on this store: the cluster keeps the lake's own credentials,
         // and sts.server has said so once. The catalog is still not here —
-        // the load is the app's either way.
-        env.ETL_LAKEHOUSE_S3_KEY_ID = cfg.s3.keyId;
-        env.ETL_LAKEHOUSE_S3_SECRET = cfg.s3.secret;
-        secretValues.push(cfg.s3.secret);
+        // the load is the app's either way. On the AWS chain those are
+        // temporary (R465): the session token goes too, or S3A is refused,
+        // and the job has until they expire (an hour, on a chained role).
+        const { lakeCredentials } = await import("@/utils/lakehouse/lakeCredentials.server");
+        const own = await lakeCredentials();
+        env.ETL_LAKEHOUSE_S3_KEY_ID = own.accessKeyId;
+        env.ETL_LAKEHOUSE_S3_SECRET = own.secretAccessKey;
+        secretValues.push(own.secretAccessKey);
+        if (own.sessionToken) {
+          env.ETL_LAKEHOUSE_S3_SESSION_TOKEN = own.sessionToken;
+          secretValues.push(own.sessionToken);
+        }
       }
     }
   }

@@ -34,6 +34,7 @@ import { envInt, rateLimitedGlobal } from "@/utils/rateLimit.server";
 import { lakehouseConfig, lakehouseConnection, redactLakehouseSecrets } from "./core.server";
 import { applyTablePolicies, loadPolicies, type TablePolicy } from "./policies.server";
 import { presignS3Get, s3DeleteObject, s3ObjectSize, type S3Target } from "./presign.server";
+import { lakeCredentials } from "@/utils/lakehouse/lakeCredentials.server";
 
 // --- Rows ------------------------------------------------------------------------
 
@@ -257,8 +258,16 @@ export function foldSharePolicy(args: {
 
 // --- Storage ------------------------------------------------------------------------
 
-/** The lake's S3 settings as a signing target, plus the bucket the data URL names. */
-export function shareStorage(): { target: S3Target; bucket: string; shareUrl: string } {
+/**
+ * The lake's S3 settings as a signing target, plus the bucket the data URL
+ * names. The credentials are the ones in force now (R465), so a target is for
+ * one use.
+ */
+export async function shareStorage(): Promise<{
+  target: S3Target;
+  bucket: string;
+  shareUrl: string;
+}> {
   const cfg = lakehouseConfig();
   if (!cfg) throw new Error("The lakehouse is not configured");
   const m = /^s3a?:\/\/([^/]+)(?:\/(.*))?$/.exec(cfg.dataUrl);
@@ -272,6 +281,7 @@ export function shareStorage(): { target: S3Target; bucket: string; shareUrl: st
   );
   const sm = /^s3a?:\/\/([^/]+)(?:\/(.*))?$/.exec(shareUrl);
   if (!sm) throw new Error(`SHARE_DATA_URL is not an s3:// URL: ${shareUrl}`);
+  const creds = await lakeCredentials();
   return {
     bucket: sm[1],
     shareUrl,
@@ -282,8 +292,9 @@ export function shareStorage(): { target: S3Target; bucket: string; shareUrl: st
       useSsl: cfg.s3.useSsl,
       urlStyle: cfg.s3.urlStyle === "path" ? "path" : "vhost",
       bucket: sm[1],
-      accessKeyId: cfg.s3.keyId,
-      secretAccessKey: cfg.s3.secret,
+      accessKeyId: creds.accessKeyId,
+      secretAccessKey: creds.secretAccessKey,
+      ...(creds.sessionToken ? { sessionToken: creds.sessionToken } : {}),
     },
   };
 }
@@ -347,7 +358,7 @@ async function pruneSnapshots(shareTableId: string, keepId: string | null): Prom
   if (!stale.length) return;
   let target: S3Target | null = null;
   try {
-    target = shareStorage().target;
+    target = (await shareStorage()).target;
   } catch {
     target = null;
   }
@@ -443,7 +454,7 @@ export async function ensureShareSnapshot(
     const counted = await (await c.run(`SELECT count(*)::BIGINT FROM (${sql}) AS q`)).getRows();
     const rowCount = Number(counted[0]?.[0] ?? 0);
 
-    const { target, shareUrl, bucket } = shareStorage();
+    const { target, shareUrl, bucket } = await shareStorage();
     const prefix = `${shareUrl}/${st.id}/${fingerprint}-${policyHash}`;
     const key = `${prefix.slice(`s3://${bucket}/`.length)}/part-0.parquet`;
     const timeoutMs = envInt("SHARE_MATERIALIZE_TIMEOUT_MS", 600_000);
@@ -512,7 +523,7 @@ export async function tableMetadata(actor: ShareActor, st: ShareTableRow) {
 export async function queryShareTable(actor: ShareActor, st: ShareTableRow, body: unknown) {
   const hints = readQueryBody(body);
   const snap = await ensureShareSnapshot(actor, st);
-  const { target } = shareStorage();
+  const { target } = await shareStorage();
   const expires = envInt("SHARE_URL_EXPIRY_SECONDS", 3600);
   const expirationTimestamp = Date.now() + expires * 1000;
   const files = snap.files.map((f) =>
