@@ -47,6 +47,25 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Rolling the app back one release is safe, and CI holds it so (R468).** Migrations
+  expand the schema and never take away what the previous release uses. A removal or
+  rename waits one release and says so with a `-- contract: public.<object>` line. A new
+  CI workflow (`.github/workflows/migrations.yml`) installs the schema for real: on a
+  plain PostgreSQL whose admin is not a superuser (`deploy/ci/rds-like/run.sh`), on the
+  pinned `supabase/postgres`, and as an upgrade from the last release tag
+  (`deploy/ci/supabase-image/run.sh --upgrade-from`). The upgrade job compares the schema
+  before and after (`deploy/ci/migrations/schema-compat.mjs`) and fails on anything the
+  previous release could not run on. Its first run, from v1.6.0, found the two
+  sample-data functions R454 removed for security. That removal was deliberate, so its
+  migration now has `-- contract:` lines for them. See
+  [Rolling back one release](docs/DEPLOYMENT.md#rolling-back-one-release).
+- **Supabase Realtime is optional (R468).** Set `PUBLIC_SUPABASE_REALTIME=off` where the
+  database cannot run it (Amazon RDS: it needs a true superuser). The approvals inbox
+  then checks for new approvals every 15 seconds while its tab is visible, and whenever
+  the tab comes back into view. With Realtime on, it does the same when its connection
+  fails, until the connection recovers. A new approval is announced from the rows the
+  inbox loads, so it is announced either way. Until now it was announced only by the
+  Realtime event, so without Realtime nobody was told a run was waiting for them.
 - **The schema installs on a plain PostgreSQL: Amazon RDS and others (R467).** A
   managed database's admin is not a superuser and cannot run the `supabase/postgres`
   image's init scripts. `deploy/aws/spec/bootstrap/rds-bootstrap.sql` does what
@@ -132,6 +151,16 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **The installers wait for the storage service to serve, not for a column (R468).**
+  `setup-selfhosted.sh` and `setup-k8s.sh` started the schema once
+  `storage.buckets.public` existed. storage-api adds that column partway through its
+  own migrations. R467 measured ours then locking `storage.buckets` while storage-api
+  was still altering it, and one died with `deadlock detected`. Both now wait until
+  storage answers `/status`, which it does only once its migrations are done.
+  `setup-k8s.sh` also stops if it never does, where it used to carry on.
+- **The MCP servers panel listened on a channel that never fired (R468).**
+  `mcp_servers` left the realtime publication in May (its rows held `auth_token`). The
+  panel now reloads when its tab comes back into view.
 - **Supabase databases deleted runs and traces after 30 days, whatever retention was
   set (R467).** Two `pg_cron` jobs from May purged every swarm run, with its steps and
   edges, and every execution trace older than 30 days, nightly. They read no setting.

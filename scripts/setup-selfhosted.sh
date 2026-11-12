@@ -19,7 +19,7 @@
 #   3. starts the stack and WAITS for auth + storage to be genuinely ready
 #      (pushing the schema before the storage service has booted once fails
 #      three migrations — see DEPLOYMENT.md)
-#   4. verifies/creates the five Postgres extensions the migrations need
+#   4. verifies/creates the Postgres extensions the migrations use
 #   5. applies the full AgentSwarms schema
 #   6. creates your admin user (confirmed, ready to sign in)
 #   7. writes every URL and key into the app's .env automatically
@@ -230,19 +230,29 @@ until curl -fsS --max-time 4 "$SB_URL/auth/v1/health" -H "apikey: $ANON_KEY" >/d
   sleep 3
 done
 
-# The storage service's own boot migrations create columns three of OUR
-# migrations write to (storage.buckets.public). Pushing the schema before
-# storage has booted once fails those three — measured, and documented in
-# docs/DEPLOYMENT.md § "Apply the schema". So wait for the COLUMN, not a port.
+# The storage service runs its own migrations when it boots, and three of OUR
+# migrations write to what they create (storage.buckets.public). Pushing the
+# schema before storage has finished fails those three, or deadlocks with it
+# (docs/DEPLOYMENT.md § "Apply the schema"). Storage serves only once its
+# migrations are done, so wait until it SERVES. Until R468 this waited for the
+# buckets.public column, which storage adds partway through: R467 measured our
+# migrations then locking storage.buckets while storage was still altering it,
+# and one died with "deadlock detected".
 say "Waiting for the storage service to finish its own migrations"
 psql_db() { ( cd "$SB_DIR/docker" && docker compose exec -T db psql -U postgres -d postgres -tAc "$1" 2>/dev/null ); }
-until [ "$(psql_db "select 1 from information_schema.columns where table_schema='storage' and table_name='buckets' and column_name='public'")" = "1" ]; do
-  [ "$(date +%s)" -ge "$deadline" ] && die "Storage schema never appeared — check: (cd $SB_DIR/docker && docker compose logs storage)"
+storage_serving() {
+  ( cd "$SB_DIR/docker" && docker compose exec -T storage wget -q -O /dev/null http://127.0.0.1:5000/status ) >/dev/null 2>&1
+}
+until storage_serving; do
+  [ "$(date +%s)" -ge "$deadline" ] && die "The storage service never finished starting — check: (cd $SB_DIR/docker && docker compose logs storage)"
   sleep 3
 done
 
 # ── 5. extension preflight (verify, then create what is missing) ────────────
-say "Ensuring the five required Postgres extensions exist"
+# vector is the one the schema requires. pg_net, pg_cron, pgmq and
+# supabase_vault are used where the database has them and skipped where it
+# does not (R467); this stack has all five.
+say "Ensuring the Postgres extensions exist (vector is required)"
 for ext in vector pg_net pg_cron pgmq supabase_vault; do
   psql_db "CREATE EXTENSION IF NOT EXISTS \"$ext\";" >/dev/null \
     || warn "Could not create extension '$ext' — the migration that needs it will say so"

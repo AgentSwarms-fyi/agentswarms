@@ -248,14 +248,27 @@ echo "    $DB_POD"
 # adds the rest of the roles the services log in as.
 psql_db() { kubectl -n "$NS" exec -i "$DB_POD" -- env PGPASSWORD="$PG_PW" psql -U supabase_admin -d postgres "$@"; }
 
-echo "    waiting for the storage schema"
-# Three AgentSwarms migrations write to storage.buckets.public, a column the
-# storage service creates on ITS first boot. Pushing before it exists fails
-# those three and leaves uploads silently broken.
+echo "    waiting for the storage service to finish its own migrations"
+# Three AgentSwarms migrations write to storage.buckets.public, which the
+# storage service's own migrations create on ITS first boot. Pushing before
+# they finish fails those three and leaves uploads silently broken, or
+# deadlocks with them. Storage serves only once they are done, so wait until
+# it SERVES. Until R468 this waited for the buckets.public column, which
+# storage adds partway through: R467 measured our migrations then locking
+# storage.buckets while storage was still altering it ("deadlock detected").
+storage_serving=0
 for _ in $(seq 1 90); do
-  [ "$(psql_db -tAc "select 1 from information_schema.columns where table_schema='storage' and table_name='buckets' and column_name='public'" 2>/dev/null)" = "1" ] && break
+  STORAGE_POD=$(kubectl -n "$NS" get pods -l app.kubernetes.io/name=supabase-storage -o name 2>/dev/null | head -1)
+  [ -z "$STORAGE_POD" ] && STORAGE_POD=$(kubectl -n "$NS" get pods -o name 2>/dev/null | grep -- '-storage-' | head -1)
+  if [ -n "$STORAGE_POD" ] \
+    && kubectl -n "$NS" exec "$STORAGE_POD" -- wget -q -O /dev/null http://127.0.0.1:5000/status >/dev/null 2>&1; then
+    storage_serving=1
+    break
+  fi
   sleep 5
 done
+[ "$storage_serving" = "1" ] \
+  || die "The storage service never finished starting. 'kubectl -n $NS logs ${STORAGE_POD:-<the storage pod>}' will show why."
 
 say "Applying the AgentSwarms schema"
 # RECORD WHAT HAS BEEN APPLIED, the way `supabase db push` does.

@@ -131,6 +131,13 @@ CREATE TRIGGER refuse_client_sample_flag BEFORE INSERT OR UPDATE OF is_sample ON
 -- The browser seeded them through these two, with content it chose, so any user could
 -- create a sample or add rows to one, and every tenant then read them. The R454 build
 -- seeds them on the server, from the CSVs it ships with.
+--
+-- A deliberate contraction (R468 names them, so the upgrade check allows them): no
+-- release may keep a browser writing samples every tenant reads. Rolled back to
+-- v1.6.0, the app finds the samples the server already seeded and reads them; only its
+-- "seed again" action fails.
+-- contract: public.upsert_sample_dataset
+-- contract: public.insert_sample_rows
 DROP FUNCTION IF EXISTS public.upsert_sample_dataset(text, text, jsonb);
 DROP FUNCTION IF EXISTS public.insert_sample_rows(uuid, jsonb);
 

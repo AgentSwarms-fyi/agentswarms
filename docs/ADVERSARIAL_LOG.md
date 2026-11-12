@@ -109,6 +109,29 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-12 — R468: a rollback the schema allows, and an inbox without Realtime
+
+**Why this round.** Phase 2 of the AWS plan, part 2, and a question from the owner: when a release ships every month, how is it applied, and how does an operator go back? Migrations only go forward, so going back means running the older app on the newer schema. Nothing checked that it could.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| A new approval was announced only by the Realtime event | S3 | The toast ("… needs your approval") came from the `INSERT` event's own row. Where Realtime cannot run (Amazon RDS: it needs a true superuser), or a proxy drops its websocket, nobody was told a parked run was waiting until they opened the inbox. The inbox now announces from the rows it loads, through `useLiveRows` (`src/lib/liveRows.ts`). It listens where Realtime runs, polls every 15 s where `PUBLIC_SUPABASE_REALTIME=off` or the channel fails, and reloads whenever the tab comes back into view. Tested with injected channel states and timers (`tests/unit/liveRows.test.ts`); not driven in a browser this round |
+| Nothing checked that the previous release runs on the new schema | S3 | `deploy/ci/supabase-image/run.sh --upgrade-from <tag>` applies the tag's migrations, signs two users up, then applies this commit's migrations, and `deploy/ci/migrations/schema-compat.mjs` compares the public schema before and after. **Measured** from v1.6.0: 269 released migrations, then exactly the 23 new ones; 160 relations became 170, and 1,959 columns became 2,070. It found two functions gone, `upsert_sample_dataset` and `insert_sample_rows`. R454 dropped them on purpose (any user could seed samples every tenant reads), and v1.6.0 calls them only to seed a sample that does not exist yet. Their migration now says so with `-- contract:` lines, and the check allows exactly those two |
+| The installers waited for a column, not for storage | S3 | `setup-selfhosted.sh` and `setup-k8s.sh` started the schema once `storage.buckets.public` existed. R467 measured a deadlock at that point: storage-api adds the column partway through its own migrations. Both now wait for `/status`. `setup-k8s.sh` used to carry on after 90 tries; now it stops. Unit tests with stubs only: neither installer was run end to end |
+| The MCP servers panel listened on a channel that never fired | S4 | `mcp_servers` left the realtime publication in 20260504100311 (its rows held `auth_token`), but the panel kept subscribing. It now reloads when its tab comes back into view |
+
+**Measured on the pinned `supabase/postgres:17.6.1.136`**, GoTrue v2.197.0 and storage-api v1.89.12 serving first:
+- **Fresh install:** all 292 migrations applied, and no extension was skipped (`pg_cron`, `pg_net`, `pgmq`, `supabase_vault` and `vector` are all there). No `pg_cron` job is left. 170 of 170 public tables have RLS. The PostgREST checks passed, and a second run applied 0.
+- **Upgrade:** see the table.
+- **Not yet:** the new workflow has not run on GitHub.
+
+**What would have been wrong to conclude.**
+
+- *"A migration skipped an extension on Supabase's own image."* The first fresh run said so. The check matched the word "skipped" in an unrelated notice from 20261029000000 ("the as-a-user read was skipped"). It now matches the guards' own words, "is not available on this server".
+- *"The API checks fail on the Supabase image."* All nine printed `ok`, and then Node aborted on exit, which is the libuv assertion `UV_HANDLE_CLOSING` on Windows. It happens when `process.exit()` runs while fetch's sockets are still closing. `api-checks.mjs` now sets `process.exitCode`.
+- *"The upgrade run cannot start Postgres."* It failed with `network sbimg-net not found`. The previous run's exit trap was still removing that network when the next run created it. Running one at a time fixed it.
+- *"The upgrade check is too strict to use, since it failed on its first run."* The two functions it named really are gone, and the release that called them really does call them. The check was right; the contraction was deliberate and is now written down where the check reads it.
+
 ### 2026-11-10 — R467: the schema on a plain PostgreSQL, and retention in one place
 
 **Why this round.** Phase 2 of the AWS plan, part 1. On AWS the database is RDS,

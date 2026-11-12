@@ -340,6 +340,7 @@ per setting the runtime one wins:
 | BI snapshot row cap                         | `PUBLIC_BI_SNAPSHOT_ROWS_CAP`      | `VITE_BI_SNAPSHOT_ROWS_CAP`          |
 | Your Google Analytics / Tag Manager IDs     | `PUBLIC_GA_ID`, `PUBLIC_GTM_ID`    | `VITE_GA_ID`, `VITE_GTM_ID`          |
 | Notebook gateway port                       | `PUBLIC_NOTEBOOK_GATEWAY_PORT`     | `VITE_NOTEBOOK_GATEWAY_PORT`         |
+| Supabase Realtime (`off` on Amazon RDS)     | `PUBLIC_SUPABASE_REALTIME`         | `VITE_SUPABASE_REALTIME`             |
 
 - **How it reaches the browser.** The server renders the `PUBLIC_*` values it
   was started with into every page, as a JSON data block
@@ -1677,7 +1678,10 @@ see [Plain PostgreSQL](#plain-postgresql-amazon-rds-and-others).
 > `column "public" of relation "buckets" does not exist` — verified by running
 > the full migration set against a bare `supabase/postgres` container. On
 > Supabase Cloud this is invisible because storage is always already
-> provisioned.
+> provisioned. Wait until storage **serves** (it answers `/status` only once
+> its own migrations are done), not merely until the column exists: R467
+> measured a deadlock with storage still altering the table. The installers
+> wait for `/status` (R468).
 
 `supabase link` is for Cloud projects. Against a self-hosted instance, point
 the CLI at the database directly:
@@ -1837,10 +1841,13 @@ superuser; a managed database's admin cannot run those. It runs
 
 All four steps are safe to run again.
 
-**Not included:** Supabase Realtime. It needs a true superuser, so it is off on
-a plain Postgres. The live updates it carries (the approval inbox) show up on
-the next refresh until the polling fallback lands, which is the next round of
-Phase 2.
+**Supabase Realtime is off.** It needs a true superuser, which a managed
+database gives no one. Set `PUBLIC_SUPABASE_REALTIME=off` (R468). The approvals
+inbox, the one screen that listened for changes, then checks for new approvals
+every 15 seconds while its tab is visible, and whenever the tab comes back into
+view. A new approval is announced the same way either way. With Realtime on,
+the inbox also checks when its connection fails, and goes back to listening
+when it recovers.
 
 **Measured** with `bash deploy/ci/rds-like/run.sh`. It uses PostgreSQL 17 with
 pgvector, whose admin is not a superuser, and the pinned GoTrue v2.197.0,
@@ -1853,6 +1860,20 @@ storage-api v1.89.12 and PostgREST v14.18.
   refused (403) writing one as user B. User B and anonymous callers read none
   of them, and `service_role` read both users' rows.
 - A second run applied nothing and failed nothing.
+
+**In CI** (R468, `.github/workflows/migrations.yml`), on every change to the
+migrations, the bootstrap or the runner:
+
+- **`rds-like`**: the run above, with an admin that may grant `BYPASSRLS` and
+  with one that may not (the bootstrap must stop).
+- **`supabase-image`**: `bash deploy/ci/supabase-image/run.sh`, every migration
+  on the pinned `supabase/postgres` with GoTrue and storage-api serving first.
+  No extension may be skipped and no `pg_cron` job may be left scheduled.
+- **`upgrade`**: `bash deploy/ci/supabase-image/run.sh --upgrade-from <tag>`,
+  from the newest release tag. It applies the released migrations, signs two
+  users up, then applies this commit's migrations. Only the new ones may apply,
+  and the previous release must still be able to run on the result (see
+  [Rolling back one release](#rolling-back-one-release)).
 
 ## Production checklist (cross-cutting)
 
@@ -2940,6 +2961,44 @@ Docker: `git pull`, then `node scripts/upgrade-qdrant.mjs`, then
 `docker compose up -d --build`. Apply any new migrations with
 `npx supabase db push --remote` (already-applied migrations are skipped; it's safe to
 re-run). Re-running `scripts/setup.sh` or `setup.ps1` does all of this.
+
+Take a backup first (`npm run backup`, see
+[Backups and restore](#backups-and-restore)). Migrations only go forward, so
+the backup is the way back from a migration that goes wrong.
+
+#### Rolling back one release
+
+Migrations **expand** the schema and never take away what the previous release
+uses (R468). They add tables, columns, functions and enum values. A column that
+must go, or be renamed, is removed one release after the code stopped using it.
+So the previous release runs on the newer schema: rolling the **app** back is
+checking out (or pulling the image of) the previous release and starting it
+again, with the database left as it is. Nothing is lost.
+
+CI holds every change to that rule. The `upgrade` job applies this commit's
+migrations on top of the last release's and compares the schema before and
+after (`deploy/ci/migrations/schema-compat.mjs`). It fails on anything the
+previous release could no longer run on:
+
+- a table, view, column or function that is gone;
+- a type that narrowed or changed;
+- a function whose arguments or result changed;
+- an enum value that is gone;
+- a column that is NOT NULL with no default, so the older release's inserts
+  fail.
+
+A deliberate removal says so in its migration, on its own line:
+`-- contract: public.<table>[.<column>]`. The unit suite already requires one
+next to any `DROP TABLE`, `DROP COLUMN` or `RENAME`.
+
+Only one release back is covered. Further back, and after a migration that went
+wrong, restore the backup taken before the upgrade. Some upgrades cannot be
+undone except by that restore, and their release notes say so:
+
+- the lakehouse catalog's format when DuckDB moves;
+- Qdrant's storage, which opens only the previous minor release's;
+- the auth and storage services' own schemas;
+- a PostgreSQL major version.
 
 **Qdrant before `up`.** Qdrant opens storage from the previous minor release
 only, and its pin moved from 1.12.4 to 1.20.0 (R416). 1.20.0 started on a

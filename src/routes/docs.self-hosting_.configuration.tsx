@@ -123,6 +123,11 @@ function SelfHostingConfigurationPage() {
             <C key="b">VITE_NOTEBOOK_GATEWAY_PORT</C>,
             "Notebook gateway port",
           ],
+          [
+            <C key="a">PUBLIC_SUPABASE_REALTIME</C>,
+            <C key="b">VITE_SUPABASE_REALTIME</C>,
+            '"off" on Amazon RDS: the approvals inbox checks every 15 s instead',
+          ],
         ]}
       />
       <P>

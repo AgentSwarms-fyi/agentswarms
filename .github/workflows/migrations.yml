@@ -1,0 +1,106 @@
+name: Migrations
+
+# The schema, installed for real (R468, Phase 2 of the AWS plan). The unit
+# suite reads the migrations as text; these run them, on the three databases
+# an install can have, with Supabase's own services beside them:
+#
+#   rds-like        a plain PostgreSQL 17 whose admin is not a superuser
+#                   (Amazon RDS and every managed Postgres): the bootstrap,
+#                   GoTrue, storage-api, every migration, PostgREST and RLS.
+#                   Twice: an admin that may grant BYPASSRLS installs it, one
+#                   that may not is stopped before anything is installed.
+#   supabase-image  the pinned supabase/postgres, as hosted and self-hosted
+#                   Supabase run it: nothing skipped, no pg_cron purge left.
+#   upgrade         the last release's migrations on that image, users signed
+#                   up, then this commit's migrations on top: only the new ones
+#                   apply, and the previous release can still run on the
+#                   result (deploy/ci/migrations/schema-compat.mjs). That is
+#                   what makes rolling the app back one release safe.
+#
+# No secrets: every password and JWT secret is generated per run, and nothing
+# is published beyond the runner's loopback.
+on:
+  push:
+    branches: [main]
+    paths:
+      - supabase/migrations/**
+      - deploy/aws/spec/bootstrap/**
+      - docker/db-migrate/**
+      - deploy/ci/**
+      - .github/workflows/migrations.yml
+  pull_request:
+    paths:
+      - supabase/migrations/**
+      - deploy/aws/spec/bootstrap/**
+      - docker/db-migrate/**
+      - deploy/ci/**
+      - .github/workflows/migrations.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: migrations-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  rds-like:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        bypassrls: ["yes", "no"]
+    name: rds-like (BYPASSRLS ${{ matrix.bypassrls }})
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Install on a PostgreSQL whose admin is not a superuser
+        run: bash deploy/ci/rds-like/run.sh
+        env:
+          RDS_BYPASSRLS: ${{ matrix.bypassrls }}
+
+  supabase-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    name: supabase-image
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Install on the pinned supabase/postgres
+        run: |
+          bash deploy/ci/supabase-image/run.sh
+
+  upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    name: upgrade from the last release
+    steps:
+      # The whole history, so the release tags are here to upgrade from.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      # The newest release tag this commit descends from. With no tag yet
+      # there is nothing released to upgrade from, which is a pass.
+      - name: Upgrade from the last release
+        run: |
+          FROM=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)
+          if [ -z "$FROM" ]; then
+            echo "No release tag to upgrade from."
+            exit 0
+          fi
+          bash deploy/ci/supabase-image/run.sh --upgrade-from "$FROM"

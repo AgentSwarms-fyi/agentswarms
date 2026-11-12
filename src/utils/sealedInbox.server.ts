@@ -11,8 +11,9 @@
 // owner's key leaves it unreadable for them too.
 //
 // What stays readable: an approval's title, which is the node's own setting, its
-// status, risk and routing; a notification's kind, link and times. The bell's
-// toast reads only those, from a realtime event that carries the sealed row.
+// status, risk and routing; a notification's kind, link and times. The inbox's
+// toast reads only those. (Until R468 it read them from a realtime event that
+// carried the sealed row; now from the rows the inbox loads.)
 //
 // Neither can simply be dropped when the key cannot be had. An approval is the
 // only thing that puts a parked run in front of a person, and a notification is

@@ -36,6 +36,7 @@ services:
         VITE_GA_ID: ${VITE_GA_ID:-}
         VITE_GTM_ID: ${VITE_GTM_ID:-}
         VITE_NOTEBOOK_GATEWAY_PORT: ${VITE_NOTEBOOK_GATEWAY_PORT:-}
+        VITE_SUPABASE_REALTIME: ${VITE_SUPABASE_REALTIME:-}
     env_file: .env
     ports:
       - "8080:8080"

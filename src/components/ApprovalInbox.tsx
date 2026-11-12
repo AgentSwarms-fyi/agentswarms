@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { resumeApprovedSwarmRun } from "@/utils/swarmResume.functions";
-import { OPEN_APPROVALS_EVENT } from "@/lib/approvalsInbox";
+import { OPEN_APPROVALS_EVENT, approvalsToAnnounce } from "@/lib/approvalsInbox";
+import { useLiveRows } from "@/hooks/use-live-rows";
 import { mlApplyApprovedPromotion } from "@/utils/ml.functions";
 import {
   Inbox,
@@ -87,6 +88,7 @@ export function ApprovalInbox() {
   const seenIdsRef = useRef<Set<string>>(new Set());
   const initializedRef = useRef(false);
   const myGroupIdsRef = useRef<Set<string>>(new Set());
+  const loadRef = useRef<() => Promise<void>>(async () => {});
 
   // A parked run's row in Recent runs asks for the inbox (R108).
   useEffect(() => {
@@ -121,6 +123,25 @@ export function ApprovalInbox() {
         if (mounted && data) myGroupIdsRef.current = new Set(data.map((r) => r.group_id));
       });
 
+    const announce = (ap: Approval) => {
+      const Icon = ACTION_ICON[ap.action_type] ?? Globe;
+      toast(`${ap.agent_name} needs your approval`, {
+        description: ap.action_title,
+        icon: <Icon className="h-4 w-4 text-primary" />,
+        duration: 10000,
+        action: {
+          label: "Review",
+          onClick: () => setOpen(true),
+        },
+        className:
+          ap.risk_level === "critical" || ap.risk_level === "high"
+            ? "border-destructive/50"
+            : undefined,
+      });
+      setPulse(true);
+      setTimeout(() => setPulse(false), 4000);
+    };
+
     const load = async () => {
       // Through the server: a request's text is sealed under its owner's key
       // (R450). Row-level security still decides which rows come back.
@@ -128,58 +149,34 @@ export function ApprovalInbox() {
       if (!mounted || !data) return;
       const list = data as Approval[];
       setApprovals(list);
-      if (!initializedRef.current) {
-        list.forEach((a) => seenIdsRef.current.add(a.id));
-        initializedRef.current = true;
+      const firstLoad = !initializedRef.current;
+      initializedRef.current = true;
+      // Announced from what was loaded, so a poll finds a new approval exactly
+      // as a Realtime event does (R468).
+      for (const ap of approvalsToAnnounce(list, seenIdsRef.current, firstLoad, amIApprover)) {
+        announce(ap);
       }
     };
-    load();
-
-    const channel = supabase
-      .channel("approvals-changes")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "approvals" },
-        (payload) => {
-          const ap = payload.new as Approval;
-          if (ap.status === "pending" && !seenIdsRef.current.has(ap.id) && amIApprover(ap)) {
-            seenIdsRef.current.add(ap.id);
-            const Icon = ACTION_ICON[ap.action_type] ?? Globe;
-            toast(`${ap.agent_name} needs your approval`, {
-              description: ap.action_title,
-              icon: <Icon className="h-4 w-4 text-primary" />,
-              duration: 10000,
-              action: {
-                label: "Review",
-                onClick: () => setOpen(true),
-              },
-              className:
-                ap.risk_level === "critical" || ap.risk_level === "high"
-                  ? "border-destructive/50"
-                  : undefined,
-            });
-            setPulse(true);
-            setTimeout(() => setPulse(false), 4000);
-          }
-          load();
-        },
-      )
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "approvals" }, () =>
-        load(),
-      )
-      .on("postgres_changes", { event: "DELETE", schema: "public", table: "approvals" }, () =>
-        load(),
-      )
-      .subscribe();
+    loadRef.current = load;
+    void load();
 
     return () => {
       mounted = false;
-      supabase.removeChannel(channel);
+      loadRef.current = async () => {};
     };
-    // amIApprover reads the user this effect was set up for and the group ref;
-    // re-subscribing on every render would drop events.
+    // amIApprover reads the user this effect was set up for and the group ref.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+
+  // Every change to approvals reloads the list: a Realtime event where the
+  // database runs Realtime, a poll where it does not (Amazon RDS) or its
+  // channel failed, and the tab coming back into view.
+  useLiveRows({
+    channel: "approvals-changes",
+    table: "approvals",
+    refresh: () => void loadRef.current(),
+    enabled: !!user,
+  });
 
   const decide = async (id: string, status: "approved" | "rejected") => {
     const item = approvals.find((a) => a.id === id);

@@ -4,6 +4,7 @@
 // credential panel in this app.
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { useRefreshOnView } from "@/hooks/use-live-rows";
 import { listClaim } from "@/lib/listClaim";
 import { countLabels } from "@/lib/countClaim";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -125,14 +126,12 @@ export function McpServersPanel({ showBuilderLink = true }: { showBuilderLink?: 
   useEffect(() => {
     if (!user) return;
     load();
-    const channel = supabase
-      .channel("mcp-changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "mcp_servers" }, load)
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
   }, [user]);
+  // Until R468 this listened on a Realtime channel for mcp_servers, which has
+  // not been in the realtime publication since 20260504100311 (its rows held
+  // auth_token), so no event ever came. The rows change from this panel or a
+  // probe it starts; coming back to the tab is the only other time to look.
+  useRefreshOnView(() => void load(), !!user);
 
   const probeServer = async (id: string, opts?: { silent?: boolean }) => {
     try {

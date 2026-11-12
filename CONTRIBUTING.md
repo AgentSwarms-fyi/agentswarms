@@ -48,6 +48,17 @@ environment variables).
    `tests/unit/migrations.test.ts` fails on a duplicate, but only after you
    have created it.
 
+   **Expand, don't contract.** The previous release must still run on your
+   schema, so an operator can roll the app back without touching the database
+   ([Rolling back one release](docs/DEPLOYMENT.md#rolling-back-one-release)).
+   Add tables, columns (nullable, or with a default), functions and enum
+   values freely. Don't drop or rename anything, or narrow a type, or change a
+   function's arguments, in the release that stops using it: do that one
+   release later, with a `-- contract: public.<table>[.<column>]` line in the
+   migration. The unit suite requires that line next to any `DROP TABLE`,
+   `DROP COLUMN` or `RENAME`. The `upgrade` CI job measures the rest on a real
+   database.
+
 5. Open a pull request describing **what** changed and **why**. Link any
    related issue.
 

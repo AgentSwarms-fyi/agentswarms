@@ -50,6 +50,11 @@ export type PublicConfig = {
   gtmId?: string;
   /** Port of the notebook gateway when the browser derives its URL from the page. */
   notebookGatewayPort?: string;
+  /**
+   * "off" where the database cannot run Supabase Realtime (Amazon RDS): screens
+   * that listen for changes poll instead (src/lib/liveRows.ts). Unset: on.
+   */
+  supabaseRealtime?: string;
 };
 
 export type PublicConfigKey = keyof PublicConfig;
@@ -69,6 +74,7 @@ export const PUBLIC_CONFIG_VARS: Record<PublicConfigKey, { runtime: string; buil
     runtime: "PUBLIC_NOTEBOOK_GATEWAY_PORT",
     build: "VITE_NOTEBOOK_GATEWAY_PORT",
   },
+  supabaseRealtime: { runtime: "PUBLIC_SUPABASE_REALTIME", build: "VITE_SUPABASE_REALTIME" },
 };
 
 const KEYS = Object.keys(PUBLIC_CONFIG_VARS) as PublicConfigKey[];
@@ -83,6 +89,7 @@ export function buildTimePublicConfig(): PublicConfig {
     gaId: import.meta.env.VITE_GA_ID,
     gtmId: import.meta.env.VITE_GTM_ID,
     notebookGatewayPort: import.meta.env.VITE_NOTEBOOK_GATEWAY_PORT,
+    supabaseRealtime: import.meta.env.VITE_SUPABASE_REALTIME,
   });
 }
 
@@ -133,6 +140,8 @@ export function rejectPublicValue(
       const n = Number(value);
       return /^\d{1,5}$/.test(value) && n >= 1 && n <= 65535 ? null : "must be a port number";
     }
+    case "supabaseRealtime":
+      return /^(on|off|true|false|1|0|yes|no)$/i.test(value) ? null : 'must be "on" or "off"';
   }
 }
 
@@ -157,6 +166,7 @@ export function runtimePublicConfig(env: Env, warn: Warn = () => {}): PublicConf
     gaId: env.PUBLIC_GA_ID,
     gtmId: env.PUBLIC_GTM_ID,
     notebookGatewayPort: env.PUBLIC_NOTEBOOK_GATEWAY_PORT,
+    supabaseRealtime: env.PUBLIC_SUPABASE_REALTIME,
   };
   const legacy: PublicConfig = {
     supabaseUrl: env.VITE_SUPABASE_URL,
@@ -166,6 +176,7 @@ export function runtimePublicConfig(env: Env, warn: Warn = () => {}): PublicConf
     gaId: env.VITE_GA_ID,
     gtmId: env.VITE_GTM_ID,
     notebookGatewayPort: env.VITE_NOTEBOOK_GATEWAY_PORT,
+    supabaseRealtime: env.VITE_SUPABASE_REALTIME,
   };
   const out: PublicConfig = {};
   for (const key of KEYS) {

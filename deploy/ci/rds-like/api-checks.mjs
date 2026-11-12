@@ -82,4 +82,8 @@ expect("user B reads its own", await call("GET", `${T}?select=user_id`, tok.b), 
   status: 200,
   rows: 1,
 });
-process.exit(failed ? 1 : 0);
+// Not process.exit(): on Windows, exiting while fetch's sockets are still
+// closing aborts Node (libuv's `!(handle->flags & UV_HANDLE_CLOSING)`
+// assertion, measured in R468), which reads as a failed check after every
+// check passed. The exit code is set; the process ends when they close.
+process.exitCode = failed ? 1 : 0;

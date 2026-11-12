@@ -88,10 +88,17 @@ describe("secrets", () => {
 
 describe("ordering the schema depends on", () => {
   it("waits for the storage service's own migrations first", () => {
-    // Three AgentSwarms migrations write to storage.buckets.public, a column
-    // the storage service creates on its first boot.
-    expect(script).toContain("storage.buckets.public".replace(".", "."));
-    expect(script).toContain("table_name='buckets' and column_name='public'");
+    // Three AgentSwarms migrations write to storage.buckets.public, which the
+    // storage service's migrations create on its first boot. Waiting for that
+    // COLUMN was the wrong signal (R467 measured a deadlock: storage adds it
+    // partway and was still altering the table); storage serving /status is
+    // the right one, and never seeing it stops the install (R468).
+    expect(script).toContain("wget -q -O /dev/null http://127.0.0.1:5000/status");
+    expect(script).not.toContain("table_name='buckets' and column_name='public'");
+    expect(script).toMatch(/\|\| die "The storage service never finished starting/);
+    expect(script.indexOf("5000/status")).toBeLessThan(
+      script.indexOf("Applying the AgentSwarms schema"),
+    );
   });
 
   it("stops on the first failing migration", () => {

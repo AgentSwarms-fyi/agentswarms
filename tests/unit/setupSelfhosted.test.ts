@@ -48,6 +48,9 @@ case "$*" in
   "compose ps --services --status running") printf '%s\\n' \${RUNNING:-db supavisor} ;;
   compose\\ exec*)
     case "$*" in
+      *"storage wget"*)
+        n=$(( $(cat "$STUB_DIR/storage" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$STUB_DIR/storage"
+        [ "$n" -gt "\${STORAGE_POLLS:-0}" ]; exit $? ;;
       *schema_migrations*) echo "\${APPLIED:-0}" ;;
       *information_schema*) echo 1 ;;
     esac ;;
@@ -254,6 +257,32 @@ describe.skipIf(!hasBash)("setup-selfhosted.sh", { timeout: 180_000 }, () => {
   });
 
   describe("applying the schema", () => {
+    // R468. The storage service's own migrations must FINISH first: waiting
+    // for the buckets.public column (until R468) let ours start while storage
+    // was still altering storage.buckets, and R467 measured a deadlock.
+    it("pushes only once the storage service serves", () => {
+      const s = sandbox({ env: { ...NOTHING_PENDING, STORAGE_POLLS: "3" } });
+      expect(s.run().status).toBe(0);
+      const log = s.log();
+      const polls = s.calls(
+        "docker compose exec -T storage wget -q -O /dev/null http://127.0.0.1:5000/status",
+      );
+      expect(polls).toHaveLength(4);
+      expect(log.lastIndexOf("5000/status")).toBeLessThan(log.indexOf("npx --yes supabase@"));
+      expect(log).not.toContain("column_name='public'");
+    });
+
+    it("stops and says where to look when storage never serves", () => {
+      const s = sandbox({
+        env: { ...NOTHING_PENDING, STORAGE_POLLS: "999999", SUPABASE_WAIT_SECS: "0" },
+      });
+      const { status, output } = s.run();
+      expect(status).not.toBe(0);
+      expect(output).toContain("The storage service never finished starting");
+      expect(output).toContain("docker compose logs storage");
+      expect(s.calls("npx")).toHaveLength(0);
+    });
+
     it("stops before the push when migrations are pending and nobody can confirm them", () => {
       const s = sandbox();
       const { status, output } = s.run();

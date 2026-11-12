@@ -71,6 +71,7 @@ describe("the server reads PUBLIC_* from its environment", () => {
       PUBLIC_GA_ID: "G-ABC123",
       PUBLIC_GTM_ID: "GTM-XYZ9",
       PUBLIC_NOTEBOOK_GATEWAY_PORT: "9443",
+      PUBLIC_SUPABASE_REALTIME: "off",
     };
     expect(runtimePublicConfig(env)).toEqual({
       supabaseUrl: "https://db.example.com",
@@ -80,6 +81,7 @@ describe("the server reads PUBLIC_* from its environment", () => {
       gaId: "G-ABC123",
       gtmId: "GTM-XYZ9",
       notebookGatewayPort: "9443",
+      supabaseRealtime: "off",
     });
     // Each runtime name in the table is one the reader actually reads.
     for (const { runtime } of Object.values(PUBLIC_CONFIG_VARS)) {
@@ -154,6 +156,9 @@ describe("the server reads PUBLIC_* from its environment", () => {
     expect(rejectPublicValue("biSnapshotRowsCap", "1200.7")).toBeNull();
     expect(rejectPublicValue("biSnapshotRowsCap", "-5")).not.toBeNull();
     expect(rejectPublicValue("gaId", "UA-12345-1")).toBeNull();
+    expect(rejectPublicValue("supabaseRealtime", "off")).toBeNull();
+    expect(rejectPublicValue("supabaseRealtime", "ON")).toBeNull();
+    expect(rejectPublicValue("supabaseRealtime", "disabled")).not.toBeNull();
   });
 });
 

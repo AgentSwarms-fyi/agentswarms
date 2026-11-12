@@ -598,12 +598,16 @@ describe("the bell", () => {
     expect(inbox).not.toMatch(/\.from\("approvals"\)\s*\.select/);
   });
 
-  it("the realtime toast shows only what is readable", () => {
+  it("the new-approval toast shows only what is readable", () => {
+    // Since R468 it is raised from the rows the inbox loads (a Realtime event
+    // or a poll reloads them), not from the Realtime event's own row.
     const inbox = readFileSync(path.resolve("src/components/ApprovalInbox.tsx"), "utf8");
-    const at = inbox.indexOf('event: "INSERT"');
-    const handler = inbox.slice(at, inbox.indexOf('event: "UPDATE"', at));
+    const at = inbox.indexOf("const announce = (ap: Approval)");
+    expect(at).toBeGreaterThan(-1);
+    const handler = inbox.slice(at, inbox.indexOf("const load = async", at));
     expect(handler).toContain("description: ap.action_title");
     expect(handler).not.toMatch(/ap\.description|ap\.payload/);
+    expect(inbox).not.toContain("payload.new");
   });
 });
 
