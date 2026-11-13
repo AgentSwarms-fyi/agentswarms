@@ -98,6 +98,8 @@ type Options = {
   fresh?: boolean;
   pgVersion?: boolean;
   composeFile?: string;
+  /** Keys the stack's .env.example does not have (an older or newer stack). */
+  stackEnvWithout?: string[];
 };
 
 function sandbox(options: Options = {}) {
@@ -121,10 +123,13 @@ function sandbox(options: Options = {}) {
   const stack = options.fresh ? `${stubDir}/stack/docker` : `${root}/supabase-docker/docker`;
   mkdirSync(`${stack}/volumes/db/data`, { recursive: true });
   writeFileSync(`${stack}/docker-compose.yml`, "services: {}\n");
-  writeFileSync(
-    `${stack}/.env.example`,
-    options.composeFile ? STACK_ENV.replace("docker-compose.yml", options.composeFile) : STACK_ENV,
-  );
+  const stackEnv = (
+    options.composeFile ? STACK_ENV.replace("docker-compose.yml", options.composeFile) : STACK_ENV
+  )
+    .split("\n")
+    .filter((l) => !(options.stackEnvWithout ?? []).some((k) => l.startsWith(`${k}=`)))
+    .join("\n");
+  writeFileSync(`${stack}/.env.example`, stackEnv);
   if (options.pgVersion) writeFileSync(`${stack}/volumes/db/data/PG_VERSION`, "17\n");
 
   const run = (extra: Options = {}) => {
@@ -322,6 +327,20 @@ describe.skipIf(!hasBash)("setup-selfhosted.sh", { timeout: 180_000 }, () => {
       const s = sandbox({ env: NOTHING_PENDING });
       s.run();
       expect(s.calls("npx")[0]).toMatch(/\/\/postgres\.[a-z]+:/);
+    });
+
+    it("runs to the end on a stack whose .env has no pooler tenant at all", () => {
+      // An older stack has no POOLER_TENANT_ID, so sb_set skips it and sb_get
+      // finds nothing. Until R470 that "no match" ended the script silently
+      // under pipefail, before the default tenant on the next line applied.
+      const s = sandbox({
+        env: { ...NOTHING_PENDING, RUNNING: "db" },
+        stackEnvWithout: ["POOLER_TENANT_ID"],
+      });
+      const { status } = s.run();
+      expect(status).toBe(0);
+      expect(s.calls("npx")[0]).toMatch(/\/\/postgres:/);
+      expect(s.calls("setup.sh")).toHaveLength(1);
     });
 
     it("uses the plain user on an older stack with no pooler", () => {

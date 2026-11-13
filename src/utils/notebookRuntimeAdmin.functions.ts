@@ -133,7 +133,7 @@ const DEFAULTS: NbRuntimeSettings = {
   server_runtime_enabled: false,
   require_grant: false,
   backend: "docker",
-  default_image: "agentswarms/notebook-runtime:latest",
+  default_image: "ghcr.io/agentswarms-fyi/notebook-runtime:local",
   max_sessions_per_user: 3,
   max_sessions_total: 50,
   idle_ttl_minutes: 30,
@@ -490,7 +490,7 @@ export const nbRuntimePreflight = createServerFn({ method: "POST" })
     const image =
       process.env.NOTEBOOK_RUNTIME_IMAGE ||
       row?.default_image ||
-      "agentswarms/notebook-runtime:latest";
+      "ghcr.io/agentswarms-fyi/notebook-runtime:local";
     const checks: PreflightCheck[] = [];
 
     checks.push(

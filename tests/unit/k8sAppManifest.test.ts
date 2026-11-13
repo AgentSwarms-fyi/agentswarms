@@ -322,14 +322,23 @@ describe("Pod Security Standards", () => {
     }
   });
 
-  it("meets `restricted` everywhere except the one pod whose image is root", () => {
+  it("meets `restricted` everywhere: no pod runs as root", () => {
     const rootPods = workloads
       .filter((w) => w.pod.securityContext?.runAsNonRoot !== true)
       .map((w) => w.name);
-    // Exactly one, and we know which and why. If this list grows, someone added
-    // a workload that a restricted cluster will silently refuse to schedule —
-    // and finding that out costs a cluster and an afternoon.
-    expect(rootPods).toEqual(["Deployment/agentswarms-docgen"]);
+    // Until R470 docgen was the one exception: its image ran as root. It runs
+    // as uid 10001 now, a NUMERIC user, which is what lets the kubelet check
+    // runAsNonRoot at all. If this list grows, someone added a workload that a
+    // restricted cluster will silently refuse to schedule.
+    expect(rootPods).toEqual([]);
+  });
+
+  it("docgen runs as the image's own numeric user", () => {
+    const docgen = workloads.find((w) => w.name === "Deployment/agentswarms-docgen")!;
+    expect(docgen.pod.securityContext?.runAsUser).toBe(10001);
+    const df = readFileSync(resolve(process.cwd(), "docgen-service/Dockerfile"), "utf8");
+    expect(df).toMatch(/^USER 10001:10001$/m);
+    expect(df).toContain("--uid 10001");
   });
 
   it("never mounts an API token into a workload that does not call the API", () => {

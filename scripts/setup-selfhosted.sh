@@ -93,7 +93,10 @@ sign_key() { # $1 = role (anon | service_role), $2 = jwt secret
 # Read/replace KEY=value in an env file, only if the key exists there —
 # supabase/docker's .env.example evolves, so we substitute what is present
 # rather than assuming a fixed shape.
-sb_get() { grep -E "^$1=" "$SB_DIR/docker/.env" 2>/dev/null | head -1 | cut -d= -f2-; }
+# A key the stack's .env does not have reads as empty, and never fails: under
+# pipefail, grep's "no match" made `X="$(sb_get X)"` end the script silently,
+# before the default on the next line could apply (R470, as in setup.sh).
+sb_get() { { grep -E "^$1=" "$SB_DIR/docker/.env" 2>/dev/null || true; } | head -1 | cut -d= -f2-; }
 sb_set() {
   local k="$1" v="$2" f="$SB_DIR/docker/.env" tmp
   grep -qE "^$k=" "$f" || return 0

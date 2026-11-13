@@ -29,6 +29,7 @@ import {
 const BOOTED_AT = Date.now() - Math.round(process.uptime() * 1000);
 import { resolveInternalOrigin } from "@/utils/internalOrigin.server";
 import { appRole } from "@/utils/appRole";
+import { releaseInfo } from "@/utils/release.server";
 
 const PROBE_TIMEOUT_MS = 2500;
 
@@ -365,6 +366,7 @@ export const systemMetrics = createServerFn({ method: "POST" })
       hostname: os.hostname(),
       role: appRole(),
       workers: Number(process.env.AGENTSWARMS_WORKERS) || 1,
+      ...releaseInfo(),
       platform: `${os.type()} ${os.release()} (${os.arch()})`,
       nodeVersion: process.version,
       uptimeSeconds: process.uptime(),

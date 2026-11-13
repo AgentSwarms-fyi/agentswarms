@@ -249,8 +249,30 @@ node scripts/upgrade-qdrant.mjs
 if ($LASTEXITCODE -ne 0) { Die "The vector store's volume was not upgraded (see above); nothing was started." }
 
 # ── 5. run ────────────────────────────────────────────────────────────────────
-Say "Starting every service (first run builds images and pulls ~5 GB)"
-docker compose up -d --build
+# The sandbox image used to be agentswarms/notebook-runtime:latest, a Docker
+# Hub name nobody here owns; an .env still holding that old default would keep
+# pulling by it. Compose names it under ghcr.io/agentswarms-fyi now (R470).
+if ((Get-EnvVar "NOTEBOOK_RUNTIME_IMAGE") -eq "agentswarms/notebook-runtime:latest") {
+  Say "Clearing NOTEBOOK_RUNTIME_IMAGE: its old default is a Docker Hub name nobody here owns"
+  Set-EnvVar "NOTEBOOK_RUNTIME_IMAGE" ""
+}
+
+# AGENTSWARMS_VERSION in .env picks a published release; empty builds this
+# checkout. A release is pulled and never built: a missing or mistyped version
+# stops here rather than building this checkout under the release's name.
+$Release = Get-EnvVar "AGENTSWARMS_VERSION"
+$Registry = Get-EnvVar "AGENTSWARMS_REGISTRY"
+if ([string]::IsNullOrEmpty($Registry)) { $Registry = "ghcr.io/agentswarms-fyi" }
+if (-not [string]::IsNullOrEmpty($Release) -and $Release -ne "local") {
+  Say "Starting release ${Release}: pulling its signed images from $Registry (nothing is built)"
+  docker compose pull
+  if ($LASTEXITCODE -ne 0) { Die "Could not pull release $Release. Check AGENTSWARMS_VERSION (and AGENTSWARMS_REGISTRY) in .env; leave it empty to build from this checkout." }
+  docker compose up -d --no-build
+  if ($LASTEXITCODE -ne 0) { Die "Release $Release did not start (see above)." }
+} else {
+  Say "Starting every service (first run builds images and pulls ~5 GB)"
+  docker compose up -d --build
+}
 
 if ($Dev) { Say "Services up. Starting the dev server (Ctrl+C to stop). Open http://localhost:8080" }
 else { Say "Up. Open http://localhost:8080" }
@@ -282,6 +304,7 @@ if ($Dev) {
   Write-Host "    docker run -d --name agentswarms-dev-docker-proxy -p 127.0.0.1:2375:2375 ``"
   Write-Host "      -v /var/run/docker.sock:/var/run/docker.sock:ro ``"
   Write-Host "      -e CONTAINERS=1 -e IMAGES=1 -e NETWORKS=1 -e POST=1 ``"
-  Write-Host "      agentswarms/docker-socket-proxy:latest"
+  $ProxyTag = if ([string]::IsNullOrEmpty($Release)) { "local" } else { $Release }
+  Write-Host "      $Registry/docker-socket-proxy:$ProxyTag"
   npm run dev
 }

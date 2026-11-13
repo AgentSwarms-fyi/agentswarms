@@ -109,6 +109,35 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-13 — R470: a release by its version, and images under a name this project owns
+
+**Why this round.** Phase 3 of the AWS plan, part 2: R469 publishes releases, and an install had no way to run one. Upgrading meant rebuilding from a checkout, and rolling back meant rebuilding an older one.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| Every image was named under a Docker Hub namespace nobody here owns | S2 | Compose and the Kubernetes manifests named this repository's images `agentswarms/<image>:latest`. **Measured:** the `agentswarms` user and organisation on Docker Hub do not exist (404), so anyone could register them. **Measured with Compose 5.3.1:** a service with both `image:` and `build:` whose image is not local is PULLED if a registry has it, and built only if none does. So `docker compose pull`, or an `up` before the first build, would have run whatever someone published there, including the Docker API proxy, which holds the Docker socket. A Kubernetes node without the image (`IfNotPresent`) pulls it too. Nothing was published there, so nothing was pulled. The app's own sandbox launcher never pulls. All the names are `ghcr.io/agentswarms-fyi/<image>` now, an organisation this project controls. The installer clears the old default from an existing `.env` |
+| `setup.sh` stopped silently on an `.env` without a key it reads | S3 | `getenv` was `grep \| head \| sed` under `set -euo pipefail`. A missing key made `X="$(getenv X)"` end the script with exit 1 and no message. **Measured** in a stub sandbox: an `.env` without `QDRANT_API_KEY` stopped right after "Generating DOCGEN_TOKEN". Every existing `.env` lacks `AGENTSWARMS_VERSION`, so this round's own change would have broken every re-run. `setup-selfhosted.sh`'s `sb_get` had the same flaw: on a stack whose `.env` has no `POOLER_TENANT_ID` it exited before applying its own default. A mutation check confirmed that the new test fails with the old helper |
+| docgen was the one pod a `restricted` namespace refused | S4 | R469 made the image non-root, but by user name, and the kubelet can only enforce `runAsNonRoot` on a numeric user. It is `USER 10001:10001` now, and the manifest requires it. Smoke-tested on the rebuilt image; not run in a cluster |
+
+**Measured:**
+- **Compose against a stand-in registry** (`registry:2.8.3` on 127.0.0.1 as `AGENTSWARMS_REGISTRY`, project `r470rel`). Two releases of js-sandbox and the Docker API proxy were pushed, then removed locally.
+  - `AGENTSWARMS_VERSION=9.9.8-test`: `pull`, then `up -d --no-build`, ran both from the registry.
+  - `9.9.7-test`: the same two commands replaced them (a rollback).
+  - `9.9.9-missing`: `pull` exited 1, `up --no-build` exited 1 ("No such image"), and 9.9.7-test kept running.
+- **`docker compose config`** gave the expected names four ways: defaults, a version, a mirror, and an older `.env` naming its own sandbox image.
+- **`scripts/setup.sh`** was run against stubs (`tests/unit/setupRelease.test.ts`):
+  - no version builds;
+  - a version pulls and then starts with `--no-build`;
+  - a pull that fails stops the install, and nothing is built;
+  - the old sandbox name is cleared, and a custom one is kept.
+
+**What would have been wrong to conclude.**
+
+- *"`up` without `--build` builds whatever is missing."* With Compose 5.3.1 it pulls first, whenever a registry has the name. That is what made the Docker Hub names a real exposure, not a cosmetic one.
+- *"Put the version in the environment, as R469 did."* Compose hands the app its whole `.env`, and `.env`'s `AGENTSWARMS_VERSION` names the release to run, not the one the image is. As an environment variable, a checkout built under a release's name would have reported itself as that release. The app image records its release in `/app/release.json` instead.
+- *"`docker compose pull` fails on an image it cannot find."* The first probe printed exit 0, but that was `tail`'s exit code. Compose's own is 1 (measured), and the installer relies on it, with `up --no-build` as a second stop.
+- *"`scan.sh` can call the Python helper."* There is no `python3` on this Windows machine. `scan.sh` keeps its `sed`/`grep` list, and the two lists were checked to agree on the same seven third-party images.
+
 ### 2026-11-13 — R469: one image for every install, published and signed
 
 **Why this round.** Phase 3 of the AWS plan: publish versioned, signed, multi-arch images, so that an install, an ECS task or a Helm release pulls a release by version and rolls back by version. Nothing was published: the last tag was v1.6.0 (2026-10-06), and every install built its own images from a checkout.

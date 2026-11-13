@@ -372,7 +372,7 @@ export async function getRuntimeSettings(): Promise<RuntimeSettings> {
     image:
       process.env.NOTEBOOK_RUNTIME_IMAGE ||
       data?.default_image ||
-      "agentswarms/notebook-runtime:latest",
+      "ghcr.io/agentswarms-fyi/notebook-runtime:local",
     maxSessionsPerUser: data?.max_sessions_per_user ?? 3,
     maxSessionsTotal: data?.max_sessions_total ?? 50,
     idleTtlMinutes: data?.idle_ttl_minutes ?? 30,

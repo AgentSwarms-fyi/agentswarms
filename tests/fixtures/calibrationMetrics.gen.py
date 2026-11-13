@@ -14,7 +14,7 @@ different way (numpy, over the raw probabilities) so the TypeScript's
 
   node -e "const s=require('fs').readFileSync('src/utils/ml/pyTrain.ts','utf8');const a=s.indexOf('String.raw`')+11;require('fs').writeFileSync('/tmp/train_py.py',s.slice(a,s.indexOf('`;',a)))"
   docker run --rm -v /tmp:/work --entrypoint python \
-    agentswarms/notebook-runtime:latest /work/calibrationMetrics.gen.py
+    ghcr.io/agentswarms-fyi/notebook-runtime:local /work/calibrationMetrics.gen.py
 
 The JSON is WRITTEN to /work/calibrationMetrics.json rather than printed:
 the trainer's own _log goes to stdout and would land in the middle of the

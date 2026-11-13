@@ -86,16 +86,20 @@ else
   # First-party images this repo builds and their bases, plus every
   # third-party image the compose stack runs — read from docker-compose.yml,
   # pinned digests included, so the scan covers exactly what runs.
-  THIRD_PARTY="$(sed -n 's/^ *image: *\([^ #]*\).*/\1/p' "$REPO/docker-compose.yml" | grep -v '^agentswarms/')"
+  # Ours are named from .env settings since R470 (${AGENTSWARMS_REGISTRY:-...}),
+  # as grype-summary.py's first_party() reads them too.
+  THIRD_PARTY="$(sed -n 's/^ *image: *\([^ #]*\).*/\1/p' "$REPO/docker-compose.yml" \
+    | grep -v -e '^agentswarms/' -e '^\${' -e 'agentswarms-fyi/')"
   # The bases, exactly as the Dockerfiles pin them (tag@sha256, R406).
   BASES="$(cd "$REPO" && sed -n 's/^FROM \([^ ]*\).*/\1/p' Dockerfile docgen-service/Dockerfile docker/notebook-runtime/Dockerfile services/notebook-gateway/Dockerfile services/js-sandbox/Dockerfile docker/socket-proxy/Dockerfile docker/db-migrate/Dockerfile | sort -u)"
+  # The images `docker compose up -d --build` made (R470: tag `local`).
   IMAGES="
-    agentswarms-share-agentswarms:latest
-    agentswarms/notebook-runtime:latest
-    agentswarms/notebook-gateway:latest
-    agentswarms/docgen:latest
-    agentswarms/js-sandbox:latest
-    agentswarms/docker-socket-proxy:latest
+    ghcr.io/agentswarms-fyi/agentswarms:local
+    ghcr.io/agentswarms-fyi/notebook-runtime:local
+    ghcr.io/agentswarms-fyi/notebook-gateway:local
+    ghcr.io/agentswarms-fyi/docgen:local
+    ghcr.io/agentswarms-fyi/js-sandbox:local
+    ghcr.io/agentswarms-fyi/docker-socket-proxy:local
     $BASES
     $THIRD_PARTY
   "

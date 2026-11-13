@@ -20,7 +20,7 @@ set -uo pipefail
 
 DOCKER="${DOCKER:-docker}"
 APP_URL="${APP_URL:-http://127.0.0.1:8080}"
-IMAGE="${NOTEBOOK_RUNTIME_IMAGE:-agentswarms/notebook-runtime:latest}"
+IMAGE="${NOTEBOOK_RUNTIME_IMAGE:-ghcr.io/agentswarms-fyi/notebook-runtime:local}"
 KERNEL="verify-nb-$$"
 pass=0; fail=0; skip=0
 shopt -s nocasematch

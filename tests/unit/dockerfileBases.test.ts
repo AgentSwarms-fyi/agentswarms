@@ -116,7 +116,9 @@ describe("first-party image bases", () => {
       "RUN apk upgrade --no-cache",
     ]);
     const service = compose.services["notebook-docker-proxy"];
-    expect(service.image).toBe("agentswarms/docker-socket-proxy:latest");
+    expect(service.image).toBe(
+      "${AGENTSWARMS_REGISTRY:-ghcr.io/agentswarms-fyi}/docker-socket-proxy:${AGENTSWARMS_VERSION:-local}",
+    );
   });
 
   it("has scan.sh scan every image compose builds, and every base", () => {
@@ -126,8 +128,18 @@ describe("first-party image bases", () => {
       expect(basesLine, ctx).toContain(ctx === "." ? " Dockerfile " : ` ${ctx}/Dockerfile`);
     }
     const images = /^ {2}IMAGES="([^"]*)"/m.exec(scanSh)![1].split(/\s+/).filter(Boolean);
+    // Compose names them from .env settings (R470); with none set, each
+    // ${VAR:-default} is its default, nested ones included.
+    const withDefaults = (s: string): string => {
+      let prev = "";
+      while (prev !== s) {
+        prev = s;
+        s = s.replace(/\$\{[A-Z_]+:-([^${}]*)\}/g, "$1");
+      }
+      return s;
+    };
     for (const [name, s] of Object.entries(compose.services)) {
-      if (s.build && s.image) expect(images, name).toContain(s.image);
+      if (s.build && s.image) expect(images, name).toContain(withDefaults(s.image));
     }
   });
 });

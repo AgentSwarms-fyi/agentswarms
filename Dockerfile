@@ -73,6 +73,16 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/server.mjs /app/serverCompression.mjs /app/serverDrain.mjs /app/serverGuards.mjs /app/serverSecurityHeaders.mjs /app/serverWorkers.mjs ./
 COPY --from=build /app/scripts/bake-duckdb-extensions.mjs ./scripts/
 
+# Which release this is. The release workflow passes the tag and commit; a
+# local build says "dev". In a file, not the environment (R470): Compose hands
+# the app the whole .env, whose AGENTSWARMS_VERSION says which release to RUN,
+# and an environment variable here would be overwritten by it, so a checkout
+# built under a release's name would claim to be that release. Monitoring
+# reads this file; /api/health, which anyone can call, does not say.
+ARG AGENTSWARMS_VERSION=dev
+ARG AGENTSWARMS_REVISION=
+RUN printf '{"version":"%s","revision":"%s"}\n' "$AGENTSWARMS_VERSION" "$AGENTSWARMS_REVISION" > /app/release.json
+
 EXPOSE 8080
 
 # Drop root.
@@ -93,13 +103,6 @@ USER node
 # because the cache lives under that user's home, which is where the engine
 # looks at run time.
 RUN node scripts/bake-duckdb-extensions.mjs
-
-# Which release this is. The release workflow passes the tag and commit; a
-# local build says "dev". Not served on /api/health, which anyone can call.
-ARG AGENTSWARMS_VERSION=dev
-ARG AGENTSWARMS_REVISION=
-ENV AGENTSWARMS_VERSION=$AGENTSWARMS_VERSION \
-    AGENTSWARMS_REVISION=$AGENTSWARMS_REVISION
 
 # server.mjs serves the built TanStack Start bundle: client assets, SSR and
 # every /api route, forking one worker per CPU.

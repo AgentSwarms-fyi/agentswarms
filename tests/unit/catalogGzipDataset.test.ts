@@ -35,6 +35,8 @@ import zlib from "node:zlib";
 
 import { describe, expect, it } from "vitest";
 
+import { localRuntimeImage } from "../fixtures/runtimeImage";
+
 import { lineageKey, sourceLineageFor } from "@/lib/dataCatalog";
 import { objectSqlName } from "@/lib/objectSqlName";
 import { datasetFqn, estimateRows, isDatasetGroup } from "@/utils/catalog/crawler.server";
@@ -312,25 +314,10 @@ const RUNNER: { cmd: string; args: string[] } | null = (() => {
       /* next */
     }
   }
-  try {
-    execFileSync("docker", ["image", "inspect", "agentswarms/notebook-runtime:latest"], {
-      stdio: "ignore",
-    });
-    return {
-      cmd: "docker",
-      args: [
-        "run",
-        "--rm",
-        "-i",
-        "--entrypoint",
-        "python",
-        "agentswarms/notebook-runtime:latest",
-        "-",
-      ],
-    };
-  } catch {
-    return null;
-  }
+  const image = localRuntimeImage();
+  return image
+    ? { cmd: "docker", args: ["run", "--rm", "-i", "--entrypoint", "python", image, "-"] }
+    : null;
 })();
 
 /**

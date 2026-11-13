@@ -7,7 +7,7 @@ when it does not, and that the sweep's precision and recall move the way a
 reader expects as the threshold rises.
 
   node -e "const s=require('fs').readFileSync('src/utils/ml/pyTrain.ts','utf8');const a=s.indexOf('String.raw`')+11;require('fs').writeFileSync('/tmp/train_py.py',s.slice(a,s.indexOf('`;',a)))"
-  docker run --rm -v /tmp:/work --entrypoint python agentswarms/notebook-runtime:latest /work/calibrationProbe.py
+  docker run --rm -v /tmp:/work --entrypoint python ghcr.io/agentswarms-fyi/notebook-runtime:local /work/calibrationProbe.py
 """
 
 import sys

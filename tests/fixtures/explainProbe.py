@@ -8,7 +8,7 @@ a feature the model ignores contributes nothing, the feature it keys on comes
 first, and for a linear model the contribution equals the closed form exactly.
 
   node -e "const s=require('fs').readFileSync('src/utils/ml/pyTrain.ts','utf8');const a=s.indexOf('String.raw`')+11;require('fs').writeFileSync('/tmp/train_py.py',s.slice(a,s.indexOf('`;',a)))"
-  docker run --rm -v /tmp:/work --entrypoint python agentswarms/notebook-runtime:latest /work/explainProbe.py
+  docker run --rm -v /tmp:/work --entrypoint python ghcr.io/agentswarms-fyi/notebook-runtime:local /work/explainProbe.py
 """
 import json
 import sys

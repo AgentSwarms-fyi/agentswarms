@@ -73,25 +73,21 @@ spec:
               app.kubernetes.io/name: agentswarms
               app.kubernetes.io/component: docgen
       securityContext:
-        # Meets the `baseline` Pod Security Standard. It cannot meet
-        # `restricted`, which also demands runAsNonRoot — see the note on the
-        # container below. On a cluster that enforces `restricted` namespace-
-        # wide, this is the one pod that needs the image fixed first, or its
-        # own namespace at `baseline`.
+        # Meets the `restricted` Pod Security Standard since the image dropped
+        # root (R469) for a numeric user (R470): uid 10001. Until then this was
+        # the one pod a `restricted` namespace refused.
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: docgen
-          image: agentswarms/docgen:latest
-          # REQUIRED, not decoration: a `:latest` tag defaults to
-          # imagePullPolicy: Always, so Kubernetes ignores the image you built
-          # locally and tries Docker Hub — ImagePullBackOff on a cluster where
-          # the image was sitting there all along. Pin a digest or a real
+          image: ghcr.io/agentswarms-fyi/docgen:local
+          # IfNotPresent: a node that has the locally built `:local` image uses
+          # it. setup-k8s.sh replaces the image with a release's
+          # (AGENTSWARMS_VERSION) or your pushed build; pin a digest or a real
           # version tag when you publish to a registry.
           imagePullPolicy: IfNotPresent
-          # NOTE: this image currently runs as root, so no runAsNonRoot here —
-          # asserting it would leave the pod in CreateContainerConfigError.
-          # Fixing the image is tracked; until then the container at least
-          # drops capabilities and cannot escalate.
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: { drop: ["ALL"] }
@@ -181,7 +177,7 @@ spec:
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: js-sandbox
-          image: agentswarms/js-sandbox:latest
+          image: ghcr.io/agentswarms-fyi/js-sandbox:local
           # See the note on docgen: `:latest` implies Always, which breaks a
           # locally-built image.
           imagePullPolicy: IfNotPresent

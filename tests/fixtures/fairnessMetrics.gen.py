@@ -8,7 +8,7 @@ policy choice this file does not get a vote on, while the rates it applies to
 are what is actually being checked.
 
   docker run --rm -v /tmp:/work --entrypoint python \
-    agentswarms/notebook-runtime:latest /work/fairnessMetrics.gen.py > fairnessMetrics.json
+    ghcr.io/agentswarms-fyi/notebook-runtime:local /work/fairnessMetrics.gen.py > fairnessMetrics.json
 """
 
 import json

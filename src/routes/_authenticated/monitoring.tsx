@@ -377,7 +377,11 @@ function MonitoringPage() {
 
       {metrics && (
         <p className="mt-3 text-[11px] text-muted-foreground">
-          {metrics.hostname} · {metrics.platform} · Node {metrics.nodeVersion} · sampled{" "}
+          AgentSwarms{" "}
+          {metrics.version === "dev"
+            ? "built from source"
+            : `${metrics.version}${metrics.revision ? ` (${metrics.revision.slice(0, 7)})` : ""}`}{" "}
+          · {metrics.hostname} · {metrics.platform} · Node {metrics.nodeVersion} · sampled{" "}
           {new Date(metrics.sampledAt).toLocaleTimeString()}
         </p>
       )}

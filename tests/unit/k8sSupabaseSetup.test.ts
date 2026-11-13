@@ -150,10 +150,12 @@ describe("images the cluster has to be able to pull", () => {
 
   it("substitutes every image the manifests actually name", () => {
     const substituted = yaml
-      .replaceAll("image: agentswarms:latest", "image: REG/app")
-      .replaceAll("image: agentswarms/docgen:latest", "image: REG/docgen")
-      .replaceAll("image: agentswarms/js-sandbox:latest", "image: REG/sandbox");
-    // Nothing of ours left pointing at a local-only name.
+      .replaceAll("image: ghcr.io/agentswarms-fyi/agentswarms:local", "image: REG/app")
+      .replaceAll("image: ghcr.io/agentswarms-fyi/docgen:local", "image: REG/docgen")
+      .replaceAll("image: ghcr.io/agentswarms-fyi/js-sandbox:local", "image: REG/sandbox");
+    // Nothing of ours left pointing at a local-only name, and nothing at the
+    // old Docker Hub names nobody here owns (R470).
+    expect(substituted).not.toMatch(/image: ghcr\.io\/agentswarms-fyi\/[\w-]+:local/);
     expect(substituted).not.toMatch(/image: agentswarms[:/]/);
     // And all three were really present to begin with, so this cannot pass by
     // matching nothing.

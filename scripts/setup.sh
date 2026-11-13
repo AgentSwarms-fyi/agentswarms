@@ -74,7 +74,11 @@ for f in allowed_domains allowed_ips; do
   fi
 done
 
-getenv() { grep -E "^$1=" .env | head -1 | sed -E "s/^$1=\"?([^\"]*)\"?$/\1/"; }
+# A key the .env does not have reads as empty, and never fails. Under
+# `set -euo pipefail`, grep's "no match" used to make `X="$(getenv X)"` end the
+# script silently (measured, R470): an .env from before a key existed
+# (QDRANT_API_KEY, then AGENTSWARMS_VERSION) stopped a re-run halfway.
+getenv() { { grep -E "^$1=" .env || true; } | head -1 | sed -E "s/^$1=\"?([^\"]*)\"?$/\1/"; }
 setenv() {
   local k="$1" v="$2" tmp
   if grep -qE "^$k=" .env; then
@@ -246,8 +250,29 @@ fi
 node scripts/upgrade-qdrant.mjs || die "The vector store's volume was not upgraded (see above); nothing was started."
 
 # ── 5. run ───────────────────────────────────────────────────────────────────
-say "Starting every service (first run builds images and pulls ~5 GB)"
-docker compose up -d --build
+# The sandbox image used to be agentswarms/notebook-runtime:latest, a Docker
+# Hub name nobody here owns; an .env still holding that old default would keep
+# pulling by it. Compose names it under ghcr.io/agentswarms-fyi now (R470).
+if [ "$(getenv NOTEBOOK_RUNTIME_IMAGE)" = "agentswarms/notebook-runtime:latest" ]; then
+  say "Clearing NOTEBOOK_RUNTIME_IMAGE: its old default is a Docker Hub name nobody here owns"
+  setenv NOTEBOOK_RUNTIME_IMAGE ""
+fi
+
+# AGENTSWARMS_VERSION in .env picks a published release; empty builds this
+# checkout. A release is pulled and never built: a missing or mistyped version
+# stops here rather than building this checkout under the release's name.
+RELEASE="$(getenv AGENTSWARMS_VERSION)"
+REGISTRY="$(getenv AGENTSWARMS_REGISTRY)"
+REGISTRY="${REGISTRY:-ghcr.io/agentswarms-fyi}"
+if [ -n "$RELEASE" ] && [ "$RELEASE" != "local" ]; then
+  say "Starting release $RELEASE: pulling its signed images from $REGISTRY (nothing is built)"
+  docker compose pull \
+    || die "Could not pull release $RELEASE. Check AGENTSWARMS_VERSION (and AGENTSWARMS_REGISTRY) in .env; leave it empty to build from this checkout."
+  docker compose up -d --no-build || die "Release $RELEASE did not start (see above)."
+else
+  say "Starting every service (first run builds images and pulls ~5 GB)"
+  docker compose up -d --build
+fi
 
 if [ "$MODE" = "docker" ]; then
   say "Up. Open http://localhost:8080"
@@ -284,6 +309,6 @@ if [ "$MODE" = "dev" ]; then
   echo "    docker run -d --name agentswarms-dev-docker-proxy -p 127.0.0.1:2375:2375 \\"
   echo "      -v /var/run/docker.sock:/var/run/docker.sock:ro \\"
   echo "      -e CONTAINERS=1 -e IMAGES=1 -e NETWORKS=1 -e POST=1 \\"
-  echo "      agentswarms/docker-socket-proxy:latest"
+  echo "      $REGISTRY/docker-socket-proxy:${RELEASE:-local}"
   npm run dev
 fi

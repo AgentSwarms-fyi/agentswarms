@@ -40,6 +40,7 @@
 # --install` is idempotent, and the schema applies cleanly a second time.
 #
 # Settings, all optional: NAMESPACE, RELEASE, SUPABASE_CHART_VERSION,
+# AGENTSWARMS_VERSION, AGENTSWARMS_REGISTRY,
 # AGENTSWARMS_IMAGE, DOCGEN_IMAGE, JS_SANDBOX_IMAGE, NOTEBOOK_GATEWAY_IMAGE,
 # NOTEBOOK_RUNTIME_IMAGE, ADMIN_EMAIL, ADMIN_PASSWORD, INTERNAL_RUN_SECRET,
 # PROVIDER_CREDS_SECRET, SKIP_IMAGE_CHECK, PUBLIC_SUPABASE_URL.
@@ -63,16 +64,25 @@ NS="${NAMESPACE:-agentswarms}"
 RELEASE="${RELEASE:-supabase}"
 CHART_VERSION="${SUPABASE_CHART_VERSION:-0.7.2}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-IMAGE="${AGENTSWARMS_IMAGE:-agentswarms:latest}"
-# Push these to a registry your cluster can reach before deploying anywhere but
-# a local cluster, and set them here:
-#   AGENTSWARMS_IMAGE=ghcr.io/you/agentswarms:1.2.3 \
-#   DOCGEN_IMAGE=ghcr.io/you/docgen:1.2.3 \
-#   JS_SANDBOX_IMAGE=ghcr.io/you/js-sandbox:1.2.3 bash scripts/setup-k8s.sh
-DOCGEN_IMAGE="${DOCGEN_IMAGE:-agentswarms/docgen:latest}"
-JS_SANDBOX_IMAGE="${JS_SANDBOX_IMAGE:-agentswarms/js-sandbox:latest}"
-NOTEBOOK_GATEWAY_IMAGE="${NOTEBOOK_GATEWAY_IMAGE:-agentswarms/notebook-gateway:latest}"
-NOTEBOOK_RUNTIME_IMAGE="${NOTEBOOK_RUNTIME_IMAGE:-agentswarms/notebook-runtime:latest}"
+# WHICH IMAGES (R470), as in docker-compose.yml:
+#   AGENTSWARMS_VERSION=1.7.0 bash scripts/setup-k8s.sh
+#     runs that release's published, signed images from ghcr.io/agentswarms-fyi
+#     (or AGENTSWARMS_REGISTRY, your mirror). Nothing is built; any cluster can
+#     pull them.
+#   No version: the images are <registry>/<image>:local, built here, which only
+#     a cluster on this machine can see. For any other cluster, push your own
+#     builds and name them:
+#       AGENTSWARMS_IMAGE=registry.example.com/agentswarms:mine \
+#       DOCGEN_IMAGE=... JS_SANDBOX_IMAGE=... bash scripts/setup-k8s.sh
+# Until R470 they were agentswarms/<image>:latest, Docker Hub names nobody here
+# owns: a node without the image would have pulled whatever anyone published.
+REGISTRY="${AGENTSWARMS_REGISTRY:-ghcr.io/agentswarms-fyi}"
+RELEASE_TAG="${AGENTSWARMS_VERSION:-local}"
+IMAGE="${AGENTSWARMS_IMAGE:-$REGISTRY/agentswarms:$RELEASE_TAG}"
+DOCGEN_IMAGE="${DOCGEN_IMAGE:-$REGISTRY/docgen:$RELEASE_TAG}"
+JS_SANDBOX_IMAGE="${JS_SANDBOX_IMAGE:-$REGISTRY/js-sandbox:$RELEASE_TAG}"
+NOTEBOOK_GATEWAY_IMAGE="${NOTEBOOK_GATEWAY_IMAGE:-$REGISTRY/notebook-gateway:$RELEASE_TAG}"
+NOTEBOOK_RUNTIME_IMAGE="${NOTEBOOK_RUNTIME_IMAGE:-$REGISTRY/notebook-runtime:$RELEASE_TAG}"
 ADMIN_EMAIL="${ADMIN_EMAIL:-}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-}"
 PUBLIC_SUPABASE_URL="${PUBLIC_SUPABASE_URL:-http://localhost:8000}"
@@ -88,7 +98,9 @@ command -v openssl >/dev/null || die "openssl is required to generate keys."
 kubectl cluster-info >/dev/null 2>&1 || die "No reachable Kubernetes cluster. On Docker Desktop: Settings -> Kubernetes -> Enable Kubernetes."
 echo "    cluster: $(kubectl config current-context)"
 
-if [ -z "${SKIP_IMAGE_CHECK:-}" ] && command -v docker >/dev/null 2>&1; then
+# A release is pulled by the cluster; only an image built from this checkout is
+# built here.
+if [ "$RELEASE_TAG" = "local" ] && [ -z "${SKIP_IMAGE_CHECK:-}" ] && command -v docker >/dev/null 2>&1; then
   docker image inspect "$IMAGE" >/dev/null 2>&1 || {
     say "Building the app image ($IMAGE)"
     ( cd "$REPO_ROOT" && docker build -t "$IMAGE" . )
@@ -102,12 +114,12 @@ case "$(kubectl config current-context)" in
   docker-desktop | minikube | kind-* | k3d-* | rancher-desktop) ;;
   *)
     case "$IMAGE" in
-      */*.*/* | *.*/*) ;; # already registry-qualified
-      *)
+      *:local)
         printf '\n\033[1;33mWARNING:\033[0m this looks like a remote cluster, but the image is "%s".\n' "$IMAGE"
         printf '         Its nodes cannot pull an image that only exists on this machine.\n'
-        printf '         Push to a registry and re-run with AGENTSWARMS_IMAGE, DOCGEN_IMAGE\n'
-        printf '         and JS_SANDBOX_IMAGE set to the pushed names.\n\n'
+        printf '         Run a published release (AGENTSWARMS_VERSION=<version>), or push your\n'
+        printf '         builds and re-run with AGENTSWARMS_IMAGE, DOCGEN_IMAGE and\n'
+        printf '         JS_SANDBOX_IMAGE set to the pushed names.\n\n'
         ;;
     esac
     ;;
@@ -352,18 +364,18 @@ kubectl -n "$NS" create secret generic agentswarms-env \
 
 # SUBSTITUTE THE IMAGE REFERENCES ON THE WAY IN.
 #
-# The manifests name `agentswarms:latest` and friends, which is right for a
-# local cluster that already has them. On any REMOTE cluster the nodes have
-# never heard of those names and the pods sit in ImagePullBackOff -- so
-# AGENTSWARMS_IMAGE has to reach the manifest, not just the local build check
-# above. It did not, until this: a registry-qualified image was built, checked,
-# and then quietly not deployed.
+# The manifests name ghcr.io/agentswarms-fyi/<image>:local, which is right for
+# a local cluster that already has them. On any REMOTE cluster the nodes have
+# never heard of those and the pods sit in ImagePullBackOff -- so the images
+# chosen above (a release, or your pushed builds) have to reach the manifest,
+# not just the local build check. They did not, until this: a
+# registry-qualified image was built, checked, and then quietly not deployed.
 with_images() {
-  sed -e "s#image: agentswarms:latest#image: ${IMAGE}#g" \
-      -e "s#image: agentswarms/docgen:latest#image: ${DOCGEN_IMAGE}#g" \
-      -e "s#image: agentswarms/js-sandbox:latest#image: ${JS_SANDBOX_IMAGE}#g" \
-      -e "s#image: agentswarms/notebook-gateway:latest#image: ${NOTEBOOK_GATEWAY_IMAGE}#g" \
-      -e "s#image: agentswarms/notebook-runtime:latest#image: ${NOTEBOOK_RUNTIME_IMAGE}#g" "$1"
+  sed -e "s#image: ghcr.io/agentswarms-fyi/agentswarms:local#image: ${IMAGE}#g" \
+      -e "s#image: ghcr.io/agentswarms-fyi/docgen:local#image: ${DOCGEN_IMAGE}#g" \
+      -e "s#image: ghcr.io/agentswarms-fyi/js-sandbox:local#image: ${JS_SANDBOX_IMAGE}#g" \
+      -e "s#image: ghcr.io/agentswarms-fyi/notebook-gateway:local#image: ${NOTEBOOK_GATEWAY_IMAGE}#g" \
+      -e "s#image: ghcr.io/agentswarms-fyi/notebook-runtime:local#image: ${NOTEBOOK_RUNTIME_IMAGE}#g" "$1"
 }
 with_images "$REPO_ROOT/deploy/k8s/app/agentswarms.yaml" | kubectl apply -f - >/dev/null
 with_images "$REPO_ROOT/deploy/k8s/app/services.yaml" | kubectl apply -f - >/dev/null

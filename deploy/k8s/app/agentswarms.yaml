@@ -106,7 +106,7 @@ spec:
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: app
-          image: agentswarms:latest
+          image: ghcr.io/agentswarms-fyi/agentswarms:local
           # IfNotPresent suits a locally-built image. In production pin a
           # DIGEST (agentswarms@sha256:…), or use a real version tag with
           # Always — `:latest` with IfNotPresent means a node that already has
@@ -233,7 +233,7 @@ spec:
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: app
-          image: agentswarms:latest
+          image: ghcr.io/agentswarms-fyi/agentswarms:local
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false

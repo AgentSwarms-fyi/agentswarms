@@ -158,7 +158,7 @@ describe("the doc-gen container calls no model", () => {
     const compose = rd("docker-compose.yml");
     const svc = compose.slice(compose.indexOf("\n  docgen:"));
     const block = svc.slice(0, svc.slice(1).search(/\n {2}[a-z][\w-]*:\n/) + 1);
-    expect(block).toContain("image: agentswarms/docgen");
+    expect(block).toContain("/docgen:${AGENTSWARMS_VERSION:-local}");
     expect(block).not.toMatch(/OPENROUTER/);
   });
 

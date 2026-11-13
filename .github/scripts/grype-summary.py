@@ -17,12 +17,19 @@ import sys
 SEVERITIES = ["Critical", "High", "Medium", "Low", "Negligible", "Unknown"]
 
 
+def first_party(image: str) -> bool:
+    """An image this repository builds: named from an .env setting since R470
+    (${AGENTSWARMS_REGISTRY:-ghcr.io/agentswarms-fyi}/<image>:...), and
+    agentswarms/<image> before that. The first-party job scans those."""
+    return image.startswith("${") or image.startswith("agentswarms/") or "agentswarms-fyi/" in image
+
+
 def compose_images(path: str) -> list[str]:
     seen: list[str] = []
     with open(path, encoding="utf-8") as f:
         for line in f:
             m = re.match(r"^\s*image:\s*([^\s#]+)", line)
-            if m and not m.group(1).startswith("agentswarms/") and m.group(1) not in seen:
+            if m and not first_party(m.group(1)) and m.group(1) not in seen:
                 seen.append(m.group(1))
     return seen
 

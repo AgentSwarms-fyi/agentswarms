@@ -29,9 +29,12 @@ COPY . .
 # Drop root (R469). Until then every render, LibreOffice included, ran as root
 # on documents built from user content. The service writes only temporary
 # directories (each render passes LibreOffice its own profile under one), and
-# HOME=/tmp covers anything LibreOffice writes there by itself.
-RUN useradd --system --uid 10001 --no-create-home --home-dir /tmp --shell /usr/sbin/nologin docgen
-USER docgen
+# HOME=/tmp covers anything LibreOffice writes there by itself. Numeric, so
+# Kubernetes can enforce runAsNonRoot on it (a user NAME cannot be checked, and
+# the pod would stop at CreateContainerConfigError; R470).
+RUN groupadd --system --gid 10001 docgen \
+ && useradd --system --uid 10001 --gid 10001 --no-create-home --home-dir /tmp --shell /usr/sbin/nologin docgen
+USER 10001:10001
 
 EXPOSE 8099
 # HOME is needed so LibreOffice can create its profile dir.

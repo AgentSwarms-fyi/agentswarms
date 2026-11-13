@@ -117,13 +117,22 @@ describe("the smoke tests", () => {
   });
 
   it("the images that carry a version check it", () => {
-    for (const name of ["agentswarms", "db-migrate"]) {
-      const i = manifest.images.find((x) => x.name === name)!;
-      expect(readFileSync(i.smoke, "utf8"), name).toMatch(/^says_version$/m);
-      expect(readFileSync(i.dockerfile, "utf8"), name).toMatch(
-        /^ENV AGENTSWARMS_VERSION=\$AGENTSWARMS_VERSION/m,
-      );
-    }
+    // db-migrate: in its environment; nothing hands it an .env.
+    const dbm = manifest.images.find((x) => x.name === "db-migrate")!;
+    expect(readFileSync(dbm.smoke, "utf8")).toMatch(/^says_version$/m);
+    expect(readFileSync(dbm.dockerfile, "utf8")).toMatch(
+      /^ENV AGENTSWARMS_VERSION=\$AGENTSWARMS_VERSION/m,
+    );
+    // The app: in a file (R470). Compose hands the app the whole .env, whose
+    // AGENTSWARMS_VERSION says which release to run; as an environment
+    // variable it would override what the image says it is.
+    const app = manifest.images.find((x) => x.name === "agentswarms")!;
+    const df = readFileSync(app.dockerfile, "utf8");
+    expect(df).toContain("> /app/release.json");
+    expect(df).not.toMatch(/^ENV AGENTSWARMS_VERSION/m);
+    expect(df.indexOf("> /app/release.json")).toBeLessThan(df.indexOf("USER node"));
+    expect(readFileSync(app.smoke, "utf8")).toContain("/app/release.json");
+    expect(readFileSync("src/utils/release.server.ts", "utf8")).toContain('"release.json"');
   });
 });
 

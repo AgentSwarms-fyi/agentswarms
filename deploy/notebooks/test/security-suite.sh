@@ -15,7 +15,7 @@
 set -uo pipefail
 
 DOCKER="${DOCKER:-docker}"
-IMAGE="agentswarms/notebook-runtime:test"
+IMAGE="ghcr.io/agentswarms-fyi/notebook-runtime:test"
 NAME="nb-sec-$$"
 MEM_MB=2048
 

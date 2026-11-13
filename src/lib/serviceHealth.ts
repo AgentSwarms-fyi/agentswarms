@@ -460,6 +460,17 @@ export type SystemMetrics = {
   role: string;
   /** Worker processes in this instance. Per-process limits multiply by it. */
   workers: number;
+  /**
+   * The release this instance runs (R470): what the image recorded at build
+   * time (src/utils/release.server.ts), or "dev" for an image built from a
+   * checkout. An install that set AGENTSWARMS_VERSION and still reads "dev"
+   * built from source instead of pulling the release. Shown to superadmins
+   * only: /api/health, which anyone can call, does not say which version
+   * answers.
+   */
+  version: string;
+  /** The commit the image was built from, when the release workflow built it. */
+  revision: string | null;
   platform: string;
   nodeVersion: string;
   uptimeSeconds: number;

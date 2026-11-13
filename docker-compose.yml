@@ -26,11 +26,34 @@
 # the server reads them when it starts and gives them to the page (R464), so
 # the image is built with none of them and is the same image a release
 # publishes (R469). Change one and restart; there is nothing to rebuild.
+#
+# WHICH IMAGES (R470). Every image this repository builds is named
+#   ${AGENTSWARMS_REGISTRY:-ghcr.io/agentswarms-fyi}/<image>:${AGENTSWARMS_VERSION:-local}
+#   - AGENTSWARMS_VERSION unset: the tag is `local`, which no release ever
+#     publishes, so `docker compose up -d --build` builds from this checkout,
+#     as it always has.
+#   - AGENTSWARMS_VERSION=1.7.0: the release's published, signed images.
+#     `docker compose pull && docker compose up -d --no-build`. Going back is
+#     the previous version, the same two commands (docs/DEPLOYMENT.md,
+#     "Upgrades"). Never `--build` with a version set: that builds this
+#     checkout and tags it as the release (Monitoring then says "built from
+#     source").
+#   - AGENTSWARMS_REGISTRY: your mirror of them (air-gapped installs).
+# Until R470 the images were named agentswarms/<image>:latest, which is a
+# Docker Hub name nobody here owns: a `docker compose pull` would have run
+# whatever anyone published under it.
 services:
   agentswarms:
     build:
       context: .
+    image: ${AGENTSWARMS_REGISTRY:-ghcr.io/agentswarms-fyi}/agentswarms:${AGENTSWARMS_VERSION:-local}
     env_file: .env
+    environment:
+      # The sandbox image the app starts kernels from: the one the
+      # notebook-runtime-image service below builds or pulls. A value in .env
+      # (an older install's agentswarms/notebook-runtime:latest) still wins,
+      # and that service builds under the same name.
+      NOTEBOOK_RUNTIME_IMAGE: ${NOTEBOOK_RUNTIME_IMAGE:-${AGENTSWARMS_REGISTRY:-ghcr.io/agentswarms-fyi}/notebook-runtime:${AGENTSWARMS_VERSION:-local}}
     ports:
       - "8080:8080"
     # The egress allow-list edited in Admin -> Developer runtime is written
@@ -76,12 +99,13 @@ services:
 
   # ── Developer-workspace server runtime ─────────
 
-  # Build-only helper so `--build` produces the kernel image the orchestrator
-  # launches. It never really runs (entrypoint exits immediately).
+  # Build-only helper so `--build` produces (and `pull` fetches) the kernel
+  # image the orchestrator launches. It never really runs (entrypoint exits
+  # immediately).
   notebook-runtime-image:
     build:
       context: ./docker/notebook-runtime
-    image: agentswarms/notebook-runtime:latest
+    image: ${NOTEBOOK_RUNTIME_IMAGE:-${AGENTSWARMS_REGISTRY:-ghcr.io/agentswarms-fyi}/notebook-runtime:${AGENTSWARMS_VERSION:-local}}
     entrypoint: ["/bin/true"]
     restart: "no"
 
@@ -89,7 +113,7 @@ services:
   notebook-gateway:
     build:
       context: ./services/notebook-gateway
-    image: agentswarms/notebook-gateway:latest
+    image: ${AGENTSWARMS_REGISTRY:-ghcr.io/agentswarms-fyi}/notebook-gateway:${AGENTSWARMS_VERSION:-local}
     environment:
       PORT: "8090"
       SUPABASE_URL: ${SUPABASE_URL}
@@ -113,7 +137,7 @@ services:
   notebook-docker-proxy:
     build:
       context: ./docker/socket-proxy
-    image: agentswarms/docker-socket-proxy:latest
+    image: ${AGENTSWARMS_REGISTRY:-ghcr.io/agentswarms-fyi}/docker-socket-proxy:${AGENTSWARMS_VERSION:-local}
     environment:
       # Only the API sections the orchestrator needs: create/inspect/stop/remove
       # containers, plus read access to images and networks (preflight verifies
@@ -494,7 +518,7 @@ services:
   docgen:
     build:
       context: ./docgen-service
-    image: agentswarms/docgen:latest
+    image: ${AGENTSWARMS_REGISTRY:-ghcr.io/agentswarms-fyi}/docgen:${AGENTSWARMS_VERSION:-local}
     # No model key: Deep mode's slide review runs in the app, as the user, on
     # the images this service renders (R405).
     environment:
@@ -550,7 +574,7 @@ services:
   js-sandbox:
     build:
       context: ./services/js-sandbox
-    image: agentswarms/js-sandbox:latest
+    image: ${AGENTSWARMS_REGISTRY:-ghcr.io/agentswarms-fyi}/js-sandbox:${AGENTSWARMS_VERSION:-local}
     environment:
       PORT: "8091"
       # Shared secret with the app: INTERNAL_RUN_SECRET (setup.sh generates

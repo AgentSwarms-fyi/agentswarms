@@ -87,8 +87,16 @@ describe("the image scan workflow", () => {
   });
 
   it("lists third-party images the way scan.sh does: every image line not built here", () => {
+    // Ours are named from .env settings since R470 (${AGENTSWARMS_REGISTRY:-
+    // ghcr.io/agentswarms-fyi}/...), and agentswarms/<image> before that.
     const helper = readFileSync(".github/scripts/grype-summary.py", "utf8");
-    expect(helper).toContain('startswith("agentswarms/")');
-    expect(scanSh).toContain("grep -v '^agentswarms/'");
+    for (const rule of [
+      'startswith("${")',
+      'startswith("agentswarms/")',
+      '"agentswarms-fyi/" in image',
+    ]) {
+      expect(helper).toContain(rule);
+    }
+    expect(scanSh).toContain("grep -v -e '^agentswarms/' -e '^\\${' -e 'agentswarms-fyi/'");
   });
 });

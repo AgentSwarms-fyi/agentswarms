@@ -59,6 +59,18 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Run a release by its version, and roll back by version (R470).** Set
+  `AGENTSWARMS_VERSION="1.7.0"` in `.env`: Compose names every image after that
+  release's published one (`ghcr.io/agentswarms-fyi/<image>:1.7.0`), and
+  `scripts/setup.sh` (or `setup.ps1`) pulls them and starts them with `--no-build`.
+  Rolling back is the previous version and the same commands. A version that cannot
+  be pulled stops the install, rather than building this checkout under the release's
+  name. `AGENTSWARMS_REGISTRY` points at a mirror. Leave the version empty and nothing
+  changes: Compose builds from the checkout, tagged `local`, a tag no release
+  publishes. `setup-k8s.sh` takes the same two settings. Observability → Monitoring
+  shows which release each instance runs, or "built from source". The image records it
+  in `/app/release.json`, which `.env` cannot override. See
+  [Upgrades](docs/DEPLOYMENT.md#upgrades).
 - **Releases publish signed images for amd64 and arm64 (R469).** Pushing a tag
   `v<version>` runs `.github/workflows/release.yml`. It builds the seven images in
   `deploy/release/images.json` natively on each architecture and runs each image's
@@ -181,6 +193,26 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **The images were named under a Docker Hub namespace nobody here owns (R470).**
+  Compose and the Kubernetes manifests named this repository's images
+  `agentswarms/<image>:latest`. The `agentswarms` namespace on Docker Hub is
+  unregistered (measured: no such user or organisation), so anyone could have claimed
+  it. Compose 5 pulls a missing image before it builds one (measured), and so does
+  `docker compose pull`. A Kubernetes node without the image pulls it too. An
+  install would then have run someone else's image, the Docker API proxy among them.
+  They are named under `ghcr.io/agentswarms-fyi` now, which this project's GitHub
+  organisation controls.
+- **`setup.sh` stopped silently on an `.env` without a key it reads (R470).** Under
+  `set -euo pipefail`, its `getenv` failed on grep's "no match", and
+  `X="$(getenv X)"` ended the script with no message. An `.env` from before
+  `QDRANT_API_KEY` existed stopped a re-run halfway through generating secrets, and
+  every existing `.env` lacks `AGENTSWARMS_VERSION`. A missing key now reads as
+  empty. `setup-selfhosted.sh`'s `sb_get` had the same flaw: on a stack whose `.env`
+  has no `POOLER_TENANT_ID` it ended before applying its own default.
+- **docgen meets Kubernetes' `restricted` Pod Security Standard (R470).** Its image
+  runs as the numeric user 10001, so the kubelet can check `runAsNonRoot`, and the
+  manifest now requires it. Until now it was the one pod a `restricted` namespace
+  refused.
 - **The installers wait for the storage service to serve, not for a column (R468).**
   `setup-selfhosted.sh` and `setup-k8s.sh` started the schema once
   `storage.buckets.public` existed. storage-api adds that column partway through its
@@ -342,6 +374,14 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **The images have new names** (R470): `ghcr.io/agentswarms-fyi/<image>:local` for a
+  build from the checkout, where they were `agentswarms/<image>:latest`. Re-running
+  `scripts/setup.sh` (or `docker compose up -d --build`) builds them under the new
+  names. The installer clears `NOTEBOOK_RUNTIME_IMAGE` when `.env` still holds the old
+  default, `agentswarms/notebook-runtime:latest`; do it by hand otherwise, or the app
+  keeps starting kernels from the old name. The old images stay on disk until
+  `docker image prune`. `setup-k8s.sh` deploys the new names; a cluster that loaded
+  the old ones needs the new ones loaded the same way.
 - **Update the notebook gateway image with the app** (R466). Sandboxes the new app
   starts refuse a gateway that sends no token, so an old gateway in front of a new app
   cannot open notebook kernels. The new gateway works with sandboxes an older app

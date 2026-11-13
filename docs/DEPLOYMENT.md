@@ -453,14 +453,21 @@ certain to fall behind. The chart tracks upstream; we track the chart version.
 Our own components stay as plain manifests below, because they are four
 Deployments we control.
 
-### D1a. Going to a cloud cluster: push the images first
+### D1a. Going to a cloud cluster: a release, or push the images first
 
-The command above defaults to the three images this repo builds locally —
-`agentswarms:latest`, `agentswarms/docgen:latest`, `agentswarms/js-sandbox:latest`.
-A **local** cluster (Docker Desktop, kind, minikube, k3d, Rancher Desktop) shares
-the machine's image store and runs them as they are. **No other cluster can**:
-its nodes pull from a registry, and an image that exists only on your laptop
-ends in `ImagePullBackOff`. Push all three, then name them:
+**A release needs nothing pushed.** `AGENTSWARMS_VERSION=1.7.0 bash
+scripts/setup-k8s.sh` deploys that release's published, signed images from
+`ghcr.io/agentswarms-fyi` (or `AGENTSWARMS_REGISTRY`, your mirror), which any
+cluster can pull. Nothing is built (R470).
+
+Without a version, the command above uses the images this repo builds
+locally, `ghcr.io/agentswarms-fyi/<image>:local` (`agentswarms`, `docgen`,
+`js-sandbox`). `local` is a tag no release publishes. A **local** cluster
+(Docker Desktop, kind, minikube, k3d, Rancher Desktop) shares the machine's
+image store and runs them as they are. **No other cluster can**: its nodes
+pull from a registry, and an image that exists only on your laptop ends in
+`ImagePullBackOff`. To run your own build there, push all three, then name
+them:
 
 ```bash
 AGENTSWARMS_IMAGE=ghcr.io/you/agentswarms:1.2.3 DOCGEN_IMAGE=ghcr.io/you/docgen:1.2.3 JS_SANDBOX_IMAGE=ghcr.io/you/js-sandbox:1.2.3 ADMIN_EMAIL=you@corp.com ADMIN_PASSWORD='...' bash scripts/setup-k8s.sh
@@ -640,15 +647,17 @@ because flag names move.
 D1a names the three images the installer substitutes. Two more are pulled by
 the notebook namespace if you use the developer workspace, ETL, or anything
 in the ML platform — training, prediction and pipeline runs are all batch
-pods there:
+pods there. A release publishes all five (and `db-migrate`) under
+`ghcr.io/agentswarms-fyi/<image>:<version>`; set `AGENTSWARMS_VERSION` and
+skip the build loop below. To run your own build instead:
 
-| Image                                 | Build context                 | Needed for                             |
-| ------------------------------------- | ----------------------------- | -------------------------------------- |
-| `agentswarms:latest`                  | the repository root           | the app itself                         |
-| `agentswarms/docgen:latest`           | `./docgen-service`            | Office exports                         |
-| `agentswarms/js-sandbox:latest`       | `./services/js-sandbox`       | custom code in deployed runs           |
-| `agentswarms/notebook-gateway:latest` | `./services/notebook-gateway` | the notebook session gateway           |
-| `agentswarms/notebook-runtime:latest` | `./docker/notebook-runtime`   | notebook, ETL, ML training and scoring |
+| Image              | Build context                 | Needed for                             |
+| ------------------ | ----------------------------- | -------------------------------------- |
+| `agentswarms`      | the repository root           | the app itself                         |
+| `docgen`           | `./docgen-service`            | Office exports                         |
+| `js-sandbox`       | `./services/js-sandbox`       | custom code in deployed runs           |
+| `notebook-gateway` | `./services/notebook-gateway` | the notebook session gateway           |
+| `notebook-runtime` | `./docker/notebook-runtime`   | notebook, ETL, ML training and scoring |
 
 The build loop is the same everywhere; only `REGISTRY` changes. Run it from
 the repository root:
@@ -1779,7 +1788,7 @@ by default, and each has a local answer:
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Model providers**  | Run **Ollama** or **vLLM** inside the network and connect it on the Integrations page. Everything else — agents, swarms, RAG, BI — is provider-agnostic. |
 | **Email**            | Point `SMTP_*` at an internal relay, or leave email unset: sends are skipped and logged.                                                                 |
-| **Container images** | Mirror `agentswarms/*`, `supabase/*` and any model image into your internal registry.                                                                    |
+| **Container images** | Mirror `ghcr.io/agentswarms-fyi/*`, `supabase/*` and any model image into your internal registry; set `AGENTSWARMS_REGISTRY` to your copy's path.        |
 
 Nothing else phones home: there is no telemetry, no licence check and no usage
 reporting. Fonts, the SQL engine (DuckDB-Wasm) and the PDF and DOCX readers
@@ -2925,8 +2934,11 @@ on a development machine only:
 docker run -d --name agentswarms-dev-docker-proxy -p 127.0.0.1:2375:2375 \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
   -e CONTAINERS=1 -e IMAGES=1 -e NETWORKS=1 -e POST=1 \
-  agentswarms/docker-socket-proxy:latest
+  ghcr.io/agentswarms-fyi/docker-socket-proxy:local
 ```
+
+(The image Compose built; with `AGENTSWARMS_VERSION` set, use that version
+instead of `local`.)
 
 The app tries `http://127.0.0.1:2375` after the service name, so nothing needs
 configuring. `docker rm -f agentswarms-dev-docker-proxy` stops it.
@@ -2959,14 +2971,57 @@ docker ps -a --filter name=nb-
 
 ### Upgrades
 
-Docker: `git pull`, then `node scripts/upgrade-qdrant.mjs`, then
-`docker compose up -d --build`. Apply any new migrations with
-`npx supabase db push --remote` (already-applied migrations are skipped; it's safe to
-re-run). Re-running `scripts/setup.sh` or `setup.ps1` does all of this.
-
 Take a backup first (`npm run backup`, see
 [Backups and restore](#backups-and-restore)). Migrations only go forward, so
 the backup is the way back from a migration that goes wrong.
+
+**Run a release (R470).** Set the version in `.env`, check out the same tag
+(the migrations and `upgrade-qdrant.mjs` come from the checkout), and re-run
+the installer:
+
+```bash
+git fetch --tags && git checkout v1.7.0
+```
+
+Then `AGENTSWARMS_VERSION="1.7.0"` in `.env`, and `bash scripts/setup.sh`
+(or `setup.ps1`). With a version set, the installer pulls that release's
+signed images and starts them; it never builds. A version that cannot be
+pulled stops it, rather than building this checkout under the release's name.
+By hand, the same thing:
+
+```bash
+node scripts/upgrade-qdrant.mjs
+```
+
+```bash
+npx supabase db push --remote
+```
+
+```bash
+docker compose pull && docker compose up -d --no-build
+```
+
+Never add `--build` while a version is set: that builds the checkout and tags
+it as the release. Observability → Monitoring says which release each
+instance runs, or "built from source".
+
+**Roll back one release:** set the previous version in `.env` and run the
+same `docker compose pull && docker compose up -d --no-build`, without
+touching the database ([Rolling back one release](#rolling-back-one-release)).
+
+**From source**, as before: leave `AGENTSWARMS_VERSION` empty, `git pull`,
+then `node scripts/upgrade-qdrant.mjs` and `docker compose up -d --build`, and
+apply new migrations with `npx supabase db push --remote` (already-applied
+migrations are skipped; it is safe to re-run). Re-running `scripts/setup.sh`
+or `setup.ps1` does all of this.
+
+**The image names changed in R470.** They were `agentswarms/<image>:latest`,
+Docker Hub names this project does not own. Compose now builds and pulls
+`ghcr.io/agentswarms-fyi/<image>:<version or local>`. The installer clears an
+`.env` that still names the old sandbox image
+(`NOTEBOOK_RUNTIME_IMAGE="agentswarms/notebook-runtime:latest"`). Do the same
+by hand if you do not re-run it. The old images stay on disk until
+`docker image prune`.
 
 #### Published images
 
@@ -2988,8 +3043,11 @@ Migrations **expand** the schema and never take away what the previous release
 uses (R468). They add tables, columns, functions and enum values. A column that
 must go, or be renamed, is removed one release after the code stopped using it.
 So the previous release runs on the newer schema: rolling the **app** back is
-checking out (or pulling the image of) the previous release and starting it
-again, with the database left as it is. Nothing is lost.
+setting the previous version in `.env` (`AGENTSWARMS_VERSION`) and running
+`docker compose pull && docker compose up -d --no-build`, with the database
+left as it is. Nothing is lost. (Measured in R470 against a stand-in
+registry: the newer release was replaced by the older one, and a version that
+was never published was refused while the running one stayed up.)
 
 CI holds every change to that rule. The `upgrade` job applies this commit's
 migrations on top of the last release's and compares the schema before and

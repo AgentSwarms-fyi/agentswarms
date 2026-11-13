@@ -272,9 +272,16 @@ describe("only the app can reach the Docker socket proxy (VA-40)", () => {
       expect(at, `${name}: the dev-mode note`).toBeGreaterThan(-1);
       const block = text.slice(at, at + 1200);
       expect(block, name).toContain("-p 127.0.0.1:2375:2375");
-      expect(block, name).toContain("agentswarms/docker-socket-proxy:latest");
+      // The image Compose built or pulled (R470): under ghcr.io/agentswarms-fyi
+      // (or the install's registry), never the old Docker Hub name nobody here
+      // owns.
+      const image = /(\$REGISTRY|\$Registry|ghcr\.io\/agentswarms-fyi)\/docker-socket-proxy:/.exec(
+        block,
+      );
+      expect(image, name).not.toBeNull();
+      expect(block, name).not.toContain("agentswarms/docker-socket-proxy:latest");
       // Exactly compose's sections: one more (EXEC, VOLUMES...) is one more way in.
-      const cmd = block.slice(0, block.indexOf("agentswarms/docker-socket-proxy:latest"));
+      const cmd = block.slice(0, image!.index);
       const given = [...cmd.matchAll(/-e (\w+=\S+)/g)].map((m) => m[1]).sort();
       expect(given, name).toEqual(flags);
       if (name !== "DEPLOYMENT.md") {
@@ -356,7 +363,13 @@ describe("every third-party image is pinned by digest (VA-24)", () => {
   // tag@sha256:<64 hex> — the engine pulls by the digest, the tag is for people.
   const PINNED = /^[a-z0-9][a-z0-9./_-]*:[\w.-]+@sha256:[0-9a-f]{64}$/;
   // Images this repo builds itself; their tag names a local build, not a pull.
-  const firstParty = (image: string) => /^agentswarms(\/|:)/.test(image);
+  // Built here: named from .env settings in Compose since R470
+  // (${AGENTSWARMS_REGISTRY:-ghcr.io/agentswarms-fyi}/<image>:...), and
+  // ghcr.io/agentswarms-fyi/<image>:local in the Kubernetes manifests.
+  const firstParty = (image: string) =>
+    image.startsWith("${") ||
+    image.includes("agentswarms-fyi/") ||
+    /^agentswarms(\/|:)/.test(image);
 
   const k8sFiles = (dir: string): string[] =>
     readdirSync(resolve(dir), { withFileTypes: true }).flatMap((e) =>
@@ -443,7 +456,8 @@ describe("every third-party image is pinned by digest (VA-24)", () => {
 
   it("scans exactly what compose runs, read from the file", () => {
     const scan = readFileSync(resolve("docs/security/scripts/scan.sh"), "utf-8");
-    expect(scan).toContain(`"$REPO/docker-compose.yml" | grep -v '^agentswarms/'`);
+    expect(scan).toContain(`"$REPO/docker-compose.yml" \\`);
+    expect(scan).toContain(`| grep -v -e '^agentswarms/' -e '^\\\${' -e 'agentswarms-fyi/')"`);
     expect(scan).not.toMatch(/^\s+(postgres|ubuntu\/squid|tecnativa|valkey|qdrant)\S*$/m);
   });
 });
@@ -458,10 +472,10 @@ describe("the Kubernetes installer deploys the same set", () => {
 
   it("substitutes every image, including the two the notebook manifest names", () => {
     for (const image of [
-      "agentswarms/docgen:latest",
-      "agentswarms/js-sandbox:latest",
-      "agentswarms/notebook-gateway:latest",
-      "agentswarms/notebook-runtime:latest",
+      "ghcr.io/agentswarms-fyi/docgen:local",
+      "ghcr.io/agentswarms-fyi/js-sandbox:local",
+      "ghcr.io/agentswarms-fyi/notebook-gateway:local",
+      "ghcr.io/agentswarms-fyi/notebook-runtime:local",
     ]) {
       expect(k8s, `${image} is not rewritten for a remote registry`).toContain(`image: ${image}`);
     }

@@ -529,6 +529,16 @@ Or with Compose directly:
 docker compose up -d --build
 ```
 
+**A published release instead of a build.** Check out its tag, set
+`AGENTSWARMS_VERSION="1.7.0"` in `.env`, and run the installer again: it pulls
+that release's signed images (`ghcr.io/agentswarms-fyi`) and builds nothing.
+Upgrading and rolling back are then a version change
+([Upgrades](./DEPLOYMENT.md#upgrades)). By hand:
+
+```bash
+docker compose pull && docker compose up -d --no-build
+```
+
 Why they are opt-in rather than always on: the renderer image carries
 LibreOffice (large), and the notebook runtime mounts the Docker socket into a
 least-privilege proxy so it can start kernel containers. Neither is wrong to

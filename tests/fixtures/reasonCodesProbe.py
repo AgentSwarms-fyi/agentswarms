@@ -13,7 +13,7 @@ features than slots gets nulls rather than a fabricated reason.
 
   node -e "const s=require('fs').readFileSync('src/utils/ml/pyTrain.ts','utf8');const a=s.indexOf('String.raw`')+11;require('fs').writeFileSync('/tmp/train_py.py',s.slice(a,s.indexOf('`;',a)))"
   docker run --rm -v /tmp:/work --entrypoint python \
-    agentswarms/notebook-runtime:latest /work/reasonCodesProbe.py
+    ghcr.io/agentswarms-fyi/notebook-runtime:local /work/reasonCodesProbe.py
 """
 
 import sys

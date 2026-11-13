@@ -8,7 +8,15 @@ URL="https://smoke-supabase.invalid"
 
 echo "== $IMAGE"
 not_root
-says_version
+
+# Which release it is: in a file Compose's .env cannot override (R470).
+rel=$(docker run --rm --entrypoint cat "$IMAGE" /app/release.json) || fail "no /app/release.json"
+if [ -n "${EXPECT_VERSION:-}" ]; then
+  case "$rel" in
+    *"\"version\":\"$EXPECT_VERSION\""*) ok "release.json says $EXPECT_VERSION" ;;
+    *) fail "release.json says $rel, not $EXPECT_VERSION" ;;
+  esac
+fi
 
 if docker run --rm --entrypoint sh "$IMAGE" -c 'command -v npm' >/dev/null 2>&1; then
   fail "npm is in the image"

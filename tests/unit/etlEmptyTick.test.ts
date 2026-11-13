@@ -26,6 +26,8 @@
 import { execFile, execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
+import { localRuntimeImage } from "../fixtures/runtimeImage";
+
 import { compileGraph, compilePreview, type EtlGraph } from "@/utils/etl/codegen";
 
 /**
@@ -46,27 +48,12 @@ const RUNNER: { cmd: string; args: string[] } | null = (() => {
       /* next */
     }
   }
-  try {
-    execFileSync("docker", ["image", "inspect", "agentswarms/notebook-runtime:latest"], {
-      stdio: "ignore",
-    });
-    return {
-      cmd: "docker",
-      // `--entrypoint python` and not a trailing "python": the image has its
-      // own entrypoint, and appending to it hangs waiting for something else.
-      args: [
-        "run",
-        "--rm",
-        "-i",
-        "--entrypoint",
-        "python",
-        "agentswarms/notebook-runtime:latest",
-        "-",
-      ],
-    };
-  } catch {
-    return null;
-  }
+  // `--entrypoint python` and not a trailing "python": the image has its own
+  // entrypoint, and appending to it hangs waiting for something else.
+  const image = localRuntimeImage();
+  return image
+    ? { cmd: "docker", args: ["run", "--rm", "-i", "--entrypoint", "python", image, "-"] }
+    : null;
 })();
 
 /**

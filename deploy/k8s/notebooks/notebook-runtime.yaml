@@ -246,7 +246,7 @@ spec:
             matchLabels: { app: notebook-gateway }
       containers:
         - name: gateway
-          image: agentswarms/notebook-gateway:latest
+          image: ghcr.io/agentswarms-fyi/notebook-gateway:local
           ports: [{ containerPort: 8090 }]
           envFrom:
             - secretRef: { name: notebook-runtime }

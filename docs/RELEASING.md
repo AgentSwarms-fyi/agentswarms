@@ -30,6 +30,12 @@ Every image carries no install's settings. The app reads its browser
 settings at runtime (`PUBLIC_*`, [Browser settings at runtime](./DEPLOYMENT.md#browser-settings-at-runtime)),
 so the published image is the one every install runs.
 
+Installs pick a release by `AGENTSWARMS_VERSION` (R470). Compose, the
+installers and `setup-k8s.sh` all name these images, and with a version set
+they pull them and build nothing. `local` is the tag of a build from a
+checkout, and no release ever publishes it. The app records its release in
+`/app/release.json`, which Observability → Monitoring shows.
+
 ## Cadence
 
 - **A minor release every month** (`1.7.0`, `1.8.0`).
