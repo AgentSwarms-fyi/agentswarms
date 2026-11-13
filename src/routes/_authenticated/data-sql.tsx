@@ -75,7 +75,7 @@ import {
 } from "@/lib/sqlEngine";
 import { SqlEngineStatus } from "@/components/data/SqlEngineStatus";
 import { downloadCsv, downloadXlsx } from "@/lib/exportData";
-import { ensureSampleDataset, forceSeedSampleDataset, SAMPLE_TABLE_NAME } from "@/lib/sampleData";
+import { ensureSampleDataset, SAMPLE_TABLE_NAME } from "@/lib/sampleData";
 import { CsvUploadDialog } from "@/components/data-sql/CsvUploadDialog";
 import { QueryHistoryPanel } from "@/components/data-sql/QueryHistoryPanel";
 import { recordQuery } from "@/lib/queryHistory";
@@ -655,9 +655,12 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
             setActiveTable(SAMPLE_TABLE_NAME);
           }
         } else {
-          // User already has tables — make sure both samples exist for shared use.
-          // Runs in background; never blocks UI.
-          ensureSampleDataset(user.id).catch(() => {});
+          // User already has tables — make sure every sample exists for shared use.
+          // Runs in background; never blocks UI. A failure is logged, not toasted:
+          // nothing on the page depends on it and this person cannot fix it.
+          ensureSampleDataset(user.id).catch((e) => {
+            console.warn("[data-sql] could not add missing samples:", (e as Error).message);
+          });
         }
       } catch (e) {
         toast.error(`Could not load datasets: ${(e as Error).message}`);
@@ -687,19 +690,6 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
       setTablesError((e as Error).message);
     } finally {
       setLoadingTables(false);
-    }
-  }
-
-  async function handleResetSample() {
-    if (!user?.id) return;
-    try {
-      // Shared sample is read-only for users — just re-hydrate from server.
-      // If the global sample was wiped (admin only), this re-seeds it.
-      await forceSeedSampleDataset(user.id);
-      await refreshTables();
-      toast.success("Sample dataset reloaded");
-    } catch (e) {
-      toast.error((e as Error).message);
     }
   }
 

@@ -193,6 +193,12 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **A failed first seed could leave a shared sample empty or short for every tenant, for
+  good (R476).** A sample counted as there once it was registered, so the next page load
+  skipped it, and the refill that could have filled an empty one had no control on any
+  page. A seed that fails now takes its sample back, and the next load seeds it whole. The
+  refill option has gone. On an account that already has tables, a failed seed used to be
+  dropped without a word; the page and the server now both log it.
 - **A warehouse or connector that cannot be reached says where and why** (R474). Test
   connection of an Athena interface endpoint, or of BigQuery over Private Service
   Connect, whose certificate the app refused read "Connection saved but the test failed:

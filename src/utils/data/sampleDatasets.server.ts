@@ -10,7 +10,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
 import { typedDataset, type ColumnDef } from "@/lib/datasetParse";
 import { SAMPLE_DATASETS, type SampleDataset } from "@/lib/sampleDatasetNames";
-import { countDatasetRows, insertSampleRows } from "@/utils/data/datasetRows.server";
+import { insertSampleRows } from "@/utils/data/datasetRows.server";
 
 const CSV_DIR = "/src/assets/sample-data";
 const CSV = import.meta.glob<string>("/src/assets/sample-data/*.csv", {
@@ -48,53 +48,43 @@ async function registerSample(sample: SampleDataset, columns: ColumnDef[]): Prom
   return data.id;
 }
 
-async function hasRows(sample: SampleDataset, tableId: string): Promise<boolean> {
-  const { count, error } = await countDatasetRows(tableId);
-  // A failed count is not an empty table. Read as 0, it would insert every sample row
-  // again on top of the rows already there.
-  if (error || count === null) {
-    throw new Error(`could not count rows of ${sample.tableName}: ${error?.message}`);
-  }
-  return count > 0;
-}
-
-async function seedOne(sample: SampleDataset, existingId: string | undefined): Promise<boolean> {
-  if (existingId && (await hasRows(sample, existingId))) return false;
+async function seedOne(sample: SampleDataset): Promise<void> {
   const { rows, columns } = parseSample(sample.tableName);
-  const tableId = existingId ?? (await registerSample(sample, columns));
+  const tableId = await registerSample(sample, columns);
   const { error } = await insertSampleRows(tableId, rows);
-  if (error) throw new Error(`could not seed sample ${sample.tableName}: ${error.message}`);
-  return true;
+  if (!error) return;
+  // Registered is what "there" means to the next run, so a sample left like this would
+  // stay empty, or short by the batches that did not go in, for every tenant. Its rows
+  // go with it.
+  const { error: undo } = await supabaseAdmin.from("user_data_tables").delete().eq("id", tableId);
+  const left = undo ? `, and it is still registered: ${undo.message}` : "";
+  throw new Error(`could not seed sample ${sample.tableName}: ${error.message}${left}`);
 }
 
-async function seedAll(refill: boolean): Promise<boolean> {
+async function seedAll(): Promise<boolean> {
   const { data, error } = await supabaseAdmin
     .from("user_data_tables")
-    .select("id, name")
+    .select("name")
     .eq("is_sample", true)
     .is("user_id", null);
   // A failed check is not an absent sample: seeding on it would register them all again.
   if (error) throw new Error(`could not check for samples: ${error.message}`);
-  const known = new Map((data ?? []).map((t) => [t.name, t.id]));
+  const known = new Set((data ?? []).map((t) => t.name));
 
-  let seeded = false;
-  for (const sample of SAMPLE_DATASETS) {
-    const existingId = known.get(sample.tableName);
-    if (existingId && !refill) continue;
-    if (await seedOne(sample, existingId)) seeded = true;
-  }
-  return seeded;
+  const missing = SAMPLE_DATASETS.filter((s) => !known.has(s.tableName));
+  for (const sample of missing) await seedOne(sample);
+  return missing.length > 0;
 }
 
 let inFlight: Promise<boolean> | null = null;
 
 /**
- * Add any sample that is missing. With `refill`, also fill one that exists but has no
- * rows. Returns whether anything was seeded. A page load asks for this every time, so
- * callers arriving together share one run.
+ * Add any sample that is missing, and never touch one that is there. Returns whether
+ * anything was seeded. A page load asks for this every time, so callers arriving
+ * together share one run.
  */
-export function seedSampleDatasets({ refill }: { refill: boolean }): Promise<boolean> {
-  inFlight ??= seedAll(refill).finally(() => {
+export function seedSampleDatasets(): Promise<boolean> {
+  inFlight ??= seedAll().finally(() => {
     inFlight = null;
   });
   return inFlight;

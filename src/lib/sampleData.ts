@@ -9,18 +9,9 @@ import { seedSampleDatasetsFn } from "@/utils/sampleDatasets.functions";
 
 export * from "@/lib/sampleDatasetNames";
 
-async function seed(refill: boolean): Promise<boolean> {
-  const r = await withToken((t) => seedSampleDatasetsFn({ data: { access_token: t, refill } }));
-  if (r.error) throw new Error(r.error.message);
-  return r.data?.seeded ?? false;
-}
-
 // Returns true if at least one fresh seed was performed; false if all already existed.
 export async function ensureSampleDataset(_userId: string): Promise<boolean> {
-  return seed(false);
-}
-
-/** The same, and refills a sample that is there but has no rows. */
-export async function forceSeedSampleDataset(_userId: string): Promise<void> {
-  await seed(true);
+  const r = await withToken((t) => seedSampleDatasetsFn({ data: { access_token: t } }));
+  if (r.error) throw new Error(r.error.message);
+  return r.data?.seeded ?? false;
 }

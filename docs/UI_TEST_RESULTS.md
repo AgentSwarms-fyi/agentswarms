@@ -231,7 +231,9 @@ All 120 requests were local. That was a stand-in, not Postgres. The migration pr
 covers service-role writes against the real schema.
 
 **Refilling cannot be driven from the page.** `handleResetSample` has no caller, and did
-not before this round, so `forceSeedSampleDataset` is unreachable from the UI.
+not before this round, so `forceSeedSampleDataset` is unreachable from the UI. Both have
+since gone, with the `refill` option: no user can empty a sample, and a seed that fails
+now takes its sample back, so the next load seeds it whole.
 
 No fixture. Nothing was uploaded or changed.
 
