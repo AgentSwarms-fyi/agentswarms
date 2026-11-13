@@ -123,7 +123,7 @@ describe("browser-compiled SQL targets the browser's dialect", () => {
     // relies on that default. The browser therefore has to be explicit — and
     // was not, which is how backtick-quoted identifiers reached an engine that
     // rejects them.
-    for (const f of ["src/lib/dataPrep.ts", "src/components/bi/DataPrepTab.tsx"]) {
+    for (const f of ["src/components/bi/DataPrepTab.tsx"]) {
       const src = readFileSync(f, "utf8");
       const calls = [...src.matchAll(/buildPrepSql\(([^)]*)\)/g)].map((m) => m[1]);
       expect(calls.length, `${f} compiles no prep SQL`).toBeGreaterThan(0);

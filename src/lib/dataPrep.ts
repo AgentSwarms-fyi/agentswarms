@@ -1,84 +1,15 @@
-// Data preparation — browser-side persistence + "run & save" for prep flows.
+// Data preparation — browser-side persistence for prep flows.
 //
 // The PURE pipeline (model, schema, SQL compiler, validation, casting,
 // profiling, config migration) lives in lib/dataPrepCore.ts and is re-exported
 // here so existing imports from "@/lib/dataPrep" keep working. This module adds
-// the pieces that need the browser SQL engine and the Supabase client:
-// materialising results and CRUD on saved flows.
+// the piece that needs the Supabase client: CRUD on saved flows. Running a flow
+// and saving its output happens on the server, in utils/bi/prep.server.ts.
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
-import { saveSemantics } from "@/lib/biAgent";
-import { BROWSER_SQL_DIALECT } from "@/lib/browserDuckdb";
-import { runQueryUnlimited, safeTableName, saveDataset, type DatasetMeta } from "@/lib/sqlEngine";
-import {
-  buildPrepSql,
-  castRows,
-  effectiveOutputColumns,
-  PREP_SAVE_ROW_CAP,
-  PREP_TYPE_META,
-  validatePrepConfig,
-  type PrepFlowConfig,
-} from "@/lib/dataPrepCore";
+import type { PrepFlowConfig } from "@/lib/dataPrepCore";
 
 export * from "@/lib/dataPrepCore";
-
-// ── Run & save ──────────────────────────────────────────────────────────
-
-export type PrepRunResult = {
-  dataset: DatasetMeta;
-  rowCount: number;
-  capped: boolean;
-  failures: Record<string, number>;
-};
-
-export async function runAndSavePrep(args: {
-  userId: string;
-  flowName: string;
-  outputName: string;
-  cfg: PrepFlowConfig;
-}): Promise<PrepRunResult> {
-  const valid = validatePrepConfig(args.cfg);
-  if (!valid.ok) throw new Error(valid.error);
-
-  const sql = buildPrepSql(args.cfg, { dialect: BROWSER_SQL_DIALECT });
-  const raw = await runQueryUnlimited(sql, PREP_SAVE_ROW_CAP);
-  const cast = castRows(raw.rows, args.cfg);
-  if (cast.rows.length === 0) throw new Error("The flow produced no rows — nothing to save.");
-
-  const dataset = await saveDataset({
-    userId: args.userId,
-    tableName: safeTableName(args.outputName),
-    sourceFilename: `prep:${args.flowName}`,
-    rows: cast.rows,
-    columns: cast.columns,
-    versionReason: "prep_run",
-  });
-
-  const columnMeta: Record<string, { semantic_type?: string }> = {};
-  for (const c of effectiveOutputColumns(args.cfg)) {
-    const semantic = PREP_TYPE_META[c.type].semantic;
-    if (semantic) columnMeta[c.name] = { semantic_type: semantic };
-  }
-  try {
-    await saveSemantics({
-      userId: args.userId,
-      tableId: dataset.id,
-      table_description: `Prepared dataset built by the "${args.flowName}" data-prep flow`,
-      business_name: args.flowName,
-      column_meta: columnMeta,
-      primary_key: null,
-    });
-  } catch {
-    /* semantics are an enhancement — saving the data already succeeded */
-  }
-
-  return {
-    dataset,
-    rowCount: cast.rows.length,
-    capped: raw.capped,
-    failures: cast.failures,
-  };
-}
 
 // ── Flow persistence ────────────────────────────────────────────────────
 

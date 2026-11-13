@@ -381,7 +381,7 @@ export async function localParquetPath(meta: MirrorMeta): Promise<string | null>
 /**
  * Heal mirrors the write paths could not.
  *
- * Browser-side saves (CSV upload, warehouse import, the in-browser prep save)
+ * Browser-side saves (CSV upload, warehouse import)
  * write rows through RLS and have no way to rebuild a mirror. They do bump
  * `data_loaded_at`, so the mirror is correctly IGNORED as stale — but it would
  * stay stale for ever without this. Also removes objects for datasets that no
