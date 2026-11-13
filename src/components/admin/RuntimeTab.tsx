@@ -307,7 +307,7 @@ export function RuntimeTab({
     setChecking(true);
     try {
       const res = await preflightFn({
-        data: { access_token: token, backend: form.backend as "docker" | "k8s" | "e2b" },
+        data: { access_token: token, backend: form.backend as "docker" | "k8s" | "ecs" | "e2b" },
       });
       if (!res.ok) return toast.error(res.error);
       setChecks(res.checks);
@@ -397,6 +397,7 @@ export function RuntimeTab({
                   <SelectContent>
                     <SelectItem value="docker">Docker — needs Docker on this host</SelectItem>
                     <SelectItem value="k8s">Kubernetes — needs app running in-cluster</SelectItem>
+                    <SelectItem value="ecs">Amazon ECS (Fargate) — set up by deploy/aws</SelectItem>
                     <SelectItem value="e2b">E2B — not implemented yet</SelectItem>
                   </SelectContent>
                 </Select>

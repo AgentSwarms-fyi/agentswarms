@@ -596,7 +596,7 @@ SITE_URL="https://your-domain.com"`}</Code>
             <C key="b">NOTEBOOK_RUNTIME_SECRET</C>,
             "Session-token signing key. Omit and the server generates one.",
           ],
-          [<C key="c">NOTEBOOK_RUNTIME_BACKEND</C>, "docker | k8s | e2b"],
+          [<C key="c">NOTEBOOK_RUNTIME_BACKEND</C>, "docker | k8s | ecs | e2b"],
           [<C key="d">NOTEBOOK_RUNTIME_IMAGE</C>, "Kernel image to launch"],
           [<C key="e">NOTEBOOK_GATEWAY_URL</C>, "Websocket gateway address"],
           [

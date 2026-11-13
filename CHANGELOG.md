@@ -59,6 +59,16 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Sandboxes on Amazon ECS: one Fargate task each (R477).** On AWS, set
+  `NOTEBOOK_RUNTIME_BACKEND=ecs` (or pick Amazon ECS in Admin → Developer runtime),
+  and every notebook kernel, batch job, MCP server and model scorer starts as its own
+  Fargate task, a microVM, rather than a container on a host the app shares.
+  `deploy/aws` sets it up. The task's request carries no secret: CloudTrail records
+  `RunTask`, so the sandbox is started with a one-time nonce and trades it at the app
+  for its environment, which the app deletes as it hands it over. The preflight check
+  reads the cluster and says which setting is missing. Fargate has no GPUs: GPU
+  training stays on Kubernetes. Run the migration (`npx supabase db push --remote`);
+  the Docker and Kubernetes backends are unchanged.
 - **Run a release by its version, and roll back by version (R470).** Set
   `AGENTSWARMS_VERSION="1.7.0"` in `.env`: Compose names every image after that
   release's published one (`ghcr.io/agentswarms-fyi/<image>:1.7.0`), and

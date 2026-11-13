@@ -317,7 +317,7 @@ export const nbRuntimeUpdateSettings = createServerFn({ method: "POST" })
         access_token: z.string().min(1),
         server_runtime_enabled: z.boolean().optional(),
         require_grant: z.boolean().optional(),
-        backend: z.enum(["docker", "k8s", "e2b"]).optional(),
+        backend: z.enum(["docker", "k8s", "ecs", "e2b"]).optional(),
         default_image: z.string().min(1).max(300).optional(),
         // These are SIZING knobs, so the only real rule is "a usable positive
         // number". The former ceilings (64 GB interactive, 128 GB batch, 8
@@ -473,7 +473,7 @@ export const nbRuntimePreflight = createServerFn({ method: "POST" })
     z
       .object({
         access_token: z.string().min(1),
-        backend: z.enum(["docker", "k8s", "e2b"]).optional(),
+        backend: z.enum(["docker", "k8s", "ecs", "e2b"]).optional(),
       })
       .parse(input),
   )
@@ -621,6 +621,62 @@ export const nbRuntimePreflight = createServerFn({ method: "POST" })
           });
         }
       }
+    }
+
+    if (backend === "ecs") {
+      const { ecsConfigFromEnv, createEcsOrchestrator } =
+        await import("./notebookRuntime/ecs.server");
+      let cfg: ReturnType<typeof ecsConfigFromEnv> | null = null;
+      try {
+        cfg = ecsConfigFromEnv();
+        checks.push({
+          name: "ECS settings",
+          status: "pass",
+          detail: `cluster ${cfg.cluster} in ${cfg.region}, task definition ${cfg.taskDefinition.interactive}, ${cfg.subnets.length} subnets`,
+        });
+      } catch (e) {
+        checks.push({ name: "ECS settings", status: "fail", detail: (e as Error).message });
+      }
+      if (cfg) {
+        try {
+          const c = await createEcsOrchestrator(cfg).describeCluster();
+          checks.push({
+            name: "ECS API",
+            status: c.status === "ACTIVE" ? "pass" : "fail",
+            detail: `cluster ${cfg.cluster} is ${c.status}, ${c.running} tasks running`,
+          });
+        } catch (e) {
+          checks.push({ name: "ECS API", status: "fail", detail: (e as Error).message });
+        }
+        checks.push(
+          cfg.logGroup
+            ? { name: "Sandbox logs", status: "pass", detail: `CloudWatch Logs ${cfg.logGroup}` }
+            : {
+                name: "Sandbox logs",
+                status: "warn",
+                detail:
+                  "NOTEBOOK_ECS_LOG_GROUP is not set: a failed job's output cannot be read back",
+              },
+        );
+      }
+      // A Fargate sandbox reaches the app by this URL, for its environment and
+      // every callback; without it the default (a Compose name) resolves nowhere.
+      const internal = process.env.NOTEBOOK_APP_INTERNAL_URL || process.env.APP_URL;
+      checks.push(
+        internal
+          ? { name: "App URL for sandboxes", status: "pass", detail: internal }
+          : {
+              name: "App URL for sandboxes",
+              status: "fail",
+              detail:
+                "NOTEBOOK_APP_INTERNAL_URL is not set: a sandbox could not fetch its environment or report back",
+            },
+      );
+      checks.push({
+        name: "Image",
+        status: "pass",
+        detail: "the task definition's (RunTask cannot change it); the image setting is not used",
+      });
     }
 
     if (backend === "e2b") {

@@ -5,6 +5,15 @@
 # holds one trained model in memory and answers predictions over HTTP.
 set -euo pipefail
 
+# The ECS backend (R477) starts the task with a one-time nonce instead of its
+# secrets, which RunTask would have written to CloudTrail. Trade it for the
+# environment before anything else runs; no environment, no sandbox.
+if [ -n "${NB_BOOTSTRAP_URL:-}" ]; then
+  boot="$(python -I /opt/agentswarms/bootstrap.py)" || exit 1
+  eval "$boot"
+  unset boot NB_BOOTSTRAP_NONCE NB_BOOTSTRAP_URL
+fi
+
 if [ "${NB_MODE:-interactive}" = "batch" ]; then
   exec python /opt/agentswarms/batch_runner.py
 fi

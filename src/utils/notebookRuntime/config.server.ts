@@ -6,7 +6,7 @@ import os from "node:os";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { runtimeSecretConfigured } from "./token.server";
 
-export type RuntimeBackend = "docker" | "k8s" | "e2b";
+export type RuntimeBackend = "docker" | "k8s" | "ecs" | "e2b";
 
 export type RuntimeSettings = {
   enabled: boolean;

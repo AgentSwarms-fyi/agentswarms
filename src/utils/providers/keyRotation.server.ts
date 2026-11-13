@@ -63,6 +63,9 @@ export const ENCRYPTED_TABLES = [
   "slack_workspaces",
   "teams_bots",
   "embed_keys",
+  // An ECS sandbox's environment, until the sandbox fetches it (R477): held
+  // minutes at most, then deleted, but a sweep in those minutes covers it.
+  "notebook_runtime_sessions",
 ] as const;
 
 export type TableStatus = {

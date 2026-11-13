@@ -1545,6 +1545,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "deploy/k8s/spark/spark-runtime.yaml",
       "docker",
       "e2b",
+      "ecs",
       "email",
       "entrypoint(inputs)",
       "entrypoint(inputs=None)",

@@ -154,6 +154,8 @@ Interface (`NotebookOrchestrator`): `create(session) → {ref, url}`, `stop(ref)
 
 - **`DockerOrchestrator`** (dev / single host): talks to the Docker Engine API. The web app does **not** get raw `docker.sock`; instead a minimal **socket-proxy** (e.g. `tecnativa/docker-socket-proxy`) exposes only `POST /containers/create|start|stop|remove` — least privilege.
 - **`K8sOrchestrator`** (enterprise): creates a **Pod/Job per session** via the K8s API using a dedicated `ServiceAccount` with RBAC scoped to one namespace (`create/delete pods` only). This is cleaner and safer than the Docker socket.
+- **`EcsOrchestrator`** (AWS, `NOTEBOOK_RUNTIME_BACKEND=ecs`): one Amazon ECS task on **Fargate** per session, so each sandbox is its own Firecracker microVM. It is the backend for ECS and for VMs behind a load balancer on AWS, where the app's hosts may be shared and a task on a shared EC2 host can read its neighbours' credentials. No SDK: `RunTask`, `DescribeTasks`, `StopTask` and Logs `GetLogEvents`, signed with SigV4 under the app's own role. `deploy/aws` registers the task definition: the image, a read-only root, no task role, and subnets that route only to the egress proxy, the app and the VPC endpoints. RunTask cannot change the image, so the runtime settings' image is not used on this backend. Fargate has no GPUs: GPU training needs the Kubernetes backend.
+  - **Secrets are not in the task's request.** `RunTask`'s request is recorded in CloudTrail and returned by `DescribeTasks`. The task gets only a one-time nonce. On start, `bootstrap.py` trades it at `/api/notebook/runtime/bootstrap` for the sandbox's environment, which the app keeps sealed in the session row until then and deletes as it hands it over. A nonce read later from CloudTrail opens nothing, and a large batch input stays under RunTask's 8 KB override limit.
 - **`E2BOrchestrator`** (optional): for teams that want managed Firecracker microVMs; same interface, points at E2B.
 
 ### 4.3 Runtime gateway
@@ -259,6 +261,7 @@ The kernel pods have **no direct internet route**. Their only egress is an **HTT
 | **A (default)** | Hardened container (§5.1/5.2) + egress proxy | Docker or K8s; **Windows or Linux**  | Standard enterprise, IAM-governed users           |
 | **B**           | Tier A **+ gVisor RuntimeClass**             | Linux only                           | Stronger defense-in-depth, still self-hosted/free |
 | **C**           | Firecracker microVM / E2B backend            | KVM/bare-metal Linux, or E2B account | Untrusted code or strict multi-tenant SaaS        |
+| **C (AWS)**     | ECS backend: one Fargate microVM per sandbox | An AWS account (`deploy/aws`)        | AWS deployments on ECS or VMs                     |
 
 ---
 

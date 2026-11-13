@@ -684,11 +684,11 @@ function EtlDocsPage() {
       <P>
         Two layers scale independently. <strong>Run execution scales out</strong> through the
         runtime backend: <C>docker</C> runs kernels on one host (scale that host up), <C>k8s</C>{" "}
-        schedules every run as its own pod across the cluster — the horizontal path — and <C>e2b</C>{" "}
-        rents externally hosted sandboxes. The unit of parallelism is the run: ten pipelines can
-        execute on ten nodes, but one run&apos;s dataframe lives on one machine — unless the
-        pipeline is on the Spark engine, where the data is spread across the cluster&apos;s
-        executors (see Engines above).
+        schedules every run as its own pod across the cluster (the horizontal path), <C>ecs</C>{" "}
+        starts each run as its own Fargate task on AWS, and <C>e2b</C> rents externally hosted
+        sandboxes. The unit of parallelism is the run: ten pipelines can execute on ten nodes, but
+        one run&apos;s dataframe lives on one machine — unless the pipeline is on the Spark engine,
+        where the data is spread across the cluster&apos;s executors (see Engines above).
       </P>
       <P>
         <strong>The app tier is safe behind a load balancer.</strong> Replicas are stateless (all

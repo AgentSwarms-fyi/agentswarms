@@ -260,7 +260,7 @@ function NotebooksDoc() {
           [<C key="a">NOTEBOOK_RUNTIME_ENABLED</C>, "on / off", "Master switch"],
           [
             <C key="b">NOTEBOOK_RUNTIME_BACKEND</C>,
-            "docker | k8s | e2b",
+            "docker | k8s | ecs | e2b",
             "Where kernels are launched",
           ],
           [<C key="c">NOTEBOOK_RUNTIME_IMAGE</C>, "image ref", "Kernel image"],

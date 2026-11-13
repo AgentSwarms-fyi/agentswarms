@@ -6461,6 +6461,9 @@ export type Database = {
         Row: {
           api_key_id: string | null;
           backend: string;
+          bootstrap_env: Json | null;
+          bootstrap_hash: string | null;
+          bootstrap_used_at: string | null;
           container_ref: string | null;
           cpu_limit: string | null;
           created_at: string;
@@ -6488,6 +6491,9 @@ export type Database = {
         Insert: {
           api_key_id?: string | null;
           backend?: string;
+          bootstrap_env?: Json | null;
+          bootstrap_hash?: string | null;
+          bootstrap_used_at?: string | null;
           container_ref?: string | null;
           cpu_limit?: string | null;
           created_at?: string;
@@ -6515,6 +6521,9 @@ export type Database = {
         Update: {
           api_key_id?: string | null;
           backend?: string;
+          bootstrap_env?: Json | null;
+          bootstrap_hash?: string | null;
+          bootstrap_used_at?: string | null;
           container_ref?: string | null;
           cpu_limit?: string | null;
           created_at?: string;
@@ -8989,6 +8998,10 @@ export type Database = {
       merge_dataset_rows: {
         Args: { p_key: string; p_staging: string; p_target: string };
         Returns: { updated: number; inserted: number }[];
+      };
+      redeem_notebook_bootstrap: {
+        Args: { p_session: string; p_hash: string; p_window_minutes?: number };
+        Returns: Json;
       };
       seed_bi_sample_dashboards: { Args: { _uid: string }; Returns: undefined };
       seed_bi_sample_extras: { Args: { _uid: string }; Returns: undefined };

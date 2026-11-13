@@ -63,6 +63,13 @@ function envVarsInCode(): Map<string, string> {
     for (const m of s.matchAll(/\benv(?:Int|Num|Bool|Str)?\(\s*["'`]([A-Z][A-Z0-9_]{2,})["'`]/g)) {
       add(m[1], f);
     }
+    // A module that takes its settings as an argument, `env: Env = process.env`,
+    // so a test can pass its own (the AWS signers, KMS, the ECS backend).
+    // Not an assignment: `env.NB_ENTRYPOINT = ...` builds a sandbox's
+    // environment, which is not this server reading a setting.
+    for (const m of s.matchAll(/(?<![.\w])env\.([A-Z][A-Z0-9_]{2,})\b(?!\s*=(?!=))/g)) {
+      add(m[1], f);
+    }
   }
   return found;
 }
@@ -143,6 +150,11 @@ const UNDOCUMENTED_ON_PURPOSE = new Map<string, string>([
       "and disagreeing with it. Derived from WEB_CONCURRENCY / the CPU quota / " +
       "APP_ROLE, all of which ARE documented. Setting it by hand would not " +
       "change how many processes exist, only what the admin page believes",
+  ],
+  [
+    "ML_ARTIFACT_URI",
+    "train.server builds a training sandbox's environment, then reads the " +
+      "artifact URI back out of it for the job row; never a setting of this server",
   ],
   [
     "AGENTSWARMS_BOOT_TOKEN",

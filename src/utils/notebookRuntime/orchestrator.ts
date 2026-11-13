@@ -5,6 +5,7 @@
 // Backends:
 //   - docker : Docker Engine API via a least-privilege socket-proxy (dev / single host)
 //   - k8s    : one Pod (interactive) or Job (batch) per session (production scale)
+//   - ecs    : one Amazon ECS task on Fargate per session (AWS: ECS, or VMs behind a load balancer)
 //   - e2b    : managed Firecracker microVMs (optional)
 //
 // All backends are stateless and talk over HTTP(S), so any app replica can
@@ -91,6 +92,10 @@ export async function getOrchestrator(
     case "k8s": {
       const { K8sOrchestrator } = await import("./k8s.server");
       return new K8sOrchestrator();
+    }
+    case "ecs": {
+      const { ecsOrchestratorFromEnv } = await import("./ecs.server");
+      return ecsOrchestratorFromEnv();
     }
     case "e2b": {
       const { E2BOrchestrator } = await import("./e2b.server");
