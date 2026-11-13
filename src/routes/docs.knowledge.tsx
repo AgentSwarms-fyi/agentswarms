@@ -493,8 +493,8 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
         scores are normalised within its own list first, because cosine similarity (roughly
         0.3&ndash;0.9) and text rank (roughly 0.0&ndash;0.3) are not comparable numbers &mdash;
         added raw, the slider would do almost nothing across most of its range. A chunk found by{" "}
-        <em>both</em>
-        retrievers scores above one found by only one, which is usually the result you want.
+        <em>both</em> retrievers scores above one found by only one, which is usually the result you
+        want.
       </P>
       <Callout kind="why" title="Each list's best hit always scores 1.0">
         Normalising by the list maximum is what makes the slider meaningful, but it has a

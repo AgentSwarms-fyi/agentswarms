@@ -810,7 +810,7 @@ input ──▶ split ┼──▶ legal analysis ─────┼──▶ me
       />
       <Callout kind="info">
         <strong>Where custom code runs.</strong> On the canvas it runs in your browser, in a Worker
-        with the dangerous globals removed. In <em>deployed</em> (API-key) and <em>scheduled</em>
+        with the dangerous globals removed. In <em>deployed</em> (API-key) and <em>scheduled</em>{" "}
         runs there is no browser, so it runs in the <strong>JS sandbox</strong> — a separate
         container with no secrets, no filesystem and no route to the internet, giving each call a
         fresh JavaScript realm that is destroyed afterwards. Your snippet sees exactly the same{" "}

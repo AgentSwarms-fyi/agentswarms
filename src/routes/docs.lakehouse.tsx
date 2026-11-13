@@ -155,7 +155,7 @@ function LakehouseDocsPage() {
         <strong>Explain</strong> runs <C>EXPLAIN ANALYZE</C> and shows the plan the engine chose
         alongside what it cost — rows scanned, engine time, rows returned. Rows scanned is the
         number to watch: if a filtered query scans close to the whole table, the filter isn&apos;t
-        matching a partition key. Only SELECTs can be profiled, because <C>EXPLAIN ANALYZE</C>
+        matching a partition key. Only SELECTs can be profiled, because <C>EXPLAIN ANALYZE</C>{" "}
         executes the statement.
       </P>
       <P>

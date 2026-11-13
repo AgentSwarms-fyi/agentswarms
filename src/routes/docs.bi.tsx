@@ -117,7 +117,7 @@ function BiPage() {
         <C>probability</C> was read as a two-period breakdown by prediction, and the write-up listed
         the resulting &quot;total change&quot; as a caveat beside the real one). The model&apos;s{" "}
         <strong>health</strong> rides along: the planner sees each scorable model&apos;s latest
-        drift reading or evaluation verdict, and a scored step&apos;s badge and disclosure say it —
+        drift reading or evaluation verdict, and a scored step&apos;s badge and disclosure say it —{" "}
         {'"open drift alert (PSI 3.291 on 2026-09-14)"'} — so the write-up can warn beside the
         numbers it cites.
       </P>
