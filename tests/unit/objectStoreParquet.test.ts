@@ -12,7 +12,7 @@
 // images can no longer be pulled, so the server is SILO, its maintained fork
 // and the bundled store since R418:
 //
-//   docker run -d --name as-minio-test -p 9010:9000 \
+//   docker run -d --name as-minio-test -p 127.0.0.1:9010:9000 \
 //     -e MINIO_ROOT_USER=probeaccesskey -e MINIO_ROOT_PASSWORD=probesecretkey123 \
 //     pgsty/silo:RELEASE.2026-10-26T00-00-00Z server /data
 //
@@ -41,6 +41,8 @@ import {
   avroUnavailableReason,
   needsIsolation,
 } from "@/utils/catalog/objectStoreRead.server";
+
+import { eventsAvro, flatOrc, nestedOrc } from "../fixtures/orcAndAvro";
 
 const CFG: ObjectStoreConfig = {
   provider: "minio",
@@ -139,9 +141,20 @@ beforeAll(async () => {
   await put(`/${CFG.bucket}/data/orders.parquet`, readFileSync(file));
   await put(`/${CFG.bucket}/data/regions.csv`, "region,manager\nEMEA,Ada\nAMER,Grace\nAPAC,Alan\n");
   rmSync(dir, { recursive: true, force: true });
+
+  // The ORC and Avro files are generated too: DuckDB cannot write either, so
+  // these used to be hand-seeded copies of Apache ORC conformance files, and
+  // on a fresh store every ORC test failed with NoSuchKey. orcAndAvro.ts says
+  // what each file holds and which reader fails on which.
+  await put(`/${CFG.bucket}/data/flat.orc`, Buffer.from(flatOrc()));
+  await put(`/${CFG.bucket}/data/nested.orc`, Buffer.from(nestedOrc()));
+  await put(`/${CFG.bucket}/data/events.avro`, Buffer.from(eventsAvro()));
 }, 60_000);
 
-const withMinio = (name: string, fn: () => Promise<void>, timeout = 30_000) =>
+// 120 s: a cold DuckDB read through httpfs took 28.7 s here (Windows, Docker
+// Desktop) and nine reads timed out at the old 30 s while every one of them
+// passed given longer (R475).
+const withMinio = (name: string, fn: () => Promise<void>, timeout = 120_000) =>
   it.skipIf(!live)(name, fn, timeout);
 
 describe("the crawler can see a Parquet object at all", () => {
@@ -192,10 +205,16 @@ describe("schema comes from the footer, which is the whole point", () => {
 describe("a real crawl produces a Parquet asset with columns", () => {
   // The whole point, at the level the product actually works at. Before this,
   // crawlObjectStorage returned the Parquet object with `columns: []`.
+  //
+  // A file inside a folder is cataloged as that folder's DATASET, even alone:
+  // table-per-folder layouts write one file per load and the folder is the
+  // table (isDatasetGroup). So orders.parquet is the asset `data/*.parquet`.
   withMinio("gives the Parquet asset its real schema", async () => {
     const { assets } = await crawlObjectStorage(CFG);
-    const pq = assets.find((a) => a.fqn.includes("orders.parquet"));
-    expect(pq, "the Parquet asset is missing from the crawl").toBeTruthy();
+    const pq = assets.find((a) => a.fqn === "data/*.parquet");
+    expect(pq, `no Parquet dataset; got ${assets.map((a) => a.fqn).join(", ")}`).toBeTruthy();
+    expect(pq!.asset_type).toBe("dataset");
+    expect(pq!.file_count).toBe(1);
     expect(pq!.columns.length, "the Parquet asset was cataloged with no columns").toBe(4);
     expect(pq!.columns.map((c) => c.name)).toEqual(["order_id", "region", "amount", "order_date"]);
   });
@@ -205,7 +224,7 @@ describe("a real crawl produces a Parquet asset with columns", () => {
     // is what CSV inference produces and what every consumer expects. Leaking
     // raw SQL types in would put values in the catalog nothing else can make.
     const { assets } = await crawlObjectStorage(CFG);
-    const pq = assets.find((a) => a.fqn.includes("orders.parquet"))!;
+    const pq = assets.find((a) => a.fqn === "data/*.parquet")!;
     const byName = Object.fromEntries(pq.columns.map((c) => [c.name, c.type]));
     expect(byName).toEqual({
       order_id: "number",
@@ -216,8 +235,10 @@ describe("a real crawl produces a Parquet asset with columns", () => {
   });
 
   withMinio("records the row count from the footer", async () => {
+    // One file in the group, so the footer count is the count, not a scaled
+    // estimate.
     const { assets } = await crawlObjectStorage(CFG);
-    const pq = assets.find((a) => a.fqn.includes("orders.parquet"))!;
+    const pq = assets.find((a) => a.fqn === "data/*.parquet")!;
     expect(pq.row_count).toBe(5);
   });
 
@@ -228,7 +249,7 @@ describe("a real crawl produces a Parquet asset with columns", () => {
     // caught that. Profile statistics are the discriminator: they come from
     // reading actual values, and the describe path cannot produce them.
     const { assets } = await crawlObjectStorage(CFG);
-    const csv = assets.find((a) => a.fqn.includes("regions.csv"));
+    const csv = assets.find((a) => a.fqn === "data/*.csv");
     expect(csv, "the CSV asset disappeared").toBeTruthy();
     expect(csv!.columns.map((c) => c.name)).toEqual(["region", "manager"]);
     const region = csv!.columns.find((c) => c.name === "region")!;
@@ -374,8 +395,10 @@ describe("the SQL name a bucket file gets", () => {
   });
 
   it("uses the folder for a partitioned group", () => {
-    // A crawled folder of same-format files has a fqn like `sales/*.parquet`.
+    // A crawled folder of same-format files has a fqn like `sales/*.parquet`,
+    // and since R456 a partitioned one reaches through its partition folders.
     expect(objectSqlName("warehouse/sales/*.parquet")).toBe("sales");
+    expect(objectSqlName("warehouse/sales/**/*.parquet")).toBe("sales");
   });
 
   it("survives characters that are not valid in an identifier", () => {
@@ -413,6 +436,10 @@ describe("ORC and Avro", () => {
   // function that cannot unwind, so it kills the whole process. Reachable by
   // putting such a file in a bucket the crawler reads — a denial of service.
   // ORC therefore only ever runs in a child process.
+  //
+  // The tests below read generated files of those two shapes, data/flat.orc
+  // and data/nested.orc (tests/fixtures/orcAndAvro.ts). The nested one trips
+  // the same assertion, and Apache ORC's own Java reader opens both cleanly.
   //
   // Avro's extension has no build published since DuckDB v1.1.3; checked
   // against the community repository for v1.5.5 on windows_amd64,
@@ -468,8 +495,12 @@ describe("ORC and Avro", () => {
     async () => {
       // THE TEST THAT MATTERS. Without the child process this call takes the
       // whole vitest worker with it and the run reports a crash, not a failure.
-      // Reaching the next line at all is the assertion.
-      await expect(readObjectRows(CFG, "data/nested.orc", "orc", 10)).rejects.toThrow();
+      // Reaching the next line at all is the assertion — but only if the reader
+      // really crashed. A bare rejects.toThrow() also passed while nested.orc
+      // was missing from the bucket (NoSuchKey), when nothing had crashed.
+      await expect(readObjectRows(CFG, "data/nested.orc", "orc", 10)).rejects.toThrow(
+        /ORC reader crashed/,
+      );
       // And the process is still here to say so.
       expect(1 + 1).toBe(2);
     },
@@ -480,7 +511,8 @@ describe("ORC and Avro", () => {
     "blames the reader, not the file",
     async () => {
       // "Could not read this file" would send someone looking for corruption in
-      // a file the Apache ORC project publishes as a conformance test.
+      // a file that is fine — the Apache ORC project publishes this shape as a
+      // conformance test, and its Java reader opens the generated copy.
       const err = await readObjectRows(CFG, "data/nested.orc", "orc", 10).catch((e: Error) => e);
       expect((err as Error).message).toMatch(/ORC reader crashed|nested types are not supported/i);
     },
@@ -495,24 +527,26 @@ describe("ORC and Avro", () => {
       const { assets } = await crawlObjectStorage(CFG);
       const byName = Object.fromEntries(assets.map((a) => [a.fqn, a]));
 
-      // Same-format files in one folder become a single DATASET asset —
-      // existing grouping behaviour, so the two ORC files land as `data/*.orc`
-      // rather than separately. Asserting what the product actually produces.
+      // Every file here sits in data/, so each format becomes one DATASET
+      // asset with a glob fqn — the two ORC files land together as
+      // `data/*.orc`, and the lone Avro, Parquet and CSV files are datasets of
+      // one. Asserting what the product actually produces.
       const orc = byName["data/*.orc"];
       expect(orc, `no ORC dataset; got ${Object.keys(byName).join(", ")}`).toBeTruthy();
       expect(orc.file_count).toBe(2);
+      // The schema comes from the group's biggest file, flat.orc.
       expect(orc.columns.length, "the ORC group was cataloged with no schema").toBe(9);
       expect(orc.row_count ?? 0).toBeGreaterThan(1_000_000);
 
       // Avro appears with NO columns rather than not appearing at all. A file
       // the platform cannot open is still a file the operator owns, and a
       // catalog that hides it is lying by omission.
-      expect(byName["data/events.avro"], "the Avro file vanished from the catalog").toBeTruthy();
-      expect(byName["data/events.avro"].columns).toHaveLength(0);
+      expect(byName["data/*.avro"], "the Avro file vanished from the catalog").toBeTruthy();
+      expect(byName["data/*.avro"].columns).toHaveLength(0);
 
       // The formats that already worked still do.
-      expect(byName["data/orders.parquet"].columns.length).toBe(4);
-      expect(byName["data/regions.csv"].columns.length).toBe(2);
+      expect(byName["data/*.parquet"].columns.length).toBe(4);
+      expect(byName["data/*.csv"].columns.length).toBe(2);
     },
     180_000,
   );
@@ -554,8 +588,11 @@ describe("the ORC download has a ceiling and leaves nothing behind", () => {
       await readObjectRows(CFG, "data/flat.orc", "orc", 3);
       expect(orcTmpDirs(), "a successful read leaked its download").toBe(before);
       // The crash path runs through the same finally, and is the one most likely
-      // to skip cleanup — the child dies rather than returning.
-      await readObjectRows(CFG, "data/nested.orc", "orc", 3).catch(() => {});
+      // to skip cleanup — the child dies rather than returning. Check that it
+      // DID crash: a failed download never makes a temporary copy, so a missing
+      // file would pass the count below without exercising this path at all.
+      const crash = await readObjectRows(CFG, "data/nested.orc", "orc", 3).catch((e: Error) => e);
+      expect((crash as Error).message).toMatch(/ORC reader crashed/);
       expect(orcTmpDirs(), "a crashed read leaked its download").toBe(before);
     },
     120_000,
