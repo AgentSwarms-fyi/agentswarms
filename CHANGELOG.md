@@ -59,6 +59,18 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **A deploy makes its own first admin, and two deploys never migrate at once (R479).**
+  The db-migrate image gains `deploy` (migrate, then create the admin) and
+  `create-admin`, which creates `ADMIN_EMAIL` through GoTrue with the address already
+  confirmed and leaves an existing admin as it is. A deploy cannot leave the first
+  admin to a sign-up: that address is a permanent superadmin, and until someone
+  registers it, whoever does first gets it. `apply-migrations.sh` now takes a database
+  lock, so two deploy tasks starting together run each migration once. With
+  `LAKEHOUSE_CATALOG_PASSWORD` set, `bootstrap` also makes the lakehouse catalog's role
+  and database on the same server, and the app fills that password into a
+  `LAKEHOUSE_CATALOG_URL` that has none. On Kubernetes, `NOTEBOOK_K8S_NODE_SELECTOR`
+  and `NOTEBOOK_K8S_TOLERATIONS` put every sandbox on a node pool of its own. Unset,
+  nothing changes.
 - **An egress proxy that fetches its allow-list, for ECS and EKS (R478).** A new
   image, `ghcr.io/agentswarms-fyi/egress-proxy`, is squid plus a loop that pulls the
   sandbox allow-list from the app every 30 s, where the app cannot write the proxy's

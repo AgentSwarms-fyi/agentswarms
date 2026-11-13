@@ -385,7 +385,10 @@ describe("Kubernetes", () => {
     expect(k8s).toContain("process.env.NOTEBOOK_K8S_GPU_NODE_SELECTOR");
     expect(k8s).toContain("process.env.NOTEBOOK_K8S_GPU_TOLERATIONS");
     expect(k8s).toContain("...(nodeSelector ? { nodeSelector } : {}),");
-    expect(k8s).toContain("...gpuPlacement(spec),");
+    // Through every sandbox's placement since R479 (tests/unit/awsDeploySettings
+    // runs create() and reads the pod a GPU job gets).
+    expect(k8s).toContain("const gpu = gpuPlacement(spec)");
+    expect(k8s).toContain("...sandboxPlacement(spec),");
     const egress = rd("src/utils/notebookRuntime/egressApply.server.ts");
     expect(egress).toContain("to the notebook-egress ConfigMap");
     // The manifests and docs say the same three things: Jobs, quota/limit range, the object store.

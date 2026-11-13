@@ -5,4 +5,5 @@
 !docker/db-migrate/apply-migrations.sh
 !docker/db-migrate/db-migrate.sh
 !deploy/aws/spec/bootstrap/rds-bootstrap.sql
+!deploy/aws/spec/bootstrap/lakehouse-catalog.sql
 !supabase/migrations/*.sql

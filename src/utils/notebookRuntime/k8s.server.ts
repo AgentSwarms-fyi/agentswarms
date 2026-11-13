@@ -134,10 +134,43 @@ function gpuPlacement(spec: KernelSpec) {
   };
 }
 
+/**
+ * Where every sandbox goes: a node pool of their own, so users' code never
+ * shares a node with the app (R479). The pool is named by a label and kept
+ * for them by a taint, so both are needed: NOTEBOOK_K8S_NODE_SELECTOR picks
+ * the pool, NOTEBOOK_K8S_TOLERATIONS lets the pods onto it. deploy/helm sets
+ * both on EKS. A GPU sandbox goes where NOTEBOOK_K8S_GPU_NODE_SELECTOR says
+ * instead, when it says anything (two selectors for two pools would match no
+ * node), and may tolerate both pools' taints.
+ */
+function sandboxPlacement(spec: KernelSpec) {
+  const baseSelector = jsonEnv<Record<string, string>>(
+    "NOTEBOOK_K8S_NODE_SELECTOR",
+    process.env.NOTEBOOK_K8S_NODE_SELECTOR,
+  );
+  const baseTolerations = jsonEnv<unknown[]>(
+    "NOTEBOOK_K8S_TOLERATIONS",
+    process.env.NOTEBOOK_K8S_TOLERATIONS,
+  );
+  const gpu = gpuPlacement(spec) as {
+    nodeSelector?: Record<string, string>;
+    tolerations?: unknown[];
+  };
+  const nodeSelector = gpu.nodeSelector ?? baseSelector ?? {};
+  const tolerations = [
+    ...(Array.isArray(baseTolerations) ? baseTolerations : []),
+    ...(gpu.tolerations ?? []),
+  ];
+  return {
+    ...(Object.keys(nodeSelector).length ? { nodeSelector } : {}),
+    ...(tolerations.length ? { tolerations } : {}),
+  };
+}
+
 function podSpec(spec: KernelSpec) {
   const runtimeClass = process.env.NOTEBOOK_K8S_RUNTIME_CLASS; // e.g. "gvisor"
   return {
-    ...gpuPlacement(spec),
+    ...sandboxPlacement(spec),
     ...(runtimeClass ? { runtimeClassName: runtimeClass } : {}),
     // A service is meant to keep listening: let the kubelet restart it if the
     // user's process dies, and never impose a wall-clock deadline on it.

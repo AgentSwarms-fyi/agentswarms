@@ -41,6 +41,7 @@ NET=rdslike-net
 ALL="rdslike-db rdslike-auth rdslike-storage rdslike-rest"
 MASTER_PASSWORD="master-$(openssl rand -hex 12)"
 SVC_PASSWORD="svc-$(openssl rand -hex 12)"
+LAKE_PASSWORD="lake-$(openssl rand -hex 12)"
 JWT_SECRET="$(openssl rand -hex 32)"
 cleanup() { docker rm -f $ALL >/dev/null 2>&1; docker network rm $NET >/dev/null 2>&1; }
 trap cleanup EXIT
@@ -58,16 +59,21 @@ sql() {
 # of from this checkout.
 MIGRATOR_IMAGE="${MIGRATOR_IMAGE:-}"
 ADMIN_URL_IN_NET="postgres://postgres:$MASTER_PASSWORD@rdslike-db:5432/postgres"
-bootstrap() { # authenticator, auth admin and storage admin passwords
+bootstrap() { # authenticator, auth admin, storage admin and lakehouse catalog passwords
   if [ -n "$MIGRATOR_IMAGE" ]; then
     docker run --rm --network $NET -e DATABASE_URL="$ADMIN_URL_IN_NET" \
       -e AUTHENTICATOR_PASSWORD="$1" -e AUTH_ADMIN_PASSWORD="$2" -e STORAGE_ADMIN_PASSWORD="$3" \
+      -e LAKEHOUSE_CATALOG_PASSWORD="${4:-}" \
       "$MIGRATOR_IMAGE" bootstrap 2>&1
     return
   fi
   docker exec -e PGPASSWORD="$MASTER_PASSWORD" rdslike-db psql -h 127.0.0.1 -U postgres -d postgres -q \
+    -v ON_ERROR_STOP=1 \
     -v authenticator_password="$1" -v auth_admin_password="$2" -v storage_admin_password="$3" \
-    -f /bootstrap/rds-bootstrap.sql 2>&1
+    -f /bootstrap/rds-bootstrap.sql 2>&1 || return 1
+  [ -z "${4:-}" ] && return 0
+  docker exec -e PGPASSWORD="$MASTER_PASSWORD" rdslike-db psql -h 127.0.0.1 -U postgres -d postgres -q \
+    -v ON_ERROR_STOP=1 -v lakehouse_password="$4" -f /bootstrap/lakehouse-catalog.sql 2>&1
 }
 migrate() {
   if [ -n "$MIGRATOR_IMAGE" ]; then
@@ -95,8 +101,8 @@ docker run -d --name rdslike-db --network $NET \
 wait_for 180 sql "select 1" || fail "postgres did not start: $(docker logs rdslike-db 2>&1 | tail -3)"
 sql "select current_user || ': superuser=' || rolsuper || ', bypassrls=' || rolbypassrls || ', PostgreSQL ' || current_setting('server_version') from pg_roles where rolname = current_user"
 
-step "2. rds-bootstrap.sql, as the admin"
-if ! out=$(bootstrap "$SVC_PASSWORD" "$SVC_PASSWORD" "$SVC_PASSWORD"); then
+step "2. rds-bootstrap.sql, and the lakehouse catalog's database, as the admin"
+if ! out=$(bootstrap "$SVC_PASSWORD" "$SVC_PASSWORD" "$SVC_PASSWORD" "$LAKE_PASSWORD"); then
   echo "$out" | grep -E "ERROR|DETAIL|HINT" | head -4
   if [ "$BYPASS" = "no" ] && echo "$out" | grep -q "BYPASSRLS"; then
     echo "  as expected: an admin without BYPASSRLS cannot create service_role, and the bootstrap stops before installing anything"
@@ -106,6 +112,12 @@ if ! out=$(bootstrap "$SVC_PASSWORD" "$SVC_PASSWORD" "$SVC_PASSWORD"); then
 fi
 [ "$BYPASS" = "no" ] && fail "the bootstrap succeeded although the admin may not grant BYPASSRLS"
 sql "select string_agg(rolname || case when rolbypassrls then ' (bypassrls)' else '' end, ', ' order by rolname) from pg_roles where rolname in ('anon','authenticated','service_role','authenticator','supabase_auth_admin','supabase_storage_admin')"
+# The catalog's own role signs in to its own database (R479).
+lake_user=$(docker exec -e PGPASSWORD="$LAKE_PASSWORD" rdslike-db \
+  psql -h 127.0.0.1 -U lakehouse -d lakehouse_catalog -tAc "select current_user || ' owns ' || (select pg_get_userbyid(datdba) from pg_database where datname = 'lakehouse_catalog')" 2>&1) \
+  || fail "the lakehouse role cannot sign in to lakehouse_catalog: $lake_user"
+echo "  $lake_user"
+[ "$lake_user" = "lakehouse owns lakehouse" ] || fail "lakehouse_catalog: $lake_user"
 
 step "3. GoTrue installs auth"
 docker run -d --name rdslike-auth --network $NET \
@@ -156,11 +168,30 @@ sql "select count(*) || ' public tables, ' || count(*) filter (where c.relrowsec
 [ "$(sql "select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity")" = "0" ] \
   || fail "a public table without RLS"
 
+# What a deploy runs once (deploy/aws, Helm): the first admin, created
+# through GoTrue with the address confirmed, never left to a sign-up (R479).
+if [ -n "$MIGRATOR_IMAGE" ]; then
+  step "6b. the first admin, confirmed, created once"
+  ADMIN="admin-$(openssl rand -hex 4)@example.test"
+  admin() {
+    docker run --rm --network $NET -e GOTRUE_URL=http://rdslike-auth:9999 \
+      -e SERVICE_ROLE_KEY="$SERVICE" -e ADMIN_EMAIL="$ADMIN" -e ADMIN_PASSWORD="pw-$1" \
+      "$MIGRATOR_IMAGE" create-admin 2>&1
+  }
+  out=$(admin first) || fail "create-admin: $out"
+  echo "  $out"
+  [ "$(sql "select count(*) from auth.users where email = '$ADMIN' and email_confirmed_at is not null")" = "1" ] \
+    || fail "the admin is not there, confirmed"
+  out=$(admin second) || fail "create-admin, second run: $out"
+  echo "  $out"
+  echo "$out" | grep -q "already exists" || fail "a second create-admin did not leave the admin as it was"
+fi
+
 step "7. everything again: an existing database changes nothing"
 again=$(migrate) || fail "migrations, second run"
 echo "$again" | tail -1
 echo "$again" | grep -q "^applied 0 migrations" || fail "a migration ran twice"
-bootstrap again-1 again-2 again-3 >/dev/null || fail "bootstrap, second run"
+bootstrap again-1 again-2 again-3 "$LAKE_PASSWORD" >/dev/null || fail "bootstrap, second run"
 echo "  bootstrap again: ok"
 if [ -n "$MIGRATOR_IMAGE" ]; then
   st=$(docker run --rm --network $NET -e DATABASE_URL="$ADMIN_URL_IN_NET" "$MIGRATOR_IMAGE" status) \

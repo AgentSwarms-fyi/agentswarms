@@ -60,10 +60,16 @@ jobs:
         with:
           node-version: "22"
 
+      # The image a deploy runs (ECS task, Helm Job): bootstrap, migrate and
+      # create-admin are tested as they ship, not as loose scripts (R479).
+      - name: Build the db-migrate image
+        run: docker build -f docker/db-migrate/Dockerfile -t agentswarms-db-migrate:ci .
+
       - name: Install on a PostgreSQL whose admin is not a superuser
         run: bash deploy/ci/rds-like/run.sh
         env:
           RDS_BYPASSRLS: ${{ matrix.bypassrls }}
+          MIGRATOR_IMAGE: agentswarms-db-migrate:ci
 
   supabase-image:
     runs-on: ubuntu-latest

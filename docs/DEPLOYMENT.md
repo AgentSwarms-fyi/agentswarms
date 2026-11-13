@@ -3029,9 +3029,13 @@ Each release publishes its images to `ghcr.io/agentswarms-fyi`, for amd64 and
 arm64, signed (Sigstore) and with an SBOM and build provenance (R469):
 
 - `agentswarms`: the app;
-- `db-migrate`: the migrations, run as a one-off task before the app starts;
+- `db-migrate`: the migrations, run as a one-off task before the app starts
+  (`deploy`: migrate under a lock, then create the first admin with a confirmed
+  address; `bootstrap`: set a plain PostgreSQL up for Supabase, once);
 - `notebook-runtime`, `notebook-gateway`, `docker-socket-proxy`, `docgen` and
-  `js-sandbox`.
+  `js-sandbox`;
+- `egress-proxy`: the sandboxes' proxy on ECS and EKS, which fetches its
+  allow-list from the app.
 
 They are the images Compose builds from this repository, with nothing about
 an install baked in. [RELEASING.md](./RELEASING.md) lists them, says how each

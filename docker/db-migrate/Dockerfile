@@ -22,15 +22,16 @@ FROM alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c
 
 # psql 17 reads PostgreSQL 15, 16 and 17 servers. ca-certificates, so
 # sslrootcert=system can verify a database whose certificate a public CA
-# signed; Amazon RDS has its own CA, given as PGSSLROOTCERT. Alpine's security
-# fixes since the base was published, as the socket proxy takes them (R406).
+# signed; Amazon RDS has its own CA, given as PGSSLROOTCERT. curl, for
+# create-admin's one call to GoTrue (R479). Alpine's security fixes since the
+# base was published, as the socket proxy takes them (R406).
 RUN apk upgrade --no-cache \
- && apk add --no-cache bash postgresql17-client ca-certificates \
+ && apk add --no-cache bash postgresql17-client ca-certificates curl \
  && adduser -D -H -u 10001 -s /sbin/nologin migrate
 
 WORKDIR /db-migrate
 COPY docker/db-migrate/apply-migrations.sh docker/db-migrate/db-migrate.sh ./
-COPY deploy/aws/spec/bootstrap/rds-bootstrap.sql ./bootstrap/
+COPY deploy/aws/spec/bootstrap/rds-bootstrap.sql deploy/aws/spec/bootstrap/lakehouse-catalog.sql ./bootstrap/
 COPY supabase/migrations ./migrations
 
 # Its own unprivileged user. Nothing here is written: the work is done in the

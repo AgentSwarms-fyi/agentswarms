@@ -72,7 +72,7 @@ export function lakehouseConfig(): LakehouseConfig | null {
   const dataUrl = process.env.LAKEHOUSE_DATA_URL?.trim();
   if (!url || !dataUrl) return null;
   return {
-    catalog: url,
+    catalog: catalogUrlWithPassword(url, process.env.LAKEHOUSE_CATALOG_PASSWORD?.trim()),
     dataUrl,
     s3: {
       endpoint: process.env.LAKEHOUSE_S3_ENDPOINT?.trim() || undefined,
@@ -81,6 +81,27 @@ export function lakehouseConfig(): LakehouseConfig | null {
       urlStyle: process.env.LAKEHOUSE_S3_URL_STYLE?.trim() || "vhost",
     },
   };
+}
+
+/**
+ * The catalog URL with LAKEHOUSE_CATALOG_PASSWORD in it, when the URL carries
+ * none (R479). A deploy keeps the password in a secret store and the address
+ * in plain settings: ECS and Kubernetes hand a secret over as a whole
+ * variable, so the two arrive apart. A URL that has a password keeps it, as
+ * Compose's always did. Encoded here: the URL setter leaves a `%` as it is,
+ * and catalogUrlToLibpq's decodeURIComponent would then refuse the URL.
+ */
+export function catalogUrlWithPassword(url: string, password: string | undefined): string {
+  if (!password) return url;
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return url;
+  }
+  if (u.password) return url;
+  u.password = encodeURIComponent(password);
+  return u.toString();
 }
 
 export function lakehouseEnabled(): boolean {
