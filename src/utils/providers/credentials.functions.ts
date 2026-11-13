@@ -6,6 +6,11 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { cloudRegion } from "@/utils/providers/cloudRegion";
 import {
+  networkPathFieldText,
+  parseOrExplain,
+  saveFieldText,
+} from "@/utils/providers/credentialFieldErrors";
+import {
   azureEndpointProblem,
   providerEndpoint,
   providerOrigin,
@@ -133,13 +138,15 @@ export const getPrivateConnectivityDefaults = createServerFn({ method: "POST" })
 export const checkProviderNetworkPath = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((input: unknown) =>
-    z
-      .object({
+    parseOrExplain(
+      z.object({
         provider: z.enum(["bedrock", "vertex", "oci_genai", "azure_openai", "claude_aws"]),
         region: z.string().max(60).optional(),
         endpoint: z.string().max(300).optional(),
-      })
-      .parse(input),
+      }),
+      input,
+      networkPathFieldText,
+    ),
   )
   .handler(async ({ data }) => {
     try {
@@ -174,7 +181,7 @@ export const checkProviderNetworkPath = createServerFn({ method: "POST" })
 // it — `SaveSchema.parse` put the ZodError's issue JSON in the toast.
 export const saveProviderCredential = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .validator((input: unknown) => SaveSchema.parse(input))
+  .validator((input: unknown) => parseOrExplain(SaveSchema, input, saveFieldText))
   .handler(async ({ data, context }) => {
     const { encryptJson } = await import("./crypto.server");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -335,7 +342,7 @@ export const listProviderCredentials = createServerFn({ method: "POST" })
 const DeleteSchema = z.object({ provider: providerEnum });
 export const deleteProviderCredential = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .validator((input: unknown) => DeleteSchema.parse(input))
+  .validator((input: unknown) => parseOrExplain(DeleteSchema, input, saveFieldText))
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { userId } = context;

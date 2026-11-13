@@ -193,6 +193,12 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **A provider credential the form refuses says which field, in words (R471).** Saving an
+  OCI Generative AI key pasted short showed Zod's issue array in the toast and the
+  dialog (`[{"code":"too_small","minimum":40,"path":["oci_genai","privateKeyPem"],…}]`).
+  Save, Check network path and Disconnect now answer one sentence per field, named as
+  the dialog labels it: "Private Key (PEM) is too short — paste the whole PEM file, from
+  its -----BEGIN line to its -----END line."
 - **Security: `@azure/msal-node` 5.4.1 → 7.1.2, `minimatch` 10.2.x → 11.0.3, `glob`
   13.0.6 → 14.0.3 (R462).** Dependabot #229 (high): msal-node's authorization-code flow
   could send its parameters to an endpoint the caller did not choose. `tedious` brings it

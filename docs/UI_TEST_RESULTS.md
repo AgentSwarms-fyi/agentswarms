@@ -1905,6 +1905,23 @@ Fixtures: the notebook was deleted after its kernel was stopped (the `nb-` conta
 thread "how many schemas are there" is **kept** — the page has no way to delete an analysis — and holds only
 the refused question and the sentence.
 
+## 2026-10-28 — A provider credential the form refuses says which field, in words
+
+Integrations → LLM Providers → OCI Generative AI → Configure, with made-up OCIDs, fingerprint and region,
+and a 27-character private key (the PEM header line alone). Before: the 2026-10-27 23:06 build, which
+validated with `SaveSchema.parse(input)`. After: a build of the working copy with the new field-error
+helper (its server bundle has a `credentialFieldErrors` chunk).
+
+| What was pressed                        | Result                                                                                                                                                                                           |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Save**, before the fix                | the toast said "Could not save: " followed by the issue JSON (`"code":"too_small"`, `"minimum":40`, `"path":["oci_genai","privateKeyPem"]`); the dialog's error box showed the same JSON         |
+| **Save**, after the fix                 | the server function answered an error whose message is "Private Key (PEM) is too short — paste the whole PEM file, from its -----BEGIN line to its -----END line."; toast and dialog box show it |
+| Tenancy OCID shortened to `ocid1`, Save | "Tenancy OCID is too short — paste the whole OCID, which starts ocid1.tenancy." then the private-key sentence, in both places: one sentence per field, in schema order                           |
+| Escape, then the OCI card               | still only **Configure** — no Connected badge, no Disconnect: the validator refused both saves before the handler ran, so nothing was written                                                    |
+
+Check network path and delete use the same helper; the new unit test covers them (a too-long region or
+endpoint, an unknown provider) rather than this round. No fixtures were created.
+
 ## 2026-10-28 — R389: your own profile still loads and saves; other people's names still show where the server lists them
 
 After `20261029000000_profiles_own_row_only.sql` was pushed (the CLI lists it applied; its self-check
