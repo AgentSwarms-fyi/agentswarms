@@ -59,6 +59,14 @@
       "dockerfile": "services/js-sandbox/Dockerfile",
       "compose": "js-sandbox",
       "smoke": "deploy/release/smoke/js-sandbox.sh"
+    },
+    {
+      "name": "egress-proxy",
+      "title": "Sandbox egress proxy that pulls its allow-list (AWS)",
+      "context": "docker/egress-proxy",
+      "dockerfile": "docker/egress-proxy/Dockerfile",
+      "compose": null,
+      "smoke": "deploy/release/smoke/egress-proxy.sh"
     }
   ]
 }

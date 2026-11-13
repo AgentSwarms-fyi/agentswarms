@@ -27,6 +27,7 @@ on:
       - services/js-sandbox/**
       - docker/socket-proxy/**
       - docker/db-migrate/**
+      - docker/egress-proxy/**
       - .github/workflows/image-scan.yml
       - .github/scripts/grype-summary.py
       - .github/grype-baseline.yaml
@@ -76,6 +77,8 @@ jobs:
           - name: db-migrate
             context: .
             dockerfile: docker/db-migrate/Dockerfile
+          - name: egress-proxy
+            context: docker/egress-proxy
     name: scan ${{ matrix.name }}
     steps:
       - uses: actions/checkout@v7

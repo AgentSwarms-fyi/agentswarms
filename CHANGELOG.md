@@ -59,6 +59,16 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **An egress proxy that fetches its allow-list, for ECS and EKS (R478).** A new
+  image, `ghcr.io/agentswarms-fyi/egress-proxy`, is squid plus a loop that pulls the
+  sandbox allow-list from the app every 30 s, where the app cannot write the proxy's
+  files or restart it. With `NOTEBOOK_EGRESS_MODE=pull` and `NOTEBOOK_EGRESS_PULL_TOKEN`
+  set, a save in Admin → Developer runtime says the proxy picks it up within a minute.
+  The proxy starts by refusing everything until its first list arrives, and keeps its
+  list when a pull fails. It also refuses private addresses unless they are listed by
+  IP, because in a VPC those ranges are the database and the app. Compose is
+  unchanged: its proxy still gets the list written for it, and still allows a LAN
+  object store.
 - **Sandboxes on Amazon ECS: one Fargate task each (R477).** On AWS, set
   `NOTEBOOK_RUNTIME_BACKEND=ecs` (or pick Amazon ECS in Admin → Developer runtime),
   and every notebook kernel, batch job, MCP server and model scorer starts as its own

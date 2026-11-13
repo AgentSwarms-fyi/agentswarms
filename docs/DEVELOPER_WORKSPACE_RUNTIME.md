@@ -673,3 +673,15 @@ owns it from then on. Two reasons this matters:
 
 Change what a **new** install starts with by editing the `.default` files.
 Change what **this** install allows in Admin → Developer runtime.
+
+**On ECS and EKS the proxy pulls the list** (`docker/egress-proxy`, R478). There the app can
+neither write into the proxy nor restart it. The app sets `NOTEBOOK_EGRESS_MODE=pull` and
+serves the same two files at `/api/notebook/runtime/egress/allowed_domains` and
+`…/allowed_ips`, only to a caller with `NOTEBOOK_EGRESS_PULL_TOKEN`. The proxy fetches both
+every 30 s and runs `squid -k reconfigure` when they change. A save in Admin takes effect
+within a minute, and says so. The proxy starts with an empty list, which refuses everything,
+and keeps the list it has when a pull fails. This proxy also **refuses private addresses**
+(10/8, 172.16/12, 192.168/16, 100.64/10) unless they are listed by IP. In a VPC those ranges
+hold the database, the app and the other sandboxes. An allow-listed domain is resolved by
+squid, so whoever controls that domain's DNS could otherwise point it at any of them.
+Compose keeps allowing them, because a LAN object store is the normal case there.

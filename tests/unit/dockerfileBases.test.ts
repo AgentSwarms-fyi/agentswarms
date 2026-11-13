@@ -31,12 +31,13 @@ const froms = (text: string) =>
     .map((l) => l.split(/\s+/)[1]);
 
 describe("first-party image bases", () => {
-  it("covers the seven images a release publishes, the six compose builds among them", () => {
+  it("covers the eight images a release publishes, the six compose builds among them", () => {
     expect([...contexts].sort()).toEqual(
       [
         ".",
         "docgen-service",
         "docker/db-migrate",
+        "docker/egress-proxy",
         "docker/notebook-runtime",
         "docker/socket-proxy",
         "services/js-sandbox",

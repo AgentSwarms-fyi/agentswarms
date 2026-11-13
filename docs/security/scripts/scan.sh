@@ -91,7 +91,7 @@ else
   THIRD_PARTY="$(sed -n 's/^ *image: *\([^ #]*\).*/\1/p' "$REPO/docker-compose.yml" \
     | grep -v -e '^agentswarms/' -e '^\${' -e 'agentswarms-fyi/')"
   # The bases, exactly as the Dockerfiles pin them (tag@sha256, R406).
-  BASES="$(cd "$REPO" && sed -n 's/^FROM \([^ ]*\).*/\1/p' Dockerfile docgen-service/Dockerfile docker/notebook-runtime/Dockerfile services/notebook-gateway/Dockerfile services/js-sandbox/Dockerfile docker/socket-proxy/Dockerfile docker/db-migrate/Dockerfile | sort -u)"
+  BASES="$(cd "$REPO" && sed -n 's/^FROM \([^ ]*\).*/\1/p' Dockerfile docgen-service/Dockerfile docker/notebook-runtime/Dockerfile services/notebook-gateway/Dockerfile services/js-sandbox/Dockerfile docker/socket-proxy/Dockerfile docker/db-migrate/Dockerfile docker/egress-proxy/Dockerfile | sort -u)"
   # The images `docker compose up -d --build` made (R470: tag `local`).
   IMAGES="
     ghcr.io/agentswarms-fyi/agentswarms:local

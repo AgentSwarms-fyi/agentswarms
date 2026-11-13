@@ -679,6 +679,27 @@ export const nbRuntimePreflight = createServerFn({ method: "POST" })
       });
     }
 
+    {
+      const { egressPullMode, EGRESS_PULL_TOKEN_MIN } =
+        await import("./notebookRuntime/egressApply.server");
+      if (egressPullMode()) {
+        const token = (process.env.NOTEBOOK_EGRESS_PULL_TOKEN ?? "").trim();
+        checks.push(
+          token.length >= EGRESS_PULL_TOKEN_MIN
+            ? {
+                name: "Egress allow-list",
+                status: "pass",
+                detail: "pulled by the egress proxy from /api/notebook/runtime/egress",
+              }
+            : {
+                name: "Egress allow-list",
+                status: "fail",
+                detail: `NOTEBOOK_EGRESS_MODE is pull but NOTEBOOK_EGRESS_PULL_TOKEN is ${token ? `shorter than ${EGRESS_PULL_TOKEN_MIN} characters` : "not set"}: the proxy gets no list and refuses everything`,
+              },
+        );
+      }
+    }
+
     if (backend === "e2b") {
       checks.push({
         name: "E2B backend",

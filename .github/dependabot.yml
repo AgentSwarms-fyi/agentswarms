@@ -55,6 +55,7 @@ updates:
       - "/services/js-sandbox"
       - "/docker/socket-proxy"
       - "/docker/db-migrate"
+      - "/docker/egress-proxy"
     schedule:
       interval: weekly
     ignore:

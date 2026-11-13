@@ -8,7 +8,7 @@ an install want [Upgrades](./DEPLOYMENT.md#upgrades).
 
 ## What a release publishes
 
-Seven images, listed in [`deploy/release/images.json`](../deploy/release/images.json),
+Eight images, listed in [`deploy/release/images.json`](../deploy/release/images.json),
 each for `linux/amd64` and `linux/arm64`:
 
 | Image | What it is |
@@ -20,6 +20,7 @@ each for `linux/amd64` and `linux/arm64`:
 | `ghcr.io/agentswarms-fyi/docker-socket-proxy` | The least-privilege Docker API proxy |
 | `ghcr.io/agentswarms-fyi/docgen` | The Office document renderer |
 | `ghcr.io/agentswarms-fyi/js-sandbox` | The JavaScript sandbox |
+| `ghcr.io/agentswarms-fyi/egress-proxy` | The sandboxes' egress proxy for ECS and EKS, which pulls its allow-list |
 
 Tags: `1.7.0`, `1.7` and `latest` for a release. `latest` moves only to the
 newest release, and `1.7` to the newest of its line. A prerelease

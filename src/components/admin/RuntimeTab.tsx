@@ -286,6 +286,10 @@ export function RuntimeTab({
       const eg = res.egress;
       if (!eg) {
         toast.success("Runtime settings saved");
+      } else if (eg.pulled) {
+        toast.success(
+          `Runtime settings saved — the egress proxy picks up the list (${eg.hosts} hosts) within a minute`,
+        );
       } else if (eg.applied) {
         toast.success(`Runtime settings saved — egress applied (${eg.hosts} hosts)`);
       } else {

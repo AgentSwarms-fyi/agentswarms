@@ -10,6 +10,7 @@
 // the proxy so it takes effect. Every failure path returns a REASON rather than
 // swallowing it, so the UI can say "saved, but not applied because …" instead of
 // implying success.
+import { createHash, timingSafeEqual } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
@@ -40,6 +41,8 @@ export type EgressApplyResult = {
   /** True when the file was written but the proxy could not be reloaded — the
    *  new list takes effect on the proxy's next restart. */
   pendingRestart?: boolean;
+  /** Pull mode (R478): nothing was written; the proxy fetches the list itself. */
+  pulled?: boolean;
   hosts?: number;
 };
 
@@ -114,6 +117,8 @@ export async function applyEgressAllowlist(hosts: string[]): Promise<EgressApply
   const all = [...(hosts ?? []), ...platformEgressHosts()];
   const body = renderEgressAllowlist(all);
   const count = body.split("\n").filter((l) => l && !l.startsWith("#")).length;
+  // The proxy reads the saved setting itself, within one pull interval.
+  if (egressPullMode()) return { applied: true, pulled: true, hosts: count };
 
   try {
     await fs.mkdir(path.dirname(file), { recursive: true });
@@ -161,6 +166,8 @@ export async function applyEgressAllowlist(hosts: string[]): Promise<EgressApply
  */
 export async function ensurePlatformEgress(): Promise<EgressApplyResult> {
   if (!platformEgressHosts().length) return { applied: true, hosts: 0 };
+  // A pulling proxy gets the platform's hosts with every list (egressFiles).
+  if (egressPullMode()) return { applied: true, pulled: true, hosts: platformEgressHosts().length };
   // On Kubernetes the allow-list is the notebook-egress ConfigMap, not a file
   // this process can write: name the hosts so the warning is the instruction.
   if ((process.env.NOTEBOOK_RUNTIME_BACKEND || "").toLowerCase() === "k8s") {
@@ -208,4 +215,57 @@ export async function ensurePlatformEgress(): Promise<EgressApplyResult> {
     /* unreadable: fall through and (re)write */
   }
   return applyEgressAllowlist(stored);
+}
+// ── Pull mode (R478) ─────────────────────────────────────────────────────────
+
+/**
+ * NOTEBOOK_EGRESS_MODE=pull: the proxy fetches the list from the app
+ * (docker/egress-proxy, on ECS and EKS), so a save has nothing to write and
+ * no proxy to restart. Compose leaves it unset and keeps writing files.
+ */
+export function egressPullMode(env: Record<string, string | undefined> = process.env): boolean {
+  return (env.NOTEBOOK_EGRESS_MODE ?? "").trim().toLowerCase() === "pull";
+}
+
+/** How often the proxy pulls, as docker/egress-proxy defaults it; for what a save says. */
+export const EGRESS_PULL_INTERVAL_S = 30;
+
+/**
+ * The two files squid reads: the saved list plus this deployment's own
+ * hosts, rendered exactly as the Compose path writes them. Throws when the
+ * saved list cannot be read: an unreadable list is not an empty one, and the
+ * proxy keeps what it has rather than cut every sandbox off.
+ */
+export async function egressFiles(): Promise<{ allowed_domains: string; allowed_ips: string }> {
+  const { data, error } = await supabaseAdmin
+    .from("notebook_runtime_settings")
+    .select("egress_allowlist")
+    .eq("id", true)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  const all = [...((data?.egress_allowlist ?? []) as string[]), ...platformEgressHosts()];
+  return {
+    allowed_domains: renderEgressAllowlist(all),
+    allowed_ips: renderEgressIpAllowlist(all),
+  };
+}
+
+/** Shorter than this, NOTEBOOK_EGRESS_PULL_TOKEN is taken as unset: the endpoint stays off. */
+export const EGRESS_PULL_TOKEN_MIN = 32;
+
+/**
+ * Is this the proxy? Compared as hashes, so the time taken says nothing
+ * about how much of the token was right.
+ */
+export function egressPullTokenMatches(
+  authorization: string | null | undefined,
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  const want = (env.NOTEBOOK_EGRESS_PULL_TOKEN ?? "").trim();
+  if (want.length < EGRESS_PULL_TOKEN_MIN) return false;
+  const got = authorization?.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
+  if (!got) return false;
+  const a = createHash("sha256").update(got).digest();
+  const b = createHash("sha256").update(want).digest();
+  return timingSafeEqual(a, b);
 }
