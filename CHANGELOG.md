@@ -16,6 +16,18 @@ development branch and may be ahead of the latest tag.
 
 ### Changed
 
+- **The app image carries no install's settings, and only what the server runs
+  (R469).** The Dockerfile takes no `VITE_*` build argument any more, and Compose
+  passes none. The browser's settings reach the page at runtime (R464), and Compose
+  hands the whole `.env` to the app, so an install that only ever set `VITE_*` keeps
+  every setting. A change now takes a restart, not a rebuild. The image is built in
+  two stages: the runtime keeps the built bundle, the server's own modules and the
+  production dependencies, and no source tree, no dev dependencies and no npm: 2.36 GB,
+  from 3.16 GB. The build proves that pruning the dev dependencies removed nothing the
+  server imports (`scripts/check-runtime-imports.mjs`).
+- **The Office renderer runs as its own user (R469).** Every render, LibreOffice
+  included, ran as root on documents built from user content.
+
 - **`pg_net`, `pgmq`, `supabase_vault` and `pg_cron` are optional (R467).** Only
   `vector` is required. The email queue that used the first three was removed by
   migration 20260716000000. A database without them skips each with a notice instead
@@ -47,6 +59,24 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Releases publish signed images for amd64 and arm64 (R469).** Pushing a tag
+  `v<version>` runs `.github/workflows/release.yml`. It builds the seven images in
+  `deploy/release/images.json` natively on each architecture and runs each image's
+  smoke test (`deploy/release/smoke`). For `db-migrate` it also installs the whole
+  schema from the image on an RDS-shaped database. Each image then passes the image
+  scan's vulnerability gate. Only then does it push to `ghcr.io/agentswarms-fyi`,
+  with an SBOM and build provenance, sign every image with Sigstore (keyless) and
+  verify the signature. It writes the GitHub Release from the CHANGELOG, with every
+  digest and the migrations since the last tag. A copy to Amazon ECR Public is
+  optional. `npm run release:prepare -- <version>` sets the version and opens its
+  CHANGELOG section; the workflow refuses a tag whose summary was never written. A
+  manual run rehearses everything and publishes nothing. See
+  [Releasing](docs/RELEASING.md).
+- **`db-migrate`, the schema as an image (R469).** psql 17, this release's
+  migrations, the plain-PostgreSQL bootstrap and the runner: `migrate`, `status`,
+  `bootstrap` and `version`. A deploy runs it as a one-off task before the new app
+  starts. `deploy/ci/rds-like/run.sh` runs the whole schema from it when
+  `MIGRATOR_IMAGE` is set.
 - **Rolling the app back one release is safe, and CI holds it so (R468).** Migrations
   expand the schema and never take away what the previous release uses. A removal or
   rename waits one release and says so with a `-- contract: public.<object>` line. A new

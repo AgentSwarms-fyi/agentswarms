@@ -318,14 +318,19 @@ if (has("docker", ["compose", "version"])) {
   }
 } else skip("docker compose not available: compose not rendered");
 
-// ── 7. the compose build args and the image the manifests run agree ─────────
+// ── 7. the app image carries no install's settings ──────────────────────────
+// One image for every environment (R469): the browser's settings reach the
+// page from the server's environment at runtime (R464). A VITE_* build arg
+// would bake one install's values into an image a release publishes for all.
 const dockerfile = rd("Dockerfile");
 const appArgs = [...dockerfile.matchAll(/^ARG (VITE_[A-Z0-9_]+)/gm)].map((m) => m[1]);
-const composeArgs = Object.keys(compose.services?.agentswarms?.build?.args ?? {});
-for (const a of appArgs)
-  if (!composeArgs.includes(a))
-    problem(`docker-compose.yml: build arg ${a} declared in the Dockerfile is not passed`);
-note(`${appArgs.length} Dockerfile build args passed by compose`);
+const composeArgs = Object.keys(compose.services?.agentswarms?.build?.args ?? {}).filter((a) =>
+  a.startsWith("VITE_"),
+);
+for (const a of appArgs) problem(`Dockerfile: ARG ${a} bakes a browser setting into the image`);
+for (const a of composeArgs)
+  problem(`docker-compose.yml: build arg ${a} bakes a browser setting into the image`);
+if (!appArgs.length && !composeArgs.length) note("the app image is built with no VITE_* setting");
 
 // ── report ──────────────────────────────────────────────────────────────────
 if (!quiet) {

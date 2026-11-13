@@ -1,16 +1,28 @@
-// A VITE_* setting that the Dockerfile cannot receive is a setting that works
-// in `npm run dev` and silently does nothing in the shipped image.
+// One image for every environment (R469, inverting what this file pinned).
 //
-// Vite substitutes `import.meta.env.VITE_X` by LITERAL TEXT at build time (see
-// envDefine in vite.config.ts). A variable the build container never receives
-// therefore does not error — it resolves to undefined, the code takes its
-// fallback, and the operator who set it in .env has no way to tell. Four had
-// already drifted out of the Dockerfile when this test was written:
-// VITE_BI_SNAPSHOT_ROWS_CAP, VITE_GA_ID, VITE_GTM_ID and
-// VITE_NOTEBOOK_GATEWAY_PORT.
+// Vite substitutes `import.meta.env.VITE_X` by LITERAL TEXT at build time. So
+// until R464 a browser setting had to be a Docker build arg: one the build did
+// not receive resolved to undefined and silently did nothing in the shipped
+// image. Four had drifted out of the Dockerfile when the first version of this
+// test was written (VITE_BI_SNAPSHOT_ROWS_CAP, VITE_GA_ID, VITE_GTM_ID,
+// VITE_NOTEBOOK_GATEWAY_PORT), and it pinned that each one was an ARG.
+//
+// R464 gave every setting a runtime path: the server reads PUBLIC_<NAME> (then
+// VITE_<NAME>) from its environment when it starts and hands it to the page
+// (src/lib/publicConfig.ts). R469 then took the build args out, so the image a
+// release publishes carries no install's values. What has to hold now:
+//
+//   - the image is built with no VITE_* at all (Dockerfile, Compose, CI);
+//   - every VITE_* the code reads has its runtime name, so dropping the build
+//     arg cannot silently drop the setting;
+//   - Compose hands the whole .env to the running app, so an existing install
+//     that only ever set VITE_* keeps every setting.
 import { readdirSync, readFileSync } from "node:fs";
 
+import yaml from "js-yaml";
 import { describe, expect, it } from "vitest";
+
+import { PUBLIC_CONFIG_VARS } from "../../src/lib/publicConfig";
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const e of readdirSync(dir, { withFileTypes: true })) {
@@ -36,47 +48,47 @@ function viteVarsInCode(): Map<string, string> {
 }
 
 const DOCKERFILE = readFileSync("Dockerfile", "utf8");
-const COMPOSE = readFileSync("docker-compose.yml", "utf8");
+const COMPOSE = yaml.load(readFileSync("docker-compose.yml", "utf8")) as {
+  services: Record<
+    string,
+    { build?: { args?: Record<string, string> }; env_file?: string | string[] }
+  >;
+};
 
-describe("every VITE_ setting survives the Docker build", () => {
+describe("the app image carries no install's settings", () => {
   const inCode = viteVarsInCode();
 
   it("found the settings, so the check is not vacuous", () => {
     expect(inCode.size).toBeGreaterThan(3);
   });
 
-  it("the Dockerfile declares an ARG for each one", () => {
-    const missing = [...inCode].filter(
-      ([name]) => !new RegExp(`^ARG ${name}$`, "m").test(DOCKERFILE),
-    );
+  it("the Dockerfile takes no VITE_* build arg and sets no VITE_* env", () => {
+    expect(DOCKERFILE).not.toMatch(/^ARG VITE_/m);
+    expect(DOCKERFILE).not.toMatch(/\bVITE_[A-Z0-9_]+=/);
+  });
+
+  it("Compose passes none as a build arg", () => {
+    const args = Object.keys(COMPOSE.services.agentswarms.build?.args ?? {});
+    expect(args.filter((a) => a.startsWith("VITE_"))).toEqual([]);
+  });
+
+  it("neither CI build of the image passes one", () => {
+    for (const wf of [".github/workflows/image-scan.yml", ".github/workflows/release.yml"]) {
+      expect(readFileSync(wf, "utf8"), wf).not.toMatch(/--build-arg\s+VITE_/);
+    }
+  });
+
+  it("every setting the code reads has a runtime name, so no build arg is needed", () => {
+    const runtime = new Set(Object.values(PUBLIC_CONFIG_VARS).map((v) => v.build));
+    const missing = [...inCode].filter(([name]) => !runtime.has(name));
     expect(
       missing.map(([n, f]) => `${n} (read by ${f})`),
-      "read by the app but not receivable by the Docker build — it would resolve to undefined in the image",
+      "read only at build time: in the published image it would be undefined",
     ).toEqual([]);
   });
 
-  it("the Dockerfile also promotes each ARG to ENV, or the build cannot see it", () => {
-    // An ARG alone is not visible to `npm run build`; it has to reach the
-    // build step's environment.
-    const notExported = [...inCode.keys()].filter(
-      (name) => !new RegExp(`${name}=\\$${name}`).test(DOCKERFILE),
-    );
-    expect(notExported, "declared as ARG but never exported as ENV").toEqual([]);
-  });
-
-  it("compose passes each one as a build arg", () => {
-    const missing = [...inCode.keys()].filter(
-      (name) => !new RegExp(`^\\s+${name}:\\s*\\$\\{${name}`, "m").test(COMPOSE),
-    );
-    expect(missing, "not passed by docker compose, so `docker compose up` ignores it").toEqual([]);
-  });
-
-  it("optional ones do not break a build that omits them", () => {
-    // `${VAR}` with no default makes compose warn and pass an empty string;
-    // `${VAR:-}` states the intent. Required settings (Supabase) are
-    // deliberately left bare so a missing one is noisy.
-    for (const name of ["VITE_BI_SNAPSHOT_ROWS_CAP", "VITE_GA_ID", "VITE_GTM_ID"]) {
-      expect(COMPOSE, `${name} should be optional in compose`).toContain(`\${${name}:-}`);
-    }
+  it("Compose hands the .env to the running app, VITE_* included", () => {
+    const envFile = COMPOSE.services.agentswarms.env_file;
+    expect([envFile].flat()).toContain(".env");
   });
 });

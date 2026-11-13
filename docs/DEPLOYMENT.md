@@ -329,10 +329,13 @@ off. No session affinity needed.
 
 ### Browser settings at runtime
 
-The browser needs a few settings of its own. Each can be given two ways, and
-per setting the runtime one wins:
+The browser needs a few settings of its own. The server reads them when it
+starts and hands them to the page, so a change takes a restart. The Docker
+image is built with none of them (R469): it is the same image a release
+publishes, whatever the install. Only a build on the host (`npm run build`)
+still inlines the `VITE_` names; per setting the runtime one wins:
 
-| Setting                                     | Read at startup: restart to change | Baked in at build: rebuild to change |
+| Setting                                     | Read at startup: restart to change | Inlined by `npm run build` only      |
 | ------------------------------------------- | ---------------------------------- | ------------------------------------ |
 | Supabase URL, as the **browser** reaches it | `PUBLIC_SUPABASE_URL`              | `VITE_SUPABASE_URL`                  |
 | Supabase publishable (anon) key             | `PUBLIC_SUPABASE_PUBLISHABLE_KEY`  | `VITE_SUPABASE_PUBLISHABLE_KEY`      |
@@ -351,11 +354,10 @@ per setting the runtime one wins:
   static files and the offline page), so a restart reaches every visitor on
   their next page load.
 - **Your existing `.env` already works.** The server also reads the `VITE_*`
-  names from its own environment, below `PUBLIC_*`. In Compose the build and
-  the server read the same `.env`, so the page is handed the values its bundle
-  already has, and nothing changes. An image built without them gets them
-  from an environment made from that `.env`, such as a Kubernetes Secret.
-  `npm run dev` is unchanged.
+  names from its own environment, below `PUBLIC_*`, and Compose hands the
+  whole `.env` to the running app. An install that only ever set `VITE_*`
+  keeps every setting. Elsewhere, an environment made from that `.env` (a
+  Kubernetes Secret) does the same. `npm run dev` is unchanged.
 - **The build refuses a database key in the browser's slot.** If
   `VITE_SUPABASE_PUBLISHABLE_KEY` is the service-role key (or any
   `service_role` or `sb_secret_` key), `npm run build` and `docker build` stop
@@ -1729,19 +1731,19 @@ VITE_SUPABASE_URL="https://supabase.your-domain.internal"
 VITE_SUPABASE_PUBLISHABLE_KEY="<ANON_KEY>"
 ```
 
-`VITE_SUPABASE_URL` is **baked into the browser bundle at build time**, so it
-must be the URL a _browser_ can reach — not a Docker-internal hostname like
-`http://kong:8000`. If the app and Supabase share a Compose network, the server
-half may use the internal name while the `VITE_` copy uses the external one.
+`VITE_SUPABASE_URL` is the URL the **browser** uses, so it must be one a
+browser can reach — not a Docker-internal hostname like `http://kong:8000`. If
+the app and Supabase share a Compose network, the server half may use the
+internal name while the `VITE_` copy uses the external one.
 
-Then rebuild (the `VITE_` values are build-time) and start:
+The app reads both when it starts, so start (or restart) it:
 
 ```bash
 docker compose up -d --build
 ```
 
-Or set `PUBLIC_SUPABASE_URL` and `PUBLIC_SUPABASE_PUBLISHABLE_KEY` instead (the
-same values, read when the app starts), and a restart is enough. See
+`PUBLIC_SUPABASE_URL` and `PUBLIC_SUPABASE_PUBLISHABLE_KEY` are the same
+settings under their runtime names, and win when both are set. See
 [Browser settings at runtime](#browser-settings-at-runtime).
 
 ### 6. Before you call it production
@@ -2965,6 +2967,20 @@ re-run). Re-running `scripts/setup.sh` or `setup.ps1` does all of this.
 Take a backup first (`npm run backup`, see
 [Backups and restore](#backups-and-restore)). Migrations only go forward, so
 the backup is the way back from a migration that goes wrong.
+
+#### Published images
+
+Each release publishes its images to `ghcr.io/agentswarms-fyi`, for amd64 and
+arm64, signed (Sigstore) and with an SBOM and build provenance (R469):
+
+- `agentswarms`: the app;
+- `db-migrate`: the migrations, run as a one-off task before the app starts;
+- `notebook-runtime`, `notebook-gateway`, `docker-socket-proxy`, `docgen` and
+  `js-sandbox`.
+
+They are the images Compose builds from this repository, with nothing about
+an install baked in. [RELEASING.md](./RELEASING.md) lists them, says how each
+is tested before it is published, and how to check a signature.
 
 #### Rolling back one release
 

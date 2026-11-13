@@ -21,22 +21,15 @@
 # Developer runtime — because it lets people run code; the containers are here
 # and waiting. MCP Builder (Build → MCP Builder) runs on that same runtime.
 #
-# Compose reads .env automatically: the VITE_* values are passed as build args
-# (inlined into the client bundle), everything else is runtime environment,
-# including the PUBLIC_* browser settings that override them without a rebuild.
+# Compose reads .env automatically and hands all of it to the app at runtime
+# (env_file below). That includes the browser's settings, VITE_* and PUBLIC_*:
+# the server reads them when it starts and gives them to the page (R464), so
+# the image is built with none of them and is the same image a release
+# publishes (R469). Change one and restart; there is nothing to rebuild.
 services:
   agentswarms:
     build:
       context: .
-      args:
-        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
-        VITE_SUPABASE_PUBLISHABLE_KEY: ${VITE_SUPABASE_PUBLISHABLE_KEY}
-        VITE_ADMIN_EMAIL: ${VITE_ADMIN_EMAIL}
-        VITE_BI_SNAPSHOT_ROWS_CAP: ${VITE_BI_SNAPSHOT_ROWS_CAP:-}
-        VITE_GA_ID: ${VITE_GA_ID:-}
-        VITE_GTM_ID: ${VITE_GTM_ID:-}
-        VITE_NOTEBOOK_GATEWAY_PORT: ${VITE_NOTEBOOK_GATEWAY_PORT:-}
-        VITE_SUPABASE_REALTIME: ${VITE_SUPABASE_REALTIME:-}
     env_file: .env
     ports:
       - "8080:8080"

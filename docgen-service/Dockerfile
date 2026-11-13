@@ -26,6 +26,13 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
+# Drop root (R469). Until then every render, LibreOffice included, ran as root
+# on documents built from user content. The service writes only temporary
+# directories (each render passes LibreOffice its own profile under one), and
+# HOME=/tmp covers anything LibreOffice writes there by itself.
+RUN useradd --system --uid 10001 --no-create-home --home-dir /tmp --shell /usr/sbin/nologin docgen
+USER docgen
+
 EXPOSE 8099
 # HOME is needed so LibreOffice can create its profile dir.
 ENV HOME=/tmp

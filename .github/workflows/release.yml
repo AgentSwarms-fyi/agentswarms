@@ -1,0 +1,337 @@
+name: Release
+
+# A release (R469, Phase 3 of the AWS plan; docs/RELEASING.md). Pushing a tag
+# v<version> publishes every image in deploy/release/images.json:
+#
+#   plan     the tag must be v<package.json version>, and CHANGELOG.md must have
+#            that version's section with its summary written
+#            (scripts/release.mjs plan)
+#   build    each image on linux/amd64 and linux/arm64, natively (no
+#            emulation), then: its smoke test (deploy/release/smoke), for
+#            db-migrate the whole schema on an RDS-shaped database, and the
+#            same vulnerability gate as the image scan. Only then is it pushed,
+#            by digest, with an SBOM and build provenance
+#   publish  one multi-arch tag per image (<version>, <major.minor>, latest),
+#            signed with Sigstore keyless and verified, and copied to Amazon
+#            ECR Public when the repository is set up for it (below)
+#   release  the GitHub Release: the CHANGELOG section, every image's digest,
+#            how to check a signature, and the migrations since the last tag
+#
+# Run it by hand (Actions -> Release -> Run workflow) to rehearse: it builds,
+# tests and scans everything on both architectures and publishes nothing.
+#
+# Amazon ECR Public is optional. Set two repository variables, and create the
+# ECR Public repositories (one per image) once:
+#   ECR_PUBLIC_REGISTRY    public.ecr.aws/<your alias>
+#   AWS_RELEASE_ROLE_ARN   a role this repository's tags may assume (GitHub
+#                          OIDC), allowed ecr-public:GetAuthorizationToken,
+#                          sts:GetServiceBearerToken and the push actions
+#
+# Every third-party action is pinned to a commit, with its version beside it;
+# Dependabot (github-actions) proposes updates. Nothing here reads a secret but
+# the workflow's own token.
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+", "v[0-9]+.[0-9]+.[0-9]+-*"]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# `shell: bash` is bash -eo pipefail: a failing command before a pipe fails
+# the step (the plain default would let `tee` hide it).
+defaults:
+  run:
+    shell: bash
+
+env:
+  # BuildKit for the docker-container builder, which multi-platform pushes,
+  # SBOMs and provenance need. v0.34.1, released 2026-10-20.
+  BUILDKIT_IMAGE: moby/buildkit:v0.34.1@sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c
+  # The image scan's verdict, with its baseline (.github/workflows/image-scan.yml).
+  GRYPE_GATE: >-
+    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock
+    -v ${{ github.workspace }}/.github/grype-baseline.yaml:/baseline.yaml:ro
+    anchore/grype:v0.120.1 -c /baseline.yaml
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      publish: ${{ steps.plan.outputs.publish }}
+      prerelease: ${{ steps.plan.outputs.prerelease }}
+      tags: ${{ steps.plan.outputs.tags }}
+      registry: ${{ steps.plan.outputs.registry }}
+      source: ${{ steps.plan.outputs.source }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+      images: ${{ steps.plan.outputs.images }}
+    steps:
+      # The whole history: `latest` and <major.minor> move only to the newest
+      # release, which the existing tags decide.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - id: plan
+        name: What this run releases
+        run: node scripts/release.mjs plan | tee -a "$GITHUB_OUTPUT"
+
+  build:
+    needs: plan
+    name: ${{ matrix.image }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+      REPOSITORY: ${{ needs.plan.outputs.registry }}/${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+
+      - name: Builder
+        run: |
+          docker buildx create --name release --driver docker-container \
+            --driver-opt "image=$BUILDKIT_IMAGE" --use
+          docker buildx inspect --bootstrap
+
+      # Built once into the local engine for the tests. The push below runs the
+      # same build with the same arguments, so every layer comes from the
+      # builder's cache: what is pushed is what was tested, plus its SBOM and
+      # provenance (which --load cannot carry).
+      - name: Build
+        run: |
+          docker buildx build --load --platform "${{ matrix.platform }}" \
+            --provenance=false --sbom=false \
+            -f "${{ matrix.dockerfile }}" \
+            --build-arg "AGENTSWARMS_VERSION=$VERSION" \
+            --build-arg "AGENTSWARMS_REVISION=$GITHUB_SHA" \
+            --label "org.opencontainers.image.title=${{ matrix.title }}" \
+            --label "org.opencontainers.image.source=${{ needs.plan.outputs.source }}" \
+            --label "org.opencontainers.image.version=$VERSION" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --label "org.opencontainers.image.licenses=Elastic-2.0" \
+            -t "release/${{ matrix.image }}:test" \
+            "${{ matrix.context }}"
+
+      - name: Smoke test
+        run: bash "${{ matrix.smoke }}" "release/${{ matrix.image }}:test"
+        env:
+          EXPECT_VERSION: ${{ needs.plan.outputs.version }}
+
+      - name: The whole schema on an RDS-shaped database, from this image
+        if: matrix.image == 'db-migrate'
+        run: bash deploy/ci/rds-like/run.sh
+        env:
+          MIGRATOR_IMAGE: release/${{ matrix.image }}:test
+
+      - name: Vulnerability gate
+        run: $GRYPE_GATE "release/${{ matrix.image }}:test" --only-fixed --fail-on critical -o table
+
+      - name: Sign in to GitHub Container Registry
+        if: needs.plan.outputs.publish == 'true'
+        run: echo "$TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+        env:
+          TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+
+      - name: Push by digest
+        if: needs.plan.outputs.publish == 'true'
+        run: |
+          docker buildx build --platform "${{ matrix.platform }}" \
+            -f "${{ matrix.dockerfile }}" \
+            --build-arg "AGENTSWARMS_VERSION=$VERSION" \
+            --build-arg "AGENTSWARMS_REVISION=$GITHUB_SHA" \
+            --label "org.opencontainers.image.title=${{ matrix.title }}" \
+            --label "org.opencontainers.image.source=${{ needs.plan.outputs.source }}" \
+            --label "org.opencontainers.image.version=$VERSION" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --label "org.opencontainers.image.licenses=Elastic-2.0" \
+            --provenance=mode=max --sbom=true \
+            --output "type=image,name=$REPOSITORY,push-by-digest=true,name-canonical=true,push=true" \
+            --metadata-file metadata.json \
+            "${{ matrix.context }}"
+          digest=$(jq -r '."containerimage.digest"' metadata.json)
+          case "$digest" in sha256:*) ;; *) echo "no digest in metadata.json"; exit 1 ;; esac
+          mkdir -p digests
+          echo "$digest" > "digests/${{ matrix.image }}-${{ matrix.arch }}"
+          echo "pushed $REPOSITORY@$digest"
+
+      - name: Keep the digest for the publish job
+        if: needs.plan.outputs.publish == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: digest-${{ matrix.image }}-${{ matrix.arch }}
+          path: digests/
+          retention-days: 7
+
+  publish:
+    needs: [plan, build]
+    if: needs.plan.outputs.publish == 'true'
+    name: publish ${{ matrix.image }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      id-token: write # Sigstore keyless signing, and the AWS role for ECR Public
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(needs.plan.outputs.images) }}
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+      TAGS: ${{ needs.plan.outputs.tags }}
+      SOURCE: ${{ needs.plan.outputs.source }}
+      REPOSITORY: ${{ needs.plan.outputs.registry }}/${{ matrix.image }}
+      ECR_PUBLIC_REGISTRY: ${{ vars.ECR_PUBLIC_REGISTRY }}
+      AWS_RELEASE_ROLE_ARN: ${{ vars.AWS_RELEASE_ROLE_ARN }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: digest-${{ matrix.image }}-*
+          merge-multiple: true
+          path: digests
+
+      - name: Sign in to GitHub Container Registry
+        run: echo "$TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+        env:
+          TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+
+      - name: One tag for both architectures
+        id: index
+        run: |
+          sources=()
+          for f in digests/*; do sources+=("$REPOSITORY@$(cat "$f")"); done
+          [ "${#sources[@]}" -eq 2 ] || { echo "expected 2 platform digests, got ${#sources[@]}"; exit 1; }
+          tags=()
+          for t in $TAGS; do tags+=(-t "$REPOSITORY:$t"); done
+          docker buildx imagetools create "${tags[@]}" \
+            --annotation "index:org.opencontainers.image.source=$SOURCE" \
+            --annotation "index:org.opencontainers.image.version=$VERSION" \
+            --annotation "index:org.opencontainers.image.revision=$GITHUB_SHA" \
+            "${sources[@]}"
+          digest=$(docker buildx imagetools inspect "$REPOSITORY:$VERSION" --format '{{json .Manifest}}' | jq -r .digest)
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          docker buildx imagetools inspect "$REPOSITORY@$digest"
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v2.6.5
+
+      # Keyless: the certificate names this workflow, at this tag, as the
+      # signer. Verified at once against exactly that identity, so a release
+      # whose signature does not check never reaches the notes.
+      - name: Sign and verify
+        env:
+          DIGEST: ${{ steps.index.outputs.digest }}
+          IDENTITY: https://github.com/${{ github.workflow_ref }}
+        run: |
+          cosign sign --yes "$REPOSITORY@$DIGEST"
+          cosign verify "$REPOSITORY@$DIGEST" \
+            --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null
+          echo "signed and verified: $REPOSITORY@$DIGEST"
+
+      - name: Sign in to AWS (ECR Public)
+        if: env.ECR_PUBLIC_REGISTRY != '' && env.AWS_RELEASE_ROLE_ARN != ''
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_RELEASE_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Copy to ECR Public, sign and verify
+        id: mirror
+        if: env.ECR_PUBLIC_REGISTRY != '' && env.AWS_RELEASE_ROLE_ARN != ''
+        env:
+          DIGEST: ${{ steps.index.outputs.digest }}
+          IDENTITY: https://github.com/${{ github.workflow_ref }}
+        run: |
+          aws ecr-public get-login-password --region us-east-1 \
+            | docker login --username AWS --password-stdin public.ecr.aws
+          target="$ECR_PUBLIC_REGISTRY/${{ matrix.image }}"
+          tags=()
+          for t in $TAGS; do tags+=(-t "$target:$t"); done
+          docker buildx imagetools create "${tags[@]}" "$REPOSITORY@$DIGEST"
+          cosign sign --yes "$target@$DIGEST"
+          cosign verify "$target@$DIGEST" \
+            --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null
+          echo "mirror=$target" >> "$GITHUB_OUTPUT"
+
+      - name: Record what was published
+        env:
+          DIGEST: ${{ steps.index.outputs.digest }}
+          MIRROR: ${{ steps.mirror.outputs.mirror }}
+        run: |
+          mkdir -p released
+          jq -n --arg image "${{ matrix.image }}" --arg repository "$REPOSITORY" \
+            --arg digest "$DIGEST" --arg tags "$TAGS" --arg mirror "$MIRROR" \
+            '{image: $image, repository: $repository, digest: $digest,
+              tags: ($tags | split(" ")),
+              mirrors: (if $mirror == "" then [] else [$mirror + "@" + $digest] end)}' \
+            > "released/${{ matrix.image }}.json"
+          cat "released/${{ matrix.image }}.json"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: released-${{ matrix.image }}
+          path: released/
+          retention-days: 7
+
+  release:
+    needs: [plan, publish]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write # the GitHub Release
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      # The whole history, for the migrations since the previous tag.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: released-*
+          merge-multiple: true
+          path: released
+
+      - name: Release notes
+        run: |
+          node scripts/release.mjs notes "$VERSION" --released released > notes.md
+          cat notes.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+        run: |
+          flags=(--verify-tag --title "AgentSwarms $VERSION" --notes-file notes.md)
+          [ "$PRERELEASE" = "true" ] && flags+=(--prerelease)
+          gh release create "v$VERSION" "${flags[@]}"

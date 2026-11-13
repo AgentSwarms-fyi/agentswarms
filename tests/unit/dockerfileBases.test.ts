@@ -4,7 +4,9 @@
 // first-party image was built on a node:22-slim or python:3.12-slim pulled two
 // months earlier, because a bare tag is only resolved when nothing is cached.
 // R407 (VA-39) added a sixth: the Docker socket proxy, built from its upstream
-// release with Alpine's security updates applied.
+// release with Alpine's security updates applied. R469 added a seventh, the
+// db-migrate image, which a release publishes and Compose does not build: the
+// list is now the release's (deploy/release/images.json).
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import yaml from "js-yaml";
@@ -12,10 +14,15 @@ import yaml from "js-yaml";
 const compose = yaml.load(readFileSync("docker-compose.yml", "utf8")) as {
   services: Record<string, { build?: string | { context: string }; image?: string }>;
 };
-const contexts = Object.values(compose.services)
+const release = JSON.parse(readFileSync("deploy/release/images.json", "utf8")) as {
+  images: { name: string; dockerfile: string }[];
+};
+const composeContexts = Object.values(compose.services)
   .map((s) => (typeof s.build === "string" ? s.build : s.build?.context))
   .filter((c): c is string => !!c)
   .map((c) => c.replace(/^\.\//, "").replace(/\/$/, "") || ".");
+/** Each image's Dockerfile, by its directory ("." for the root one). */
+const contexts = release.images.map((i) => i.dockerfile.replace(/\/?Dockerfile$/, "") || ".");
 const dockerfile = (ctx: string) => readFileSync(`${ctx}/Dockerfile`, "utf8");
 const froms = (text: string) =>
   text
@@ -24,17 +31,19 @@ const froms = (text: string) =>
     .map((l) => l.split(/\s+/)[1]);
 
 describe("first-party image bases", () => {
-  it("covers the six images compose builds", () => {
-    expect(contexts.sort()).toEqual(
+  it("covers the seven images a release publishes, the six compose builds among them", () => {
+    expect([...contexts].sort()).toEqual(
       [
         ".",
         "docgen-service",
+        "docker/db-migrate",
         "docker/notebook-runtime",
         "docker/socket-proxy",
         "services/js-sandbox",
         "services/notebook-gateway",
       ].sort(),
     );
+    for (const ctx of composeContexts) expect(contexts, ctx).toContain(ctx);
   });
 
   it("pins every FROM as tag@sha256, one digest per base across the Dockerfiles", () => {

@@ -100,12 +100,14 @@ describe("what R13 found stays fixed", () => {
     );
   });
 
-  it("the app image skips the one Dockerfile check with its reason, and no server secret is an ARG", () => {
+  it("the app image skips no Dockerfile check, and no secret or key is an ARG", () => {
+    // Until R469 the anon key was a build arg, so `docker build --check`
+    // flagged SecretsUsedInArgOrEnv and the Dockerfile skipped that check with
+    // its reason. No browser setting is built in now, so nothing is skipped.
     const df = rd("Dockerfile");
-    expect(df.startsWith("# check=skip=SecretsUsedInArgOrEnv\n")).toBe(true);
-    expect(df).toMatch(/anon \(publishable\) key/);
-    expect(df).not.toMatch(/ARG .*SERVICE_ROLE/);
-    expect(df).not.toMatch(/ARG .*OPENROUTER/);
+    expect(df).not.toMatch(/^# check=skip=/m);
+    expect(df).not.toMatch(/^ARG .*(KEY|SECRET|TOKEN|PASSWORD|SERVICE_ROLE|OPENROUTER)/m);
+    expect(df).not.toMatch(/^ARG VITE_/m);
   });
 
   it("the in-app install page runs the installer the way every other doc does", () => {

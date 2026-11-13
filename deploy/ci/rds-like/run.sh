@@ -14,6 +14,9 @@
 #   7. migrations and bootstrap again: nothing re-applies, nothing fails
 #
 #   bash deploy/ci/rds-like/run.sh            # the admin may grant BYPASSRLS
+#   MIGRATOR_IMAGE=ghcr.io/agentswarms-fyi/db-migrate:1.7.0 bash deploy/ci/rds-like/run.sh
+#                                             # steps 2, 5 and 7 from a db-migrate
+#                                             # image instead of this checkout
 #   RDS_BYPASSRLS=no bash deploy/ci/rds-like/run.sh
 #                                             # it may not: the bootstrap must
 #                                             # stop, with the server's reason
@@ -50,12 +53,27 @@ sql() {
   docker exec -e PGPASSWORD="$MASTER_PASSWORD" rdslike-db \
     psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -tAc "$1"
 }
+# MIGRATOR_IMAGE=<a built db-migrate image> runs the bootstrap and the
+# migrations from that image, as a deploy's one-off task does (R469), instead
+# of from this checkout.
+MIGRATOR_IMAGE="${MIGRATOR_IMAGE:-}"
+ADMIN_URL_IN_NET="postgres://postgres:$MASTER_PASSWORD@rdslike-db:5432/postgres"
 bootstrap() { # authenticator, auth admin and storage admin passwords
+  if [ -n "$MIGRATOR_IMAGE" ]; then
+    docker run --rm --network $NET -e DATABASE_URL="$ADMIN_URL_IN_NET" \
+      -e AUTHENTICATOR_PASSWORD="$1" -e AUTH_ADMIN_PASSWORD="$2" -e STORAGE_ADMIN_PASSWORD="$3" \
+      "$MIGRATOR_IMAGE" bootstrap 2>&1
+    return
+  fi
   docker exec -e PGPASSWORD="$MASTER_PASSWORD" rdslike-db psql -h 127.0.0.1 -U postgres -d postgres -q \
     -v authenticator_password="$1" -v auth_admin_password="$2" -v storage_admin_password="$3" \
     -f /bootstrap/rds-bootstrap.sql 2>&1
 }
 migrate() {
+  if [ -n "$MIGRATOR_IMAGE" ]; then
+    docker run --rm --network $NET -e DATABASE_URL="$ADMIN_URL_IN_NET" "$MIGRATOR_IMAGE" migrate
+    return
+  fi
   docker exec -e DATABASE_URL="postgres://postgres:$MASTER_PASSWORD@127.0.0.1:5432/postgres" \
     rdslike-db bash /db-migrate/apply-migrations.sh /migrations
 }
@@ -144,5 +162,11 @@ echo "$again" | tail -1
 echo "$again" | grep -q "^applied 0 migrations" || fail "a migration ran twice"
 bootstrap again-1 again-2 again-3 >/dev/null || fail "bootstrap, second run"
 echo "  bootstrap again: ok"
+if [ -n "$MIGRATOR_IMAGE" ]; then
+  st=$(docker run --rm --network $NET -e DATABASE_URL="$ADMIN_URL_IN_NET" "$MIGRATOR_IMAGE" status) \
+    || fail "db-migrate status"
+  echo "  $st" | head -1
+  echo "$st" | grep -q ", 0 pending$" || fail "db-migrate status: $st"
+fi
 echo
 echo "PASSED"

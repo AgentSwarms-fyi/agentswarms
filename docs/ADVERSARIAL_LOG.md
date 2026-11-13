@@ -109,6 +109,41 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-13 — R469: one image for every install, published and signed
+
+**Why this round.** Phase 3 of the AWS plan: publish versioned, signed, multi-arch images, so that an install, an ECS task or a Helm release pulls a release by version and rolls back by version. Nothing was published: the last tag was v1.6.0 (2026-10-06), and every install built its own images from a checkout.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| The Office renderer ran every render as root | S3 | `docgen-service/Dockerfile` had no `USER`, so python-pptx, python-docx, openpyxl and LibreOffice opened and wrote documents built from user content as root. It now runs as `docgen` (uid 10001). **Measured** on the rebuilt image: a deck, a document and a workbook render, LibreOffice draws each thumbnail, and Calc recalculates `=A2+B2` to 5 (read back from the workbook) |
+| The app image baked one install's browser settings in, and shipped its toolchain | S4 | The Dockerfile took eight `VITE_*` build args, so an image carried one environment's Supabase URL and could not be published for everyone. It was also one stage: the source tree, every dev dependency (Vite, TypeScript, ESLint, Playwright) and the build's output all shipped. Now: no `VITE_*` (R464's runtime config carries them), and two stages. **Measured:** 3.16 GB became 2.36 GB. In the runtime stage, `vite`, `typescript`, `eslint` and `vitest` do not resolve, there is no npm and no `src/`, and DuckDB 1.5.5 loads httpfs, ducklake, postgres and iceberg with no network. Started with only runtime environment, the server answered `/api/health`, and `/login` carried the Supabase URL it was given at runtime |
+| No release had a published, signed image | S4 | `.github/workflows/release.yml` (see the CHANGELOG). Each image is smoke-tested on its architecture, then scanned, and only then pushed, signed and verified. Not yet run on GitHub: the buildx push by digest, the multi-arch merge, keyless signing and the arm64 builds are first exercised by a rehearsal run |
+
+**Measured locally (amd64)**, each smoke test in `deploy/release/smoke` against an image built from this round:
+- **app:** see above.
+- **db-migrate:**
+  - 34.7 MB.
+  - Carries all 292 migrations and psql 17.
+  - Refuses to run without `DATABASE_URL`.
+  - `deploy/ci/rds-like/run.sh` with `MIGRATOR_IMAGE` applied the bootstrap, all 292 migrations and the PostgREST checks from the image. RLS was on all 170 tables, and a second run applied 0.
+- **docgen:** see above.
+- **notebook-runtime:** the libraries import, and the kernel gateway answers 401 without the session's token and 200 with it (R466).
+- **notebook-gateway, js-sandbox:** they answer; the sandbox refuses `/run` without its secret (401) and runs `6 * 7` with it.
+- **docker-socket-proxy:** HAProxy accepts the configuration its entrypoint renders.
+- **actionlint 1.7.12:** clean on all four workflows.
+- **`docker build --check`:** no warnings on the app, db-migrate and docgen Dockerfiles. The app's `SecretsUsedInArgOrEnv` skip is gone with the anon-key build arg it excused.
+
+**What would have been wrong to conclude.**
+
+- *"The server imports a package the prune removed."* The first scan of the bundle named `@langchain/anthropic`, `@strands-agents/sdk` and `@agentswarms/react`. These are text: code examples the app hands out as strings. The check now records only names that resolve with every dependency installed (a real import of anything else would have failed the build), then verifies those after the prune.
+- *"Every import is checked."* The scanner missed `import(/* @vite-ignore */ "nodemailer")`, the form the bundle uses for optional drivers (`nodemailer`, `tedious`). It reads comments there now. Both are installed.
+- *"`npm prune --omit=dev` removed nothing."* It printed "changed 1 package". Of 1,232 packages, 966 remain audited, and the smoke test proves the dev tools are gone.
+- *"db-migrate should start from the postgres image."* That image was 443 MB, for a task that needs psql and is pulled on every rollout. Alpine with `postgresql17-client` is 34.7 MB. Its psql (17.11) follows Alpine 3.24's security updates and cannot be pinned, as with the socket proxy's `apk upgrade`.
+- *"`/api/health` returned nothing."* It answered 200, but Git Bash's curl is a native Windows program and could not write to `/tmp/...` with path conversion off. The smoke tests use a `C:/...` path where `cygpath` exists.
+- *"docgen cannot render as a non-root user."* `/render` answered `000`: LibreOffice's first start outlasted curl's 10 s limit. It rendered within the 180 s it now gets.
+- *"The import check guards the notebook image."* It piped into `sed` for display, so a failed import still passed. The smoke tests run with `pipefail` now.
+- *"A patch on an older line is a normal release."* As first written, publishing 1.7.1 after 1.8.0 would have moved `latest` back to 1.7.1. `latest` and `X.Y` now move only to the newest release, decided from the existing tags.
+
 ### 2026-11-12 — R468: a rollback the schema allows, and an inbox without Realtime
 
 **Why this round.** Phase 2 of the AWS plan, part 2, and a question from the owner: when a release ships every month, how is it applied, and how does an operator go back? Migrations only go forward, so going back means running the older app on the newer schema. Nothing checked that it could.

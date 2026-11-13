@@ -1,0 +1,64 @@
+{
+  "$comment": "Every image a release publishes (R469): .github/workflows/release.yml builds each for linux/amd64 and linux/arm64, runs its smoke test, scans it, then pushes, signs and lists it in the release notes. One entry per image; tests/unit/releaseImages.test.ts keeps this list, docker-compose.yml, the image scan and Dependabot in step.",
+  "registry": "ghcr.io/agentswarms-fyi",
+  "source": "https://github.com/AgentSwarms-fyi/agentswarms",
+  "platforms": ["linux/amd64", "linux/arm64"],
+  "images": [
+    {
+      "name": "agentswarms",
+      "title": "AgentSwarms app",
+      "context": ".",
+      "dockerfile": "Dockerfile",
+      "compose": "agentswarms",
+      "smoke": "deploy/release/smoke/app.sh"
+    },
+    {
+      "name": "db-migrate",
+      "title": "Database migrations (one-off task)",
+      "context": ".",
+      "dockerfile": "docker/db-migrate/Dockerfile",
+      "compose": null,
+      "smoke": "deploy/release/smoke/db-migrate.sh"
+    },
+    {
+      "name": "notebook-runtime",
+      "title": "Developer workspace sandbox",
+      "context": "docker/notebook-runtime",
+      "dockerfile": "docker/notebook-runtime/Dockerfile",
+      "compose": "notebook-runtime-image",
+      "smoke": "deploy/release/smoke/notebook-runtime.sh"
+    },
+    {
+      "name": "notebook-gateway",
+      "title": "Notebook gateway",
+      "context": "services/notebook-gateway",
+      "dockerfile": "services/notebook-gateway/Dockerfile",
+      "compose": "notebook-gateway",
+      "smoke": "deploy/release/smoke/notebook-gateway.sh"
+    },
+    {
+      "name": "docker-socket-proxy",
+      "title": "Least-privilege Docker API proxy",
+      "context": "docker/socket-proxy",
+      "dockerfile": "docker/socket-proxy/Dockerfile",
+      "compose": "notebook-docker-proxy",
+      "smoke": "deploy/release/smoke/docker-socket-proxy.sh"
+    },
+    {
+      "name": "docgen",
+      "title": "Office document renderer",
+      "context": "docgen-service",
+      "dockerfile": "docgen-service/Dockerfile",
+      "compose": "docgen",
+      "smoke": "deploy/release/smoke/docgen.sh"
+    },
+    {
+      "name": "js-sandbox",
+      "title": "JavaScript sandbox",
+      "context": "services/js-sandbox",
+      "dockerfile": "services/js-sandbox/Dockerfile",
+      "compose": "js-sandbox",
+      "smoke": "deploy/release/smoke/js-sandbox.sh"
+    }
+  ]
+}

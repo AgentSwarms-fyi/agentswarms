@@ -20,7 +20,10 @@ describe("the app image bakes every extension the lakehouse engine installs", ()
     expect(df).toContain("RUN node scripts/bake-duckdb-extensions.mjs");
     // After USER node: the cache lives under that user's home, which is where
     // the engine looks at run time; baked as root it would sit under /root.
-    expect(df.indexOf("USER node")).toBeLessThan(df.indexOf("bake-duckdb-extensions"));
+    // (The script is copied in before that, as root; it is RUN after.)
+    expect(df.indexOf("USER node")).toBeLessThan(
+      df.indexOf("RUN node scripts/bake-duckdb-extensions.mjs"),
+    );
   });
 
   it("the bake list covers the engine's list", () => {

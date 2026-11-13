@@ -26,6 +26,7 @@ on:
       - services/notebook-gateway/**
       - services/js-sandbox/**
       - docker/socket-proxy/**
+      - docker/db-migrate/**
       - .github/workflows/image-scan.yml
       - .github/scripts/grype-summary.py
       - .github/grype-baseline.yaml
@@ -70,18 +71,19 @@ jobs:
             context: services/js-sandbox
           - name: docker-socket-proxy
             context: docker/socket-proxy
+          # Built from the repository root (the migrations live there); its
+          # own ignore file keeps the rest out (R469).
+          - name: db-migrate
+            context: .
+            dockerfile: docker/db-migrate/Dockerfile
     name: scan ${{ matrix.name }}
     steps:
       - uses: actions/checkout@v7
 
-      # The app's build arguments are inlined into the browser bundle; any
-      # value builds, and none is a secret.
+      # As a release builds them: no build arguments (R469). The app's browser
+      # settings arrive at runtime.
       - name: Build
-        run: >
-          docker build -t scan/${{ matrix.name }}:ci
-          --build-arg VITE_SUPABASE_URL=https://placeholder.supabase.co
-          --build-arg VITE_SUPABASE_PUBLISHABLE_KEY=placeholder-anon-key
-          ${{ matrix.context }}
+        run: docker build -t scan/${{ matrix.name }}:ci -f ${{ matrix.dockerfile || format('{0}/Dockerfile', matrix.context) }} ${{ matrix.context }}
 
       - name: Scan
         shell: bash

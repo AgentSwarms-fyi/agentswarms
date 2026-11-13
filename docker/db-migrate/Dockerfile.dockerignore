@@ -1,0 +1,8 @@
+# The db-migrate image is built from the repository root; this file (BuildKit
+# reads <Dockerfile>.dockerignore next to the Dockerfile in place of the root
+# one) keeps everything out except what it copies.
+*
+!docker/db-migrate/apply-migrations.sh
+!docker/db-migrate/db-migrate.sh
+!deploy/aws/spec/bootstrap/rds-bootstrap.sql
+!supabase/migrations/*.sql

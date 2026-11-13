@@ -27,16 +27,19 @@ describe("the image scan workflow", () => {
     expect(wf.on).toHaveProperty("workflow_dispatch");
   });
 
-  it("builds and scans every image the compose file builds", () => {
+  it("builds and scans every image the compose file builds, and every image a release publishes", () => {
     const built = Object.values(compose.services)
       .map((s) => (typeof s.build === "string" ? s.build : s.build?.context))
       .filter((c): c is string => !!c)
-      .map(norm)
-      .sort();
-    const scanned = wf.jobs["first-party"]
-      .strategy!.matrix.include.map((m) => norm(m.context))
-      .sort();
-    expect(scanned).toEqual(built);
+      .map(norm);
+    const scanned = wf.jobs["first-party"].strategy!.matrix.include.map((m) => norm(m.context));
+    for (const ctx of built) expect(scanned, ctx).toContain(ctx);
+    // R469: db-migrate is published but not built by Compose
+    // (tests/unit/releaseImages pins the whole list against the release's).
+    const released = JSON.parse(readFileSync("deploy/release/images.json", "utf8")) as {
+      images: unknown[];
+    };
+    expect(scanned).toHaveLength(released.images.length);
   });
 
   it("uses the same pinned grype as the local scan script", () => {

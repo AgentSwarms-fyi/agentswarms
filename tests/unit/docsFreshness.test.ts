@@ -113,6 +113,12 @@ const UNDOCUMENTED_ON_PURPOSE = new Map<string, string>([
   ["PORT", "standard, set by every PaaS and by the Dockerfile"],
   ["NODE_ENV", "standard Node convention"],
   ["DEV", "Vite's own build-time flag, not an operator setting"],
+  [
+    "GITHUB_REF_TYPE",
+    "set by GitHub Actions; scripts/release.mjs plan reads which ref it runs for",
+  ],
+  ["GITHUB_REF_NAME", "set by GitHub Actions; the tag scripts/release.mjs plan checks"],
+  ["GITHUB_SHA", "set by GitHub Actions; names a rehearsal build in scripts/release.mjs"],
   // Appear inside GENERATED code samples the app emits, never read at runtime.
   ["ANTHROPIC_API_KEY", "text inside an exported agent scaffold"],
   ["GEMINI_API_KEY", "text inside an exported agent scaffold"],

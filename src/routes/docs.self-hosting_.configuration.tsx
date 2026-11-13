@@ -92,13 +92,14 @@ function SelfHostingConfigurationPage() {
 
       <H3 id="env-public">Browser settings: at startup or at build</H3>
       <P>
-        Every <C>VITE_</C> setting is baked into the image when it is built. Each also has a{" "}
-        <C>PUBLIC_</C> name that the server reads when it starts and hands to the page, so one image
-        serves any environment and a change takes a restart, not a rebuild. Per setting the{" "}
-        <C>PUBLIC_</C> value wins; leave them unset and nothing changes.
+        The server reads the browser&apos;s settings when it starts and hands them to the page, so a
+        change takes a restart, not a rebuild. The Docker image is built with none of them: it is
+        the same image a release publishes, whatever the install. Each setting has a <C>PUBLIC_</C>{" "}
+        name and a <C>VITE_</C> one; the server reads both, and the <C>PUBLIC_</C> value wins. Only
+        a build on the host (<C>npm run build</C>) still inlines the <C>VITE_</C> names.
       </P>
       <Table
-        headers={["Read at startup", "Baked in at build", "Setting"]}
+        headers={["Read at startup", "Also read at startup; inlined by npm run build", "Setting"]}
         rows={[
           [
             <C key="a">PUBLIC_SUPABASE_URL</C>,

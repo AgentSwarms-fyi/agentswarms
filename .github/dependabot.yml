@@ -54,6 +54,7 @@ updates:
       - "/services/notebook-gateway"
       - "/services/js-sandbox"
       - "/docker/socket-proxy"
+      - "/docker/db-migrate"
     schedule:
       interval: weekly
     ignore:
