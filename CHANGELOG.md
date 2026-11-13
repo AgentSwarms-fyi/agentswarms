@@ -193,6 +193,19 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **A warehouse or connector that cannot be reached says where and why** (R474). Test
+  connection of an Athena interface endpoint, or of BigQuery over Private Service
+  Connect, whose certificate the app refused read "Connection saved but the test failed:
+  fetch failed", and so did the row's status. A request from any HTTPS connector (the
+  warehouse engines, the SaaS sources, Confluence, Teams) that fails below HTTP now names
+  the origin it tried and the reason: "… could not be reached: its TLS certificate was
+  not accepted (DEPTH_ZERO_SELF_SIGNED_CERT)", "… its host name does not resolve", "…
+  nothing is listening there (connection refused)". For BigQuery, Google Sheets and GA4
+  a failed token request is said to be that step ("BigQuery auth: …") and names the
+  token host, which over Private Service Connect is not the API's. https:// at a port
+  that answers plain HTTP is said to be a failed TLS handshake, here and for an Iceberg
+  catalog; it was said to be a certificate. Retrying is unchanged, and Node's own error
+  is kept as the cause.
 - **A provider credential the form refuses says which field, in words (R471).** Saving an
   OCI Generative AI key pasted short showed Zod's issue array in the toast and the
   dialog (`[{"code":"too_small","minimum":40,"path":["oci_genai","privateKeyPem"],…}]`).

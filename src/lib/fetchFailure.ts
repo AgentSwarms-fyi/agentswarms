@@ -29,7 +29,7 @@ type Coded = {
  * A name with both an IPv4 and an IPv6 address, `localhost` among them, fails
  * as one AggregateError whose attempts carry the codes.
  */
-function codeOf(err: unknown): string | undefined {
+export function fetchFailureCode(err: unknown): string | undefined {
   const e = (err ?? {}) as Coded;
   if (typeof e.code === "string") return e.code;
   const cause = (e.cause ?? {}) as Coded;
@@ -51,7 +51,7 @@ export function describeFetchFailure(
       ? `${where} did not answer within ${Math.round(opts.timeoutMs / 1000)} s`
       : `${where} did not answer in time`;
   }
-  const code = codeOf(err);
+  const code = fetchFailureCode(err);
   switch (code) {
     case "ENOTFOUND":
     case "EAI_AGAIN":
@@ -68,8 +68,15 @@ export function describeFetchFailure(
     case "UND_ERR_SOCKET":
       return `${where} closed the connection before answering`;
   }
-  if (code && /CERT|SSL|TLS|SELF_SIGNED/i.test(code)) {
+  // Only a verification code is about ITS certificate. OpenSSL's own errors
+  // (ERR_SSL_…) are the handshake: https:// at a port that answers plain HTTP
+  // fails as ERR_SSL_PACKET_LENGTH_TOO_LONG, and was said to be a certificate
+  // (R474).
+  if (code && !/^ERR_SSL_/i.test(code) && /CERT|SELF_SIGNED|LEAF_SIGNATURE/i.test(code)) {
     return `${where} could not be reached: its TLS certificate was not accepted (${code})`;
+  }
+  if (code && /^ERR_(SSL|TLS)_/i.test(code)) {
+    return `${where} could not be reached: the TLS handshake failed (${code})`;
   }
   const cause = (e.cause ?? {}) as Coded;
   const detail =

@@ -29,6 +29,7 @@
 // retried by default: unlike 429 and 503 it often means the query did run and
 // then failed.
 
+import { describeFetchFailure, fetchFailureCode } from "@/lib/fetchFailure";
 import { isBlockedAlways, safeFetch } from "@/utils/ssrfGuard.server";
 
 function envInt(name: string, fallback: number): number {
@@ -107,6 +108,46 @@ export function backoffMs(attempt: number, rand: () => number = Math.random): nu
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+// ── A request that got no answer ─────────────────────────────────────────────
+
+/**
+ * A connector request that failed below HTTP, said in words (R474).
+ *
+ * FOUND FROM THE UI (R426). Integrations → Data Sources → Save & test of an
+ * Athena interface endpoint, and of BigQuery over Private Service Connect,
+ * each against a stand-in with a self-signed certificate: the toast and the
+ * row's status read "fetch failed". Node's fetch says that for every failure
+ * below HTTP and keeps the reason in `cause`. This names the origin that was
+ * asked for (for BigQuery's token, the token host, not the API host) and the
+ * reason. The original error stays as `cause`, and its code (ENOTFOUND,
+ * DEPTH_ZERO_SELF_SIGNED_CERT, …) is copied up for anything that reads one.
+ */
+export class ConnectorUnreachableError extends Error {
+  readonly code?: string;
+  constructor(message: string, cause: unknown) {
+    super(message, { cause });
+    this.name = "ConnectorUnreachableError";
+    const code = fetchFailureCode(cause);
+    if (code) this.code = code;
+  }
+}
+
+/**
+ * What connectorFetch throws for `err`: Node's bare "fetch failed" described,
+ * anything else as it was. An abort, a refusal and a name that does not
+ * resolve already say what they are, and callers tell them apart by name.
+ * Described only once retrying is over: the retry decision reads the raw error.
+ *
+ * The origin is the URL the caller asked for: the address the connection is
+ * configured with, even when it is a redirect it answered with that failed.
+ */
+export function describeConnectorFailure(err: unknown, url: URL, label?: string): unknown {
+  const e = err as { name?: unknown; message?: unknown } | null;
+  if (e?.name !== "TypeError" || e.message !== "fetch failed") return err;
+  const said = describeFetchFailure(err, url.toString());
+  return new ConnectorUnreachableError(label ? `${label}: ${said}` : said, err);
 }
 
 // ── Proxy ────────────────────────────────────────────────────────────────────
@@ -249,7 +290,9 @@ export async function connectorFetch(
       return res;
     } catch (e) {
       lastError = e;
-      if (!isRetryableError(e) || attempt === attempts - 1) throw e;
+      if (!isRetryableError(e) || attempt === attempts - 1) {
+        throw describeConnectorFailure(e, url, opts.label);
+      }
     }
   }
   throw lastError instanceof Error

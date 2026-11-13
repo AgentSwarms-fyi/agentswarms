@@ -100,11 +100,17 @@ export async function googleAccessToken(
     new TextEncoder().encode(`${header}.${claims}`),
   );
   const jwt = `${header}.${claims}.${b64url(new Uint8Array(sig))}`;
-  const res = await connectorFetch(opts.tokenUrl ?? sa.token_uri, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${encodeURIComponent(jwt)}`,
-  });
+  // Labelled, so a token host that cannot be reached is said to be the token
+  // step: over PSC it is a different name from the API's (R474).
+  const res = await connectorFetch(
+    opts.tokenUrl ?? sa.token_uri,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${encodeURIComponent(jwt)}`,
+    },
+    { label: `${opts.label} auth` },
+  );
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`${opts.label} auth: HTTP ${res.status} ${text.slice(0, 200)}`);

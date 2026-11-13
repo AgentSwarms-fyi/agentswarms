@@ -65,6 +65,46 @@ describe("what a failed fetch says", () => {
     );
   });
 
+  it("says a handshake that failed is the handshake, from Node's own error (R474)", async () => {
+    // https:// at a port that answers plain HTTP. No certificate is involved,
+    // and it used to be said to be one.
+    const server = createServer((sock) =>
+      sock.once("data", () => sock.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n")),
+    );
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const base = `https://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    try {
+      const err = await fetch(`${base}/v1/config`).catch((e: unknown) => e);
+      expect((err as Error).message).toBe("fetch failed");
+      const said = describeFetchFailure(err, base);
+      expect(said).toMatch(
+        new RegExp(
+          `^${base} could not be reached: the TLS handshake failed \\(ERR_SSL_[A-Z0-9_]+\\)$`,
+        ),
+      );
+      expect(said).not.toMatch(/certificate/);
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+  }, 15_000);
+
+  it("tells a certificate it would not accept from a handshake that failed (R474)", () => {
+    const cases: [string, string][] = [
+      ["DEPTH_ZERO_SELF_SIGNED_CERT", "its TLS certificate was not accepted"],
+      ["UNABLE_TO_VERIFY_LEAF_SIGNATURE", "its TLS certificate was not accepted"],
+      ["CERT_HAS_EXPIRED", "its TLS certificate was not accepted"],
+      ["ERR_TLS_CERT_ALTNAME_INVALID", "its TLS certificate was not accepted"],
+      ["ERR_SSL_WRONG_VERSION_NUMBER", "the TLS handshake failed"],
+      ["ERR_SSL_SSLV3_ALERT_BAD_CERTIFICATE", "the TLS handshake failed"],
+      ["ERR_TLS_HANDSHAKE_TIMEOUT", "the TLS handshake failed"],
+    ];
+    for (const [code, why] of cases) {
+      expect(describeFetchFailure(nodeFetchFailure(code, "x"), "https://w.example.com"), code).toBe(
+        `https://w.example.com could not be reached: ${why} (${code})`,
+      );
+    }
+  });
+
   it("passes on any other reason rather than 'fetch failed'", () => {
     const err = nodeFetchFailure("EPROTO", "write EPROTO wrong version number");
     expect(describeFetchFailure(err, "https://cat.example.com")).toBe(
