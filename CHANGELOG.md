@@ -193,6 +193,20 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **Security: `@azure/msal-node` 5.4.1 → 7.1.2, `minimatch` 10.2.x → 11.0.3, `glob`
+  13.0.6 → 14.0.3 (R462).** Dependabot #229 (high): msal-node's authorization-code flow
+  could send its parameters to an endpoint the caller did not choose. `tedious` brings it
+  in through `@azure/identity`, now 4.14.1, the first release that asks for msal-node 7;
+  no override is needed. #236 and #234 (medium): fixed only in new majors, which ESLint's
+  parser and `react-email` do not ask for yet, so two overrides move just those copies.
+  None of the three paths was reachable here (SQL Server logs in with a username and
+  password; the parser reads this repository's own patterns; the app never runs the
+  `react-email` CLI). Every package that changed was released by 2026-10-30, two weeks
+  before. `tests/unit/dependencyFloors.test.ts` fails if any copy falls back. `deepmerge`
+  (#231) has no fix and stays accepted. About 40 Pillow and CairoSVG alerts name versions
+  the repository has not pinned since R404: GitHub's pip graph for `docgen-service` was
+  never rebuilt after the push that carried the pins. See
+  [SECURITY.md → Dependencies](./SECURITY.md#dependencies).
 - **The images were named under a Docker Hub namespace nobody here owns (R470).**
   Compose and the Kubernetes manifests named this repository's images
   `agentswarms/<image>:latest`. The `agentswarms` namespace on Docker Hub is

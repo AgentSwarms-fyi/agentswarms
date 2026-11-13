@@ -324,11 +324,25 @@ fixed by updating the dependency where a fixed version exists. Where a library
 pins a vulnerable package of its own, an `overrides` entry in `package.json`
 forces the fixed one; each entry is listed below with the reason it is safe.
 
-| Override                                  | Why it is safe                                                                                           |
-| ----------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `image-size` `^2.0.4`                     | pptxgenjs lists it, but its built code never loads it.                                                   |
-| `katex` `^0.18.2`                         | mermaid asks for 0.16, which has the advisories. A diagram with math is rendered and checked in the app. |
-| `argparse` `^2.0.1`, under `mammoth` only | Only mammoth's command-line tool uses it, and the app never runs that tool.                              |
+**Dependabot's Python alerts can lag the repository.** GitHub builds the pip
+part of the dependency graph with a Dependabot "graph job" per directory, and
+starts one only when a push to `main` changes that directory's
+`requirements.txt`. There is no schedule and no catch-up, so a push GitHub does
+not act on leaves the graph, and the alerts, on the old versions until the next
+push that changes the file. The 2026-10-30 push, which also changed
+`.github/dependabot.yml`, started none: about 40 Pillow and CairoSVG alerts kept
+naming `pillow` 12.3.0 and `cairosvg` 2.9.0 although `docgen-service` has pinned
+13.0.0 and 2.9.1 since R404. Before trusting a pip alert, compare the version it
+names with the file; `gh api repos/<owner>/<repo>/dependency-graph/sbom` shows
+what the graph holds.
+
+| Override                                                                                | Why it is safe                                                                                                                                                                                                                                                                                                          |
+| --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `minimatch` `^11.0.3`, under `@typescript-eslint/typescript-estree` only               | ESLint's parser. Every release of it two weeks old still asks for `minimatch ^10.2.2`, inside GHSA-g3hv-75wg-m249's range. It matches this repository's own `tsconfig` patterns; `npm run lint` parses the whole repository with 11.0.3. A dev dependency: the app image does not carry it.          |
+| `glob` `^14.0.3`, under `react-email` only                                              | `react-email` moves to `glob` 14 only in releases under two weeks old. Only its command-line tool loads `glob`, and the app never runs that tool: it renders mail through `@react-email/components`.                                                                                                 |
+| `image-size` `^2.0.4`                                                                   | pptxgenjs lists it, but its built code never loads it.                                                                                                                                                                                                                                                                  |
+| `katex` `^0.18.2`                                                                       | mermaid asks for 0.16, which has the advisories. A diagram with math is rendered and checked in the app.                                                                                                                                                                                                                |
+| `argparse` `^2.0.1`, under `mammoth` only                                               | Only mammoth's command-line tool uses it, and the app never runs that tool.                                                                                                                                                                                                                                             |
 
 **Code the browser runs comes from the app.** The PDF and DOCX readers used to be
 imported from esm.sh and jsdelivr at upload time, at versions the lockfile did
@@ -336,17 +350,20 @@ not pin. They are now copied from the installed packages at build and served
 from the app's own origin (R321), so `npm audit` covers what runs, and a test
 fails if code is loaded from a public CDN again.
 
-**Accepted, with the reason.** `npm audit` reports two high advisories, and both
-are the same one: `@azure/msal-node`'s authorization-code flow
-(GHSA-xcx6-jx8p-x3h5) can disclose parameters to an attacker-controlled
-endpoint. `@azure/msal-node` reaches the tree only through `@azure/identity`,
-which the SQL Server driver `tedious` and `unstorage` pull in; the latest
-`@azure/identity` still pins `msal-node ^6.0.0`, below the fixed `7.1.0`, so
-there is no non-breaking upgrade to take. The app never uses the Azure AD
-authorization-code or interactive flow — it authenticates SQL Server with a
-username and password (`type: "default"` in `warehouse/drivers.server.ts`) and
-uses HashiCorp Vault, not Azure Key Vault, for key management — so the
-vulnerable code path is not reached.
+**Fixed in R462.** `@azure/msal-node`'s authorization-code flow
+(GHSA-xcx6-jx8p-x3h5) is fixed by `@azure/identity` 4.14.1, the first release
+that asks for msal-node 7 (`^7.1.0`); 7.1.2 is installed. `tedious`, which
+brings it in, accepts 4.14.1, so no override is needed. The path had not been
+reachable either: the app logs in to SQL Server with a username and password
+(`type: "default"` in `warehouse/drivers.server.ts`) and never calls
+`acquireTokenByCode`, and keys are managed with HashiCorp Vault, not Azure Key
+Vault. `minimatch` (GHSA-g3hv-75wg-m249, a pattern that grows its own
+expansion) and `glob` (GHSA-3g3m-2fjr-6pw4, an aborted walk keeps reading
+directories) are fixed by the two overrides above: 11.0.3 and 14.0.3, released
+on 2026-10-28, where 10.2.x and 13.0.6 were. minimatch 3.x and 5.x, which
+ESLint and archiver still use, predate the affected code (the advisory starts
+at 7.0.0). `tests/unit/dependencyFloors.test.ts` fails if any copy of either
+falls back inside its affected range, or msal-node below 7.1.0.
 
 Separately, `sprintf-js` (also via `tedious`) has a format-string DoS with no
 fixed version. `npm audit` no longer flags it, but it remains in the tree; it is
@@ -357,10 +374,13 @@ either.
 `deepmerge` 4.3.1 (via `html-to-text`, via `@react-email/render`) has a low
 prototype-poisoning advisory (GHSA-gcqx-w48m-w2h4) with no fixed release. It
 merges `html-to-text`'s option objects, which `@react-email/render` builds
-from its own constants when rendering an email's plain-text part. No request
-value reaches the merge, so it is accepted until a fix is published.
-`tests/unit/dependencyFloors.test.ts` keeps the transitive packages that do
-have a fix (`seroval`, `qs`) at or above it.
+from its own constants when rendering an email's plain-text part. The app's
+three callers pass `{ plainText: true }` and no `htmlToTextOptions`.
+`@langchain/community` also lists `html-to-text`, but the app imports nothing
+from it. No request value reaches the merge, so it is **accepted** until a fix
+is published; it is the one open advisory. `tests/unit/dependencyFloors.test.ts`
+keeps the transitive packages that do have a fix (`seroval`, `qs`,
+`@azure/msal-node`, `minimatch`, `glob`) out of their affected releases.
 
 The Python images are held to the same rule. The document renderer pins every
 package, and the notebook kernel image ends its requirements with minimum

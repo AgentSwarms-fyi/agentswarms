@@ -109,6 +109,27 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-13 — R462: 46 open Dependabot alerts, and which of them were real
+
+**Why this round.** Started on 2026-11-09 in a session of its own ("Clear the open Dependabot alerts on main") and left uncommitted; landed here, re-validated against today's tree. GitHub showed 46 open alerts. The ask was to sort the stale from the real and fix the real ones, taking only releases at least two weeks old.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| 42 Pillow and CairoSVG alerts name versions the repository no longer pins | S3 | `docgen-service/requirements.txt` has pinned `pillow==13.0.0` and `cairosvg==2.9.1` since R404. GitHub's pip graph is built by a Dependabot graph job that starts only when a push to `main` changes that directory's `requirements.txt`. The 2026-10-30 push changed it and started none, and nothing catches up later. The alerts close when the graph is rebuilt |
+| `@azure/msal-node` 5.4.1: authorization-code parameters could go to an attacker's endpoint (#229) | S3 | Not reachable here: `tedious` logs in with a username and password. On 2026-11-09 the fix needed an override, because `@azure/identity` 4.14.1, the first release asking for msal-node 7, was 11 days old. It is 15 now, so it is taken as is (`tedious` accepts `^4.13.1`), with no override |
+| `minimatch` 10.2.x (#236) and `glob` 13.0.6 (#234) | S4 | Affected ranges: minimatch 7.0.0 to below 11.0.1, glob 9.0.0 to below 14.0.2. Fixed only in majors released 2026-10-27/28, now 16 days old. ESLint's parser and `react-email` still ask for the old majors in every release two weeks old, so overrides move just those two copies: minimatch 11.0.3 and glob 14.0.3. minimatch 3.x and 5.x (ESLint, archiver) are older than the affected code |
+| `deepmerge` 4.3.1 (#231) | S4 | No fixed release. Its one caller merges options built from constants. Still accepted |
+
+**Measured.**
+- **Dependency floors test:** fails on main's lockfile (msal-node, identity, minimatch and glob, 4 of 10 tests) and passes on the new one.
+- **Release dates:** all 16 package versions the lockfile changes were released by 2026-10-30.
+- **`npm run lint`** parses the whole repository with minimatch 11.0.3 under ESLint's parser.
+
+**What would have been wrong to conclude.**
+
+- *"Dependabot says Pillow 12.3.0, so the image ships 12.3.0."* The alert reads the graph, and the graph reads the last push GitHub acted on.
+- *"Land the 2026-11-09 patch as it was."* Its override was right for that day. Four days later the release it stood in for is old enough to take, and the override would only have been one more thing to remove.
+
 ### 2026-11-13 — R470: a release by its version, and images under a name this project owns
 
 **Why this round.** Phase 3 of the AWS plan, part 2: R469 publishes releases, and an install had no way to run one. Upgrading meant rebuilding from a checkout, and rolling back meant rebuilding an older one.
