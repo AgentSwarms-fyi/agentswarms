@@ -83,10 +83,11 @@ subjects:
     namespace: agentswarms-spark
 roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: spark-driver }
 ---
-# The APP creates and deletes the drivers. Its ServiceAccount is the notebook
-# orchestrator's (deploy/k8s/notebooks/notebook-runtime.yaml); this grants it
-# the same two object kinds here. Adjust the subject if your app runs as a
-# different ServiceAccount.
+# The APP creates and deletes the drivers, as the same ServiceAccount the
+# sandbox RoleBinding names (deploy/k8s/notebooks/notebook-runtime.yaml): the
+# `agentswarms` account its pods run as (deploy/k8s/app/agentswarms.yaml).
+# Until R488 this named `notebook-orchestrator` in agentswarms-notebooks, an
+# account no app pod runs as. Adjust both bindings together if yours differs.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -104,14 +105,15 @@ metadata:
   namespace: agentswarms-spark
 subjects:
   - kind: ServiceAccount
-    name: notebook-orchestrator
-    namespace: agentswarms-notebooks
+    name: agentswarms
+    namespace: agentswarms
 roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: spark-orchestrator }
 ---
 # What a Spark pod may talk to.
 #
-# Ingress: a sandbox dialling Spark Connect, and executors dialling the driver
-# back on its RPC and block-manager ports.
+# Ingress: a sandbox dialling Spark Connect, the app checking that the driver
+# is listening there, and executors dialling the driver back on its RPC and
+# block-manager ports.
 #
 # Egress: DNS, the API server (the driver creates executors), each other, and
 # the outside world — object storage and databases are the whole point, and
@@ -132,6 +134,15 @@ spec:
         - namespaceSelector:
             matchLabels: { kubernetes.io/metadata.name: agentswarms-notebooks }
       ports: [{ protocol: TCP, port: 15002 }]
+    # The app's pods, on the same port: before a run starts, the app waits for
+    # its driver to accept a connection there (awaitSparkClusterReady). Without
+    # this, a CNI that enforces policy turns every run into a startup timeout.
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: agentswarms }
+          podSelector:
+            matchLabels: { app.kubernetes.io/name: agentswarms }
+      ports: [{ protocol: TCP, port: 15002 }]
     # Executors ↔ driver.
     - from:
         - podSelector: {}
@@ -146,11 +157,18 @@ spec:
     - to: []
 ---
 # Optional: an executor pod template, for a namespace enforcing the
-# `restricted` Pod Security Standard. Mount it into the driver and point
-# SPARK_K8S_EXECUTOR_POD_TEMPLATE at the mounted path with
-# SPARK_K8S_EXTRA_CONF="spark.kubernetes.executor.podTemplateFile=/opt/spark/conf/executor.yaml"
-# — or set that conf directly. Without it, executors carry only the defaults
-# Spark gives them, which `baseline` accepts and `restricted` does not.
+# `restricted` Pod Security Standard, or for executors that must go where the
+# driver goes. Set SPARK_K8S_EXECUTOR_POD_TEMPLATE_CONFIGMAP=spark-executor-template
+# on the app: each run's driver pod then mounts this ConfigMap at
+# /opt/spark/executor-template and hands Spark its executor.yaml. (The driver
+# reads the template from its own filesystem; until R488 the app's driver pod
+# mounted only /tmp, so a template worked only when baked into SPARK_IMAGE.)
+# Without one, executors carry only the defaults Spark gives them, which
+# `baseline` accepts and `restricted` does not.
+#
+# Placement: SPARK_K8S_NODE_SELECTOR and SPARK_K8S_TOLERATIONS shape the driver
+# pod only. Spark has no setting for an executor's tolerations, so executors
+# that belong on a tainted Spark pool need both here, in the template.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -166,6 +184,9 @@ data:
         runAsUser: 185
         runAsGroup: 185
         seccompProfile: { type: RuntimeDefault }
+      # nodeSelector: { agentswarms.io/pool: spark }
+      # tolerations:
+      #   - { key: agentswarms.io/spark, operator: Exists, effect: NoSchedule }
       containers:
         - name: spark-kubernetes-executor
           securityContext:

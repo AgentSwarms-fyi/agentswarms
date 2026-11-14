@@ -333,6 +333,10 @@ fi
 
 # ── 6. the app and its services ─────────────────────────────────────────────
 say "Configuring and starting AgentSwarms"
+# Both k8s backends are on. What they need beside these two values (the
+# sandbox namespace, the cluster CA, the URL sandboxes call back on, and the
+# ServiceAccount with its token) is in deploy/k8s/app/agentswarms.yaml, next
+# to the RBAC in deploy/k8s/notebooks and deploy/k8s/spark that it must match.
 kubectl -n "$NS" create secret generic agentswarms-env \
   --from-literal=SUPABASE_URL="$SUPABASE_URL" \
   --from-literal=SUPABASE_PUBLISHABLE_KEY="$ANON_KEY" \

@@ -63,7 +63,7 @@ const k8sText = K8S_FILES.map(rd).join("\n");
 const NO_K8S_WORKLOAD: Record<string, { because: string; provenBy: [string, RegExp] }> = {
   // The Docker socket proxy is how the `docker` runtime backend starts kernel
   // containers. In Kubernetes the backend is `k8s` and kernels are pods,
-  // created through the API with the notebook-orchestrator ServiceAccount —
+  // created through the API with the app's own ServiceAccount —
   // there is no Docker socket to proxy.
   "notebook-docker-proxy": {
     because: "Kubernetes uses the k8s runtime backend, which creates kernel pods through the API",

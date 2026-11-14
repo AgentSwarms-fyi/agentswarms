@@ -6,8 +6,13 @@
 #
 #   kubectl apply -f deploy/k8s/notebooks/notebook-runtime.yaml
 #
-# The app is configured with NOTEBOOK_RUNTIME_BACKEND=k8s and runs with the
-# `notebook-orchestrator` ServiceAccount (or a SA bound to the Role below).
+# The app (deploy/k8s/app/agentswarms.yaml) is configured with
+# NOTEBOOK_RUNTIME_BACKEND=k8s and NOTEBOOK_K8S_NAMESPACE=agentswarms-notebooks,
+# and runs as the `agentswarms` ServiceAccount in the `agentswarms` namespace,
+# with its token mounted. The RoleBinding below lets that account create
+# sandboxes here and nowhere else. Run the app elsewhere or as another account?
+# Change the binding's subject to match, and keep NOTEBOOK_K8S_NAMESPACE naming
+# this namespace: unset, the app makes sandboxes in its OWN namespace.
 # See docs/DEVELOPER_WORKSPACE_RUNTIME.md §5.2/§9.2.
 #
 # NOTHING HERE CORRESPONDS TO COMPOSE'S `notebook-docker-proxy`, and that is
@@ -64,14 +69,10 @@ spec:
         cpu: "4"
         memory: 8Gi
 ---
-# The app creates/deletes kernels with this ServiceAccount (least privilege:
-# only pods, jobs, and pod logs in this one namespace).
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: notebook-orchestrator
-  namespace: agentswarms-notebooks
----
+# What the app may do here (least privilege: only pods, jobs, and pod logs in
+# this one namespace). There is no ServiceAccount in this namespace for it: a
+# pod can only run as an account in its own namespace, so the one that used to
+# be here (`notebook-orchestrator`) was an identity nothing could use (R488).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -91,8 +92,9 @@ metadata:
   name: notebook-orchestrator
   namespace: agentswarms-notebooks
 subjects:
-  # Bind to the ServiceAccount the AGENTSWARMS APP pod runs as. Adjust the
-  # name/namespace to match your app deployment.
+  # The ServiceAccount the app's pods run as (deploy/k8s/app/agentswarms.yaml).
+  # The Spark manifest binds the same one. Adjust both together if your app
+  # runs as another.
   - kind: ServiceAccount
     name: agentswarms
     namespace: agentswarms

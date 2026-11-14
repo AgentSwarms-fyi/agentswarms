@@ -25,6 +25,7 @@ type Container = {
 };
 type PodSpec = {
   containers?: Container[];
+  serviceAccountName?: string;
   automountServiceAccountToken?: boolean;
   terminationGracePeriodSeconds?: number;
   securityContext?: {
@@ -70,6 +71,9 @@ describe("the manifest declares what it must", () => {
         "PodDisruptionBudget",
         "PodDisruptionBudget",
         "Service",
+        // The app's own identity (R488), which the sandbox and Spark
+        // RoleBindings name.
+        "ServiceAccount",
       ].sort(),
     );
   });
@@ -161,10 +165,26 @@ describe("security posture", () => {
     }
   });
 
-  it("does not mount a Kubernetes API token the app never uses", () => {
+  it("runs the app as its own ServiceAccount, with the token the k8s backends call the API with", () => {
+    // R488. This used to assert the opposite, under "the app never calls the
+    // Kubernetes API" — but NOTEBOOK_RUNTIME_BACKEND=k8s and SPARK_PROVIDER=k8s
+    // are the app calling it, and setup-k8s.sh turns both on. With no token
+    // every sandbox and Spark run failed with "ServiceAccount token not
+    // found"; without the CA every call failed TLS; with the namespace unset
+    // sandboxes went in `agentswarms`, where the app has no rights.
+    expect(byKind("ServiceAccount", "agentswarms")).toBeTruthy();
     for (const name of ["agentswarms-web", "agentswarms-analytics"]) {
       const pod = byKind("Deployment", name)?.spec?.template?.spec as PodSpec;
-      expect(pod.automountServiceAccountToken).toBe(false);
+      expect(pod.serviceAccountName, `${name} must not run as "default"`).toBe("agentswarms");
+      expect(pod.automountServiceAccountToken, `${name}`).toBe(true);
+      const env = Object.fromEntries((containerOf(name)?.env ?? []).map((e) => [e.name, e.value]));
+      expect(env.NOTEBOOK_K8S_NAMESPACE).toBe("agentswarms-notebooks");
+      expect(env.NODE_EXTRA_CA_CERTS).toBe("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt");
+      // The default is a Docker name; a sandbox in agentswarms-notebooks
+      // reaches the app through its Service.
+      expect(env.NOTEBOOK_APP_INTERNAL_URL).toBe(
+        "http://agentswarms.agentswarms.svc.cluster.local",
+      );
     }
   });
 
@@ -342,7 +362,11 @@ describe("Pod Security Standards", () => {
   });
 
   it("never mounts an API token into a workload that does not call the API", () => {
+    // The two app tiers do call it (the k8s sandbox and Spark backends), and
+    // the test above pins them; nothing else may.
+    const callers = new Set(["Deployment/agentswarms-web", "Deployment/agentswarms-analytics"]);
     for (const { name, pod } of workloads) {
+      if (callers.has(name)) continue;
       expect(pod.automountServiceAccountToken, `${name}`).toBe(false);
     }
   });

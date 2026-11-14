@@ -266,11 +266,13 @@ kubectl apply -f deploy/k8s/spark/spark-runtime.yaml
 ```
 
 It carries the `agentswarms-spark` namespace, the ServiceAccount the driver
-needs to ask for its executors, the ResourceQuota that bounds every Spark run
-at once, and the NetworkPolicy that lets a sandbox reach a driver. Spark pods
-live in their own namespace on purpose: a kernel is under a default-deny policy
-whose only way out is the HTTP egress proxy, and a driver has to reach object
-storage and databases directly.
+needs to ask for its executors, the RoleBinding that lets the app's own
+ServiceAccount (`agentswarms`, in `deploy/k8s/app/agentswarms.yaml`) create
+and delete drivers there, the ResourceQuota that bounds every Spark run at
+once, and the NetworkPolicy that lets a sandbox and the app reach a driver.
+Spark pods live in their own namespace on purpose: a kernel is under a
+default-deny policy whose only way out is the HTTP egress proxy, and a driver
+has to reach object storage and databases directly.
 
 Three things keep a per-run cluster from outliving its run. Executors are
 _owned_ by the driver pod, so deleting the driver garbage-collects them. The
@@ -338,26 +340,27 @@ options, so the UI listed every run's keys (R459).
 **Settings and environment.** Each is the settings row first, then the
 environment, then the default.
 
-| Setting              | Env                                                           | Default                      | What it does                                                             |
-| -------------------- | ------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------ |
-| Clusters come from   | `SPARK_PROVIDER`                                              | `static`                     | `static` (a shared endpoint) or `k8s` (one per run)                      |
-| Endpoint             | `SPARK_CONNECT_URL`                                           | —                            | `static` only: where every run dials                                     |
-| Spark image          | `SPARK_IMAGE`                                                 | `apache/spark:4.1.4-python3` | driver and executors; the default is pinned by digest (the server's)     |
-| Executors per run    | `SPARK_EXECUTORS`                                             | 2                            | `k8s` only: executor pods one run asks for                               |
-| Cores per executor   | `SPARK_EXECUTOR_CORES`                                        | 1                            | `k8s` only                                                               |
-| Executor memory (MB) | `SPARK_EXECUTOR_MEM_MB`                                       | 2048                         | `k8s` only                                                               |
-| Driver memory (MB)   | `SPARK_DRIVER_MEM_MB`                                         | 2048                         | `k8s` only; collected results land here                                  |
-| —                    | `SPARK_PACKAGES`                                              | the four connectors          | set empty for an image that already has them                             |
-| —                    | `SPARK_K8S_NAMESPACE`                                         | `agentswarms-spark`          | where per-run pods live                                                  |
-| —                    | `SPARK_K8S_SERVICE_ACCOUNT`                                   | `spark-driver`               | the driver's identity                                                    |
-| —                    | `SPARK_K8S_STARTUP_TIMEOUT_SECONDS`                           | 420                          | how long a driver may take to answer                                     |
-| —                    | `SPARK_K8S_NODE_SELECTOR` / `SPARK_K8S_TOLERATIONS`           | —                            | JSON; the driver pod's placement (not the executors')                    |
-| —                    | `SPARK_K8S_EXTRA_CONF`                                        | —                            | comma-separated `spark.*=value` for anything else                        |
-| —                    | `SPARK_K8S_PULL_POLICY`                                       | `IfNotPresent`               | the driver pod's image pull policy                                       |
-| —                    | `SPARK_K8S_RUN_AS_USER`                                       | 185                          | the driver pod's uid, your Spark image's user                            |
-| —                    | `SPARK_K8S_DRIVER_CPU_REQUEST` / `SPARK_K8S_DRIVER_CPU_LIMIT` | `500m` / `2`                 | driver CPU                                                               |
-| —                    | `SPARK_K8S_DRIVER_SCRATCH`                                    | `8Gi`                        | the driver's writable scratch (shuffle spill, ivy cache)                 |
-| —                    | `SPARK_K8S_EXECUTOR_POD_TEMPLATE`                             | —                            | executor pod template, needed under a `restricted` Pod Security Standard |
+| Setting              | Env                                                           | Default                         | What it does                                                                             |
+| -------------------- | ------------------------------------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------- |
+| Clusters come from   | `SPARK_PROVIDER`                                              | `static`                        | `static` (a shared endpoint) or `k8s` (one per run)                                      |
+| Endpoint             | `SPARK_CONNECT_URL`                                           | —                               | `static` only: where every run dials                                                     |
+| Spark image          | `SPARK_IMAGE`                                                 | `apache/spark:4.1.4-python3`    | driver and executors; the default is pinned by digest (the server's)                     |
+| Executors per run    | `SPARK_EXECUTORS`                                             | 2                               | `k8s` only: executor pods one run asks for                                               |
+| Cores per executor   | `SPARK_EXECUTOR_CORES`                                        | 1                               | `k8s` only                                                                               |
+| Executor memory (MB) | `SPARK_EXECUTOR_MEM_MB`                                       | 2048                            | `k8s` only                                                                               |
+| Driver memory (MB)   | `SPARK_DRIVER_MEM_MB`                                         | 2048                            | `k8s` only; collected results land here                                                  |
+| —                    | `SPARK_PACKAGES`                                              | the four connectors             | set empty for an image that already has them                                             |
+| —                    | `SPARK_K8S_NAMESPACE`                                         | `agentswarms-spark`             | where per-run pods live                                                                  |
+| —                    | `SPARK_K8S_SERVICE_ACCOUNT`                                   | `spark-driver`                  | the driver's identity                                                                    |
+| —                    | `SPARK_K8S_STARTUP_TIMEOUT_SECONDS`                           | 420                             | how long a driver may take to answer                                                     |
+| —                    | `SPARK_K8S_NODE_SELECTOR` / `SPARK_K8S_TOLERATIONS`           | —                               | JSON; the driver pod's placement (executors': the pod template)                          |
+| —                    | `SPARK_K8S_EXTRA_CONF`                                        | —                               | comma-separated `spark.*=value` for anything else                                        |
+| —                    | `SPARK_K8S_PULL_POLICY`                                       | `IfNotPresent`                  | the image pull policy, for the driver pod and (through Spark) its executors              |
+| —                    | `SPARK_K8S_RUN_AS_USER`                                       | 185                             | the driver pod's uid, your Spark image's user (executors: the pod template)              |
+| —                    | `SPARK_K8S_DRIVER_CPU_REQUEST` / `SPARK_K8S_DRIVER_CPU_LIMIT` | `500m` / `2`                    | driver CPU                                                                               |
+| —                    | `SPARK_K8S_DRIVER_SCRATCH`                                    | `8Gi`                           | the driver's writable scratch (shuffle spill, ivy cache)                                 |
+| —                    | `SPARK_K8S_EXECUTOR_POD_TEMPLATE_CONFIGMAP`                   | —                               | a ConfigMap every driver pod mounts, holding the executor pod template (`executor.yaml`) |
+| —                    | `SPARK_K8S_EXECUTOR_POD_TEMPLATE`                             | the ConfigMap's `executor.yaml` | the template's path on the driver; needed under a `restricted` Pod Security Standard     |
 
 ## Quality gates
 

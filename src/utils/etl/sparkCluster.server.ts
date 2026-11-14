@@ -205,15 +205,48 @@ function portOpen(host: string, port: number, timeoutMs = 2000): Promise<boolean
   });
 }
 
+/** Where the driver pod mounts SPARK_K8S_EXECUTOR_POD_TEMPLATE_CONFIGMAP. */
+export const EXECUTOR_TEMPLATE_DIR = "/opt/spark/executor-template";
+
+/**
+ * The executor pod template, if any: the path Spark reads it from, and the
+ * ConfigMap the driver pod mounts to put it there.
+ *
+ * In client mode the DRIVER reads spark.kubernetes.executor.podTemplateFile
+ * from its own filesystem, and the driver pod is built here — so until R488
+ * a template only worked when it was baked into SPARK_IMAGE, whatever
+ * spark-runtime.yaml said about mounting its ConfigMap. Naming the ConfigMap
+ * mounts it; the path then defaults to its `executor.yaml` key.
+ */
+function executorTemplate(): { path: string; configMap: string | null } | null {
+  const configMap = process.env.SPARK_K8S_EXECUTOR_POD_TEMPLATE_CONFIGMAP?.trim() || null;
+  const path =
+    process.env.SPARK_K8S_EXECUTOR_POD_TEMPLATE?.trim() ||
+    (configMap ? `${EXECUTOR_TEMPLATE_DIR}/executor.yaml` : "");
+  return path ? { path, configMap } : null;
+}
+
+/**
+ * The image pull policy for the driver pod AND, through Spark's own setting,
+ * its executors: both run the same image, so a policy that fetches a new
+ * build for one and not the other would run two builds in one cluster.
+ */
+function pullPolicy(): string {
+  return process.env.SPARK_K8S_PULL_POLICY?.trim() || "IfNotPresent";
+}
+
 function driverArgs(s: SparkClusterSettings, name: string, ns: string): string[] {
   const sa = process.env.SPARK_K8S_SERVICE_ACCOUNT?.trim() || "spark-driver";
   const packages = process.env.SPARK_PACKAGES?.trim() ?? DEFAULT_PACKAGES;
-  const podTemplate = process.env.SPARK_K8S_EXECUTOR_POD_TEMPLATE?.trim();
+  const podTemplate = executorTemplate()?.path;
   const conf = [
     // Client mode: this pod IS the driver, and it also serves Spark Connect.
     `spark.master=k8s://https://kubernetes.default.svc:443`,
     `spark.submit.deployMode=client`,
     `spark.kubernetes.container.image=${s.image}`,
+    // The executors'; the driver pod's is set on it below. Spark applies this
+    // over any policy an executor pod template carries.
+    `spark.kubernetes.container.image.pullPolicy=${pullPolicy()}`,
     `spark.kubernetes.namespace=${ns}`,
     `spark.kubernetes.authenticate.driver.serviceAccountName=${sa}`,
     // Executors are owned by this pod, so deleting it deletes them.
@@ -261,6 +294,9 @@ function driverPod(
   deadlineSeconds: number,
 ) {
   const runAsUser = envInt("SPARK_K8S_RUN_AS_USER") ?? 185; // the apache/spark image's user
+  // A ConfigMap in this namespace holding the executor pod template; the
+  // driver reads it from where it is mounted (executorTemplate).
+  const templateMap = executorTemplate()?.configMap ?? null;
   // Driver JVM heap + the off-heap the JVM and Python take beside it. Spark's
   // own overhead default is 10%, which is too thin for a pod limit that the
   // kubelet enforces by killing.
@@ -294,7 +330,7 @@ function driverPod(
         {
           name: "spark-driver",
           image: s.image,
-          imagePullPolicy: process.env.SPARK_K8S_PULL_POLICY || "IfNotPresent",
+          imagePullPolicy: pullPolicy(),
           command: driverArgs(s, name, ns),
           env: [
             { name: "SPARK_NO_DAEMONIZE", value: "true" },
@@ -324,7 +360,12 @@ function driverPod(
             readOnlyRootFilesystem: true,
             capabilities: { drop: ["ALL"] },
           },
-          volumeMounts: [{ name: "tmp", mountPath: "/tmp" }],
+          volumeMounts: [
+            { name: "tmp", mountPath: "/tmp" },
+            ...(templateMap
+              ? [{ name: "executor-template", mountPath: EXECUTOR_TEMPLATE_DIR, readOnly: true }]
+              : []),
+          ],
         },
       ],
       volumes: [
@@ -332,6 +373,7 @@ function driverPod(
           name: "tmp",
           emptyDir: { sizeLimit: process.env.SPARK_K8S_DRIVER_SCRATCH || "8Gi" },
         },
+        ...(templateMap ? [{ name: "executor-template", configMap: { name: templateMap } }] : []),
       ],
     },
   };

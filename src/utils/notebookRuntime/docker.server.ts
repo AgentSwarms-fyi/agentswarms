@@ -111,11 +111,12 @@ export function appInContainer(): boolean {
  *  - App in compose (production): the `internal` network — kernels get NO direct
  *    internet, only the egress proxy, and reach the app by service name.
  *  - App on the host (local dev): that internal network has no route to the host,
- *    so kernels could never call back. Use the default bridge plus a
- *    host-gateway mapping. Egress control then rests on the proxy env vars alone
- *    — weaker, which is why it's the dev-only path.
+ *    so kernels could never call back. Use `agentswarms_nb-dev`, which has a
+ *    route out, plus a host-gateway mapping. Egress control then rests on the
+ *    proxy env vars alone — weaker, which is why it's the dev-only path.
+ * Exported so the admin preflight checks the network kernels really join (R488).
  */
-function network(): string {
+export function kernelNetwork(): string {
   if (process.env.NOTEBOOK_NETWORK) return process.env.NOTEBOOK_NETWORK;
   // Both are user-defined networks the gateway also joins. Never the default
   // `bridge`: it has no name-based DNS, and on Linux hosts separate bridges are
@@ -167,7 +168,7 @@ export class DockerOrchestrator implements NotebookOrchestrator {
         ReadonlyRootfs: true,
         CapDrop: ["ALL"],
         SecurityOpt: ["no-new-privileges"],
-        NetworkMode: network(),
+        NetworkMode: kernelNetwork(),
         // Lets a kernel reach an app running on the host (local dev). Harmless
         // in compose, where the app is reached by service name instead.
         ExtraHosts: ["host.docker.internal:host-gateway"],

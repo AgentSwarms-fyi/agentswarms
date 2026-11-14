@@ -31,19 +31,38 @@ function readMaybe(path: string): string | null {
   }
 }
 
+/** The app pod's ServiceAccount token, or null when none is mounted. */
+export function k8sServiceAccountToken(): string | null {
+  return readMaybe(`${SA_DIR}/token`);
+}
+
 function saToken(): string {
-  const t = readMaybe(`${SA_DIR}/token`);
+  const t = k8sServiceAccountToken();
   if (!t)
     throw new Error("Kubernetes ServiceAccount token not found (is the app running in-cluster?)");
   return t;
 }
 
+/** Where the sandbox namespace came from, so the preflight can say so. */
+export type SandboxNamespace = { name: string; source: "env" | "pod" | "default" };
+
+/**
+ * The namespace sandbox pods and Jobs are created in: NOTEBOOK_K8S_NAMESPACE,
+ * then the app pod's own namespace (from its ServiceAccount mount), then
+ * agentswarms-notebooks. One definition, used by the orchestrator AND the
+ * admin preflight (R488): the preflight used to check agentswarms-notebooks
+ * without the middle step, so it passed while sandboxes went beside the app.
+ */
+export function k8sSandboxNamespace(): SandboxNamespace {
+  const fromEnv = process.env.NOTEBOOK_K8S_NAMESPACE?.trim();
+  if (fromEnv) return { name: fromEnv, source: "env" };
+  const own = readMaybe(`${SA_DIR}/namespace`);
+  if (own) return { name: own, source: "pod" };
+  return { name: "agentswarms-notebooks", source: "default" };
+}
+
 function namespace(): string {
-  return (
-    process.env.NOTEBOOK_K8S_NAMESPACE ||
-    readMaybe(`${SA_DIR}/namespace`) ||
-    "agentswarms-notebooks"
-  );
+  return k8sSandboxNamespace().name;
 }
 
 function apiBase(): string {

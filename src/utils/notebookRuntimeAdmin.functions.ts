@@ -10,7 +10,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { requireSuperadmin } from "@/utils/iam.server";
 import { parseModelSpec } from "@/utils/providers/defaultModel.server";
 import { ensureRuntimeSecret, runtimeSecretConfigured } from "@/utils/notebookRuntime/token.server";
-import { appInContainer, dockerBase } from "@/utils/notebookRuntime/docker.server";
+import { appInContainer, dockerBase, kernelNetwork } from "@/utils/notebookRuntime/docker.server";
 
 export type NbRuntimeError = { ok: false; error: string };
 
@@ -546,19 +546,25 @@ export const nbRuntimePreflight = createServerFn({ method: "POST" })
               detail: `could not check ${image}`,
             });
           }
-          const net =
-            process.env.NOTEBOOK_NETWORK ||
-            (appInContainer() ? "agentswarms_nb-internal" : "bridge");
+          // The orchestrator's own resolution (R488): this used to fall back
+          // to `bridge` for a host-run app while kernels joined
+          // agentswarms_nb-dev, so it checked a network nothing used.
+          const net = kernelNetwork();
+          const chosen = process.env.NOTEBOOK_NETWORK ? " (from NOTEBOOK_NETWORK)" : "";
           try {
             const n = await fetch(`${base}/networks/${encodeURIComponent(net)}`);
             checks.push({
               name: "Kernel network",
               status: n.ok ? "pass" : "fail",
               detail: n.ok
-                ? appInContainer()
-                  ? `${net} (isolated — kernels have no direct internet)`
-                  : `${net} (dev mode: app runs on the host, so kernels use the default bridge; egress control is proxy-only)`
-                : `${net} not found`,
+                ? chosen
+                  ? `${net}${chosen}`
+                  : appInContainer()
+                    ? `${net} (isolated — kernels have no direct internet)`
+                    : `${net} (dev mode: the app runs on the host, so kernels join a network with a route out; egress control is proxy-only)`
+                : chosen
+                  ? `${net}${chosen} not found`
+                  : `${net} not found — docker-compose.yml creates it: docker compose up -d`,
             });
           } catch {
             checks.push({
@@ -579,19 +585,18 @@ export const nbRuntimePreflight = createServerFn({ method: "POST" })
     }
 
     if (backend === "k8s") {
-      const { readFileSync } = await import("node:fs");
-      let token = "";
-      try {
-        token = readFileSync("/var/run/secrets/kubernetes.io/serviceaccount/token", "utf8").trim();
-      } catch {
-        /* not in-cluster */
-      }
-      if (!token) {
+      // The orchestrator's own token, namespace and API client (R488): the
+      // preflight used to resolve the namespace without the app pod's own
+      // namespace step, so it could pass on agentswarms-notebooks while every
+      // sandbox was created somewhere else.
+      const { k8sFetch, k8sSandboxNamespace, k8sServiceAccountToken } =
+        await import("./notebookRuntime/k8s.server");
+      if (!k8sServiceAccountToken()) {
         checks.push({
           name: "In-cluster credentials",
           status: "fail",
           detail:
-            "No ServiceAccount token. The Kubernetes backend does NOT install or connect to a cluster by URL — it requires the AgentSwarms app itself to run as a pod inside your cluster, with the RBAC from deploy/k8s/notebooks/ applied.",
+            "No ServiceAccount token. The Kubernetes backend does NOT install or connect to a cluster by URL — it requires the AgentSwarms app itself to run as a pod inside your cluster, as a ServiceAccount whose token is mounted, with the RBAC from deploy/k8s/notebooks/ applied.",
         });
       } else {
         checks.push({
@@ -599,13 +604,24 @@ export const nbRuntimePreflight = createServerFn({ method: "POST" })
           status: "pass",
           detail: "ServiceAccount token present",
         });
-        const ns = process.env.NOTEBOOK_K8S_NAMESPACE || "agentswarms-notebooks";
-        const host = process.env.KUBERNETES_SERVICE_HOST || "kubernetes.default.svc";
-        const port = process.env.KUBERNETES_SERVICE_PORT || "443";
-        try {
-          const res = await fetch(`https://${host}:${port}/api/v1/namespaces/${ns}/pods?limit=1`, {
-            headers: { Authorization: `Bearer ${token}` },
+        const sandboxNs = k8sSandboxNamespace();
+        const ns = sandboxNs.name;
+        // Beside the app is a working place for a pod, and usually the wrong
+        // one for users' code: the sandbox namespace's NetworkPolicy and
+        // quota are somewhere else. Only an unset NOTEBOOK_K8S_NAMESPACE
+        // lands here.
+        if (sandboxNs.source !== "env") {
+          checks.push({
+            name: "Sandbox namespace",
+            status: "warn",
+            detail:
+              sandboxNs.source === "pod"
+                ? `NOTEBOOK_K8S_NAMESPACE is not set, so sandboxes are created in the app's own namespace, ${ns}. Unless that is where the sandboxes' NetworkPolicy and quota are, set it to the sandbox namespace (deploy/k8s/notebooks/ creates agentswarms-notebooks).`
+                : `NOTEBOOK_K8S_NAMESPACE is not set and the app pod's namespace is unknown, so sandboxes go to ${ns}`,
           });
+        }
+        try {
+          const res = await k8sFetch(`/api/v1/namespaces/${ns}/pods?limit=1`);
           checks.push({
             name: "Kubernetes API",
             status: res.ok ? "pass" : "fail",

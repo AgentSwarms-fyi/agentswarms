@@ -481,8 +481,9 @@ AGENTSWARMS_IMAGE=ghcr.io/you/agentswarms:1.2.3 DOCGEN_IMAGE=ghcr.io/you/docgen:
 The installer substitutes all three as it applies the manifests, and warns
 before it starts if the current context does not look local while the images
 still do. If your registry needs credentials, create the pull secret first and
-add it to the namespace's `default` ServiceAccount, or set `imagePullSecrets` on
-the Deployments.
+add it to the namespace's `default` ServiceAccount and to `agentswarms`, the
+one the app's pods run as (create it first if the install has not), or set
+`imagePullSecrets` on the Deployments.
 
 **What actually varies between clouds.** The manifests use only core APIs and
 name no StorageClass, so each `PersistentVolumeClaim` takes the cluster's
@@ -567,9 +568,13 @@ is separate again — it needs its own namespace, RBAC and quota, in
 `deploy/k8s/notebooks/`.
 
 **Security posture.** The app image drops to a non-root user, and both app
-Deployments run with `runAsNonRoot`, a read-only root filesystem, all
-capabilities dropped and no API token mounted; `/tmp` is an `emptyDir` because
-the lakehouse engine spills there. Verified in-cluster — `id` reports uid 1000
+Deployments run with `runAsNonRoot`, a read-only root filesystem and all
+capabilities dropped; `/tmp` is an `emptyDir` because the lakehouse engine
+spills there. They run as their own ServiceAccount, `agentswarms`, with its API
+token mounted, because sandboxes on the `k8s` backend and per-run Spark
+clusters are the app calling the Kubernetes API; its RoleBindings allow pods,
+Jobs and Services in the sandbox and Spark namespaces and nothing in its own.
+Every other workload mounts no token. Verified in-cluster — `id` reports uid 1000
 and a write to `/` is refused. The JS sandbox, which runs user-supplied code,
 adds a `NetworkPolicy` denying it egress outright (needs a CNI that enforces
 policy — Docker Desktop's default does not). The per-run Spark driver pods are
@@ -1431,8 +1436,18 @@ kubectl create namespace agentswarms --dry-run=client -o yaml | kubectl apply -f
 kubectl create secret docker-registry ocir --namespace agentswarms --docker-server="$REGION_KEY.ocir.io" --docker-username="$NAMESPACE/oracleidentitycloudservice/you@corp.com" --docker-password='<auth-token>'
 ```
 
+The app's pods run as their own ServiceAccount, so it needs the secret too:
+
+```bash
+kubectl -n agentswarms create serviceaccount agentswarms --dry-run=client -o yaml | kubectl apply -f -
+```
+
 ```bash
 kubectl -n agentswarms patch serviceaccount default -p '{"imagePullSecrets":[{"name":"ocir"}]}'
+```
+
+```bash
+kubectl -n agentswarms patch serviceaccount agentswarms -p '{"imagePullSecrets":[{"name":"ocir"}]}'
 ```
 
 **5. Install AgentSwarms.**

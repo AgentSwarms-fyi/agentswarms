@@ -571,11 +571,11 @@ call fails: it never falls through to another identity.
 
 - **Web identity** exchanges the token at STS (`AssumeRoleWithWebIdentity`,
   an unsigned call) and reads the token file again at every exchange, because
-  the kubelet rotates it. On EKS, give the web Deployment in
-  `deploy/k8s/app/agentswarms.yaml` a ServiceAccount annotated with
+  the kubelet rotates it. On EKS, annotate the `agentswarms` ServiceAccount
+  the app Deployments in `deploy/k8s/app/agentswarms.yaml` run as with
   `eks.amazonaws.com/role-arn`: the EKS webhook mounts the token and sets both
-  variables. `automountServiceAccountToken: false` stays, because the AWS
-  token is a volume of its own.
+  variables. The AWS token is a volume of its own, apart from the Kubernetes
+  API token the sandbox and Spark backends use.
 - **Container credentials** over http go only to the loopback or the ECS / EKS
   Pod Identity agent addresses; any other host must be https. The
   authorization token is read from its file every time.
@@ -680,11 +680,11 @@ another identity.
   checks first that the key belongs to the certificate, and reads the file
   again at every exchange, so a renewed certificate is picked up.
 - **Workload identity** reads the projected token again at every exchange,
-  because the kubelet rotates it. On AKS, give the web Deployment in
-  `deploy/k8s/app/agentswarms.yaml` a ServiceAccount annotated with
-  `azure.workload.identity/client-id` and the pod label
+  because the kubelet rotates it. On AKS, annotate the `agentswarms`
+  ServiceAccount the app Deployments in `deploy/k8s/app/agentswarms.yaml` run
+  as with `azure.workload.identity/client-id`, and give their pods the label
   `azure.workload.identity/use: "true"`: the webhook mounts the token and
-  sets the variables. `automountServiceAccountToken: false` stays.
+  sets the variables.
 - **Managed identity** asks the instance metadata service
   (`169.254.169.254`), or App Service's loopback endpoint, directly: never
   through the proxy and never following a redirect, the same kind of client

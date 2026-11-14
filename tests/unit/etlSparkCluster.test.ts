@@ -7,7 +7,11 @@
 // failure mode of getting them wrong is money spent on pods nobody deletes.
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { sparkDriverManifests, type SparkClusterSettings } from "@/utils/etl/sparkCluster.server";
+import {
+  EXECUTOR_TEMPLATE_DIR,
+  sparkDriverManifests,
+  type SparkClusterSettings,
+} from "@/utils/etl/sparkCluster.server";
 
 const SETTINGS: SparkClusterSettings = {
   provider: "k8s",
@@ -209,5 +213,75 @@ describe("sparkDriverManifests — sizing and placement", () => {
   it("ignores malformed placement rather than failing every run", () => {
     process.env.SPARK_K8S_NODE_SELECTOR = "{not json";
     expect(podOf(build()).spec.nodeSelector).toBeUndefined();
+  });
+
+  it("gives the executors the driver's pull policy: one image, one policy (R488)", () => {
+    expect(conf(build(), "spark.kubernetes.container.image.pullPolicy")).toBe("IfNotPresent");
+    process.env.SPARK_K8S_PULL_POLICY = "Always";
+    const m = build();
+    expect(conf(m, "spark.kubernetes.container.image.pullPolicy")).toBe("Always");
+    expect(
+      (podOf(m).spec.containers[0] as unknown as { imagePullPolicy: string }).imagePullPolicy,
+    ).toBe("Always");
+  });
+
+  it("keeps the driver's selector off the executors, where it would strand them untolerated", () => {
+    // Spark has no setting for an executor's tolerations, so a selector that
+    // reached them without one would leave them Pending on a tainted pool.
+    // Executors' placement belongs in the executor pod template.
+    process.env.SPARK_K8S_NODE_SELECTOR = '{"pool":"spark"}';
+    const cmd = podOf(build()).spec.containers[0].command.join(" ");
+    expect(cmd).not.toContain("node.selector");
+  });
+});
+
+describe("sparkDriverManifests — the executor pod template reaches the driver (R488)", () => {
+  type Mounted = {
+    spec: {
+      volumes: { name: string; configMap?: { name: string } }[];
+      containers: { volumeMounts: { name: string; mountPath: string; readOnly?: boolean }[] }[];
+    };
+  };
+  const mounted = (m: ReturnType<typeof build>) => m.pod as unknown as Mounted;
+
+  it("mounts nothing beside /tmp, and names no template, when none is set", () => {
+    const m = build();
+    expect(mounted(m).spec.volumes.map((v) => v.name)).toEqual(["tmp"]);
+    expect(conf(m, "spark.kubernetes.executor.podTemplateFile")).toBeUndefined();
+  });
+
+  it("mounts the named ConfigMap read-only and hands Spark its executor.yaml", () => {
+    // In client mode the DRIVER reads the template from its own filesystem.
+    // spark-runtime.yaml said to mount its ConfigMap there; the pod had no
+    // way to, so a template worked only when baked into SPARK_IMAGE.
+    process.env.SPARK_K8S_EXECUTOR_POD_TEMPLATE_CONFIGMAP = "spark-executor-template";
+    const m = build();
+    expect(mounted(m).spec.volumes).toContainEqual({
+      name: "executor-template",
+      configMap: { name: "spark-executor-template" },
+    });
+    expect(mounted(m).spec.containers[0].volumeMounts).toContainEqual({
+      name: "executor-template",
+      mountPath: EXECUTOR_TEMPLATE_DIR,
+      readOnly: true,
+    });
+    expect(conf(m, "spark.kubernetes.executor.podTemplateFile")).toBe(
+      `${EXECUTOR_TEMPLATE_DIR}/executor.yaml`,
+    );
+  });
+
+  it("an explicit path wins, beside the mount or without one (a template in the image)", () => {
+    process.env.SPARK_K8S_EXECUTOR_POD_TEMPLATE_CONFIGMAP = "spark-executor-template";
+    process.env.SPARK_K8S_EXECUTOR_POD_TEMPLATE = `${EXECUTOR_TEMPLATE_DIR}/gpu.yaml`;
+    expect(conf(build(), "spark.kubernetes.executor.podTemplateFile")).toBe(
+      `${EXECUTOR_TEMPLATE_DIR}/gpu.yaml`,
+    );
+    delete process.env.SPARK_K8S_EXECUTOR_POD_TEMPLATE_CONFIGMAP;
+    process.env.SPARK_K8S_EXECUTOR_POD_TEMPLATE = "/opt/spark/conf/executor.yaml";
+    const m = build();
+    expect(conf(m, "spark.kubernetes.executor.podTemplateFile")).toBe(
+      "/opt/spark/conf/executor.yaml",
+    );
+    expect(mounted(m).spec.volumes.map((v) => v.name)).toEqual(["tmp"]);
   });
 });

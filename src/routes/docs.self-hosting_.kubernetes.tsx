@@ -346,8 +346,10 @@ kubectl create secret docker-registry ocir --namespace agentswarms \
   --docker-server="$REGION_KEY.ocir.io" \
   --docker-username="$NAMESPACE/oracleidentitycloudservice/you@corp.com" \
   --docker-password='<auth-token>'
-kubectl -n agentswarms patch serviceaccount default \
-  -p '{"imagePullSecrets":[{"name":"ocir"}]}'
+# The app's pods run as their own ServiceAccount, so it needs the secret too.
+kubectl -n agentswarms create serviceaccount agentswarms --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n agentswarms patch serviceaccount default -p '{"imagePullSecrets":[{"name":"ocir"}]}'
+kubectl -n agentswarms patch serviceaccount agentswarms -p '{"imagePullSecrets":[{"name":"ocir"}]}'
 
 # 8. Object Storage through its S3 compatibility endpoint.
 oci os bucket create --compartment-id "$COMPARTMENT" --name agentswarms-lake`}</Code>
@@ -507,11 +509,13 @@ kubectl apply -f deploy/k8s/app/agentswarms.yaml`}</Code>
             body: (
               <>
                 The image drops to a non-root user, and both app Deployments run <C>runAsNonRoot</C>{" "}
-                with a read-only root filesystem, all capabilities dropped and no Kubernetes API
-                token mounted — <C>/tmp</C> is an <C>emptyDir</C> because the lakehouse engine
-                spills there. The JS sandbox, which runs user-supplied code, adds a{" "}
-                <C>NetworkPolicy</C> denying it egress outright (your CNI has to enforce policy —
-                Docker Desktop&rsquo;s default does not).
+                with a read-only root filesystem and all capabilities dropped — <C>/tmp</C> is an{" "}
+                <C>emptyDir</C> because the lakehouse engine spills there. They run as their own
+                ServiceAccount with its Kubernetes API token mounted, because sandboxes and per-run
+                Spark clusters are the app calling the API; it may act only in the sandbox and Spark
+                namespaces, and no other workload mounts a token. The JS sandbox, which runs
+                user-supplied code, adds a <C>NetworkPolicy</C> denying it egress outright (your CNI
+                has to enforce policy — Docker Desktop&rsquo;s default does not).
               </>
             ),
           },

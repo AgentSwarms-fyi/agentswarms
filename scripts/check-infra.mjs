@@ -238,6 +238,102 @@ note(
   `${manifests.length} Kubernetes manifests, ${docs.length} documents: selectors, images, requests, ${refs.size} secret references resolved`,
 );
 
+// ── 4b. the app's Kubernetes identity: the RBAC names who really calls ──────
+// The app calls the API for sandboxes (NOTEBOOK_RUNTIME_BACKEND=k8s) and
+// per-run Spark clusters (SPARK_PROVIDER=k8s), and setup-k8s.sh turns both on.
+// Until R488 the manifests disagreed about who that was: the app ran as
+// `default` with no token mounted, the sandbox RoleBinding named an
+// `agentswarms` account nothing ran as, the Spark one named an account in
+// another namespace, and NOTEBOOK_K8S_NAMESPACE was unset, so the app would
+// have made sandboxes in its own namespace, where it had no rights at all.
+{
+  const podSpecOf = (d) =>
+    d.kind === "CronJob"
+      ? d.spec?.jobTemplate?.spec?.template?.spec
+      : ["Deployment", "StatefulSet", "DaemonSet", "Job"].includes(d.kind)
+        ? d.spec?.template?.spec
+        : undefined;
+  const pods = docs.map(({ f, d }) => ({ f, d, pod: podSpecOf(d) })).filter((p) => p.pod);
+  const saOf = (pod) => pod.serviceAccountName ?? pod.serviceAccount ?? "default";
+  // Accounts some pod can run as: a manifest's workload, or a pod the app
+  // makes itself (the per-run Spark driver; its defaults are in the code).
+  const runnable = new Set(pods.map(({ d, pod }) => `${ns(d)}/${saOf(pod)}`));
+  const spark = rd("src/utils/etl/sparkCluster.server.ts");
+  const sparkNs = /SPARK_K8S_NAMESPACE\?\.trim\(\) \|\| "([a-z0-9-]+)"/.exec(spark)?.[1];
+  const sparkSa = /SPARK_K8S_SERVICE_ACCOUNT\?\.trim\(\) \|\| "([a-z0-9-]+)"/.exec(spark)?.[1];
+  if (sparkNs && sparkSa) runnable.add(`${sparkNs}/${sparkSa}`);
+  else problem("check-infra: could not read the Spark driver's default namespace and account");
+
+  const bindings = docs.filter(({ d }) => ["RoleBinding", "ClusterRoleBinding"].includes(d.kind));
+  for (const { f, d } of bindings) {
+    for (const s of d.subjects ?? []) {
+      if (s.kind !== "ServiceAccount") continue;
+      const who = `${s.namespace ?? ns(d)}/${s.name}`;
+      if (!runnable.has(who))
+        problem(
+          `${f}: ${nameOf(d)} grants ServiceAccount ${who}, which no pod runs as — the rights go to nobody`,
+        );
+    }
+  }
+  // May `who` do `verb` on `resource` in namespace `where`?
+  const grants = (who, where, resource, verb) =>
+    bindings.some(
+      ({ d: b }) =>
+        ns(b) === where &&
+        (b.subjects ?? []).some(
+          (s) => s.kind === "ServiceAccount" && `${s.namespace ?? ns(b)}/${s.name}` === who,
+        ) &&
+        docs.some(
+          ({ d: r }) =>
+            r.kind === b.roleRef?.kind &&
+            r.metadata?.name === b.roleRef?.name &&
+            (r.kind === "ClusterRole" || ns(r) === where) &&
+            (r.rules ?? []).some(
+              (rule) =>
+                (rule.resources ?? []).includes(resource) && (rule.verbs ?? []).includes(verb),
+            ),
+        ),
+    );
+
+  const SA_CA = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt";
+  const app = pods.filter(({ pod }) =>
+    (pod.containers ?? []).some((c) => /\/agentswarms:[^/]*$/.test(String(c.image ?? ""))),
+  );
+  if (!app.length)
+    problem("deploy/k8s: no workload runs the app image, so its identity is unchecked");
+  for (const { f, d, pod } of app) {
+    const who = `${ns(d)}/${saOf(pod)}`;
+    const env = Object.fromEntries(
+      (pod.containers ?? []).flatMap((c) => (c.env ?? []).map((e) => [e.name, e.value])),
+    );
+    if (pod.automountServiceAccountToken === false)
+      problem(
+        `${f}: ${nameOf(d)} mounts no API token, so the k8s sandbox and Spark backends cannot call the API`,
+      );
+    if (env.NODE_EXTRA_CA_CERTS !== SA_CA)
+      problem(`${f}: ${nameOf(d)} does not trust the cluster CA (NODE_EXTRA_CA_CERTS=${SA_CA})`);
+    const sandboxNs = env.NOTEBOOK_K8S_NAMESPACE;
+    if (!sandboxNs)
+      problem(
+        `${f}: ${nameOf(d)} sets no NOTEBOOK_K8S_NAMESPACE, so sandboxes go in its own namespace (${ns(d)})`,
+      );
+    else if (!grants(who, sandboxNs, "pods", "create"))
+      problem(
+        `${f}: ${nameOf(d)} runs as ${who}, which may not create pods in ${sandboxNs}, its NOTEBOOK_K8S_NAMESPACE`,
+      );
+    const sparkWhere = env.SPARK_K8S_NAMESPACE ?? sparkNs;
+    if (docs.some(({ d: n }) => n.kind === "Namespace" && n.metadata?.name === sparkWhere))
+      for (const resource of ["pods", "services"])
+        if (!grants(who, sparkWhere, resource, "create"))
+          problem(
+            `${f}: ${nameOf(d)} runs as ${who}, which may not create ${resource} in ${sparkWhere}, where it makes Spark drivers`,
+          );
+  }
+  note(
+    `${bindings.length} RoleBindings name accounts pods run as; ${app.length} app workloads hold a token and the rights their sandbox and Spark namespaces need`,
+  );
+}
+
 // ── 5. characters a strict YAML reader refuses ──────────────────────────────
 // Windows' compose parsed a file carrying U+0080 U+0094 — an em-dash that went
 // through a bad decode in an editing script — and Linux's rejected it with
