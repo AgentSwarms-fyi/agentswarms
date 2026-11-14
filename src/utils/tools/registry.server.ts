@@ -22,6 +22,7 @@ import {
   sqlQueryTool,
 } from "./sql.server";
 import { SQL_SCHEMA_SUMMARY_MAX_CHARS, summarizeTablesForPrompt } from "@/lib/sqlSchemaSummary";
+import { columnsVisibleTo } from "@/utils/data/sharedDatasets.server";
 import { metricQueryTool, runMetricQuery, semanticCatalogForCtx } from "./metric.server";
 import { ontologyCatalogForCtx, ontologyQueryTool, runOntologyTool } from "./ontology.server";
 import { auditEvent } from "@/utils/audit.server";
@@ -2019,7 +2020,7 @@ export async function resolveAgentTools(
     // but the schemas were already in the prompt.
     const dtBase = ctx.sb
       .from("user_data_tables")
-      .select("name, columns")
+      .select("id, name, columns, user_id, is_sample")
       .not("name", "like", "__upload_%");
     const dtQuery = await scopeToVisibleTables(ctx, dtBase);
     const dt = dtQuery ? (await dtQuery).data : null;
@@ -2030,16 +2031,28 @@ export async function resolveAgentTools(
         ? (dt ?? []).filter((t) => allowedTableNames.includes(t.name))
         : (dt ?? []);
     if (visible.length > 0) {
-      // Budgeted (R12): fifteen tables of forty columns were 4,300 prompt
-      // tokens on every turn. Columns while the budget lasts, names after,
-      // list_data_tables for the rest — sqlSchemaSummary.ts says why.
-      const summary = summarizeTablesForPrompt(
+      // The columns as THIS caller may see them (R489). `columns` is the
+      // owner's list, so for a dataset shared under a column mask it named the
+      // masked columns in the prompt on every turn, while readUserTable
+      // refused to serve them. Same grants and mask as the data path; a
+      // shared table whose grant cannot be read is listed without columns.
+      const seen = await columnsVisibleTo(
+        ctx.sb,
+        ctx.scopeUserId ?? ctx.userId,
         visible.map((t) => ({
-          name: t.name,
+          id: t.id,
+          user_id: t.user_id,
+          is_sample: t.is_sample,
           columns: Array.isArray(t.columns)
             ? (t.columns as Array<{ name: string; type: string }>)
             : [],
         })),
+      );
+      // Budgeted (R12): fifteen tables of forty columns were 4,300 prompt
+      // tokens on every turn. Columns while the budget lasts, names after,
+      // list_data_tables for the rest — sqlSchemaSummary.ts says why.
+      const summary = summarizeTablesForPrompt(
+        visible.map((t) => ({ name: t.name, columns: seen.get(t.id) ?? [] })),
         intFrom(process.env.SQL_TOOL_SCHEMA_MAX_CHARS, SQL_SCHEMA_SUMMARY_MAX_CHARS),
       );
       const sqlTool: ToolDef = {

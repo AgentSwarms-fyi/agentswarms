@@ -19,6 +19,28 @@ import type { Database } from "@/integrations/supabase/types";
 export type MaskableColumn = { name: string; type: "number" | "string" | "date" };
 export type MaskableRow = Record<string, unknown>;
 
+/**
+ * The lower-cased names a viewer's grants on ONE dataset hide.
+ *
+ * The single definition of the mask, for the rows path (restrictSharedDataset)
+ * and the listing path (columnsVisibleTo) alike. Masks INTERSECT: a column is
+ * hidden only when every applicable grant hides it. Read from the grants as
+ * stored — attribute resolution rewrites row filters, never a column mask.
+ */
+function maskedColumns(
+  grants: { column_mask: unknown }[],
+  intersectColumnMasks: (masks: unknown[]) => string[],
+): Set<string> {
+  return new Set(
+    intersectColumnMasks(grants.map((g) => g.column_mask)).map((m) => m.toLowerCase()),
+  );
+}
+
+/** `columns` minus the masked ones, matched without regard to case. */
+function withoutMasked<C extends { name: string }>(columns: C[], mask: Set<string>): C[] {
+  return mask.size === 0 ? columns : columns.filter((c) => !mask.has(c.name.toLowerCase()));
+}
+
 /** Dataset ids the viewer holds an IAM grant for. */
 export async function grantedDatasetIds(
   sb: SupabaseClient<Database>,
@@ -74,8 +96,7 @@ export async function restrictSharedDataset(
       mine = resolveAttributeGrants(mine, await attributesFor(viewerId, keys));
     }
 
-    const mask = intersectColumnMasks(mine.map((g) => g.column_mask));
-    const maskSet = new Set(mask.map((m) => m.toLowerCase()));
+    const maskSet = maskedColumns(mine, intersectColumnMasks);
 
     // Row filters: one unfiltered grant admits everything (mergeGrantRowFilters
     // returns null), and the surviving filters union.
@@ -88,7 +109,7 @@ export async function restrictSharedDataset(
     const keptRows = applyRowFilters(rows, mergeGrantRowFilters(mine)) as MaskableRow[];
     if (maskSet.size === 0) return { columns, rows: keptRows };
     return {
-      columns: columns.filter((c) => !maskSet.has(c.name.toLowerCase())),
+      columns: withoutMasked(columns, maskSet),
       rows: keptRows.map((r) => {
         const out: MaskableRow = {};
         for (const [k, v] of Object.entries(r)) if (!maskSet.has(k.toLowerCase())) out[k] = v;
@@ -107,4 +128,76 @@ export async function restrictSharedDataset(
     if (e instanceof Error && /could not read access grants/i.test(e.message)) throw e;
     return { columns: [], rows: [] };
   }
+}
+
+/** A dataset as a listing has it: who owns it, and the owner's column list. */
+export type ListedDataset<C extends { name: string }> = {
+  id: string;
+  user_id: string | null;
+  is_sample: boolean | null;
+  columns: C[];
+};
+
+/**
+ * Each dataset's columns as `viewerId` may see them, for a LISTING — a tool
+ * description, a picker, a prompt's schema section — where no rows are read.
+ *
+ * user_data_tables.columns is the OWNER's column list. Shown to a grantee as it
+ * is, it names every column the grant masks: not the values, but in a prompt
+ * the names are the leak. The sql_query tool description did exactly that on
+ * every turn (R489) while the data path refused to serve those columns.
+ *
+ * Own datasets and public samples come back unchanged. A dataset SHARED with
+ * the viewer (neither a sample nor theirs, the predicate every reader uses)
+ * comes back through the same grants and the same mask restrictSharedDataset
+ * applies, read once for the whole list. Attribute tokens are not resolved:
+ * they rewrite row filters, and a listing reads no rows.
+ *
+ * FAILS CLOSED, and does not throw. A shared dataset with no applicable grant
+ * lists no columns, and so does every shared dataset in the list when the
+ * grants cannot be read. Unlike restrictSharedDataset this swallows the read
+ * failure: a table named without its columns is still a usable listing, and
+ * READING the table goes through restrictSharedDataset, which reports the
+ * reason to whoever asked. The failure is logged here.
+ */
+export async function columnsVisibleTo<C extends { name: string }>(
+  sb: SupabaseClient<Database>,
+  viewerId: string | null | undefined,
+  tables: ListedDataset<C>[],
+): Promise<Map<string, C[]>> {
+  const out = new Map<string, C[]>();
+  const shared: ListedDataset<C>[] = [];
+  for (const t of tables) {
+    if (t.is_sample || (!!viewerId && t.user_id === viewerId)) {
+      out.set(t.id, t.columns);
+    } else {
+      // Nothing until a grant says otherwise.
+      out.set(t.id, []);
+      shared.push(t);
+    }
+  }
+  if (shared.length === 0 || !viewerId) return out;
+  try {
+    const { intersectColumnMasks } = await import("@/lib/biDashboards");
+    const { readApplicableGrants } = await import("@/utils/iam.server");
+    const grants = await readApplicableGrants(
+      sb,
+      viewerId,
+      "data_table",
+      shared.map((t) => t.id),
+    );
+    for (const t of shared) {
+      const mine = grants.filter((g) => g.resource_id === t.id);
+      if (mine.length === 0) continue;
+      out.set(t.id, withoutMasked(t.columns, maskedColumns(mine, intersectColumnMasks)));
+    }
+  } catch (e) {
+    for (const t of shared) out.set(t.id, []);
+    console.warn(
+      `[shared-datasets] columns of ${shared.length} shared dataset(s) left out of a listing: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    );
+  }
+  return out;
 }

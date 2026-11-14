@@ -964,20 +964,35 @@ export const semanticModelDependents = createServerFn({ method: "GET" })
 export const semanticListLocalSources = createServerFn({ method: "GET" })
   .validator((d: { accessToken: string }) => d)
   .handler(async ({ data }) => {
-    const { sb } = await requireUser(data.accessToken);
+    const { sb, userId } = await requireUser(data.accessToken);
     const { data: rows, error } = await sb
       .from("user_data_tables")
-      .select("id, name, columns, is_sample")
+      .select("id, name, columns, is_sample, user_id")
       .order("name");
     if (error) throw new Error(error.message);
+    // The columns as this caller may see them (R489). RLS returns a dataset
+    // shared with them, but its `columns` is the owner's list — so the picker,
+    // and the "generate with AI" prompt built from it, named the columns the
+    // grant masks. Same grants and mask as every read of the rows.
+    const { columnsVisibleTo } = await import("@/utils/data/sharedDatasets.server");
+    const seen = await columnsVisibleTo(
+      sb,
+      userId,
+      (rows ?? []).map((r) => ({
+        id: r.id as string,
+        user_id: r.user_id,
+        is_sample: r.is_sample,
+        columns: Array.isArray(r.columns)
+          ? (r.columns as Array<{ name?: string; type?: string }>)
+              .map((c) => ({ name: String(c?.name ?? ""), type: String(c?.type ?? "string") }))
+              .filter((c) => c.name)
+          : [],
+      })),
+    );
     return (rows ?? []).map((r) => ({
       id: r.id as string,
       name: r.name as string,
       is_sample: !!r.is_sample,
-      columns: Array.isArray(r.columns)
-        ? (r.columns as Array<{ name?: string; type?: string }>)
-            .map((c) => ({ name: String(c?.name ?? ""), type: String(c?.type ?? "string") }))
-            .filter((c) => c.name)
-        : [],
+      columns: seen.get(r.id as string) ?? [],
     }));
   });

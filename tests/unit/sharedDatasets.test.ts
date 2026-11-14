@@ -19,6 +19,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  columnsVisibleTo,
   restrictSharedDataset,
   type MaskableColumn,
   type MaskableRow,
@@ -362,5 +363,98 @@ describe("restrictSharedDataset — masks and filters together", () => {
       { region: "west", name: "A" },
       { region: "east", name: "B" },
     ]);
+  });
+});
+
+// R489. A LISTING (the sql_query tool description, the doc-gen context, the
+// semantic-model source picker) shows a dataset's columns without reading its
+// rows, and used to show the owner's full list. columnsVisibleTo is the
+// listing's half of the rule; these pin it to the SAME answer restrictSharedDataset
+// gives for the same grants, so the two cannot drift.
+describe("columnsVisibleTo — the listing hides what the rows path hides", () => {
+  const userGrant = (column_mask: string[] | null, principal_id = VIEWER): Grant => ({
+    principal_type: "user",
+    principal_id,
+    row_filter: null,
+    column_mask,
+  });
+  // The listing reads several datasets' grants at once and tells them apart by
+  // resource_id, which restrictSharedDataset (one dataset) never needs.
+  const withId = (gs: Grant[]) => gs.map((g) => ({ ...g, resource_id: "table-1" }));
+  const listed = (db: unknown) =>
+    columnsVisibleTo(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      db as any,
+      VIEWER,
+      [{ id: "table-1", user_id: "owner-1", is_sample: false, columns }],
+    ).then((m) => m.get("table-1"));
+
+  const cases: [string, { groups?: string[]; grants: Grant[] }][] = [
+    ["no grant", { grants: [] }],
+    ["another user's grant", { grants: [userGrant(null, "someone-else")] }],
+    ["an unmasked grant", { grants: [userGrant(null)] }],
+    ["a mask", { grants: [userGrant(["salary"])] }],
+    ["a mask in another case", { grants: [userGrant(["SALARY"])] }],
+    [
+      "two masks (they intersect)",
+      { grants: [userGrant(["salary", "name"]), userGrant(["salary"])] },
+    ],
+    [
+      "a masked grant to a group the viewer is in",
+      {
+        groups: ["group-a"],
+        grants: [
+          {
+            principal_type: "group",
+            principal_id: "group-a",
+            row_filter: null,
+            column_mask: ["region"],
+          },
+        ],
+      },
+    ],
+  ];
+
+  for (const [label, opts] of cases) {
+    it(`agrees with restrictSharedDataset: ${label}`, async () => {
+      const db = fakeDb({ ...opts, grants: withId(opts.grants) });
+      const rowsPath = await run(db);
+      expect(await listed(db)).toEqual(rowsPath.columns);
+    });
+  }
+
+  it("lists no columns, and does not throw, when the grants read fails", async () => {
+    // restrictSharedDataset re-raises this (R239) so a reader hears why. A
+    // listing still has every other table to show: the table stays, its
+    // columns go, and reading it reports the reason.
+    expect(await listed(fakeDb({ failOn: "iam_resource_grants" }))).toEqual([]);
+    expect(await listed(fakeDb({ failOn: "iam_group_members" }))).toEqual([]);
+    expect(await listed(fakeDb({ throwOn: "iam_resource_grants" }))).toEqual([]);
+  });
+
+  it("leaves own datasets and samples alone, without reading a grant", async () => {
+    const reads: string[] = [];
+    const out = await columnsVisibleTo(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { from: (t: string) => (reads.push(t), fakeDb({}).from(t)) } as any,
+      VIEWER,
+      [
+        { id: "mine", user_id: VIEWER, is_sample: false, columns },
+        { id: "sample", user_id: null, is_sample: true, columns },
+      ],
+    );
+    expect(out.get("mine")).toEqual(columns);
+    expect(out.get("sample")).toEqual(columns);
+    expect(reads).toEqual([]);
+  });
+
+  it("treats every non-sample dataset as shared when there is no viewer", async () => {
+    const out = await columnsVisibleTo(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      fakeDb({ grants: withId([userGrant(null)]) }) as any,
+      null,
+      [{ id: "table-1", user_id: null, is_sample: false, columns }],
+    );
+    expect(out.get("table-1")).toEqual([]);
   });
 });

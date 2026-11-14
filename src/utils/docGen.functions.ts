@@ -316,12 +316,30 @@ export const gatherDocContext = createServerFn({ method: "POST" })
           .order("updated_at", { ascending: false })
           .limit(TABLE_CANDIDATES);
 
-        const columnsOf = (t: { columns: unknown }): string[] =>
-          Array.isArray(t.columns)
-            ? (t.columns as unknown[])
+        const namesIn = (columns: unknown): string[] =>
+          Array.isArray(columns)
+            ? (columns as unknown[])
                 .map((c) => (typeof c === "string" ? c : ((c as { name?: string })?.name ?? "")))
                 .filter(Boolean)
             : [];
+        // The columns as THIS caller may see them (R489). `columns` is the
+        // owner's list, so a dataset shared under a column mask put the masked
+        // columns' names in the planner's prompt (its sample rows were already
+        // masked, by shared_dataset_rows). Applied before ranking, so a masked
+        // column cannot lift a table up the list either.
+        const { columnsVisibleTo } = await import("@/utils/data/sharedDatasets.server");
+        const seen = await columnsVisibleTo(
+          sb,
+          userId,
+          (candidates ?? []).map((t) => ({
+            id: t.id,
+            user_id: t.user_id,
+            is_sample: t.is_sample,
+            columns: namesIn(t.columns).map((name) => ({ name })),
+          })),
+        );
+        const columnsOf = (t: { id: string }): string[] =>
+          (seen.get(t.id) ?? []).map((c) => c.name);
 
         const promptTerms = new Set(
           data.prompt
@@ -329,7 +347,7 @@ export const gatherDocContext = createServerFn({ method: "POST" })
             .split(/[^a-z0-9]+/)
             .filter((w) => w.length > 2),
         );
-        const scoreTable = (t: { name: string; is_sample?: boolean | null; columns: unknown }) => {
+        const scoreTable = (t: { id: string; name: string; is_sample?: boolean | null }) => {
           const nameTerms = t.name
             .toLowerCase()
             .split(/[^a-z0-9]+/)
