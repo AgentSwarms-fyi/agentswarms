@@ -14,6 +14,24 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
+Nothing yet.
+
+## 1.7.0 — 2026-11-14
+
+AgentSwarms 1.7.0 is the first release published as images, and the first that deploys
+to AWS without assembling it by hand. Every image is built for amd64 and arm64,
+smoke-tested, scanned and signed. An install picks a release with `AGENTSWARMS_VERSION`,
+and rolls back the same way. The schema now installs on a plain PostgreSQL such as
+Amazon RDS. `deploy/aws` deploys the whole platform with Terraform: as VMs behind a load
+balancer, on Amazon ECS, or on EKS from the new Helm chart. Users' code runs on Fargate
+there, or on a node pool of its own. Behind a load balancer, restarts and rolling
+deploys no longer cut replies off, and the scheduler runs once across the fleet. The
+lakehouse gains Iceberg v3, time travel and Iceberg targets on the Spark engine, and the
+catalog reads Hive Metastore and AWS Glue. On security: credentials, traces and
+approvals are sealed under per-user and customer keys, sandboxes are isolated from one
+another, and a dynamic scan of the running app found nothing exploitable. Read Upgrading
+before you move: several migrations must be applied in the order given there.
+
 ### Changed
 
 - **The app image carries no install's settings, and only what the server runs
