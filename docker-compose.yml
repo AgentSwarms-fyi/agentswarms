@@ -477,7 +477,7 @@ services:
   # construction. Empty/unset SPARK_CONNECT_TOKEN = no auth, so an existing
   # deployment keeps working unchanged.
   spark-connect:
-    image: apache/spark:4.1.4-python3@sha256:847f91f8bb2f28d632064dfe632d423020f8fd60b27c7704c0e5bf5b0c6432c7
+    image: apache/spark:4.3.0-python3@sha256:3dedc5c8665a6f472e2f0a3a828207a79a30785090ef325d3af219cb90a73d63
     ports:
       - "127.0.0.1:15002:15002"
     # root only for the one-shot chown in the command below; the JVM runs as 185.
