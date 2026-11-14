@@ -605,6 +605,17 @@ npx cross-env NODE_OPTIONS=--max-old-space-size=8192 vite build --sourcemap fals
 
 Docker builds are unaffected — the image builds on Linux.
 
+**A Docker build spends minutes "transferring context" before it starts.**
+Docker sends the whole checkout to the builder first, except what
+`.dockerignore` leaves out, and a folder that is not part of the source makes
+every build wait for it, worst on a hard disk. `.dockerignore` already leaves out
+`node_modules`, `.git`, `.claude` (agent worktrees: whole copies of the
+repository), `backups`, `supabase-docker`, Terraform's files and test output.
+`docker compose build --progress plain agentswarms` shows the size it sends on
+its `transferring context` line; move anything else large out of the checkout,
+or add it to `.dockerignore`. A build that sent the context once sends only what
+changed the next time.
+
 **"Invalid API key" when signing up or logging in.** The publishable and
 secret keys are swapped (or one was truncated when copying) in `.env`.
 `SUPABASE_PUBLISHABLE_KEY` and both `VITE_SUPABASE_*_KEY` vars must hold

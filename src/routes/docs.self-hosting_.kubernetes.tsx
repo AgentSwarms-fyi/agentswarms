@@ -61,6 +61,18 @@ function SelfHostingKubernetesPage() {
         install guide.
       </P>
 
+      <H3 id="helm-chart">The Helm chart</H3>
+      <P>
+        <C>deploy/helm/agentswarms</C> installs the app, Supabase&apos;s services against a
+        PostgreSQL you run elsewhere (a managed one, for instance), and the sandboxes in a namespace
+        of their own, from a release&apos;s published images. Its settings, with what each is for,
+        are in the chart&apos;s <C>values.yaml</C>. On AWS the EKS target builds the cluster and
+        installs it for you; see <DocLink to="/docs/self-hosting/aws">AWS</DocLink>. On another
+        cluster it runs with its Ingress in place of the load balancer that Terraform makes there.
+        The one-command install below is the other way in: it runs Supabase inside the cluster as
+        well, from the community chart, with the manifests under <C>deploy/k8s</C>.
+      </P>
+
       <H3 id="kubernetes">Kubernetes, in detail</H3>
       <P>
         <strong>Fully self-hosted, one command.</strong> Supabase runs in your cluster too — nothing
@@ -85,19 +97,26 @@ kubectl -n agentswarms port-forward svc/agentswarms 8080:80`}</Code>
         <C>SUPABASE_CHART_VERSION</C>; our own four Deployments stay as plain manifests.
       </Callout>
       <P>
-        <strong>Deploying to a cloud cluster? Push the images first.</strong> The command above
-        defaults to the three images this repo builds locally. A local cluster — Docker Desktop,
-        kind, minikube, k3d — shares the machine&rsquo;s image store and runs them as they are. No
-        other cluster can: its nodes pull from a registry, and an image that exists only on your
-        laptop ends in <C>ImagePullBackOff</C>. Push all three and name them:
+        <strong>Deploying to a cloud cluster? Run a release.</strong> With{" "}
+        <C>AGENTSWARMS_VERSION</C> set, the installer uses that release&apos;s published, signed
+        images from <C>ghcr.io/agentswarms-fyi</C> (or <C>AGENTSWARMS_REGISTRY</C>, your mirror).
+        Nothing is built, and any cluster can pull them:
       </P>
-      <Code lang="bash">{`AGENTSWARMS_IMAGE=ghcr.io/you/agentswarms:1.2.3 \\
-DOCGEN_IMAGE=ghcr.io/you/docgen:1.2.3 \\
-JS_SANDBOX_IMAGE=ghcr.io/you/js-sandbox:1.2.3 \\
+      <Code lang="bash">{`AGENTSWARMS_VERSION=1.7.0 ADMIN_EMAIL=you@corp.com ADMIN_PASSWORD='...' bash scripts/setup-k8s.sh`}</Code>
+      <P>
+        Without a version the images are the ones this repo builds locally. A local cluster — Docker
+        Desktop, kind, minikube, k3d — shares the machine&rsquo;s image store and runs them as they
+        are. No other cluster can: its nodes pull from a registry, and an image that exists only on
+        your laptop ends in <C>ImagePullBackOff</C>. To run your own builds there, push them and
+        name them:
+      </P>
+      <Code lang="bash">{`AGENTSWARMS_IMAGE=registry.example.com/agentswarms:mine \\
+DOCGEN_IMAGE=registry.example.com/docgen:mine \\
+JS_SANDBOX_IMAGE=registry.example.com/js-sandbox:mine \\
 ADMIN_EMAIL=you@corp.com ADMIN_PASSWORD='...' bash scripts/setup-k8s.sh`}</Code>
       <P>
-        The installer substitutes all three as it applies the manifests, and warns before it starts
-        if the current context does not look local while the images still do. Beyond that, the
+        The installer substitutes them as it applies the manifests, and warns before it starts if
+        the current context does not look local while the images still do. Beyond that, the
         manifests use only core APIs and name no <C>StorageClass</C>, so every volume takes the
         cluster&rsquo;s default. What still needs a decision per cloud: an Ingress or{" "}
         <C>LoadBalancer</C> in front of <C>svc/agentswarms</C> and Kong; a CNI that actually
@@ -146,15 +165,16 @@ ADMIN_EMAIL=you@corp.com ADMIN_PASSWORD='...' bash scripts/setup-k8s.sh`}</Code>
         ]}
       />
       <P>
-        Push <strong>five</strong> images, not three, if you use the developer workspace, ETL or the
-        ML platform: the notebook gateway (<C>./services/notebook-gateway</C>) is named in{" "}
+        If you build your own, push <strong>five</strong> images, not three, if you use the
+        developer workspace, ETL or the ML platform: the notebook gateway (
+        <C>./services/notebook-gateway</C>) is named in{" "}
         <C>deploy/k8s/notebooks/notebook-runtime.yaml</C>, and the runtime image (
         <C>./docker/notebook-runtime</C>) in <C>NOTEBOOK_RUNTIME_IMAGE</C>. Training, prediction and
         pipeline runs are all batch pods in that namespace. The build loop is the same everywhere;
         only the registry host changes.
       </P>
       <Code lang="bash">{`export REGISTRY=<your registry host and path>
-export TAG=1.6.0
+export TAG=mine
 docker build -t "$REGISTRY/agentswarms:$TAG" .
 docker build -t "$REGISTRY/docgen:$TAG" ./docgen-service
 docker build -t "$REGISTRY/js-sandbox:$TAG" ./services/js-sandbox

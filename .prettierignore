@@ -10,6 +10,9 @@ routeTree.gen.ts
 # bytes without changing the data, and the --check that keeps it in step with
 # the pages compares exactly those bytes.
 src/components/docs/docsIndex.ts
+# Generated from .env.example by scripts/build-settings-reference.mjs, for the
+# same reason.
+src/components/docs/settingsReference.ts
 
 # The licence is canonical upstream text. Formatting it changes nothing legally
 # but stops LICENSE.md diffing clean against the published Elastic License 2.0,

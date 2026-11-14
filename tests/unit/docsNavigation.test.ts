@@ -100,7 +100,14 @@ describe("page families — a long guide is an overview and its sub-pages", () =
 
   it("the ML and self-hosting guides were split", () => {
     expect(subPages.filter((f) => f.startsWith("docs.ml_."))).toHaveLength(5);
-    expect(subPages.filter((f) => f.startsWith("docs.self-hosting_."))).toHaveLength(3);
+    // All settings and AWS joined in R485.
+    expect(subPages.filter((f) => f.startsWith("docs.self-hosting_.")).sort()).toEqual([
+      "docs.self-hosting_.aws.tsx",
+      "docs.self-hosting_.configuration.tsx",
+      "docs.self-hosting_.kubernetes.tsx",
+      "docs.self-hosting_.operations.tsx",
+      "docs.self-hosting_.settings.tsx",
+    ]);
   });
 
   it.each(subPages)(

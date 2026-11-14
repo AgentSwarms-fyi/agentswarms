@@ -14,8 +14,55 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
+### Added
+
+- **Every setting, in the app** (R485). Docs → Self-hosting → All settings lists
+  every environment variable the server reads, with what each does, generated
+  from `.env.example` so the two cannot drift; a filter finds one by name or
+  purpose, and the docs search finds each name. `.env.example` gained the 80
+  settings it was missing, among them the ECS sandbox backend's, the Kubernetes
+  placement and Spark driver settings, the upload, prep, data-quality and
+  dataset-version caps, and the ML explanation and serving limits. The docs check
+  now also fails when the server reads a variable `.env.example` does not name
+  (a short list of names the app sets for itself is exempt, each with its
+  reason): the old checks proved that what the docs said was true, and could not
+  see what they left out.
+- **The AWS deploys, in the app** (R485). Self-hosting → AWS covers the three
+  Terraform targets, the sizes and their cost, an apply from start to sign-in,
+  HTTPS, day two, and the local rehearsal. Install & deploy now says how to run a
+  published release (`AGENTSWARMS_VERSION`, signed images, `cosign verify`), the
+  Kubernetes page starts with the Helm chart and runs a release instead of asking
+  for pushed images, and Operations describes upgrading and rolling back a
+  release, and `EARLY_HEADERS_AFTER_MS` behind CloudFront.
+- **Rehearse the AWS deploys locally, on AWS Emulator** (R484).
+  `bash deploy/aws/emulator/run.sh <ecs|vm|eks> <plan|apply|destroy> <dir>`
+  applies a copy of a Terraform root against the emulator in Docker: an emulated
+  account, nothing sent to AWS, nothing billed. `ecs` applied all 169 resources,
+  `vm` 139 and `eks` its 96 AWS ones (not the Helm releases). Where the emulator
+  differs from AWS the copy bends, never the roots; docs/deploy/AWS.md lists each
+  difference, two of them open emulator issues (aws/aws-emulator#46, #56).
+
 ### Fixed
 
+- **The AWS Terraform could not be applied** (R484). The emulator's first run
+  found two bugs that would have stopped the first apply on a real account:
+  `modules/sandboxes` decided a `count` from an id the network module had not
+  made yet, which cannot be planned; and four security group descriptions had an
+  apostrophe, which EC2 refuses. Each has a test.
+- **Wrong statements in the docs** (R485), found while writing the missing
+  settings: self-calls fall back to port 8080, not `$PORT`; `NOTEBOOK_DOCKER_HOST`
+  is an http URL (default `http://notebook-docker-proxy:2375`), not a unix socket;
+  an unset `NOTEBOOK_K8S_NAMESPACE` means the app pod's own namespace first;
+  the Spark image is 4.1.4, not 4.2.0; the egress allow-list path is in the app's
+  container, not the proxy's; the Spark sizes apply only under `SPARK_PROVIDER=k8s`,
+  and the Spark node selector, tolerations, pull policy and uid reach the driver
+  pod only; the in-app Upgrades entry said a rollback needs the backup, where a
+  release rolls back by its version.
+- **Local image builds sent data they never use** (R484, R485). `.dockerignore`
+  now leaves out agent worktrees (`.claude`, whole copies of the repository:
+  with twenty-three of them a build took hours to start on a slow disk), nested
+  `node_modules`, `backups`, `supabase-docker`, Terraform's files and
+  `connectors.json`.
 - **A release whose changelog is long still publishes its page** (R483). 1.7.0's
   images were built, tested, signed and pushed, then its GitHub release was refused:
   the notes ran past GitHub's 125,000 characters. Notes that would not fit now carry

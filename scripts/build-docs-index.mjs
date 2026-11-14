@@ -66,6 +66,22 @@ for (const file of fs
     ),
   ].sort();
   if (!title) continue;
+  // All settings renders its headings and names from data generated out of
+  // .env.example (scripts/build-settings-reference.mjs), so its source holds
+  // none of them; read them from the data instead, or searching a setting's
+  // name would find nothing on the one page that lists every setting.
+  if (file === "docs.self-hosting_.settings.tsx") {
+    const ref = fs.readFileSync("src/components/docs/settingsReference.ts", "utf8");
+    const tiers = JSON.parse(ref.slice(ref.indexOf("= [") + 2).replace(/;\s*$/, ""));
+    for (const t of tiers) {
+      headings.push({ id: t.id, text: t.title, level: 2 });
+      for (const s of t.sections) {
+        headings.push({ id: s.id, text: s.title, level: 3 });
+        for (const e of s.entries) for (const x of e.settings) terms.push(x.name);
+      }
+    }
+    terms.sort();
+  }
   pages.push({ route: routeOf(file), title, description, terms, headings });
 }
 

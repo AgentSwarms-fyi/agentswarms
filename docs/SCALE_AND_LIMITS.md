@@ -121,6 +121,7 @@ aggregation happens in the warehouse and only the grouped result travels.
 
 | Setting                | Default  | What it bounds                                   |
 | ---------------------- | -------- | ------------------------------------------------ |
+| `PREP_SOURCE_ROWS_CAP` | `500000` | Rows loaded from each source table of a prep run |
 | `PREP_OUTPUT_ROWS_CAP` | `250000` | Rows a prep flow may write to its output dataset |
 
 **Query folding** is what makes prep scale: when every source in a flow is
@@ -140,11 +141,11 @@ When you add a warehouse table to a flow, _Snapshot_ copies up to **1,000
 rows** locally for design-time preview; _Link_ reads the table in place and is
 what you want for real volume.
 
-### BI dashboards — `src/lib/biDashboards.ts`
+### BI dashboards — `src/utils/bi/refresh.server.ts`
 
-| Setting                       | Default  | What it bounds                                                  |
-| ----------------------------- | -------- | --------------------------------------------------------------- |
-| `BI_LOCAL_ROWS_PER_TABLE_CAP` | `20,000` | Rows one un-mirrored dataset may contribute to a widget refresh |
+| Setting                       | Default  | What it bounds                                                                                                    |
+| ----------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------- |
+| `BI_LOCAL_ROWS_PER_TABLE_CAP` | `20,000` | Rows one un-mirrored dataset may contribute to a server-side query: a widget refresh, a data alert, a semantic query |
 
 Reaching that ceiling **fails the refresh** rather than computing the widget
 over the first N rows — nothing downstream can tell a figure derived from a
@@ -398,7 +399,10 @@ Training and batch prediction run inside batch sandboxes of the notebook
 runtime, so the sandbox limits (`batch_cpu_limit`, `sandbox_tmpfs_mb`) apply
 as well. Each value below is resolved per call as **settings row → environment
 variable → default**; the settings row is edited under **Admin → Developer
-runtime** and takes effect on the next job, no redeploy.
+runtime** and takes effect on the next job, no redeploy. The exceptions are
+`ML_EVALUATIONS_PER_SWEEP`, `ML_EXPLAIN_MAX_ROWS` and `ML_EXPLAIN_TOP_K`, which
+have no Admin field: environment, then default. The four Spark sizes apply
+only under `SPARK_PROVIDER=k8s`; a `static` cluster is sized where it runs.
 
 | Setting                                  | Default                      | What it bounds                                                                                                                                                                                                                                                                                                                           |
 | ---------------------------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

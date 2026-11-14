@@ -15,3 +15,13 @@ test-results
 *.log
 Dockerfile
 docker-compose.yml
+# Local data the build never reads (R485): database dumps from npm run backup,
+# the self-hosted Supabase stack and its volumes, Terraform's working files
+# and state, local connector credentials, scan reports.
+backups
+supabase-docker
+**/.terraform
+**/*.tfstate
+**/*.tfstate.*
+connectors.json
+docs/security/reports

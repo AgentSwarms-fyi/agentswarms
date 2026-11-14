@@ -289,7 +289,7 @@ falling back: before R249 a failed read turned `require_grant` off (so, with
 `NOTEBOOK_RUNTIME_ENABLED` keeping the runtime on, any user could start a
 kernel) and put the default idle TTL in front of the reaper.
 
-`egress_allowlist` and the session/CPU/memory limits are **database-only**: set those in **Admin → Developer runtime**. In particular there is no `NOTEBOOK_EGRESS_ALLOWLIST` env var. Several other columns on `notebook_runtime_settings` _do_ take an environment fallback — the lakehouse, ML, gateway and document-vision knobs — as the resolution table further down sets out. (`NOTEBOOK_EGRESS_ALLOWLIST_PATH` is a different thing: the path the allowlist is written to _inside_ the egress sidecar.)
+`egress_allowlist` and the session/CPU/memory limits are **database-only**: set those in **Admin → Developer runtime**. In particular there is no `NOTEBOOK_EGRESS_ALLOWLIST` env var. Several other columns on `notebook_runtime_settings` _do_ take an environment fallback — the lakehouse, ML, gateway and document-vision knobs — as the resolution table further down sets out. (`NOTEBOOK_EGRESS_ALLOWLIST_PATH` is a different thing: on Docker Compose, the path the app writes the allowlist to _inside its own container_; Compose mounts the same directory into the egress proxy, where squid reads it.)
 
 `cell_timeout_seconds` is the one exception, and it is easy to trip over: the app reads it from the settings row, but the **websocket gateway enforces it from its own `NOTEBOOK_CELL_TIMEOUT_SECONDS`** (`services/notebook-gateway`, default `120`). They are separate values — change one in the admin UI and the gateway keeps using its own until you set the env var too.
 

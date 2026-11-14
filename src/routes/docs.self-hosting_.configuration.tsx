@@ -55,8 +55,10 @@ function SelfHostingConfigurationPage() {
 
       <H2 id="env">Environment reference</H2>
       <P>
-        Every variable the app reads, grouped by what it does. Only the first group is required;
-        everything else changes behaviour you may not need.
+        The variables you are most likely to set, grouped by what they do. Only the first group is
+        required; everything else changes behaviour you may not need. Every variable the server
+        reads is on <DocLink to="/docs/self-hosting/settings">All settings</DocLink>, generated from{" "}
+        <C>.env.example</C>.
       </P>
 
       <H3 id="env-required">Required — Supabase and identity</H3>
@@ -603,15 +605,36 @@ SITE_URL="https://your-domain.com"`}</Code>
             <C key="f">SPARK_CONNECT_TOKEN</C>,
             "Pre-shared token the Compose Spark Connect server requires; the app sends it to every run, so a notebook kernel cannot drive the Spark driver unauthenticated. setup.sh generates one; empty = no auth. A managed cluster carries the token in SPARK_CONNECT_URL as ;token=… instead.",
           ],
+          [
+            <C key="g">NOTEBOOK_EGRESS_MODE</C>,
+            "pull: the sandboxes' egress proxy fetches the allow-list from the app every 30 seconds, so saving the list writes no file and restarts nothing. The AWS and Helm deploys set it; Docker Compose leaves it unset and the app writes the proxy's files.",
+          ],
+          [
+            <C key="h">NOTEBOOK_EGRESS_PULL_TOKEN</C>,
+            "The token the proxy sends for that list, at least 32 characters, set on the app and the proxy alike. The preflight in Admin, Developer runtime fails while pull mode has none.",
+          ],
         ]}
       />
+      <P>
+        The settings each backend reads, its cluster, network and placement (
+        <C>NOTEBOOK_K8S_NODE_SELECTOR</C>, <C>NOTEBOOK_K8S_TOLERATIONS</C>,{" "}
+        <C>NOTEBOOK_ECS_CLUSTER</C> and the rest), are on{" "}
+        <DocLink
+          to="/docs/self-hosting/settings"
+          hash="developer-workspace-server-side-python-runtime"
+        >
+          All settings
+        </DocLink>
+        . The AWS deploys and the Helm chart set the ones their backend needs.
+      </P>
 
       <H2 id="recipes">Configuration by use case</H2>
       <P>
-        The reference above lists every setting. These are the combinations that actually go
-        together, as complete blocks you can paste into <C>.env</C>. Each one names the risk it is
-        answering, because the defaults are chosen for a single trusted operator and stop being
-        right as soon as anyone else can reach the instance.
+        The reference above explains the settings one at a time, and{" "}
+        <DocLink to="/docs/self-hosting/settings">All settings</DocLink> lists every one. These are
+        the combinations that actually go together, as complete blocks you can paste into{" "}
+        <C>.env</C>. Each one names the risk it is answering, because the defaults are chosen for a
+        single trusted operator and stop being right as soon as anyone else can reach the instance.
       </P>
 
       <H3 id="recipe-eval">Evaluating it on a laptop</H3>

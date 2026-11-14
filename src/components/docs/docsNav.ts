@@ -128,8 +128,20 @@ export const DOCS_GROUPS: DocGroup[] = [
         parent: "/docs/self-hosting",
       },
       {
+        to: "/docs/self-hosting/settings",
+        label: "All settings",
+        icon: Server,
+        parent: "/docs/self-hosting",
+      },
+      {
         to: "/docs/self-hosting/kubernetes",
         label: "Kubernetes",
+        icon: Server,
+        parent: "/docs/self-hosting",
+      },
+      {
+        to: "/docs/self-hosting/aws",
+        label: "AWS",
         icon: Server,
         parent: "/docs/self-hosting",
       },

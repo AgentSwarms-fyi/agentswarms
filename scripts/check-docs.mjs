@@ -65,8 +65,21 @@ const idsOf = (route) => {
         : ["docs." + segments.join(".") + ".tsx"];
   for (const file of candidates) {
     const p = path.join(ROUTES, file);
-    if (fs.existsSync(p))
-      return new Set([...read(p).matchAll(/<H[23]\s+id="([^"]+)"/g)].map((m) => m[1]));
+    if (!fs.existsSync(p)) continue;
+    const ids = new Set([...read(p).matchAll(/<H[23]\s+id="([^"]+)"/g)].map((m) => m[1]));
+    // All settings renders its headings, and an anchor per setting, from the
+    // data generated out of .env.example: its source has none of them.
+    if (file === "docs.self-hosting_.settings.tsx") {
+      const ref = read("src/components/docs/settingsReference.ts");
+      for (const t of JSON.parse(ref.slice(ref.indexOf("= [") + 2).replace(/;\s*$/, ""))) {
+        ids.add(t.id);
+        for (const s of t.sections) {
+          ids.add(s.id);
+          for (const e of s.entries) for (const x of e.settings) ids.add(`setting-${x.name}`);
+        }
+      }
+    }
+    return ids;
   }
   return null;
 };
@@ -324,6 +337,18 @@ for (const f of DOCS) {
     encoding: "utf8",
   });
   if (gen.status !== 0) fail("stale search index", "run: npm run docs:index");
+}
+
+// Everything above proves what the pages say is true. This is the other
+// direction (R485): every variable the server reads is in .env.example, which
+// All settings is generated from, and the generated page is current.
+{
+  const gen = spawnSync(process.execPath, ["scripts/build-settings-reference.mjs", "--check"], {
+    encoding: "utf8",
+  });
+  if (gen.status !== 0)
+    for (const line of (gen.stderr || "settings reference failed").trim().split("\n"))
+      fail("settings reference", line);
 }
 
 // ── Report ──────────────────────────────────────────────────────────────────

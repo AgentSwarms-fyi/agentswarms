@@ -66,6 +66,36 @@ function SelfHostingPage() {
         It cannot create your Supabase project or guess its keys — it writes the <C>.env</C>, tells
         you which values to fill in, and you re-run it.
       </P>
+
+      <H2 id="release">Run a release, or build from source</H2>
+      <P>
+        Each release publishes its images to <C>ghcr.io/agentswarms-fyi</C>, for amd64 and arm64,
+        signed and with an SBOM and build provenance. Set <C>AGENTSWARMS_VERSION</C> in <C>.env</C>{" "}
+        to run one: the setup script then pulls that release&apos;s images and starts them, and
+        never builds. Leave it empty and the images are built from your checkout. Check out the
+        release&apos;s tag either way, since the migrations come from the checkout.
+      </P>
+      <Code lang="bash">{`git fetch --tags && git checkout v1.7.0
+# in .env:  AGENTSWARMS_VERSION="1.7.0"
+bash scripts/setup.sh`}</Code>
+      <P>
+        A version that cannot be pulled stops the setup rather than building your checkout under the
+        release&apos;s name, and for the same reason never pass <C>--build</C> to Docker Compose
+        while a version is set. <C>AGENTSWARMS_REGISTRY</C> points at your own mirror for an
+        air-gapped install. Observability → Monitoring shows which release each instance runs, or
+        &ldquo;built from source&rdquo;. To check a signature:
+      </P>
+      <Code lang="bash">{`cosign verify ghcr.io/agentswarms-fyi/agentswarms:1.7.0 \\
+  --certificate-identity-regexp '^https://github\\.com/AgentSwarms-fyi/agentswarms/\\.github/workflows/release\\.yml@refs/tags/v' \\
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com`}</Code>
+      <P>
+        Upgrading and rolling back are under{" "}
+        <DocLink to="/docs/self-hosting/operations" hash="operations">
+          Operations
+        </DocLink>
+        .
+      </P>
+
       <H2 id="guide">In this guide</H2>
       <P>
         Setup and the deployment targets are on this page. The reference and the operating detail
@@ -76,12 +106,22 @@ function SelfHostingPage() {
           {
             to: "/docs/self-hosting/configuration",
             title: "Configuration",
-            body: "Every variable, and the settings for each way of running it.",
+            body: "The settings for each way of running it, explained.",
+          },
+          {
+            to: "/docs/self-hosting/settings",
+            title: "All settings",
+            body: "Every variable the server reads, from .env.example, with a filter.",
           },
           {
             to: "/docs/self-hosting/kubernetes",
             title: "Kubernetes",
-            body: "Manifests, then EKS, GKE, AKS and OKE step by step.",
+            body: "The Helm chart and the manifests, then EKS, GKE, AKS and OKE step by step.",
+          },
+          {
+            to: "/docs/self-hosting/aws",
+            title: "AWS",
+            body: "VMs, ECS or EKS with Terraform, and a local rehearsal on AWS Emulator.",
           },
           {
             to: "/docs/self-hosting/operations",
@@ -226,18 +266,37 @@ function SelfHostingPage() {
           },
           {
             name: "Autoscaled VMs behind a load balancer",
-            body: "The app tier is stateless, so run as many identical containers as you need. Set DISABLE_INPROCESS_SCHEDULER=1 and drive background work from one external cron.",
+            body: (
+              <>
+                The app tier is stateless, so run as many identical containers as you need. Run the
+                scheduler on two or more of them (an analytics pair with <C>APP_ROLE=analytics</C>,
+                or any two) and set <C>DISABLE_INPROCESS_SCHEDULER=1</C> on the rest: a lease in the
+                database keeps it to one pass at a time across the fleet.
+              </>
+            ),
+          },
+          {
+            name: "AWS, with Terraform",
+            body: (
+              <>
+                VMs behind a load balancer, Amazon ECS or Amazon EKS, each with RDS, S3, HTTPS and
+                sandboxes on Fargate or a node pool of their own, from <C>deploy/aws/terraform</C>.
+                See <DocLink to="/docs/self-hosting/aws">AWS</DocLink>.
+              </>
+            ),
           },
           {
             name: "Kubernetes",
             body: (
               <>
-                Reference manifests ship for the app (<C>deploy/k8s/app/</C>) and the notebook
-                runtime (<C>deploy/k8s/notebooks/</C>), including the egress policy that keeps
-                kernels off the open internet. Three things bite in practice: set{" "}
-                <C>resources.limits.cpu</C>, because the worker count follows it; probe liveness on{" "}
-                <C>/api/health</C> and readiness on <C>/api/health/ready</C>, which answer different
-                questions; and strip the quotes from <C>.env</C> before{" "}
+                The Helm chart <C>deploy/helm/agentswarms</C> installs the app, Supabase&apos;s
+                services against your own PostgreSQL, and sandboxes in a namespace of their own (the
+                AWS EKS target installs it for you). Reference manifests also ship for the app (
+                <C>deploy/k8s/app/</C>) and the notebook runtime (<C>deploy/k8s/notebooks/</C>),
+                including the egress policy that keeps kernels off the open internet. Three things
+                bite in practice: set <C>resources.limits.cpu</C>, because the worker count follows
+                it; probe liveness on <C>/api/health</C> and readiness on <C>/api/health/ready</C>,
+                which answer different questions; and strip the quotes from <C>.env</C> before{" "}
                 <C>kubectl create secret --from-env-file</C> — unlike Docker Compose it keeps them,
                 and every pod then fails readiness with <C>Invalid supabaseUrl</C>.
               </>
