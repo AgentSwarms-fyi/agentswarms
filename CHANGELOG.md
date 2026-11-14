@@ -14,6 +14,19 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
+### Upgrading
+
+- **`APP_ORIGIN` is gone** (R486). A workflow's Swarm step now calls the app
+  on the same origin as every other headless run: `PUBLIC_APP_URL`, then
+  `SITE_URL`, then `127.0.0.1` on `PORT` (default 8080). If you set
+  `APP_ORIGIN` for workflows, set `PUBLIC_APP_URL` instead.
+- **Kubernetes from `deploy/k8s`: re-apply the manifests** (R488). The app now
+  runs as the `agentswarms` ServiceAccount, with its token mounted and
+  `NODE_EXTRA_CA_CERTS`, `NOTEBOOK_K8S_NAMESPACE` and
+  `NOTEBOOK_APP_INTERNAL_URL` set, and both RBAC bindings name that account. A
+  registry pull secret belongs on that account now, not `default`. The Helm
+  chart was already right.
+
 ### Added
 
 - **Every setting, in the app** (R485). Docs → Self-hosting → All settings lists
@@ -44,6 +57,32 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **Sandboxes and Spark on Kubernetes from `deploy/k8s` could not run**
+  (R488). The app ran as the namespace's `default` account with no token, while
+  the sandbox and Spark bindings named two accounts nothing ran as; an unset
+  `NOTEBOOK_K8S_NAMESPACE` put sandboxes in the app's own namespace, where the
+  app had no rights; sandboxes were told a Docker name to call the app back on;
+  and the Spark NetworkPolicy refused the app's check on each driver. All fixed,
+  with a check-infra rule and tests that fail on the old manifests. The admin
+  preflight now resolves the sandbox namespace and the Docker network exactly
+  as the orchestrator does, where it had checked defaults of its own. The Spark
+  executor pod template can come from a ConfigMap
+  (`SPARK_K8S_EXECUTOR_POD_TEMPLATE_CONFIGMAP`), which the driver pod mounts;
+  before, the documented way could not work. `SPARK_K8S_PULL_POLICY` reaches the
+  executors too.
+- **One large dataset failed every local query** (R487). A scheduled
+  refresh, a data alert, a semantic query or an agent's `sql_query` loaded every
+  dataset the user could read, and one of them over its row cap
+  (`BI_LOCAL_ROWS_PER_TABLE_CAP`, `SQL_TOOL_MAX_ROWS`) failed them all: a dataset
+  shared with them over 20,000 rows was enough. Only the datasets a query names
+  are loaded now, so an oversized one is refused by the queries that read it and
+  no others, still never answered from its first rows. `list_data_tables` lists
+  it with a note instead of failing.
+- **Settings that misread an empty value or the port** (R486). An empty
+  `HTTPS_PROXY`, `HTTP_PROXY` or `NO_PROXY`, as `.env.example` ships them, hid
+  `ALL_PROXY` and the lower-case names; an empty `DATASET_VERSION_ROW_CAP` turned
+  off row snapshots for every dataset; the self-call fallback ignored `PORT`; and
+  a workflow's Swarm step ignored `PUBLIC_APP_URL` and `SITE_URL`.
 - **The AWS Terraform could not be applied** (R484). The emulator's first run
   found two bugs that would have stopped the first apply on a real account:
   `modules/sandboxes` decided a `count` from an id the network module had not
