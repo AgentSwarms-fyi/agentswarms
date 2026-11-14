@@ -1,0 +1,182 @@
+# Where users' code runs: one pod (interactive, MCP, scorer) or Job (batch)
+# per sandbox, made by the app through the Kubernetes API (k8s backend), in a
+# namespace of its own with a quota, on its own nodes when nodeSelector and
+# tolerations name a tainted pool.
+{{- $ns := .Values.sandboxes.namespace }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $ns }}
+  labels:
+    {{- include "as.labels" . | nindent 4 }}
+    # Sandboxes run as non-root, no privilege escalation, every capability
+    # dropped (k8s.server.ts), which "restricted" requires of them.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: sandboxes
+  namespace: {{ $ns }}
+spec:
+  hard:
+    pods: {{ .Values.sandboxes.quota.pods | quote }}
+    limits.cpu: {{ .Values.sandboxes.quota.cpu | quote }}
+    limits.memory: {{ .Values.sandboxes.quota.memory | quote }}
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: sandboxes
+  namespace: {{ $ns }}
+spec:
+  limits:
+    - type: Container
+      default: { cpu: "1", memory: 2Gi }
+      defaultRequest: { cpu: 250m, memory: 512Mi }
+      max: { cpu: "8", memory: 32Gi }
+---
+# The app may make, read and remove pods and Jobs here, and nothing else.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: agentswarms-sandboxes
+  namespace: {{ $ns }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: agentswarms-sandboxes
+  namespace: {{ $ns }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.serviceAccount.name }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: agentswarms-sandboxes
+---
+# Sandboxes reach DNS, the egress proxy, and the app; and are reached by the
+# app (readiness) and the notebook gateway, on 8888 only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sandboxes
+  namespace: {{ $ns }}
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/managed-by: agentswarms }
+  policyTypes: [Ingress, Egress]
+  egress:
+    - ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - podSelector: { matchLabels: { app.kubernetes.io/component: egress-proxy } }
+      ports: [{ protocol: TCP, port: 3128 }]
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: {{ .Release.Namespace }} } }
+          podSelector: { matchLabels: { app.kubernetes.io/component: web } }
+      ports: [{ protocol: TCP, port: 8080 }]
+  ingress:
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: {{ .Release.Namespace }} } }
+          podSelector:
+            matchExpressions:
+              - { key: app.kubernetes.io/component, operator: In, values: [web, analytics, notebook-gateway] }
+      ports: [{ protocol: TCP, port: 8888 }]
+---
+# The sandboxes' only way out: squid with the allow-list it pulls from the
+# app (docker/egress-proxy, R478).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: egress-proxy
+  namespace: {{ $ns }}
+  labels:
+    {{- include "as.labels" . | nindent 4 }}
+    app.kubernetes.io/component: egress-proxy
+spec:
+  replicas: {{ .Values.sandboxes.egressProxy.replicas }}
+  selector:
+    matchLabels: { app.kubernetes.io/component: egress-proxy }
+  template:
+    metadata:
+      labels:
+        {{- include "as.labels" . | nindent 8 }}
+        app.kubernetes.io/component: egress-proxy
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: squid
+          image: {{ include "as.image" (dict "root" . "name" "egress-proxy") }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          ports: [{ name: proxy, containerPort: 3128 }]
+          env:
+            - { name: EGRESS_PULL_URL, value: {{ printf "%s/api/notebook/runtime/egress" (include "as.webUrl" .) | quote }} }
+            - { name: EGRESS_PULL_INTERVAL, value: "30" }
+            - name: EGRESS_PULL_TOKEN
+              valueFrom: { secretKeyRef: { name: agentswarms-egress-pull, key: token } }
+          securityContext: {{- include "as.containerSecurity" . | nindent 12 }}
+          readinessProbe:
+            tcpSocket: { port: proxy }
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: "1", memory: 512Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: egress-proxy
+  namespace: {{ $ns }}
+  labels: {{- include "as.labels" . | nindent 4 }}
+spec:
+  selector: { app.kubernetes.io/component: egress-proxy }
+  ports: [{ name: proxy, port: 3128, targetPort: proxy }]
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: egress-proxy
+  namespace: {{ $ns }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app.kubernetes.io/component: egress-proxy }
+{{- if .Values.secrets.externalSecrets.enabled }}
+---
+# The proxy's token, in its own namespace (a Secret cannot be read across
+# namespaces), and nothing else of the app's.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: agentswarms-egress-pull
+  namespace: {{ $ns }}
+spec:
+  refreshInterval: {{ .Values.secrets.externalSecrets.refreshInterval }}
+  secretStoreRef: {{- toYaml .Values.secrets.externalSecrets.storeRef | nindent 4 }}
+  target:
+    name: agentswarms-egress-pull
+    creationPolicy: Owner
+  data:
+    - secretKey: token
+      remoteRef:
+        key: {{ .Values.secrets.externalSecrets.remoteKey }}
+        property: egress_pull_token
+{{- else }}
+# Without External Secrets, create the Secret agentswarms-egress-pull (key:
+# token, the same value as egress_pull_token) in {{ $ns }} yourself.
+{{- end }}

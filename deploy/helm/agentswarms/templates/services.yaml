@@ -1,0 +1,130 @@
+# The notebook gateway (websocket, /nbgw), docgen and js-sandbox.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notebook-gateway
+  labels:
+    {{- include "as.labels" . | nindent 4 }}
+    app.kubernetes.io/component: notebook-gateway
+spec:
+  replicas: {{ .Values.notebookGateway.replicas }}
+  selector:
+    matchLabels: { app.kubernetes.io/name: agentswarms, app.kubernetes.io/component: notebook-gateway }
+  template:
+    metadata:
+      labels:
+        {{- include "as.labels" . | nindent 8 }}
+        app.kubernetes.io/component: notebook-gateway
+    spec:
+      serviceAccountName: agentswarms-plain
+      terminationGracePeriodSeconds: 60
+      securityContext: {{- include "as.podSecurity" . | nindent 8 }}
+      containers:
+        - name: gateway
+          image: {{ include "as.image" (dict "root" . "name" "notebook-gateway") }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          ports: [{ name: http, containerPort: 8090 }]
+          env:
+            - { name: PORT, value: "8090" }
+            - { name: SUPABASE_URL, value: {{ .Values.publicUrl | quote }} }
+            - { name: HTTP_KEEPALIVE_TIMEOUT_MS, value: "125000" }
+            {{- include "as.secretEnv" (dict "root" . "env" "SUPABASE_SERVICE_ROLE_KEY" "key" "service_role_key") | nindent 12 }}
+            {{- include "as.secretEnv" (dict "root" . "env" "NOTEBOOK_RUNTIME_SECRET" "key" "notebook_runtime_secret") | nindent 12 }}
+          resources: {{- toYaml .Values.notebookGateway.resources | nindent 12 }}
+          securityContext:
+            {{- include "as.containerSecurity" . | nindent 12 }}
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+          readinessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notebook-gateway
+  labels: {{- include "as.labels" . | nindent 4 }}
+  annotations:
+    alb.ingress.kubernetes.io/healthcheck-path: /
+spec:
+  selector: { app.kubernetes.io/name: agentswarms, app.kubernetes.io/component: notebook-gateway }
+  ports: [{ name: http, port: 80, targetPort: http }]
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: notebook-gateway
+  labels: {{- include "as.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: agentswarms, app.kubernetes.io/component: notebook-gateway }
+{{- $internal := dict
+  "docgen" (dict "port" 8099 "image" "docgen" "values" .Values.docgen "secret" (dict "env" "DOCGEN_TOKEN" "key" "docgen_token") "user" 10001)
+  "js-sandbox" (dict "port" 8091 "image" "js-sandbox" "values" .Values.jsSandbox "secret" (dict "env" "INTERNAL_RUN_SECRET" "key" "internal_run_secret") "user" 0)
+}}
+{{- range $name, $s := $internal }}
+---
+# {{ $name }} handles what users wrote: reachable from the app only, and
+# itself reaching nothing (see the NetworkPolicy below).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "as.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}
+spec:
+  replicas: {{ $s.values.replicas }}
+  selector:
+    matchLabels: { app.kubernetes.io/name: agentswarms, app.kubernetes.io/component: {{ $name }} }
+  template:
+    metadata:
+      labels:
+        {{- include "as.labels" $ | nindent 8 }}
+        app.kubernetes.io/component: {{ $name }}
+    spec:
+      serviceAccountName: agentswarms-plain
+      securityContext: {{- include "as.podSecurity" $ | nindent 8 }}
+      containers:
+        - name: {{ $name }}
+          image: {{ include "as.image" (dict "root" $ "name" $s.image) }}
+          imagePullPolicy: {{ $.Values.imagePullPolicy }}
+          ports: [{ name: http, containerPort: {{ $s.port }} }]
+          env:
+            - { name: PORT, value: {{ $s.port | quote }} }
+            {{- include "as.secretEnv" (dict "root" $ "env" $s.secret.env "key" $s.secret.key) | nindent 12 }}
+          resources: {{- toYaml $s.values.resources | nindent 12 }}
+          securityContext: {{- include "as.containerSecurity" $ | nindent 12 }}
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 15
+            timeoutSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels: {{- include "as.labels" $ | nindent 4 }}
+spec:
+  selector: { app.kubernetes.io/name: agentswarms, app.kubernetes.io/component: {{ $name }} }
+  ports: [{ name: http, port: {{ $s.port }}, targetPort: http }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}
+  labels: {{- include "as.labels" $ | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: agentswarms, app.kubernetes.io/component: {{ $name }} }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - { key: app.kubernetes.io/component, operator: In, values: [web, analytics] }
+      ports: [{ protocol: TCP, port: {{ $s.port }} }]
+  # No egress at all.
+  egress: []
+{{- end }}

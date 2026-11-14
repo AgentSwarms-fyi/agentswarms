@@ -1,0 +1,93 @@
+{
+  "$comment": "Size tiers for AWS deployments, the one source deploy/aws/terraform reads (each root's `size` variable picks one; any value can still be overridden). cpu is in ECS units (1024 = 1 vCPU) and memory in MiB. monthly_usd is an estimate at us-east-1 on-demand list prices, Graviton, read 2026-11-09 to 2026-11-14, for the base that runs all month; sandboxes, data through the NAT, logs and S3 come on top, and stopping it when idle saves most of it. The users per tier are estimates until a load test measures them.",
+  "tiers": {
+    "dev": {
+      "label": "Dev/test: smallest, not highly available",
+      "for": "trying a deployment out, a few users",
+      "azs": 2,
+      "single_nat": true,
+      "interface_endpoint_azs": 1,
+      "rds": { "instance_class": "db.t4g.medium", "multi_az": false, "storage_gb": 50, "max_storage_gb": 200 },
+      "valkey": null,
+      "ecs": {
+        "instance_type": "t4g.xlarge",
+        "instances": { "min": 1, "max": 2, "desired": 1 },
+        "web": { "cpu": 1024, "memory": 4096, "min": 1, "max": 2, "workers": 2 },
+        "analytics": { "cpu": 512, "memory": 3072, "count": 1, "workers": 1 },
+        "supabase": { "cpu": 512, "memory": 1024, "count": 1 },
+        "gateway_count": 1,
+        "internal_count": 1,
+        "egress_count": 1
+      },
+      "vm": { "instance_type": "t4g.xlarge", "min": 1, "max": 2, "desired": 1 },
+      "eks": { "instance_type": "t4g.xlarge", "min": 2, "max": 4, "desired": 2, "sandbox_instance_type": "t4g.large", "sandbox_max": 3 },
+      "monthly_usd": { "ecs": 300, "vm": 260, "eks": 400 }
+    },
+    "small": {
+      "label": "Small: highly available",
+      "for": "10 to 50 users",
+      "azs": 2,
+      "single_nat": false,
+      "interface_endpoint_azs": 2,
+      "rds": { "instance_class": "db.t4g.large", "multi_az": true, "storage_gb": 50, "max_storage_gb": 500 },
+      "valkey": null,
+      "ecs": {
+        "instance_type": "r7g.large",
+        "instances": { "min": 2, "max": 4, "desired": 2 },
+        "web": { "cpu": 512, "memory": 4096, "min": 2, "max": 4, "workers": 2 },
+        "analytics": { "cpu": 512, "memory": 3072, "count": 2, "workers": 1 },
+        "supabase": { "cpu": 256, "memory": 1024, "count": 2 },
+        "gateway_count": 2,
+        "internal_count": 2,
+        "egress_count": 2
+      },
+      "vm": { "instance_type": "r7g.large", "min": 2, "max": 4, "desired": 2 },
+      "eks": { "instance_type": "r7g.large", "min": 2, "max": 4, "desired": 2, "sandbox_instance_type": "m7g.large", "sandbox_max": 4 },
+      "monthly_usd": { "ecs": 560, "vm": 500, "eks": 650 }
+    },
+    "medium": {
+      "label": "Medium: highly available",
+      "for": "50 to 250 users",
+      "azs": 3,
+      "single_nat": false,
+      "interface_endpoint_azs": 3,
+      "rds": { "instance_class": "db.m7g.large", "multi_az": true, "storage_gb": 200, "max_storage_gb": 1000 },
+      "valkey": { "node_type": "cache.t4g.small", "replicas": 1 },
+      "ecs": {
+        "instance_type": "r7g.xlarge",
+        "instances": { "min": 3, "max": 6, "desired": 3 },
+        "web": { "cpu": 1024, "memory": 8192, "min": 3, "max": 6, "workers": 3 },
+        "analytics": { "cpu": 1024, "memory": 8192, "count": 2, "workers": 2 },
+        "supabase": { "cpu": 512, "memory": 2048, "count": 2 },
+        "gateway_count": 2,
+        "internal_count": 2,
+        "egress_count": 2
+      },
+      "vm": { "instance_type": "r7g.xlarge", "min": 3, "max": 6, "desired": 3 },
+      "eks": { "instance_type": "r7g.xlarge", "min": 3, "max": 6, "desired": 3, "sandbox_instance_type": "m7g.xlarge", "sandbox_max": 6 },
+      "monthly_usd": { "ecs": 1300, "vm": 1200, "eks": 1400 }
+    },
+    "large": {
+      "label": "Large: highly available",
+      "for": "250 to 1,000 users",
+      "azs": 3,
+      "single_nat": false,
+      "interface_endpoint_azs": 3,
+      "rds": { "instance_class": "db.r7g.xlarge", "multi_az": true, "storage_gb": 500, "max_storage_gb": 2000 },
+      "valkey": { "node_type": "cache.m7g.large", "replicas": 1 },
+      "ecs": {
+        "instance_type": "m7g.2xlarge",
+        "instances": { "min": 3, "max": 10, "desired": 3 },
+        "web": { "cpu": 2048, "memory": 12288, "min": 3, "max": 10, "workers": 4 },
+        "analytics": { "cpu": 2048, "memory": 16384, "count": 2, "workers": 2 },
+        "supabase": { "cpu": 1024, "memory": 2048, "count": 3 },
+        "gateway_count": 3,
+        "internal_count": 3,
+        "egress_count": 3
+      },
+      "vm": { "instance_type": "m7g.2xlarge", "min": 3, "max": 10, "desired": 3 },
+      "eks": { "instance_type": "m7g.2xlarge", "min": 3, "max": 10, "desired": 3, "sandbox_instance_type": "m7g.2xlarge", "sandbox_max": 10 },
+      "monthly_usd": { "ecs": 4000, "vm": 3800, "eks": 4100 }
+    }
+  }
+}

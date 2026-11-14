@@ -1,0 +1,49 @@
+{{- with .Values.targetGroupBindings }}
+{{- if .enabled }}
+# A load balancer made outside the chart (deploy/aws/terraform/eks, so its
+# address, certificate and CloudFront are known before anything starts):
+# the AWS Load Balancer Controller registers these Services' pods in its
+# target groups, and lets the load balancer reach them.
+{{- range $svc := list (dict "name" "agentswarms-web" "arn" .app "port" 8080) (dict "name" "supabase-gateway" "arn" .supabase "port" 8000) (dict "name" "notebook-gateway" "arn" .gateway "port" 8090) }}
+---
+apiVersion: elbv2.k8s.aws/v1beta1
+kind: TargetGroupBinding
+metadata:
+  name: {{ $svc.name }}
+  labels: {{- include "as.labels" $ | nindent 4 }}
+spec:
+  serviceRef:
+    name: {{ $svc.name }}
+    port: 80
+  targetGroupARN: {{ required "targetGroupBindings needs a target group ARN for each service" $svc.arn }}
+  targetType: ip
+  networking:
+    ingress:
+      - from:
+          - securityGroup:
+              groupID: {{ required "targetGroupBindings.albSecurityGroupId is required" $.Values.targetGroupBindings.albSecurityGroupId }}
+        ports:
+          - protocol: TCP
+            port: {{ $svc.port }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if and .Values.secrets.externalSecrets.enabled .Values.secrets.externalSecrets.createStore }}
+---
+# Where External Secrets reads: AWS Secrets Manager in this region, with the
+# controller's own identity (EKS Pod Identity).
+apiVersion: external-secrets.io/v1
+kind: ClusterSecretStore
+metadata:
+  name: {{ .Values.secrets.externalSecrets.storeRef.name }}
+  labels: {{- include "as.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-30"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  provider:
+    aws:
+      service: SecretsManager
+      region: {{ required "aws.region is required" .Values.aws.region }}
+{{- end }}

@@ -1,0 +1,20 @@
+# Copy to terraform.tfvars (ignored by git) and fill in. Every variable is in
+# variables.tf with what it does; these are the ones worth deciding.
+
+region      = "us-east-1"
+release     = "1.7.0"
+size        = "dev" # dev, small, medium, large: deploy/aws/spec/sizes.json
+admin_email = "you@example.com"
+
+# A throwaway test: destroy removes the database and buckets too.
+deletion_protection = false
+
+# HTTPS on your own name (otherwise CloudFront's *.cloudfront.net):
+# domain_name     = "agentswarms.example.com"
+# route53_zone_id = "Z0123456789ABCDEFGHIJ"
+
+# An AWS Budget e-mailing admin_email at 80% spent and 100% forecast:
+monthly_budget_usd = 500
+
+# For the Glue catalog and Athena connectors, through the app's own role:
+# app_policy_arns = ["arn:aws:iam::aws:policy/AWSGlueConsoleFullAccess"]

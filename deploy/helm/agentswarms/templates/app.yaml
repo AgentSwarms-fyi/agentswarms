@@ -1,0 +1,104 @@
+{{- range $tier := list "web" "analytics" }}
+{{- $v := index $.Values $tier }}
+# {{ $tier }}: {{ if eq $tier "web" }}the UI and every /api route, behind the Ingress; no scheduler{{ else }}the scheduler (one lease across the fleet) and heavy jobs, kept out of the request path by APP_ROLE=analytics{{ end }}.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentswarms-{{ $tier }}
+  labels:
+    {{- include "as.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $tier }}
+spec:
+  {{- if not (and (eq $tier "web") $v.autoscaling.enabled) }}
+  replicas: {{ $v.replicas }}
+  {{- end }}
+  selector:
+    matchLabels: { app.kubernetes.io/name: agentswarms, app.kubernetes.io/component: {{ $tier }} }
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  template:
+    metadata:
+      labels:
+        {{- include "as.labels" $ | nindent 8 }}
+        app.kubernetes.io/component: {{ $tier }}
+    spec:
+      serviceAccountName: {{ $.Values.serviceAccount.name }}
+      # Longer than the longest chat turn the drain waits for (R463).
+      terminationGracePeriodSeconds: 120
+      securityContext: {{- include "as.podSecurity" $ | nindent 8 }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: { app.kubernetes.io/name: agentswarms, app.kubernetes.io/component: {{ $tier }} }
+      containers:
+        - name: app
+          image: {{ include "as.image" (dict "root" $ "name" "agentswarms") }}
+          imagePullPolicy: {{ $.Values.imagePullPolicy }}
+          ports: [{ name: http, containerPort: 8080 }]
+          env:
+            {{- include "as.appEnv" $ | nindent 12 }}
+            - { name: APP_ROLE, value: {{ $tier }} }
+            - { name: WEB_CONCURRENCY, value: {{ $v.workers | quote }} }
+            {{- if eq $tier "web" }}
+            - { name: DISABLE_INPROCESS_SCHEDULER, value: "1" }
+            {{- end }}
+          resources: {{- toYaml $v.resources | nindent 12 }}
+          securityContext: {{- include "as.containerSecurity" $ | nindent 12 }}
+          livenessProbe:
+            httpGet: { path: /api/health, port: http }
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 5
+          readinessProbe:
+            # Local readiness: a database failover must not take every pod
+            # out of the Service at once (R463). analytics answers 503 here
+            # for ever, by design, and so takes no traffic.
+            httpGet: { path: "/api/health/ready?scope=local", port: http }
+            periodSeconds: 10
+            timeoutSeconds: 5
+          volumeMounts: [{ name: tmp, mountPath: /tmp }]
+      volumes:
+        - name: tmp
+          emptyDir: { sizeLimit: 8Gi }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: agentswarms-{{ $tier }}
+  labels: {{- include "as.labels" $ | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: agentswarms, app.kubernetes.io/component: {{ $tier }} }
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentswarms-web
+  labels: {{- include "as.labels" . | nindent 4 }}
+  annotations:
+    alb.ingress.kubernetes.io/healthcheck-path: "/api/health/ready?scope=local"
+spec:
+  selector: { app.kubernetes.io/name: agentswarms, app.kubernetes.io/component: web }
+  ports: [{ name: http, port: 80, targetPort: http }]
+{{- if .Values.web.autoscaling.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: agentswarms-web
+  labels: {{- include "as.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: agentswarms-web }
+  minReplicas: {{ .Values.web.autoscaling.min }}
+  maxReplicas: {{ .Values.web.autoscaling.max }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: {{ .Values.web.autoscaling.cpu }} }
+{{- end }}

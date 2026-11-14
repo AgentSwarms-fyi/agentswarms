@@ -59,6 +59,24 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Deploy to AWS with Terraform: VMs behind a load balancer, Amazon ECS, or EKS (R480).**
+  `deploy/aws/terraform/{vm,ecs,eks}`, then `terraform apply -var release=1.7.0 -var
+  admin_email=you@example.com`. Each root builds the same base:
+  - a VM across 2 or 3 AZs;
+  - RDS PostgreSQL 17 (Multi-AZ above the `dev` size);
+  - versioned, encrypted S3 buckets for the lake and Supabase Storage;
+  - every secret, generated inside AWS by a Lambda (Terraform's state never holds
+    one);
+  - one load balancer, with HTTPS from your domain's certificate or CloudFront's own
+    name.
+
+  The app runs as Docker containers on each VM, as ECS services on EC2, or from the
+  new Helm chart `deploy/helm/agentswarms` on EKS. Users' code runs in Fargate tasks
+  or on a tainted node pool, in subnets with no route out. A one-off deploy task (a
+  Helm hook on EKS) migrates the database and creates the first admin before anything
+  starts. Upgrading is changing `release`. Sizes `dev`, `small`, `medium` and `large`
+  live in `deploy/aws/spec/sizes.json`; `dev` costs about $260 to $400 a month before
+  usage. See [AgentSwarms on AWS](docs/deploy/AWS.md).
 - **A deploy makes its own first admin, and two deploys never migrate at once (R479).**
   The db-migrate image gains `deploy` (migrate, then create the admin) and
   `create-admin`, which creates `ADMIN_EMAIL` through GoTrue with the address already

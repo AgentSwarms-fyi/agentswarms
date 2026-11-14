@@ -192,6 +192,11 @@ needed.** To update: `git pull && docker compose up -d --build`.
 
 ## C. Autoscaled VMs behind a load balancer
 
+> **On AWS, deploy it with Terraform:** [AgentSwarms on AWS](deploy/AWS.md) builds
+> this (VMs behind a load balancer), or the same on Amazon ECS or EKS, with RDS,
+> S3, HTTPS and sandboxes on Fargate, from `deploy/aws/terraform`. The rest of this
+> section is how the pieces fit, for any cloud.
+
 ### Scale up before you scale out
 
 One instance already uses the whole machine. `server.mjs` (the container's
@@ -606,6 +611,12 @@ unlike the single-host Docker backend). Manifests live under
 in-cluster. See [DEVELOPER_WORKSPACE_RUNTIME.md](./DEVELOPER_WORKSPACE_RUNTIME.md).
 
 ### D3. Managed clusters: AWS, GCP, Azure, OCI
+
+> **EKS:** `deploy/aws/terraform/eks` builds the cluster and installs the Helm chart
+> [`deploy/helm/agentswarms`](../deploy/helm/agentswarms), which makes these
+> decisions for AWS; see [AgentSwarms on AWS](deploy/AWS.md). The chart runs on
+> other clusters too, with its Ingress in place of the Terraform-made load
+> balancer.
 
 The manifests in this repository use core Kubernetes APIs only and name no
 StorageClass, so the same `kubectl apply` lands on any managed cluster. What

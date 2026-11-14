@@ -1,0 +1,11 @@
+apiVersion: v2
+name: agentswarms
+description: AgentSwarms on Kubernetes - the app, Supabase's services against an external PostgreSQL, and sandboxes in their own namespace.
+type: application
+# Released with the app: chart 1.7.0 runs app 1.7.0 by default.
+version: 1.7.0
+appVersion: "1.7.0"
+kubeVersion: ">=1.29.0-0"
+home: https://github.com/AgentSwarms-fyi/agentswarms
+sources:
+  - https://github.com/AgentSwarms-fyi/agentswarms

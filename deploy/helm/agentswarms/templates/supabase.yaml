@@ -1,0 +1,124 @@
+# Supabase's services against the external PostgreSQL, behind one nginx
+# gateway that strips /auth/v1, /rest/v1 and /storage/v1 (the same file as
+# deploy/aws/spec/gateway). Realtime is off: it needs a true superuser, which
+# RDS does not give; the app polls instead (R468).
+{{- $sb := .Values.supabase }}
+{{- $svcs := dict
+  "supabase-auth" (dict "image" $sb.images.gotrue "port" 9999 "env" (include "as.gotrueEnv" .) "probe" "/health" "sa" "agentswarms-plain")
+  "supabase-rest" (dict "image" $sb.images.postgrest "port" 3000 "env" (include "as.restEnv" .) "probe" "" "sa" "agentswarms-plain")
+  "supabase-storage" (dict "image" $sb.images.storage "port" 5000 "env" (include "as.storageEnv" (dict "root" . "postgrest" "http://supabase-rest:3000")) "probe" "/status" "sa" .Values.storageServiceAccount.name)
+}}
+{{- range $name, $s := $svcs }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "as.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}
+spec:
+  replicas: {{ $sb.replicas }}
+  selector:
+    matchLabels: { app.kubernetes.io/name: agentswarms, app.kubernetes.io/component: {{ $name }} }
+  template:
+    metadata:
+      labels:
+        {{- include "as.labels" $ | nindent 8 }}
+        app.kubernetes.io/component: {{ $name }}
+    spec:
+      serviceAccountName: {{ $s.sa }}
+      securityContext: {{- include "as.podSecurity" $ | nindent 8 }}
+      containers:
+        - name: {{ trimPrefix "supabase-" $name }}
+          image: {{ $s.image }}
+          ports: [{ name: http, containerPort: {{ $s.port }} }]
+          env: {{- $s.env | nindent 12 }}
+          securityContext: {{- include "as.containerSecurity" $ | nindent 12 }}
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: "1", memory: 1Gi }
+          {{- if $s.probe }}
+          readinessProbe:
+            httpGet: { path: {{ $s.probe }}, port: http }
+            periodSeconds: 10
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels: {{- include "as.labels" $ | nindent 4 }}
+spec:
+  selector: { app.kubernetes.io/name: agentswarms, app.kubernetes.io/component: {{ $name }} }
+  ports: [{ name: http, port: {{ $s.port }}, targetPort: http }]
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $name }}
+  labels: {{- include "as.labels" $ | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: agentswarms, app.kubernetes.io/component: {{ $name }} }
+---
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: supabase-gateway
+  labels: {{- include "as.labels" . | nindent 4 }}
+data:
+  default.conf: |
+    {{- .Files.Get "files/supabase-gateway.conf.template"
+      | replace "${AUTH_UPSTREAM}" "supabase-auth:9999"
+      | replace "${REST_UPSTREAM}" "supabase-rest:3000"
+      | replace "${STORAGE_UPSTREAM}" "supabase-storage:5000"
+      | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: supabase-gateway
+  labels:
+    {{- include "as.labels" . | nindent 4 }}
+    app.kubernetes.io/component: supabase-gateway
+spec:
+  replicas: {{ $sb.replicas }}
+  selector:
+    matchLabels: { app.kubernetes.io/name: agentswarms, app.kubernetes.io/component: supabase-gateway }
+  template:
+    metadata:
+      labels:
+        {{- include "as.labels" . | nindent 8 }}
+        app.kubernetes.io/component: supabase-gateway
+      annotations:
+        checksum/config: {{ .Files.Get "files/supabase-gateway.conf.template" | sha256sum }}
+    spec:
+      serviceAccountName: agentswarms-plain
+      containers:
+        - name: nginx
+          image: {{ $sb.images.nginx }}
+          ports: [{ name: http, containerPort: 8000 }]
+          volumeMounts:
+            - { name: conf, mountPath: /etc/nginx/conf.d }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+          readinessProbe:
+            httpGet: { path: /gateway/health, port: http }
+            periodSeconds: 10
+      volumes:
+        - name: conf
+          configMap: { name: supabase-gateway }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: supabase-gateway
+  labels: {{- include "as.labels" . | nindent 4 }}
+  annotations:
+    alb.ingress.kubernetes.io/healthcheck-path: /gateway/health
+spec:
+  selector: { app.kubernetes.io/name: agentswarms, app.kubernetes.io/component: supabase-gateway }
+  ports: [{ name: http, port: 80, targetPort: http }]

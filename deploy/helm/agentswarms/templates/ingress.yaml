@@ -1,0 +1,46 @@
+{{- if .Values.ingress.enabled }}
+# One host for everything, as the hosted service: Supabase's paths to its
+# gateway, /nbgw to the notebook gateway (websocket), the rest to the app.
+# The AWS Load Balancer Controller makes an ALB of it: targets are pod IPs,
+# the idle timeout outlasts a long chat turn, no stickiness (stateless).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: agentswarms
+  labels: {{- include "as.labels" . | nindent 4 }}
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=120,routing.http.drop_invalid_header_fields.enabled=true
+    alb.ingress.kubernetes.io/target-group-attributes: deregistration_delay.timeout_seconds=120
+    {{- if .Values.ingress.certificateArn }}
+    alb.ingress.kubernetes.io/certificate-arn: {{ .Values.ingress.certificateArn }}
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS13-1-2-2021-06
+    {{- else }}
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+    {{- end }}
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - {{- with .Values.ingress.host }}
+      host: {{ . }}
+      {{- end }}
+      http:
+        paths:
+          {{- range $p := list "/auth/v1" "/rest/v1" "/storage/v1" }}
+          - path: {{ $p }}
+            pathType: Prefix
+            backend: { service: { name: supabase-gateway, port: { number: 80 } } }
+          {{- end }}
+          - path: /nbgw
+            pathType: Prefix
+            backend: { service: { name: notebook-gateway, port: { number: 80 } } }
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: agentswarms-web, port: { number: 80 } } }
+{{- end }}

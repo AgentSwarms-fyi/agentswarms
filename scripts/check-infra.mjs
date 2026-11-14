@@ -332,6 +332,37 @@ for (const a of composeArgs)
   problem(`docker-compose.yml: build arg ${a} bakes a browser setting into the image`);
 if (!appArgs.length && !composeArgs.length) note("the app image is built with no VITE_* setting");
 
+// ── 8. the AWS deploys: formatted Terraform, Lambdas that parse ─────────────
+// `terraform validate` needs the providers (hundreds of MB), so it is the
+// release workflow's and an operator's to run; formatting needs nothing (R480).
+if (has("terraform", ["version"])) {
+  const r = spawnSync("terraform", ["fmt", "-check", "-recursive", "deploy/aws/terraform"], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  if (r.status === 0) note("deploy/aws/terraform is terraform-fmt clean");
+  else
+    problem(
+      `terraform fmt would change: ${(r.stdout || r.stderr).trim().split(/\r?\n/).join(", ")}`,
+    );
+} else skip("terraform not available: deploy/aws/terraform not format-checked");
+const python = ["python3", "python"].find((p) => has(p, ["-c", "import ast"]));
+if (python) {
+  const lambdas = tracked.map((t) => t.file).filter((f) => /^deploy\/aws\/lambda\/.+\.py$/.test(f));
+  for (const f of lambdas) {
+    const r = spawnSync(
+      python,
+      ["-I", "-c", "import ast,sys; ast.parse(open(sys.argv[1]).read())", f],
+      {
+        cwd: root,
+        encoding: "utf8",
+      },
+    );
+    if (r.status !== 0) problem(`${f}: does not parse: ${r.stderr.trim().split(/\r?\n/).pop()}`);
+  }
+  if (lambdas.length) note(`${lambdas.length} AWS Lambda(s) parse`);
+} else skip("python not available: the AWS Lambdas not parsed");
+
 // ── report ──────────────────────────────────────────────────────────────────
 if (!quiet) {
   for (const p of passed) console.log(`  ok   ${p}`);

@@ -86,3 +86,14 @@ test-results/
 # Security-assessment raw scanner output: the dated report under
 # docs/security/assessments/ is the committed summary, not these dumps.
 docs/security/reports/
+
+# Terraform (deploy/aws): providers, state and your own values stay local.
+# State holds resource ids and addresses (never the deployment's secrets,
+# which a Lambda keeps in Secrets Manager), and terraform.tfvars your
+# choices. The lock files are committed: they pin providers by checksum.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log

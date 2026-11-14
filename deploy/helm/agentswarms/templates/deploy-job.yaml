@@ -1,0 +1,79 @@
+# Before every install and upgrade, and before anything rolls: set the
+# database up for Supabase (once; idempotent after), let GoTrue and
+# storage-api install their own schemas, apply the app's migrations, and
+# create the first admin with a confirmed address. The order deploy/ci/rds-like
+# proves. GoTrue, PostgREST and storage-api are native sidecars (Kubernetes
+# 1.29+): they start in order, and stop when `deploy` exits. `helm --atomic`
+# rolls the release back if this fails.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: agentswarms-deploy-{{ .Release.Revision }}
+  labels:
+    {{- include "as.labels" . | nindent 4 }}
+    app.kubernetes.io/component: deploy
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 1800
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        {{- include "as.labels" . | nindent 8 }}
+        app.kubernetes.io/component: deploy
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ .Values.storageServiceAccount.name }}
+      securityContext: {{- include "as.podSecurity" . | nindent 8 }}
+      initContainers:
+        - name: bootstrap
+          image: {{ include "as.image" (dict "root" . "name" "db-migrate") }}
+          args: [bootstrap]
+          env:
+            - { name: DATABASE_URL, value: {{ printf "postgres://%s@%s" .Values.database.masterUsername (include "as.db" .) | quote }} }
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: {{ .Values.secrets.databaseMaster.name }}, key: {{ .Values.secrets.databaseMaster.key }} } }
+            {{- include "as.secretEnv" (dict "root" . "env" "AUTHENTICATOR_PASSWORD" "key" "authenticator_password") | nindent 12 }}
+            {{- include "as.secretEnv" (dict "root" . "env" "AUTH_ADMIN_PASSWORD" "key" "auth_admin_password") | nindent 12 }}
+            {{- include "as.secretEnv" (dict "root" . "env" "STORAGE_ADMIN_PASSWORD" "key" "storage_admin_password") | nindent 12 }}
+            {{- include "as.secretEnv" (dict "root" . "env" "LAKEHOUSE_CATALOG_PASSWORD" "key" "lakehouse_catalog_password") | nindent 12 }}
+          securityContext: {{- include "as.containerSecurity" . | nindent 12 }}
+        - name: auth
+          image: {{ .Values.supabase.images.gotrue }}
+          restartPolicy: Always
+          env: {{- include "as.gotrueEnv" . | nindent 12 }}
+          startupProbe:
+            httpGet: { path: /health, port: 9999 }
+            periodSeconds: 5
+            failureThreshold: 60
+        - name: rest
+          image: {{ .Values.supabase.images.postgrest }}
+          restartPolicy: Always
+          env: {{- include "as.restEnv" . | nindent 12 }}
+        - name: storage
+          image: {{ .Values.supabase.images.storage }}
+          restartPolicy: Always
+          env: {{- include "as.storageEnv" (dict "root" . "postgrest" "http://127.0.0.1:3000") | nindent 12 }}
+          startupProbe:
+            httpGet: { path: /status, port: 5000 }
+            periodSeconds: 5
+            failureThreshold: 60
+      containers:
+        - name: deploy
+          image: {{ include "as.image" (dict "root" . "name" "db-migrate") }}
+          args: [deploy]
+          env:
+            - { name: DATABASE_URL, value: {{ printf "postgres://%s@%s" .Values.database.masterUsername (include "as.db" .) | quote }} }
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: {{ .Values.secrets.databaseMaster.name }}, key: {{ .Values.secrets.databaseMaster.key }} } }
+            - { name: GOTRUE_URL, value: "http://127.0.0.1:9999" }
+            {{- include "as.secretEnv" (dict "root" . "env" "SERVICE_ROLE_KEY" "key" "service_role_key") | nindent 12 }}
+            {{- if .Values.adminEmail }}
+            - { name: ADMIN_EMAIL, value: {{ .Values.adminEmail | quote }} }
+            {{- include "as.secretEnv" (dict "root" . "env" "ADMIN_PASSWORD" "key" "admin_password") | nindent 12 }}
+            {{- end }}
+          securityContext: {{- include "as.containerSecurity" . | nindent 12 }}

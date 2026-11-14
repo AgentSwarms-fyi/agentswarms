@@ -1,0 +1,54 @@
+# The Supabase gateway for AWS deployments (deploy/aws): one origin for the
+# app and Supabase, as the hosted service and the self-hosted stack give it.
+#
+# The load balancer sends /auth/v1, /rest/v1 and /storage/v1 here (it cannot
+# strip a path prefix itself); this strips it and passes the request on. The
+# three upstreams are filled in where it is deployed (Terraform's templatefile,
+# Helm, or the nginx image's own templates), so the same file serves ECS
+# (services on localhost in one task), Compose on a VM (service names) and
+# Kubernetes (Services):
+#
+#   AUTH_UPSTREAM     e.g. 127.0.0.1:9999
+#   REST_UPSTREAM     e.g. 127.0.0.1:3000
+#   STORAGE_UPSTREAM  e.g. 127.0.0.1:5000
+
+# Realtime is off on RDS (it needs a true superuser); the app polls instead
+# (PUBLIC_SUPABASE_REALTIME=off, R468), so nothing here upgrades to a websocket.
+
+server {
+  listen 8000;
+  server_tokens off;
+
+  # Uploads go to storage-api, which enforces its own FILE_SIZE_LIMIT.
+  client_max_body_size 0;
+  proxy_request_buffering off;
+  proxy_buffering off;
+  proxy_http_version 1.1;
+  proxy_read_timeout 300s;
+  proxy_set_header Host $host;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
+  proxy_set_header X-Forwarded-Host $host;
+
+  # The load balancer's health check.
+  location = /gateway/health {
+    access_log off;
+    return 200 "ok\n";
+  }
+
+  location /auth/v1/ {
+    proxy_pass http://${AUTH_UPSTREAM}/;
+  }
+
+  location /rest/v1/ {
+    proxy_pass http://${REST_UPSTREAM}/;
+  }
+
+  location /storage/v1/ {
+    proxy_pass http://${STORAGE_UPSTREAM}/;
+  }
+
+  location / {
+    return 404;
+  }
+}

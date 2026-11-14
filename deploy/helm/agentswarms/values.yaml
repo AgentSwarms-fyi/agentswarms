@@ -1,0 +1,148 @@
+# AgentSwarms on Kubernetes. Every value here has a working default except the
+# ones marked REQUIRED; deploy/aws/terraform/eks sets them all for EKS.
+
+# The release to run: every image tag. Empty = the chart's appVersion.
+release: ""
+registry: ghcr.io/agentswarms-fyi
+imagePullPolicy: IfNotPresent
+
+# REQUIRED: where people reach it, e.g. https://agentswarms.example.com.
+publicUrl: ""
+# The first admin: created by the deploy Job with a confirmed address; the
+# password is admin_password in the secret below.
+adminEmail: ""
+
+# The deployment's secrets: one Secret with the keys deploy/aws's secrets
+# Lambda makes (jwt_secret, anon_key, service_role_key, ...).
+secrets:
+  # The Secret's name. With externalSecrets on, the chart makes it.
+  name: agentswarms
+  externalSecrets:
+    enabled: false
+    # Make the ClusterSecretStore below (AWS Secrets Manager in aws.region,
+    # read with the controller's own Pod Identity).
+    createStore: false
+    # A ClusterSecretStore or SecretStore External Secrets reads from (AWS
+    # Secrets Manager, with Pod Identity on EKS).
+    storeRef:
+      kind: ClusterSecretStore
+      name: aws-secrets-manager
+    # The Secrets Manager secret holding the app's keys, e.g. agentswarms/app.
+    remoteKey: ""
+    # The RDS-managed secret holding the master password (for the deploy Job).
+    databaseMasterRemoteKey: ""
+    refreshInterval: 1h
+  # The master password's Secret and key, when not made by External Secrets.
+  databaseMaster:
+    name: agentswarms-db-master
+    key: password
+
+# REQUIRED: PostgreSQL (Amazon RDS, or any 15+ the bootstrap can set up).
+database:
+  host: ""
+  port: 5432
+  masterUsername: agentswarms_admin
+  sslmode: require
+
+# REQUIRED on AWS: the buckets and their key.
+aws:
+  region: ""
+  storageBucket: ""
+  lakeBucket: ""
+  kmsKeyArn: ""
+
+# The app's pods run as this ServiceAccount; on EKS a Pod Identity
+# association gives it the app's IAM role (the lake, its key).
+serviceAccount:
+  name: agentswarms
+  annotations: {}
+storageServiceAccount:
+  name: agentswarms-storage
+  annotations: {}
+
+web:
+  replicas: 2
+  workers: 2
+  resources:
+    requests: { cpu: "1", memory: 2Gi }
+    limits: { cpu: "2", memory: 4Gi }
+  autoscaling:
+    enabled: true
+    min: 2
+    max: 6
+    cpu: 60
+
+analytics:
+  replicas: 2
+  workers: 1
+  resources:
+    requests: { cpu: "500m", memory: 2Gi }
+    limits: { cpu: "2", memory: 6Gi }
+
+notebookGateway:
+  replicas: 2
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: "1", memory: 512Mi }
+
+docgen:
+  replicas: 2
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { cpu: "1", memory: 2Gi }
+
+jsSandbox:
+  replicas: 2
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
+
+supabase:
+  replicas: 2
+  images:
+    gotrue: supabase/gotrue:v2.197.0@sha256:1736a63078f5922b198c4cbe50f80ab9a2d3b54fe8b7b6cfb2e9dc5dbbc12c6b
+    postgrest: postgrest/postgrest:v14.18@sha256:c7cd7e265a85b05248abf53f4473fcec7e327c282d0bd0cf60f1551996d09fcf
+    storage: supabase/storage-api:v1.89.12@sha256:8526956cb462e9f7d392e9848ec77133b2769982ed614e9753cc687e8e4339a6
+    nginx: nginx:1.30.5-alpine@sha256:0985e772fb9f729e6fa0980da05fca5d9c468e870eed43071545afa9d2e27d94
+  mailerAutoconfirm: false
+  # Optional SMTP: host, port, user, from, and the Secret key holding the password.
+  smtp: {}
+  fileSizeLimit: 52428800
+
+# Sandboxes: their own namespace, quota, and a network policy that lets them
+# reach only the egress proxy, DNS and the app. The CNI must enforce
+# NetworkPolicy (EKS: the VPC CNI with enableNetworkPolicy).
+sandboxes:
+  namespace: agentswarms-sandboxes
+  # A tainted node pool of their own, so user code never shares a node with the app.
+  nodeSelector: {}
+  tolerations: []
+  quota:
+    pods: "50"
+    cpu: "64"
+    memory: 256Gi
+  egressProxy:
+    replicas: 2
+
+# An AWS Load Balancer Controller Ingress: /auth/v1, /rest/v1 and
+# /storage/v1 to Supabase's gateway, /nbgw to the notebook gateway, the rest
+# to the app.
+ingress:
+  enabled: true
+  className: alb
+  host: ""
+  certificateArn: ""
+  annotations: {}
+
+# Or a load balancer made outside the chart (deploy/aws/terraform/eks does
+# this): its target groups, by ARN, which the AWS Load Balancer Controller
+# fills with these Services' pods. Turn ingress off when using it.
+targetGroupBindings:
+  enabled: false
+  app: ""
+  supabase: ""
+  gateway: ""
+  albSecurityGroupId: ""
+
+# More app settings (see .env.example).
+extraEnv: {}
