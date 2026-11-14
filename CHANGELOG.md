@@ -59,6 +59,13 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Behind CloudFront, a long chat turn no longer ends in a 504 (R481).** CloudFront
+  gives up on an answer whose first byte takes over 60 s, and an agent's tool rounds
+  often take longer. With `EARLY_HEADERS_AFTER_MS` set (deploy/aws sets 45000 when it
+  puts CloudFront in front), a turn not answered by then sends its headers at once,
+  keeps the line alive, and streams the answer when it comes; a failure arrives in the
+  stream with the status it would have had, and the playground, the canvas and every
+  other reader of `/api/chat` show it as the error it is. Unset, nothing changes.
 - **Deploy to AWS with Terraform: VMs behind a load balancer, Amazon ECS, or EKS (R480).**
   `deploy/aws/terraform/{vm,ecs,eks}`, then `terraform apply -var release=1.7.0 -var
   admin_email=you@example.com`. Each root builds the same base:
@@ -463,6 +470,10 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Apply `20261114000000` before choosing the ECS sandbox backend** (R477). It lets
+  the runtime settings name `ecs` and adds the three columns and the function a Fargate
+  sandbox fetches its environment through. It only adds things: either order with the
+  build is safe, and the Docker and Kubernetes backends never touch them.
 - **The images have new names** (R470): `ghcr.io/agentswarms-fyi/<image>:local` for a
   build from the checkout, where they were `agentswarms/<image>:latest`. Re-running
   `scripts/setup.sh` (or `docker compose up -d --build`) builds them under the new

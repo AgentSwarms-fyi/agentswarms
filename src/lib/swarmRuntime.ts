@@ -849,6 +849,16 @@ async function callAgentImpl(
       if (!line.startsWith("data: ")) continue;
       const payload = line.slice(6).trim();
       if (!payload || payload === "[DONE]") continue;
+      // A turn that failed after its headers went early (R481).
+      if (currentEvent === "error") {
+        let message = "The chat failed";
+        try {
+          message = (JSON.parse(payload) as { error?: string }).error || message;
+        } catch {
+          /* the default */
+        }
+        throw new Error(message);
+      }
       try {
         const parsed = JSON.parse(payload);
         if (currentEvent === "tool" && onMeta) {

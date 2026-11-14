@@ -66,6 +66,18 @@ export async function readChatStream(
       if (!line.startsWith("data: ")) continue;
       const payload = line.slice(6).trim();
       if (!payload || payload === "[DONE]") continue;
+      // A turn that failed after its headers went early (R481): the error,
+      // and the status it would have had, as an event.
+      if (event === "error") {
+        let message = "The chat failed";
+        try {
+          const e = JSON.parse(payload) as { error?: string };
+          if (e.error) message = e.error;
+        } catch {
+          /* the default */
+        }
+        throw new Error(message);
+      }
       if (event === "cost") {
         try {
           const c = JSON.parse(payload) as {

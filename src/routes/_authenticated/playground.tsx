@@ -862,6 +862,9 @@ function PlaygroundPage() {
       const decoder = new TextDecoder();
       let textBuffer = "";
       let currentEvent: string | null = null;
+      // A turn that failed after its headers went early (R481) says so as an
+      // event, with the status it would have had.
+      let streamError: { message: string; status: number } | null = null;
 
       const appendDelta = (delta: string) => {
         assistantContent += delta;
@@ -938,6 +941,13 @@ function PlaygroundPage() {
           }
           try {
             const parsed = JSON.parse(jsonStr);
+            if (currentEvent === "error") {
+              streamError = {
+                message: typeof parsed?.error === "string" ? parsed.error : "The chat failed",
+                status: typeof parsed?.status === "number" ? parsed.status : 502,
+              };
+              continue;
+            }
             if (currentEvent === "citations") {
               if (Array.isArray(parsed?.citations)) applyCitations(parsed.citations as Citation[]);
               continue;
@@ -981,6 +991,14 @@ function PlaygroundPage() {
         traceId,
       });
 
+      if (streamError) {
+        return {
+          ok: false,
+          status: streamError.status,
+          errorMessage: streamError.message,
+          reason: "error",
+        };
+      }
       if (!assistantContent) {
         return {
           ok: false,
