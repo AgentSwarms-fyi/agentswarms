@@ -148,7 +148,7 @@ resource "aws_iam_instance_profile" "this" {
 
 resource "aws_security_group" "instance" {
   name        = "${var.name}-vm"
-  description = "App VMs: the app, Supabase's gateway and the notebook gateway from the load balancers"
+  description = "App VMs: the app, the Supabase gateway and the notebook gateway from the load balancers"
   vpc_id      = var.vpc_id
   tags        = merge(local.tags, { Name = "${var.name}-vm" })
 }

@@ -59,7 +59,7 @@ resource "aws_security_group" "sandbox" {
 
 resource "aws_security_group" "egress" {
   name        = "${var.name}-egress-proxy"
-  description = "The sandboxes' egress proxy: 3128 from sandboxes; out to the internet"
+  description = "The sandbox egress proxy: 3128 from sandboxes; out to the internet"
   vpc_id      = var.vpc_id
   tags        = merge(local.tags, { Name = "${var.name}-egress-proxy" })
 }
@@ -94,9 +94,9 @@ resource "aws_vpc_security_group_egress_rule" "sandbox_to_app" {
 }
 
 resource "aws_vpc_security_group_egress_rule" "sandbox_to_endpoints" {
-  count                        = var.endpoints_security_group_id == null ? 0 : 1
+  for_each                     = var.endpoints_security_groups
   security_group_id            = aws_security_group.sandbox.id
-  referenced_security_group_id = var.endpoints_security_group_id
+  referenced_security_group_id = each.value
   from_port                    = 443
   to_port                      = 443
   ip_protocol                  = "tcp"
@@ -138,7 +138,7 @@ resource "aws_vpc_security_group_egress_rule" "egress_out" {
   from_port         = tonumber(each.value)
   to_port           = tonumber(each.value)
   ip_protocol       = "tcp"
-  description       = "what squid's Safe_ports allow"
+  description       = "what the squid Safe_ports allow"
 }
 
 resource "aws_vpc_security_group_egress_rule" "egress_dns" {

@@ -212,3 +212,44 @@ describe("what the deploys exist for", () => {
     expect(rd(join(TF, "eks/main.tf"))).toContain('enableNetworkPolicy = "true"');
   });
 });
+
+describe("a first apply", () => {
+  it("never counts a thing by whether another module's id is null yet (R484)", () => {
+    // `count = var.x == null ? 0 : 1` cannot be planned while x is an id
+    // another module has yet to make, so the first apply fails at its plan,
+    // which `terraform validate` does not reach. Rehearsing on AWS Emulator
+    // (deploy/aws/emulator) found one in modules/sandboxes.
+    const roots = ROOTS.map((r) => rd(join(TF, r, "main.tf"))).join("\n");
+    const offenders: string[] = [];
+    for (const name of readdirSync(join(TF, "modules"))) {
+      for (const m of module(name).matchAll(
+        /(?:count|for_each)\s*=\s*var\.(\w+)\s*[!=]=\s*null/g,
+      )) {
+        if (new RegExp(`^\\s*${m[1]}\\s*=\\s*module\\.`, "m").test(roots)) {
+          offenders.push(`modules/${name}: var.${m[1]}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("describes security groups and their rules only in the characters EC2 accepts (R484)", () => {
+    // CreateSecurityGroup and the rule calls refuse anything outside this set
+    // (an apostrophe, say) with InvalidParameterValue, after the plan passed:
+    // the AWS Emulator rehearsal found four.
+    const allowed = /^[a-zA-Z0-9 ._\-:/()#,@[\]+=&;{}!$*]*$/;
+    const offenders: string[] = [];
+    for (const name of readdirSync(join(TF, "modules"))) {
+      let kind = "";
+      for (const line of module(name).split("\n")) {
+        kind = /^(?:resource|data) "([a-z0-9_]+)"/.exec(line)?.[1] ?? kind;
+        if (!/security_group/.test(kind)) continue;
+        const text = /\bdescription\s*=\s*"(.*)"\s*$/.exec(line)?.[1];
+        if (text !== undefined && !allowed.test(text.replace(/\$\{[^}]*\}/g, "x"))) {
+          offenders.push(`modules/${name}: ${text}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+});

@@ -72,18 +72,18 @@ module "edge" {
 }
 
 module "sandboxes" {
-  source                      = "../modules/sandboxes"
-  name                        = local.name
-  release                     = var.release
-  source_registry             = var.source_registry
-  sandbox_image_override      = var.sandbox_image_override
-  architecture                = var.architecture
-  vpc_id                      = module.network.vpc_id
-  vpc_cidr                    = module.network.vpc_cidr
-  app_subnet_ids              = module.network.app_subnet_ids
-  sandbox_subnet_ids          = module.network.sandbox_subnet_ids
-  s3_prefix_list_id           = module.network.s3_prefix_list_id
-  endpoints_security_group_id = module.network.endpoints_security_group_id
+  source                    = "../modules/sandboxes"
+  name                      = local.name
+  release                   = var.release
+  source_registry           = var.source_registry
+  sandbox_image_override    = var.sandbox_image_override
+  architecture              = var.architecture
+  vpc_id                    = module.network.vpc_id
+  vpc_cidr                  = module.network.vpc_cidr
+  app_subnet_ids            = module.network.app_subnet_ids
+  sandbox_subnet_ids        = module.network.sandbox_subnet_ids
+  s3_prefix_list_id         = module.network.s3_prefix_list_id
+  endpoints_security_groups = module.network.endpoints_security_groups
   # The app opens sandboxes from the VMs, the notebook gateway too.
   sandbox_clients = { vm = module.app.security_group_id }
   app_callback_targets = {

@@ -1,0 +1,47 @@
+# Written by deploy/aws/emulator/run.sh into a SCRATCH COPY of a root, never
+# into the repository: Terraform reads *_override.tf files in a root, and one
+# left there would send every real apply to the emulator.
+#
+# Every AWS API the roots call goes to the emulator, through run.sh's local
+# proxy (shim.py), at a host that cannot resolve (.invalid): without the proxy
+# a request goes nowhere. allowed_account_ids is the second guard: the
+# emulator's one account is 000000000000, so a run that somehow reached real
+# AWS would stop at the provider's first call instead of creating anything.
+provider "aws" {
+  region                   = "us-east-1"
+  allowed_account_ids      = ["000000000000"]
+  shared_credentials_files = ["__CREDENTIALS__"]
+  shared_config_files      = ["__CONFIG__"]
+  profile                  = "default"
+  custom_ca_bundle         = "__CA__"
+  http_proxy               = "__PROXY__"
+  s3_use_path_style        = true
+  skip_metadata_api_check  = true
+
+  endpoints {
+    acm              = "__ENDPOINT__"
+    appautoscaling   = "__ENDPOINT__"
+    autoscaling      = "__ENDPOINT__"
+    budgets          = "__ENDPOINT__"
+    cloudfront       = "__ENDPOINT__"
+    ec2              = "__ENDPOINT__"
+    ecr              = "__ENDPOINT__"
+    ecs              = "__ENDPOINT__"
+    eks              = "__ENDPOINT__"
+    elasticache      = "__ENDPOINT__"
+    elbv2            = "__ENDPOINT__"
+    iam              = "__ENDPOINT__"
+    kms              = "__ENDPOINT__"
+    lambda           = "__ENDPOINT__"
+    logs             = "__ENDPOINT__"
+    rds              = "__ENDPOINT__"
+    route53          = "__ENDPOINT__"
+    s3               = "__ENDPOINT__"
+    s3control        = "__ENDPOINT__"
+    secretsmanager   = "__ENDPOINT__"
+    servicediscovery = "__ENDPOINT__"
+    ssm              = "__ENDPOINT__"
+    sts              = "__ENDPOINT__"
+  }
+  # default_tags is left to the root, so tagging is rehearsed as written.
+}

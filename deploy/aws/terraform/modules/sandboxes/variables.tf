@@ -50,9 +50,10 @@ variable "s3_prefix_list_id" {
   type = string
 }
 
-variable "endpoints_security_group_id" {
-  type    = string
-  default = null
+variable "endpoints_security_groups" {
+  description = "The interface endpoints' security group, keyed by a name known at plan time (the network module's endpoints_security_groups); {} without interface endpoints."
+  type        = map(string)
+  default     = {}
 }
 
 variable "sandbox_clients" {

@@ -35,6 +35,10 @@ output "s3_prefix_list_id" {
   value       = aws_vpc_endpoint.s3.prefix_list_id
 }
 
-output "endpoints_security_group_id" {
-  value = length(aws_security_group.endpoints) > 0 ? aws_security_group.endpoints[0].id : null
+# Keyed by a name known at plan time, so a caller can for_each over it before
+# the group exists: a count on whether its id is null cannot be planned on a
+# first apply (found rehearsing on AWS Emulator, R484).
+output "endpoints_security_groups" {
+  description = "The interface endpoints' security group as { endpoints = id }, or {} without interface endpoints."
+  value       = length(aws_security_group.endpoints) > 0 ? { endpoints = aws_security_group.endpoints[0].id } : {}
 }

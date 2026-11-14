@@ -1,0 +1,10 @@
+# Written by deploy/aws/emulator/run.sh into modules/app-ecs of its work copy,
+# never into the repository. Cloud Map: AWS answers HealthCheckCustomConfig
+# with FailureThreshold 1 whatever was sent; the emulator answers it empty, so
+# the provider reads no block and would replace the service on every plan,
+# which fails while tasks are registered in it.
+resource "aws_service_discovery_service" "this" {
+  lifecycle {
+    ignore_changes = [health_check_custom_config]
+  }
+}

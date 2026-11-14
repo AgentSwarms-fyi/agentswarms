@@ -1,0 +1,6 @@
+# Written by deploy/aws/emulator/run.sh into modules/edge of its work copy,
+# never into the repository: read the emulator's stand-in for CloudFront's
+# origin-facing prefix list (../seed.tf.tmpl), which AWS Emulator does not hold.
+data "aws_ec2_managed_prefix_list" "cloudfront" {
+  name = "agentswarms-emulator-cloudfront-origin-facing"
+}

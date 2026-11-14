@@ -1,0 +1,26 @@
+# Written by deploy/aws/emulator/run.sh into its work directory, never into the
+# repository: data AWS manages in every account, which AWS Emulator does not
+# hold, made here as ordinary resources in a small state of their own before a
+# root is applied.
+#
+# CloudFront's origin-facing prefix list, com.amazonaws.global.cloudfront.
+# origin-facing, is in every AWS region. A customer list may not take AWS's
+# name, so this one has its own, and modules/edge reads it by that name in the
+# work copy (overrides/edge.tf.tmpl).
+terraform {
+  required_providers {
+    aws = { source = "hashicorp/aws" } # the version comes from the root's lock file
+  }
+}
+
+provider "aws" {}
+
+resource "aws_ec2_managed_prefix_list" "cloudfront_origin_facing" {
+  name           = "agentswarms-emulator-cloudfront-origin-facing"
+  address_family = "IPv4"
+  max_entries    = 1
+  entry {
+    cidr        = "130.176.0.0/16"
+    description = "stands in for CloudFront's origin-facing ranges"
+  }
+}

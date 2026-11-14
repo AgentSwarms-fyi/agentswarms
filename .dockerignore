@@ -1,8 +1,14 @@
 node_modules
+**/node_modules
 dist
 .output
 .tanstack
+.wrangler
 .git
+# Agent worktrees are whole copies of the repository (R484: with twenty of
+# them, the build context took hours to send on a slow disk).
+.claude
+test-results
 .env
 .env.*
 !.env.example

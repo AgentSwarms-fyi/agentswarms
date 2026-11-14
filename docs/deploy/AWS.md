@@ -166,6 +166,50 @@ The DuckLake catalog is a second database (`lakehouse_catalog`) on the same RDS,
 with its own role. The data is in the lake bucket, signed with the app's
 role: no access keys.
 
+## Rehearsing it on AWS Emulator
+
+Before an apply on a real account, run it against
+[AWS Emulator](https://github.com/aws/aws-emulator) on your own machine. Every
+call goes to an emulated account (`000000000000`), nothing reaches AWS, and
+nothing costs anything:
+
+```bash
+bash deploy/aws/emulator/run.sh ecs apply /tmp/emu-ecs      # or vm, or eks; then destroy
+```
+
+It needs Docker, Terraform, curl and Python 3.9 or later. It builds the
+emulator's image once (a pinned package, its signature checked), starts it, and
+applies a copy of the root; the repository is never changed. It finds what
+`terraform validate` cannot:
+
+- requests AWS refuses, such as a character a field does not allow;
+- a plan that only works once something exists;
+- resources in an order that does not work, on the way up and on the way down.
+
+Its first run found two, both fixed in R484 with a test each: a count that
+could not be planned before the network existed, and security group
+descriptions with an apostrophe, which EC2 refuses. Then `ecs` applied all 169
+resources, `vm` all 139, and `eks` its 96 AWS ones.
+
+What it cannot show: containers starting, DNS, certificates, or anything inside
+Kubernetes. On `eks` it applies only the AWS resources, not the Helm releases.
+The emulator is not AWS either, and where it differs, the work copy bends
+instead of the roots. Each override is in `deploy/aws/emulator`:
+
+| Difference | What the rehearsal does |
+| --- | --- |
+| Revoking a new security group's default egress rule fails ([aws/aws-emulator#46](https://github.com/aws/aws-emulator/issues/46)) | `shim.py`, a local proxy, drops the ports AWS ignores |
+| S3 bucket tags go to an unresolvable host ([aws/aws-emulator#56](https://github.com/aws/aws-emulator/issues/56)) | Terraform reaches the emulator only through that proxy |
+| No AWS-managed CloudFront prefix list | `seed.tf.tmpl` makes a stand-in, and the edge module reads it |
+| Cloud Map answers health-check settings empty, so every plan would replace the services | `overrides/` ignores that drift |
+| A Lambda cannot call ECS, and no container runs | The deploy task's Lambda is a stand-in that checks its input and answers success |
+| RDS does not report log exports or the Performance Insights key | Nothing: every plan shows one in-place change to the database |
+| ECS cannot delete a capacity provider | Nothing: an `ecs` destroy stops there, with the cluster, its instances' group and the VPC left |
+| Auto Scaling cannot delete a scaling policy | Nothing: a `vm` destroy stops there. `terraform state rm module.app.aws_autoscaling_policy.cpu` in the work copy, then destroy again |
+
+The proxy changes signed requests, so the emulator runs with request signing
+checks off. Delete each override when the emulator fixes what it is for.
+
 ## Testing it
 
 What to check after an apply:

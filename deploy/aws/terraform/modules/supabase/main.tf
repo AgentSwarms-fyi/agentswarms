@@ -181,7 +181,7 @@ resource "aws_iam_role_policy" "storage" {
 
 resource "aws_security_group" "this" {
   name        = "${var.name}-supabase"
-  description = "Supabase's services: the gateway on 8000 from the load balancer and the app"
+  description = "Supabase services: the gateway on 8000 from the load balancer and the app"
   vpc_id      = var.vpc_id
   tags        = merge(local.tags, { Name = "${var.name}-supabase" })
 }
