@@ -20,7 +20,7 @@
     "build": "cross-env NODE_OPTIONS=--max-old-space-size=6144 vite build --sourcemap false",
     "build:dev": "cross-env NODE_OPTIONS=--max-old-space-size=6144 vite build --mode development --sourcemap false",
     "generate:routes": "node scripts/generate-routes.mjs",
-    "typecheck": "npm run generate:routes && tsc --noEmit -p tsconfig.json",
+    "typecheck": "npm run generate:routes && cross-env NODE_OPTIONS=--max-old-space-size=4096 tsc --noEmit -p tsconfig.json",
     "preview": "vite preview",
     "start": "node server.mjs",
     "backup": "node scripts/backup.mjs",

@@ -57,6 +57,10 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **The typecheck ran out of memory on Node 20** (R490). The project's types
+  outgrew Node 20's default heap of about 2 GB, and CI's Node 20.19 leg failed
+  at R489 while Node 22 passed. `npm run typecheck` and CI now give `tsc` 4 GB,
+  as `npm run build` already gets 6.
 - **A share's masked column names reached the model** (R489). The agent
   `sql_query` tool's description, the document generator's planning context and
   the semantic model's source picker (and its "generate with AI" prompt) listed a

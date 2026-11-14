@@ -58,8 +58,14 @@ jobs:
       - name: Generate route tree
         run: npm run generate:routes
 
+      # 4 GB of heap, as `npm run build` gets 6: the project's types outgrew
+      # Node 20's default (about 2 GB) in R489, and tsc died at 2,034 MB on
+      # the Node 20.19 leg while Node 22, which sizes its heap differently,
+      # passed.
       - name: Typecheck
         run: npx tsc --noEmit -p tsconfig.json
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
 
       - name: Lint
         run: npm run lint
