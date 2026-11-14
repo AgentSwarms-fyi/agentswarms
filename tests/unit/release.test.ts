@@ -16,6 +16,7 @@ import {
   parseVersion,
   planRelease,
   prepareChangelog,
+  RELEASE_BODY_LIMIT,
   releaseNotes,
   setPackageVersion,
 } from "../../scripts/release.mjs";
@@ -214,6 +215,60 @@ describe("the release notes", () => {
     expect(notes).toContain("2 new migrations since v1.6.0");
     expect(notes).toContain("**Removed on purpose**");
     expect(notes).toContain("`public.old_table` (20261115000000_drop.sql)");
+  });
+
+  it("fit a GitHub release when the section does not: summary, Upgrading, and a link (R483)", () => {
+    const huge = [
+      "# Changelog",
+      "",
+      "## 1.7.0 — 2026-11-14",
+      "",
+      "**Summary.** What it is for.",
+      "",
+      "### Added",
+      "",
+      ...Array.from({ length: 2000 }, (_, i) => `- **Item ${i}.** ${"words ".repeat(20)}`),
+      "",
+      "### Upgrading",
+      "",
+      "- **Apply 20261114000000 first.** It only adds.",
+      "",
+      "## 1.6.0 — 2026-10-06",
+      "",
+      "Old.",
+    ].join("\n");
+    const notes = releaseNotes({
+      version: "1.7.0",
+      changelog: huge,
+      released,
+      repo: "AgentSwarms-fyi/agentswarms",
+      previous: "v1.6.0",
+      migrations: [{ name: "20261114000000_add.sql", contracts: [] }],
+    });
+    expect(notes.length).toBeLessThanOrEqual(RELEASE_BODY_LIMIT);
+    expect(notes).toContain("**Summary.** What it is for.");
+    expect(notes).toContain("- **Apply 20261114000000 first.** It only adds.");
+    expect(notes).toContain(
+      "[CHANGELOG.md](https://github.com/AgentSwarms-fyi/agentswarms/blob/v1.7.0/CHANGELOG.md)",
+    );
+    expect(notes).not.toContain("**Item 1999.**");
+    // The images and the database, whatever was cut.
+    expect(notes).toContain("| `ghcr.io/agentswarms-fyi/agentswarms` | `1.7.0` `1.7` `latest`");
+    expect(notes).toContain("1 new migration since v1.6.0");
+  });
+
+  it("fit for the real 1.7.0 section, which did not (R483)", () => {
+    const notes = releaseNotes({
+      version: "1.7.0",
+      changelog: readFileSync("CHANGELOG.md", "utf8"),
+      released,
+      repo: "AgentSwarms-fyi/agentswarms",
+      previous: "v1.6.0",
+      migrations: [],
+    });
+    expect(notes.length).toBeLessThanOrEqual(RELEASE_BODY_LIMIT);
+    expect(notes).toContain("AgentSwarms 1.7.0 is the first release published as images");
+    expect(notes).toContain("### Upgrading");
   });
 
   it("say so when there is no migration", () => {

@@ -14,7 +14,14 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
-Nothing yet.
+### Fixed
+
+- **A release whose changelog is long still publishes its page** (R483). 1.7.0's
+  images were built, tested, signed and pushed, then its GitHub release was refused:
+  the notes ran past GitHub's 125,000 characters. Notes that would not fit now carry
+  the summary, the Upgrading entries, every image's digest and the migrations, and
+  link to the CHANGELOG at the tag for the rest. 1.7.0's page was published that way
+  from the same run's artifacts.
 
 ## 1.7.0 — 2026-11-14
 

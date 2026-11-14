@@ -193,9 +193,57 @@ export function contractsIn(sql) {
 }
 
 /** The GitHub Release's markdown. */
+/** GitHub refuses a release whose body is longer than this (HTTP 422). */
+export const RELEASE_BODY_LIMIT = 125_000;
+
+/**
+ * A version's section, cut to what a release page must say when the whole of
+ * it does not fit: the summary, the Upgrading entries, and where the rest is.
+ * 1.7.0's section ran past the limit, and its release failed to publish on
+ * the last step (R483).
+ */
+export function condensedSection(section, version, repo) {
+  const firstHeading = section.search(/^### /m);
+  const summary = (firstHeading === -1 ? section : section.slice(0, firstHeading)).trim();
+  const up = /^### Upgrading[ \t]*$/m.exec(section);
+  let upgrading = "";
+  if (up) {
+    const rest = section.slice(up.index);
+    const next = rest.slice(1).search(/^### /m);
+    upgrading = (next === -1 ? rest : rest.slice(0, next + 1)).trim();
+  }
+  const link = `https://github.com/${repo}/blob/v${version}/CHANGELOG.md`;
+  return [
+    summary,
+    "",
+    `Everything ${version} changes, adds and fixes is in [CHANGELOG.md](${link}): the whole of it is longer than a GitHub release may be.`,
+    "",
+    upgrading,
+  ]
+    .join("\n")
+    .trim();
+}
+
 export function releaseNotes({ version, changelog, released, repo, previous, migrations }) {
   const section = changelogSection(changelog, version);
   if (section === null) throw new Error(`CHANGELOG.md has no section for ${version}`);
+  const full = renderNotes(section, { released, repo, previous, migrations });
+  if (full.length <= RELEASE_BODY_LIMIT) return full;
+  const short = renderNotes(condensedSection(section, version, repo), {
+    released,
+    repo,
+    previous,
+    migrations,
+  });
+  if (short.length > RELEASE_BODY_LIMIT) {
+    throw new Error(
+      `The release notes are ${short.length} characters even without the full changelog, over GitHub's ${RELEASE_BODY_LIMIT}: shorten ${version}'s summary or Upgrading entries`,
+    );
+  }
+  return short;
+}
+
+function renderNotes(section, { released, repo, previous, migrations }) {
   const out = [section, "", "## Images", ""];
   out.push(
     `Each is built for linux/amd64 and linux/arm64, signed with Sigstore (keyless, from this repository's release workflow), and carries an SBOM and build provenance.`,
