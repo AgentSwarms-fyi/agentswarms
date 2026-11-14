@@ -57,6 +57,18 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **A share's masked column names reached the model** (R489). The agent
+  `sql_query` tool's description, the document generator's planning context and
+  the semantic model's source picker (and its "generate with AI" prompt) listed a
+  shared dataset's columns as the owner has them, so the names of columns the
+  share masks were in the prompt, though never their values. All three now list
+  only the columns the viewer's grants allow, through the same mask the row path
+  applies, and a share whose grant cannot be read lists no columns rather than
+  all of them. Still open: the database lets a grantee read a shared dataset's
+  full column list through the REST API (the "Shared data tables are readable"
+  policy), and the browser SQL engine falls back to that list for a shared
+  dataset whose filter admits no rows. Closing that needs a migration, in a
+  round of its own.
 - **Sandboxes and Spark on Kubernetes from `deploy/k8s` could not run**
   (R488). The app ran as the namespace's `default` account with no token, while
   the sandbox and Spark bindings named two accounts nothing ran as; an unset
