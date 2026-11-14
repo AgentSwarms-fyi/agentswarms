@@ -31,12 +31,26 @@ export function resolveInternalOrigin(): string {
   if (configured && /^https?:\/\/\S+$/i.test(configured.trim())) {
     return normalize(configured.trim());
   }
-  // 8080 is where this app actually binds (Dockerfile CMD --port 8080
-  // --strictPort, and vite.config's preview port). Deliberately NOT
-  // process.env.PORT: the server never reads PORT, so a platform that sets it
-  // (Render/Fly/Heroku style) would otherwise send these self-calls to a port
-  // nothing is listening on. If you bind a different port, set PUBLIC_APP_URL.
-  return "http://127.0.0.1:8080";
+  return `http://127.0.0.1:${listenPort()}`;
+}
+
+/**
+ * The port `node server.mjs` listens on: PORT, default 8080, read the way
+ * server.mjs reads it (empty is unset).
+ *
+ * Until R486 this was a fixed 8080, on the reasoning that the server never
+ * read PORT. server.mjs has read it since it replaced `vite preview`, so a
+ * platform that sets PORT (Render, Fly, Heroku style) got a server on that
+ * port and self-calls to 8080, where nothing listens. A PORT that is not a
+ * usable port number keeps 8080 rather than building a URL that cannot work.
+ *
+ * `npm run dev` is the exception: Vite listens on 8080 from vite.config.ts
+ * whatever PORT says, so a PORT exported in a dev shell sends these calls to
+ * the wrong port. Leave PORT unset for dev.
+ */
+function listenPort(): number {
+  const port = Number(process.env.PORT || 8080);
+  return Number.isInteger(port) && port > 0 && port < 65536 ? port : 8080;
 }
 
 /**

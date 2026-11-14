@@ -21,6 +21,7 @@ import {
   backoffMs,
   bypassesProxy,
   connectorFetch,
+  connectorHttpStats,
   isRetryableError,
   isRetryableStatus,
   proxyForUrl,
@@ -198,6 +199,83 @@ describe("choosing the proxy for a URL", () => {
 
   it("returns null when nothing is configured", () => {
     expect(proxyForUrl(new URL("https://api.stripe.com"))).toBeNull();
+  });
+});
+
+// FOUND IN R485: .env.example ships HTTPS_PROXY="", HTTP_PROXY="" and
+// NO_PROXY="", and Docker Compose passes those into the app as set-but-empty.
+// The chain used `??`, which stops at an empty string, so on a stock install
+// ALL_PROXY and every lower-case spelling were never read.
+//
+// These pass the environment as a plain object. Windows' process.env ignores
+// case, so `https_proxy` and `HTTPS_PROXY` there are one variable and a test
+// through process.env could not tell the spellings apart.
+describe("an empty proxy variable counts as unset", () => {
+  /** The three lines .env.example ships, as Compose hands them to the app. */
+  const STOCK = { HTTPS_PROXY: "", HTTP_PROXY: "", NO_PROXY: "" };
+  const https = new URL("https://api.stripe.com/v1");
+  const http = new URL("http://internal/api");
+
+  it("falls through empty HTTPS_PROXY and HTTP_PROXY to ALL_PROXY", () => {
+    const env = { ...STOCK, ALL_PROXY: "http://any-proxy:8080" };
+    // Before R486: null for both.
+    expect(proxyForUrl(https, env)).toBe("http://any-proxy:8080");
+    expect(proxyForUrl(http, env)).toBe("http://any-proxy:8080");
+  });
+
+  it("falls through to all_proxy", () => {
+    const env = { ...STOCK, ALL_PROXY: "", all_proxy: "http://lower-any:8080" };
+    expect(proxyForUrl(https, env)).toBe("http://lower-any:8080");
+  });
+
+  it("falls through to the lower-case spellings", () => {
+    const env = {
+      ...STOCK,
+      https_proxy: "http://lower-secure:8080",
+      http_proxy: "http://lower-plain:3128",
+    };
+    expect(proxyForUrl(https, env)).toBe("http://lower-secure:8080");
+    expect(proxyForUrl(http, env)).toBe("http://lower-plain:3128");
+  });
+
+  it("honours no_proxy when NO_PROXY is empty", () => {
+    // The direction that matters: an excluded host must not go to the proxy.
+    const env = {
+      ...STOCK,
+      HTTPS_PROXY: "http://secure-proxy:8080",
+      no_proxy: "internal.corp",
+    };
+    // Before R486: the empty NO_PROXY hid no_proxy, so this went to the proxy.
+    expect(proxyForUrl(new URL("https://db.internal.corp/q"), env)).toBeNull();
+    expect(proxyForUrl(https, env)).toBe("http://secure-proxy:8080");
+  });
+
+  it("applies no_proxy to ALL_PROXY too", () => {
+    const env = { ...STOCK, ALL_PROXY: "http://any-proxy:8080", no_proxy: "internal.corp" };
+    expect(proxyForUrl(new URL("https://db.internal.corp/q"), env)).toBeNull();
+    expect(proxyForUrl(https, env)).toBe("http://any-proxy:8080");
+  });
+
+  it("treats a value of only spaces as empty too", () => {
+    const env = { HTTPS_PROXY: "   ", NO_PROXY: " ", ALL_PROXY: "http://any-proxy:8080" };
+    expect(proxyForUrl(https, env)).toBe("http://any-proxy:8080");
+  });
+
+  it("still uses the scheme's own variable first when it is set", () => {
+    const env = {
+      HTTPS_PROXY: "http://secure-proxy:8080",
+      https_proxy: "http://lower-secure:8080",
+      ALL_PROXY: "http://any-proxy:8080",
+    };
+    expect(proxyForUrl(https, env)).toBe("http://secure-proxy:8080");
+  });
+
+  it("reports a proxy as configured when only ALL_PROXY is", () => {
+    Object.assign(process.env, STOCK);
+    expect(connectorHttpStats().proxyConfigured).toBe(false);
+    process.env.ALL_PROXY = "http://any-proxy:8080";
+    // Before R486: false, since the empty HTTPS_PROXY ended the chain.
+    expect(connectorHttpStats().proxyConfigured).toBe(true);
   });
 });
 

@@ -31,6 +31,7 @@ import { createHash, randomBytes } from "node:crypto";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { substituteParams, type WorkflowNode } from "@/lib/workflows";
+import { resolveInternalOrigin } from "@/utils/internalOrigin.server";
 
 /** What a step's underlying work has come to. */
 export type StepOutcome =
@@ -293,7 +294,11 @@ export async function startNode(args: StartArgs): Promise<StartResult> {
           const res = await executeSwarmServer({
             swarm: { id: String(swarm.id), name: String(swarm.name), ...pinned },
             userId,
-            origin: process.env.APP_ORIGIN ?? "http://localhost:8080",
+            // The origin every other headless swarm run calls /api/chat on,
+            // from configuration only: the internal secret goes with it.
+            // Until R486 this step read its own APP_ORIGIN, which ignored
+            // PUBLIC_APP_URL and SITE_URL and, when empty, was used as is.
+            origin: resolveInternalOrigin(),
             input: text(node, params) || "Run this swarm.",
             // A workflow is unattended, so an approval node inside the swarm
             // would park it forever. Rejecting is the honest answer.

@@ -1067,7 +1067,7 @@ export const SETTINGS_REFERENCE: SettingsTier[] = [
         ]
       },
       {
-        "title": "Internal self-calls (deployed swarms + scheduled runs)",
+        "title": "Internal self-calls (deployed swarms, scheduled runs, workflows)",
         "id": "internal-self-calls",
         "entries": [
           {
@@ -1081,11 +1081,11 @@ export const SETTINGS_REFERENCE: SettingsTier[] = [
             "body": [
               {
                 "kind": "text",
-                "text": "Headless swarm runs execute their LLM nodes by calling this app's OWN /api/chat over HTTP, authenticated with an internal shared secret."
+                "text": "Headless swarm runs (deployed, scheduled, and a workflow's Swarm step) execute their LLM nodes by calling this app's OWN /api/chat over HTTP, authenticated with an internal shared secret."
               },
               {
                 "kind": "text",
-                "text": "The origin for those self-calls is resolved ONLY from configuration — PUBLIC_APP_URL, then SITE_URL, then http://127.0.0.1:8080 (a fixed port: set PUBLIC_APP_URL if the server listens on another). It is never taken from the incoming request's Host header, which a caller controls and which would otherwise leak the secret below to an attacker's server."
+                "text": "The origin for those self-calls is resolved ONLY from configuration — PUBLIC_APP_URL, then SITE_URL, then http://127.0.0.1 on PORT, the port `node server.mjs` listens on (default 8080; see HOST and PORT below). It is never taken from the incoming request's Host header, which a caller controls and which would otherwise leak the secret below to an attacker's server."
               },
               {
                 "kind": "text",
@@ -1105,21 +1105,6 @@ export const SETTINGS_REFERENCE: SettingsTier[] = [
               {
                 "kind": "text",
                 "text": "Shared secret for those internal self-calls and the JS sandbox. RECOMMENDED: any long random string (scripts/setup.sh generates one). If unset, the app and the sandbox both DERIVE a secret from the service-role key (an HMAC; R463), so it still works with no setting and the key itself never goes into a request header. A secret of its own lets you rotate it without rotating the key."
-              }
-            ]
-          },
-          {
-            "settings": [
-              {
-                "name": "APP_ORIGIN",
-                "line": "# APP_ORIGIN=http://localhost:8080",
-                "note": ""
-              }
-            ],
-            "body": [
-              {
-                "kind": "text",
-                "text": "The origin a workflow's Swarm step calls to run the swarm's model nodes: this app's own /api/chat, with the internal secret above in a header. Default http://localhost:8080. Unlike deployed and scheduled swarm runs, it does not fall back to PUBLIC_APP_URL or SITE_URL, so set it when the app is not on port 8080 of its own host or container. Point it only at this app. Leave the line commented out rather than empty: an empty value is used as it is, and the step cannot reach /api/chat."
               }
             ]
           }
@@ -1739,7 +1724,7 @@ export const SETTINGS_REFERENCE: SettingsTier[] = [
             "body": [
               {
                 "kind": "text",
-                "text": "Before anything overwrites a dataset (a re-upload, a prep run or refresh, a restore) its rows are copied as a version you can restore. A dataset with more rows than the cap gets a version with metadata only, marked as not restorable; 0 keeps metadata only for every dataset. Each version is a full copy, so raise the cap with storage in mind. The keep count is versions kept per dataset. Leave the cap commented out unless you set a number: an empty value counts as 0 here, not as the default."
+                "text": "Before anything overwrites a dataset (a re-upload, a prep run or refresh, a restore) its rows are copied as a version you can restore. A dataset with more rows than the cap gets a version with metadata only, marked as not restorable; 0 keeps metadata only for every dataset. Each version is a full copy, so raise the cap with storage in mind. The keep count is versions kept per dataset. An empty value is the default, for both."
               }
             ]
           }
@@ -1877,7 +1862,7 @@ export const SETTINGS_REFERENCE: SettingsTier[] = [
             "body": [
               {
                 "kind": "text",
-                "text": "One proxy for every scheme, used only where the scheme's own variable is missing: an https target takes HTTPS_PROXY, then https_proxy, then this, then all_proxy (an http target the same with HTTP_PROXY). Missing means absent from the environment, not empty: the empty HTTPS_PROXY and HTTP_PROXY lines above count as set, and Compose passes them to the app, so delete those two lines to use this one. NO_PROXY applies to it too."
+                "text": "One proxy for every scheme, used where the scheme's own variable is empty or unset: an https target takes HTTPS_PROXY, then https_proxy, then this, then all_proxy (an http target the same with HTTP_PROXY), and an empty NO_PROXY gives way to no_proxy the same way. NO_PROXY applies to it too."
               }
             ]
           },
@@ -2107,7 +2092,7 @@ export const SETTINGS_REFERENCE: SettingsTier[] = [
             "body": [
               {
                 "kind": "text",
-                "text": "Where the production server listens. Read by `node server.mjs`, which the Docker image and `npm start` run; `npm run dev` listens on 8080 from vite.config.ts instead. Defaults 0.0.0.0 (every IPv4 interface) and 8080. Inside a container keep HOST as it is; on a bare host, 127.0.0.1 leaves the app reachable only through a reverse proxy on the same machine. Under Compose leave PORT alone too: the port mapping and the health check both name 8080. If you change PORT elsewhere, also set PUBLIC_APP_URL (or SITE_URL), and APP_ORIGIN for workflows: without them the app's calls to its own /api/chat still go to port 8080. Notebook kernels' default callback address follows PORT by itself."
+                "text": "Where the production server listens. Read by `node server.mjs`, which the Docker image and `npm start` run; `npm run dev` listens on 8080 from vite.config.ts instead. Defaults 0.0.0.0 (every IPv4 interface) and 8080. Inside a container keep HOST as it is; on a bare host, 127.0.0.1 leaves the app reachable only through a reverse proxy on the same machine. Under Compose leave PORT alone too: the port mapping and the health check both name 8080. Elsewhere, such as a platform that sets PORT for you, the app's calls to its own /api/chat follow PORT unless PUBLIC_APP_URL or SITE_URL is set, as notebook kernels' default callback address does. Do not set PORT for `npm run dev`: Vite stays on 8080, and those calls would go to the port PORT names."
               }
             ]
           },

@@ -23,8 +23,18 @@ import {
 
 export type VersionReason = "upload" | "prep_run" | "prep_refresh" | "restore" | "overwrite";
 
+/**
+ * Rows a dataset may have for its versions to keep them; 0 is metadata only
+ * for every dataset.
+ *
+ * Empty counts as unset (R486). Number("") is 0, so a set-but-empty value,
+ * which Compose passes in from a `DATASET_VERSION_ROW_CAP=""` line, used to
+ * turn off row snapshots for every dataset without a word.
+ */
 export function versionRowCap(): number {
-  const n = Number(process.env.DATASET_VERSION_ROW_CAP);
+  const raw = process.env.DATASET_VERSION_ROW_CAP?.trim();
+  if (!raw) return 20_000;
+  const n = Number(raw);
   return Number.isFinite(n) && n >= 0 ? n : 20_000;
 }
 

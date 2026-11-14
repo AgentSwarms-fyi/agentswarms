@@ -179,17 +179,29 @@ export function bypassesProxy(hostname: string, port: string, noProxy: string): 
   return false;
 }
 
+/**
+ * A variable's value, trimmed, with empty and unset both "".
+ *
+ * Chained with `||`, never `??` (R486). .env.example ships HTTPS_PROXY="",
+ * HTTP_PROXY="" and NO_PROXY="", and Docker Compose passes them into the app
+ * as set-but-empty, so a `??` chain stopped at the empty upper-case name and
+ * ALL_PROXY and the lower-case spellings were never read on a stock install.
+ * Each name stays written out as a property read of `env`, so the settings
+ * check (scripts/build-settings-reference.mjs) still sees it read.
+ */
+const envValue = (v: string | undefined): string => v?.trim() ?? "";
+
 /** The proxy URL that applies to `target`, or null for a direct connection. */
-export function proxyForUrl(target: URL): string | null {
-  const env = process.env;
-  const noProxy = env.NO_PROXY ?? env.no_proxy ?? "";
+export function proxyForUrl(target: URL, env: NodeJS.ProcessEnv = process.env): string | null {
+  const noProxy = envValue(env.NO_PROXY) || envValue(env.no_proxy);
   const port = target.port || (target.protocol === "https:" ? "443" : "80");
   if (noProxy && bypassesProxy(target.hostname, port, noProxy)) return null;
+  const any = () => envValue(env.ALL_PROXY) || envValue(env.all_proxy);
   const proxy =
     target.protocol === "https:"
-      ? (env.HTTPS_PROXY ?? env.https_proxy ?? env.ALL_PROXY ?? env.all_proxy)
-      : (env.HTTP_PROXY ?? env.http_proxy ?? env.ALL_PROXY ?? env.all_proxy);
-  return proxy?.trim() ? proxy.trim() : null;
+      ? envValue(env.HTTPS_PROXY) || envValue(env.https_proxy) || any()
+      : envValue(env.HTTP_PROXY) || envValue(env.http_proxy) || any();
+  return proxy || null;
 }
 
 // One agent per proxy URL. Building a ProxyAgent per request would open a new
@@ -310,15 +322,12 @@ export function connectorHttpStats(): {
   return {
     retries: maxRetries(),
     proxyConfigured: Boolean(
-      (
-        env.HTTPS_PROXY ??
-        env.https_proxy ??
-        env.HTTP_PROXY ??
-        env.http_proxy ??
-        env.ALL_PROXY ??
-        env.all_proxy ??
-        ""
-      ).trim(),
+      envValue(env.HTTPS_PROXY) ||
+      envValue(env.https_proxy) ||
+      envValue(env.HTTP_PROXY) ||
+      envValue(env.http_proxy) ||
+      envValue(env.ALL_PROXY) ||
+      envValue(env.all_proxy),
     ),
     proxyAgents: agents.size,
   };

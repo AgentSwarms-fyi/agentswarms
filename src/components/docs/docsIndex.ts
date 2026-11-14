@@ -4513,7 +4513,6 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "AI_SQL_MAX_CALLS_PER_STATEMENT",
       "ALLOW_PRIVATE_NETWORK_FETCH",
       "ALL_PROXY",
-      "APP_ORIGIN",
       "APP_ROLE",
       "APP_URL",
       "AUDIT_ARCHIVE_ON_PURGE",
@@ -4925,7 +4924,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       },
       {
         "id": "internal-self-calls",
-        "text": "Internal self-calls (deployed swarms + scheduled runs)",
+        "text": "Internal self-calls (deployed swarms, scheduled runs, workflows)",
         "level": 3
       },
       {
