@@ -10,6 +10,11 @@ NET="smoke-egress-net-$$"
 WEB="smoke-egress-web-$$"
 CLIENT="smoke-egress-client-$$"
 LISTS="$(mktemp -d)"
+# mktemp -d is 0700, and the proxy reads the lists as squid, not as us: on
+# Linux it could open neither (Docker Desktop's mounts do not enforce it,
+# which is how a Windows run passed and the first rehearsal did not).
+chmod 0755 "$LISTS"
+umask 022
 command -v cygpath >/dev/null 2>&1 && LISTS="$(cygpath -m "$LISTS")"
 cleanup_more() {
   docker rm -f "$WEB" "$CLIENT" >/dev/null 2>&1

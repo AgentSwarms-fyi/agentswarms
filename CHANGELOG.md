@@ -250,6 +250,10 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **The Office renderer takes python-docx 1.2.0** (R482), released June 2025; documents,
+  decks and workbooks render as before. The release rehearsal also found the egress
+  proxy's smoke test unable to read its own lists on Linux (a 0700 temporary
+  directory, read by the proxy's own user); the image was right, the test was not.
 - **A failed first seed could leave a shared sample empty or short for every tenant, for
   good (R476).** A sample counted as there once it was registered, so the next page load
   skipped it, and the refill that could have filled an empty one had no control on any
