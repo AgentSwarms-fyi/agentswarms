@@ -70,17 +70,21 @@ describe("validation loads the caller's datasets once, not per field", () => {
     expect(code(validateSrc)).not.toMatch(/runLocalSqlForUser/);
   });
 
-  it("the runner loads tables outside the returned closure", () => {
-    // If the load moved inside, the batching would silently be undone and
-    // every test above would still pass.
+  it("the runner reads the dataset list outside the closure, and each dataset once", () => {
+    // If the load moved inside uncached, the batching would silently be undone
+    // and every test above would still pass. Since R487 the closure loads the
+    // datasets each statement names, through a per-runner cache; the behaviour
+    // (one read per dataset across many probes) is pinned with real calls in
+    // oversizedDatasetScope.test.ts.
     const fn = refreshSrc.slice(
       refreshSrc.indexOf("export async function localSqlRunnerForUser"),
       refreshSrc.indexOf("async function runLocalSqlOnTables"),
     );
-    expect(fn).toMatch(/const tables = await loadLocalTables\(userId\);/);
-    // The returned function must reference the captured tables, not reload.
-    expect(fn).toMatch(/return \(sql: string\) => runLocalSqlOnTables\(sql, tables\)/);
-    expect(fn.slice(fn.indexOf("return (sql"))).not.toMatch(/loadLocalTables/);
+    expect(fn).toMatch(/const visible = await visibleLocalDatasets\(userId\);/);
+    const closure = fn.slice(fn.indexOf("return async (sql"));
+    expect(closure).not.toMatch(/visibleLocalDatasets/);
+    expect(closure).toMatch(/loadTablesReadBy\(sql, visible, loadOnce\)/);
+    expect(fn).toMatch(/let table = loaded\.get\(t\.id\);/);
   });
 
   it("still re-checks the read-only guard on every statement", () => {

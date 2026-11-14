@@ -211,3 +211,118 @@ export function extractTableRefs(sql: string): string[] {
   }
   return out;
 }
+
+/**
+ * The statement with its comments and string literals blanked to spaces, every
+ * other character where it was.
+ *
+ * The lexical rules are scanWords': `--` and block comments, single-quoted
+ * literals with doubled-quote escapes, and double-quoted, backticked and
+ * bracketed runs kept whole as the identifiers they are, so a `'` inside one
+ * does not open a literal.
+ */
+function codeOnly(sql: string): string {
+  const n = sql.length;
+  let out = "";
+  let i = 0;
+  const blankFrom = (start: number) => {
+    out += " ".repeat(Math.min(i, n) - start);
+  };
+  while (i < n) {
+    const c = sql[i];
+    const start = i;
+    if (c === "-" && sql[i + 1] === "-") {
+      while (i < n && sql[i] !== "\n") i++;
+      blankFrom(start);
+      continue;
+    }
+    if (c === "/" && sql[i + 1] === "*") {
+      i += 2;
+      while (i < n && !(sql[i] === "*" && sql[i + 1] === "/")) i++;
+      i += 2;
+      blankFrom(start);
+      continue;
+    }
+    if (c === "'") {
+      i++;
+      while (i < n) {
+        if (sql[i] === "'") {
+          if (sql[i + 1] === "'") {
+            i += 2;
+            continue;
+          }
+          i++;
+          break;
+        }
+        i++;
+      }
+      blankFrom(start);
+      continue;
+    }
+    const closer = CLOSERS[c];
+    if (closer) {
+      i++;
+      while (i < n) {
+        if (sql[i] === closer) {
+          if (closer === '"' && sql[i + 1] === '"') {
+            i += 2;
+            continue;
+          }
+          break;
+        }
+        i++;
+      }
+      i++; // the closing delimiter
+      out += sql.slice(start, Math.min(i, n));
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  return out;
+}
+
+/**
+ * Whether a character continues an identifier, making a name beside it part of
+ * a longer one. Anything past ASCII counts, as in the Postgres-family lexers:
+ * `ventes_é` is one identifier, not `ventes_` followed by something else.
+ */
+function continuesIdentifier(ch: string | undefined): boolean {
+  if (!ch) return false;
+  return IDENT_PART.test(ch) || ch.charCodeAt(0) > 127;
+}
+
+/**
+ * Which of `names` a statement mentions as an identifier: anywhere outside its
+ * comments and string literals, bare or quoted, compared without regard to case.
+ *
+ * For choosing the datasets to load before a statement runs over them (R487).
+ * It answers "might this statement read it?" and leans towards yes. A name in a
+ * comma join, a subquery, a CTE body or a qualified column (`orders.id`) counts,
+ * and so does a column, alias or CTE that happens to share a dataset's name.
+ * Loading one table too many costs a read; leaving out one the statement reads
+ * fails it with "table not found". That is why this is not extractTableRefs: a
+ * FROM/JOIN scan misses the second table of `FROM a, b`.
+ *
+ * A substring search with identifier boundaries rather than a RegExp built from
+ * the names, because a dataset name may hold characters that mean something in
+ * a pattern.
+ */
+export function namesMentioned(sql: string, names: readonly string[]): Set<string> {
+  const haystack = codeOnly(sql ?? "").toLowerCase();
+  const found = new Set<string>();
+  for (const name of names) {
+    const needle = name.toLowerCase();
+    if (!needle || found.has(name)) continue;
+    let at = haystack.indexOf(needle);
+    while (at !== -1) {
+      const before = at === 0 ? undefined : haystack[at - 1];
+      if (!continuesIdentifier(before) && !continuesIdentifier(haystack[at + needle.length])) {
+        found.add(name);
+        break;
+      }
+      at = haystack.indexOf(needle, at + 1);
+    }
+  }
+  return found;
+}

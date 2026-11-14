@@ -151,7 +151,13 @@ Reaching that ceiling **fails the refresh** rather than computing the widget
 over the first N rows — nothing downstream can tell a figure derived from a
 prefix from one derived from the table. Datasets this size normally have a
 Parquet mirror (`PARQUET_MIN_ROWS`, 5,000) and never reach it; one that does,
-with mirroring off or not yet synced, names the knob in the error.
+with mirroring off or not yet synced, names the knob in the error. A dataset
+shared with the user is never read from a mirror, so the cap always applies to
+it.
+
+Only the datasets a query names are loaded, so an oversized one fails the
+widgets, alerts and semantic queries that read it and no others. A column or
+alias that happens to share a dataset's name counts as naming it.
 
 | Setting / field                                              | Default                  | What it bounds                     |
 | ------------------------------------------------------------ | ------------------------ | ---------------------------------- |

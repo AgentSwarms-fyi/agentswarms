@@ -47,6 +47,7 @@ import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.se
 import { executeWarehouseQuery } from "@/utils/warehouse/drivers.server";
 import { parsePrepConfig } from "@/lib/dataPrepCore";
 import { assertLocalReadOnlySql } from "@/lib/sqlSafety";
+import { namesMentioned } from "@/lib/sqlRefs";
 import { restateWidgetNote } from "@/lib/biTitleClaims";
 import { restateWidgetNarrative } from "@/lib/biNumericClaims";
 import { STAGING_PREFIX } from "@/lib/datasetParse";
@@ -142,10 +143,12 @@ type LocalTable = {
  * scheduled refresh with "table not found". They are now loaded with the
  * grant's row filter and column mask re-applied in TypeScript — mandatory,
  * because this reads with the SERVICE ROLE and RLS is therefore off.
+ *
+ * This reads the list, not the rows: see loadTablesReadBy for which of them a
+ * statement loads.
  */
-async function loadLocalTables(userId: string): Promise<LocalTable[]> {
-  const { grantedDatasetIds, restrictSharedDataset } =
-    await import("@/utils/data/sharedDatasets.server");
+async function visibleLocalDatasets(userId: string) {
+  const { grantedDatasetIds } = await import("@/utils/data/sharedDatasets.server");
   const granted = await grantedDatasetIds(supabaseAdmin, userId);
   const grantedIds = [...granted].filter((id) => UUID_RE.test(id));
 
@@ -158,70 +161,104 @@ async function loadLocalTables(userId: string): Promise<LocalTable[]> {
     .not("name", "like", `${STAGING_PREFIX}%`)
     .or(orParts.join(","));
   if (error) throw new Error(error.message);
+  return tables ?? [];
+}
 
-  const { localParquetPath } = await import("@/utils/data/parquet.server");
+type LocalDataset = Awaited<ReturnType<typeof visibleLocalDatasets>>[number];
+
+/**
+ * The datasets of `visible` that `sql` reads, loaded by `load`, in list order.
+ *
+ * Every visible dataset used to be loaded for every statement, and one over
+ * BI_LOCAL_ROWS_PER_TABLE_CAP refused the whole load. A shared dataset never
+ * has a mirror, so a single shared table over 20,000 rows failed every widget
+ * refresh, data alert and semantic query its grantee ran, including the ones
+ * that never read it (R487). The refusal stays; its reach is now the
+ * statements that name the dataset.
+ *
+ * namesMentioned leans towards loading: a column or alias that shares a
+ * dataset's name loads that dataset too. That only ever costs a read, or
+ * refuses a statement the old loader refused as well.
+ */
+async function loadTablesReadBy(
+  sql: string,
+  visible: LocalDataset[],
+  load: (t: LocalDataset) => Promise<LocalTable>,
+): Promise<LocalTable[]> {
+  const named = namesMentioned(
+    sql,
+    visible.map((t) => t.name),
+  );
   const out: LocalTable[] = [];
-  for (const t of tables ?? []) {
-    // A current columnar mirror replaces the whole paging loop below with a
-    // single file read. Absent or stale, we fall through to the slow path —
-    // the mirror is a cache and is never the source of truth.
-    const isShared = !t.is_sample && t.user_id !== userId;
-    // A mirror is the FULL table with no filter or mask applied, so it must
-    // never back a shared dataset. Those go down the row path, where
-    // restrictSharedDataset can act on the values.
-    const parquetPath = isShared
-      ? undefined
-      : ((await localParquetPath({
-          tableId: t.id,
-          userId: t.user_id ?? userId,
-          parquet_synced_at: t.parquet_synced_at,
-          data_loaded_at: t.data_loaded_at,
-        })) ?? undefined);
-    if (parquetPath) {
-      out.push({
-        name: t.name,
-        columns: Array.isArray(t.columns) ? (t.columns as LocalTable["columns"]) : [],
-        rows: [],
-        parquetPath,
-      });
-      continue;
-    }
-    // Through selectAllPages. Three things were wrong here, on the path that
-    // decides what a dashboard widget STORES as its answer.
-    //
-    // The page's own error used to be folded into the exhaustion test, which
-    // made a failed page indistinguishable from the end of the data: a
-    // statement timeout produced a smaller dataset and a confident number
-    // computed over it. (Described rather than quoted — a test asserts that
-    // expression is gone, and a comment carrying it would satisfy the
-    // assertion forever.) The
-    // exhaustion test was the short page. And the offsets had no ORDER BY at
-    // all, so two pages could repeat a row and drop another — which does not
-    // merely undercount, it changes the answer in either direction.
-    const scanned = await scanDatasetRows(t.id, localRowsPerTableCap());
-    if (scanned.truncated) {
-      // Datasets this size normally have a Parquet mirror and never reach here
-      // (PARQUET_MIN_ROWS defaults to 5,000). One that does — mirroring off, or
-      // not yet synced — must fail its refresh rather than publish a figure
-      // over the first N rows, because nothing downstream can tell a widget
-      // computed from a prefix from one computed from the table.
-      throw new Error(
-        `"${t.name}" has more than ${localRowsPerTableCap().toLocaleString()} rows and no Parquet ` +
-          `mirror — enable PARQUET_MIRROR or raise BI_LOCAL_ROWS_PER_TABLE_CAP; refusing to ` +
-          `refresh from a prefix of it`,
-      );
-    }
-    const rows = scanned.rows;
-    let columns = Array.isArray(t.columns) ? (t.columns as LocalTable["columns"]) : [];
-    let visibleRows = rows;
-    if (isShared) {
-      const restricted = await restrictSharedDataset(supabaseAdmin, t.id, userId, columns, rows);
-      columns = restricted.columns as LocalTable["columns"];
-      visibleRows = restricted.rows;
-    }
-    out.push({ name: t.name, columns, rows: visibleRows, parquetPath });
-  }
+  for (const t of visible) if (named.has(t.name)) out.push(await load(t));
   return out;
+}
+
+/**
+ * One dataset, ready for the engine: its current Parquet mirror when it has
+ * one, otherwise its rows — refused rather than cut at the per-table cap, and
+ * with a shared dataset's grant applied.
+ */
+async function loadLocalTable(t: LocalDataset, userId: string): Promise<LocalTable> {
+  const { localParquetPath } = await import("@/utils/data/parquet.server");
+  // A current columnar mirror replaces the whole paging loop below with a
+  // single file read. Absent or stale, we fall through to the slow path —
+  // the mirror is a cache and is never the source of truth.
+  const isShared = !t.is_sample && t.user_id !== userId;
+  // A mirror is the FULL table with no filter or mask applied, so it must
+  // never back a shared dataset. Those go down the row path, where
+  // restrictSharedDataset can act on the values.
+  const parquetPath = isShared
+    ? undefined
+    : ((await localParquetPath({
+        tableId: t.id,
+        userId: t.user_id ?? userId,
+        parquet_synced_at: t.parquet_synced_at,
+        data_loaded_at: t.data_loaded_at,
+      })) ?? undefined);
+  if (parquetPath) {
+    return {
+      name: t.name,
+      columns: Array.isArray(t.columns) ? (t.columns as LocalTable["columns"]) : [],
+      rows: [],
+      parquetPath,
+    };
+  }
+  // Through selectAllPages. Three things were wrong here, on the path that
+  // decides what a dashboard widget STORES as its answer.
+  //
+  // The page's own error used to be folded into the exhaustion test, which
+  // made a failed page indistinguishable from the end of the data: a
+  // statement timeout produced a smaller dataset and a confident number
+  // computed over it. (Described rather than quoted — a test asserts that
+  // expression is gone, and a comment carrying it would satisfy the
+  // assertion forever.) The
+  // exhaustion test was the short page. And the offsets had no ORDER BY at
+  // all, so two pages could repeat a row and drop another — which does not
+  // merely undercount, it changes the answer in either direction.
+  const scanned = await scanDatasetRows(t.id, localRowsPerTableCap());
+  if (scanned.truncated) {
+    // Datasets this size normally have a Parquet mirror and never reach here
+    // (PARQUET_MIN_ROWS defaults to 5,000). One that does — mirroring off, or
+    // not yet synced — must fail its refresh rather than publish a figure
+    // over the first N rows, because nothing downstream can tell a widget
+    // computed from a prefix from one computed from the table.
+    throw new Error(
+      `"${t.name}" has more than ${localRowsPerTableCap().toLocaleString()} rows and no Parquet ` +
+        `mirror — enable PARQUET_MIRROR or raise BI_LOCAL_ROWS_PER_TABLE_CAP; refusing to ` +
+        `refresh from a prefix of it`,
+    );
+  }
+  const rows = scanned.rows;
+  let columns = Array.isArray(t.columns) ? (t.columns as LocalTable["columns"]) : [];
+  let visibleRows = rows;
+  if (isShared) {
+    const { restrictSharedDataset } = await import("@/utils/data/sharedDatasets.server");
+    const restricted = await restrictSharedDataset(supabaseAdmin, t.id, userId, columns, rows);
+    columns = restricted.columns as LocalTable["columns"];
+    visibleRows = restricted.rows;
+  }
+  return { name: t.name, columns, rows: visibleRows };
 }
 
 /**
@@ -233,32 +270,54 @@ async function loadLocalTables(userId: string): Promise<LocalTable[]> {
  * differences are cases where DuckDB follows standard SQL. If DuckDB fails for
  * an environmental reason (a missing native binary on an unusual platform),
  * fall back rather than failing a scheduled refresh outright.
+ *
+ * Loads only the datasets the statement names (loadTablesReadBy), so a dataset
+ * over the per-table cap fails the statements that read it and no others.
  */
 export async function runLocalSqlForUser(
   userId: string,
   sql: string,
 ): Promise<{ columns: string[]; rows: Record<string, unknown>[] }> {
-  return runLocalSqlOnTables(sql, await loadLocalTables(userId));
+  const visible = await visibleLocalDatasets(userId);
+  return runLocalSqlOnTables(
+    sql,
+    await loadTablesReadBy(sql, visible, (t) => loadLocalTable(t, userId)),
+  );
 }
 
 /**
- * A runner that loads the caller's datasets ONCE and reuses them.
+ * A runner that reads each of the caller's datasets at most ONCE across all
+ * the statements it is given.
  *
- * For anything that issues several queries in a row. runLocalSqlForUser reloads
- * every dataset the user can see on every call — every row of every table, or a
- * parquet mirror read — which is right for a single query and quadratic for a
- * batch.
+ * For anything that issues several queries in a row. runLocalSqlForUser loads
+ * the datasets each statement names on every call — every row, or a parquet
+ * mirror read — which is right for a single query and quadratic for a batch.
  *
  * Semantic-model validation was the case that exposed it: it probes one query
  * per dimension and per metric, sequentially, so a 19-field model meant
  * NINETEEN full reloads of every dataset the user owns. In the browser that
  * showed up as a Validate button stuck on "Validating…" indefinitely.
+ *
+ * The list of datasets is read once, here; each dataset is loaded the first
+ * time a statement names it, and the load is kept, refusal included, so an
+ * oversized source fails every probe that reads it without being re-read for
+ * each one.
  */
 export async function localSqlRunnerForUser(
   userId: string,
 ): Promise<(sql: string) => Promise<{ columns: string[]; rows: Record<string, unknown>[] }>> {
-  const tables = await loadLocalTables(userId);
-  return (sql: string) => runLocalSqlOnTables(sql, tables);
+  const visible = await visibleLocalDatasets(userId);
+  const loaded = new Map<string, Promise<LocalTable>>();
+  const loadOnce = (t: LocalDataset) => {
+    let table = loaded.get(t.id);
+    if (!table) {
+      table = loadLocalTable(t, userId);
+      loaded.set(t.id, table);
+    }
+    return table;
+  };
+  return async (sql: string) =>
+    runLocalSqlOnTables(sql, await loadTablesReadBy(sql, visible, loadOnce));
 }
 
 async function runLocalSqlOnTables(

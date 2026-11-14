@@ -103,7 +103,7 @@ export async function runLocalSelect(
  * AlaSQL over a fresh per-call database.
  *
  * A Parquet mirror is useless to AlaSQL, so a caller that supplied one must
- * also have supplied rows — `loadLocalTables` only sets `parquetPath` when
+ * also have supplied rows — `loadLocalTable` only sets `parquetPath` when
  * DuckDB is the active engine, which keeps that invariant local to one place.
  */
 function runAlasql(sql: string, tables: LocalEngineTable[], rowCap?: number): LocalRow[] {

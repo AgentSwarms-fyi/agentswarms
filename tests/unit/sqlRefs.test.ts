@@ -16,7 +16,7 @@
 // spectacularly: on `FROM "orders" WHERE x` it reports WHERE as the table.
 import { describe, expect, it } from "vitest";
 
-import { extractTableRefs, scanWords } from "@/lib/sqlRefs";
+import { extractTableRefs, namesMentioned, scanWords } from "@/lib/sqlRefs";
 
 describe("names that are not tables", () => {
   it("ignores a table named only in a line comment", () => {
@@ -141,5 +141,70 @@ describe("nothing to find", () => {
   it("survives empty and table-free SQL", () => {
     expect(extractTableRefs("")).toEqual([]);
     expect(extractTableRefs("SELECT 1")).toEqual([]);
+  });
+});
+
+// Choosing the datasets to load before a statement runs (R487). Here the two
+// directions swap victims: a name left out fails the query with "table not
+// found", and an extra one costs a read, or refuses a statement because a
+// dataset it never reads is over its row cap. So this leans to inclusion, and
+// these pin both edges.
+describe("namesMentioned", () => {
+  const names = ["orders", "customers", "big"];
+  const mentioned = (sql: string, of: string[] = names) => [...namesMentioned(sql, of)].sort();
+
+  it("finds what extractTableRefs misses: the second table of a comma join", () => {
+    expect(extractTableRefs("SELECT * FROM orders, customers")).toEqual(["orders"]);
+    expect(mentioned("SELECT * FROM orders, customers")).toEqual(["customers", "orders"]);
+  });
+
+  it("finds a name inside a subquery, a CTE body and a qualified column", () => {
+    expect(mentioned("SELECT 1 WHERE x IN (SELECT id FROM customers)")).toEqual(["customers"]);
+    expect(mentioned("WITH t AS (SELECT * FROM orders) SELECT * FROM t")).toEqual(["orders"]);
+    expect(mentioned("SELECT orders.id FROM o")).toEqual(["orders"]);
+  });
+
+  it("finds quoted names, whatever their case or quote", () => {
+    expect(mentioned('SELECT * FROM "Orders"')).toEqual(["orders"]);
+    expect(mentioned("SELECT * FROM `CUSTOMERS`")).toEqual(["customers"]);
+    expect(mentioned("SELECT * FROM [big]")).toEqual(["big"]);
+  });
+
+  it("returns the names as given, not lowercased", () => {
+    expect([...namesMentioned("select * from sales", ["Sales"])]).toEqual(["Sales"]);
+  });
+
+  it("ignores names in comments and string literals", () => {
+    expect(mentioned("SELECT 1 FROM orders -- and big\n")).toEqual(["orders"]);
+    expect(mentioned("SELECT 1 /* customers */ FROM orders")).toEqual(["orders"]);
+    expect(mentioned("SELECT 'big' AS label, 'it''s big' AS b FROM orders")).toEqual(["orders"]);
+  });
+
+  it("keeps a quoted identifier whole, so a quote inside it does not open a literal", () => {
+    expect(mentioned(`SELECT "it's" FROM big JOIN orders ON 1=1`)).toEqual(["big", "orders"]);
+  });
+
+  it("does not match part of a longer identifier", () => {
+    expect(mentioned("SELECT * FROM orders_2024 JOIN big_customers ON 1=1")).toEqual([]);
+    expect(mentioned("SELECT * FROM preorders")).toEqual([]);
+    // Past ASCII is still part of the identifier.
+    expect(mentioned("SELECT * FROM ordersé")).toEqual([]);
+  });
+
+  it("matches names that are not plain identifiers, without building a pattern from them", () => {
+    expect(mentioned('SELECT * FROM "my sales"', ["my sales"])).toEqual(["my sales"]);
+    expect(mentioned('SELECT * FROM "a.b(c)*"', ["a.b(c)*"])).toEqual(["a.b(c)*"]);
+    expect(mentioned("SELECT * FROM données", ["données"])).toEqual(["données"]);
+  });
+
+  it("errs towards inclusion when a column or alias shares a dataset's name", () => {
+    // Documented: a wasted read, never a missing table.
+    expect(mentioned("SELECT big FROM orders")).toEqual(["big", "orders"]);
+  });
+
+  it("finds nothing in table-free or empty SQL", () => {
+    expect(mentioned("SELECT 1")).toEqual([]);
+    expect(mentioned("")).toEqual([]);
+    expect(mentioned("SELECT 1", [""])).toEqual([]);
   });
 });

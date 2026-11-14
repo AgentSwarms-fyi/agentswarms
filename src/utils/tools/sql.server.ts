@@ -1,8 +1,8 @@
 // sql_query agent tool — server-side handler.
 //
-// What lives here is the TENANT BOUNDARY, not a SQL engine. `loadUserTables`
+// What lives here is the TENANT BOUNDARY, not a SQL engine. `visibleUserTables`
 // decides which datasets this caller may see (own, public samples, and
-// IAM-granted tables) and `restrictSharedTable` re-applies a shared dataset's
+// IAM-granted tables) and `readUserTable` re-applies a shared dataset's
 // row filter and column mask on headless runs, where the client is
 // service-role and the database cannot enforce it. Both must survive any
 // change to how queries execute — an agent reading past a mask its owner set
@@ -20,6 +20,7 @@ import { resultDigest } from "@/utils/provenance/canonical";
 import { restrictSharedDataset } from "@/utils/data/sharedDatasets.server";
 import type { ToolDef, AgentToolContext } from "./registry.server";
 import { scanDatasetRows } from "@/utils/data/datasetRows.server";
+import { namesMentioned } from "@/lib/sqlRefs";
 
 const ROW_CAP = 50;
 
@@ -105,10 +106,11 @@ export async function scopeToVisibleTables<Q extends { or: (filter: string) => Q
   return query.or(orParts.join(","));
 }
 
-async function loadUserTables(
-  ctx: AgentToolContext,
-  allowSet?: Set<string> | null,
-): Promise<LoadedTable[]> {
+/**
+ * The tables this caller may see, narrowed by the agent's allow-list. The list
+ * only: no rows are read here.
+ */
+async function visibleUserTables(ctx: AgentToolContext, allowSet?: Set<string> | null) {
   // Normal (RLS) path: no explicit ownership filter — this client runs under
   // the user's JWT, so RLS returns exactly what they may read (own tables,
   // public samples, IAM-shared tables).
@@ -116,7 +118,6 @@ async function loadUserTables(
   // RLS OFF, so we MUST restrict to what the owner may read — their own tables,
   // public samples, and tables shared to them via an IAM grant (mirroring the
   // RLS policy). This is the only tenant boundary here.
-  // `__upload_*` rows are staging areas for an in-flight upload, not datasets.
   const base = ctx.sb
     .from("user_data_tables")
     .select("id, name, columns, user_id, is_sample")
@@ -126,43 +127,59 @@ async function loadUserTables(
   if (!query) return [];
   const { data: tables } = await query;
   if (!tables) return [];
-  const filtered =
-    allowSet && allowSet.size > 0 ? tables.filter((t) => allowSet.has(t.name)) : tables;
+  return allowSet && allowSet.size > 0 ? tables.filter((t) => allowSet.has(t.name)) : tables;
+}
+
+type VisibleTable = Awaited<ReturnType<typeof visibleUserTables>>[number];
+
+/**
+ * One table's rows, as this caller may see them. `oversized` when it has more
+ * than SQL_TOOL_MAX_ROWS: its rows are then dropped, never answered from or
+ * counted, and only its columns remain, for list_data_tables to show.
+ */
+async function readUserTable(
+  ctx: AgentToolContext,
+  t: VisibleTable,
+): Promise<LoadedTable & { oversized: boolean }> {
   const viewerId = ctx.scopeUserId ?? ctx.userId;
-  const out: LoadedTable[] = [];
-  for (const t of filtered) {
-    // Through selectAllPages, which advances by the rows it RECEIVED.
-    //
-    // This loop advanced by the page it asked for, so a server returning fewer
-    // rows than requested left a hole rather than a short tail: ask 0-999,
-    // receive 500 because db-max-rows says so, then ask 1000-1999 and rows
-    // 500-999 are never read at all. The agent then answers questions from a
-    // table that is quietly missing its middle — and unlike a truncated read,
-    // nothing about the result says a row is absent. It also folded the page's
-    // error into the exhaustion test, and ordered by nothing at all, which is
-    // its own way of reading the same row twice.
-    const scan = await scanDatasetRows(t.id, SQL_TOOL_MAX_ROWS, ctx.sb);
-    if (scan.truncated) {
-      throw new Error(
-        `"${t.name}" has more than ${SQL_TOOL_MAX_ROWS.toLocaleString()} rows — refusing to answer ` +
-          `from a prefix of it; narrow the question or raise SQL_TOOL_MAX_ROWS`,
-      );
-    }
-    const allRows = scan.rows as Row[];
-    let columns = (Array.isArray(t.columns) ? t.columns : []) as ColumnDef[];
-    let rows = allRows;
-    // A dataset SHARED with this caller carries the grant's row filter and
-    // column mask. On headless runs ctx.sb is service-role (RLS off), so the
-    // database can't enforce it for us — the restriction has to be applied
-    // here or an agent would read past a mask the owner set.
-    if (!t.is_sample && t.user_id !== viewerId) {
-      const restricted = await restrictSharedDataset(ctx.sb, t.id, viewerId, columns, rows);
-      columns = restricted.columns;
-      rows = restricted.rows;
-    }
-    out.push({ name: t.name, columns, rows });
+  // A dataset SHARED with this caller carries the grant's row filter and
+  // column mask. On headless runs ctx.sb is service-role (RLS off), so the
+  // database can't enforce it for us — the restriction has to be applied
+  // here or an agent would read past a mask the owner set.
+  const shared = !t.is_sample && t.user_id !== viewerId;
+  let columns = (Array.isArray(t.columns) ? t.columns : []) as ColumnDef[];
+  // Through selectAllPages, which advances by the rows it RECEIVED.
+  //
+  // This loop advanced by the page it asked for, so a server returning fewer
+  // rows than requested left a hole rather than a short tail: ask 0-999,
+  // receive 500 because db-max-rows says so, then ask 1000-1999 and rows
+  // 500-999 are never read at all. The agent then answers questions from a
+  // table that is quietly missing its middle — and unlike a truncated read,
+  // nothing about the result says a row is absent. It also folded the page's
+  // error into the exhaustion test, and ordered by nothing at all, which is
+  // its own way of reading the same row twice.
+  const scan = await scanDatasetRows(t.id, SQL_TOOL_MAX_ROWS, ctx.sb);
+  if (scan.truncated) {
+    // The mask still applies to what a listing shows: the columns.
+    if (shared)
+      columns = (await restrictSharedDataset(ctx.sb, t.id, viewerId, columns, [])).columns;
+    return { name: t.name, columns, rows: [], oversized: true };
   }
-  return out;
+  let rows = scan.rows as Row[];
+  if (shared) {
+    const restricted = await restrictSharedDataset(ctx.sb, t.id, viewerId, columns, rows);
+    columns = restricted.columns;
+    rows = restricted.rows;
+  }
+  return { name: t.name, columns, rows, oversized: false };
+}
+
+/** Why sql_query will not read a table: the cap, and the setting that moves it. */
+function oversizedRefusal(name: string): string {
+  return (
+    `"${name}" has more than ${SQL_TOOL_MAX_ROWS.toLocaleString()} rows — refusing to answer ` +
+    `from a prefix of it; narrow the question or raise SQL_TOOL_MAX_ROWS`
+  );
 }
 
 export async function runListDataTables(
@@ -170,18 +187,32 @@ export async function runListDataTables(
   _args?: unknown,
   allowSet?: Set<string> | null,
 ): Promise<string> {
-  const tables = await loadUserTables(ctx, allowSet);
-  if (tables.length === 0) {
+  const visible = await visibleUserTables(ctx, allowSet);
+  if (visible.length === 0) {
     return JSON.stringify({
       tables: [],
       note: "No data tables found. The user can upload a CSV in the Data & SQL Agents page.",
     });
   }
+  // Every table is listed, an oversized one included (R487). It used to fail
+  // the whole listing, which hid every other table from the agent too. Its
+  // row_count is null rather than the cap: the rows read before the scan
+  // stopped are not the size of the table.
+  const tables = [];
+  for (const t of visible) tables.push(await readUserTable(ctx, t));
   return JSON.stringify({
     tables: tables.map((t) => ({
       name: t.name,
-      row_count: t.rows.length,
+      row_count: t.oversized ? null : t.rows.length,
       columns: t.columns.map((c) => ({ name: c.name, type: c.type })),
+      ...(t.oversized
+        ? {
+            note:
+              `This table has more than ${SQL_TOOL_MAX_ROWS.toLocaleString()} rows, so sql_query ` +
+              `refuses to read it rather than answer from a prefix of it. It can be queried once ` +
+              `SQL_TOOL_MAX_ROWS is raised; the other tables are unaffected.`,
+          }
+        : {}),
     })),
   });
 }
@@ -198,8 +229,8 @@ export async function runSqlQuery(
   const sql = (args.sql || "").trim().replace(/;+\s*$/, "");
   if (!sql) return JSON.stringify({ error: "Empty SQL" });
 
-  const tables = await loadUserTables(ctx, allowSet);
-  if (tables.length === 0) {
+  const visible = await visibleUserTables(ctx, allowSet);
+  if (visible.length === 0) {
     return JSON.stringify({
       error:
         allowSet && allowSet.size > 0
@@ -208,9 +239,26 @@ export async function runSqlQuery(
     });
   }
 
-  // `tables` above is the tenant boundary: loadUserTables has already applied
-  // scope filtering and shared-dataset masking. The engine only ever sees rows
-  // this caller may read.
+  // Only the tables the statement names are read (R487). Reading every visible
+  // table meant one over SQL_TOOL_MAX_ROWS refused every query, including the
+  // ones that never touch it. namesMentioned leans towards reading: a column
+  // or alias sharing a table's name reads that table too, which costs a read
+  // and never a wrong answer.
+  const named = namesMentioned(
+    sql,
+    visible.map((t) => t.name),
+  );
+  const tables: LoadedTable[] = [];
+  for (const t of visible) {
+    if (!named.has(t.name)) continue;
+    const read = await readUserTable(ctx, t);
+    if (read.oversized) throw new Error(oversizedRefusal(t.name));
+    tables.push({ name: read.name, columns: read.columns, rows: read.rows });
+  }
+
+  // `tables` above is the tenant boundary: visibleUserTables has applied scope
+  // filtering and readUserTable shared-dataset masking. The engine only ever
+  // sees rows this caller may read.
   let result: Row[];
   try {
     const { runLocalSelect } = await import("@/utils/data/localEngine.server");
@@ -231,25 +279,10 @@ export async function runSqlQuery(
   // -- the one an agent actually uses -- wrote nothing, so an answer built from
   // a dataset showed "no data reads recorded". Names the tables the SQL
   // referenced (not merely those visible), so the trail says what was read.
-  // Word-boundary match on a lowercased copy, no dynamic RegExp: table names
-  // can contain characters that are regex metacharacters, and building a
-  // pattern from them is how an injection or a crash sneaks in. A substring
-  // with boundary checks is enough to say "this table was referenced".
-  const haystack = sql.toLowerCase();
-  const isWordChar = (ch: string) => /[a-z0-9_]/.test(ch);
-  const referenced = tables
-    .map((t) => t.name)
-    .filter((name) => {
-      const needle = name.toLowerCase();
-      let from = haystack.indexOf(needle);
-      while (from !== -1) {
-        const before = from === 0 ? "" : haystack[from - 1];
-        const after = haystack[from + needle.length] ?? "";
-        if (!isWordChar(before) && !isWordChar(after)) return true;
-        from = haystack.indexOf(needle, from + 1);
-      }
-      return false;
-    });
+  // Since R487 those are exactly the tables loaded above: namesMentioned chose
+  // them, with the boundary-checked substring match (no RegExp built from a
+  // table name) that used to live here, minus comments and string literals.
+  const referenced = [...new Set(tables.map((t) => t.name))];
   auditEvent({
     userId: ctx.userId,
     action: "dataset.query",
@@ -294,12 +327,18 @@ export async function describeUserTables(
   ctx: AgentToolContext,
   allowSet?: Set<string> | null,
 ): Promise<string> {
-  const tables = await loadUserTables(ctx, allowSet);
-  if (tables.length === 0) return "";
+  const visible = await visibleUserTables(ctx, allowSet);
+  if (visible.length === 0) return "";
+  // Like list_data_tables, an oversized table is described rather than
+  // failing the summary of every other one.
+  const tables = [];
+  for (const t of visible) tables.push(await readUserTable(ctx, t));
   return tables
-    .map(
-      (t) =>
-        `${t.name}(${t.columns.map((c) => `${c.name}:${c.type}`).join(", ")}) — ${t.rows.length} rows`,
-    )
+    .map((t) => {
+      const size = t.oversized
+        ? `more than ${SQL_TOOL_MAX_ROWS.toLocaleString()} rows, too many to query (SQL_TOOL_MAX_ROWS)`
+        : `${t.rows.length} rows`;
+      return `${t.name}(${t.columns.map((c) => `${c.name}:${c.type}`).join(", ")}) — ${size}`;
+    })
     .join("; ");
 }

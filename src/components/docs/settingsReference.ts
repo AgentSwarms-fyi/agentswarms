@@ -1679,7 +1679,7 @@ export const SETTINGS_REFERENCE: SettingsTier[] = [
             "body": [
               {
                 "kind": "text",
-                "text": "Rows one uploaded dataset may contribute when the server runs SQL over a user's datasets without a current Parquet mirror: scheduled dashboard refreshes, data alerts and semantic-model queries among them. A dataset shared with the user never uses a mirror, so this always applies to it. Over the cap the query fails rather than answer from the first rows; turn PARQUET_MIRROR on, or raise this and the app's memory with it."
+                "text": "Rows one uploaded dataset may contribute when the server runs SQL over a user's datasets without a current Parquet mirror: scheduled dashboard refreshes, data alerts and semantic-model queries among them. A dataset shared with the user never uses a mirror, so this always applies to it. Only the datasets a query names are loaded. A query that reads one over the cap fails rather than answer from its first rows; queries that do not read it are unaffected. Turn PARQUET_MIRROR on, or raise this and the app's memory with it."
               }
             ]
           },
@@ -3249,7 +3249,7 @@ export const SETTINGS_REFERENCE: SettingsTier[] = [
             "body": [
               {
                 "kind": "text",
-                "text": "Rows one dataset may contribute when an agent's sql_query or list_data_tables tool loads the user's uploaded datasets. The tool reads every row of each dataset it may use, never a Parquet mirror, so a dataset larger than this is refused with a message naming this setting rather than answered from its first rows. Raise it with the app's memory in mind."
+                "text": "Rows one dataset may contribute when an agent's sql_query or list_data_tables tool loads the user's uploaded datasets. sql_query reads every row of each dataset its statement names, never a Parquet mirror, so a query that reads a dataset larger than this is refused with a message naming this setting rather than answered from its first rows; queries over other datasets still run. list_data_tables still lists a larger dataset, with its columns, no row count, and a note naming this setting. Raise it with the app's memory in mind."
               }
             ]
           }
