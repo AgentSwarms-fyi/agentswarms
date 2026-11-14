@@ -214,7 +214,7 @@ services:
   # Postgres 12+ works; this one exists so a single-host deployment has zero
   # extra moving parts. Point LAKEHOUSE_CATALOG_URL at it (or at your own).
   lakehouse-catalog:
-    image: postgres:16.15@sha256:1beaa3084eee2676f20a9cd9928f0bf2c5bf674f8e49f81017912183d377c61c
+    image: postgres:16.15@sha256:f9a7b9ebf6f56201f949db745e47bc423c0f0f8294bafe991cc10bf74b029657
     # 55432, not 5432: a developer's own Postgres is usually on 5432 and a
     # port clash here reads as "the catalog is broken".
     ports:
