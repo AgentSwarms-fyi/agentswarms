@@ -23,6 +23,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/integrations/supabase/types";
 import { decryptJson } from "@/utils/providers/crypto.server";
+import { containsSecretRef, resolveSecretRefsInObject } from "@/utils/secrets.server";
+import { kbCredentialHosts } from "@/lib/kbCredentialHosts";
 import { nextSyncAt } from "@/utils/saas/sync.server";
 import { embedAndStoreDocuments } from "@/utils/tools/embedding.server";
 import { resolveEmbedArgs } from "@/utils/tools/embedTarget.server";
@@ -68,6 +70,35 @@ type SourceRow = {
   credentials: unknown;
   access_scope: string;
 };
+
+/**
+ * The credentials with every `{{secret:NAME}}` resolved for the source's
+ * owner. A secret shared with the owner resolves where its owner allowed every
+ * host the connector sends credentials to (src/lib/kbCredentialHosts.ts).
+ */
+async function resolveKbCredentials(
+  source: Pick<SourceRow, "user_id" | "kind">,
+  config: Record<string, unknown>,
+  creds: Record<string, string>,
+): Promise<{ creds: Record<string, string> } | { error: string }> {
+  if (!Object.values(creds).some((v) => typeof v === "string" && containsSecretRef(v))) {
+    return { creds };
+  }
+  if (!source.user_id)
+    return { error: "This source's credentials name a secret, but it has no owner." };
+  const hosts = kbCredentialHosts(source.kind, config);
+  try {
+    return {
+      creds: await resolveSecretRefsInObject(
+        source.user_id,
+        creds,
+        hosts.length > 0 ? { sendTo: hosts } : undefined,
+      ),
+    };
+  } catch (e) {
+    return { error: `A credential could not be read: ${(e as Error).message}` };
+  }
+}
 
 /** Sync one connector source and record the outcome on its row. */
 export async function syncKbSource(
@@ -121,6 +152,12 @@ export async function syncKbSource(
   const config = (source.config ?? {}) as Record<string, unknown>;
   const invalid = connector.validate(config, creds);
   if (invalid) return fail(invalid);
+
+  // R494: a credential picked from the owner's secrets is a reference until
+  // here, resolved for the owner toward the hosts this connector calls.
+  const credsWithSecrets = await resolveKbCredentials(source, config, creds);
+  if ("error" in credsWithSecrets) return fail(credsWithSecrets.error);
+  creds = credsWithSecrets.creds;
 
   const claim = await claimKbSync(sb, source.id);
   if (claim.error) return fail(`The sync could not start: ${claim.error}`);

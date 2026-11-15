@@ -62,6 +62,7 @@ import { endpointHosts, type EndpointProvider } from "@/utils/providers/privateE
 import { detectOllama } from "@/utils/providers/ollama.functions";
 import { invalidateOllamaModels } from "@/hooks/use-ollama-models";
 import { integrationHosts } from "@/utils/providers/integrationHosts";
+import { encryptedProviderHosts } from "@/utils/providers/credentialHosts";
 import { SecretSelect } from "@/components/secrets/SecretSelect";
 import { savedSecretField, suggestSecretName } from "@/lib/secretRefs";
 
@@ -1172,14 +1173,37 @@ const NETWORK_MODES: { value: NetworkMode; label: string; hint: string }[] = [
 ];
 
 /**
- * Whether a provider field is a key picked as a secret (R493): the API key of
- * a provider kept in the `integrations` table, whose key the server resolves
- * from a reference at run time. The encrypted providers (Bedrock, Azure,
- * Vertex, OCI, Claude on AWS) store their credentials elsewhere and do not
- * resolve references yet, so their fields stay as they are.
+ * The credential fields of the encrypted providers (Bedrock, Azure, Vertex,
+ * OCI, Claude on AWS), picked as secrets since R494: the chat call resolves
+ * them for the credential's owner toward the provider's own endpoint
+ * (src/utils/providers/credentialHosts.ts). Their other fields are settings.
+ */
+const ENCRYPTED_SECRET_FIELDS: Record<string, readonly string[]> = {
+  bedrock: ["access_key_id", "secret_access_key", "session_token"],
+  claude_aws: ["api_key", "access_key_id", "secret_access_key", "session_token"],
+  azure_openai: ["api_key"],
+  vertex_ai: ["service_account_json"],
+  oci_genai: ["private_key"],
+};
+
+/** Which credential fields a Claude on AWS or Bedrock form may leave empty. */
+const OPTIONAL_SECRET_FIELDS: Record<string, readonly string[]> = {
+  bedrock: ["session_token"],
+  // An API key, or an access key pair: either half may be left empty.
+  claude_aws: ["api_key", "access_key_id", "secret_access_key", "session_token"],
+};
+
+/**
+ * Whether a provider field is a key picked as a secret: the API key of a
+ * provider kept in the `integrations` table (R493), and the credential fields
+ * of the encrypted providers (R494). The server resolves either from a
+ * reference at run time.
  */
 function isSecretPickedField(providerId: string, key: string): boolean {
-  return key === "api_key" && !ENCRYPTED_PROVIDERS.has(providerId);
+  if (ENCRYPTED_PROVIDERS.has(providerId)) {
+    return ENCRYPTED_SECRET_FIELDS[providerId]?.includes(key) ?? false;
+  }
+  return key === "api_key";
 }
 
 function ProviderConfigDialog({
@@ -1425,20 +1449,40 @@ function ProviderConfigDialog({
                 <Label htmlFor={`provider-${provider.id}-${field.key}`}>{field.label}</Label>
                 {isSecretPickedField(provider.id, field.key) ? (
                   <>
-                    <SecretSelect
-                      id={`provider-${provider.id}-${field.key}`}
-                      value={config[field.key] || ""}
-                      onChange={(v) => setConfig((c) => ({ ...c, [field.key]: v }))}
-                      storedKey={savedKey.stored}
-                      optional={provider.id === "vllm"}
-                      destination={integrationHosts("llm_provider", provider.id)(config) ?? []}
-                      disabled={testing}
-                      suggestedName={suggestSecretName(`${provider.id}_api_key`)}
-                      purpose={`For ${provider.name}'s API key${field.placeholder ? ` (${field.placeholder})` : ""}.`}
-                    />
+                    {ENCRYPTED_PROVIDERS.has(provider.id) ? (
+                      // These forms start empty on every edit (nothing saved
+                      // is read back), so there is no saved key to show.
+                      <SecretSelect
+                        id={`provider-${provider.id}-${field.key}`}
+                        value={config[field.key] || ""}
+                        onChange={(v) => setConfig((c) => ({ ...c, [field.key]: v }))}
+                        optional={OPTIONAL_SECRET_FIELDS[provider.id]?.includes(field.key)}
+                        destination={encryptedProviderHosts(provider.id, {
+                          region: config.region,
+                          location: config.region,
+                          endpoint: config.endpoint,
+                        })}
+                        disabled={testing}
+                        suggestedName={suggestSecretName(`${provider.id}_${field.key}`)}
+                        purpose={`For ${provider.name}: ${field.label}.`}
+                      />
+                    ) : (
+                      <SecretSelect
+                        id={`provider-${provider.id}-${field.key}`}
+                        value={config[field.key] || ""}
+                        onChange={(v) => setConfig((c) => ({ ...c, [field.key]: v }))}
+                        storedKey={savedKey.stored}
+                        optional={provider.id === "vllm"}
+                        destination={integrationHosts("llm_provider", provider.id)(config) ?? []}
+                        disabled={testing}
+                        suggestedName={suggestSecretName(`${provider.id}_api_key`)}
+                        purpose={`For ${provider.name}'s API key${field.placeholder ? ` (${field.placeholder})` : ""}.`}
+                      />
+                    )}
                     <p className="text-xs text-muted-foreground">
-                      A secret holding the key, sent only to this provider&apos;s API (or the base
-                      URL you set). Its value stays encrypted in Secrets and is never shown.
+                      A secret holding the {ENCRYPTED_PROVIDERS.has(provider.id) ? "value" : "key"},
+                      sent only to this provider&apos;s API (or the endpoint you set). Its value
+                      stays encrypted in Secrets and is never shown.
                     </p>
                   </>
                 ) : (

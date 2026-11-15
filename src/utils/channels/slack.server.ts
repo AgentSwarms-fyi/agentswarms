@@ -8,6 +8,7 @@
 // have one saved and a workspace that only wants slash commands does not.
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { decryptJson } from "@/utils/providers/crypto.server";
+import { channelCredential } from "@/utils/channels/credential.server";
 import type { ChannelTarget, SlackRoute } from "@/utils/channels/core";
 
 export type SlackWorkspaceRow = {
@@ -22,6 +23,9 @@ export type SlackWorkspaceRow = {
   signing_secret_enc: { ciphertext?: string; iv?: string; kid?: string } | null;
   bot_token_enc: { ciphertext?: string; iv?: string; kid?: string } | null;
 };
+
+/** Where the bot token goes: Slack's Web API. */
+const SLACK_API_ORIGIN = "https://slack.com";
 
 const WORKSPACE_COLUMNS =
   "id, user_id, team_id, team_name, analyst_id, mention_target_type, mention_target_id, is_active, signing_secret_enc, bot_token_enc";
@@ -46,28 +50,41 @@ export async function loadSlackWorkspace(teamId: string): Promise<SlackWorkspace
   return row;
 }
 
-/** The decrypted signing secret, or null when there is none to verify with. */
-export async function slackSigningSecret(row: SlackWorkspaceRow): Promise<string | null> {
+/**
+ * The signing secret, or null when there is none to verify with. One that
+ * names a secret resolves for the workspace's owner, from their own secrets
+ * only: it is never sent anywhere, so no host could be the one allowed (R494).
+ */
+export async function slackSigningSecret(
+  row: Pick<SlackWorkspaceRow, "user_id" | "signing_secret_enc">,
+): Promise<string | null> {
   const enc = row.signing_secret_enc;
   if (!enc?.ciphertext || !enc?.iv) return null;
+  let stored: string | null;
   try {
     const { secret } = await decryptJson<{ secret: string }>(enc.ciphertext, enc.iv, enc.kid);
-    return secret || null;
+    stored = secret || null;
   } catch {
     return null;
   }
+  return channelCredential(stored, row.user_id, "Slack signing secret");
 }
 
-/** The decrypted bot token, or null. Only mentions and DMs need one. */
+/**
+ * The bot token, or null. Only mentions and DMs need one. One that names a
+ * secret resolves for the workspace's owner toward slack.com (R494).
+ */
 export async function slackBotToken(row: SlackWorkspaceRow): Promise<string | null> {
   const enc = row.bot_token_enc;
   if (!enc?.ciphertext || !enc?.iv) return null;
+  let stored: string | null;
   try {
     const { token } = await decryptJson<{ token: string }>(enc.ciphertext, enc.iv, enc.kid);
-    return token || null;
+    stored = token || null;
   } catch {
     return null;
   }
+  return channelCredential(stored, row.user_id, "Slack bot token", [SLACK_API_ORIGIN]);
 }
 
 /** Active routes for a workspace, in the shape routeForCommand expects. */
@@ -104,7 +121,7 @@ export async function postSlackMessage(args: {
   blocks?: unknown[];
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const res = await fetch("https://slack.com/api/chat.postMessage", {
+    const res = await fetch(`${SLACK_API_ORIGIN}/api/chat.postMessage`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json; charset=utf-8",

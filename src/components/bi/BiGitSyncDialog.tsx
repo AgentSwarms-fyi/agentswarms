@@ -1,7 +1,8 @@
 // Git-based versioning UI: configure a GitHub/GitLab repo and export BI
 // dashboards + semantic models as sanitized JSON in one commit. Admin-gated by
-// the caller. The access token is write-only — it is stored encrypted and never
-// read back to the client (we only show whether one is set).
+// the caller. The access token is one of the user's secrets, picked by name
+// (R494); a token typed in before is stored encrypted and never read back to
+// the client (it shows as a key saved in the field until a secret is picked).
 import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
@@ -27,6 +28,8 @@ import {
 } from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
 import { useTokenRef } from "@/hooks/use-token-ref";
+import { SecretSelect } from "@/components/secrets/SecretSelect";
+import { parseSecretRef, secretRef } from "@/lib/secretRefs";
 import { gitExportNow, gitGetConfig, gitSaveConfig } from "@/utils/gitExport.functions";
 
 export function BiGitSyncDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -44,6 +47,8 @@ export function BiGitSyncDialog({ open, onClose }: { open: boolean; onClose: () 
   const [host, setHost] = useState("");
   const [pat, setPat] = useState("");
   const [hasToken, setHasToken] = useState(false);
+  // The secret the saved token names, when it names one.
+  const [tokenSecret, setTokenSecret] = useState<string | null>(null);
   const [last, setLast] = useState<{
     at: string | null;
     status: string | null;
@@ -74,6 +79,7 @@ export function BiGitSyncDialog({ open, onClose }: { open: boolean; onClose: () 
           setBasePath(c.base_path);
           setHost(c.host ?? "");
           setHasToken(c.has_token);
+          setTokenSecret(c.token_secret);
           setLast({ at: c.last_export_at, status: c.last_status, error: c.last_error });
         }
       })
@@ -93,13 +99,14 @@ export function BiGitSyncDialog({ open, onClose }: { open: boolean; onClose: () 
           branch: branch.trim(),
           base_path: basePath.trim() || "agentswarms",
           host: provider === "gitlab" ? host.trim() || undefined : undefined,
-          // Only send the token when the user typed one (keeps the stored one otherwise).
+          // Only send the token when one was picked (keeps the stored one otherwise).
           token: pat ? pat : undefined,
         },
       });
       if (!res.ok) throw new Error(res.error);
       if (pat) {
         setHasToken(true);
+        setTokenSecret(parseSecretRef(pat));
         setPat("");
       }
       toast.success("Git settings saved");
@@ -210,17 +217,19 @@ export function BiGitSyncDialog({ open, onClose }: { open: boolean; onClose: () 
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs">
-                Access token {hasToken && <span className="text-emerald-600">· stored</span>}
-              </Label>
-              <Input
-                type="password"
-                value={pat}
-                onChange={(e) => setPat(e.target.value)}
-                className="h-9 text-sm"
-                placeholder={
-                  hasToken ? "•••••••• (leave blank to keep)" : "Personal access token (repo write)"
+              <Label className="text-xs">Access token</Label>
+              <SecretSelect
+                aria-label="Access token"
+                value={pat || (tokenSecret ? secretRef(tokenSecret) : "")}
+                onChange={setPat}
+                storedKey={hasToken && !tokenSecret}
+                destination={
+                  provider === "github"
+                    ? "https://api.github.com"
+                    : host.trim() || "https://gitlab.com"
                 }
+                suggestedName={provider === "github" ? "GITHUB_TOKEN" : "GITLAB_TOKEN"}
+                purpose="A personal access token that can write to the repository."
               />
             </div>
             {last.at && (

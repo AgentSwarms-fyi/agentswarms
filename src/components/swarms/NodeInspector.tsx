@@ -73,6 +73,7 @@ import { useOllamaModels } from "@/hooks/use-ollama-models";
 import { useRowKeys } from "@/hooks/use-row-keys";
 import { SecretHeaderValue } from "@/components/secrets/SecretHeaderValue";
 import { SecretSelect } from "@/components/secrets/SecretSelect";
+import { webToolKeyHost, webToolKeySecretName } from "@/lib/webToolProviders";
 import { headerSecretValue, parseHeaderSecret, parseSecretRef, secretRef } from "@/lib/secretRefs";
 
 // Rerank-capable providers (Cohere/Jina-style POST /rerank); the picker
@@ -969,14 +970,19 @@ export function NodeInspector({
                                         <Label className="text-[10px] text-muted-foreground mb-1 block">
                                           API key
                                         </Label>
-                                        <Input
-                                          type="password"
-                                          className="h-8 text-xs font-mono"
-                                          placeholder="Paste API key for selected provider"
+                                        {/* A secret, resolved at run time toward the
+                                            provider's own host (R494). */}
+                                        <SecretSelect
+                                          size="sm"
+                                          aria-label={`${t.label} API key`}
                                           value={tc[webId]?.api_key || ""}
-                                          onChange={(e) =>
-                                            patchWebTool(webId, { api_key: e.target.value })
-                                          }
+                                          onChange={(v) => patchWebTool(webId, { api_key: v })}
+                                          destination={(() => {
+                                            const host = webToolKeyHost(provider);
+                                            return host ? `https://${host}` : undefined;
+                                          })()}
+                                          suggestedName={webToolKeySecretName(provider)}
+                                          purpose={`For ${t.label}.`}
                                         />
                                       </div>
                                     )}

@@ -67,10 +67,32 @@ development branch and may be ahead of the latest tag.
   binding the run would skip (it used to drop the line without a word), so a
   pipeline holding such a line must have it fixed or removed before it saves.
   The swarm templater now leaves exactly the references the server resolves
-  (it skipped `{{Secret :x}}` too, which the server then sent as text). Still to
-  come: secret support where the server lacks it (agent web-search keys, MCP
-  server tokens, SaaS and knowledge-base connectors, Slack/Teams, Git tokens,
-  the cloud LLM providers), then insert menus for `{{var}}` fields.
+  (it skipped `{{Secret :x}}` too, which the server then sent as text). R494
+  takes the list to the fields whose server did not resolve secrets yet.
+- **The rest of the key fields are a list of your secrets too** (R494). The
+  server now resolves `{{secret:NAME}}` in, and the form offers a list for:
+  agent and swarm web-tool keys (Brave, Tavily, SerpAPI, Firecrawl with its
+  own key, ScrapingBee), which were kept in plain text on the agent and on
+  every swarm node; the MCP server token; the Git access token for BI export
+  and notebook commits; the Slack signing secret and bot token and the Teams
+  client secret; every knowledge-base connector credential; every app source
+  credential (Stripe, HubSpot, Salesforce, Jira and the other thirteen); and
+  the credentials of Bedrock, Vertex, Azure OpenAI, OCI and Claude Platform on
+  AWS. Each resolves for the owner of what it belongs to, toward the hosts
+  that call reaches (a provider's API, the instance or site a source names, the
+  endpoint an LLM credential uses), so a secret shared with the owner works
+  where its owner allowed those hosts. A web-tool key is the exception: it
+  resolves for whoever runs the agent, so a colleague using a shared agent needs
+  that secret shared with them (before, anyone who could read the agent read
+  the key). A Slack signing secret is never sent anywhere, so it takes only a
+  secret you own, and a new Slack workspace cannot be connected without one. A
+  credential typed in before keeps working and shows as a key saved in the
+  field. A reference that cannot resolve is reported where it is used — an MCP
+  call or probe, a sync, an export — rather than calling without the
+  credential. Editing a knowledge-base source now keeps the credentials you
+  leave as they are, as the form says; changing one used to drop the others (an
+  email beside a token), and a field with nothing stored no longer reads
+  "(stored)". Still to come: insert menus for `{{var}}` fields.
 
 ### Added
 

@@ -49,6 +49,8 @@ import {
   type TeamsBotSummary,
 } from "@/utils/teams.functions";
 import { supabase } from "@/integrations/supabase/client";
+import { SecretSelect } from "@/components/secrets/SecretSelect";
+import { secretRef } from "@/lib/secretRefs";
 
 type Draft = {
   id?: string;
@@ -59,6 +61,9 @@ type Draft = {
   target_id: string;
   app_password: string;
   is_active: boolean;
+  /** What is stored for the client secret: a secret's name, a value typed in before, or nothing. */
+  storedPasswordName?: string | null;
+  hasStoredPassword?: boolean;
 };
 
 const empty: Draft = {
@@ -280,6 +285,8 @@ export function TeamsTab() {
                         target_id: b.target_id ?? "",
                         app_password: "",
                         is_active: b.is_active,
+                        storedPasswordName: b.appPasswordName,
+                        hasStoredPassword: b.hasAppPassword,
                       })
                     }
                   >
@@ -338,16 +345,20 @@ export function TeamsTab() {
                 </div>
               </div>
               <div className="space-y-1">
-                <Label htmlFor="tb-secret">
-                  Client secret {draft.id ? "(leave empty to keep the stored one)" : ""}
-                </Label>
-                <Input
+                <Label htmlFor="tb-secret">Client secret</Label>
+                {/* Sent only to Microsoft's sign-in host, to get the token
+                    that posts answers (R494). */}
+                <SecretSelect
                   id="tb-secret"
-                  type="password"
-                  autoComplete="new-password"
-                  value={draft.app_password}
-                  onChange={(e) => setDraft({ ...draft, app_password: e.target.value })}
-                  placeholder="written, never read back"
+                  value={
+                    draft.app_password ||
+                    (draft.storedPasswordName ? secretRef(draft.storedPasswordName) : "")
+                  }
+                  onChange={(v) => setDraft({ ...draft, app_password: v })}
+                  storedKey={!!draft.hasStoredPassword && !draft.storedPasswordName}
+                  destination="https://login.microsoftonline.com"
+                  suggestedName="TEAMS_CLIENT_SECRET"
+                  purpose="Azure portal → the bot's app registration → Certificates & secrets."
                 />
               </div>
               <div className="grid gap-3 sm:grid-cols-2">

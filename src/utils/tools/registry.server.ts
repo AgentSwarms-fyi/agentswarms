@@ -35,12 +35,14 @@ import { resultDigest } from "@/utils/provenance/canonical";
  */
 const WAREHOUSE_TOOL_ROW_CAP = 200;
 import { assertPublicUrl, safeFetch } from "@/utils/ssrfGuard.server";
-import { resolveMcpAuthToken } from "@/lib/mcp/auth.server";
+import { mcpBearerToken } from "@/lib/mcp/auth.server";
 import { MCP_CONNECT_BUDGET_MS } from "@/utils/mcpApps/budgets";
 import { requestInSession, type McpSend } from "@/utils/mcpApps/session";
 import { parseJsonOrSse } from "@/utils/mcpApps/sse";
 import { resolveIntegrationConfig } from "@/utils/providers/integrationConfig.server";
 import { integrationHosts } from "@/utils/providers/integrationHosts";
+import { containsSecretRef, resolveSecretRefs } from "@/utils/secrets.server";
+import { webToolKeyHost } from "@/lib/webToolProviders";
 import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.server";
 import { executeWarehouseQuery, listWarehouseTables } from "@/utils/warehouse/drivers.server";
 import {
@@ -774,6 +776,29 @@ async function resolveFirecrawlKey(
   return (await loadFirecrawlIntegrationKey(ctx)) || undefined;
 }
 
+/**
+ * The key a web tool's config holds (R494). A `{{secret:NAME}}` resolves for
+ * the run's user toward the one host the provider sends it to, so a secret
+ * shared with them works where its owner allowed that host; a key typed in
+ * before works as it is. A reference that cannot resolve is reported, rather
+ * than quietly searching some other way without the key the agent was given.
+ */
+async function webToolKey(
+  ctx: AgentToolContext,
+  provider: string,
+  raw: string | undefined,
+): Promise<{ key: string } | { error: string }> {
+  const key = (raw || "").trim();
+  if (!key || !containsSecretRef(key)) return { key };
+  const host = webToolKeyHost(provider);
+  if (!host) return { key: "" }; // Built-in Firecrawl takes no key of its own.
+  try {
+    return { key: (await resolveSecretRefs(ctx.userId, key, { sendTo: [host] })).trim() };
+  } catch (e) {
+    return { error: `The ${provider} key could not be read: ${(e as Error).message}` };
+  }
+}
+
 export async function runWebSearch(
   ctx: AgentToolContext,
   args: { query: string; limit?: number },
@@ -783,7 +808,9 @@ export async function runWebSearch(
   if (!q) return JSON.stringify({ error: "Empty query" });
   const limit = args.limit ?? 5;
   const provider = (cfg?.provider || "firecrawl_builtin").toLowerCase();
-  const key = (cfg?.api_key || "").trim();
+  const resolved = await webToolKey(ctx, provider, cfg?.api_key);
+  if ("error" in resolved) return JSON.stringify({ provider, error: resolved.error });
+  const key = resolved.key;
 
   if (provider === "brave" && key) return braveSearch(q, limit, key);
   if (provider === "tavily" && key) return tavilySearch(q, limit, key);
@@ -837,7 +864,9 @@ export async function runWebBrowse(
   const safe = await assertPublicUrl(url);
   if (!safe.ok) return JSON.stringify({ error: safe.error });
   const provider = (cfg?.provider || "firecrawl_builtin").toLowerCase();
-  const userKey = (cfg?.api_key || "").trim();
+  const resolved = await webToolKey(ctx, provider, cfg?.api_key);
+  if ("error" in resolved) return JSON.stringify({ provider, error: resolved.error });
+  const userKey = resolved.key;
 
   // ScrapingBee alternative — requires a per-agent/per-node key.
   if (provider === "scrapingbee" && userKey) {
@@ -1425,7 +1454,7 @@ async function loadMcpServer(ctx: AgentToolContext, name: string) {
     ctx,
     ctx.sb
       .from("mcp_servers")
-      .select("name, endpoint, auth_type, auth_token, auth_token_enc, status")
+      .select("name, endpoint, auth_type, auth_token, auth_token_enc, status, user_id")
       .eq("name", name),
   ).maybeSingle();
   if (!data) return null;
@@ -1511,7 +1540,12 @@ export async function runMcpListTools(
       error: `Endpoint ${srv.endpoint} is not callable from a server runtime. Only http(s):// MCP endpoints work here.`,
     });
   }
-  const token = await resolveMcpAuthToken(srv);
+  let token: string | null;
+  try {
+    token = await mcpBearerToken(srv);
+  } catch (e) {
+    return JSON.stringify({ error: `MCP server '${args.server_name}': ${(e as Error).message}` });
+  }
   const r = await mcpRequest(srv.endpoint, srv.auth_type, token, {
     jsonrpc: "2.0",
     id: 1,
@@ -1542,7 +1576,12 @@ export async function runMcpCallTool(
       error: `Endpoint ${srv.endpoint} is not callable from a server runtime.`,
     });
   }
-  const token = await resolveMcpAuthToken(srv);
+  let token: string | null;
+  try {
+    token = await mcpBearerToken(srv);
+  } catch (e) {
+    return JSON.stringify({ error: `MCP server '${args.server_name}': ${(e as Error).message}` });
+  }
   const r = await mcpRequest(srv.endpoint, srv.auth_type, token, {
     jsonrpc: "2.0",
     id: Date.now(),

@@ -32,6 +32,7 @@ import {
   postSlackMessage,
   slackBotToken,
   slackSigningSecret,
+  type SlackWorkspaceRow,
 } from "@/utils/channels/slack.server";
 import { verifySlackRequest } from "@/utils/slack/signature.server";
 
@@ -260,22 +261,21 @@ async function anyWorkspaceVerifies(args: {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data } = await supabaseAdmin
     .from("slack_workspaces")
-    .select("signing_secret_enc")
+    .select("user_id, signing_secret_enc")
     .eq("is_active", true)
     .limit(100);
-  const { decryptJson } = await import("@/utils/providers/crypto.server");
   const nowSeconds = Math.floor(Date.now() / 1000);
   for (const row of data ?? []) {
-    const enc = row.signing_secret_enc as { ciphertext?: string; iv?: string; kid?: string } | null;
-    if (!enc?.ciphertext || !enc?.iv) continue;
-    try {
-      const { secret } = await decryptJson<{ secret: string }>(enc.ciphertext, enc.iv, enc.kid);
-      if (!secret) continue;
-      const verdict = verifySlackRequest({ ...args, signingSecret: secret, nowSeconds });
-      if (verdict.ok) return true;
-    } catch {
-      // A secret that will not decrypt cannot be the one that signed this.
-    }
+    // Decrypted, and a secret it names resolved, the one way every Slack
+    // request reads it. One that will not decrypt or resolve is null, and
+    // cannot be the one that signed this.
+    const secret = await slackSigningSecret({
+      user_id: row.user_id,
+      signing_secret_enc: row.signing_secret_enc as SlackWorkspaceRow["signing_secret_enc"],
+    });
+    if (!secret) continue;
+    const verdict = verifySlackRequest({ ...args, signingSecret: secret, nowSeconds });
+    if (verdict.ok) return true;
   }
   return false;
 }

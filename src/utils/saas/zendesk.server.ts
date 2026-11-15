@@ -13,6 +13,7 @@
 import { flattenRecord } from "./flatten";
 import type { IncrementalSpec, SaasConfig, SaasStream } from "./types";
 import { connectorFetch } from "@/utils/http/connectorFetch.server";
+import { zendeskOrigin } from "./origins";
 
 /** Zendesk's maximum cursor page. */
 const PAGE_SIZE = 100;
@@ -44,16 +45,8 @@ const STREAMS: Record<
   },
 };
 
-/** https://<subdomain>.zendesk.com, accepting a pasted full URL too. */
-export function zendeskOrigin(subdomain: string): string {
-  const s = subdomain
-    .trim()
-    .replace(/^https?:\/\//, "")
-    .replace(/\.zendesk\.com.*$/i, "")
-    .replace(/\/.*$/, "");
-  if (!/^[a-z0-9-]+$/i.test(s)) throw new Error(`Zendesk: "${subdomain}" is not a subdomain`);
-  return `https://${s.toLowerCase()}.zendesk.com`;
-}
+// Moved to ./origins (R494): the credential pickers name the same host.
+export { zendeskOrigin } from "./origins";
 
 /** The token form Zendesk expects: `email/token:<api token>`, base64. */
 export function zendeskAuthHeader(email: string, apiToken: string): string {

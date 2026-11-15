@@ -58,6 +58,9 @@ export type SlackWorkspaceSummary = {
   is_active: boolean;
   hasSigningSecret: boolean;
   hasBotToken: boolean;
+  /** The secret each names, when it names one (R494): a name, never a value. */
+  signingSecretName: string | null;
+  botTokenName: string | null;
   /** Null means Slack has never called — the only real proof it is wired up. */
   last_command_at: string | null;
   last_error: string | null;
@@ -161,21 +164,26 @@ export const listSlackWorkspaces = createServerFn({ method: "POST" })
       )
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
-    return (rows ?? []).map((r) => ({
-      id: r.id,
-      team_id: r.team_id,
-      team_name: r.team_name,
-      analyst_id: r.analyst_id,
-      mention_target_type: r.mention_target_type ?? null,
-      mention_target_id: r.mention_target_id ?? null,
-      is_active: r.is_active,
-      // Presence only. The ciphertext never leaves the server either.
-      hasSigningSecret: Boolean(r.signing_secret_enc?.ciphertext),
-      hasBotToken: Boolean(r.bot_token_enc?.ciphertext),
-      last_command_at: r.last_command_at,
-      last_error: r.last_error,
-      created_at: r.created_at,
-    }));
+    const { encryptedSecretName } = await import("@/utils/credentialRefs.server");
+    return Promise.all(
+      (rows ?? []).map(async (r) => ({
+        id: r.id,
+        team_id: r.team_id,
+        team_name: r.team_name,
+        analyst_id: r.analyst_id,
+        mention_target_type: r.mention_target_type ?? null,
+        mention_target_id: r.mention_target_id ?? null,
+        is_active: r.is_active,
+        // Presence only. The ciphertext never leaves the server either.
+        hasSigningSecret: Boolean(r.signing_secret_enc?.ciphertext),
+        hasBotToken: Boolean(r.bot_token_enc?.ciphertext),
+        signingSecretName: await encryptedSecretName(r.signing_secret_enc, "secret"),
+        botTokenName: await encryptedSecretName(r.bot_token_enc, "token"),
+        last_command_at: r.last_command_at,
+        last_error: r.last_error,
+        created_at: r.created_at,
+      })),
+    );
   });
 
 export const saveSlackWorkspace = createServerFn({ method: "POST" })

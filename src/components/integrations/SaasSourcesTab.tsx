@@ -57,6 +57,8 @@ import { useAuth } from "@/hooks/use-auth";
 import { providerInitials } from "@/components/integrations/providerInitials";
 import { SAAS_LABELS, SAAS_PROVIDERS } from "@/utils/saas/types";
 import { SAAS_CARDS } from "@/utils/saas/catalog";
+import { saasCredentialHosts } from "@/utils/saas/origins";
+import { SecretSelect } from "@/components/secrets/SecretSelect";
 import type {
   SaasConfig,
   SaasConnectionSummary,
@@ -533,7 +535,18 @@ export function SaasSourcesTab() {
               SAAS_CARDS[dialogProvider].fields.map((f) => (
                 <div key={f.key} className="space-y-1">
                   <Label className="text-xs">{f.label}</Label>
-                  {f.type === "textarea" ? (
+                  {f.secret ? (
+                    // One of your secrets, resolved at sync time toward this
+                    // source's own hosts (R494).
+                    <SecretSelect
+                      aria-label={f.label}
+                      value={values[f.key] ?? ""}
+                      onChange={(v) => setValues((cur) => ({ ...cur, [f.key]: v }))}
+                      destination={saasCredentialHosts({ provider: dialogProvider, ...values })}
+                      suggestedName={`${dialogProvider}_${f.key}`.toUpperCase()}
+                      purpose={`${SAAS_LABELS[dialogProvider]}: ${f.label}.`}
+                    />
+                  ) : f.type === "textarea" ? (
                     <Textarea
                       value={values[f.key] ?? ""}
                       onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}

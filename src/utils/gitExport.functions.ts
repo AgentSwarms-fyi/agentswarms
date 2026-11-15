@@ -6,9 +6,10 @@ import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
 import type { Database } from "@/integrations/supabase/types";
-import { encryptJson, decryptJson } from "@/utils/providers/crypto.server";
+import { encryptJson } from "@/utils/providers/crypto.server";
 import { auditEvent } from "@/utils/audit.server";
 import { runGitExport, type GitExportConfig } from "@/utils/git/exporter.server";
+import { gitTokenForUse, storedGitToken, storedGitTokenSecret } from "@/utils/git/token.server";
 import { callerFailure } from "@/utils/callerLookup.server";
 import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
@@ -52,6 +53,8 @@ export const gitGetConfig = createServerFn({ method: "POST" })
             base_path: string;
             host: string | null;
             has_token: boolean;
+            /** The secret the stored token names, when it is one. */
+            token_secret: string | null;
             last_export_at: string | null;
             last_status: string | null;
             last_error: string | null;
@@ -76,6 +79,7 @@ export const gitGetConfig = createServerFn({ method: "POST" })
             base_path: row.base_path,
             host: row.host,
             has_token: Boolean(row.token_enc),
+            token_secret: await storedGitTokenSecret(row.token_enc),
             last_export_at: row.last_export_at,
             last_status: row.last_status,
             last_error: row.last_error,
@@ -163,11 +167,10 @@ export const gitExportNow = createServerFn({ method: "POST" })
         if (error) return { ok: false, error: error.message };
         if (!row) return { ok: false, error: "Configure a Git repository first" };
 
-        const enc = row.token_enc as { ciphertext?: string; iv?: string; kid?: string } | null;
-        if (!enc?.ciphertext || !enc?.iv) {
+        const stored = await storedGitToken(row.token_enc);
+        if (!stored) {
           return { ok: false, error: "No access token stored — add one in the Git settings" };
         }
-        const { token } = await decryptJson<{ token: string }>(enc.ciphertext, enc.iv, enc.kid);
 
         const cfg: GitExportConfig = {
           provider: row.provider as GitExportConfig["provider"],
@@ -176,6 +179,7 @@ export const gitExportNow = createServerFn({ method: "POST" })
           base_path: row.base_path,
           host: row.host,
         };
+        const token = await gitTokenForUse(userId, cfg, stored);
 
         try {
           const res = await runGitExport(sb, userId, cfg, token);

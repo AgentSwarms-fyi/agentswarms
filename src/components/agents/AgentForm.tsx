@@ -53,6 +53,8 @@ import {
 import type { LucideIcon } from "lucide-react";
 import type { Json } from "@/integrations/supabase/types";
 import { ModelRegistryPicker } from "@/components/agents/ModelRegistryPicker";
+import { SecretSelect } from "@/components/secrets/SecretSelect";
+import { webToolKeyHost, webToolKeySecretName } from "@/lib/webToolProviders";
 import { ModelCombobox } from "@/components/models/ModelCombobox";
 import { PromptLibraryPicker } from "@/components/prompts/PromptLibraryPicker";
 import { SkillPicker } from "@/components/skills/SkillPicker";
@@ -2613,15 +2615,23 @@ export function AgentForm({
                                       </p>
                                     ) : (
                                       <div className="space-y-1">
-                                        <Label className="text-xs">API Key</Label>
-                                        <Input
-                                          type="password"
-                                          className="h-8 text-xs"
-                                          placeholder="Paste API key"
+                                        <Label className="text-xs">API key</Label>
+                                        {/* A secret, resolved at run time toward the
+                                            provider's own host (R494). */}
+                                        <SecretSelect
+                                          aria-label={`${tool.name} API key`}
                                           value={toolConfigs[tool.id]?.api_key || ""}
-                                          onChange={(e) =>
-                                            updateToolConfig(tool.id, "api_key", e.target.value)
-                                          }
+                                          onChange={(v) => updateToolConfig(tool.id, "api_key", v)}
+                                          destination={(() => {
+                                            const host = webToolKeyHost(
+                                              toolConfigs[tool.id]?.provider,
+                                            );
+                                            return host ? `https://${host}` : undefined;
+                                          })()}
+                                          suggestedName={webToolKeySecretName(
+                                            toolConfigs[tool.id]?.provider,
+                                          )}
+                                          purpose={`For ${tool.name}.`}
                                         />
                                       </div>
                                     )}

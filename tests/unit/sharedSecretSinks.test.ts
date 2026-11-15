@@ -328,6 +328,13 @@ describe("the destination-naming sinks", () => {
       .sort();
     expect(files).toEqual(
       [
+        // R494: the MCP token, Slack/Teams credentials, the Git token, KB
+        // connectors and app sources (secretSinksR494.test.ts runs each).
+        "src/lib/mcp/auth.server.ts",
+        "src/utils/channels/credential.server.ts",
+        "src/utils/git/token.server.ts",
+        "src/utils/kb/sync.server.ts",
+        "src/utils/saas/credentials.server.ts",
         "src/routes/api/a2a.ts",
         "src/routes/api/chat.ts",
         "src/utils/catalog.functions.ts",

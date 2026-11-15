@@ -61,6 +61,8 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
 import { SlackRoutingCard } from "@/components/integrations/SlackRoutingCard";
+import { SecretSelect } from "@/components/secrets/SecretSelect";
+import { secretRef } from "@/lib/secretRefs";
 import {
   deleteSlackWorkspace,
   listSlackWorkspaces,
@@ -445,36 +447,43 @@ export function SlackTab() {
             </div>
 
             <div className="space-y-1">
-              <Label className="text-xs">
-                Signing secret{" "}
-                {editing !== "new" && editing?.hasSigningSecret && (
-                  <span className="font-normal text-muted-foreground">— already set</span>
-                )}
-              </Label>
-              <Input
-                type="password"
-                value={signingSecret}
-                onChange={(e) => setSigningSecret(e.target.value)}
-                placeholder={
-                  editing !== "new" && editing?.hasSigningSecret
-                    ? "Leave blank to keep the stored secret"
-                    : "From Slack → Basic Information"
+              <Label className="text-xs">Signing secret</Label>
+              {/* Your own secret only: it checks Slack's signature here and
+                  is never sent anywhere, so no host could be the allowed one
+                  for a secret shared with you (R494). */}
+              <SecretSelect
+                aria-label="Signing secret"
+                ownedOnly
+                value={
+                  signingSecret ||
+                  (editing !== "new" && editing?.signingSecretName
+                    ? secretRef(editing.signingSecretName)
+                    : "")
                 }
+                onChange={setSigningSecret}
+                storedKey={
+                  editing !== "new" && !!editing?.hasSigningSecret && !editing.signingSecretName
+                }
+                suggestedName="SLACK_SIGNING_SECRET"
+                purpose="Slack app → Basic Information → Signing Secret."
               />
             </div>
 
             <div className="space-y-1">
-              <Label className="text-xs">
-                Bot token (optional){" "}
-                {editing !== "new" && editing?.hasBotToken && (
-                  <span className="font-normal text-muted-foreground">— already set</span>
-                )}
-              </Label>
-              <Input
-                type="password"
-                value={botToken}
-                onChange={(e) => setBotToken(e.target.value)}
-                placeholder="xoxb-…"
+              <Label className="text-xs">Bot token (optional)</Label>
+              <SecretSelect
+                aria-label="Bot token"
+                value={
+                  botToken ||
+                  (editing !== "new" && editing?.botTokenName
+                    ? secretRef(editing.botTokenName)
+                    : "")
+                }
+                onChange={setBotToken}
+                storedKey={editing !== "new" && !!editing?.hasBotToken && !editing.botTokenName}
+                destination="https://slack.com"
+                suggestedName="SLACK_BOT_TOKEN"
+                purpose="Slack app → OAuth & Permissions → Bot User OAuth Token (xoxb-…)."
               />
               <p className="text-[11px] text-muted-foreground">
                 Not needed for slash commands — answers go back through Slack&apos;s own response
@@ -487,7 +496,12 @@ export function SlackTab() {
             <Button variant="ghost" onClick={() => setEditing(null)}>
               Cancel
             </Button>
-            <Button onClick={() => void onSave()} disabled={busy || !teamId.trim()}>
+            {/* A new workspace needs its signing secret: the server refuses one
+                without, since it could never verify a request. */}
+            <Button
+              onClick={() => void onSave()}
+              disabled={busy || !teamId.trim() || (editing === "new" && !signingSecret)}
+            >
               {busy && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
               {editing === "new" ? "Connect" : "Save"}
             </Button>

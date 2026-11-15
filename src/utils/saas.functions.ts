@@ -10,6 +10,7 @@ import { z } from "zod";
 
 import type { Database } from "@/integrations/supabase/types";
 import { decryptJson, encryptJson } from "@/utils/providers/crypto.server";
+import { resolveSaasConfig } from "@/utils/saas/credentials.server";
 import { auditEvent } from "@/utils/audit.server";
 import { listSaasStreams, nextSyncAt, runConnectionSync } from "@/utils/saas/sync.server";
 import { SYNC_SCHEDULES } from "@/utils/saas/types";
@@ -90,9 +91,12 @@ async function loadConnection(
   if (!enc?.ciphertext || !enc?.iv) {
     throw new Error(`Data source "${row.name}" has no stored credentials`);
   }
+  // Credentials picked as secrets resolve for the source's owner, as the
+  // sync itself runs (R494). Nothing writes this config back.
+  const stored = await decryptJson<SaasConfig>(enc.ciphertext, enc.iv, enc.kid);
   return {
     name: row.name,
-    config: await decryptJson<SaasConfig>(enc.ciphertext, enc.iv, enc.kid),
+    config: await resolveSaasConfig(row.user_id, stored),
     streams: Array.isArray(row.streams) ? (row.streams as string[]) : [],
     ownerUserId: row.user_id,
   };
@@ -331,8 +335,11 @@ export const discoverSaasStreams = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }): Promise<SaasStream[]> => {
     const { sb, userId } = await requireUser(data.access_token);
-    const config =
-      data.config ?? (await loadConnection(sb, userId, data.id!, { allowShared: true })).config;
+    // An unsaved config is the caller's, to be saved under their name: its
+    // secrets resolve for them, as they will once it is saved (R494).
+    const config = data.config
+      ? await resolveSaasConfig(userId, data.config)
+      : (await loadConnection(sb, userId, data.id!, { allowShared: true })).config;
     return listSaasStreams(config);
   });
 

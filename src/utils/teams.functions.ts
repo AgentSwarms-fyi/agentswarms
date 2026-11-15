@@ -31,6 +31,8 @@ export type TeamsBotSummary = {
   is_active: boolean;
   /** Presence only — the ciphertext never leaves the server either. */
   hasAppPassword: boolean;
+  /** The secret the client secret names, when it names one (R494): a name, never a value. */
+  appPasswordName: string | null;
   last_activity_at: string | null;
   last_error: string | null;
   created_at: string;
@@ -48,19 +50,23 @@ export const listTeamsBots = createServerFn({ method: "POST" })
       .eq("user_id", userId)
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
-    return (rows ?? []).map((r) => ({
-      id: r.id,
-      app_id: r.app_id,
-      display_name: r.display_name,
-      tenant_id: r.tenant_id,
-      target_type: (r.target_type as "agent" | "analyst" | null) ?? null,
-      target_id: r.target_id,
-      is_active: r.is_active,
-      hasAppPassword: Boolean((r.app_password_enc as { ciphertext?: string } | null)?.ciphertext),
-      last_activity_at: r.last_activity_at,
-      last_error: r.last_error,
-      created_at: r.created_at,
-    }));
+    const { encryptedSecretName } = await import("@/utils/credentialRefs.server");
+    return Promise.all(
+      (rows ?? []).map(async (r) => ({
+        id: r.id,
+        app_id: r.app_id,
+        display_name: r.display_name,
+        tenant_id: r.tenant_id,
+        target_type: (r.target_type as "agent" | "analyst" | null) ?? null,
+        target_id: r.target_id,
+        is_active: r.is_active,
+        hasAppPassword: Boolean((r.app_password_enc as { ciphertext?: string } | null)?.ciphertext),
+        appPasswordName: await encryptedSecretName(r.app_password_enc, "password"),
+        last_activity_at: r.last_activity_at,
+        last_error: r.last_error,
+        created_at: r.created_at,
+      })),
+    );
   });
 
 export const saveTeamsBot = createServerFn({ method: "POST" })

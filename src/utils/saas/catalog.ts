@@ -34,6 +34,12 @@ export type Field<K extends string = string> = {
   type?: "password" | "textarea";
   hint?: string;
   /**
+   * A credential: picked from the user's secrets and stored as a reference,
+   * resolved at sync time toward the source's own hosts (R494). Every other
+   * field is a setting, typed in.
+   */
+  secret?: true;
+  /**
    * Blank is a real answer — Jira's project keys, Asana's workspace.
    *
    * Both the Connect button and the server schema read this, so a field whose
@@ -72,6 +78,7 @@ export const SAAS_CARDS: { [P in SaasProvider]: ProviderCard<P> } = {
       { key: "property_id", label: "Property id", placeholder: "123456789" },
       {
         key: "service_account_json",
+        secret: true,
         label: "Service account key JSON",
         type: "textarea",
         placeholder: '{ "type": "service_account", … }',
@@ -85,7 +92,7 @@ export const SAAS_CARDS: { [P in SaasProvider]: ProviderCard<P> } = {
       "id — and give it read scopes for the objects you want to sync.",
     unit: "object",
     units: "objects",
-    fields: [{ key: "api_key", label: "Private API key", placeholder: "pk_…" }],
+    fields: [{ key: "api_key", secret: true, label: "Private API key", placeholder: "pk_…" }],
   },
   notion: {
     description: "Sync Notion databases into datasets — one per database.",
@@ -96,7 +103,12 @@ export const SAAS_CARDS: { [P in SaasProvider]: ProviderCard<P> } = {
     unit: "database",
     units: "databases",
     fields: [
-      { key: "access_token", label: "Integration secret", placeholder: "ntn_… or secret_…" },
+      {
+        key: "access_token",
+        secret: true,
+        label: "Integration secret",
+        placeholder: "ntn_… or secret_…",
+      },
     ],
   },
   airtable: {
@@ -107,7 +119,9 @@ export const SAAS_CARDS: { [P in SaasProvider]: ProviderCard<P> } = {
       "access list. Airtable has no modified timestamp, so these are re-read in full.",
     unit: "table",
     units: "tables",
-    fields: [{ key: "access_token", label: "Personal access token", placeholder: "pat…" }],
+    fields: [
+      { key: "access_token", secret: true, label: "Personal access token", placeholder: "pat…" },
+    ],
   },
   linear: {
     description: "Sync issues, projects, teams, users and cycles into datasets.",
@@ -117,7 +131,7 @@ export const SAAS_CARDS: { [P in SaasProvider]: ProviderCard<P> } = {
       "contain what that account can see.",
     unit: "object",
     units: "objects",
-    fields: [{ key: "api_key", label: "API key", placeholder: "lin_api_…" }],
+    fields: [{ key: "api_key", secret: true, label: "API key", placeholder: "lin_api_…" }],
   },
   asana: {
     description: "Sync tasks from your Asana projects into datasets — one per project.",
@@ -128,7 +142,7 @@ export const SAAS_CARDS: { [P in SaasProvider]: ProviderCard<P> } = {
     unit: "project",
     units: "projects",
     fields: [
-      { key: "access_token", label: "Personal access token", placeholder: "2/1234…" },
+      { key: "access_token", secret: true, label: "Personal access token", placeholder: "2/1234…" },
       {
         key: "workspace_gid",
         optional: true,
@@ -147,7 +161,7 @@ export const SAAS_CARDS: { [P in SaasProvider]: ProviderCard<P> } = {
     units: "objects",
     fields: [
       { key: "domain", label: "Domain", placeholder: "acme (from https://acme.freshdesk.com)" },
-      { key: "api_key", label: "API key", placeholder: "paste the key as issued" },
+      { key: "api_key", secret: true, label: "API key", placeholder: "paste the key as issued" },
     ],
   },
   servicenow: {
@@ -166,7 +180,12 @@ export const SAAS_CARDS: { [P in SaasProvider]: ProviderCard<P> } = {
         placeholder: "acme (from https://acme.service-now.com)",
       },
       { key: "username", label: "Integration user", placeholder: "svc_agentswarms" },
-      { key: "password", label: "Password", placeholder: "the integration user's password" },
+      {
+        key: "password",
+        secret: true,
+        label: "Password",
+        placeholder: "the integration user's password",
+      },
     ],
   },
   intercom: {
@@ -177,7 +196,7 @@ export const SAAS_CARDS: { [P in SaasProvider]: ProviderCard<P> } = {
       "conversations. No OAuth redirect is needed for an app in your own workspace.",
     unit: "object",
     units: "objects",
-    fields: [{ key: "access_token", label: "Access token", placeholder: "dG9r…" }],
+    fields: [{ key: "access_token", secret: true, label: "Access token", placeholder: "dG9r…" }],
   },
   github: {
     description: "Sync issues and pull requests from your repositories into datasets.",
@@ -189,7 +208,12 @@ export const SAAS_CARDS: { [P in SaasProvider]: ProviderCard<P> } = {
     units: "repositories",
     fields: [
       { key: "owner", label: "Organisation or user", placeholder: "acme-inc" },
-      { key: "access_token", label: "Access token", placeholder: "github_pat_… or ghp_…" },
+      {
+        key: "access_token",
+        secret: true,
+        label: "Access token",
+        placeholder: "github_pat_… or ghp_…",
+      },
     ],
   },
   jira: {
@@ -203,7 +227,7 @@ export const SAAS_CARDS: { [P in SaasProvider]: ProviderCard<P> } = {
     fields: [
       { key: "site_url", label: "Site URL", placeholder: "https://acme.atlassian.net" },
       { key: "email", label: "Account email", placeholder: "you@company.com" },
-      { key: "api_token", label: "API token", placeholder: "ATATT3x…" },
+      { key: "api_token", secret: true, label: "API token", placeholder: "ATATT3x…" },
       {
         key: "project_keys",
         optional: true,
@@ -223,7 +247,12 @@ export const SAAS_CARDS: { [P in SaasProvider]: ProviderCard<P> } = {
     fields: [
       { key: "subdomain", label: "Subdomain", placeholder: "acme (from https://acme.zendesk.com)" },
       { key: "email", label: "Agent email", placeholder: "you@company.com" },
-      { key: "api_token", label: "API token", placeholder: "paste the token as issued" },
+      {
+        key: "api_token",
+        secret: true,
+        label: "API token",
+        placeholder: "paste the token as issued",
+      },
     ],
   },
   google_sheets: {
@@ -242,6 +271,7 @@ export const SAAS_CARDS: { [P in SaasProvider]: ProviderCard<P> } = {
       },
       {
         key: "service_account_json",
+        secret: true,
         label: "Service account key JSON",
         type: "textarea",
         placeholder: '{ "type": "service_account", … }',
@@ -259,6 +289,7 @@ export const SAAS_CARDS: { [P in SaasProvider]: ProviderCard<P> } = {
     fields: [
       {
         key: "api_key",
+        secret: true,
         label: "Secret or restricted key",
         type: "password",
         placeholder: "rk_live_… or sk_live_…",
@@ -277,6 +308,7 @@ export const SAAS_CARDS: { [P in SaasProvider]: ProviderCard<P> } = {
     fields: [
       {
         key: "access_token",
+        secret: true,
         label: "Private app access token",
         type: "password",
         placeholder: "pat-na1-…",
@@ -298,8 +330,14 @@ export const SAAS_CARDS: { [P in SaasProvider]: ProviderCard<P> } = {
         placeholder: "https://acme.my.salesforce.com",
         hint: "Your My Domain address. A sandbox uses its own domain.",
       },
-      { key: "client_id", label: "Consumer key", type: "password", placeholder: "3MVG9…" },
-      { key: "client_secret", label: "Consumer secret", type: "password" },
+      {
+        key: "client_id",
+        secret: true,
+        label: "Consumer key",
+        type: "password",
+        placeholder: "3MVG9…",
+      },
+      { key: "client_secret", secret: true, label: "Consumer secret", type: "password" },
     ],
   },
   shopify: {
@@ -318,6 +356,7 @@ export const SAAS_CARDS: { [P in SaasProvider]: ProviderCard<P> } = {
       },
       {
         key: "access_token",
+        secret: true,
         label: "Admin API access token",
         type: "password",
         placeholder: "shpat_…",
@@ -325,3 +364,9 @@ export const SAAS_CARDS: { [P in SaasProvider]: ProviderCard<P> } = {
     ],
   },
 };
+
+/** The keys of a provider's credential fields: the ones picked as secrets. */
+export function saasSecretFields(provider: SaasProvider): string[] {
+  const card = SAAS_CARDS[provider] as ProviderCard | undefined;
+  return (card?.fields ?? []).filter((f) => f.secret).map((f) => f.key);
+}

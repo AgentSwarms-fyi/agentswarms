@@ -158,6 +158,38 @@ function SecretsPage() {
             "Every string field of the integration config — search providers, object stores, automation tools.",
           ],
           [
+            "Agent and swarm web tools",
+            "The API key of Brave, Tavily, SerpAPI, Firecrawl (custom key) or ScrapingBee, as whoever runs the agent, toward that provider's own API — so someone using a shared agent needs that secret shared with them.",
+          ],
+          [
+            "MCP servers",
+            "The bearer token, as the server's owner, toward the server's own endpoint.",
+          ],
+          [
+            "Git version control",
+            "The access token (BI export and notebook commits), toward api.github.com or the GitLab host you set.",
+          ],
+          [
+            "Slack and Teams",
+            "The bot token toward slack.com and the Teams client secret toward Microsoft's sign-in host. A Slack signing secret is never sent anywhere, so it takes only a secret you own.",
+          ],
+          [
+            <>
+              <DocLink key="k" to="/docs/knowledge">
+                Knowledge-base connectors
+              </DocLink>
+            </>,
+            "Every credential, as the source's owner, at sync time — toward the provider's API, or Confluence's own site.",
+          ],
+          [
+            "App sources (Stripe, Jira, Salesforce…)",
+            "Every credential field, as the source's owner — toward the provider's API, or the instance the source names. Its settings take only a secret you own, because they decide that host.",
+          ],
+          [
+            "Bedrock, Vertex, Azure OpenAI, OCI and Claude Platform on AWS",
+            "Every credential, as the credential's owner, toward the endpoint the call uses (and Google's token server for Vertex).",
+          ],
+          [
             <>
               <DocLink key="m" to="/docs/mcp">
                 MCP Builder

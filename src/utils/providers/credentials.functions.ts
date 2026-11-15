@@ -4,6 +4,7 @@
 // via dynamic import so they don't end up in the client bundle.
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { parseSecretRef } from "@/lib/secretRefs";
 import { cloudRegion } from "@/utils/providers/cloudRegion";
 import {
   networkPathFieldText,
@@ -43,6 +44,18 @@ const providerEnum = z.enum([
   "claude_aws",
 ]);
 
+/**
+ * A credential field's length rule: at least `min` characters, or a
+ * `{{secret:NAME}}` picked from the user's secrets (R494), which is shorter
+ * than most keys and resolved at call time (credentials.server.ts). It raises
+ * the issue `.min()` would, so the dialog words it the same way ("is
+ * required", "is too short — paste all of it").
+ */
+const credentialMin = (min: number) => (v: string, ctx: z.RefinementCtx) => {
+  if (parseSecretRef(v) !== null || v.length >= min) return;
+  ctx.addIssue({ code: "too_small", origin: "string", minimum: min, inclusive: true, input: v });
+};
+
 const SaveSchema = z.object({
   provider: providerEnum,
   label: z.string().max(80).optional(),
@@ -50,8 +63,8 @@ const SaveSchema = z.object({
   bedrock: z
     .object({
       region: z.string().min(1).max(40),
-      accessKeyId: z.string().min(4).max(128),
-      secretAccessKey: z.string().min(4).max(256),
+      accessKeyId: z.string().max(128).superRefine(credentialMin(4)),
+      secretAccessKey: z.string().max(256).superRefine(credentialMin(4)),
       sessionToken: z.string().max(4096).optional(),
       endpoint: z.string().max(300).optional(),
       requirePrivate: z.boolean().optional(),
@@ -61,20 +74,20 @@ const SaveSchema = z.object({
     .object({
       projectId: z.string().min(1).max(120),
       location: z.string().min(1).max(40),
-      serviceAccountJson: z.string().min(20).max(20000),
+      serviceAccountJson: z.string().max(20000).superRefine(credentialMin(20)),
       endpoint: z.string().max(300).optional(),
       requirePrivate: z.boolean().optional(),
     })
     .optional(),
   anthropic: z
     .object({
-      apiKey: z.string().min(10).max(256),
+      apiKey: z.string().max(256).superRefine(credentialMin(10)),
     })
     .optional(),
   azure_openai: z
     .object({
       endpoint: z.string().url().max(300),
-      apiKey: z.string().min(10).max(256),
+      apiKey: z.string().max(256).superRefine(credentialMin(10)),
       apiVersion: z.string().max(50).optional(),
       requirePrivate: z.boolean().optional(),
     })
@@ -86,7 +99,7 @@ const SaveSchema = z.object({
       tenancyOcid: z.string().min(10).max(300),
       userOcid: z.string().min(10).max(300),
       fingerprint: z.string().min(10).max(120),
-      privateKeyPem: z.string().min(40).max(20000),
+      privateKeyPem: z.string().max(20000).superRefine(credentialMin(40)),
       style: z.enum(["GENERIC", "COHERE"]).optional(),
       endpoint: z.string().max(300).optional(),
       requirePrivate: z.boolean().optional(),
@@ -94,7 +107,7 @@ const SaveSchema = z.object({
     .optional(),
   qwen: z
     .object({
-      apiKey: z.string().min(10).max(256),
+      apiKey: z.string().max(256).superRefine(credentialMin(10)),
       baseUrl: z.string().url().max(300).optional(),
     })
     .optional(),
@@ -207,10 +220,13 @@ export const saveProviderCredential = createServerFn({ method: "POST" })
       }
       case "vertex": {
         if (!data.vertex) throw new Error("Vertex fields required");
-        try {
-          JSON.parse(data.vertex.serviceAccountJson);
-        } catch {
-          throw new Error("Service account JSON is not valid JSON");
+        // A secret is checked where it is read, at call time.
+        if (parseSecretRef(data.vertex.serviceAccountJson) === null) {
+          try {
+            JSON.parse(data.vertex.serviceAccountJson);
+          } catch {
+            throw new Error("Service account JSON is not valid JSON");
+          }
         }
         credsPayload = { serviceAccountJson: data.vertex.serviceAccountJson } satisfies VertexCreds;
         configPayload = {
@@ -242,7 +258,10 @@ export const saveProviderCredential = createServerFn({ method: "POST" })
       case "oci_genai": {
         if (!data.oci_genai) throw new Error("OCI fields required");
         const o = data.oci_genai;
-        if (!o.privateKeyPem.includes("BEGIN") || !o.privateKeyPem.includes("PRIVATE KEY")) {
+        if (
+          parseSecretRef(o.privateKeyPem) === null &&
+          (!o.privateKeyPem.includes("BEGIN") || !o.privateKeyPem.includes("PRIVATE KEY"))
+        ) {
           throw new Error("Private key must be a PEM-encoded RSA key");
         }
         credsPayload = {

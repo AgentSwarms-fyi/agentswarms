@@ -9,7 +9,7 @@ import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
 import type { Database } from "@/integrations/supabase/types";
-import { decryptJson } from "@/utils/providers/crypto.server";
+import { gitTokenForUse, storedGitToken } from "@/utils/git/token.server";
 import { auditEvent } from "@/utils/audit.server";
 import {
   commitFiles,
@@ -72,22 +72,25 @@ async function resolveGitConfig(
   if (error) return { ok: false, error: error.message };
   if (!row) return { ok: false, error: "Connect a Git repository first" };
 
-  const enc = row.token_enc as { ciphertext?: string; iv?: string; kid?: string } | null;
-  if (!enc?.ciphertext || !enc?.iv) {
+  const stored = await storedGitToken(row.token_enc);
+  if (!stored) {
     return { ok: false, error: "No access token stored — add one in the Git settings" };
   }
-  const { token } = await decryptJson<{ token: string }>(enc.ciphertext, enc.iv, enc.kid);
-  return {
-    ok: true,
-    token,
-    cfg: {
-      provider: row.provider as GitExportConfig["provider"],
-      repo: row.repo,
-      branch: row.branch,
-      base_path: row.base_path,
-      host: row.host,
-    },
+  const cfg: GitExportConfig = {
+    provider: row.provider as GitExportConfig["provider"],
+    repo: row.repo,
+    branch: row.branch,
+    base_path: row.base_path,
+    host: row.host,
   };
+  try {
+    return { ok: true, token: await gitTokenForUse(userId, cfg, stored), cfg };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "The access token could not be read",
+    };
+  }
 }
 
 /** The notebook's current content hash — what "uncommitted changes" compares against. */

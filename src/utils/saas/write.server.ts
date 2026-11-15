@@ -94,5 +94,8 @@ export async function loadWritableConnection(
   if (!enc?.ciphertext || !enc?.iv) {
     throw new Error(`the SaaS connection "${row.name}" has no stored credentials`);
   }
-  return { name: row.name, config: await decryptJson<SaasConfig>(enc.ciphertext, enc.iv, enc.kid) };
+  // Credentials picked as secrets resolve for the source's owner (R494).
+  const { resolveSaasConfig } = await import("./credentials.server");
+  const stored = await decryptJson<SaasConfig>(enc.ciphertext, enc.iv, enc.kid);
+  return { name: row.name, config: await resolveSaasConfig(userId, stored) };
 }

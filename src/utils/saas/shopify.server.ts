@@ -8,6 +8,7 @@
 import { flattenRecord } from "./flatten";
 import type { IncrementalSpec, SaasConfig, SaasStream } from "./types";
 import { connectorFetch } from "@/utils/http/connectorFetch.server";
+import { normaliseShopDomain } from "./origins";
 
 /**
  * Pinned API version.
@@ -31,24 +32,8 @@ const STREAMS: Record<string, { label: string; path: string; key: string }> = {
   price_rules: { label: "Price rules", path: "price_rules", key: "price_rules" },
 };
 
-/**
- * Normalise whatever the user pasted into a bare shop domain.
- *
- * People paste "https://acme.myshopify.com/admin" or just "acme". Demanding
- * the exact form means a 404 that says nothing about what was wrong.
- */
-export function normaliseShopDomain(input: string): string {
-  let s = input.trim().toLowerCase();
-  s = s.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
-  if (!s) throw new Error("Shopify: enter your shop domain, e.g. acme.myshopify.com");
-  if (!s.includes(".")) s = `${s}.myshopify.com`;
-  if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(s)) {
-    throw new Error(
-      `Shopify: "${input}" is not a myshopify.com domain. Use the admin address, e.g. acme.myshopify.com.`,
-    );
-  }
-  return s;
-}
+// Moved to ./origins (R494): the credential pickers name the same host.
+export { normaliseShopDomain } from "./origins";
 
 /**
  * The next page's URL from the Link header.

@@ -28,6 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { gitSaveConfig } from "@/utils/gitExport.functions";
+import { SecretSelect } from "@/components/secrets/SecretSelect";
 import {
   nbGitCommit,
   nbGitHistory,
@@ -89,7 +90,7 @@ export function NotebookGitDialog({
   }, [open, load]);
 
   async function connect() {
-    if (!newRepo.trim() || !pat) return toast.error("Repository and access token are required");
+    if (!newRepo.trim() || !pat) return toast.error("Pick a repository and an access token");
     setBusy(true);
     try {
       const res = await saveConfigFn({
@@ -219,12 +220,16 @@ export function NotebookGitDialog({
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">Access token (repo write)</Label>
-              <Input
-                type="password"
+              {/* One of your secrets, sent only to the provider's API (R494). */}
+              <SecretSelect
+                aria-label="Access token"
                 value={pat}
-                onChange={(e) => setPat(e.target.value)}
-                className="h-8 text-sm"
-                placeholder="Stored encrypted, never shown again"
+                onChange={setPat}
+                destination={
+                  provider === "github" ? "https://api.github.com" : "https://gitlab.com"
+                }
+                suggestedName={provider === "github" ? "GITHUB_TOKEN" : "GITLAB_TOKEN"}
+                purpose="A personal access token that can write to the repository."
               />
             </div>
             <Button size="sm" onClick={connect} disabled={busy}>

@@ -31,6 +31,9 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, Cloud, FileText, Layers, Box, Globe, BookOpen } from "lucide-react";
 import { reportFailure } from "@/lib/silentFailureNet";
+import { SecretSelect } from "@/components/secrets/SecretSelect";
+import { secretRef } from "@/lib/secretRefs";
+import { kbCredentialHosts } from "@/lib/kbCredentialHosts";
 
 export type ConnectorSourceRow = {
   id: string;
@@ -302,6 +305,14 @@ export function ConnectSourceDialog({
   const [kind, setKind] = useState<ProviderDef["kind"] | null>(null);
   const [label, setLabel] = useState("");
   const [creds, setCreds] = useState<Record<string, string>>({});
+  // On an edit, what is stored for each credential: the secret a field names,
+  // or that a value was typed into it before. Names only (R494). `loaded` says
+  // the answer came back, so a field with nothing stored can say so.
+  const [stored, setStored] = useState<{
+    secrets: Record<string, string>;
+    raw: string[];
+    loaded: boolean;
+  }>({ secrets: {}, raw: [], loaded: false });
   const [config, setConfig] = useState<Record<string, string>>({});
   const [schedule, setSchedule] = useState("manual");
   const [scope, setScope] = useState("inherit");
@@ -314,10 +325,12 @@ export function ConnectSourceDialog({
   // session refresh put the saved label, settings, schedule and scope back
   // over an edit in progress, and emptied the credentials being typed.
   useResetOnOpen(open, () => {
+    setStored({ secrets: {}, raw: [], loaded: false });
     if (editing) {
       setKind(editing.kind as ProviderDef["kind"]);
       setLabel(editing.label ?? "");
       setCreds({});
+      void loadStoredCredentials(editing.id);
       const cfg: Record<string, string> = {};
       for (const [k, v] of Object.entries(editing.config ?? {})) {
         cfg[k] = Array.isArray(v) ? (v as string[]).join("\n") : String(v ?? "");
@@ -334,6 +347,26 @@ export function ConnectSourceDialog({
       setScope("inherit");
     }
   });
+
+  async function loadStoredCredentials(sourceId: string) {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) return;
+      const res = await fetch("/api/kb/sources", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: "credentials", source_id: sourceId }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        secrets?: Record<string, string>;
+        raw?: string[];
+      };
+      if (res.ok) setStored({ secrets: json.secrets ?? {}, raw: json.raw ?? [], loaded: true });
+    } catch {
+      // Without it the fields read as empty, and leaving them so keeps what is stored.
+    }
+  }
 
   async function save(syncNow: boolean) {
     if (!provider) return;
@@ -373,9 +406,9 @@ export function ConnectSourceDialog({
           kind: provider.kind,
           label: label.trim() || provider.name,
           config: configOut,
-          // Empty on edit = keep stored credentials.
-          // Empty on edit = keep stored credentials -- unless the provider has
-          // none to store, where undefined would read as "credentials required".
+          // The fields changed; on an edit the rest keep what is stored. Sent as
+          // {} when the provider has none to store, where undefined would read
+          // as "credentials required".
           credentials:
             provider.credFields.length === 0
               ? {}
@@ -427,7 +460,7 @@ export function ConnectSourceDialog({
           <DialogTitle>{editing ? "Edit source" : "Connect a source"}</DialogTitle>
           <DialogDescription>
             {editing
-              ? "Credential fields start empty — leave them empty to keep what's stored."
+              ? "A credential you leave as it is keeps what's stored."
               : "Sync documents from an external service into this knowledge base."}
           </DialogDescription>
         </DialogHeader>
@@ -479,14 +512,40 @@ export function ConnectSourceDialog({
                     {f.label}
                     {f.optional ? " (optional)" : ""}
                   </Label>
-                  <Input
-                    id={`cred-${f.key}`}
-                    type={f.secret ? "password" : "text"}
-                    autoComplete="off"
-                    value={creds[f.key] ?? ""}
-                    onChange={(e) => setCreds((c) => ({ ...c, [f.key]: e.target.value }))}
-                    placeholder={editing ? "•••••• (stored)" : f.placeholder}
-                  />
+                  {f.secret ? (
+                    // One of the owner's secrets, resolved at sync time toward
+                    // this provider's hosts (R494).
+                    <SecretSelect
+                      id={`cred-${f.key}`}
+                      value={
+                        creds[f.key] ||
+                        (stored.secrets[f.key] ? secretRef(stored.secrets[f.key]) : "")
+                      }
+                      onChange={(v) => setCreds((c) => ({ ...c, [f.key]: v }))}
+                      storedKey={stored.raw.includes(f.key) && !creds[f.key]}
+                      optional={f.optional && !editing}
+                      destination={kbCredentialHosts(provider.kind, {
+                        site_url: config.site_url ?? "",
+                      })}
+                      suggestedName={`${provider.kind}_${f.key}`.toUpperCase()}
+                      purpose={`${provider.name}: ${f.label}.`}
+                    />
+                  ) : (
+                    <Input
+                      id={`cred-${f.key}`}
+                      autoComplete="off"
+                      value={creds[f.key] ?? ""}
+                      onChange={(e) => setCreds((c) => ({ ...c, [f.key]: e.target.value }))}
+                      // "(stored)" only where something is: an optional field
+                      // left empty stores nothing. Until the answer is in, assume
+                      // it is, as before.
+                      placeholder={
+                        editing && (!stored.loaded || stored.raw.includes(f.key))
+                          ? "•••••• (stored)"
+                          : f.placeholder
+                      }
+                    />
+                  )}
                   {f.help && <p className="text-[11px] text-muted-foreground">{f.help}</p>}
                 </div>
               ))}

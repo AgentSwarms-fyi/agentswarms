@@ -118,10 +118,13 @@ async function probe(kind: Kind, row: ConnRow): Promise<{ ok: boolean; detail: s
         .maybeSingle();
       const enc = data?.config as { ciphertext?: string; iv?: string; kid?: string } | undefined;
       if (!enc?.ciphertext || !enc?.iv) return { ok: false, detail: "No stored credentials" };
-      // Decrypt then probe — exactly what discoverSaasStreams does. App source
-      // configs hold literal credentials; unlike warehouses they have no
-      // {{secret:NAME}} indirection to resolve.
-      const cfg = await decryptJson<SaasConfig>(enc.ciphertext, enc.iv, enc.kid);
+      // Decrypt, resolve the credentials picked as secrets for the owner
+      // (R494), then probe — exactly what discoverSaasStreams does.
+      const { resolveSaasConfig } = await import("@/utils/saas/credentials.server");
+      const cfg = await resolveSaasConfig(
+        row.user_id,
+        await decryptJson<SaasConfig>(enc.ciphertext, enc.iv, enc.kid),
+      );
       await listSaasStreams(cfg);
     }
     return { ok: true, detail: "OK" };

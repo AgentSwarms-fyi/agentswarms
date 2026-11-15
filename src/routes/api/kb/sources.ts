@@ -4,7 +4,10 @@
 // Credentials are encrypted HERE, server-side, with the same crypto the SaaS
 // connections use, and never travel back to the browser: every select in this
 // file names its columns and none of them is `credentials`. The UI edits a
-// source by sending new credentials or omitting them ("keep what's stored").
+// source by sending the credential fields it changed; a field left out keeps
+// what is stored. A credential may be a `{{secret:NAME}}` picked from the
+// owner's secrets (R494), resolved at sync time; `action: "credentials"` tells
+// the edit form which secret each field names, and never a value.
 //
 // Auth follows ingest-url.ts exactly: user JWT proves identity, ownership is
 // checked explicitly, then a service-role client does the writes.
@@ -43,7 +46,12 @@ const DeleteBody = z.object({
   delete_documents: z.boolean().default(true),
 });
 
-const Body = z.discriminatedUnion("action", [UpsertBody, DeleteBody]);
+const CredentialsBody = z.object({
+  action: z.literal("credentials"),
+  source_id: z.string().uuid(),
+});
+
+const Body = z.discriminatedUnion("action", [UpsertBody, DeleteBody, CredentialsBody]);
 
 const RETURN_COLUMNS =
   "id, knowledge_base_id, kind, label, config, status, error, last_synced_at, last_sync_stats, sync_schedule, next_sync_at, access_scope, created_at, updated_at";
@@ -93,6 +101,22 @@ export const Route = createFileRoute("/api/kb/sources")({
             { error: err instanceof Error ? err.message : "Invalid request body" },
             { status: 400 },
           );
+        }
+
+        if (body.action === "credentials") {
+          // Which secret each stored field names, and which hold a value typed
+          // in before: what the edit form shows as picked, or as a key saved
+          // in the field. Names only; a value never leaves the server.
+          const { data: source } = await admin
+            .from("kb_sources")
+            .select("id, user_id, credentials")
+            .eq("id", body.source_id)
+            .maybeSingle();
+          if (!source || source.user_id !== user.id) {
+            return Response.json({ error: "Source not found" }, { status: 404 });
+          }
+          const { encryptedSecretFields } = await import("@/utils/credentialRefs.server");
+          return Response.json({ ok: true, ...(await encryptedSecretFields(source.credentials)) });
         }
 
         if (body.action === "delete") {
@@ -154,22 +178,28 @@ export const Route = createFileRoute("/api/kb/sources")({
             );
           }
           existing = row;
-          if (!creds) {
-            const enc = row.credentials as {
-              ciphertext?: string;
-              iv?: string;
-              kid?: string;
-            } | null;
-            if (enc?.ciphertext && enc?.iv) {
-              try {
-                creds = await decryptJson<Record<string, string>>(enc.ciphertext, enc.iv, enc.kid);
-              } catch {
+          const enc = row.credentials as {
+            ciphertext?: string;
+            iv?: string;
+            kid?: string;
+          } | null;
+          if (enc?.ciphertext && enc?.iv) {
+            let stored: Record<string, string> | null = null;
+            try {
+              stored = await decryptJson<Record<string, string>>(enc.ciphertext, enc.iv, enc.kid);
+            } catch {
+              // Nothing to keep: a full set from the body still saves.
+              if (!creds) {
                 return Response.json(
-                  { error: "Stored credentials no longer decrypt — paste them again." },
+                  { error: "Stored credentials no longer decrypt — enter them again." },
                   { status: 400 },
                 );
               }
             }
+            // R494: the fields sent replace their stored values and the rest
+            // are kept, as the form says. Sending only a new token used to
+            // replace the whole set, dropping the email or client id beside it.
+            if (stored) creds = { ...stored, ...(creds ?? {}) };
           }
         }
         if (!creds) {

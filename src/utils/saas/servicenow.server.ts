@@ -12,6 +12,7 @@
 import { flattenRecord } from "./flatten";
 import type { IncrementalSpec, SaasConfig, SaasStream } from "./types";
 import { connectorFetch } from "@/utils/http/connectorFetch.server";
+import { serviceNowOrigin } from "./origins";
 
 /** ServiceNow's practical ceiling for one Table API page. */
 const PAGE_SIZE = 1000;
@@ -36,17 +37,8 @@ const STREAMS: Record<string, { label: string; table: string }> = {
   cmdb_ci: { label: "Configuration items", table: "cmdb_ci" },
 };
 
-/** https://<instance>.service-now.com, accepting a pasted full URL too. */
-export function serviceNowOrigin(instance: string): string {
-  const s = instance
-    .trim()
-    .replace(/^https?:\/\//i, "")
-    .replace(/\/.*$/, "")
-    .replace(/\.service-now\.com$/i, "");
-  if (!s)
-    throw new Error("ServiceNow: enter your instance name, e.g. acme or acme.service-now.com");
-  return `https://${s}.service-now.com`;
-}
+// Moved to ./origins (R494): the credential pickers name the same host.
+export { serviceNowOrigin } from "./origins";
 
 type TableResult = { result?: Record<string, unknown>[]; error?: { message?: string } };
 

@@ -41,3 +41,28 @@ export async function resolveMcpAuthToken(row: {
   }
   return row.auth_token ?? null;
 }
+
+/**
+ * The bearer token to send to a server (R494): what is stored, with a
+ * `{{secret:NAME}}` saved in place of a token resolved for the server's owner,
+ * toward the server's own host only (a secret shared with the owner resolves
+ * where its owner allowed that host). A stored token from before is sent as it
+ * is. Throws when a reference cannot resolve, so the caller says why rather
+ * than calling the server without its token.
+ */
+export async function mcpBearerToken(row: {
+  user_id?: string | null;
+  endpoint?: string | null;
+  auth_token_enc?: EncBlob | unknown;
+  auth_token?: string | null;
+}): Promise<string | null> {
+  const token = await resolveMcpAuthToken(row);
+  if (!token) return null;
+  const { containsSecretRef, resolveSecretRefs } = await import("@/utils/secrets.server");
+  if (!containsSecretRef(token)) return token;
+  if (!row.user_id) throw new Error("This server's token names a secret, but its owner is unknown");
+  // sse:// is fetched as https://, which is where the token goes.
+  const sendTo = String(row.endpoint || "").replace(/^sse:\/\//i, "https://");
+  const value = await resolveSecretRefs(row.user_id, token, { sendTo: [sendTo] });
+  return value.trim() || null;
+}

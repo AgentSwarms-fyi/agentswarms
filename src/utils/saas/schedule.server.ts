@@ -10,6 +10,7 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { storeNotification } from "@/utils/notify.server";
 import { decryptJson } from "@/utils/providers/crypto.server";
+import { resolveSaasConfig } from "./credentials.server";
 import { nextSyncAt, runConnectionSync } from "./sync.server";
 import type { SaasConfig } from "./types";
 
@@ -111,7 +112,11 @@ export async function processDueSaasSyncs(force = false): Promise<number> {
           id: row.id,
           userId: row.user_id,
           name: row.name,
-          config: await decryptJson<SaasConfig>(enc.ciphertext, enc.iv, enc.kid),
+          // Credentials picked as secrets resolve for the owner (R494).
+          config: await resolveSaasConfig(
+            row.user_id,
+            await decryptJson<SaasConfig>(enc.ciphertext, enc.iv, enc.kid),
+          ),
           streamIds,
         });
 

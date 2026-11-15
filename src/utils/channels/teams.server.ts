@@ -9,6 +9,7 @@
 // token is.
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { decryptJson } from "@/utils/providers/crypto.server";
+import { channelCredential } from "@/utils/channels/credential.server";
 import { connectorFetch } from "@/utils/http/connectorFetch.server";
 import type { ChannelTarget } from "@/utils/channels/core";
 import { replyActivity, replyEndpoint, type TeamsActivity } from "@/lib/teamsActivity";
@@ -24,6 +25,9 @@ export type TeamsBotRow = {
   is_active: boolean;
   app_password_enc: { ciphertext?: string; iv?: string; kid?: string } | null;
 };
+
+/** Where the client secret goes: the Microsoft identity platform (the authority below). */
+const TEAMS_LOGIN_ORIGIN = "https://login.microsoftonline.com";
 
 const BOT_COLUMNS =
   "id, user_id, app_id, display_name, tenant_id, target_type, target_id, is_active, app_password_enc";
@@ -50,14 +54,20 @@ export async function loadTeamsBot(appId: string): Promise<TeamsBotRow | null> {
 export async function teamsAppPassword(bot: TeamsBotRow): Promise<string | null> {
   const enc = bot.app_password_enc;
   if (!enc?.ciphertext || !enc?.iv) return null;
+  let stored: string | null;
   try {
     // The same envelope shape the Slack workspace uses, so both credentials
     // are stored and read one way.
     const { password } = await decryptJson<{ password: string }>(enc.ciphertext, enc.iv, enc.kid);
-    return password || null;
+    stored = password || null;
   } catch {
     return null;
   }
+  // One that names a secret resolves for the bot's owner toward Microsoft's
+  // sign-in host, where the client-credentials grant sends it (R494).
+  return channelCredential(stored, bot.user_id, `Teams client secret for ${bot.app_id}`, [
+    TEAMS_LOGIN_ORIGIN,
+  ]);
 }
 
 /** Who answers in this bot's Teams conversations. */

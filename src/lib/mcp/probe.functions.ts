@@ -48,7 +48,7 @@ export const probeMcpServer = createServerFn({ method: "POST" })
     const { supabase } = context;
     const { data: row, error } = await supabase
       .from("mcp_servers")
-      .select("id, endpoint, auth_type, auth_token, auth_token_enc, tools_count")
+      .select("id, user_id, endpoint, auth_type, auth_token, auth_token_enc, tools_count")
       .eq("id", data.id)
       .maybeSingle();
     if (error || !row) {
@@ -87,8 +87,25 @@ export const probeMcpServer = createServerFn({ method: "POST" })
       "MCP-Protocol-Version": PROTOCOL_VERSION,
     };
     if (row.auth_type === "token") {
-      const { resolveMcpAuthToken } = await import("./auth.server");
-      const token = await resolveMcpAuthToken(row);
+      const { mcpBearerToken } = await import("./auth.server");
+      let token: string | null;
+      try {
+        token = await mcpBearerToken(row);
+      } catch (e) {
+        // A token that names a secret which cannot be used here: say so,
+        // rather than connect without it and report the server's 401.
+        await supabase
+          .from("mcp_servers")
+          .update({ status: "error", last_ping: new Date().toISOString() })
+          .eq("id", row.id);
+        return {
+          ok: false,
+          toolsCount: row.tools_count ?? 0,
+          tools: [],
+          status: "error",
+          message: (e as Error).message,
+        };
+      }
       if (token) baseHeaders.Authorization = `Bearer ${token}`;
     }
 

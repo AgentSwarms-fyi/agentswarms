@@ -50,6 +50,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { probeMcpServer } from "@/lib/mcp/probe.functions";
 import { saveMcpServer } from "@/lib/mcp/servers.functions";
+import { SecretSelect } from "@/components/secrets/SecretSelect";
 import type { McpTool } from "@/utils/mcpApps/sse";
 
 type McpServerType = "database" | "filesystem" | "git" | "api" | "custom";
@@ -503,32 +504,34 @@ function AddServerDialog({
             placeholder="What tools does this server expose?"
           />
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div className="space-y-1.5">
-            <Label className="text-xs">Auth Type</Label>
-            <Select value={authType} onValueChange={(v: McpAuthType) => setAuthType(v)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">None</SelectItem>
-                <SelectItem value="token">Bearer Token</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          {authType !== "none" && (
-            <div className="space-y-1.5">
-              <Label className="text-xs">Auth Token</Label>
-              <Input
-                type="password"
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                placeholder="••••••••"
-              />
-            </div>
-          )}
+        <div className="space-y-1.5">
+          <Label className="text-xs">Auth Type</Label>
+          <Select value={authType} onValueChange={(v: McpAuthType) => setAuthType(v)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">None</SelectItem>
+              <SelectItem value="token">Bearer Token</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
-        <Button type="submit" className="w-full">
+        {authType !== "none" && (
+          <div className="space-y-1.5">
+            <Label className="text-xs">Auth token</Label>
+            {/* A secret, sent as `Authorization: Bearer …` to the endpoint
+                above and nowhere else (R494). */}
+            <SecretSelect
+              aria-label="Auth token"
+              value={token}
+              onChange={setToken}
+              destination={endpoint.trim().replace(/^sse:\/\//i, "https://") || undefined}
+              suggestedName="MCP_TOKEN"
+              purpose={name.trim() ? `For the ${name.trim()} MCP server.` : "For an MCP server."}
+            />
+          </div>
+        )}
+        <Button type="submit" className="w-full" disabled={authType === "token" && !token}>
           Connect Server
         </Button>
       </form>

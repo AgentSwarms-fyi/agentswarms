@@ -14,6 +14,7 @@
 import { flattenRecord } from "./flatten";
 import type { IncrementalSpec, SaasConfig, SaasStream } from "./types";
 import { connectorFetch } from "@/utils/http/connectorFetch.server";
+import { normaliseInstanceUrl } from "./origins";
 
 /** Pinned so a Salesforce release cannot reshape a dataset under a dashboard. */
 const API_VERSION = "v61.0";
@@ -33,32 +34,8 @@ const STREAMS: Record<string, { label: string; object: string }> = {
   users: { label: "Users", object: "User" },
 };
 
-/**
- * Normalise whatever was pasted into an instance origin.
- *
- * People paste the address bar, which includes a path and often the Lightning
- * host. Demanding the exact form produces a 404 that explains nothing.
- */
-export function normaliseInstanceUrl(input: string): string {
-  const s = input.trim().replace(/\/+$/, "");
-  if (!s)
-    throw new Error("Salesforce: enter your instance URL, e.g. https://acme.my.salesforce.com");
-  const withScheme = /^https?:\/\//i.test(s) ? s : `https://${s}`;
-  let url: URL;
-  try {
-    url = new URL(withScheme);
-  } catch {
-    throw new Error(`Salesforce: "${input}" is not a valid URL.`);
-  }
-  if (!/\.salesforce\.com$|\.force\.com$/i.test(url.hostname)) {
-    throw new Error(
-      `Salesforce: "${url.hostname}" is not a Salesforce domain. ` +
-        "Use your My Domain address, e.g. acme.my.salesforce.com.",
-    );
-  }
-  // Origin only — a path would be carried into every API call.
-  return url.origin;
-}
+// Moved to ./origins (R494): the credential pickers name the same host.
+export { normaliseInstanceUrl } from "./origins";
 
 /**
  * Exchange the connected app's credentials for an access token.

@@ -7,6 +7,7 @@
 import { flattenRecord } from "./flatten";
 import type { IncrementalSpec, SaasConfig, SaasStream } from "./types";
 import { connectorFetch } from "@/utils/http/connectorFetch.server";
+import { freshdeskOrigin } from "./origins";
 
 /** Freshdesk's maximum page. */
 const PAGE_SIZE = 100;
@@ -41,16 +42,8 @@ const STREAMS: Record<string, { label: string; path: string; sinceParam: string 
   agents: { label: "Agents", path: "/api/v2/agents", sinceParam: null },
 };
 
-/** https://<domain>.freshdesk.com, accepting a pasted full URL too. */
-export function freshdeskOrigin(domain: string): string {
-  const s = domain
-    .trim()
-    .replace(/^https?:\/\//i, "")
-    .replace(/\/.*$/, "")
-    .replace(/\.freshdesk\.com$/i, "");
-  if (!s) throw new Error("Freshdesk: enter your domain, e.g. acme or acme.freshdesk.com");
-  return `https://${s}.freshdesk.com`;
-}
+// Moved to ./origins (R494): the credential pickers name the same host.
+export { freshdeskOrigin } from "./origins";
 
 async function freshdeskFetch(
   cfg: FreshdeskCfg,

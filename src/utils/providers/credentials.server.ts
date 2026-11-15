@@ -42,6 +42,8 @@ import type {
 // the legacy table first, so the Integrations card takes precedence.
 import { resolveIntegrationConfig } from "./integrationConfig.server";
 import { integrationHosts } from "./integrationHosts";
+import { encryptedProviderHosts } from "./credentialHosts";
+import { resolveSecretRefsInObject } from "@/utils/secrets.server";
 import { assertPrivatePath } from "./connectivityPath.server";
 import { auditEvent } from "@/utils/audit.server";
 import { type PrivatePathPolicy, withPrivatePathScope } from "@/utils/ssrfGuard.server";
@@ -201,7 +203,7 @@ export async function loadCredentialRowShared(userId: string, provider: Provider
   if (ids.size === 0) return null;
   const { data } = await supabaseAdmin
     .from("provider_credentials")
-    .select("credentials, config, default_model")
+    .select("credentials, config, default_model, user_id")
     .in("id", [...ids])
     .eq("provider", provider)
     .limit(1);
@@ -770,7 +772,7 @@ async function streamLegacyProvider(args: {
 export async function loadCredentialRow(userId: string, provider: ProviderId) {
   const { data, error } = await supabaseAdmin
     .from("provider_credentials")
-    .select("credentials, config, default_model")
+    .select("credentials, config, default_model, user_id")
     .eq("user_id", userId)
     .eq("provider", provider)
     .maybeSingle();
@@ -872,10 +874,18 @@ async function streamWithProviderScoped(
     throw new Error(
       `The stored ${provider} credentials cannot be read. Save them again in Provider Integrations.`,
     );
-  const decrypted = await decryptJson<Record<string, unknown>>(
-    stored.ciphertext,
-    stored.iv,
-    typeof stored.kid === "string" ? stored.kid : undefined,
+  // A credential picked from the owner's secrets is a reference until here
+  // (R494). It resolves for the row's owner — the caller, or the colleague who
+  // shared this credential with them — toward the hosts this provider's call
+  // reaches, which the owner's own settings decide.
+  const decrypted = await resolveSecretRefsInObject(
+    row.user_id,
+    await decryptJson<Record<string, unknown>>(
+      stored.ciphertext,
+      stored.iv,
+      typeof stored.kid === "string" ? stored.kid : undefined,
+    ),
+    { sendTo: encryptedProviderHosts(provider, row.config as Record<string, unknown>) },
   );
   const config = row.config as Record<string, unknown>;
   markPrivatePath(policy, userId, provider, config);
