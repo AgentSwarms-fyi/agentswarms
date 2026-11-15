@@ -310,11 +310,20 @@ export const gatherDocContext = createServerFn({ method: "POST" })
         // dimension table they happened to import that morning, and on an
         // account with few tables of its own the public samples crowded in.
         const tables: DocContextTable[] = [];
-        const { data: candidates } = await sb
+        const { data: direct } = await sb
           .from("user_data_tables")
           .select("id, name, columns, is_sample, user_id, updated_at")
           .order("updated_at", { ascending: false })
           .limit(TABLE_CANDIDATES);
+        // A share with a column mask is not in the direct read (R491); this
+        // lists every share, its columns already through the mask. A failure
+        // leaves the shares out of the planner's context, as a failed direct
+        // read leaves out everything.
+        const { mergeSharedDatasets, readSharedDatasets } = await import("@/lib/sharedDatasetList");
+        const shares = await readSharedDatasets(sb).catch(() => null);
+        const candidates = mergeSharedDatasets(direct ?? [], shares)
+          .sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)))
+          .slice(0, TABLE_CANDIDATES);
 
         const namesIn = (columns: unknown): string[] =>
           Array.isArray(columns)
@@ -322,16 +331,18 @@ export const gatherDocContext = createServerFn({ method: "POST" })
                 .map((c) => (typeof c === "string" ? c : ((c as { name?: string })?.name ?? "")))
                 .filter(Boolean)
             : [];
-        // The columns as THIS caller may see them (R489). `columns` is the
-        // owner's list, so a dataset shared under a column mask put the masked
-        // columns' names in the planner's prompt (its sample rows were already
-        // masked, by shared_dataset_rows). Applied before ranking, so a masked
-        // column cannot lift a table up the list either.
+        // The columns as THIS caller may see them (R489). A share from the
+        // direct read carries the owner's list (a database older than
+        // 20261115000000 serves every share there), so a dataset shared under
+        // a column mask put the masked columns' names in the planner's prompt
+        // (its sample rows were already masked, by shared_dataset_rows).
+        // Applied before ranking, so a masked column cannot lift a table up
+        // the list either.
         const { columnsVisibleTo } = await import("@/utils/data/sharedDatasets.server");
         const seen = await columnsVisibleTo(
           sb,
           userId,
-          (candidates ?? []).map((t) => ({
+          candidates.map((t) => ({
             id: t.id,
             user_id: t.user_id,
             is_sample: t.is_sample,
@@ -368,7 +379,7 @@ export const gatherDocContext = createServerFn({ method: "POST" })
         // The allow-list is a hard filter applied before ranking — ranking only
         // decides which of the permitted tables to include, never whether a
         // restriction applies.
-        const permitted = (candidates ?? []).filter(
+        const permitted = candidates.filter(
           (t) => !allowedTableNames || allowedTableNames.includes(t.name),
         );
 

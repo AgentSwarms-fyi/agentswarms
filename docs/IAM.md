@@ -91,7 +91,12 @@ It manages:
   are enforced **inside the database** — a grantee cannot read a shared
   dataset's raw rows at all; every read goes through a security-definer
   function that applies the restriction first, so masks hold whether the data
-  is reached through the SQL workbench, an agent tool, or the REST API. When
+  is reached through the SQL workbench, an agent tool, or the REST API. A
+  dataset's **column list** follows the mask too: a grantee cannot read the
+  dataset's own row when a mask applies, since its column list is the owner's,
+  and lists it through `shared_datasets()` and `shared_dataset_columns()`,
+  which leave the masked columns out (R491). A mask matches a column without
+  regard to case or surrounding spaces. When
   several grants apply to the same person the effect is **union of access**:
   row filters combine (any allowing grant admits the row) and column masks
   intersect (a column is hidden only when _every_ grant hides it), so holding

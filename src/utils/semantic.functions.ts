@@ -965,20 +965,27 @@ export const semanticListLocalSources = createServerFn({ method: "GET" })
   .validator((d: { accessToken: string }) => d)
   .handler(async ({ data }) => {
     const { sb, userId } = await requireUser(data.accessToken);
-    const { data: rows, error } = await sb
+    const { data: direct, error } = await sb
       .from("user_data_tables")
       .select("id, name, columns, is_sample, user_id")
       .order("name");
     if (error) throw new Error(error.message);
-    // The columns as this caller may see them (R489). RLS returns a dataset
-    // shared with them, but its `columns` is the owner's list — so the picker,
-    // and the "generate with AI" prompt built from it, named the columns the
-    // grant masks. Same grants and mask as every read of the rows.
+    // A share with a column mask is not in the direct read (R491); this lists
+    // every share, its columns already through the mask.
+    const { mergeSharedDatasets, readSharedDatasets } = await import("@/lib/sharedDatasetList");
+    const rows = mergeSharedDatasets(direct ?? [], await readSharedDatasets(sb)).sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
+    // The columns as this caller may see them (R489). A share from the direct
+    // read (one with no mask, or any share on a database older than
+    // 20261115000000) carries the owner's list, so the picker, and the
+    // "generate with AI" prompt built from it, named the columns the grant
+    // masks. Same grants and mask as every read of the rows.
     const { columnsVisibleTo } = await import("@/utils/data/sharedDatasets.server");
     const seen = await columnsVisibleTo(
       sb,
       userId,
-      (rows ?? []).map((r) => ({
+      rows.map((r) => ({
         id: r.id as string,
         user_id: r.user_id,
         is_sample: r.is_sample,
@@ -989,7 +996,7 @@ export const semanticListLocalSources = createServerFn({ method: "GET" })
           : [],
       })),
     );
-    return (rows ?? []).map((r) => ({
+    return rows.map((r) => ({
       id: r.id as string,
       name: r.name as string,
       is_sample: !!r.is_sample,

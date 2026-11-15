@@ -26,7 +26,7 @@ set -u
 export MSYS_NO_PATHCONV=1
 cd "$(dirname "$0")/../../.." || exit 1
 ROOT="$(pwd -W 2>/dev/null || pwd)"
-LIB="$ROOT/deploy/ci/rds-like" # jwt.mjs, api-checks.mjs
+LIB="$ROOT/deploy/ci/rds-like" # jwt.mjs, api-checks.mjs, shared-dataset-checks.mjs
 FROM=""
 case "${1:-}" in
   --upgrade-from) FROM="${2:?--upgrade-from needs a git ref, such as a release tag}" ;;
@@ -77,6 +77,8 @@ api_check() {
   rest_ready() { [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3468/)" = "200" ]; }
   wait_for 60 rest_ready || fail "PostgREST did not answer"
   node "$LIB/api-checks.mjs" http://127.0.0.1:3468 "$JWT_SECRET" || fail "API checks"
+  node "$LIB/shared-dataset-checks.mjs" http://127.0.0.1:3468 "$JWT_SECRET" http://127.0.0.1:3469 \
+    || fail "a shared dataset's masked columns reach its grantee"
 }
 
 if [ -n "$FROM" ]; then

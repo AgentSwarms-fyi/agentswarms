@@ -1896,6 +1896,15 @@ storage-api v1.89.12 and PostgREST v14.18.
 - PostgREST served the schema. User A wrote and read only A's rows, and was
   refused (403) writing one as user B. User B and anonymous callers read none
   of them, and `service_role` read both users' rows.
+- A dataset shared under a column mask, read with each user's own JWT
+  (`deploy/ci/rds-like/shared-dataset-checks.mjs`, R491, 294 migrations): the
+  grantee could not read the dataset's own row, so not its owner's column
+  list either. `shared_dataset_columns()` and `shared_datasets()` listed it
+  without the masked column, and `shared_dataset_rows()` returned no value of
+  it, with masks of two grants written `SALARY` and ` Salary ` over a column
+  `salary`. A share with no mask and a sample read as before, and a stranger
+  and anonymous callers got nothing. Without migration `20261115000000` the
+  same run named the masked column to the grantee and returned its values.
 - A second run applied nothing and failed nothing.
 
 **In CI** (R468, `.github/workflows/migrations.yml`), on every change to the

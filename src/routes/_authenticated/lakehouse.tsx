@@ -90,6 +90,7 @@ import { matviewBadge } from "@/lib/matviewBadge";
 import { useAuth } from "@/hooks/use-auth";
 import { useTokenRef } from "@/hooks/use-token-ref";
 import { supabase } from "@/integrations/supabase/client";
+import { mergeSharedDatasets, readSharedDatasets } from "@/lib/sharedDatasetList";
 import { parseModelChoice } from "@/utils/providers/modelChoice";
 import {
   createLakehouseSchema,
@@ -2654,11 +2655,18 @@ function NewTableDialog({ schema, onCreated }: { schema: string; onCreated: () =
 
   useEffect(() => {
     if (!open) return;
-    void supabase
-      .from("user_data_tables")
-      .select("id, name")
-      .order("name")
-      .then(({ data }) => setDatasets((data ?? []) as typeof datasets));
+    void Promise.all([
+      supabase.from("user_data_tables").select("id, name").order("name"),
+      // A share with a column mask is not in the direct read (R491). The import
+      // applies the grant's mask itself, so a masked share is importable.
+      readSharedDatasets(supabase).catch(() => null),
+    ]).then(([{ data }, shares]) =>
+      setDatasets(
+        mergeSharedDatasets(data ?? [], shares?.map(({ id, name }) => ({ id, name })) ?? null).sort(
+          (a, b) => a.name.localeCompare(b.name),
+        ),
+      ),
+    );
   }, [open]);
 
   const submit = async () => {

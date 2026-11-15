@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
 import { selectAllPages, type PagedResult } from "@/lib/pagedSelect";
+import { readSharedDatasets, type SharedDataset } from "@/lib/sharedDatasetList";
 import {
   catalogSummary,
   dataFreshness,
@@ -67,8 +68,9 @@ function MetricsPage() {
     let m: PagedResult<SemanticModelRow>;
     let d: PagedResult<DashboardRow>;
     let t: PagedResult<TableRow>;
+    let shares: SharedDataset[] | null;
     try {
-      [m, d, t] = await Promise.all([
+      [m, d, t, shares] = await Promise.all([
         selectAllPages<SemanticModelRow>(() =>
           supabase.from("semantic_models").select("*").order("name"),
         ),
@@ -78,6 +80,8 @@ function MetricsPage() {
         selectAllPages<TableRow>(() =>
           supabase.from("user_data_tables").select("name, data_loaded_at").order("name"),
         ),
+        // A share with a column mask is not in the direct read (R491).
+        readSharedDatasets(supabase),
       ]);
     } catch (e) {
       // A read that FAILED is not an empty semantic layer. Reporting it, and
@@ -89,7 +93,13 @@ function MetricsPage() {
     }
     setModels(m.rows);
     setDashboards(d.rows);
-    setTables(t.rows);
+    const named = new Set(t.rows.map((r) => r.name));
+    setTables([
+      ...t.rows,
+      ...(shares ?? [])
+        .filter((s) => !named.has(s.name))
+        .map(({ name, data_loaded_at }) => ({ name, data_loaded_at })),
+    ]);
     // If the ceiling stopped the read, the usage scan is genuinely incomplete
     // and must say so rather than report a clean "no references".
     setScanTruncated(d.truncated);

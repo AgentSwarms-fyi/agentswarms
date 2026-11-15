@@ -52,7 +52,15 @@ vi.mock("@/integrations/supabase/client", () => {
   return {
     supabase: {
       from,
-      rpc: async (_name: string, args: { _table_id: string }) => {
+      rpc: async (name: string, args: { _table_id: string }) => {
+        // A database from before shared_datasets() (R491): the direct read
+        // lists every share, as these tests have it do.
+        if (name === "shared_datasets") {
+          return {
+            data: null,
+            error: { code: "PGRST202", message: "Could not find the function" },
+          };
+        }
         h.direct.push(`rpc:${args._table_id}`);
         return { data: [{ from: "rpc" }], error: null };
       },

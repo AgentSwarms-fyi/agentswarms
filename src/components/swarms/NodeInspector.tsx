@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { ModelCombobox } from "@/components/models/ModelCombobox";
 import { supabase } from "@/integrations/supabase/client";
+import { mergeSharedDatasets, readSharedDatasets } from "@/lib/sharedDatasetList";
 import { agentToNodePatch, type DroppedSetting } from "@/lib/agentToSwarmNode";
 import { fetchAgentCard, type AgentCard } from "@/lib/a2aClient";
 import { Input } from "@/components/ui/input";
@@ -395,10 +396,23 @@ export function NodeInspector({
           if (r.is_active !== false && r.provider) connected.add(r.provider);
         });
       setConnectedProviders(connected);
-      const { data: dt, error: dtErr } = await supabase
-        .from("user_data_tables")
-        .select("id, name, is_sample")
-        .order("name", { ascending: true });
+      const [{ data: direct, error: dtErr }, shares] = await Promise.all([
+        supabase
+          .from("user_data_tables")
+          .select("id, name, is_sample")
+          .order("name", { ascending: true }),
+        // A share with a column mask is not in the direct read (R491).
+        readSharedDatasets(supabase).catch((e: Error) => {
+          noteError("tables", e.message);
+          return null;
+        }),
+      ]);
+      const dt =
+        direct &&
+        mergeSharedDatasets(
+          direct,
+          shares?.map(({ id, name, is_sample }) => ({ id, name, is_sample })) ?? null,
+        ).sort((a, b) => a.name.localeCompare(b.name));
       if (dtErr) noteError("tables", dtErr.message);
       else if (dt) setAvailableDataTables(dt);
       setDataTablesLoaded(true);

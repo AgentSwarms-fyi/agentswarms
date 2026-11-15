@@ -13,6 +13,11 @@
 //
 // What is real: both server functions, the IAM grant reads, the mask. What is
 // fake: the database and the server-function wrapper.
+//
+// R491: after migration 20261115000000 the direct read no longer returns a
+// share with a mask, and shared_datasets() lists it with its columns already
+// masked. `h.migrated` switches the fake database to that; the listings must
+// still name the share, through its mask, on both.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => {
@@ -21,6 +26,7 @@ const h = vi.hoisted(() => {
   return {
     grants: [] as Record<string, unknown>[],
     failGrantRead: false,
+    migrated: false,
   };
 });
 
@@ -62,6 +68,20 @@ function fakeSb() {
       getUser: async () => ({ data: { user: { id: VIEWER } }, error: null }),
     },
     rpc(name: string) {
+      if (name === "shared_datasets") {
+        if (!h.migrated) {
+          return chain(() => ({
+            data: null,
+            error: { code: "PGRST202", message: "Could not find the function" },
+          }));
+        }
+        // The database's mask: no salary in the list.
+        const masked = TABLES.filter((t) => t.id === SHARED_ID).map((t) => ({
+          ...t,
+          columns: t.columns.filter((c) => c.name !== "salary"),
+        }));
+        return chain(() => ({ data: masked, error: null }));
+      }
       // shared_dataset_rows applies the mask in Postgres: no salary here.
       if (name !== "shared_dataset_rows") throw new Error(`unexpected rpc ${name}`);
       return chain(() => ({ data: [{ region: "west", employee: "A" }], error: null }));
@@ -69,7 +89,13 @@ function fakeSb() {
     from(table: string) {
       let inFilter: unknown[] | null = null;
       const q = chain(() => {
-        if (table === "user_data_tables") return { data: TABLES, error: null };
+        if (table === "user_data_tables") {
+          // Migrated: a share with a mask is no longer served directly.
+          return {
+            data: h.migrated ? TABLES.filter((t) => t.id !== SHARED_ID) : TABLES,
+            error: null,
+          };
+        }
         if (table === "iam_group_members") return { data: [], error: null };
         if (table === "iam_resource_grants") {
           if (h.failGrantRead) return { data: null, error: { message: "connection reset" } };
@@ -150,6 +176,7 @@ async function semanticSources() {
 beforeEach(() => {
   h.grants = [maskSalary()];
   h.failGrantRead = false;
+  h.migrated = false;
 });
 
 describe("doc-gen context lists a shared dataset's columns through its mask", () => {
@@ -180,5 +207,29 @@ describe("the semantic-model source picker lists a shared dataset through its ma
     const sources = await semanticSources();
     expect(sources.get("payroll")).toEqual([]);
     expect(sources.get("orders")).toEqual(["order_id", "amount"]);
+  });
+});
+
+describe("on a database after migration 20261115000000 (R491)", () => {
+  beforeEach(() => {
+    h.migrated = true;
+  });
+
+  it("doc-gen still lists the share, through its mask", async () => {
+    const tables = await docTables();
+    expect(tables.get("payroll")?.columns).toEqual(["region", "employee"]);
+    expect(tables.get("orders")?.columns).toEqual(["order_id", "amount"]);
+  });
+
+  it("the semantic picker still lists the share, through its mask", async () => {
+    const sources = await semanticSources();
+    expect(sources.get("payroll")).toEqual(["region", "employee"]);
+    expect(sources.get("orders")).toEqual(["order_id", "amount"]);
+  });
+
+  it("neither names a masked column when the grants cannot be read either", async () => {
+    h.failGrantRead = true;
+    expect((await docTables()).get("payroll")?.columns).toEqual([]);
+    expect((await semanticSources()).get("payroll")).toEqual([]);
   });
 });

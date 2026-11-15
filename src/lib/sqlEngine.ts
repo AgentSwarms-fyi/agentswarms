@@ -35,6 +35,12 @@ import { selectAllWindows } from "@/lib/pagedSelect";
 // two implementations would eventually disagree about what a date is.
 import { safeTableName, STAGING_PREFIX, typedDataset, type ColumnDef } from "@/lib/datasetParse";
 import { holdQueriesUntil } from "@/lib/queryGate";
+import {
+  isSharedWith,
+  mergeSharedDatasets,
+  readSharedDatasets,
+  sharedColumns,
+} from "@/lib/sharedDatasetList";
 import { isLocalReadOnlySql } from "@/lib/sqlSafety";
 import {
   dropBrowserTable,
@@ -179,21 +185,36 @@ async function hydrateFromSupabaseUncoordinated(): Promise<DatasetMeta[]> {
   // rather than relying on each to remember.
   prewarmBrowserEngine();
 
-  const { data: tables, error } = await supabase
-    .from("user_data_tables")
-    // Every column, not a list: `rows_sealed` arrives with a migration, and naming
-    // it here would fail this read, and every page on it, until that has run.
-    .select("*")
-    // An upload in flight owns a staging dataset until it is promoted; showing
-    // it would put a half-written table in the picker.
-    .not("name", "like", `${STAGING_PREFIX}%`)
-    .order("created_at", { ascending: false });
+  const [{ data: direct, error }, shares] = await Promise.all([
+    supabase
+      .from("user_data_tables")
+      // Every column, not a list: `rows_sealed` arrives with a migration, and naming
+      // it here would fail this read, and every page on it, until that has run.
+      .select("*")
+      // An upload in flight owns a staging dataset until it is promoted; showing
+      // it would put a half-written table in the picker.
+      .not("name", "like", `${STAGING_PREFIX}%`)
+      .order("created_at", { ascending: false }),
+    // Shares, each with its columns through the grants' mask (R491). The direct
+    // read above no longer returns a share with a mask, and before migration
+    // 20261115000000 it returned every share with the OWNER's column list.
+    readSharedDatasets(supabase),
+  ]);
   // MEASURED by driving the workbench with every user_data_tables read
   // rejected: this returned [], the caller took [] for an empty account, the
   // sidebar replaced thirty real tables with "No tables yet", and the mount
   // path went on to seed the samples. A failed list is not an empty list.
   if (error) throw new Error(`could not list datasets: ${error.message}`);
-  if (!tables) throw new Error("dataset list returned no rows array");
+  if (!direct) throw new Error("dataset list returned no rows array");
+  // `columnsMasked` marks a row whose columns the database put through the
+  // mask. A share without it came from the direct read of a database that
+  // predates shared_datasets(), and its columns are the owner's.
+  const tables = mergeSharedDatasets(
+    direct,
+    shares
+      ?.filter((s) => !s.name.startsWith(STAGING_PREFIX))
+      .map((s) => ({ ...s, columnsMasked: true as const })) ?? null,
+  ).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
 
   // Who we are decides HOW rows are read: own/sample tables come straight
   // from user_data_rows, while a dataset SHARED with us goes through the
@@ -233,18 +254,23 @@ async function hydrateFromSupabaseUncoordinated(): Promise<DatasetMeta[]> {
     data_loaded_at: string | null;
     parquet_bytes: number | null;
     rows_sealed?: boolean;
+    columnsMasked?: true;
   }): Promise<DatasetMeta> {
     const cols = (Array.isArray(t.columns) ? t.columns : []) as ColumnDef[];
-    const shared = !t.is_sample && !!myId && t.user_id !== myId;
+    const shared = isSharedWith(t, myId);
     // Rows of a user under a customer key come through the server, which holds
     // the key (R452). The browser holds none, so it cannot read them itself.
     const throughServer = t.rows_sealed === true;
     if (shared) {
       const rows = throughServer ? await sharedDatasetRows(t.id) : await loadShared(t.id);
-      await registerTable(t.name, rows, cols);
-      // Report the columns actually present after masking, so pickers and
-      // the AI never offer a column the viewer cannot see.
-      const visible = rows.length > 0 ? cols.filter((c) => Object.hasOwn(rows[0], c.name)) : cols;
+      const visible = sharedColumns(cols, rows, t.columnsMasked === true);
+      if (visible.length === 0) {
+        // DuckDB has no table without a column, and nothing here may be
+        // named. A query against it says the table does not exist.
+        await dropBrowserTable(t.name);
+      } else {
+        await registerTable(t.name, rows, visible);
+      }
       return {
         id: t.id,
         name: t.name,

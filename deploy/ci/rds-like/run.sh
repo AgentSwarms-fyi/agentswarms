@@ -10,7 +10,8 @@
 #   4. storage-api (pinned) installs storage, as supabase_storage_admin
 #   5. docker/db-migrate/apply-migrations.sh: every migration, as the admin
 #   6. PostgREST (pinned) serves it: RLS between two users, service_role
-#      (BYPASSRLS) sees both
+#      (BYPASSRLS) sees both, and a grantee reads a shared dataset only
+#      through its grant's column mask (shared-dataset-checks.mjs)
 #   7. migrations and bootstrap again: nothing re-applies, nothing fails
 #
 #   bash deploy/ci/rds-like/run.sh            # the admin may grant BYPASSRLS
@@ -23,7 +24,8 @@
 #
 # Needs docker, node and openssl. Throwaway containers on a throwaway
 # network, removed at the end; nothing is published but PostgREST on
-# 127.0.0.1:3467. Exits non-zero on the first wrong answer.
+# 127.0.0.1:3467 and GoTrue on 127.0.0.1:3466. Exits non-zero on the first
+# wrong answer.
 set -u
 export MSYS_NO_PATHCONV=1
 cd "$(dirname "$0")/../../.." || exit 1
@@ -120,13 +122,14 @@ echo "  $lake_user"
 [ "$lake_user" = "lakehouse owns lakehouse" ] || fail "lakehouse_catalog: $lake_user"
 
 step "3. GoTrue installs auth"
-docker run -d --name rdslike-auth --network $NET \
+docker run -d --name rdslike-auth --network $NET -p 127.0.0.1:3466:9999 \
   -e GOTRUE_API_HOST=0.0.0.0 -e GOTRUE_API_PORT=9999 -e API_EXTERNAL_URL=http://localhost:9999 \
   -e GOTRUE_DB_DRIVER=postgres \
   -e GOTRUE_DB_DATABASE_URL="postgres://supabase_auth_admin:$SVC_PASSWORD@rdslike-db:5432/postgres" \
   -e GOTRUE_SITE_URL=http://localhost:3000 -e GOTRUE_JWT_SECRET="$JWT_SECRET" \
   -e GOTRUE_JWT_AUD=authenticated -e GOTRUE_JWT_DEFAULT_GROUP_NAME=authenticated \
   -e GOTRUE_JWT_ADMIN_ROLES=service_role -e GOTRUE_JWT_EXP=3600 \
+  -e GOTRUE_EXTERNAL_EMAIL_ENABLED=true -e GOTRUE_MAILER_AUTOCONFIRM=true \
   "$GOTRUE" >/dev/null
 auth_ready() { docker logs rdslike-auth 2>&1 | grep -q "API started"; }
 wait_for 180 auth_ready || fail "GoTrue: $(docker logs rdslike-auth 2>&1 | grep -E 'fatal|error' | tail -2 | cut -c1-240)"
@@ -164,6 +167,8 @@ docker restart rdslike-rest >/dev/null # its schema cache predates the migration
 rest_ready() { [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3467/)" = "200" ]; }
 wait_for 60 rest_ready || fail "PostgREST did not answer"
 node "$HERE/api-checks.mjs" http://127.0.0.1:3467 "$JWT_SECRET" || fail "API checks"
+node "$HERE/shared-dataset-checks.mjs" http://127.0.0.1:3467 "$JWT_SECRET" http://127.0.0.1:3466 \
+  || fail "a shared dataset's masked columns reach its grantee"
 sql "select count(*) || ' public tables, ' || count(*) filter (where c.relrowsecurity) || ' with RLS' from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r'"
 [ "$(sql "select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity")" = "0" ] \
   || fail "a public table without RLS"

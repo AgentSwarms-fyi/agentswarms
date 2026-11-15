@@ -16,6 +16,11 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Apply migration `20261115000000`** (R491), for example with
+  `npx supabase db push --remote`. The app works with or without it, but until
+  it runs a grantee can still read the names of a share's masked columns
+  through the REST API. A release from before R491 on the new schema leaves a
+  share with a mask out of its lists instead of naming its masked columns.
 - **`APP_ORIGIN` is gone** (R486). A workflow's Swarm step now calls the app
   on the same origin as every other headless run: `PUBLIC_APP_URL`, then
   `SITE_URL`, then `127.0.0.1` on `PORT` (default 8080). If you set
@@ -57,6 +62,21 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **A grantee could read a share's masked column names, and sometimes their
+  values** (R491). The database served a shared dataset's own row to every
+  grantee, and its column list is the owner's, so
+  `GET /rest/v1/user_data_tables?select=columns` named every column a grant
+  masks, and the browser SQL engine passed that list into the SQL page's and
+  BI's prompts for a share whose row filter admits no rows. Migration
+  `20261115000000` serves a share with a mask only through `shared_datasets()`
+  and `shared_dataset_columns()`, which leave the masked columns out; a share
+  with nothing masked reads as before. `shared_dataset_rows()` compared a mask
+  with the column names case-sensitively and untrimmed, so a mask typed
+  `Salary` over a column `salary` sent the salaries to the grantee's browser;
+  it now matches as the app does, ignoring case and surrounding spaces. Both
+  migration harnesses now check this as a real grantee over PostgREST. Still
+  open: the grant row itself (`iam_resource_grants.column_mask`) is readable
+  by its grantee, so the mask's terms still reach them.
 - **The typecheck ran out of memory on Node 20** (R490). The project's types
   outgrew Node 20's default heap of about 2 GB, and CI's Node 20.19 leg failed
   at R489 while Node 22 passed. `npm run typecheck` and CI now give `tsc` 4 GB,
@@ -68,11 +88,8 @@ development branch and may be ahead of the latest tag.
   share masks were in the prompt, though never their values. All three now list
   only the columns the viewer's grants allow, through the same mask the row path
   applies, and a share whose grant cannot be read lists no columns rather than
-  all of them. Still open: the database lets a grantee read a shared dataset's
-  full column list through the REST API (the "Shared data tables are readable"
-  policy), and the browser SQL engine falls back to that list for a shared
-  dataset whose filter admits no rows. Closing that needs a migration, in a
-  round of its own.
+  all of them. The database's half, the REST API and the browser SQL engine's
+  fallback, is R491's.
 - **Sandboxes and Spark on Kubernetes from `deploy/k8s` could not run**
   (R488). The app ran as the namespace's `default` account with no token, while
   the sandbox and Spark bindings named two accounts nothing ran as; an unset

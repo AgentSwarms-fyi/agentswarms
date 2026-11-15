@@ -9006,6 +9006,26 @@ export type Database = {
       seed_bi_sample_dashboards: { Args: { _uid: string }; Returns: undefined };
       seed_bi_sample_extras: { Args: { _uid: string }; Returns: undefined };
       shared_dataset_rows: { Args: { _table_id: string }; Returns: Json[] };
+      // 20261115000000 (R491): a dataset's columns as the caller may see them,
+      // and every dataset shared with the caller, its columns through the mask.
+      shared_dataset_columns: { Args: { _table_id: string }; Returns: Json };
+      shared_datasets: {
+        Args: never;
+        Returns: {
+          id: string;
+          name: string;
+          user_id: string | null;
+          is_sample: boolean;
+          source_filename: string | null;
+          columns: Json;
+          created_at: string;
+          updated_at: string;
+          data_loaded_at: string | null;
+          parquet_rows: number | null;
+          parquet_bytes: number | null;
+          rows_sealed: boolean;
+        }[];
+      };
       upsert_sample_dataset: {
         Args: { _columns: Json; _name: string; _source_filename: string };
         Returns: string;

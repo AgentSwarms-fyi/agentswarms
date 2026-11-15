@@ -48,7 +48,7 @@ describe("hydrateFromSupabase, when the table list itself cannot be read", () =>
   const listRead = () =>
     between(
       ENGINE,
-      "const { data: tables, error } = await supabase",
+      "const [{ data: direct, error }, shares] = await Promise.all([",
       "async function loadShared",
       "list read",
     );
