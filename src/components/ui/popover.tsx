@@ -31,9 +31,25 @@ function useDialogContainer(): HTMLElement | null {
   // does not exist yet — querying for it there always found nothing, which is
   // exactly how the first version of this fix silently did nothing at all.
   React.useLayoutEffect(() => {
-    setContainer(document.querySelector<HTMLElement>('[role="dialog"][data-state="open"]'));
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"][data-state="open"]');
+    setContainer(dialog);
+    if (!dialog) return;
+    // FOUND IN THE R495 UI TEST. The dialog is looked up once, when the
+    // popover first mounts — and a popover can mount while a dialog it is NOT
+    // inside is open: a workflow's "Parameter" menus appear the moment a
+    // parameter is added in the Settings dialog. Once that dialog closed, its
+    // node left the document, and every later open portalled into a detached
+    // element: the trigger said "open" and nothing appeared. A dialog that
+    // leaves the page stops being the container, so <body> is used again.
+    const obs = new MutationObserver(() => {
+      if (dialog.isConnected) return;
+      setContainer(null);
+      obs.disconnect();
+    });
+    obs.observe(document.body, { childList: true, subtree: true });
+    return () => obs.disconnect();
   }, []);
-  return container;
+  return container?.isConnected ? container : null;
 }
 
 const PopoverContent = React.forwardRef<

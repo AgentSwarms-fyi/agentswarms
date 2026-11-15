@@ -77,6 +77,16 @@ describe("a popover inside a dialog stays scrollable by mouse", () => {
     // must not change behaviour just because dialogs needed a fix.
     expect(POPOVER).toContain("container ?? undefined");
   });
+
+  it("lets go of a dialog that has closed", () => {
+    // FOUND IN THE R495 UI TEST. A popover that MOUNTED while a dialog was
+    // open (a workflow's Parameter menu appears as a parameter is added in
+    // Settings) kept that dialog as its container after it closed, and every
+    // later open went into a detached node: "open", and nothing on screen.
+    expect(POPOVER).toContain("new MutationObserver(");
+    expect(POPOVER).toContain("if (dialog.isConnected) return;");
+    expect(POPOVER).toContain("return container?.isConnected ? container : null;");
+  });
 });
 
 describe("the BI dashboard toolbar reaches its last action", () => {

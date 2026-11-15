@@ -1145,7 +1145,8 @@ GROUP BY region`}</Code>
         Choose A4, Letter, Legal or A3, portrait or landscape, and a uniform margin. The running{" "}
         <strong>header</strong> and <strong>footer</strong> each have a left, centre and right slot
         that accept tokens: <C>{"{{page}}"}</C>, <C>{"{{pages}}"}</C>, <C>{"{{title}}"}</C>,{" "}
-        <C>{"{{date}}"}</C> and <C>{"{{time}}"}</C>. A new report opens with{" "}
+        <C>{"{{date}}"}</C> and <C>{"{{time}}"}</C>. Each slot&apos;s <strong>Token</strong> menu
+        lists them and puts the one you pick at the cursor. A new report opens with{" "}
         <C>
           Page {"{{page}}"} of {"{{pages}}"}
         </C>{" "}

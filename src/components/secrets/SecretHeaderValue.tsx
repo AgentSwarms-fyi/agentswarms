@@ -17,6 +17,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SecretSelect } from "@/components/secrets/SecretSelect";
+import { TemplateInsertMenu, type TemplateToken } from "@/components/templates/TemplateInsert";
+import { useInsertAtCaret } from "@/hooks/use-insert-at-caret";
 import { cn } from "@/lib/utils";
 import {
   HEADER_SECRET_PREFIXES,
@@ -47,6 +49,9 @@ export function SecretHeaderValue({
   index,
   textPlaceholder = "application/json",
   textHint,
+  insertTokens,
+  insertNote,
+  insertLabel,
   size = "sm",
 }: {
   headerName: string;
@@ -59,6 +64,12 @@ export function SecretHeaderValue({
   textPlaceholder?: string;
   /** How to write a text value, e.g. which template syntax applies. */
   textHint?: React.ReactNode;
+  /** What a text value can reference, offered by a menu beside it (R495). */
+  insertTokens?: TemplateToken[];
+  /** Under that menu's list. */
+  insertNote?: React.ReactNode;
+  /** The menu's word: "Variable", "Parameter". */
+  insertLabel?: string;
   size?: "sm" | "md";
 }) {
   const parsed = parseHeaderSecret(value);
@@ -78,6 +89,7 @@ export function SecretHeaderValue({
     if (/^(proxy-)?authorization$/i.test(headerName.trim())) setPendingPrefix("Bearer ");
   }, [headerName, value]);
 
+  const textInsert = useInsertAtCaret<HTMLInputElement>(value, onChange);
   const prefix = parsed ? parsed.prefix : pendingPrefix;
   const typedKey = isTypedHeaderKey(headerName, value);
   const h = size === "sm" ? "h-7 text-xs" : "h-9 text-sm";
@@ -129,6 +141,15 @@ export function SecretHeaderValue({
               ))}
             </SelectContent>
           </Select>
+        ) : insertTokens ? (
+          <TemplateInsertMenu
+            className={cn(size === "sm" ? "h-7" : "h-9", "shrink-0")}
+            tokens={insertTokens}
+            onPick={textInsert.insert}
+            label={insertLabel}
+            fieldLabel={`${label.toLowerCase()} value`}
+            emptyNote={insertNote}
+          />
         ) : null}
       </div>
       {source === "secret" ? (
@@ -149,6 +170,7 @@ export function SecretHeaderValue({
       ) : (
         <>
           <Input
+            ref={textInsert.ref}
             className={cn(h, "font-mono")}
             placeholder={textPlaceholder}
             aria-label={`${label} value`}

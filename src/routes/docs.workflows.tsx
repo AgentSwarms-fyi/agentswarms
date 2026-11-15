@@ -240,8 +240,9 @@ function WorkflowsDocs() {
       </P>
       <P>
         What stays free text is text that really is text — a SQL statement, a notification, a
-        question for a person. Even there, a <strong>Parameter</strong> button inserts{" "}
-        <C>{"{{ params.name }}"}</C> at the cursor so the spelling is never something to remember.
+        question for a person, a header set to Text. Even there, a <strong>Parameter</strong> button
+        inserts <C>{"{{ params.name }}"}</C> at the cursor so the spelling is never something to
+        remember.
       </P>
       <Callout kind="warn" title="A model that no longer exists is shown, not dropped">
         If a SQL model is deleted after a step selected it, the step still lists it, ticked and

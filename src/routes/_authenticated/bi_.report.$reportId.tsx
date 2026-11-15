@@ -64,12 +64,15 @@ import type { WarehouseConnectionSummary, WarehouseTable } from "@/utils/warehou
 import {
   BLOCK_LABEL,
   PAGE_SIZES,
+  REPORT_TOKENS,
   newBlockId,
   validateReport,
   type BiReport,
   type ReportBand,
   type ReportBlock,
 } from "@/lib/biReports";
+import { TemplateInsertMenu, type TemplateToken } from "@/components/templates/TemplateInsert";
+import { useInsertAtCaret } from "@/hooks/use-insert-at-caret";
 import { biReportGet, biReportSave } from "@/utils/biReports.functions";
 import { reportFailure } from "@/lib/silentFailureNet";
 
@@ -682,8 +685,8 @@ function ReportDesigner() {
               onChange={(footer) => patch({ footer })}
             />
             <p className="text-[11px] leading-relaxed text-muted-foreground">
-              Tokens: <code>{"{{page}}"}</code> <code>{"{{pages}}"}</code>{" "}
-              <code>{"{{title}}"}</code> <code>{"{{date}}"}</code> <code>{"{{time}}"}</code>
+              <strong>Token</strong> puts a value filled in at export into the text, such as{" "}
+              <code>{"Page {{page}} of {{pages}}"}</code>.
             </p>
           </CardContent>
         </Card>
@@ -726,6 +729,53 @@ function ReportDesigner() {
   );
 }
 
+/** What a header or footer can say, from the export (R495). */
+const BAND_TOKENS: TemplateToken[] = REPORT_TOKENS.map((t) => ({
+  insert: `{{${t.token}}}`,
+  label: t.token,
+  detail: t.detail,
+}));
+
+const SLOT_LABEL = { left: "Left", center: "Center", right: "Right" } as const;
+
+/** One slot of a band: text, with a token put at the cursor. */
+function BandSlot({
+  band,
+  bandLabel,
+  slot,
+  onChange,
+}: {
+  band: ReportBand;
+  bandLabel: string;
+  slot: "left" | "center" | "right";
+  onChange: (b: ReportBand) => void;
+}) {
+  const value = band[slot] ?? "";
+  const { ref, insert } = useInsertAtCaret<HTMLInputElement>(value, (v) =>
+    onChange({ ...band, [slot]: v }),
+  );
+  const label = `${bandLabel} ${SLOT_LABEL[slot].toLowerCase()}`;
+  return (
+    <div className="flex items-center gap-1">
+      <Input
+        ref={ref}
+        className="h-7 text-[11px]"
+        placeholder={SLOT_LABEL[slot]}
+        aria-label={label}
+        value={value}
+        onChange={(e) => onChange({ ...band, [slot]: e.target.value })}
+      />
+      <TemplateInsertMenu
+        className="h-7 shrink-0"
+        tokens={BAND_TOKENS}
+        onPick={insert}
+        label="Token"
+        fieldLabel={label}
+      />
+    </div>
+  );
+}
+
 function BandEditor({
   label,
   band,
@@ -739,13 +789,7 @@ function BandEditor({
     <div className="space-y-1 border-t pt-2">
       <Label className="text-[11px]">{label}</Label>
       {(["left", "center", "right"] as const).map((slot) => (
-        <Input
-          key={slot}
-          className="h-7 text-[11px]"
-          placeholder={slot}
-          value={band[slot] ?? ""}
-          onChange={(e) => onChange({ ...band, [slot]: e.target.value })}
-        />
+        <BandSlot key={slot} band={band} bandLabel={label} slot={slot} onChange={onChange} />
       ))}
     </div>
   );

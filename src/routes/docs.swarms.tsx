@@ -70,15 +70,26 @@ function SwarmsPage() {
           [
             <C key="b">inputs</C>,
             "Every node",
-            "Names of variables this node reads from state. A merge node uses this to decide what to combine.",
+            "Variables this node reads from state, picked in the inspector from the ones set before it. With none picked, it reads the previous step's output. A merge node uses this to decide what to combine.",
           ],
         ]}
       />
-      <P>Anywhere a field accepts a template, these forms resolve:</P>
+      <P>
+        Every field that takes a template — a system prompt, a query, an HTTP node&apos;s URL, body
+        and text headers, a tool argument, a Set Variable value — has a <strong>Variable</strong>{" "}
+        menu in the inspector. It lists what the node can read when it runs: the run&apos;s input
+        and start-form fields, then the outputs of the steps that lead into it, nearest first, with
+        an approval&apos;s <C>{"_approved"}</C> flag, a Set Variable&apos;s keys and an Extract
+        node&apos;s fields. A step that runs later, or on another branch, is not listed: it has not
+        set anything yet. Picking one puts it at the cursor. Typing works too, in these forms:
+      </P>
       <Table
         headers={["Template", "Resolves to"]}
         rows={[
-          [<C key="a">{"{{input}}"}</C>, "The value arriving on the incoming edge"],
+          [
+            <C key="a">{"{{input}}"}</C>,
+            "What the run was started with (in a loop's prompt, what the loop gathered)",
+          ],
           [<C key="b">{"{{myVar}}"}</C>, "A named variable from flow state"],
           [<C key="c">{"{{myVar.path.to.field}}"}</C>, "A nested field of a JSON value in state"],
           [

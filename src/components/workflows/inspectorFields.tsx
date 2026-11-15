@@ -8,7 +8,6 @@
 // is text: a SQL statement, a message, a question for a person. Even there,
 // `{{ params.x }}` is offered by a button rather than remembered.
 import { Plus, Trash2 } from "lucide-react";
-import { useRef } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -23,6 +22,8 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { SecretHeaderValue } from "@/components/secrets/SecretHeaderValue";
+import { TemplateInsertMenu, type TemplateToken } from "@/components/templates/TemplateInsert";
+import { useInsertAtCaret } from "@/hooks/use-insert-at-caret";
 import { useRowKeys } from "@/hooks/use-row-keys";
 import { cn } from "@/lib/utils";
 import {
@@ -76,20 +77,10 @@ export function TemplatedText({
   hint?: React.ReactNode;
   onChange: (value: string) => void;
 }) {
-  const ref = useRef<HTMLTextAreaElement & HTMLInputElement>(null);
-
-  const insert = (name: string) => {
-    const token = `{{ params.${name} }}`;
-    const el = ref.current;
-    const at = el?.selectionStart ?? value.length;
-    const to = el?.selectionEnd ?? value.length;
-    onChange(value.slice(0, at) + token + value.slice(to));
-    // Put the caret after what was just inserted, so typing carries on.
-    requestAnimationFrame(() => {
-      el?.focus();
-      el?.setSelectionRange(at + token.length, at + token.length);
-    });
-  };
+  // R495: the shared insert (components/templates/TemplateInsert). It also
+  // fixes a pick made before the field had focus landing at the START: the
+  // browser reports a cursor of 0 for a field nobody has clicked into.
+  const { ref, insert } = useInsertAtCaret<HTMLTextAreaElement & HTMLInputElement>(value, onChange);
 
   const Control = rows ? Textarea : Input;
   return (
@@ -97,22 +88,12 @@ export function TemplatedText({
       <div className="flex items-center justify-between gap-2">
         <Label className="text-[11px]">{label}</Label>
         {params.length > 0 ? (
-          <Select value="" onValueChange={insert}>
-            <SelectTrigger
-              className="h-6 w-auto gap-1 border-dashed px-1.5 text-[10px] text-muted-foreground"
-              aria-label={`Insert a parameter into ${label.toLowerCase()}`}
-            >
-              <Plus className="h-3 w-3" />
-              Parameter
-            </SelectTrigger>
-            <SelectContent>
-              {params.map((p) => (
-                <SelectItem key={p.name} value={p.name} className="text-xs">
-                  {p.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <TemplateInsertMenu
+            tokens={paramTokens(params)}
+            onPick={insert}
+            label="Parameter"
+            fieldLabel={label.toLowerCase()}
+          />
         ) : null}
       </div>
       <Control
@@ -121,6 +102,7 @@ export function TemplatedText({
         className={cn(rows ? "text-xs" : "h-7 text-xs", mono && "font-mono text-[11px]")}
         placeholder={placeholder}
         value={value}
+        aria-label={label}
         onChange={(e: React.ChangeEvent<HTMLTextAreaElement & HTMLInputElement>) =>
           onChange(e.target.value)
         }
@@ -128,6 +110,15 @@ export function TemplatedText({
       {hint ? <p className="text-[10px] leading-relaxed text-muted-foreground">{hint}</p> : null}
     </div>
   );
+}
+
+/** A workflow's parameters, as the insert menu lists them. */
+function paramTokens(params: WorkflowParam[]): TemplateToken[] {
+  return params.map((p) => ({
+    insert: `{{ params.${p.name} }}`,
+    label: p.name,
+    detail: p.default ? `Default: ${p.default}` : "No default",
+  }));
 }
 
 // ── Conditions ──────────────────────────────────────────────────────────────
@@ -285,11 +276,14 @@ export function ConditionBuilder({
 export function HeaderRows({
   headers,
   url,
+  params = [],
   onChange,
 }: {
   headers: Record<string, string> | undefined;
   /** The request's URL: a secret shared with you goes only toward hosts its owner allowed. */
   url?: string;
+  /** The run's parameters, offered for a text value (R495). */
+  params?: WorkflowParam[];
   onChange: (headers: Record<string, string>) => void;
 }) {
   const rows = Object.entries(headers ?? {});
@@ -328,10 +322,18 @@ export function HeaderRows({
               value={v}
               onChange={(value) => edit(i, k, value)}
               destination={url}
+              insertLabel="Parameter"
+              insertTokens={params.length > 0 ? paramTokens(params) : undefined}
               textHint={
                 <>
-                  Text as sent. <code className="font-mono">{"{{ params.name }}"}</code> inserts a
-                  parameter.
+                  Text as sent.{" "}
+                  {params.length > 0 ? (
+                    <>
+                      <strong>Parameter</strong> puts a run parameter in it.
+                    </>
+                  ) : (
+                    <>Declare a parameter in Settings to use one here.</>
+                  )}
                 </>
               }
             />

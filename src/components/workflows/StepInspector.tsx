@@ -403,6 +403,7 @@ function WhatItRuns({
           <HeaderRows
             headers={http.headers}
             url={http.url}
+            params={params}
             onChange={(headers) => set({ headers })}
           />
           {http.method !== "GET" ? (

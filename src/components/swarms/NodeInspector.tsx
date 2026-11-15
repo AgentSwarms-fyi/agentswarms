@@ -75,6 +75,67 @@ import { SecretHeaderValue } from "@/components/secrets/SecretHeaderValue";
 import { SecretSelect } from "@/components/secrets/SecretSelect";
 import { webToolKeyHost, webToolKeySecretName } from "@/lib/webToolProviders";
 import { headerSecretValue, parseHeaderSecret, parseSecretRef, secretRef } from "@/lib/secretRefs";
+import {
+  TemplateInsertMenu,
+  TemplateText,
+  type TemplateToken,
+} from "@/components/templates/TemplateInsert";
+import { useInsertAtCaret } from "@/hooks/use-insert-at-caret";
+import { swarmVarNames, type SwarmTemplateVar } from "@/lib/swarmTemplateVars";
+import { cn } from "@/lib/utils";
+
+/** A connected MCP server, with the tools its last probe listed. */
+type McpServerOption = {
+  id: string;
+  name: string;
+  type: string;
+  status: string;
+  tools: { name: string; description?: string }[];
+};
+
+/** The tools an mcp_servers row lists (a JSON array of `{ name, description }`). */
+function mcpToolNames(raw: unknown): McpServerOption["tools"] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((t) =>
+    t && typeof t === "object" && typeof (t as { name?: unknown }).name === "string"
+      ? [
+          {
+            name: (t as { name: string }).name,
+            description:
+              typeof (t as { description?: unknown }).description === "string"
+                ? (t as { description: string }).description
+                : undefined,
+          },
+        ]
+      : [],
+  );
+}
+
+/** The menu's tokens for a node's variables. */
+function varTokens(vars: SwarmTemplateVar[]): TemplateToken[] {
+  return vars.map((v) => ({
+    insert: `{{${v.name}}}`,
+    label: v.name,
+    detail: v.detail,
+    group: v.group,
+  }));
+}
+
+/** Under every variable menu: how to get more, and the one notation left. */
+const VAR_MENU_NOTE = (
+  <>
+    Connect a step into this one to use its output. A JSON path reaches inside a value:{" "}
+    <code className="font-mono">{"{{name.items[0].id}}"}</code>.
+  </>
+);
+
+/** The format, for the line under a field that takes variables. */
+const VAR_HINT = (
+  <>
+    Pick from <strong>Variable</strong>, or type <code className="font-mono">{"{{name}}"}</code>; it
+    is replaced by that value when the step runs.
+  </>
+);
 
 // Rerank-capable providers (Cohere/Jina-style POST /rerank); the picker
 // filters to connected integrations (OpenRouter always available).
@@ -324,6 +385,8 @@ type ImportableAgent = {
 
 type Props = {
   node: Node<SwarmNodeData>;
+  /** What this node can reference as {{name}} (lib/swarmTemplateVars). */
+  variables?: SwarmTemplateVar[];
   knowledgeBases: { id: string; name: string }[];
   agentLibrary: ImportableAgent[];
   onChange: (patch: Partial<SwarmNodeData>) => void;
@@ -334,6 +397,7 @@ type Props = {
 
 export function NodeInspector({
   node,
+  variables = [],
   knowledgeBases,
   agentLibrary,
   onChange,
@@ -342,6 +406,12 @@ export function NodeInspector({
   onClose,
 }: Props) {
   const data = node.data;
+  const tokens = varTokens(variables);
+  // The system prompt takes variables (agent, loop, For Each); the condition
+  // and router prompts do not — the runtime sends those as written.
+  const promptInsert = useInsertAtCaret<HTMLTextAreaElement>(data.systemPrompt || "", (v) =>
+    onChange({ systemPrompt: v }),
+  );
 
   // Discover which LLM providers the user has connected. Mirrors AgentForm so
   // a swarm node can pick from the same list of providers/models the agent
@@ -369,9 +439,7 @@ export function NodeInspector({
   const [mlModelsLoaded, setMlModelsLoaded] = useState(false);
   // Connected MCP servers — used by the mcp_call_tool per-node allow-list picker
   // so users can check off servers instead of typing names from memory.
-  const [availableMcpServers, setAvailableMcpServers] = useState<
-    { id: string; name: string; type: string; status: string }[]
-  >([]);
+  const [availableMcpServers, setAvailableMcpServers] = useState<McpServerOption[]>([]);
   const [mcpServersLoaded, setMcpServersLoaded] = useState(false);
   // FOUND IN R187: each of these reads dropped its error, and a failed one
   // read as an empty account: "No tables yet. Upload a CSV…", with the
@@ -437,13 +505,21 @@ export function NodeInspector({
       setMlModelsLoaded(true);
       const { data: mcp, error: mcpErr } = await supabase
         .from("mcp_servers")
-        .select("id, name, type, status")
+        .select("id, name, type, status, tools")
         .eq("status", "connected")
         .order("name", { ascending: true });
       if (mcpErr) noteError("mcp", mcpErr.message);
       // Only a list that was read may prune the node's selection.
       else if (mcp) {
-        setAvailableMcpServers(mcp);
+        setAvailableMcpServers(
+          mcp.map((s) => ({
+            id: s.id,
+            name: s.name,
+            type: s.type,
+            status: s.status,
+            tools: mcpToolNames(s.tools),
+          })),
+        );
         // Only live servers are selectable. Prune anything removed or no
         // longer connected on the inspected node before it can render.
         const validNames = new Set(mcp.map((s) => s.name));
@@ -791,7 +867,7 @@ export function NodeInspector({
                 }
               >
                 {data.kind !== "condition" && data.kind !== "router" && (
-                  <div className="flex justify-end mb-1.5">
+                  <div className="flex items-center justify-end gap-1 mb-1.5">
                     <PromptLibraryPicker
                       iconOnly
                       align="end"
@@ -800,9 +876,27 @@ export function NodeInspector({
                         toast.success(`Loaded "${p.title}" from Library`);
                       }}
                     />
+                    <TemplateInsertMenu
+                      tokens={tokens}
+                      onPick={promptInsert.insert}
+                      fieldLabel="the prompt"
+                      emptyNote={VAR_MENU_NOTE}
+                    />
                   </div>
                 )}
                 <Textarea
+                  ref={
+                    data.kind !== "condition" && data.kind !== "router"
+                      ? promptInsert.ref
+                      : undefined
+                  }
+                  aria-label={
+                    data.kind === "condition"
+                      ? "Condition prompt"
+                      : data.kind === "router"
+                        ? "Router prompt"
+                        : "System prompt"
+                  }
                   value={
                     data.kind === "condition"
                       ? data.conditionPrompt || ""
@@ -829,6 +923,9 @@ export function NodeInspector({
                   }
                   className="font-mono text-xs"
                 />
+                {data.kind !== "condition" && data.kind !== "router" && (
+                  <p className="text-[10px] text-muted-foreground mt-1">{VAR_HINT}</p>
+                )}
                 {data.kind === "router" && (
                   <p className="text-[10px] text-muted-foreground mt-1.5">
                     Route names come from the labels on this node's outgoing edges. Click an edge to
@@ -1510,27 +1607,40 @@ export function NodeInspector({
 
         {data.kind === "evaluate" && <EvaluatePanel data={data} onChange={onChange} />}
 
-        {data.kind === "set_var" && <SetVarPanel data={data} onChange={onChange} />}
+        {data.kind === "set_var" && (
+          <SetVarPanel data={data} onChange={onChange} variables={variables} />
+        )}
 
-        {data.kind === "http" && <HttpPanel data={data} onChange={onChange} />}
+        {data.kind === "http" && (
+          <HttpPanel data={data} onChange={onChange} variables={variables} />
+        )}
 
         {data.kind === "tool" && (
           <ToolPanel
             data={data}
             onChange={onChange}
+            variables={variables}
             knowledgeBases={knowledgeBases}
             mlModels={availableMlModels}
+            mcpServers={availableMcpServers}
           />
         )}
 
-        {data.kind === "foreach" && <ForEachPanel data={data} onChange={onChange} />}
+        {data.kind === "foreach" && (
+          <ForEachPanel data={data} onChange={onChange} variables={variables} />
+        )}
 
         {data.kind === "extract" && <ExtractPanel data={data} onChange={onChange} />}
 
         {data.kind === "merge" && <MergePanel data={data} onChange={onChange} />}
 
         {data.kind === "retrieve" && (
-          <RetrievePanel data={data} onChange={onChange} knowledgeBases={knowledgeBases} />
+          <RetrievePanel
+            data={data}
+            onChange={onChange}
+            knowledgeBases={knowledgeBases}
+            variables={variables}
+          />
         )}
 
         {data.kind === "input" && <InputFieldsPanel data={data} onChange={onChange} />}
@@ -1546,22 +1656,11 @@ export function NodeInspector({
         )}
 
         <Section label="Inputs (variables read from upstream)">
-          <Input
-            value={(data.inputs ?? []).join(", ")}
-            onChange={(e) =>
-              onChange({
-                inputs: e.target.value
-                  .split(",")
-                  .map((s) => s.trim())
-                  .filter(Boolean),
-              })
-            }
-            placeholder="input, summary"
-            className="font-mono text-xs"
+          <InputsPicker
+            value={data.inputs ?? []}
+            variables={variables}
+            onChange={(inputs) => onChange({ inputs })}
           />
-          <p className="text-[10px] text-muted-foreground mt-1">
-            Comma-separated. Each upstream node's output is keyed by its <code>outputVar</code>.
-          </p>
         </Section>
 
         {data.kind !== "output" && (
@@ -1851,6 +1950,193 @@ function Section({ label, children }: { label: React.ReactNode; children: React.
       <Label className="text-[11px] text-muted-foreground mb-1.5 block">{label}</Label>
       {children}
     </div>
+  );
+}
+
+// ───────────────────── Variables chosen, not typed (R495) ─────────────────────
+// These fields name a variable rather than template one. They were text
+// ("input, summary", comma-separated), so a typo or a renamed step read
+// nothing and the step quietly fell back to whatever ran before it. The names
+// that exist are known, so they are offered; "Another name…" keeps room for
+// state an API caller seeds, which the canvas cannot see.
+
+const OTHER_NAME = "__other_name";
+
+/** A name typed in, for a variable the list cannot know about. */
+function TypedName({ onAdd, onCancel }: { onAdd: (name: string) => void; onCancel: () => void }) {
+  const [name, setName] = useState("");
+  const add = () => {
+    if (name) onAdd(name);
+  };
+  return (
+    <div className="flex gap-1">
+      <Input
+        autoFocus
+        value={name}
+        onChange={(e) => setName(e.target.value.replace(/[^a-zA-Z0-9_]/g, ""))}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") add();
+          if (e.key === "Escape") onCancel();
+        }}
+        placeholder="variable_name"
+        aria-label="Variable name"
+        className="h-7 font-mono text-xs"
+      />
+      <Button size="sm" className="h-7 text-xs" onClick={add} disabled={!name}>
+        Add
+      </Button>
+      <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={onCancel}>
+        Cancel
+      </Button>
+    </div>
+  );
+}
+
+/** The variables a step reads, picked from the ones set before it. */
+function InputsPicker({
+  value,
+  variables,
+  onChange,
+}: {
+  value: string[];
+  variables: SwarmTemplateVar[];
+  onChange: (next: string[]) => void;
+}) {
+  const [typing, setTyping] = useState(false);
+  const names = swarmVarNames(variables);
+  const detail = new Map(variables.map((v) => [v.name, v.detail]));
+  const addable = names.filter((n) => !value.includes(n));
+  return (
+    <div className="space-y-1.5">
+      {value.length === 0 ? (
+        <p className="text-[10px] text-muted-foreground">
+          None picked: this step reads the output of the step before it.
+        </p>
+      ) : (
+        <div className="flex flex-wrap gap-1">
+          {value.map((n) => {
+            const known = names.includes(n);
+            return (
+              <Badge
+                key={n}
+                variant="outline"
+                className={cn(
+                  "gap-1 font-mono text-[10px]",
+                  !known && "border-warning/60 text-warning",
+                )}
+                title={known ? detail.get(n) : "No step before this one sets it"}
+              >
+                {n}
+                <button
+                  type="button"
+                  aria-label={`Stop reading ${n}`}
+                  className="hover:text-destructive"
+                  onClick={() => onChange(value.filter((x) => x !== n))}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            );
+          })}
+        </div>
+      )}
+      {typing ? (
+        <TypedName
+          onAdd={(n) => {
+            if (!value.includes(n)) onChange([...value, n]);
+            setTyping(false);
+          }}
+          onCancel={() => setTyping(false)}
+        />
+      ) : (
+        <Select
+          value=""
+          onValueChange={(v) => (v === OTHER_NAME ? setTyping(true) : onChange([...value, v]))}
+        >
+          <SelectTrigger className="h-7 text-xs" aria-label="Add an input">
+            <SelectValue placeholder="Add a variable…" />
+          </SelectTrigger>
+          <SelectContent>
+            {addable.map((n) => (
+              <SelectItem key={n} value={n} className="text-xs">
+                <span className="font-mono">{n}</span>
+                <span className="text-muted-foreground"> · {detail.get(n)}</span>
+              </SelectItem>
+            ))}
+            <SelectItem value={OTHER_NAME} className="text-xs">
+              Another name…
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      )}
+      {value.some((n) => !names.includes(n)) ? (
+        <p className="text-[10px] text-warning">
+          A name in amber is not set by any step before this one, so it reads as empty unless the
+          run supplies it.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** One variable, picked; `fallback` says what an empty choice means. */
+function VariableSelect({
+  value,
+  variables,
+  fallback,
+  ariaLabel,
+  onChange,
+}: {
+  value: string;
+  variables: SwarmTemplateVar[];
+  fallback: string;
+  ariaLabel: string;
+  onChange: (next: string) => void;
+}) {
+  const [typing, setTyping] = useState(false);
+  const names = swarmVarNames(variables);
+  const detail = new Map(variables.map((v) => [v.name, v.detail]));
+  const DEFAULT = "__default";
+  if (typing) {
+    return (
+      <TypedName
+        onAdd={(n) => {
+          onChange(n);
+          setTyping(false);
+        }}
+        onCancel={() => setTyping(false)}
+      />
+    );
+  }
+  return (
+    <Select
+      value={value || DEFAULT}
+      onValueChange={(v) => (v === OTHER_NAME ? setTyping(true) : onChange(v === DEFAULT ? "" : v))}
+    >
+      <SelectTrigger className="h-8 text-xs" aria-label={ariaLabel}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={DEFAULT} className="text-xs">
+          {fallback}
+        </SelectItem>
+        {names.map((n) => (
+          <SelectItem key={n} value={n} className="text-xs">
+            <span className="font-mono">{n}</span>
+            <span className="text-muted-foreground"> · {detail.get(n)}</span>
+          </SelectItem>
+        ))}
+        {value && !names.includes(value) ? (
+          <SelectItem value={value} className="text-xs">
+            <span className="font-mono">{value}</span>
+            <span className="text-warning"> · not set by a step before this one</span>
+          </SelectItem>
+        ) : null}
+        <SelectItem value={OTHER_NAME} className="text-xs">
+          Another name…
+        </SelectItem>
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -2527,10 +2813,12 @@ function RetrievePanel({
   data,
   onChange,
   knowledgeBases,
+  variables,
 }: {
   data: SwarmNodeData;
   onChange: (patch: Partial<SwarmNodeData>) => void;
   knowledgeBases: { id: string; name: string }[];
+  variables: SwarmTemplateVar[];
 }) {
   return (
     <>
@@ -2560,15 +2848,15 @@ function RetrievePanel({
         </Select>
       </Section>
       <Section label="Query">
-        <Input
+        <TemplateText
           value={data.retrieveQuery ?? "{{input}}"}
-          onChange={(e) => onChange({ retrieveQuery: e.target.value })}
+          onChange={(v) => onChange({ retrieveQuery: v })}
+          tokens={varTokens(variables)}
           placeholder="{{input}}"
-          className="font-mono text-xs"
+          ariaLabel="Query"
+          emptyNote={VAR_MENU_NOTE}
+          hint={VAR_HINT}
         />
-        <p className="text-[10px] text-muted-foreground mt-1">
-          Supports <code className="font-mono">{"{{var}}"}</code> templating.
-        </p>
       </Section>
       <Section label={`Top K: ${data.retrieveTopK ?? 5}`}>
         <Slider
@@ -2584,14 +2872,72 @@ function RetrievePanel({
 }
 
 // ───────────────────── Set Variable panel ─────────────────────
+/** One assignment: a key, and a value that may reference variables. */
+function SetVarRow({
+  row,
+  tokens,
+  onUpdate,
+  onRemove,
+}: {
+  row: { key: string; value: string };
+  tokens: TemplateToken[];
+  onUpdate: (patch: Partial<{ key: string; value: string }>) => void;
+  onRemove: () => void;
+}) {
+  const { ref, insert } = useInsertAtCaret<HTMLInputElement>(row.value, (value) =>
+    onUpdate({ value }),
+  );
+  return (
+    <div className="mb-1.5 space-y-1">
+      <div className="flex gap-1.5">
+        <Input
+          value={row.key}
+          onChange={(e) => onUpdate({ key: e.target.value.replace(/[^a-zA-Z0-9_]/g, "") })}
+          placeholder="key"
+          aria-label="Key"
+          className="w-28 font-mono text-xs"
+        />
+        <Input
+          ref={ref}
+          value={row.value}
+          onChange={(e) => onUpdate({ value: e.target.value })}
+          placeholder="{{input}}"
+          aria-label={`Value of ${row.key || "this key"}`}
+          className="flex-1 font-mono text-xs"
+        />
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0"
+          aria-label={`Remove ${row.key || "this assignment"}`}
+          onClick={onRemove}
+        >
+          <Trash2 className="h-3.5 w-3.5 text-destructive" />
+        </Button>
+      </div>
+      <div className="flex justify-end pr-9">
+        <TemplateInsertMenu
+          tokens={tokens}
+          onPick={insert}
+          fieldLabel={`the value of ${row.key || "this key"}`}
+          emptyNote={VAR_MENU_NOTE}
+        />
+      </div>
+    </div>
+  );
+}
+
 function SetVarPanel({
   data,
   onChange,
+  variables,
 }: {
   data: SwarmNodeData;
   onChange: (patch: Partial<SwarmNodeData>) => void;
+  variables: SwarmTemplateVar[];
 }) {
   const rows = data.stateAssignments ?? [];
+  const rowKeys = useRowKeys(rows.length);
   const update = (i: number, patch: Partial<{ key: string; value: string }>) =>
     onChange({ stateAssignments: rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)) });
   return (
@@ -2607,29 +2953,20 @@ function SetVarPanel({
       </div>
       <Section label="Assignments">
         {rows.map((r, i) => (
-          <div key={i} className="flex gap-1.5 mb-1.5">
-            <Input
-              value={r.key}
-              onChange={(e) => update(i, { key: e.target.value.replace(/[^a-zA-Z0-9_]/g, "") })}
-              placeholder="key"
-              className="w-28 font-mono text-xs"
-            />
-            <Input
-              value={r.value}
-              onChange={(e) => update(i, { value: e.target.value })}
-              placeholder="{{input}}"
-              className="flex-1 font-mono text-xs"
-            />
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 shrink-0"
-              onClick={() => onChange({ stateAssignments: rows.filter((_, idx) => idx !== i) })}
-            >
-              <Trash2 className="h-3.5 w-3.5 text-destructive" />
-            </Button>
-          </div>
+          <SetVarRow
+            key={rowKeys.keys[i]}
+            row={r}
+            tokens={varTokens(variables)}
+            onUpdate={(patch) => update(i, patch)}
+            onRemove={() => {
+              rowKeys.removeAt(i);
+              onChange({ stateAssignments: rows.filter((_, idx) => idx !== i) });
+            }}
+          />
         ))}
+        {rows.length > 0 ? (
+          <p className="mb-1.5 text-[10px] text-muted-foreground">{VAR_HINT}</p>
+        ) : null}
         <Button
           variant="outline"
           size="sm"
@@ -2647,10 +2984,16 @@ function SetVarPanel({
 function HttpPanel({
   data,
   onChange,
+  variables,
 }: {
   data: SwarmNodeData;
   onChange: (patch: Partial<SwarmNodeData>) => void;
+  variables: SwarmTemplateVar[];
 }) {
+  const tokens = varTokens(variables);
+  const urlInsert = useInsertAtCaret<HTMLInputElement>(data.httpUrl || "", (v) =>
+    onChange({ httpUrl: v }),
+  );
   const method = data.httpMethod || "GET";
   const headers = data.httpHeaders ?? [];
   const rowKeys = useRowKeys(headers.length);
@@ -2671,6 +3014,14 @@ function HttpPanel({
         </p>
       </div>
       <Section label="Method & URL">
+        <div className="mb-1 flex justify-end">
+          <TemplateInsertMenu
+            tokens={tokens}
+            onPick={urlInsert.insert}
+            fieldLabel="the URL"
+            emptyNote={VAR_MENU_NOTE}
+          />
+        </div>
         <div className="flex gap-1.5">
           <Select
             value={method}
@@ -2688,6 +3039,7 @@ function HttpPanel({
             </SelectContent>
           </Select>
           <Input
+            ref={urlInsert.ref}
             value={data.httpUrl || ""}
             onChange={(e) => onChange({ httpUrl: e.target.value })}
             placeholder="https://api.example.com/{{input}}"
@@ -2696,7 +3048,7 @@ function HttpPanel({
           />
         </div>
         <p className="text-[10px] text-muted-foreground mt-1">
-          <code className="font-mono">{"{{var}}"}</code> inserts a flow-state value, e.g.{" "}
+          Pick a value from <strong>Variable</strong> to put it in the URL, e.g.{" "}
           <code className="font-mono">{"https://api.example.com/items/{{input}}"}</code>. A key does
           not belong in a URL: add it as a header set to Secret.
         </p>
@@ -2721,10 +3073,11 @@ function HttpPanel({
                 onChange={(value) => updateHeader(i, { value })}
                 destination={data.httpUrl || undefined}
                 textPlaceholder="application/json or {{input}}"
+                insertTokens={tokens}
+                insertNote={VAR_MENU_NOTE}
                 textHint={
                   <>
-                    Text as sent. <code className="font-mono">{"{{var}}"}</code> inserts a
-                    flow-state value.
+                    Text as sent; <strong>Variable</strong> puts a flow-state value in it.
                   </>
                 }
               />
@@ -2754,18 +3107,23 @@ function HttpPanel({
       </Section>
       {hasBody && (
         <Section label="Request body">
-          <Textarea
+          <TemplateText
             value={data.httpBody || ""}
-            onChange={(e) => onChange({ httpBody: e.target.value })}
+            onChange={(v) => onChange({ httpBody: v })}
+            tokens={tokens}
             rows={4}
             placeholder={'{"q": "{{input}}"}'}
-            aria-label="Request body"
-            className="font-mono text-xs"
+            ariaLabel="Request body"
+            emptyNote={VAR_MENU_NOTE}
+            hint={
+              <>
+                Sent as written, with each <code className="font-mono">{"{{name}}"}</code> replaced
+                by its value. In JSON, put quotes around a text value:{" "}
+                <code className="font-mono">{'{"q": "{{input}}"}'}</code>. Keys go in a header set
+                to Secret, not in the body.
+              </>
+            }
           />
-          <p className="text-[10px] text-muted-foreground mt-1">
-            Sent as written, with <code className="font-mono">{"{{var}}"}</code> replaced by its
-            flow-state value. Keys go in a header set to Secret, not in the body.
-          </p>
         </Section>
       )}
       <Section label="Response JSON path (optional)">
@@ -2842,17 +3200,127 @@ const TOOL_NODE_OPTIONS: {
   },
 ];
 
+/** The MCP server a Tool node calls, from the connected ones. */
+function McpServerSelect({
+  value,
+  servers,
+  onChange,
+}: {
+  value: string;
+  servers: McpServerOption[];
+  onChange: (name: string) => void;
+}) {
+  const NONE = "__none";
+  const listed = servers.some((sv) => sv.name === value);
+  return (
+    <>
+      <Select value={value || NONE} onValueChange={(v) => onChange(v === NONE ? "" : v)}>
+        <SelectTrigger className="h-8 text-xs" aria-label="MCP server">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NONE} className="text-xs">
+            Pick a connected server
+          </SelectItem>
+          {servers.map((sv) => (
+            <SelectItem key={sv.id} value={sv.name} className="text-xs">
+              {sv.name}
+            </SelectItem>
+          ))}
+          {value && !listed ? (
+            <SelectItem value={value} className="text-xs">
+              {value}
+              <span className="text-warning"> · not connected</span>
+            </SelectItem>
+          ) : null}
+        </SelectContent>
+      </Select>
+      {servers.length === 0 ? (
+        <p className="mt-1 text-[10px] text-muted-foreground">
+          No MCP server is connected. Add one on the MCP Servers page.
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+/** The tool on that server, from the tools it listed when last checked. */
+function McpToolSelect({
+  value,
+  server,
+  onChange,
+}: {
+  value: string;
+  server: McpServerOption | undefined;
+  onChange: (name: string) => void;
+}) {
+  const NONE = "__none";
+  if (!server) {
+    return <p className="text-[10px] text-muted-foreground">Pick a server first.</p>;
+  }
+  if (server.tools.length === 0) {
+    // Never listed (or lists nothing): the name has to be typed.
+    return (
+      <>
+        <Input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="tool_name"
+          aria-label="Tool"
+          className="font-mono text-xs"
+        />
+        <p className="mt-1 text-[10px] text-muted-foreground">
+          {server.name} has not listed its tools. Refresh it on the MCP Servers page to pick one
+          here, or type the tool&apos;s name.
+        </p>
+      </>
+    );
+  }
+  const listed = server.tools.some((t) => t.name === value);
+  return (
+    <Select value={value || NONE} onValueChange={(v) => onChange(v === NONE ? "" : v)}>
+      <SelectTrigger className="h-8 text-xs" aria-label="Tool">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={NONE} className="text-xs">
+          Pick a tool
+        </SelectItem>
+        {server.tools.map((t) => (
+          <SelectItem key={t.name} value={t.name} className="text-xs">
+            <span className="font-mono">{t.name}</span>
+            {t.description ? (
+              <span className="text-muted-foreground"> · {t.description.slice(0, 60)}</span>
+            ) : null}
+          </SelectItem>
+        ))}
+        {value && !listed ? (
+          <SelectItem value={value} className="text-xs">
+            <span className="font-mono">{value}</span>
+            <span className="text-warning"> · not listed by {server.name}</span>
+          </SelectItem>
+        ) : null}
+      </SelectContent>
+    </Select>
+  );
+}
+
 function ToolPanel({
   data,
   onChange,
+  variables,
   knowledgeBases,
   mlModels,
+  mcpServers,
 }: {
   data: SwarmNodeData;
   onChange: (patch: Partial<SwarmNodeData>) => void;
+  variables: SwarmTemplateVar[];
   knowledgeBases: { id: string; name: string }[];
   mlModels: { id: string; name: string; task: string; production_version_id: string | null }[];
+  mcpServers: McpServerOption[];
 }) {
+  const tokens = varTokens(variables);
   const toolId = (data.toolId as SwarmToolId) || "web_search";
   const opt = TOOL_NODE_OPTIONS.find((o) => o.id === toolId) ?? TOOL_NODE_OPTIONS[0];
   const args = data.toolArgs ?? {};
@@ -2862,9 +3330,10 @@ function ToolPanel({
       <div className="rounded-md border border-rose-500/30 bg-rose-500/5 p-2.5 text-[11px] leading-relaxed">
         <p className="font-medium text-foreground mb-0.5">🛠️ Tool (deterministic)</p>
         <p className="text-muted-foreground">
-          Runs one built-in tool directly — no LLM turn, no tokens. Argument values accept{" "}
-          <code className="font-mono">{"{{var}}"}</code> flow-state templating. The raw tool result
-          (JSON) is written to this node&apos;s output variable.
+          Runs one built-in tool directly — no LLM turn, no tokens. An argument can include a
+          flow-state value: pick it from <strong>Variable</strong>, or type{" "}
+          <code className="font-mono">{"{{name}}"}</code>. The raw tool result (JSON) is written to
+          this node&apos;s output variable.
         </p>
       </div>
       <Section label="Tool">
@@ -2884,26 +3353,38 @@ function ToolPanel({
           </SelectContent>
         </Select>
       </Section>
-      {opt.args.map((arg) => (
-        <Section key={arg.key} label={arg.key}>
-          {arg.textarea ? (
-            <Textarea
-              value={args[arg.key] ?? ""}
-              onChange={(e) => setArg(arg.key, e.target.value)}
-              rows={3}
-              placeholder={arg.placeholder}
-              className="font-mono text-xs"
+      {opt.args.map((arg) =>
+        toolId === "mcp_call_tool" && arg.key === "server_name" ? (
+          <Section key={arg.key} label="MCP server">
+            <McpServerSelect
+              value={args.server_name ?? ""}
+              servers={mcpServers}
+              // A tool belongs to its server: a new server starts with none.
+              onChange={(v) => onChange({ toolArgs: { ...args, server_name: v, tool_name: "" } })}
             />
-          ) : (
-            <Input
-              value={args[arg.key] ?? ""}
-              onChange={(e) => setArg(arg.key, e.target.value)}
-              placeholder={arg.placeholder}
-              className="font-mono text-xs"
+          </Section>
+        ) : toolId === "mcp_call_tool" && arg.key === "tool_name" ? (
+          <Section key={arg.key} label="Tool">
+            <McpToolSelect
+              value={args.tool_name ?? ""}
+              server={mcpServers.find((sv) => sv.name === args.server_name)}
+              onChange={(v) => setArg("tool_name", v)}
             />
-          )}
-        </Section>
-      ))}
+          </Section>
+        ) : (
+          <Section key={arg.key} label={arg.key}>
+            <TemplateText
+              value={args[arg.key] ?? ""}
+              onChange={(v) => setArg(arg.key, v)}
+              tokens={tokens}
+              rows={arg.textarea ? 3 : undefined}
+              placeholder={arg.placeholder}
+              ariaLabel={arg.key}
+              emptyNote={VAR_MENU_NOTE}
+            />
+          </Section>
+        ),
+      )}
       {toolId === "kb_search" && (
         <Section label="Knowledge base">
           <Select
@@ -2960,9 +3441,11 @@ function ToolPanel({
 function ForEachPanel({
   data,
   onChange,
+  variables,
 }: {
   data: SwarmNodeData;
   onChange: (patch: Partial<SwarmNodeData>) => void;
+  variables: SwarmTemplateVar[];
 }) {
   return (
     <>
@@ -2975,14 +3458,16 @@ function ForEachPanel({
         </p>
       </div>
       <Section label="Array source variable">
-        <Input
+        <VariableSelect
           value={data.foreachInput || ""}
-          onChange={(e) => onChange({ foreachInput: e.target.value.replace(/[^a-zA-Z0-9_]/g, "") })}
-          placeholder="items (defaults to the first input)"
-          className="font-mono text-xs"
+          variables={variables}
+          fallback={`First input (${data.inputs?.[0] || "input"})`}
+          ariaLabel="Array source variable"
+          onChange={(v) => onChange({ foreachInput: v })}
         />
         <p className="text-[10px] text-muted-foreground mt-1">
-          Should hold a JSON array. Newline-separated text also works.
+          Should hold a JSON array, such as <code className="font-mono">{'["a", "b"]'}</code>.
+          Newline-separated text also works, one item per line.
         </p>
       </Section>
       <Section label="Item variable name">
@@ -2995,8 +3480,8 @@ function ForEachPanel({
           className="font-mono text-xs"
         />
         <p className="text-[10px] text-muted-foreground mt-1">
-          Reference it in the per-item prompt as <code className="font-mono">{"{{item}}"}</code>.{" "}
-          <code className="font-mono">{"{{index}}"}</code> is also available.
+          The per-item prompt&apos;s <strong>Variable</strong> menu offers it, with{" "}
+          <code className="font-mono">{"{{index}}"}</code> (its position, from 0).
         </p>
       </Section>
       <Section label={`Max items: ${data.maxIters ?? 25}`}>

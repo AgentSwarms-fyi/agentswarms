@@ -124,6 +124,18 @@ export type TokenContext = {
 const TOKEN_RE = /\{\{\s*(page|pages|title|date|time)\s*\}\}/g;
 
 /**
+ * The tokens a header or footer may use, for the editor's insert menu (R495).
+ * Every name here is one TOKEN_RE replaces; a test holds the two together.
+ */
+export const REPORT_TOKENS: readonly { token: keyof TokenContext; detail: string }[] = [
+  { token: "page", detail: "This page's number" },
+  { token: "pages", detail: "How many pages the report has" },
+  { token: "title", detail: "The report's title" },
+  { token: "date", detail: "The day it was exported" },
+  { token: "time", detail: "The time it was exported" },
+];
+
+/**
  * Replace the tokens a header or footer may use.
  *
  * `{{pages}}` is why the footer is stamped in a second pass: the total is not

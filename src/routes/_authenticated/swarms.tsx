@@ -112,6 +112,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
 import { useLayoutPrefs } from "@/hooks/use-layout-prefs";
 import { type SwarmNodeData, topoLevels } from "@/lib/swarmRuntime";
+import { swarmTemplateVars } from "@/lib/swarmTemplateVars";
 import {
   startRun as startManagedRun,
   cancelRun as cancelManagedRun,
@@ -1233,6 +1234,12 @@ function SwarmsCanvas({
   const selectedNode = useMemo(
     () => nodes.find((n) => n.id === selectedNodeId) ?? null,
     [nodes, selectedNodeId],
+  );
+  // What the selected node can reference as {{name}}: the inspector offers
+  // these instead of asking for names to be typed (R495).
+  const selectedNodeVars = useMemo(
+    () => (selectedNodeId ? swarmTemplateVars(nodes, edges, selectedNodeId) : []),
+    [nodes, edges, selectedNodeId],
   );
 
   const onConnect = useCallback(
@@ -2443,6 +2450,7 @@ function SwarmsCanvas({
             // no longer exist from THIS node's selection (R323).
             key={selectedNode.id}
             node={selectedNode}
+            variables={selectedNodeVars}
             knowledgeBases={knowledgeBases}
             agentLibrary={agentLibrary}
             onChange={updateSelectedNode}

@@ -92,7 +92,31 @@ development branch and may be ahead of the latest tag.
   credential. Editing a knowledge-base source now keeps the credentials you
   leave as they are, as the form says; changing one used to drop the others (an
   email beside a token), and a field with nothing stored no longer reads
-  "(stored)". Still to come: insert menus for `{{var}}` fields.
+  "(stored)".
+- **Variables are picked, not typed** (R495). In a swarm node, every field that
+  takes `{{name}}` — the system prompt (agent, loop and For Each), a Retrieve
+  query, the HTTP URL, body and text headers, a Tool argument, a Set Variable
+  value — has a **Variable** menu that lists what the node can read when it
+  runs: the run's input and start-form fields, then the outputs of the steps
+  leading into it, nearest first, with an approval's `_approved` flag, Set
+  Variable keys and Extract fields. A step that runs later or on another branch
+  is not offered, since it has set nothing yet. The pick goes in at the cursor.
+  The fields that name a variable rather than template one are now choices too:
+  a node's Inputs (a comma-separated list, where a typo read nothing) and a For
+  Each's array source, with "Another name…" for state an API caller seeds. A Tool
+  node's MCP server and tool are picked from the connected servers and the tools
+  each listed. A report's header and footer slots have a **Token** menu
+  (`{{page}}`, `{{pages}}`, `{{title}}`, `{{date}}`, `{{time}}`), and a workflow
+  header set to Text has the **Parameter** menu its URL and body already had.
+  The swarm docs said `{{input}}` is the value on the incoming edge; it is what
+  the run was started with (a loop's prompt is the exception), and now says so.
+  Two bugs found while testing it: a pick made before clicking into the field
+  went to the START of its text (a field nobody has clicked reports its cursor
+  at 0; it now goes at the end), which the workflow editor's Parameter button
+  had always done; and a popover that first appeared while a dialog was open —
+  a workflow's Parameter menu, as a parameter is added in Settings — opened
+  into nothing once that dialog closed. Every popover now lets go of a dialog
+  that has left the page.
 
 ### Added
 
