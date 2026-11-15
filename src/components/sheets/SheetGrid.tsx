@@ -24,6 +24,7 @@ import { expandToMerges, mergeAt, parseMerges } from "@/lib/sheets/merge";
 import {
   acceptsReference,
   pointedReference,
+  resizeSpan,
   selRange,
   spillExtentIn,
   startsEdit,
@@ -31,6 +32,7 @@ import {
 } from "@/lib/sheets/selection";
 import { cssBorder, fontPx, fontStack, INDENT_PX, type Borders } from "@/lib/sheets/style";
 import { cn } from "@/lib/utils";
+import { cellFont, fitColumnWidths } from "./fit";
 import { measureText } from "./measure";
 
 export const ROW_H = 24;
@@ -96,9 +98,14 @@ type Props = {
   /** Commit the edit, then move by (dr, dc). */
   onCommit: (dr: number, dc: number) => void;
   onKey: (e: React.KeyboardEvent) => void;
-  onColWidth: (col: number, width: number) => void;
-  /** A row's height set by hand; null returns it to fitting its content. */
-  onRowHeight: (row: number, height: number | null) => void;
+  /**
+   * Column widths set by a drag on a header's edge or fitted by its
+   * double-click, by column index. Several at once when whole columns are
+   * selected and the edge is one of theirs (R497).
+   */
+  onColWidth: (widths: Record<number, number>) => void;
+  /** Row heights set by hand, by row index; null returns a row to fitting its content. */
+  onRowHeight: (heights: Record<number, number | null>) => void;
   onFill: (source: RangeAddr, target: RangeAddr) => void;
   onNearEnd: (axis: "rows" | "cols") => void;
   onContextMenu?: (e: React.MouseEvent, kind: "cell" | "row" | "col") => void;
@@ -117,12 +124,6 @@ type Props = {
   /** Text arrived without a keydown (IME composition, dictation, insertText): start typing it. */
   onType: (text: string) => void;
 };
-
-function cellFont(s: CellInput["s"], z: number, base: string, extra?: CellDecoration): string {
-  const italic = (extra?.i ?? s?.i) ? "italic " : "";
-  const weight = (extra?.b ?? s?.b) ? "600 " : "";
-  return `${italic}${weight}${fontPx(s?.sz, z)}px ${fontStack(s?.font) ?? base}`;
-}
 
 export function SheetGrid(props: Props) {
   const {
@@ -374,6 +375,26 @@ export function SheetGrid(props: Props) {
     return { at: caret, len: ref.length };
   };
 
+  /**
+   * A press on a header or the Select All corner while a cell is being edited
+   * (R497). Typing a formula where a reference fits, a header puts in its
+   * whole column or row (`B:B`, `3:3`), as Excel does, and the edit carries
+   * on: returns true, and the press does nothing else. Otherwise the edit is
+   * committed first, as a press on another cell commits it. FOUND IN R497:
+   * the headers and the corner only moved the focus, so the edit stayed open
+   * behind the new selection, and the next Ctrl+Z, Delete or typing went to it.
+   */
+  const pressOutsideEdit = (ref: string | null): boolean => {
+    if (!editing) return false;
+    const caret = editing.caret ?? editing.text.length;
+    if (acceptsReference(editing.text, caret)) {
+      if (ref) insertReference(ref);
+      return true;
+    }
+    onCommit(0, 0);
+    return false;
+  };
+
   const onMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
     const raw = cellAt(e.clientX, e.clientY);
@@ -466,13 +487,25 @@ export function SheetGrid(props: Props) {
   });
 
   // ── Resizing rows and columns ────────────────────────────────────────────
+  // Whole columns (or rows) selected, the edge one of theirs: all of them
+  // resize together, as in Excel and Google Sheets (R497).
+  const extentNow = { rows: rowCount, cols: colCount };
+  const each = <T,>(span: [number, number], v: T): Record<number, T> => {
+    const out: Record<number, T> = {};
+    for (let i = span[0]; i <= span[1]; i++) out[i] = v;
+    return out;
+  };
+
   const startColResize = (e: React.MouseEvent, col: number) => {
     e.preventDefault();
     e.stopPropagation();
     const startX = e.clientX;
     const startW = baseColW(col);
+    const span = resizeSpan(range, col, "cols", extentNow);
     const move = (ev: MouseEvent) =>
-      onColWidth(col, Math.max(16, Math.min(1200, startW + (ev.clientX - startX) / z)));
+      onColWidth(
+        each(span, Math.round(Math.max(16, Math.min(1200, startW + (ev.clientX - startX) / z)))),
+      );
     const up = () => {
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
@@ -486,8 +519,11 @@ export function SheetGrid(props: Props) {
     e.stopPropagation();
     const startY = e.clientY;
     const startH = rows.size(row) / z;
+    const span = resizeSpan(range, row, "rows", extentNow);
     const move = (ev: MouseEvent) =>
-      onRowHeight(row, Math.max(12, Math.min(800, Math.round(startH + (ev.clientY - startY) / z))));
+      onRowHeight(
+        each(span, Math.max(12, Math.min(800, Math.round(startH + (ev.clientY - startY) / z)))),
+      );
     const up = () => {
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
@@ -497,16 +533,11 @@ export function SheetGrid(props: Props) {
   };
 
   const autoFit = (col: number) => {
-    // Widest shown text in the first rows of data.
-    const used = engine.used(tabId);
-    let max = colLetters(col).length * 8;
-    for (let r = 0; r < Math.min(used.rows, 2000); r++) {
-      const input = engine.getInput(tabId, r, col);
-      const v = cellView(engine.getValue(tabId, r, col), input);
-      if (!v.text || mergeAt(merges, r, col)) continue;
-      max = Math.max(max, measureText(v.text, cellFont(input?.s, 1, baseFont)));
-    }
-    onColWidth(col, Math.max(24, Math.min(800, Math.ceil(max + CELL_PAD_X * 2 + 4))));
+    // Widest shown text in the first rows of data, for every column the edge
+    // speaks for; a column with nothing in it keeps its width.
+    const [c0, c1] = resizeSpan(range, col, "cols", extentNow);
+    const widths = fitColumnWidths({ engine, tabId, c0, c1, merges, baseFont });
+    if (Object.keys(widths).length) onColWidth(widths);
   };
 
   // ── Cells ────────────────────────────────────────────────────────────────
@@ -741,6 +772,7 @@ export function SheetGrid(props: Props) {
         onMouseDown={(e) => {
           if (e.button !== 0) return;
           e.preventDefault();
+          if (pressOutsideEdit(`${colLetters(c)}:${colLetters(c)}`)) return;
           gridRef.current?.focus({ preventScroll: true });
           const from = e.shiftKey ? selection.anchor.col : c;
           // The active cell is the column's top, as Excel's; no scroll.
@@ -792,6 +824,7 @@ export function SheetGrid(props: Props) {
         onMouseDown={(e) => {
           if (e.button !== 0) return;
           e.preventDefault();
+          if (pressOutsideEdit(`${r + 1}:${r + 1}`)) return;
           gridRef.current?.focus({ preventScroll: true });
           const from = e.shiftKey ? selection.anchor.row : r;
           // The active cell is the row's first; the view stays (scrolling
@@ -822,7 +855,7 @@ export function SheetGrid(props: Props) {
           onMouseDown={(e) => startRowResize(e, r)}
           onDoubleClick={(e) => {
             e.stopPropagation();
-            onRowHeight(r, null);
+            onRowHeight(each(resizeSpan(range, r, "rows", extentNow), null));
           }}
           title="Drag to resize; double-click to fit"
           data-testid={`row-resize-${r + 1}`}
@@ -1014,6 +1047,8 @@ export function SheetGrid(props: Props) {
           className="sticky left-0 top-0 z-[42] border-b border-r border-border bg-muted"
           onMouseDown={(e) => {
             e.preventDefault();
+            // A formula being typed takes no reference from the corner.
+            if (pressOutsideEdit(null)) return;
             onSelect({
               // A1 stays the active cell and the view does not jump to the
               // last row and column.

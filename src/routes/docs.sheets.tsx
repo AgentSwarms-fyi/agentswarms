@@ -181,8 +181,10 @@ function SheetsDocsPage() {
           pointed at them, workbook-wide, and merged cells and row heights with them. New rows are
           formatted like the row above and new columns like the one to the left, as Excel&apos;s
           are; renaming a sheet rewrites the formulas that name it, in cells and in rules. A
-          header&apos;s right-click menu hides and unhides, and sets a row height in points or a
-          column width in characters.
+          header&apos;s right-click menu hides and unhides, sets a row height in points or a column
+          width in characters, and fits them to the data. With whole columns or rows selected (their
+          headers, Ctrl+Space or Shift+Space, or Select All), dragging one header&apos;s edge
+          resizes all of them, and double-clicking it fits all of them.
         </li>
         <li>
           <strong>Formatting.</strong> The ribbon&apos;s Home tab sets fonts and sizes, bold,

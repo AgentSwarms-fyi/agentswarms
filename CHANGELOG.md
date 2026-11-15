@@ -132,6 +132,17 @@ development branch and may be ahead of the latest tag.
   `{metrics}`. An IAM share's row filter has an **Attribute** menu listing every
   key set on the Attributes tab, added as its own `{{user.key}}` value — a
   misspelt key was a grant that refused every query its grantees made.
+- **Sheets: resizing a selection resizes all of it** (R497). With the whole
+  sheet selected (Select All or Ctrl+A) or whole columns or rows selected by
+  their headers, dragging a header's edge changed only that one column or row;
+  it now resizes every selected one, as Excel and Google Sheets do, and a
+  double-click on the edge fits every selected column. A block of cells still
+  resizes only the dragged column. The header menus gain **Fit column width to
+  data** and **Fit row height to data**; fitting leaves an empty column's width
+  as it was instead of shrinking it to a sliver. **Ctrl+Space** selects whole
+  columns, **Shift+Space** whole rows (it used to type a space into the cell)
+  and **Ctrl+Shift+Space** the sheet. A whole-column selection stays whole as
+  the grid grows while you scroll.
 
 ### Added
 

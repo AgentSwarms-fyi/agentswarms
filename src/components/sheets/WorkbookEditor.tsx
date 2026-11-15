@@ -95,7 +95,14 @@ import {
   sheetsRenameTab,
   sheetsReorderTabs,
 } from "@/utils/sheets.functions";
-import { selRange, type Selection } from "@/lib/sheets/selection";
+import {
+  growWithExtent,
+  selRange,
+  selectWholeColumns,
+  selectWholeRows,
+  type Extent,
+  type Selection,
+} from "@/lib/sheets/selection";
 import { deleteSheetMessage, shownInstead } from "@/lib/sheets/sheetTabs";
 import { LinkDialog } from "./LinkDialog";
 import { NoteDialog } from "./NoteDialog";
@@ -106,6 +113,7 @@ import {
   type PasteSpecialOptions,
 } from "@/lib/sheets/pasteSpecial";
 import { OpenTableDialog } from "./OpenTableDialog";
+import { fitColumnWidths } from "./fit";
 import { DEFAULT_COL_W, ROW_H, SheetGrid, type Editing, type GridGeometry } from "./SheetGrid";
 import { useSheetCharts } from "./useSheetCharts";
 import { useSheetRules } from "./useSheetRules";
@@ -199,6 +207,16 @@ export function WorkbookEditor({
   });
   const [editing, setEditing] = useState<Editing | null>(null);
   const [extent, setExtent] = useState({ rows: MIN_ROWS, cols: MIN_COLS });
+  // A whole-column or whole-row selection (a header, Ctrl+A, Ctrl+Space)
+  // stays whole as the grid grows while scrolling (R497).
+  const lastExtent = useRef<Extent>(extent);
+  useEffect(() => {
+    const from = lastExtent.current;
+    lastExtent.current = extent;
+    if (extent.rows > from.rows || extent.cols > from.cols) {
+      setSelection((s) => growWithExtent(s, from, extent));
+    }
+  }, [extent]);
   const [nameBox, setNameBox] = useState<string | null>(null);
   const [namesOpen, setNamesOpen] = useState(false);
   // Find and Replace (Ctrl+F, Ctrl+H), open over the grid (R150).
@@ -970,6 +988,54 @@ export function WorkbookEditor({
     }
   };
 
+  // Sizes from a drag on a header edge, its double-click or Fit to data, for
+  // one column or row or for a whole selection of them (R497). A drag sends
+  // many of these; the gesture (the same span throughout) makes it one undo.
+  const spanKey = (keys: string[]) => {
+    const n = keys.map(Number);
+    return `${Math.min(...n)}-${Math.max(...n)}`;
+  };
+  const setColWidths = (widths: Record<number, number>) => {
+    const keys = Object.keys(widths);
+    if (!tabId || !keys.length) return;
+    const next = { ...colWidths };
+    for (const k of keys) next[k] = Math.round(widths[Number(k)]);
+    wb.setGridMeta(tabId, { colWidths: next }, { gesture: `col-width:${spanKey(keys)}` });
+  };
+  const setRowHeights = (heights: Record<number, number | null>) => {
+    const keys = Object.keys(heights);
+    if (!tabId || !keys.length) return;
+    const next = { ...(grid?.rowHeights ?? {}) };
+    for (const k of keys) {
+      const h = heights[Number(k)];
+      if (h === null) delete next[k];
+      else next[k] = h;
+    }
+    wb.setGridMeta(tabId, { rowHeights: next }, { gesture: `row-height:${spanKey(keys)}` });
+  };
+  /** The header menu's Fit to data: Excel's AutoFit Column Width over the selection. */
+  const fitSelectedCols = () => {
+    if (!engine || !tabId) return;
+    const widths = fitColumnWidths({
+      engine,
+      tabId,
+      c0: range.c0,
+      c1: range.c1,
+      merges,
+      baseFont: (gridRef.current && getComputedStyle(gridRef.current).fontFamily) || "sans-serif",
+    });
+    if (!Object.keys(widths).length) {
+      return void toast.info("Nothing to fit: these columns are empty");
+    }
+    setColWidths(widths);
+  };
+  /** Fit to data for rows: they go back to growing with their content. */
+  const fitSelectedRows = () => {
+    const heights: Record<number, null> = {};
+    for (let r = range.r0; r <= Math.min(range.r1, range.r0 + 100_000); r++) heights[r] = null;
+    setRowHeights(heights);
+  };
+
   const askRowHeight = async () => {
     if (!tabId) return;
     const px = grid?.rowHeights?.[String(range.r0)] ?? ROW_H;
@@ -1632,6 +1698,21 @@ export function WorkbookEditor({
       clearSelection();
       return;
     }
+    // Excel's and Google Sheets' Ctrl+Space (whole columns), Shift+Space
+    // (whole rows) and Ctrl+Shift+Space (everything); R497. Shift+Space used
+    // to start typing a space into the cell.
+    if (e.key === " " && (e.ctrlKey || e.shiftKey) && !e.altKey && !e.metaKey) {
+      e.preventDefault();
+      if (e.ctrlKey && e.shiftKey) {
+        setSelection({
+          anchor: { row: 0, col: 0 },
+          focus: { row: extent.rows - 1, col: extent.cols - 1 },
+          scroll: "none",
+        });
+      } else if (e.ctrlKey) setSelection((s) => selectWholeColumns(s, extent.rows));
+      else setSelection((s) => selectWholeRows(s, extent.cols));
+      return;
+    }
     if (mod) {
       const k = e.key.toLowerCase();
       if (k === "z" && !e.shiftKey) {
@@ -2189,12 +2270,7 @@ export function WorkbookEditor({
                   onSelectEnd={() => painter && applyPainter()}
                   onZoom={(dir) => setZoom((cur) => stepZoom(cur, dir))}
                   onOpenLink={followLink}
-                  onRowHeight={(r, h) => {
-                    const next = { ...(grid?.rowHeights ?? {}) };
-                    if (h === null) delete next[String(r)];
-                    else next[String(r)] = h;
-                    wb.setGridMeta(tabId, { rowHeights: next }, { gesture: `row-height:${r}` });
-                  }}
+                  onRowHeight={setRowHeights}
                   renderOverlay={(geo) => (
                     <>
                       {rules.overlay(geo)}
@@ -2207,13 +2283,7 @@ export function WorkbookEditor({
                   onEditChange={setEditing}
                   onCommit={commit}
                   onKey={onKey}
-                  onColWidth={(c, w) =>
-                    wb.setGridMeta(
-                      tabId,
-                      { colWidths: { ...colWidths, [String(c)]: Math.round(w) } },
-                      { gesture: `col-width:${c}` },
-                    )
-                  }
+                  onColWidth={setColWidths}
                   onFill={fill}
                   onNearEnd={(axis) =>
                     setExtent((x) =>
@@ -2358,6 +2428,8 @@ export function WorkbookEditor({
                       unhideCols: () => hide("cols", false),
                       rowHeight: () => void askRowHeight(),
                       colWidth: () => void askColWidth(),
+                      fitRows: fitSelectedRows,
+                      fitCols: fitSelectedCols,
                       saveToLakehouse: () => openSave(),
                     }}
                   />
@@ -2816,6 +2888,8 @@ type MenuAction =
   | "unhideCols"
   | "rowHeight"
   | "colWidth"
+  | "fitRows"
+  | "fitCols"
   | "saveToLakehouse";
 
 function ContextMenu({
@@ -2918,12 +2992,14 @@ function ContextMenu({
         item(`Hide ${rows > 1 ? `${rows} rows` : "row"}`, actions.hideRows),
         ...(hiddenRowsIn ? [item("Unhide rows", actions.unhideRows)] : []),
         item("Row height…", actions.rowHeight),
+        item(`Fit ${rows > 1 ? "row heights" : "row height"} to data`, actions.fitRows),
       ]}
       {kind === "col" && [
         ...colItems,
         item(`Hide ${cols > 1 ? `${cols} columns` : "column"} ${colName}`, actions.hideCols),
         ...(hiddenColsIn ? [item("Unhide columns", actions.unhideCols)] : []),
         item("Column width…", actions.colWidth),
+        item(`Fit ${cols > 1 ? "column widths" : "column width"} to data`, actions.fitCols),
       ]}
       {kind === "cell" && [
         item("Insert cells…", actions.insertCells),

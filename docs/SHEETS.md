@@ -412,6 +412,8 @@ out is not sent the names that refer to it.
 | Arrows, Ctrl+arrows      | Move; Ctrl jumps to the edge of the data                                                                                                                  |
 | Shift + arrows or click  | Extends the selection; the active cell stays where it started                                                                                             |
 | Ctrl+A                   | Selects the sheet without moving the view                                                                                                                 |
+| Ctrl+Space / Shift+Space | Selects the whole columns / whole rows of the selection                                                                                                   |
+| Ctrl+Shift+Space         | Selects the sheet, as Ctrl+A                                                                                                                              |
 | Delete                   | Clears contents (formats stay)                                                                                                                            |
 | Ctrl+C / Ctrl+X / Ctrl+V | Copy, cut, paste. Formulas pasted inside the workbook shift; text from Excel or Google Sheets pastes as values, with `12%`, `$1,200` and dates recognised |
 | Ctrl+D / Ctrl+R          | Fill down / right                                                                                                                                         |
@@ -448,7 +450,11 @@ the left edge). Only formats come across, never values, notes or links. Renaming
 the formulas that name it, in cells and in rules alike: a validation list over `=Lists!$A$2:$A$9`,
 or a conditional format's formula, follows the new name. Right-click a row or column header for its
 own menu: hide and unhide,
-**Row height…** (in points, as Excel measures it) and **Column width…** (in characters).
+**Row height…** (in points, as Excel measures it), **Column width…** (in characters) and **Fit to
+data** (Excel's AutoFit), each for every selected row or column. Dragging a header's edge, or
+double-clicking it to fit, resizes every selected column (or row) when whole columns are selected,
+by their headers, Ctrl+Space or Select All, and the edge is one of theirs; otherwise just that one.
+Fitting leaves an empty column's width as it was.
 **Paste values only** and **Paste formatting only** work on cells copied in the workbook.
 
 **Paste special…** (Ctrl+Alt+V, or the cell's menu) is Excel's Paste Special, for cells copied in
