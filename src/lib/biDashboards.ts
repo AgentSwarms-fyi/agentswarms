@@ -13,6 +13,7 @@ import { restateWidgetNarrative } from "@/lib/biNumericClaims";
 import { restateWidgetNote } from "@/lib/biTitleClaims";
 import type { ComparePeriod, SemanticFilter, TimeGrain } from "@/lib/semanticLayer";
 import { publicConfig } from "@/lib/publicConfig";
+import { isMissingFunction } from "@/lib/sharedDatasetList";
 
 export const GRID_COLS = 12;
 
@@ -522,6 +523,41 @@ export function maskWidgets(widgets: unknown, mask: string[]): unknown {
     );
     return { ...widget, columns: masked.columns, rows: masked.rows };
   });
+}
+
+/**
+ * The terms of `mask` that a dashboard's own document names: a column of a
+ * chart widget, or a key of a row stored in one, in any of `widgetLists` (the
+ * dashboard's widgets and each page's). Matched without regard to case, as
+ * maskWidgets matches.
+ *
+ * What the server may tell a restricted grantee about their mask (R492). Their
+ * page needs the terms to run maskWidgets over the document, whose stored rows
+ * predate bi_widget_results; and the grantee reads that document anyway, so a
+ * term it names tells them nothing new. Every other term is a column name the
+ * mask exists to hide, and biGetSharedWidgetResults sent them all.
+ */
+export function maskTermsNamedIn(mask: string[], widgetLists: unknown[]): string[] {
+  if (mask.length === 0) return [];
+  const named = new Set<string>();
+  for (const list of widgetLists) {
+    if (!Array.isArray(list)) continue;
+    for (const w of list) {
+      if (!w || typeof w !== "object" || (w as BiWidget).kind !== "chart") continue;
+      const widget = w as { columns?: unknown; rows?: unknown };
+      if (Array.isArray(widget.columns)) {
+        for (const c of widget.columns) named.add(String(c).toLowerCase());
+      }
+      if (Array.isArray(widget.rows)) {
+        for (const r of widget.rows) {
+          if (r && typeof r === "object") {
+            for (const k of Object.keys(r)) named.add(k.toLowerCase());
+          }
+        }
+      }
+    }
+  }
+  return mask.filter((m) => named.has(m.toLowerCase()));
 }
 
 /**
@@ -1379,17 +1415,30 @@ export function publicDashboardUrl(slug: string): string {
 }
 
 /**
- * Row filters this viewer must respect for a dashboard. RLS on
- * iam_resource_grants only returns grants that apply to the caller (their
- * user grants + their groups'), so merging what comes back yields exactly
- * this viewer's scope. null = unrestricted (owner, or an unfiltered grant).
+ * Row filters this viewer must respect for a dashboard: the filters of every
+ * grant that applies to them (their user grants + their groups'), merged.
+ * null = unrestricted (owner, or an unfiltered grant). What the page applies
+ * is a second copy: the server already filtered what it served
+ * (biGetSharedWidgetResults).
+ *
+ * Through my_resource_grants() (R492), which returns a grant's row filter but
+ * never its mask's terms. Since migration 20261116000000 a grant with a mask
+ * is not in the direct read, so reading the table here missed exactly those
+ * grants' filters. A database without the function still serves every
+ * applicable grant directly, and is read that way.
  */
 export async function getMyDashboardRowFilters(dashboardId: string): Promise<BiRowFilter[] | null> {
-  const { data, error } = await supabase
-    .from("iam_resource_grants")
-    .select("row_filter")
-    .eq("resource_type", "bi_dashboard")
-    .eq("resource_id", dashboardId);
+  const viaFunction = await supabase.rpc("my_resource_grants", {
+    _resource_type: "bi_dashboard",
+    _resource_ids: [dashboardId],
+  });
+  const { data, error } = isMissingFunction(viaFunction.error)
+    ? await supabase
+        .from("iam_resource_grants")
+        .select("row_filter")
+        .eq("resource_type", "bi_dashboard")
+        .eq("resource_id", dashboardId)
+    : viaFunction;
   if (error || !data) return null;
   return mergeGrantRowFilters(data);
 }

@@ -254,7 +254,7 @@ async function loadLocalTable(t: LocalDataset, userId: string): Promise<LocalTab
   let visibleRows = rows;
   if (isShared) {
     const { restrictSharedDataset } = await import("@/utils/data/sharedDatasets.server");
-    const restricted = await restrictSharedDataset(supabaseAdmin, t.id, userId, columns, rows);
+    const restricted = await restrictSharedDataset(t.id, userId, columns, rows);
     columns = restricted.columns as LocalTable["columns"];
     visibleRows = restricted.rows;
   }

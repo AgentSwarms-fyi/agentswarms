@@ -11,7 +11,8 @@
 #   5. docker/db-migrate/apply-migrations.sh: every migration, as the admin
 #   6. PostgREST (pinned) serves it: RLS between two users, service_role
 #      (BYPASSRLS) sees both, and a grantee reads a shared dataset only
-#      through its grant's column mask (shared-dataset-checks.mjs)
+#      through its grant's column mask, and never the mask's terms off the
+#      grant itself (shared-dataset-checks.mjs)
 #   7. migrations and bootstrap again: nothing re-applies, nothing fails
 #
 #   bash deploy/ci/rds-like/run.sh            # the admin may grant BYPASSRLS
@@ -168,7 +169,7 @@ rest_ready() { [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3467
 wait_for 60 rest_ready || fail "PostgREST did not answer"
 node "$HERE/api-checks.mjs" http://127.0.0.1:3467 "$JWT_SECRET" || fail "API checks"
 node "$HERE/shared-dataset-checks.mjs" http://127.0.0.1:3467 "$JWT_SECRET" http://127.0.0.1:3466 \
-  || fail "a shared dataset's masked columns reach its grantee"
+  || fail "a share's masked columns, or its mask's terms, reach its grantee"
 sql "select count(*) || ' public tables, ' || count(*) filter (where c.relrowsecurity) || ' with RLS' from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r'"
 [ "$(sql "select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity")" = "0" ] \
   || fail "a public table without RLS"

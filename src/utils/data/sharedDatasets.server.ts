@@ -11,6 +11,15 @@
 //
 // FAILS CLOSED. Any lookup error, or no applicable grant, returns nothing —
 // the only safe direction for an access decision.
+//
+// THE GRANTS ARE READ WITH THE SERVICE ROLE, scoped to the viewer, whatever
+// client the caller holds (R492). A mask's terms are column names, so since
+// migration 20261116000000 a viewer's own JWT cannot read a grant that masks
+// anything: the row is served to superadmins and the service role only. These
+// helpers took the caller's client and were handed the viewer's JWT by the
+// agent's sql_query tool, its description, doc-gen and the semantic picker; on
+// that schema each would have found no grant for a masked share and served it
+// with no columns. The terms are used here to drop columns and never leave.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -18,6 +27,18 @@ import type { Database } from "@/integrations/supabase/types";
 
 export type MaskableColumn = { name: string; type: "number" | "string" | "date" };
 export type MaskableRow = Record<string, unknown>;
+
+/**
+ * The grants on `tableIds` that apply to `viewerId`, directly or through a
+ * group, masks included. Through readApplicableGrants, so a failed read throws.
+ */
+async function viewerGrants(viewerId: string, tableIds: string[]) {
+  const [{ supabaseAdmin }, { readApplicableGrants }] = await Promise.all([
+    import("@/integrations/supabase/client.server"),
+    import("@/utils/iam.server"),
+  ]);
+  return await readApplicableGrants(supabaseAdmin, viewerId, "data_table", tableIds);
+}
 
 /**
  * The lower-cased names a viewer's grants on ONE dataset hide.
@@ -61,9 +82,11 @@ export async function grantedDatasetIds(
  * applicable grant hides it) and row filters UNION (any allowing grant admits
  * the row, and one unfiltered grant admits all). A second grant must never
  * reduce access below what the first allowed.
+ *
+ * The rows are the caller's to load, with whichever client it holds; the
+ * grants are read here, with the service role (see the top of this file).
  */
 export async function restrictSharedDataset(
-  sb: SupabaseClient<Database>,
   tableId: string,
   viewerId: string,
   columns: MaskableColumn[],
@@ -80,8 +103,7 @@ export async function restrictSharedDataset(
     // here" and "nothing could be read" are different sentences, and only one
     // of them is true. The reader is the only one who can tell them apart, and
     // only if we say which.
-    const { readApplicableGrants } = await import("@/utils/iam.server");
-    let mine = await readApplicableGrants(sb, viewerId, "data_table", [tableId]);
+    let mine = await viewerGrants(viewerId, [tableId]);
     if (mine.length === 0) return { columns: [], rows: [] };
 
     // {{user.<key>}} tokens resolve to THIS viewer's attribute values before
@@ -161,7 +183,6 @@ export type ListedDataset<C extends { name: string }> = {
  * reason to whoever asked. The failure is logged here.
  */
 export async function columnsVisibleTo<C extends { name: string }>(
-  sb: SupabaseClient<Database>,
   viewerId: string | null | undefined,
   tables: ListedDataset<C>[],
 ): Promise<Map<string, C[]>> {
@@ -179,11 +200,8 @@ export async function columnsVisibleTo<C extends { name: string }>(
   if (shared.length === 0 || !viewerId) return out;
   try {
     const { intersectColumnMasks } = await import("@/lib/biDashboards");
-    const { readApplicableGrants } = await import("@/utils/iam.server");
-    const grants = await readApplicableGrants(
-      sb,
+    const grants = await viewerGrants(
       viewerId,
-      "data_table",
       shared.map((t) => t.id),
     );
     for (const t of shared) {

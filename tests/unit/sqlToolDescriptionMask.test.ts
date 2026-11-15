@@ -11,7 +11,17 @@
 // What is real here: the registry, scopeToVisibleTables, the IAM grant reads,
 // the mask intersection. What is fake: the database, answering the reads the
 // way PostgREST would.
-import { beforeEach, describe, expect, it } from "vitest";
+//
+// R492: the grants are read with the service role, whatever client the tool
+// holds. On the interactive path that client is the caller's JWT, which since
+// migration 20261116000000 is served no grant that masks anything, so the fake
+// answers it that way: a description built from its grants would list the
+// masked share with no columns.
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@/integrations/supabase/client.server", () => ({
+  supabaseAdmin: { from: (table: string) => fakeSb("service").from(table) },
+}));
 
 import { resolveAgentTools, type AgentToolContext } from "@/utils/tools/registry.server";
 
@@ -77,9 +87,10 @@ const db = {
 
 /**
  * A PostgREST stand-in: every link chains, the builder is awaitable, and the
- * filters the code under test relies on (`eq`, `in`) are applied.
+ * filters the code under test relies on (`eq`, `in`) are applied. `user` is
+ * a caller's own JWT under the R492 policy: no grant that masks anything.
  */
-function fakeSb() {
+function fakeSb(role: "user" | "service") {
   return {
     from(table: string) {
       const eqs: [string, unknown][] = [];
@@ -99,6 +110,7 @@ function fakeSb() {
             const [k, vs] = inFilter;
             rows = rows.filter((g) => vs.includes((g as Record<string, unknown>)[k]));
           }
+          if (role === "user") rows = rows.filter((g) => (g.column_mask ?? []).length === 0);
           return { data: rows, error: null };
         }
         throw new Error(`unexpected read of ${table}`);
@@ -129,7 +141,8 @@ function grant(column_mask: string[] | null, principal_id = VIEWER): Grant {
 async function sqlDescription(headless: boolean): Promise<string> {
   const ctx: AgentToolContext = {
     userId: VIEWER,
-    sb: fakeSb() as never,
+    // Headless runs hold the service role, interactive ones the caller's JWT.
+    sb: fakeSb(headless ? "service" : "user") as never,
     // Headless: service-role client, RLS off, scopeUserId is the boundary.
     ...(headless ? { scopeUserId: VIEWER } : {}),
   };

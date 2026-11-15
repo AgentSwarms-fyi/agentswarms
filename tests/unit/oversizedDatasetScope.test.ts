@@ -90,7 +90,6 @@ vi.mock("@/utils/data/sharedDatasets.server", () => ({
   grantedDatasetIds: async () => new Set(h.shared),
   // The grant admits everything: masking is not what this file is about.
   restrictSharedDataset: async (
-    _sb: unknown,
     _id: string,
     _viewer: string,
     columns: unknown[],

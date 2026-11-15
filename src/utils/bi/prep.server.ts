@@ -221,7 +221,7 @@ async function loadFlowTables(
     // the point of loading, so every downstream step of the flow only ever sees
     // what the grant allows.
     if (!t.is_sample && t.user_id !== userId) {
-      const restricted = await restrictSharedDataset(supabaseAdmin, t.id, userId, columns, rows);
+      const restricted = await restrictSharedDataset(t.id, userId, columns, rows);
       columns = restricted.columns as FlowTable["columns"];
       visibleRows = restricted.rows;
     }

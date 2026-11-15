@@ -15,6 +15,7 @@ import {
   applyColumnMask,
   applyRowFilters,
   intersectColumnMasks,
+  maskTermsNamedIn,
   mergeGrantRowFilters,
 } from "@/lib/biDashboards";
 import { attributeKeysInGrants, resolveAttributeGrants } from "@/lib/semanticPolicy";
@@ -344,7 +345,7 @@ export const biGetSharedWidgetResults = createServerFn({ method: "POST" })
 
         const { data: dash, error: dashErr } = await supabaseAdmin
           .from("bi_dashboards")
-          .select("id, user_id")
+          .select("id, user_id, widgets, pages")
           .eq("id", data.dashboard_id)
           .maybeSingle();
         if (dashErr || !dash) return { ok: false, error: "Dashboard not found" };
@@ -412,7 +413,15 @@ export const biGetSharedWidgetResults = createServerFn({ method: "POST" })
             rows: masked.rows as unknown as Json,
           };
         });
-        return { ok: true, results, masked_columns: mask };
+        // Not the mask itself (R492): its terms are the column names it hides.
+        // The page needs only those its own document names, to mask the rows
+        // stored there; the grantee reads that document anyway.
+        const pages = Array.isArray(dash.pages) ? (dash.pages as { widgets?: unknown }[]) : [];
+        return {
+          ok: true,
+          results,
+          masked_columns: maskTermsNamedIn(mask, [dash.widgets, ...pages.map((p) => p?.widgets)]),
+        };
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : "Failed" };
       }

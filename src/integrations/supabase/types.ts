@@ -9030,6 +9030,22 @@ export type Database = {
         Args: { _columns: Json; _name: string; _source_filename: string };
         Returns: string;
       };
+      // 20261116000000 (R492): the caller's applicable grants, with whether
+      // each masks anything and never the mask's terms.
+      my_resource_grants: {
+        Args: { _resource_type?: string; _resource_ids?: string[] };
+        Returns: {
+          id: string;
+          resource_type: string;
+          resource_id: string;
+          principal_type: string;
+          principal_id: string;
+          row_filter: Json | null;
+          masked: boolean;
+          created_by: string | null;
+          created_at: string;
+        }[];
+      };
     };
     Enums: {
       [_ in never]: never;

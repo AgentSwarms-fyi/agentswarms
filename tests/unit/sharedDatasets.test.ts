@@ -15,8 +15,17 @@
 //   - row filters UNION — any allowing grant admits the row, and one
 //     unfiltered grant admits all
 //   - anything unexpected FAILS CLOSED
+//
+// R492: the module reads the grants itself, with the service role, so the fake
+// database below stands in for supabaseAdmin. A viewer's own JWT no longer
+// reads a grant that masks anything (migration 20261116000000).
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+const admin = vi.hoisted(() => ({ db: null as null | { from: (t: string) => unknown } }));
+vi.mock("@/integrations/supabase/client.server", () => ({
+  supabaseAdmin: { from: (t: string) => admin.db!.from(t) },
+}));
 
 import {
   columnsVisibleTo,
@@ -88,9 +97,14 @@ const rows: MaskableRow[] = [
 ];
 
 const VIEWER = "viewer-1";
-const run = (db: unknown) =>
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  restrictSharedDataset(db as any, "table-1", VIEWER, columns, rows);
+/** The service role reads `db`. */
+function asAdmin(db: unknown) {
+  admin.db = db as { from: (t: string) => unknown };
+}
+const run = (db: unknown) => {
+  asAdmin(db);
+  return restrictSharedDataset("table-1", VIEWER, columns, rows);
+};
 
 describe("restrictSharedDataset — failing closed", () => {
   it("returns NOTHING when the viewer holds no grant", async () => {
@@ -326,9 +340,8 @@ describe("restrictSharedDataset — row filters", () => {
 
   it('compares filter values as strings, so 1 matches "1"', async () => {
     const numericRows = [{ region: 1 }, { region: 2 }];
+    asAdmin(fakeDb({ grants: [{ ...filtered(["1"]) }] }));
     const out = await restrictSharedDataset(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      fakeDb({ grants: [{ ...filtered(["1"]) }] }) as any,
       "table-1",
       VIEWER,
       [{ name: "region", type: "number" }],
@@ -381,13 +394,12 @@ describe("columnsVisibleTo — the listing hides what the rows path hides", () =
   // The listing reads several datasets' grants at once and tells them apart by
   // resource_id, which restrictSharedDataset (one dataset) never needs.
   const withId = (gs: Grant[]) => gs.map((g) => ({ ...g, resource_id: "table-1" }));
-  const listed = (db: unknown) =>
-    columnsVisibleTo(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      db as any,
-      VIEWER,
-      [{ id: "table-1", user_id: "owner-1", is_sample: false, columns }],
-    ).then((m) => m.get("table-1"));
+  const listed = (db: unknown) => {
+    asAdmin(db);
+    return columnsVisibleTo(VIEWER, [
+      { id: "table-1", user_id: "owner-1", is_sample: false, columns },
+    ]).then((m) => m.get("table-1"));
+  };
 
   const cases: [string, { groups?: string[]; grants: Grant[] }][] = [
     ["no grant", { grants: [] }],
@@ -434,27 +446,21 @@ describe("columnsVisibleTo — the listing hides what the rows path hides", () =
 
   it("leaves own datasets and samples alone, without reading a grant", async () => {
     const reads: string[] = [];
-    const out = await columnsVisibleTo(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      { from: (t: string) => (reads.push(t), fakeDb({}).from(t)) } as any,
-      VIEWER,
-      [
-        { id: "mine", user_id: VIEWER, is_sample: false, columns },
-        { id: "sample", user_id: null, is_sample: true, columns },
-      ],
-    );
+    asAdmin({ from: (t: string) => (reads.push(t), fakeDb({}).from(t)) });
+    const out = await columnsVisibleTo(VIEWER, [
+      { id: "mine", user_id: VIEWER, is_sample: false, columns },
+      { id: "sample", user_id: null, is_sample: true, columns },
+    ]);
     expect(out.get("mine")).toEqual(columns);
     expect(out.get("sample")).toEqual(columns);
     expect(reads).toEqual([]);
   });
 
   it("treats every non-sample dataset as shared when there is no viewer", async () => {
-    const out = await columnsVisibleTo(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      fakeDb({ grants: withId([userGrant(null)]) }) as any,
-      null,
-      [{ id: "table-1", user_id: null, is_sample: false, columns }],
-    );
+    asAdmin(fakeDb({ grants: withId([userGrant(null)]) }));
+    const out = await columnsVisibleTo(null, [
+      { id: "table-1", user_id: null, is_sample: false, columns },
+    ]);
     expect(out.get("table-1")).toEqual([]);
   });
 });

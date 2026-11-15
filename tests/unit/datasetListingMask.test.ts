@@ -18,15 +18,22 @@
 // share with a mask, and shared_datasets() lists it with its columns already
 // masked. `h.migrated` switches the fake database to that; the listings must
 // still name the share, through its mask, on both.
+//
+// R492: after migration 20261116000000 the caller's own JWT is not served a
+// grant that masks anything, either. `h.grantRowsHidden` makes the fake answer
+// the user's client that way, while the service role still reads every grant;
+// the listings read the grants with the service role, so they must not change.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => {
   process.env.SUPABASE_URL ??= "http://localhost:54321";
   process.env.SUPABASE_PUBLISHABLE_KEY ??= "test-publishable-key";
+  process.env.SUPABASE_SERVICE_ROLE_KEY ??= "test-service-role-key";
   return {
     grants: [] as Record<string, unknown>[],
     failGrantRead: false,
     migrated: false,
+    grantRowsHidden: false,
   };
 });
 
@@ -61,8 +68,11 @@ const TABLES = [
   },
 ];
 
-/** A PostgREST stand-in for the reads these two functions make. */
-function fakeSb() {
+/**
+ * A PostgREST stand-in for the reads these two functions make, as the service
+ * role or as the caller's own JWT.
+ */
+function fakeSb(role: "user" | "service") {
   return {
     auth: {
       getUser: async () => ({ data: { user: { id: VIEWER } }, error: null }),
@@ -100,7 +110,17 @@ function fakeSb() {
         if (table === "iam_resource_grants") {
           if (h.failGrantRead) return { data: null, error: { message: "connection reset" } };
           return {
-            data: h.grants.filter((g) => !inFilter || inFilter.includes(g.resource_id)),
+            data: h.grants.filter(
+              (g) =>
+                (!inFilter || inFilter.includes(g.resource_id)) &&
+                // The R492 policy: a grant with a mask reaches its grantee only
+                // through my_resource_grants(), without the terms.
+                !(
+                  role === "user" &&
+                  h.grantRowsHidden &&
+                  ((g.column_mask as string[] | null) ?? []).length > 0
+                ),
+            ),
             error: null,
           };
         }
@@ -120,7 +140,10 @@ function chain(result: () => unknown) {
   return q as Record<string, unknown> & { in: (k: string, vs: unknown[]) => unknown };
 }
 
-vi.mock("@supabase/supabase-js", () => ({ createClient: () => fakeSb() }));
+vi.mock("@supabase/supabase-js", () => ({
+  createClient: (_url: string, key: string) =>
+    fakeSb(key === process.env.SUPABASE_SERVICE_ROLE_KEY ? "service" : "user"),
+}));
 
 // A server function is its handler, validated.
 vi.mock("@tanstack/react-start", () => ({
@@ -177,6 +200,7 @@ beforeEach(() => {
   h.grants = [maskSalary()];
   h.failGrantRead = false;
   h.migrated = false;
+  h.grantRowsHidden = false;
 });
 
 describe("doc-gen context lists a shared dataset's columns through its mask", () => {
@@ -231,5 +255,26 @@ describe("on a database after migration 20261115000000 (R491)", () => {
     h.failGrantRead = true;
     expect((await docTables()).get("payroll")?.columns).toEqual([]);
     expect((await semanticSources()).get("payroll")).toEqual([]);
+  });
+});
+
+describe("on a database after migration 20261116000000 (R492)", () => {
+  beforeEach(() => {
+    h.migrated = true;
+    h.grantRowsHidden = true;
+  });
+
+  it("doc-gen still lists the share, through its mask", async () => {
+    // Read with the caller's JWT, the grants named no mask and the listing
+    // found no grant: the share was listed with no columns at all.
+    const tables = await docTables();
+    expect(tables.get("payroll")?.columns).toEqual(["region", "employee"]);
+    expect(tables.get("orders")?.columns).toEqual(["order_id", "amount"]);
+  });
+
+  it("the semantic picker still lists the share, through its mask", async () => {
+    const sources = await semanticSources();
+    expect(sources.get("payroll")).toEqual(["region", "employee"]);
+    expect(sources.get("orders")).toEqual(["order_id", "amount"]);
   });
 });

@@ -46,7 +46,7 @@ describe("Data Prep sees what BI sees", () => {
     // The half that makes widening safe. A shared dataset must arrive with the
     // owner's row filters and column masks already applied, before any prep
     // step can transform, join or export it.
-    expect(prep).toContain("restrictSharedDataset(supabaseAdmin, t.id, userId, columns, rows)");
+    expect(prep).toContain("restrictSharedDataset(t.id, userId, columns, rows)");
     expect(prep).toContain("!t.is_sample && t.user_id !== userId");
   });
 

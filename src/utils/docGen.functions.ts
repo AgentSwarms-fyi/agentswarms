@@ -340,7 +340,6 @@ export const gatherDocContext = createServerFn({ method: "POST" })
         // the list either.
         const { columnsVisibleTo } = await import("@/utils/data/sharedDatasets.server");
         const seen = await columnsVisibleTo(
-          sb,
           userId,
           candidates.map((t) => ({
             id: t.id,

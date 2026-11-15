@@ -161,13 +161,12 @@ async function readUserTable(
   const scan = await scanDatasetRows(t.id, SQL_TOOL_MAX_ROWS, ctx.sb);
   if (scan.truncated) {
     // The mask still applies to what a listing shows: the columns.
-    if (shared)
-      columns = (await restrictSharedDataset(ctx.sb, t.id, viewerId, columns, [])).columns;
+    if (shared) columns = (await restrictSharedDataset(t.id, viewerId, columns, [])).columns;
     return { name: t.name, columns, rows: [], oversized: true };
   }
   let rows = scan.rows as Row[];
   if (shared) {
-    const restricted = await restrictSharedDataset(ctx.sb, t.id, viewerId, columns, rows);
+    const restricted = await restrictSharedDataset(t.id, viewerId, columns, rows);
     columns = restricted.columns;
     rows = restricted.rows;
   }

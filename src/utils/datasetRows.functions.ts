@@ -104,13 +104,7 @@ export const readSharedDataset = createServerFn({ method: "POST" })
       if (own) return { ok: true, rows: scan.rows as Row[] };
       const { restrictSharedDataset } = await import("@/utils/data/sharedDatasets.server");
       const columns = (Array.isArray(table.columns) ? table.columns : []) as never[];
-      const seen = await restrictSharedDataset(
-        supabaseAdmin,
-        data.table_id,
-        user,
-        columns,
-        scan.rows,
-      );
+      const seen = await restrictSharedDataset(data.table_id, user, columns, scan.rows);
       return { ok: true, rows: seen.rows as Row[] };
     } catch (e) {
       return { ok: false, error: (e as Error).message };

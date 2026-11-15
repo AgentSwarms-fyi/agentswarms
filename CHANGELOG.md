@@ -16,6 +16,13 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Apply migration `20261116000000`** (R492), for example with
+  `npx supabase db push --remote`. The app works with or without it, but until
+  it runs a grantee can still read the terms of the column mask on their own
+  grant through the REST API. A release from before R492 on the new schema
+  finds no grant where a grant has a mask and it reads grants with the user's
+  own session, which fails closed: a dashboard viewer holding such a grant may
+  see fewer rows than their grants allow, never more.
 - **Apply migration `20261115000000`** (R491), for example with
   `npx supabase db push --remote`. The app works with or without it, but until
   it runs a grantee can still read the names of a share's masked columns
@@ -62,6 +69,25 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **A grantee could read their grant's column mask** (R492), the one R491 left
+  open. A mask is a list of column names, and the policy on
+  `iam_resource_grants` served grantees their grant rows whole, so
+  `GET /rest/v1/iam_resource_grants?select=column_mask` named the columns it
+  hides, for datasets, dashboards, semantic models and ontologies alike, and a
+  filter on the column answered for any name one guessed. Migration
+  `20261116000000` serves a grant to its grantee directly only when it masks
+  nothing; superadmins (the IAM console) and the server still read every grant,
+  and `my_resource_grants()` gives the grantee each grant's row filter and
+  whether it masks, never which columns. The dashboard page's row filters now
+  come from it, so a masked grant's filter is not lost. The server's readers
+  that applied a dataset's mask with the user's session (an agent's
+  `sql_query` and its description, doc-gen, the semantic source picker) read
+  the grants with the service role, scoped to the viewer, instead of finding
+  none on the new schema and listing a masked share without columns. And a
+  restricted dashboard viewer was sent the whole mask, to mask the rows stored
+  in the dashboard's document; now only the terms that document names, which
+  they read anyway. Both migration harnesses check it as a real grantee and a
+  real superadmin over PostgREST.
 - **A grantee could read a share's masked column names, and sometimes their
   values** (R491). The database served a shared dataset's own row to every
   grantee, and its column list is the owner's, so
@@ -76,7 +102,7 @@ development branch and may be ahead of the latest tag.
   it now matches as the app does, ignoring case and surrounding spaces. Both
   migration harnesses now check this as a real grantee over PostgREST. Still
   open: the grant row itself (`iam_resource_grants.column_mask`) is readable
-  by its grantee, so the mask's terms still reach them.
+  by its grantee, so the mask's terms still reach them (R492 closes it).
 - **The typecheck ran out of memory on Node 20** (R490). The project's types
   outgrew Node 20's default heap of about 2 GB, and CI's Node 20.19 leg failed
   at R489 while Node 22 passed. `npm run typecheck` and CI now give `tsc` 4 GB,

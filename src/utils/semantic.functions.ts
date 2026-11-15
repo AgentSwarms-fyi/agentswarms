@@ -983,7 +983,6 @@ export const semanticListLocalSources = createServerFn({ method: "GET" })
     // masks. Same grants and mask as every read of the rows.
     const { columnsVisibleTo } = await import("@/utils/data/sharedDatasets.server");
     const seen = await columnsVisibleTo(
-      sb,
       userId,
       rows.map((r) => ({
         id: r.id as string,

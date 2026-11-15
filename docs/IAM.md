@@ -95,7 +95,15 @@ It manages:
   dataset's **column list** follows the mask too: a grantee cannot read the
   dataset's own row when a mask applies, since its column list is the owner's,
   and lists it through `shared_datasets()` and `shared_dataset_columns()`,
-  which leave the masked columns out (R491). A mask matches a column without
+  which leave the masked columns out (R491). So does the **grant** itself,
+  whose mask is a list of column names: a grantee reads their own grant
+  directly only when it masks nothing. A grant with a mask is read by
+  superadmins (the IAM console) and by the server, which applies it, and the
+  grantee's own session learns from `my_resource_grants()` its row filter and
+  _whether_ it masks, never which columns (R492). A semantic model's or an
+  ontology's masked fields are part of the definition its grantee reads, so the
+  app names them there on purpose ("hidden fields: …"); the mask hides their
+  values. A mask matches a column without
   regard to case or surrounding spaces. When
   several grants apply to the same person the effect is **union of access**:
   row filters combine (any allowing grant admits the row) and column masks
@@ -210,7 +218,9 @@ region — and never the `margin` column.
 Both restrictions are enforced **inside the database**: a grantee cannot read
 the raw table at all, every read goes through a security-definer function that
 applies the filter and mask first, so the result is the same through the SQL
-workbench, an agent tool or the REST API. When someone holds two grants, rows
+workbench, an agent tool or the REST API. Nor can a lead read the mask off
+their own grant: it names `margin`, so their grant is served to them without
+it. When someone holds two grants, rows
 combine (any allowing grant admits the row) and masks intersect (a column is
 hidden only when every grant hides it) — a second grant never reduces access.
 

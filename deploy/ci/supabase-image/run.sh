@@ -78,7 +78,7 @@ api_check() {
   wait_for 60 rest_ready || fail "PostgREST did not answer"
   node "$LIB/api-checks.mjs" http://127.0.0.1:3468 "$JWT_SECRET" || fail "API checks"
   node "$LIB/shared-dataset-checks.mjs" http://127.0.0.1:3468 "$JWT_SECRET" http://127.0.0.1:3469 \
-    || fail "a shared dataset's masked columns reach its grantee"
+    || fail "a share's masked columns, or its mask's terms, reach its grantee"
 }
 
 if [ -n "$FROM" ]; then

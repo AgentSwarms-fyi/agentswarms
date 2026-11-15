@@ -1905,6 +1905,15 @@ storage-api v1.89.12 and PostgREST v14.18.
   `salary`. A share with no mask and a sample read as before, and a stranger
   and anonymous callers got nothing. Without migration `20261115000000` the
   same run named the masked column to the grantee and returned its values.
+- The grants themselves, in the same run (R492, 295 migrations): the grantee
+  read no term of a mask on its grants, not directly, not through its group's
+  grant and not with a filter on `column_mask`, and `my_resource_grants()`
+  returned each of its five grants (on datasets and a dashboard) with its row
+  filter and only whether it masks. A grant with no mask still read directly,
+  as the previous release reads it, a superadmin read every mask as typed, and
+  a stranger and anonymous callers got nothing. Without migration
+  `20261116000000` the grantee read `["SALARY","region"," Salary ","salary","ssn"]`
+  off its grants, and a filter for `ssn` found the grant that hides it.
 - A second run applied nothing and failed nothing.
 
 **In CI** (R468, `.github/workflows/migrations.yml`), on every change to the

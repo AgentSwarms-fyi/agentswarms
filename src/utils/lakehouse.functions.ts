@@ -690,13 +690,7 @@ export const importDatasetToLakehouse = createServerFn({ method: "POST" })
     // datasets carry no such restriction and are imported as-is.
     if (sharedGrant) {
       const { restrictSharedDataset } = await import("@/utils/data/sharedDatasets.server");
-      const restricted = await restrictSharedDataset(
-        supabaseAdmin,
-        data.table_id,
-        userId,
-        [],
-        rows,
-      );
+      const restricted = await restrictSharedDataset(data.table_id, userId, [], rows);
       rows = restricted.rows as Record<string, unknown>[];
     }
     if (!rows.length) throw new Error("Dataset has no rows");

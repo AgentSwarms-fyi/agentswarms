@@ -2037,7 +2037,6 @@ export async function resolveAgentTools(
       // refused to serve them. Same grants and mask as the data path; a
       // shared table whose grant cannot be read is listed without columns.
       const seen = await columnsVisibleTo(
-        ctx.sb,
         ctx.scopeUserId ?? ctx.userId,
         visible.map((t) => ({
           id: t.id,

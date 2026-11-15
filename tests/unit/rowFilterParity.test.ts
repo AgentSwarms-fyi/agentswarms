@@ -24,11 +24,17 @@
 // none of the widgets it most needed to apply to, on the path public embeds use.
 //
 // Measured before fixing: applyRowFilters kept 2 of 2 non-EMEA rows.
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { applyRowFilters, mergeGrantRowFilters } from "@/lib/biDashboards";
 import { buildDirectQuerySql } from "@/lib/biDirectQuery";
 import { restrictSharedDataset, type MaskableRow } from "@/utils/data/sharedDatasets.server";
+
+// restrictSharedDataset reads the grants with the service role (R492).
+const admin = vi.hoisted(() => ({ sb: null as null | { from: (t: string) => unknown } }));
+vi.mock("@/integrations/supabase/client.server", () => ({
+  supabaseAdmin: { from: (t: string) => admin.sb!.from(t) },
+}));
 
 const EMEA = [{ row_filter: { column: "region", values: ["EMEA"] }, column_mask: null }];
 
@@ -107,7 +113,7 @@ describe("the dataset path agrees too", () => {
   // The REAL restrictSharedDataset, with only its two table reads stubbed —
   // the access logic under test is production's, not a copy of it.
   const sbWith = (grants: unknown[]) =>
-    ({
+    (admin.sb = {
       from(table: string) {
         const rows =
           table === "iam_group_members"
@@ -120,7 +126,7 @@ describe("the dataset path agrees too", () => {
         };
         return chain;
       },
-    }) as never;
+    });
 
   const COLS = [
     { name: "product", type: "string" as const },
@@ -128,18 +134,14 @@ describe("the dataset path agrees too", () => {
   ];
 
   it("drops rows that do not carry the filter column", async () => {
-    const out = await restrictSharedDataset(
-      sbWith([{ principal_type: "user", principal_id: "u1", ...EMEA[0] }]),
-      "t1",
-      "u1",
-      COLS,
-      NO_COLUMN,
-    );
+    sbWith([{ principal_type: "user", principal_id: "u1", ...EMEA[0] }]);
+    const out = await restrictSharedDataset("t1", "u1", COLS, NO_COLUMN);
     expect(out.rows, "the service-role reader ignored the filter").toEqual([]);
   });
 
   it("returns nothing at all when no grant applies", async () => {
-    const out = await restrictSharedDataset(sbWith([]), "t1", "u1", COLS, WITH_COLUMN);
+    sbWith([]);
+    const out = await restrictSharedDataset("t1", "u1", COLS, WITH_COLUMN);
     expect(out.rows).toEqual([]);
     expect(out.columns).toEqual([]);
   });
