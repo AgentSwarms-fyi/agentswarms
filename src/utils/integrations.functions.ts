@@ -12,6 +12,7 @@ import { z } from "zod";
 import type { Database } from "@/integrations/supabase/types";
 import { callerFailure } from "@/utils/callerLookup.server";
 import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
+import { containsSecretRef } from "@/lib/secretRefs";
 
 // Providers we support live-testing for.
 const ProviderEnum = z.enum([
@@ -58,6 +59,65 @@ const GatewayTestSchema = z.object({
 });
 
 type TestResult = { ok: true; detail: string } | { ok: false; detail: string; status?: number };
+
+/**
+ * A config as it stands in a connection form, its {{secret:NAME}} references
+ * resolved the way the saved connection's are at run time (R493). The key
+ * fields are secret pickers now, so a Test that sent the reference as the key
+ * would fail every picked secret. Same rules as the runtime, because it is the
+ * runtime's resolver with the runtime's destinations (integrationHosts): a
+ * secret the caller owns resolves wherever it goes; one shared with them only
+ * in a credential field, and only toward hosts its owner allowed; a
+ * notification's webhook URL takes only the caller's own. Throws the
+ * resolver's message, which names the secret.
+ */
+async function resolveTypedConfig(
+  userId: string,
+  type: string,
+  provider: string | null,
+  config: Record<string, string>,
+): Promise<Record<string, string>> {
+  if (!Object.values(config).some((v) => containsSecretRef(v))) return config;
+  const { resolveIntegrationConfig } = await import("./providers/integrationConfig.server");
+  const { integrationHosts } = await import("./providers/integrationHosts");
+  return (await resolveIntegrationConfig(userId, type, config, {
+    sendTo: integrationHosts(type, provider),
+  })) as Record<string, string>;
+}
+
+/**
+ * The API key saved for this provider, resolved toward the hosts the test
+ * about to run sends to (the typed base URL, or the provider's own API), or ""
+ * when none is saved.
+ */
+async function savedProviderKey(
+  userId: string,
+  provider: string,
+  typed: Record<string, string>,
+): Promise<string> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data: rows } = await supabaseAdmin
+    .from("integrations")
+    .select("config")
+    .eq("user_id", userId)
+    .eq("type", "llm_provider")
+    .eq("provider", provider)
+    .order("is_active", { ascending: false })
+    .limit(1);
+  const saved = rows?.[0]?.config as Record<string, unknown> | null | undefined;
+  if (!saved) return "";
+  const { resolveIntegrationConfig } = await import("./providers/integrationConfig.server");
+  const { integrationHosts } = await import("./providers/integrationHosts");
+  const cfg = await resolveIntegrationConfig(userId, "llm_provider", saved, {
+    sendTo: () => integrationHosts("llm_provider", provider)(typed),
+  });
+  return typeof cfg.api_key === "string" ? cfg.api_key.trim() : "";
+}
+
+const resolveFailure = (e: unknown): TestResult => ({
+  ok: false,
+  detail: e instanceof Error ? e.message : "Could not resolve the secret",
+});
 
 type AuthResult = { ok: true; userId: string } | { ok: false; detail: string };
 
@@ -155,9 +215,24 @@ export const testIntegrationKey = createServerFn({ method: "POST" })
     console.log(
       `[testIntegrationKey] user=${auth.userId} provider=${data.provider} keys=${Object.keys(data.config).join(",")}`,
     );
+    let config: Record<string, string>;
+    try {
+      config = await resolveTypedConfig(auth.userId, "llm_provider", data.provider, data.config);
+      if (!(config.api_key ?? "").trim()) {
+        // Blank = the saved key, as the gateway's Test does: a key saved
+        // before is never sent back to the form, so re-testing must not mean
+        // testing with none (and marking a working provider failed). It goes
+        // where this test sends, so a shared secret in it resolves only if its
+        // owner allowed that host.
+        const saved = await savedProviderKey(auth.userId, data.provider, config);
+        if (saved) config = { ...config, api_key: saved };
+      }
+    } catch (e) {
+      return resolveFailure(e);
+    }
     try {
       const { runProviderTest } = await import("./integrations/testAdapters.server");
-      const result = await runProviderTest(data.provider, data.config);
+      const result = await runProviderTest(data.provider, config);
       console.log(
         `[testIntegrationKey] provider=${data.provider} ok=${result.ok} detail=${result.detail.slice(0, 200)}`,
       );
@@ -184,10 +259,47 @@ export const testN8nInstance = createServerFn({ method: "POST" })
     if (!auth.ok) return { ok: false, detail: auth.detail };
     const limited = await integrationTestGate(auth.userId);
     if (limited) return limited;
+    let typed: Record<string, string>;
+    try {
+      typed = await resolveTypedConfig(auth.userId, "n8n", "n8n", {
+        instance_url: data.instance_url,
+        webhook_token: data.webhook_token,
+      });
+    } catch (e) {
+      return resolveFailure(e);
+    }
+    let token = typed.webhook_token ?? "";
+    if (!token.trim() && data.auth_type !== "none") {
+      // Blank = the saved token, as the gateway's Test does: a token kept
+      // encrypted from before is never sent back to the page, so re-testing
+      // must not mean testing with none. It goes to the URL being tested, so
+      // a shared secret in it resolves only if its owner allowed that host.
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      const { resolveIntegrationConfig } = await import("./providers/integrationConfig.server");
+      const { data: row } = await supabaseAdmin
+        .from("integrations")
+        .select("config")
+        .eq("user_id", auth.userId)
+        .eq("type", "n8n")
+        .maybeSingle();
+      if (row?.config) {
+        try {
+          const cfg = (await resolveIntegrationConfig(
+            auth.userId,
+            "n8n",
+            row.config as Record<string, unknown>,
+            { sendTo: () => [typed.instance_url] },
+          )) as { webhook_token?: string };
+          token = cfg.webhook_token ?? "";
+        } catch (e) {
+          return resolveFailure(e);
+        }
+      }
+    }
     const { testN8nCore } = await import("./integrations/testAdapters.server");
     return testN8nCore({
-      instance_url: data.instance_url,
-      webhook_token: data.webhook_token,
+      instance_url: typed.instance_url,
+      webhook_token: token,
       auth_type: data.auth_type,
     });
   });
@@ -201,8 +313,16 @@ export const testFirecrawlKey = createServerFn({ method: "POST" })
     if (!auth.ok) return { ok: false, detail: auth.detail };
     const limited = await integrationTestGate(auth.userId);
     if (limited) return limited;
+    let apiKey: string;
+    try {
+      apiKey =
+        (await resolveTypedConfig(auth.userId, "firecrawl", "firecrawl", { api_key: data.api_key }))
+          .api_key ?? "";
+    } catch (e) {
+      return resolveFailure(e);
+    }
     const { testFirecrawlCore } = await import("./integrations/testAdapters.server");
-    return testFirecrawlCore(data.api_key);
+    return testFirecrawlCore(apiKey);
   });
 
 // Live-test an LLM gateway with the same base URL + key the chat path will
@@ -216,7 +336,16 @@ export const testLlmGateway = createServerFn({ method: "POST" })
     if (!auth.ok) return { ok: false, detail: auth.detail };
     const limited = await integrationTestGate(auth.userId);
     if (limited) return limited;
-    let apiKey = data.api_key.trim();
+    let typed: Record<string, string>;
+    try {
+      typed = await resolveTypedConfig(auth.userId, "llm_gateway", null, {
+        base_url: data.base_url,
+        api_key: data.api_key.trim(),
+      });
+    } catch (e) {
+      return resolveFailure(e);
+    }
+    let apiKey = (typed.api_key ?? "").trim();
     if (!apiKey) {
       // Fall back to the stored (encrypted) key so users can re-validate
       // without re-typing it.
@@ -253,7 +382,7 @@ export const testLlmGateway = createServerFn({ method: "POST" })
     }
     const { testGatewayCore } = await import("./integrations/testAdapters.server");
     return testGatewayCore({
-      base_url: data.base_url,
+      base_url: typed.base_url,
       api_key: apiKey,
       provider: data.provider,
     });
@@ -274,7 +403,20 @@ export const testNotificationChannel = createServerFn({ method: "POST" })
     if (!auth.ok) return { ok: false, detail: auth.detail };
     const limited = await integrationTestGate(auth.userId);
     if (limited) return limited;
-    let url = data.webhook_url.trim();
+    let url: string;
+    try {
+      // A webhook URL picked as a secret resolves only if the caller owns it,
+      // as the saved one below does: it is the destination and the credential.
+      url = (
+        (
+          await resolveTypedConfig(auth.userId, "notification", data.provider, {
+            webhook_url: data.webhook_url.trim(),
+          })
+        ).webhook_url ?? ""
+      ).trim();
+    } catch (e) {
+      return resolveFailure(e);
+    }
     if (!url) {
       // Blank = re-validate the saved (encrypted) webhook URL.
       const { supabaseAdmin } = await import("@/integrations/supabase/client.server");

@@ -80,7 +80,8 @@ import {
   StorageTargetPicker,
   WarehouseTablePicker,
 } from "@/components/etl/SourcePickers";
-import { useSecretNames } from "@/hooks/use-secret-names";
+import { SecretBindingsEditor } from "@/components/etl/SecretBindingsEditor";
+import { secretBindingsError } from "@/lib/secretBindings";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -964,6 +965,15 @@ function PipelineEditor({ id, onBack }: { id: string; onBack: () => void }) {
 
   const save = async (overwrite = false): Promise<boolean> => {
     if (!p) return false;
+    // A binding the run would skip is refused here, where it can be fixed,
+    // rather than found missing by the pipeline's code (R493). The server
+    // refuses it too.
+    const badBinding = secretBindingsError(p.secret_refs);
+    if (badBinding) {
+      toast.error(badBinding);
+      setTab("settings");
+      return false;
+    }
     setSaving(true);
     try {
       const res = await saveFn({
@@ -1970,7 +1980,6 @@ function NodePanel({
 }) {
   const { session } = useAuth();
   const token = session?.access_token ?? "";
-  const { names: secretNames } = useSecretNames(token);
   const [storageSources, setStorageSources] = useState<CatalogSource[]>([]);
   const [connections, setConnections] = useState<WarehouseConnectionSummary[]>([]);
   const [saasConnections, setSaasConnections] = useState<
@@ -2213,11 +2222,7 @@ function NodePanel({
         </>
       )}
       {isStreamSource(c as { type?: string }) && node.kind === "source" && (
-        <StreamSourceFields
-          cfg={c as unknown as StreamSourceConfig}
-          set={set}
-          secrets={secretNames}
-        />
+        <StreamSourceFields cfg={c as unknown as StreamSourceConfig} set={set} />
       )}
       {c.type === "ingest" && node.kind === "source" && (
         <p className="text-[11px] text-muted-foreground">
@@ -2801,7 +2806,8 @@ function NodePanel({
           </Field>
           <SecretPicker
             label="Bearer token secret (optional)"
-            secrets={secretNames}
+            optional
+            suggestedName="REVERSE_ETL_TOKEN"
             value={(c.auth_secret as string) ?? ""}
             onChange={(v) => set({ auth_secret: v || undefined, auth_env: undefined })}
           />
@@ -2940,21 +2946,18 @@ function NodePanel({
 function StreamSourceFields({
   cfg,
   set,
-  secrets,
 }: {
   cfg: StreamSourceConfig;
   set: (updates: Record<string, unknown>) => void;
-  /** The owner's secrets by name, for the credential pickers. */
-  secrets: string[];
 }) {
   const problem = validateStreamSource(cfg);
   const secretField = (label: string, key: string, value: string, placeholder: string) => (
     <SecretPicker
       label={label}
-      secrets={secrets}
       value={value}
       onChange={(v) => set({ [key]: v })}
       placeholder={`e.g. ${placeholder}`}
+      suggestedName={placeholder}
     />
   );
   return (
@@ -3978,16 +3981,10 @@ function SettingsTab({
               Sources.
             </p>
           </div>
-          <div>
-            <Label className="text-xs">Secret bindings (KEY={"{{secret:NAME}}"} per line)</Label>
-            <Textarea
-              value={p.secret_refs}
-              onChange={(e) => onPatch({ secret_refs: e.target.value })}
-              rows={3}
-              className="font-mono text-xs"
-              placeholder={"API_TOKEN={{secret:MY_API_TOKEN}}"}
-            />
-          </div>
+          <SecretBindingsEditor
+            value={p.secret_refs}
+            onChange={(secret_refs) => onPatch({ secret_refs })}
+          />
         </CardContent>
       </Card>
 

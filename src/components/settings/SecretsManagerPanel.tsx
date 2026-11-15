@@ -6,7 +6,7 @@
 // from /admin/iam → Access; where a shared secret may be SENT is the owner's
 // call, made here as its allowed hosts (R419).
 import { confirmAsk } from "@/components/ui/confirm-dialog";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { listClaim } from "@/lib/listClaim";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
@@ -37,50 +37,15 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import {
-  createSecret,
   deleteSecret,
   listSecrets,
   updateSecret,
   type SecretSummary,
 } from "@/utils/secrets.functions";
 import { reportFailure } from "@/lib/silentFailureNet";
-import { parseAllowedHosts, sharedUseNote } from "@/lib/secretHosts";
-
-/** One host per line (commas too), as typed. */
-const hostLines = (text: string) => text.split(/[\n,]+/).map((l) => l.trim());
-
-/**
- * Where colleagues it is shared with may send this secret. Your own use is
- * never limited; the field is about other people.
- */
-function AllowedHostsField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const parsed = useMemo(() => parseAllowedHosts(hostLines(value)), [value]);
-  return (
-    <div className="space-y-1.5">
-      <Label htmlFor="secret-allowed-hosts">Allowed hosts (for people it is shared with)</Label>
-      <Textarea
-        id="secret-allowed-hosts"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        rows={3}
-        className="font-mono text-xs"
-        placeholder={"acme.snowflakecomputing.com\n*.openai.azure.com"}
-        aria-invalid={!parsed.ok}
-        aria-describedby="secret-allowed-hosts-help"
-      />
-      {!parsed.ok ? (
-        <p role="alert" className="text-xs text-destructive">
-          {parsed.error}
-        </p>
-      ) : null}
-      <p id="secret-allowed-hosts-help" className="text-xs text-muted-foreground">
-        One per line. Someone this secret is shared with can send it only to these hosts, and only
-        as a credential: never in a URL or request body, never into code they run. Your own use is
-        not limited. Left empty, only you can use it.
-      </p>
-    </div>
-  );
-}
+import { hostLines, parseAllowedHosts, sharedUseNote } from "@/lib/secretHosts";
+import { AllowedHostsField, CreateSecretDialog } from "@/components/secrets/CreateSecretDialog";
+import { refreshSecretList } from "@/hooks/use-secret-list";
 
 /** The Secrets table's "Can be sent to" cell. */
 function HostsCell({ hosts, mine }: { hosts: string[]; mine: boolean }) {
@@ -107,17 +72,12 @@ export function SecretsManagerPanel() {
   const token = session?.access_token;
 
   const listFn = useServerFn(listSecrets);
-  const createFn = useServerFn(createSecret);
   const updateFn = useServerFn(updateSecret);
   const deleteFn = useServerFn(deleteSecret);
 
   const [secrets, setSecrets] = useState<SecretSummary[] | null>(null);
   const [me, setMe] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [value, setValue] = useState("");
-  const [hosts, setHosts] = useState("");
   const [busy, setBusy] = useState(false);
   const [editTarget, setEditTarget] = useState<SecretSummary | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -162,38 +122,6 @@ export function SecretsManagerPanel() {
     setTimeout(() => setCopiedId(null), 1500);
   };
 
-  const submitCreate = async () => {
-    if (!token) return;
-    if (!name.trim()) return toast.error("Name is required");
-    if (!value) return toast.error("Value is required");
-    const allowed = parseAllowedHosts(hostLines(hosts));
-    if (!allowed.ok) return toast.error(allowed.error);
-    setBusy(true);
-    try {
-      const res = await createFn({
-        data: {
-          access_token: token,
-          name: name.trim(),
-          description: description.trim() || undefined,
-          value,
-          allowed_hosts: allowed.hosts,
-        },
-      });
-      if (!res.ok) return toast.error(res.error);
-      toast.success(`Secret created — reference it as {{secret:${name.trim()}}}`);
-      setCreateOpen(false);
-      setName("");
-      setDescription("");
-      setValue("");
-      setHosts("");
-      reload();
-    } catch (e) {
-      reportFailure("create the secret", e);
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const submitEdit = async () => {
     if (!token || !editTarget) return;
     const allowed = parseAllowedHosts(hostLines(editHosts));
@@ -214,6 +142,8 @@ export function SecretsManagerPanel() {
       setEditTarget(null);
       setEditValue("");
       reload();
+      // Its allowed hosts are what the pickers warn by.
+      void refreshSecretList();
     } catch (e) {
       reportFailure("update the secret", e);
     } finally {
@@ -233,17 +163,19 @@ export function SecretsManagerPanel() {
     if (!res.ok) return toast.error(res.error);
     toast.success("Secret deleted");
     reload();
+    void refreshSecretList();
   };
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="max-w-2xl text-xs text-muted-foreground">
-          Store credentials once and reference them anywhere a connection form accepts a value —
-          warehouse connections, provider API keys — as{" "}
-          <code className="text-[11px]">{"{{secret:NAME}}"}</code>. Values are encrypted, resolved
-          server-side at use time, and can never be viewed again. A secret shared with a colleague
-          goes only to the hosts you allow.
+          Store credentials once, then pick them by name from the key fields of connection forms —
+          warehouse connections, provider API keys, swarm HTTP headers — which also offer{" "}
+          <span className="font-medium">New secret</span> in place. A field stores the reference{" "}
+          <code className="text-[11px]">{"{{secret:NAME}}"}</code>, never the value. Values are
+          encrypted, resolved server-side at use time, and can never be viewed again. A secret
+          shared with a colleague goes only to the hosts you allow.
         </p>
         <Button size="sm" className="shrink-0 gap-1.5" onClick={() => setCreateOpen(true)}>
           <Plus className="h-3.5 w-3.5" /> New secret
@@ -271,8 +203,8 @@ export function SecretsManagerPanel() {
         </div>
       ) : secrets!.length === 0 ? (
         <p className="rounded-lg border border-dashed border-border py-6 text-center text-xs text-muted-foreground">
-          No secrets yet. Create one, then paste its reference into a warehouse connection or
-          provider key field.
+          No secrets yet. Create one here, or with New secret in any key field&apos;s list, then
+          pick it by name.
         </p>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border">
@@ -364,55 +296,16 @@ export function SecretsManagerPanel() {
         </div>
       )}
 
-      {/* Create */}
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>New secret</DialogTitle>
-            <DialogDescription>
-              The value is encrypted on save and can be replaced later, but never viewed.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label>Name</Label>
-              <Input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="SNOWFLAKE_PROD_TOKEN"
-                className="font-mono"
-              />
-              <p className="text-xs text-muted-foreground">
-                Letters, digits, underscores. Referenced as{" "}
-                <code>{`{{secret:${name.trim() || "NAME"}}}`}</code>
-              </p>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Description (optional)</Label>
-              <Input value={description} onChange={(e) => setDescription(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Value</Label>
-              <Textarea
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                rows={3}
-                className="font-mono text-xs"
-                placeholder="The API key / token / password to store"
-              />
-            </div>
-            <AllowedHostsField value={hosts} onChange={setHosts} />
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setCreateOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={submitCreate} disabled={busy}>
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create secret"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Create: the same form a secret picker opens in place (R493). */}
+      <CreateSecretDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onCreated={() => {
+          reload();
+          // Every secret picker on the page lists it too.
+          void refreshSecretList();
+        }}
+      />
 
       {/* Edit / replace value */}
       <Dialog open={!!editTarget} onOpenChange={(o) => !o && setEditTarget(null)}>

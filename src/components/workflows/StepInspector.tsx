@@ -402,7 +402,7 @@ function WhatItRuns({
           </div>
           <HeaderRows
             headers={http.headers}
-            secrets={candidates.secrets}
+            url={http.url}
             onChange={(headers) => set({ headers })}
           />
           {http.method !== "GET" ? (

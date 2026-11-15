@@ -34,6 +34,9 @@ import {
 import { GatewayApiCard } from "@/components/gateway/GatewayApiCard";
 import { ProviderCredentialsPanel } from "@/components/integrations/ProviderCredentialsPanel";
 import { recordOf, textOf } from "@/lib/jsonRecord";
+import { SecretSelect } from "@/components/secrets/SecretSelect";
+import { savedSecretField, suggestSecretName } from "@/lib/secretRefs";
+import { FIRECRAWL_API } from "@/utils/providers/integrationHosts";
 
 export const Route = createFileRoute("/_authenticated/integrations")({
   component: IntegrationsPage,
@@ -67,7 +70,10 @@ function IntegrationsPage() {
   const [gatewayTesting, setGatewayTesting] = useState(false);
   const [gatewayStatus, setGatewayStatus] = useState<{ ok: boolean; detail: string } | null>(null);
   const [n8nUrl, setN8nUrl] = useState("");
+  // The token field holds a picked secret's reference, or "" to keep what is
+  // saved; a token saved directly is never sent back to the page (R493).
   const [n8nToken, setN8nToken] = useState("");
+  const [n8nHasToken, setN8nHasToken] = useState(false);
   const [n8nAuthType, setN8nAuthType] = useState("header");
   const [n8nTesting, setN8nTesting] = useState(false);
   const [n8nStatus, setN8nStatus] = useState<{
@@ -76,6 +82,7 @@ function IntegrationsPage() {
     workflowCount?: number;
   } | null>(null);
   const [firecrawlKey, setFirecrawlKey] = useState("");
+  const [firecrawlHasKey, setFirecrawlHasKey] = useState(false);
   const [firecrawlTesting, setFirecrawlTesting] = useState(false);
   const [firecrawlStatus, setFirecrawlStatus] = useState<{ ok: boolean; detail: string } | null>(
     null,
@@ -119,9 +126,11 @@ function IntegrationsPage() {
       const c = gw.config;
       setGatewayUrl(textOf(c.base_url));
       // The key is write-only: encrypted rows never ship it back, and legacy
-      // plaintext rows are no longer pre-filled into the form either.
-      setGatewayKey("");
-      setGatewayHasKey(Boolean(c.api_key_enc || c.api_key));
+      // plaintext rows are no longer pre-filled into the form either. A
+      // picked secret is a reference, not a key, so the picker shows it.
+      const key = savedSecretField(c, "api_key");
+      setGatewayKey(key.ref);
+      setGatewayHasKey(key.stored);
       setGatewayProvider(textOf(c.provider) || "litellm");
       setGatewayRoute(gw.is_active);
       setGatewayRouteAll(c.route_all === true);
@@ -130,9 +139,25 @@ function IntegrationsPage() {
     if (n8n) {
       const c = n8n.config;
       setN8nUrl(textOf(c.instance_url));
-      setN8nToken(textOf(c.webhook_token));
+      // A legacy plain-text token is no longer put back into the form either.
+      const token = savedSecretField(c, "webhook_token");
+      setN8nToken(token.ref);
+      setN8nHasToken(token.stored);
       setN8nAuthType(textOf(c.auth_type) || "header");
     }
+    const fc = merged.find((i) => i.type === "firecrawl");
+    const fcKey = savedSecretField(fc?.config, "api_key");
+    setFirecrawlKey(fcKey.ref);
+    setFirecrawlHasKey(fcKey.stored);
+    // Each channel's webhook: a picked secret shows; one saved directly is
+    // kept, out of sight, until a secret replaces it.
+    setNotifUrls(
+      Object.fromEntries(
+        merged
+          .filter((i) => i.type === "notification" && i.provider)
+          .map((i) => [i.provider as string, savedSecretField(i.config, "webhook_url").ref]),
+      ),
+    );
   }
 
   // A saved gateway or n8n connection could be changed and disabled but not
@@ -184,6 +209,7 @@ function IntegrationsPage() {
     if (!removed) return;
     setN8nUrl("");
     setN8nToken("");
+    setN8nHasToken(false);
     setN8nAuthType("header");
     setN8nStatus(null);
     toast.success("n8n connection removed");
@@ -258,8 +284,8 @@ function IntegrationsPage() {
     } else {
       toast.success("Gateway saved (disabled)");
     }
-    if (gatewayKey.trim()) setGatewayHasKey(true);
-    setGatewayKey("");
+    // The picker keeps showing the secret it saved; loadIntegrations reads
+    // back what is stored now.
     loadIntegrations();
   }
 
@@ -332,7 +358,7 @@ function IntegrationsPage() {
     const key = firecrawlKey.trim();
     // No new key + already connected ⇒ nothing to do (key is write-only).
     if (!key && !existing) {
-      toast.error("Paste your Firecrawl API key first");
+      toast.error("Pick the secret holding your Firecrawl API key first");
       return;
     }
     setFirecrawlTesting(true);
@@ -365,7 +391,6 @@ function IntegrationsPage() {
         is_active: true,
       },
     });
-    setFirecrawlKey("");
     setFirecrawlTesting(false);
     if (!fcSave.ok) {
       toast.error(`Could not save Firecrawl: ${fcSave.error}`);
@@ -385,7 +410,7 @@ function IntegrationsPage() {
     const url = (notifUrls[kind] || "").trim();
     const existing = integrations.find((i) => i.type === "notification" && i.provider === kind);
     if (!url && !existing) {
-      toast.error("Paste the webhook URL first.");
+      toast.error("Pick the secret holding the webhook URL first.");
       return;
     }
     setNotifTesting(kind);
@@ -420,7 +445,6 @@ function IntegrationsPage() {
     }
     if (result.ok) {
       toast.success(`${label} connected — check the channel for the test message.`);
-      setNotifUrls((u) => ({ ...u, [kind]: "" }));
     } else {
       toast.error(`${label}: ${result.detail}`);
     }
@@ -552,17 +576,19 @@ function IntegrationsPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Gateway API Key</Label>
-                  <Input
-                    type="password"
-                    placeholder={
-                      gatewayHasKey ? "(a key is saved — leave blank to keep it)" : "gw-key-..."
-                    }
+                  <Label htmlFor="gateway-api-key">Gateway API Key</Label>
+                  <SecretSelect
+                    id="gateway-api-key"
                     value={gatewayKey}
-                    onChange={(e) => setGatewayKey(e.target.value)}
+                    onChange={setGatewayKey}
+                    storedKey={gatewayHasKey}
+                    destination={gatewayUrl.trim() || undefined}
+                    suggestedName="LLM_GATEWAY_API_KEY"
+                    purpose="For the LLM gateway's API key."
                   />
                   <p className="text-[11px] text-muted-foreground">
-                    Stored encrypted, never shown again. Leave blank to keep the saved key.
+                    A secret holding the key, sent only to the gateway URL above. Its value stays
+                    encrypted in Secrets and is never shown.
                   </p>
                 </div>
                 <div className="flex items-center justify-between">
@@ -684,15 +710,19 @@ function IntegrationsPage() {
                   key in the agent editor, override it.
                 </div>
                 <div className="space-y-2">
-                  <Label>Firecrawl API Key</Label>
-                  <Input
-                    type="password"
-                    placeholder="fc-..."
+                  <Label htmlFor="firecrawl-api-key">Firecrawl API Key</Label>
+                  <SecretSelect
+                    id="firecrawl-api-key"
                     value={firecrawlKey}
-                    onChange={(e) => setFirecrawlKey(e.target.value)}
+                    onChange={setFirecrawlKey}
+                    storedKey={firecrawlHasKey}
+                    destination={FIRECRAWL_API}
+                    suggestedName="FIRECRAWL_API_KEY"
+                    purpose="For Firecrawl web search and browsing."
                   />
                   <p className="text-[11px] text-muted-foreground">
-                    Stored encrypted, never shown again. Leave blank to keep the saved key.
+                    A secret holding your <code>fc-…</code> key, sent only to Firecrawl. Its value
+                    stays encrypted in Secrets and is never shown.
                   </p>
                 </div>
                 {firecrawlStatus && (
@@ -783,6 +813,9 @@ function IntegrationsPage() {
                 const connected = integrations.find(
                   (i) => i.type === "notification" && i.provider === ch.kind && i.is_active,
                 );
+                const savedChannel = integrations.find(
+                  (i) => i.type === "notification" && i.provider === ch.kind,
+                );
                 const status = notifStatus[ch.kind];
                 const health = healthErrorFor(
                   (i) => i.type === "notification" && i.provider === ch.kind,
@@ -821,19 +854,22 @@ function IntegrationsPage() {
                     </CardHeader>
                     <CardContent className="space-y-3">
                       <div className="space-y-2">
-                        <Label>Webhook URL</Label>
-                        <Input
-                          type="password"
-                          placeholder={
-                            connected ? "(saved — leave blank to keep it)" : ch.placeholder
-                          }
+                        <Label htmlFor={`notif-webhook-${ch.kind}`}>Webhook URL</Label>
+                        <SecretSelect
+                          id={`notif-webhook-${ch.kind}`}
+                          // The URL is where it posts and the credential at
+                          // once, so only a secret you own resolves into it.
+                          ownedOnly
                           value={notifUrls[ch.kind] || ""}
-                          onChange={(e) =>
-                            setNotifUrls((u) => ({ ...u, [ch.kind]: e.target.value }))
-                          }
+                          onChange={(v) => setNotifUrls((u) => ({ ...u, [ch.kind]: v }))}
+                          storedKey={savedSecretField(savedChannel?.config, "webhook_url").stored}
+                          suggestedName={suggestSecretName(`${ch.kind}_webhook_url`)}
+                          purpose={`For the ${ch.label} webhook URL, such as ${ch.placeholder}`}
                         />
                         <p className="text-[11px] text-muted-foreground">
-                          Stored encrypted, never shown again.
+                          A secret of yours holding the whole URL, such as{" "}
+                          <code className="break-all">{ch.placeholder}</code>. Possessing it is
+                          permission to post, so it is stored encrypted and never shown.
                         </p>
                       </div>
                       {status && (
@@ -923,15 +959,34 @@ function IntegrationsPage() {
                 )}
                 {n8nAuthType !== "none" && (
                   <div className="space-y-2">
-                    <Label>{n8nAuthType === "basic" ? "Credentials (user:pass)" : "API Key"}</Label>
-                    <Input
-                      type="password"
-                      placeholder={n8nAuthType === "basic" ? "admin:password" : "n8n_api_..."}
+                    <Label htmlFor="n8n-token">
+                      {n8nAuthType === "basic" ? "Credentials" : "API Key"}
+                    </Label>
+                    <SecretSelect
+                      id="n8n-token"
                       value={n8nToken}
-                      onChange={(e) => setN8nToken(e.target.value)}
+                      onChange={setN8nToken}
+                      storedKey={n8nHasToken}
+                      destination={n8nUrl.trim() || undefined}
+                      suggestedName={n8nAuthType === "basic" ? "N8N_BASIC_AUTH" : "N8N_API_KEY"}
+                      purpose={
+                        n8nAuthType === "basic"
+                          ? "For n8n Basic auth: the value is user:password, for example admin:s3cret."
+                          : "For the n8n API key (n8n_api_…)."
+                      }
                     />
                     <p className="text-[11px] text-muted-foreground">
-                      Stored encrypted, never shown again. Leave blank to keep the saved token.
+                      {n8nAuthType === "basic" ? (
+                        <>
+                          A secret whose value is <code>user:password</code>, such as{" "}
+                          <code>admin:s3cret</code>.
+                        </>
+                      ) : (
+                        <>
+                          A secret holding the key, such as <code>n8n_api_…</code>.
+                        </>
+                      )}{" "}
+                      Sent only to the instance URL above; its value is never shown.
                     </p>
                   </div>
                 )}

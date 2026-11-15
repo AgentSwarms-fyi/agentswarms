@@ -43,8 +43,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SecretSelect } from "@/components/secrets/SecretSelect";
 import { useAuth } from "@/hooks/use-auth";
 import { isAwsRegion } from "@/lib/awsRegion";
+import { suggestSecretName } from "@/lib/secretRefs";
 import { validatorErrorText } from "@/lib/validatorError";
 import { catalogCreateSource, catalogCrawlSource } from "@/utils/catalog.functions";
 import { sourceNameProblem } from "@/utils/catalog/sourceName";
@@ -146,6 +148,40 @@ type CrawlResult = {
 };
 
 type SourceKind = "warehouse" | "object_storage" | "iceberg_rest" | "hive_metastore" | "glue";
+
+/**
+ * The origin a bucket's signed requests go to, derived the way
+ * objectStore.server.ts (resolveTarget) and azureBlob.server.ts (azureOrigin)
+ * derive it, or "" while the form cannot say yet.
+ */
+function objectStoreDestination(f: {
+  provider: StorageProvider;
+  endpoint: string;
+  region: string;
+  bucket: string;
+  accessKey: string;
+  pathStyle: boolean;
+}): string {
+  try {
+    const endpoint = f.endpoint.trim();
+    if (f.provider === "azure") {
+      if (endpoint) return new URL(endpoint).origin;
+      const account = f.accessKey.trim();
+      return /^[a-z0-9]{3,24}$/.test(account) ? `https://${account}.blob.core.windows.net` : "";
+    }
+    const bucket = f.bucket.trim();
+    if (!bucket) return "";
+    if (endpoint) {
+      const u = new URL(endpoint);
+      return f.pathStyle ? u.origin : `${u.protocol}//${bucket}.${u.host}`;
+    }
+    if (!f.region.trim()) return "";
+    const regionHost = `s3.${f.region.trim()}.amazonaws.com`;
+    return f.pathStyle ? `https://${regionHost}` : `https://${bucket}.${regionHost}`;
+  } catch {
+    return "";
+  }
+}
 
 export function AddSourceWizard({
   open,
@@ -253,11 +289,30 @@ export function AddSourceWizard({
 
   function pickProvider(p: StorageProvider) {
     const preset = STORAGE_PRESETS[p];
+    // Azure's first field is an account name typed in; everyone else's is a
+    // secret picked by name. Neither means anything to the other.
+    if ((p === "azure") !== (provider === "azure")) setAccessKey("");
     setProvider(p);
     setRegion(preset.region);
     setPathStyle(preset.pathStyle);
     setEndpoint(preset.endpoint); // fixed for GCS, empty prompt otherwise
   }
+
+  // Where each kind's keys are sent, built as the server builds it, so a key
+  // picker can say when a secret shared with you is not allowed there (R493).
+  const glueDestination = glueEndpoint.trim()
+    ? glueEndpoint.trim()
+    : isAwsRegion(glueRegion.trim())
+      ? `https://glue.${glueRegion.trim()}.${glueRegion.trim().startsWith("cn-") ? "amazonaws.com.cn" : "amazonaws.com"}`
+      : "";
+  const storageDestination = objectStoreDestination({
+    provider,
+    endpoint,
+    region,
+    bucket,
+    accessKey,
+    pathStyle,
+  });
 
   // The server's rule, checked here so it is read beside the field (sourceName.ts).
   const nameProblem = sourceNameProblem(name);
@@ -515,32 +570,34 @@ export function AddSourceWizard({
                     <Label className="text-xs" htmlFor="glue-key">
                       Access key id
                     </Label>
-                    <Input
+                    <SecretSelect
                       id="glue-key"
                       value={glueKey}
-                      onChange={(e) => setGlueKey(e.target.value)}
-                      className="h-9 font-mono text-xs"
-                      placeholder="AKIA… or {{secret:NAME}}"
+                      onChange={setGlueKey}
+                      destination={glueDestination || undefined}
+                      suggestedName="AWS_GLUE_ACCESS_KEY_ID"
+                      purpose="For the Glue source's access key id."
                     />
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs" htmlFor="glue-secret">
                       Secret access key
                     </Label>
-                    <Input
+                    <SecretSelect
                       id="glue-secret"
-                      type="password"
                       value={glueSecret}
-                      onChange={(e) => setGlueSecret(e.target.value)}
-                      className="h-9 text-sm"
-                      placeholder="Stored encrypted"
+                      onChange={setGlueSecret}
+                      destination={glueDestination || undefined}
+                      suggestedName="AWS_GLUE_SECRET_ACCESS_KEY"
+                      purpose="For the Glue source's secret access key."
                     />
                   </div>
                 </div>
                 <p className="text-[11px] text-muted-foreground">
-                  The key needs only <code>glue:GetDatabases</code>, <code>glue:GetTables</code> and{" "}
-                  <code>glue:GetPartitions</code>. This server&rsquo;s own AWS role is never used
-                  here.
+                  Each key is a secret, picked by name: stored encrypted in Secrets and sent only to
+                  Glue. The key needs only <code>glue:GetDatabases</code>,{" "}
+                  <code>glue:GetTables</code> and <code>glue:GetPartitions</code>. This
+                  server&rsquo;s own AWS role is never used here.
                 </p>
                 <div className="grid grid-cols-2 gap-2.5">
                   <div className="space-y-1.5">
@@ -632,17 +689,23 @@ export function AddSourceWizard({
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Bearer token (optional)</Label>
-                  <Input
-                    type="password"
+                  <Label className="text-xs" htmlFor="iceberg-rest-token">
+                    Bearer token (optional)
+                  </Label>
+                  <SecretSelect
+                    id="iceberg-rest-token"
+                    optional
                     value={icebergToken}
-                    onChange={(e) => setIcebergToken(e.target.value)}
-                    className="h-9 text-sm"
-                    placeholder="OAuth2 / bearer token, if the catalog requires auth"
+                    onChange={setIcebergToken}
+                    destination={icebergUri.trim() || undefined}
+                    placeholder="None: the catalog needs no auth"
+                    suggestedName="ICEBERG_CATALOG_TOKEN"
+                    purpose="For the Iceberg REST catalog's bearer token."
                   />
                   <p className="text-[11px] text-muted-foreground">
-                    Stored encrypted server-side. Metadata-only — query the tables via a Trino or
-                    Athena connection.
+                    A secret holding the OAuth2 or bearer token, if the catalog requires auth; sent
+                    only to the catalog URI. Metadata-only — query the tables via a Trino or Athena
+                    connection.
                   </p>
                 </div>
               </div>
@@ -720,26 +783,49 @@ export function AddSourceWizard({
                 </div>
                 <div className="grid grid-cols-2 gap-2.5">
                   <div className="space-y-1.5">
-                    <Label className="text-xs">
+                    <Label className="text-xs" htmlFor="storage-access-key">
                       {provider === "azure" ? "Storage account name" : "Access key ID"}
                     </Label>
-                    <Input
-                      value={accessKey}
-                      onChange={(e) => setAccessKey(e.target.value)}
-                      className="h-9 font-mono text-xs"
-                      autoComplete="off"
-                    />
+                    {provider === "azure" ? (
+                      // The account is a name, not a key: it becomes the host.
+                      <Input
+                        id="storage-access-key"
+                        value={accessKey}
+                        onChange={(e) => setAccessKey(e.target.value)}
+                        className="h-9 font-mono text-xs"
+                        placeholder="mystorageaccount"
+                        autoComplete="off"
+                      />
+                    ) : (
+                      <SecretSelect
+                        id="storage-access-key"
+                        value={accessKey}
+                        onChange={setAccessKey}
+                        destination={storageDestination || undefined}
+                        suggestedName={suggestSecretName(`${provider}_access_key_id`)}
+                        purpose="For the bucket's access key ID."
+                      />
+                    )}
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs">
+                    <Label className="text-xs" htmlFor="storage-secret-key">
                       {provider === "azure" ? "Account key or SAS token" : "Secret access key"}
                     </Label>
-                    <Input
-                      type="password"
+                    <SecretSelect
+                      id="storage-secret-key"
                       value={secretKey}
-                      onChange={(e) => setSecretKey(e.target.value)}
-                      className="h-9 font-mono text-xs"
-                      autoComplete="new-password"
+                      onChange={setSecretKey}
+                      destination={storageDestination || undefined}
+                      suggestedName={suggestSecretName(
+                        provider === "azure"
+                          ? "azure_storage_key"
+                          : `${provider}_secret_access_key`,
+                      )}
+                      purpose={
+                        provider === "azure"
+                          ? "For the storage account's key or SAS token."
+                          : "For the bucket's secret access key."
+                      }
                     />
                   </div>
                 </div>
@@ -771,9 +857,8 @@ export function AddSourceWizard({
                   </label>
                 </div>
                 <p className="text-[11px] text-muted-foreground">
-                  Tip: fields accept{" "}
-                  <code className="rounded bg-muted px-1">{"{{secret:NAME}}"}</code> references from
-                  the Secrets Manager.
+                  Keys are secrets, picked by name from Secrets (New secret creates one in place):
+                  stored encrypted and sent only to the store.
                 </p>
               </>
             )}

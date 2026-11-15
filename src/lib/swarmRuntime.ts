@@ -25,6 +25,7 @@ import { buildUserMessage, invokeAgent, type AgentCard } from "@/lib/a2aClient";
 import { runSandboxed, safeStringify } from "@/lib/sandbox/jsSandbox";
 import { coerceParams, missingRequired } from "@/lib/swarmComponents";
 import { isImageModelId } from "@/lib/providerSupport";
+import { isSecretRefExpr } from "@/lib/secretRefs";
 import {
   SkipTracker,
   canContinueOnError,
@@ -443,8 +444,11 @@ export function topoLevels(nodes: Node<SwarmNodeData>[], edges: Edge[]): Node<Sw
 // happens to be JSON — `foo.bar`, `foo[0]`, `foo.items[2].name`. Returns the
 // resolved string, or undefined when it can't be resolved.
 export function resolveStatePath(ctx: Record<string, string>, expr: string): string | undefined {
-  // Leave {{secret:NAME}} refs untouched — resolved server-side.
-  if (/^secret\s*:/i.test(expr)) return undefined;
+  // Leave {{secret:NAME}} refs untouched — resolved server-side. Exactly the
+  // spelling the server resolves (R493): this skipped `Secret :x` too, which
+  // the server then sent out as literal text, so the two disagreed on what a
+  // reference is.
+  if (isSecretRefExpr(expr)) return undefined;
   const cleaned = expr.trim().replace(/^state\./, "");
   const head = cleaned.match(/^([a-zA-Z0-9_]+)(.*)$/);
   if (!head) return undefined;

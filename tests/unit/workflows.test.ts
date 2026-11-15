@@ -559,8 +559,16 @@ describe("nothing in the inspector asks for a notation", () => {
     // Nobody types the `Name: value` shape or the secret spelling any more.
     expect(src).not.toContain("Headers (one per line)");
     expect(src).not.toContain("Bearer {{secret:CI_TOKEN}}");
+    // R493: the value is the header control the swarm HTTP node shares: a
+    // secret picked from the list (with New secret in place), written in the
+    // server's own spelling by src/lib/secretRefs.ts. Its old local pattern,
+    // which allowed `.` and `-` in a name the server never resolves, is gone.
     const fields = rd("src/components/workflows/inspectorFields.tsx");
-    expect(fields).toContain("`{{secret:${s}}}`");
+    expect(fields).toContain("<SecretHeaderValue");
+    expect(fields).not.toContain("const SECRET_REF =");
+    expect(rd("src/components/secrets/SecretHeaderValue.tsx")).toContain(
+      'onChange(name ? headerSecretValue(prefix, name) : "");',
+    );
   });
 
   it("cannot strand a filter with no box left to clear it", () => {

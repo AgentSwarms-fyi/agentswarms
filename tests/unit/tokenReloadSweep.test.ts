@@ -245,8 +245,6 @@ const REVIEWED: Record<string, number> = {
   // their own state, which the reload never sets.
   "src/components/admin/CustomerKeysCard.tsx": 1,
   "src/components/admin/GroupBudgetsTab.tsx": 1,
-  // R346: moved out of SourcePickers.tsx; re-reads the secret names a picker lists.
-  "src/hooks/use-secret-names.ts": 1,
   "src/components/admin/VectorStorePanel.tsx": 1,
   // R217: loads the model list once (`models.length > 0` stops a re-run).
   "src/components/agents/ModelRegistryPicker.tsx": 1,

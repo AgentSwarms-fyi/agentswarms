@@ -24,7 +24,42 @@ export type SecretSummary = {
    * nobody but the owner can use it. Empty too until migration 20261102000000.
    */
   allowed_hosts: string[];
+  /**
+   * Who owns a secret shared with the caller, so a picker can say whose it
+   * is (R493). Absent on the caller's own; null when it could not be read.
+   */
+  owner_email?: string | null;
 };
+
+/** At most this many distinct owners are named per listing. */
+const MAX_OWNER_LOOKUPS = 20;
+
+/**
+ * The email of each owner of a secret the caller's own RLS listing returned.
+ * Only those: the caller already sees these rows, so naming whose they are
+ * reveals nothing the listing did not. A failed lookup is a null, not a failed
+ * listing.
+ */
+async function ownerEmails(ownerIds: string[]): Promise<Map<string, string | null>> {
+  const out = new Map<string, string | null>();
+  if (ownerIds.length === 0) return out;
+  try {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    await Promise.all(
+      ownerIds.slice(0, MAX_OWNER_LOOKUPS).map(async (id) => {
+        try {
+          const { data } = await supabaseAdmin.auth.admin.getUserById(id);
+          out.set(id, data.user?.email ?? null);
+        } catch {
+          out.set(id, null);
+        }
+      }),
+    );
+  } catch {
+    /* no service role here: the picker says "shared with you" without a name */
+  }
+  return out;
+}
 
 const LIST_COLUMNS = "id, name, description, user_id, created_at, updated_at";
 
@@ -113,6 +148,12 @@ export const listSecrets = createServerFn({ method: "POST" })
             allowed_hosts: Array.isArray(hosts) ? (hosts as string[]) : [],
           };
         });
+        const owners = await ownerEmails([
+          ...new Set(secrets.filter((s) => s.user_id !== userId).map((s) => s.user_id)),
+        ]);
+        for (const s of secrets) {
+          if (s.user_id !== userId) s.owner_email = owners.get(s.user_id) ?? null;
+        }
         return { ok: true, secrets, me: userId };
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : "Failed" };

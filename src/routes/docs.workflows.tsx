@@ -233,9 +233,10 @@ function WorkflowsDocs() {
       </P>
       <P>
         The header value is where this matters most. Instead of typing <C>{"{{secret:NAME}}"}</C>{" "}
-        from memory, the row offers <strong>a value I type</strong> or any of your secrets{" "}
-        <strong>by name</strong>. Only names reach the browser; the value is resolved on the server
-        at run time.
+        from memory, the row&apos;s value is <strong>Text</strong> or a <strong>Secret</strong>: a
+        scheme such as Bearer, if any, and a secret picked <strong>by name</strong> from those you
+        can use, or created in place with <strong>New secret</strong>. Only names reach the browser;
+        the value is resolved on the server at run time.
       </P>
       <P>
         What stays free text is text that really is text — a SQL statement, a notification, a

@@ -90,8 +90,15 @@ describe("the node inspector points at secrets, not at pasting a token", () => {
     return inspector.slice(i, inspector.indexOf("\nfunction ", i + 10));
   }
 
-  it("advertises {{secret:NAME}} in the auth field", () => {
-    expect(a2aPanel()).toContain("{{secret:");
+  it("takes the token as a secret picked by name, never as typed text", () => {
+    // R493: the field was a password box with a `{{secret:NAME}}` placeholder
+    // to copy. It is the shared secret picker now, so nothing typed there can
+    // be a key; a token saved before shows as a key saved directly, unread.
+    const panel = a2aPanel();
+    const field = panel.slice(panel.indexOf('<Section label="Auth token'));
+    expect(field.slice(0, field.indexOf("</Section>"))).toContain("<SecretSelect");
+    expect(panel).not.toMatch(/a2aAuthHeader: e\.target\.value/);
+    expect(panel).toMatch(/destination=\{endpoint\.trim\(\) \|\| undefined\}/);
   });
 
   it("no longer suggests pasting a raw key as the example", () => {

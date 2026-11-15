@@ -22,6 +22,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { SecretHeaderValue } from "@/components/secrets/SecretHeaderValue";
+import { useRowKeys } from "@/hooks/use-row-keys";
 import { cn } from "@/lib/utils";
 import {
   CONDITION_OPS,
@@ -265,8 +267,6 @@ export function ConditionBuilder({
 
 // ── HTTP headers ────────────────────────────────────────────────────────────
 
-const SECRET_REF = /^\{\{secret:([A-Za-z0-9_.-]+)\}\}$/;
-
 /**
  * Headers as rows, and a secret as a choice.
  *
@@ -276,17 +276,24 @@ const SECRET_REF = /^\{\{secret:([A-Za-z0-9_.-]+)\}\}$/;
  * which is a spelling nobody should have to hold — the names are known, so
  * they are offered. Only the name ever reaches the browser; the value is
  * resolved server-side at run time.
+ *
+ * R493: the value is the shared header control the swarm HTTP node uses too:
+ * a scheme ("Bearer ") before the secret, New secret in place, and the
+ * server's own spelling of a reference. This file's detection regex had
+ * allowed `.` and `-` in a name, which the server never resolves.
  */
 export function HeaderRows({
   headers,
-  secrets,
+  url,
   onChange,
 }: {
   headers: Record<string, string> | undefined;
-  secrets: string[];
+  /** The request's URL: a secret shared with you goes only toward hosts its owner allowed. */
+  url?: string;
   onChange: (headers: Record<string, string>) => void;
 }) {
   const rows = Object.entries(headers ?? {});
+  const rowKeys = useRowKeys(rows.length);
   // FOUND FROM THE UI. This used to drop rows whose name was still blank,
   // which meant picking the secret before typing the header name made the
   // whole row vanish under you. A half-filled row is a row being filled in;
@@ -305,61 +312,43 @@ export function HeaderRows({
       {rows.length === 0 ? (
         <p className="text-[10px] text-muted-foreground">None. Most webhooks need at least one.</p>
       ) : null}
-      {rows.map(([k, v], i) => {
-        const secret = SECRET_REF.exec(v)?.[1];
-        return (
-          <div key={i} className="flex items-start gap-1">
-            <div className="grid min-w-0 flex-1 gap-1">
-              <Input
-                className="h-7 text-xs"
-                placeholder="Authorization"
-                aria-label={`Header ${i + 1} name`}
-                value={k}
-                onChange={(e) => edit(i, e.target.value, v)}
-              />
-              <Select
-                value={secret ?? TYPED}
-                onValueChange={(s) => edit(i, k, s === TYPED ? "" : `{{secret:${s}}}`)}
-              >
-                <SelectTrigger className="h-7 text-xs" aria-label={`Header ${i + 1} value source`}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={TYPED} className="text-xs">
-                    A value I type
-                  </SelectItem>
-                  {secrets.map((s) => (
-                    <SelectItem key={s} value={s} className="text-xs">
-                      Secret · {s}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {secret ? (
-                <p className="text-[10px] text-muted-foreground">
-                  Filled in on the server at run time. The value never reaches this page.
-                </p>
-              ) : (
-                <Input
-                  className="h-7 font-mono text-[11px]"
-                  placeholder="application/json"
-                  aria-label={`Header ${i + 1} value`}
-                  value={v}
-                  onChange={(e) => edit(i, k, e.target.value)}
-                />
-              )}
-            </div>
-            <button
-              title="Remove header"
-              aria-label={`Remove header ${i + 1}`}
-              className="mt-1.5 shrink-0 text-muted-foreground hover:text-destructive"
-              onClick={() => write(rows.filter((_, j) => j !== i) as [string, string][])}
-            >
-              <Trash2 className="h-3 w-3" />
-            </button>
+      {rows.map(([k, v], i) => (
+        <div key={rowKeys.keys[i]} className="flex items-start gap-1">
+          <div className="grid min-w-0 flex-1 gap-1">
+            <Input
+              className="h-7 text-xs"
+              placeholder="Authorization"
+              aria-label={`Header ${i + 1} name`}
+              value={k}
+              onChange={(e) => edit(i, e.target.value, v)}
+            />
+            <SecretHeaderValue
+              index={i}
+              headerName={k}
+              value={v}
+              onChange={(value) => edit(i, k, value)}
+              destination={url}
+              textHint={
+                <>
+                  Text as sent. <code className="font-mono">{"{{ params.name }}"}</code> inserts a
+                  parameter.
+                </>
+              }
+            />
           </div>
-        );
-      })}
+          <button
+            title="Remove header"
+            aria-label={`Remove header ${i + 1}`}
+            className="mt-1.5 shrink-0 text-muted-foreground hover:text-destructive"
+            onClick={() => {
+              rowKeys.removeAt(i);
+              write(rows.filter((_, j) => j !== i) as [string, string][]);
+            }}
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        </div>
+      ))}
       <Button
         variant="outline"
         size="sm"

@@ -342,8 +342,14 @@ describe("the wiring", () => {
     ]) {
       expect(pickers, name).toContain(`export function ${name}`);
     }
-    // The secret-name list the pickers share is a hook of its own (R346).
-    expect(rd("src/hooks/use-secret-names.ts")).toContain("export function useSecretNames");
+    // The secret list the pickers share is a hook of its own (R346), one
+    // listing for every picker on the page since R493, and the ETL picker is
+    // the shared secret picker, offering only the owner's own secrets: the
+    // run's environment takes no other.
+    expect(rd("src/hooks/use-secret-list.ts")).toContain("export function useSecretList");
+    expect(rd("src/components/etl/SourcePickers.tsx")).toMatch(
+      /<SecretSelect\s+format="name"\s+ownedOnly/,
+    );
     expect(rd("src/utils/etl.functions.ts")).toContain(
       "export const etlListWarehouseTables = createServerFn",
     );

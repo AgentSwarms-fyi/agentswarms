@@ -39,6 +39,36 @@ development branch and may be ahead of the latest tag.
   registry pull secret belongs on that account now, not `default`. The Helm
   chart was already right.
 
+### Changed
+
+- **Key fields are a list of your secrets, not a box to paste into** (R493).
+  Wherever the server already resolves `{{secret:NAME}}`, the field is now a
+  searchable list of the secrets you may use there, with **New secret…** to
+  store one (encrypted) without leaving the form: swarm HTTP node headers (each
+  row is Text or Secret, with an optional Bearer/Basic/Token scheme) and the
+  A2A node's auth token, workflow HTTP headers, the ETL stream and reverse-ETL
+  secret pickers and pipeline secret bindings (now rows of variable and
+  secret), the MCP builder's bindings, the lakehouse Iceberg catalog's token and
+  OAuth2 secrets, the Data Catalog wizard's Glue, Iceberg REST and bucket keys,
+  warehouse connection keys and passwords, the gateway, Firecrawl and n8n keys,
+  notification webhook URLs, and the API key of each LLM provider kept in
+  Integrations. A shared secret shows whose it is and where its owner lets it
+  go, and is flagged when the field sends it to a host its owner has not
+  allowed; fields that take only your own secrets (a run's environment, a
+  webhook URL) list only those. A key saved before shows as "A key is saved here
+  directly — replace it with a secret", is never displayed, and keeps working
+  until a secret is picked; a secret that no longer exists shows as not found.
+  The Test buttons on the Integrations page now resolve a picked secret the way
+  the run does (the same host rules), and n8n's and an LLM provider's Test
+  re-use the saved key when the field is left as it is. An ETL pipeline's save now refuses a secret
+  binding the run would skip (it used to drop the line without a word), so a
+  pipeline holding such a line must have it fixed or removed before it saves.
+  The swarm templater now leaves exactly the references the server resolves
+  (it skipped `{{Secret :x}}` too, which the server then sent as text). Still to
+  come: secret support where the server lacks it (agent web-search keys, MCP
+  server tokens, SaaS and knowledge-base connectors, Slack/Teams, Git tokens,
+  the cloud LLM providers), then insert menus for `{{var}}` fields.
+
 ### Added
 
 - **Every setting, in the app** (R485). Docs → Self-hosting → All settings lists

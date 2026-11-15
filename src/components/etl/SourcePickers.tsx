@@ -42,8 +42,8 @@ import {
 } from "@/utils/etl/catalogAsset";
 import type { SourceFileFormat } from "@/utils/etl/codegen";
 import { AWS_REGIONS } from "@/utils/etl/streaming";
-import { listSecrets } from "@/utils/secrets.functions";
 import { listWarehouseConnections } from "@/utils/warehouse.functions";
+import { SecretSelect } from "@/components/secrets/SecretSelect";
 import type { WarehouseTable } from "@/utils/warehouse/types";
 
 /** The option that turns a picker into a name field, for targets that may create. */
@@ -264,39 +264,45 @@ function useLakehouseTables(token: string) {
 
 // ── Secrets and regions ─────────────────────────────────────────────────────
 
-/** A secret by name. The value never enters the graph; the run resolves it as the owner. */
+/**
+ * A secret by name. The value never enters the graph; the run resolves it as
+ * the owner, into the run's environment, so only the owner's OWN secrets
+ * resolve (R419): a shared one is not offered (R493), where the old list
+ * offered it and the run then refused it.
+ */
 export function SecretPicker({
   label,
-  secrets,
   value,
   onChange,
   placeholder,
+  optional,
+  suggestedName,
 }: {
   label: string;
-  secrets: string[];
   value: string;
   onChange: (name: string) => void;
   placeholder?: string;
+  /** Offer "None" to unset it. */
+  optional?: boolean;
+  /** A name the New secret form starts from. */
+  suggestedName?: string;
 }) {
-  const options: Option[] = secrets.map((n) => ({ value: n, label: n }));
-  if (value && !secrets.includes(value)) {
-    options.unshift({ value, label: value, hint: "not found in Settings → Secrets" });
-  }
   return (
     <PickField
       label={label}
-      hint={
-        secrets.length === 0
-          ? "No secrets yet. Add one under Settings → Secrets; its value never enters the graph."
-          : "The value stays in Settings → Secrets and reaches the run as the pipeline owner."
-      }
+      hint="Your own secrets. The value stays in Secrets, reaches the run as the pipeline owner, and is scrubbed from its logs."
     >
-      <Picker
+      <SecretSelect
+        format="name"
+        ownedOnly
+        size="sm"
+        aria-label={label}
         value={value}
         onChange={onChange}
         placeholder={placeholder ?? "Choose a secret"}
-        options={options}
-        empty="No secrets yet — add one under Settings → Secrets."
+        optional={optional}
+        suggestedName={suggestedName}
+        purpose={`For this pipeline's ${label.replace(/\s*\(optional\)$/i, "").toLowerCase()}.`}
       />
     </PickField>
   );

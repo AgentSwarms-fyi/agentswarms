@@ -56,7 +56,11 @@ import { mcpSourceDefinition } from "@/lib/mcpSource";
 import { cn } from "@/lib/utils";
 import { generateMcpServer } from "@/lib/mcpCodegen";
 import { isUnrestrictedKey, toolScopeLabel } from "@/lib/mcpKeyScope";
-import { listSecrets, type SecretSummary } from "@/utils/secrets.functions";
+import { SecretSelect } from "@/components/secrets/SecretSelect";
+import { useSecretList } from "@/hooks/use-secret-list";
+import { ENV_NAME_RE, SECRET_BINDING_RE } from "@/lib/secretBindings";
+import { parseSecretRef, secretRef } from "@/lib/secretRefs";
+import { usableSecrets } from "@/lib/secretChoices";
 import {
   mcpAppApproveTools,
   mcpAppDeploy,
@@ -157,7 +161,6 @@ function McpAppEditor() {
   const unregisterFn = useServerFn(mcpAppUnregisterInternal);
   const versionsFn = useServerFn(mcpAppVersions);
   const restoreFn = useServerFn(mcpAppRestoreVersion);
-  const secretsFn = useServerFn(listSecrets);
 
   const [app, setApp] = useState<App | null>(null);
   const [source, setSource] = useState("");
@@ -167,7 +170,6 @@ function McpAppEditor() {
   const [logs, setLogs] = useState("");
   const [keys, setKeys] = useState<McpKeyRow[]>([]);
   const [versions, setVersions] = useState<McpVersionRow[]>([]);
-  const [secrets, setSecrets] = useState<SecretSummary[]>([]);
 
   // The source as loaded or last saved, so the page can tell what a save still
   // owes (R280, sweep 8). It was compared with the source as LOADED, so typing
@@ -359,18 +361,6 @@ function McpAppEditor() {
     else toast.error(res.error);
   };
 
-  const loadSecrets = async () => {
-    const token = session?.access_token;
-    if (!token) return;
-    const res = await reported(
-      () => secretsFn({ data: { access_token: token } }),
-      "Could not load the secrets",
-    );
-    if (!res) return;
-    if (res.ok) setSecrets(res.secrets);
-    else toast.error(res.error);
-  };
-
   const publicUrl = useMemo(
     () => (app ? `${window.location.origin}/api/mcp/s/${app.slug}` : ""),
     [app],
@@ -557,8 +547,6 @@ function McpAppEditor() {
                 app={app}
                 requirements={requirements}
                 setRequirements={setRequirements}
-                secrets={secrets}
-                onLoadSecrets={loadSecrets}
                 onPatch={patch}
                 logs={logs}
                 onLoadLogs={loadLogs}
@@ -688,8 +676,6 @@ function DeployTab({
   app,
   requirements,
   setRequirements,
-  secrets,
-  onLoadSecrets,
   onPatch,
   logs,
   onLoadLogs,
@@ -700,8 +686,6 @@ function DeployTab({
   app: App;
   requirements: string;
   setRequirements: (v: string) => void;
-  secrets: SecretSummary[];
-  onLoadSecrets: () => void;
   onPatch: (fields: Record<string, unknown>) => Promise<void>;
   logs: string;
   onLoadLogs: () => void;
@@ -711,11 +695,12 @@ function DeployTab({
 }) {
   const [envName, setEnvName] = useState("");
   const [secretName, setSecretName] = useState("");
-
-  useEffect(() => {
-    onLoadSecrets();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // The server binds only the owner's own secrets (VA-2026-10-25-28), so a
+  // binding naming any other is skipped at start; the list says so.
+  const owned = useSecretList();
+  const ownedNames = new Set(
+    usableSecrets(owned.secrets, owned.me, { ownedOnly: true }).map((s) => s.name),
+  );
 
   const bindings = app.secret_refs ?? [];
 
@@ -782,50 +767,71 @@ function DeployTab({
         </Label>
         {bindings.length > 0 && (
           <div className="space-y-1">
-            {bindings.map((b) => (
-              <div key={b} className="flex items-center gap-1.5">
-                <code className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1 text-[11px]">
-                  {b}
-                </code>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                  onClick={() => void onPatch({ secret_refs: bindings.filter((x) => x !== b) })}
-                  aria-label={`Remove ${b}`}
-                >
-                  <Trash2 className="h-3 w-3" />
-                </Button>
-              </div>
-            ))}
+            {bindings.map((b) => {
+              const m = SECRET_BINDING_RE.exec(b.trim());
+              const name = m ? parseSecretRef(m[2]) : null;
+              const why = !name
+                ? "not a binding: skipped at start"
+                : !owned.loaded
+                  ? null
+                  : ownedNames.has(name)
+                    ? null
+                    : "not one of your secrets: skipped at start";
+              return (
+                <div key={b} className="flex items-center gap-1.5">
+                  <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate rounded bg-muted px-2 py-1 text-[11px]">
+                    {m && name ? (
+                      <>
+                        <code>{m[1]}</code>
+                        <span className="text-muted-foreground">=</span>
+                        <KeyRound className="h-3 w-3 shrink-0 opacity-60" aria-hidden />
+                        <code>{name}</code>
+                      </>
+                    ) : (
+                      <code className="truncate">{b}</code>
+                    )}
+                    {why ? <span className="shrink-0 text-destructive">{why}</span> : null}
+                  </span>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                    onClick={() => void onPatch({ secret_refs: bindings.filter((x) => x !== b) })}
+                    aria-label={`Remove ${m ? m[1] : b}`}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
+              );
+            })}
           </div>
         )}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-start gap-1.5">
           <Input
             value={envName}
-            onChange={(e) => setEnvName(e.target.value.toUpperCase())}
+            onChange={(e) => setEnvName(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, ""))}
             placeholder="ENV_NAME"
+            aria-label="Environment variable"
             className="h-7 flex-1 font-mono text-xs"
           />
-          <select
+          <SecretSelect
+            className="flex-1"
+            size="sm"
+            format="name"
+            ownedOnly
+            aria-label="Secret to bind"
             value={secretName}
-            onChange={(e) => setSecretName(e.target.value)}
-            className="h-7 flex-1 rounded-md border border-input bg-background px-2 text-xs"
-          >
-            <option value="">Secret…</option>
-            {secrets.map((s) => (
-              <option key={s.id} value={s.name}>
-                {s.name}
-              </option>
-            ))}
-          </select>
+            onChange={setSecretName}
+            suggestedName={envName || undefined}
+            purpose={envName ? `For this server's ${envName} environment variable.` : undefined}
+          />
           <Button
             size="sm"
             variant="secondary"
             className="h-7 text-xs"
-            disabled={!/^[A-Za-z_][A-Za-z0-9_]*$/.test(envName) || !secretName}
+            disabled={!ENV_NAME_RE.test(envName) || !secretName}
             onClick={() => {
-              const entry = `${envName}={{secret:${secretName}}}`;
+              const entry = `${envName}=${secretRef(secretName)}`;
               if (!bindings.includes(entry)) void onPatch({ secret_refs: [...bindings, entry] });
               setEnvName("");
               setSecretName("");
@@ -835,9 +841,11 @@ function DeployTab({
           </Button>
         </div>
         <p className="text-[11px] leading-relaxed text-muted-foreground">
-          Read with <code>os.environ["ENV_NAME"]</code>. Values are resolved only when the container
-          starts and travel over an authenticated call — they never appear in the container
-          environment, the database, or the logs. Manage the secrets themselves under{" "}
+          Name a variable and pick one of your secrets; the server reads it with{" "}
+          <code>os.environ["ENV_NAME"]</code>. Values are resolved only when the container starts
+          and travel over an authenticated call — they never appear in the container environment,
+          the database, or the logs. A secret shared with you cannot be bound: code you write could
+          print it. Manage the secrets themselves under{" "}
           <Link to="/secrets" className="text-primary hover:underline">
             Secrets
           </Link>

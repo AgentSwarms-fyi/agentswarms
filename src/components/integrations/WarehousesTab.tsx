@@ -68,9 +68,12 @@ import { useAuth } from "@/hooks/use-auth";
 import {
   WAREHOUSE_LABELS,
   WAREHOUSE_PROVIDERS,
+  type WarehouseConfig,
   type WarehouseConnectionSummary,
   type WarehouseProvider,
 } from "@/utils/warehouse/types";
+import { SecretSelect } from "@/components/secrets/SecretSelect";
+import { suggestSecretName } from "@/lib/secretRefs";
 import {
   deleteWarehouseConnection,
   listWarehouseConnections,
@@ -78,7 +81,11 @@ import {
   testWarehouseConnectionFn,
 } from "@/utils/warehouse.functions";
 import { providerInitials } from "./providerInitials";
-import { WAREHOUSE_PRIVATE_PATH_HINT } from "@/utils/warehouse/destinations";
+import {
+  WAREHOUSE_PRIVATE_PATH_HINT,
+  warehouseCredentialFields,
+  warehouseHosts,
+} from "@/utils/warehouse/destinations";
 import { WAREHOUSE_ENDPOINT_EXAMPLE } from "@/utils/warehouse/endpoints";
 
 type Field = {
@@ -175,6 +182,30 @@ function hostPortFields(defaultPort: number, dbPlaceholder?: string): Field[] {
 }
 
 const READ_ONLY_NOTE = "Use a read-only role — only SELECT statements are ever sent.";
+
+/**
+ * Whether a connection field holds a key, and so is picked as a secret (R493):
+ * the fields a shared secret may fill (warehouseCredentialFields, the server's
+ * own list), but a user name, which is who you are rather than a key.
+ */
+function isWarehouseSecretField(provider: WarehouseProvider, key: string): boolean {
+  if (key === "username") return false;
+  return warehouseCredentialFields({ provider } as WarehouseConfig).includes(key);
+}
+
+/** The hosts this form's credentials would go to, as the drivers build them; [] until known. */
+function warehouseDestinations(
+  provider: WarehouseProvider,
+  fields: Record<string, string>,
+): string[] {
+  try {
+    return warehouseHosts({ ...fields, provider } as WarehouseConfig).filter(
+      (h) => h.trim() !== "",
+    );
+  } catch {
+    return [];
+  }
+}
 
 const PROVIDER_META: Record<
   WarehouseProvider,
@@ -837,10 +868,10 @@ export function WarehousesTab() {
               Connect {dialogProvider ? WAREHOUSE_LABELS[dialogProvider] : ""}
             </DialogTitle>
             <DialogDescription>
-              Credentials are encrypted at rest and only used server-side. Use a read-only database
-              user/role — the app additionally rejects non-SELECT statements. Any field accepts a
-              Secrets Manager reference like <code className="text-xs">{"{{secret:NAME}}"}</code>{" "}
-              instead of the raw value.
+              Keys and passwords are secrets, picked by name from Secrets (New secret creates one in
+              place); the connection stores which secret, never its value, and the server fills it
+              in at query time. Use a read-only database user/role — the app additionally rejects
+              non-SELECT statements.
             </DialogDescription>
           </DialogHeader>
           {meta ? (
@@ -854,14 +885,28 @@ export function WarehousesTab() {
               </div>
               {meta.fields.map((f) => (
                 <div key={f.key} className="space-y-1.5">
-                  <Label>
+                  <Label htmlFor={`warehouse-field-${f.key}`}>
                     {f.label}
                     {f.optional ? (
                       <span className="ml-1 text-xs text-muted-foreground">(optional)</span>
                     ) : null}
                   </Label>
-                  {f.type === "textarea" ? (
+                  {dialogProvider && isWarehouseSecretField(dialogProvider, f.key) ? (
+                    <SecretSelect
+                      id={`warehouse-field-${f.key}`}
+                      optional={f.optional}
+                      value={fields[f.key] ?? ""}
+                      onChange={(v) => setFields((s) => ({ ...s, [f.key]: v }))}
+                      destination={warehouseDestinations(dialogProvider, fields)}
+                      placeholder={f.optional ? "None" : "Choose a secret"}
+                      suggestedName={suggestSecretName(
+                        `${WAREHOUSE_LABELS[dialogProvider].split(" ")[0]}_${f.key}`,
+                      )}
+                      purpose={`For the ${WAREHOUSE_LABELS[dialogProvider]} connection's ${f.label.toLowerCase()}.`}
+                    />
+                  ) : f.type === "textarea" ? (
                     <Textarea
+                      id={`warehouse-field-${f.key}`}
                       rows={5}
                       className="font-mono text-xs"
                       placeholder={f.placeholder}
@@ -870,6 +915,7 @@ export function WarehousesTab() {
                     />
                   ) : (
                     <Input
+                      id={`warehouse-field-${f.key}`}
                       type={f.type === "password" ? "password" : "text"}
                       placeholder={f.placeholder}
                       value={fields[f.key] ?? ""}

@@ -26,6 +26,7 @@ import { chainTargetsOf, validateChainTargets } from "@/lib/etlChain";
 import { etlPipelineDefinition } from "@/lib/etlDefinition";
 import { fingerprintOf } from "@/lib/definitionFingerprint";
 import { unversionedSave } from "@/lib/saveVersion";
+import { secretBindingsError } from "@/lib/secretBindings";
 import { CONTINUOUS_SCHEDULE, canRunContinuously } from "@/utils/etl/continuous";
 import {
   cancelEtlRun,
@@ -485,6 +486,12 @@ export const saveEtlPipeline = createServerFn({ method: "POST" })
         });
         if (refused) throw new Error(refused);
       }
+
+      // A secret binding the run would skip is refused here rather than saved
+      // to be skipped (R493): the run drops a line it cannot read without a
+      // word, and the code then finds its variable missing.
+      const badBinding = secretBindingsError(data.secret_refs);
+      if (badBinding) throw new Error(badBinding);
 
       // Visual pipelines compile on every save. A half-built canvas must still
       // be saveable — losing work to "join needs two inputs" would be hostile —

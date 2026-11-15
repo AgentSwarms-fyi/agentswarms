@@ -70,6 +70,10 @@ import { SkillPicker } from "@/components/skills/SkillPicker";
 import { isImageModelId } from "@/lib/providerSupport";
 import { allowedProviders, isModelAllowedByRules, useMyModelRules } from "@/hooks/use-iam";
 import { useOllamaModels } from "@/hooks/use-ollama-models";
+import { useRowKeys } from "@/hooks/use-row-keys";
+import { SecretHeaderValue } from "@/components/secrets/SecretHeaderValue";
+import { SecretSelect } from "@/components/secrets/SecretSelect";
+import { headerSecretValue, parseHeaderSecret, parseSecretRef, secretRef } from "@/lib/secretRefs";
 
 // Rerank-capable providers (Cohere/Jina-style POST /rerank); the picker
 // filters to connected integrations (OpenRouter always available).
@@ -2643,6 +2647,7 @@ function HttpPanel({
 }) {
   const method = data.httpMethod || "GET";
   const headers = data.httpHeaders ?? [];
+  const rowKeys = useRowKeys(headers.length);
   const updateHeader = (i: number, patch: Partial<{ key: string; value: string }>) =>
     onChange({ httpHeaders: headers.map((h, idx) => (idx === i ? { ...h, ...patch } : h)) });
   const hasBody = method !== "GET" && method !== "DELETE";
@@ -2651,10 +2656,12 @@ function HttpPanel({
       <div className="rounded-md border border-lime-500/30 bg-lime-500/5 p-2.5 text-[11px] leading-relaxed">
         <p className="font-medium text-foreground mb-0.5">🌐 HTTP Request</p>
         <p className="text-muted-foreground">
-          Deterministic call (runs server-side). URL, headers and body support{" "}
-          <code className="font-mono">{"{{var}}"}</code> flow-state templating and{" "}
-          <code className="font-mono">{"{{secret:NAME}}"}</code> — secrets are resolved on the
-          server and never sent to the browser.
+          Deterministic call (runs server-side). The URL, the body and a header set to Text take{" "}
+          <code className="font-mono">{"{{var}}"}</code> for a flow-state value, such as{" "}
+          <code className="font-mono">{"{{input}}"}</code> or{" "}
+          <code className="font-mono">{"{{state.field}}"}</code>. Keys go in a header: set its value
+          to Secret and pick one. The server fills it in at run time; the value never reaches this
+          page.
         </p>
       </div>
       <Section label="Method & URL">
@@ -2678,30 +2685,51 @@ function HttpPanel({
             value={data.httpUrl || ""}
             onChange={(e) => onChange({ httpUrl: e.target.value })}
             placeholder="https://api.example.com/{{input}}"
+            aria-label="URL"
             className="flex-1 font-mono text-xs"
           />
         </div>
+        <p className="text-[10px] text-muted-foreground mt-1">
+          <code className="font-mono">{"{{var}}"}</code> inserts a flow-state value, e.g.{" "}
+          <code className="font-mono">{"https://api.example.com/items/{{input}}"}</code>. A key does
+          not belong in a URL: add it as a header set to Secret.
+        </p>
       </Section>
       <Section label="Headers">
         {headers.map((h, i) => (
-          <div key={i} className="flex gap-1.5 mb-1.5">
+          <div key={rowKeys.keys[i]} className="mb-2 flex items-start gap-1.5">
             <Input
               value={h.key}
               onChange={(e) => updateHeader(i, { key: e.target.value })}
               placeholder="Authorization"
-              className="w-32 font-mono text-xs"
+              aria-label={`Header ${i + 1} name`}
+              className="h-7 w-28 shrink-0 font-mono text-xs"
             />
-            <Input
-              value={h.value}
-              onChange={(e) => updateHeader(i, { value: e.target.value })}
-              placeholder="Bearer {{secret:MY_KEY}}"
-              className="flex-1 font-mono text-xs"
-            />
+            <div className="min-w-0 flex-1">
+              <SecretHeaderValue
+                index={i}
+                headerName={h.key}
+                value={h.value}
+                onChange={(value) => updateHeader(i, { value })}
+                destination={data.httpUrl || undefined}
+                textPlaceholder="application/json or {{input}}"
+                textHint={
+                  <>
+                    Text as sent. <code className="font-mono">{"{{var}}"}</code> inserts a
+                    flow-state value.
+                  </>
+                }
+              />
+            </div>
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 shrink-0"
-              onClick={() => onChange({ httpHeaders: headers.filter((_, idx) => idx !== i) })}
+              className="h-7 w-7 shrink-0"
+              aria-label={`Remove header ${i + 1}`}
+              onClick={() => {
+                rowKeys.removeAt(i);
+                onChange({ httpHeaders: headers.filter((_, idx) => idx !== i) });
+              }}
             >
               <Trash2 className="h-3.5 w-3.5 text-destructive" />
             </Button>
@@ -2723,8 +2751,13 @@ function HttpPanel({
             onChange={(e) => onChange({ httpBody: e.target.value })}
             rows={4}
             placeholder={'{"q": "{{input}}"}'}
+            aria-label="Request body"
             className="font-mono text-xs"
           />
+          <p className="text-[10px] text-muted-foreground mt-1">
+            Sent as written, with <code className="font-mono">{"{{var}}"}</code> replaced by its
+            flow-state value. Keys go in a header set to Secret, not in the body.
+          </p>
         </Section>
       )}
       <Section label="Response JSON path (optional)">
@@ -3069,6 +3102,7 @@ function A2APanel({
   const [discoverError, setDiscoverError] = useState<string | null>(null);
   const card: AgentCard | undefined = data.a2aAgentCard;
   const endpoint = data.a2aEndpoint || "";
+  const a2aAuth = parseHeaderSecret(data.a2aAuthHeader);
 
   async function handleDiscover() {
     if (!endpoint.trim()) {
@@ -3202,18 +3236,29 @@ function A2APanel({
         </div>
       )}
 
-      <Section label="Auth header (optional, sent as Authorization)">
-        <Input
-          type="password"
-          value={data.a2aAuthHeader || ""}
-          onChange={(e) => onChange({ a2aAuthHeader: e.target.value })}
-          placeholder="Bearer {{secret:MY_AGENT_TOKEN}}"
-          className="font-mono text-xs"
+      <Section label="Auth token (optional, sent as Authorization)">
+        <SecretSelect
+          size="sm"
+          optional
+          aria-label="Auth token secret"
+          // A stored `Bearer {{secret:NAME}}` is the same secret: the picker
+          // shows NAME, and a new pick keeps the scheme that was there.
+          value={a2aAuth ? secretRef(a2aAuth.name) : data.a2aAuthHeader || ""}
+          onChange={(v) => {
+            const name = parseSecretRef(v);
+            onChange({
+              a2aAuthHeader: name ? headerSecretValue(a2aAuth?.prefix ?? "", name) : undefined,
+            });
+          }}
+          destination={endpoint.trim() || undefined}
+          placeholder="No token"
+          suggestedName="A2A_AGENT_TOKEN"
+          purpose="For the remote agent's Authorization header."
         />
         <p className="text-[10px] text-muted-foreground mt-1">
-          Forwarded only to the endpoint above. If you omit "Bearer ", we'll add it. Prefer{" "}
-          <code className="font-mono">{"{{secret:NAME}}"}</code> — it resolves on the server at call
-          time. A token typed here literally is stored in the swarm graph in plain text.
+          Sent only to the endpoint above, as <code className="font-mono">Bearer</code> and the
+          secret&apos;s value (a value that already starts with Bearer or Basic is sent as it is).
+          The server fills it in at call time; it never enters the swarm graph.
         </p>
       </Section>
 

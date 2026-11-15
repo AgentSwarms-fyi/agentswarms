@@ -61,6 +61,9 @@ import {
 import { endpointHosts, type EndpointProvider } from "@/utils/providers/privateEndpoint";
 import { detectOllama } from "@/utils/providers/ollama.functions";
 import { invalidateOllamaModels } from "@/hooks/use-ollama-models";
+import { integrationHosts } from "@/utils/providers/integrationHosts";
+import { SecretSelect } from "@/components/secrets/SecretSelect";
+import { savedSecretField, suggestSecretName } from "@/lib/secretRefs";
 
 // Providers we can live-test against the real upstream API.
 // bedrock/azure/vertex/oci use signed requests and live in the encrypted
@@ -1092,7 +1095,15 @@ export function ProviderCredentialsPanel() {
                 </p>
               ) : (
                 <div className="flex gap-2">
-                  <ProviderConfigDialog provider={provider} onSave={saveProvider} />
+                  <ProviderConfigDialog
+                    provider={provider}
+                    onSave={saveProvider}
+                    savedConfig={
+                      integrations.find(
+                        (i) => i.provider === provider.id && !i.id.startsWith("enc-"),
+                      )?.config
+                    }
+                  />
                   {mayOfferDisconnect(readState, providerFacts(provider.id)) && (
                     <Button
                       variant="outline"
@@ -1160,15 +1171,37 @@ const NETWORK_MODES: { value: NetworkMode; label: string; hint: string }[] = [
   },
 ];
 
+/**
+ * Whether a provider field is a key picked as a secret (R493): the API key of
+ * a provider kept in the `integrations` table, whose key the server resolves
+ * from a reference at run time. The encrypted providers (Bedrock, Azure,
+ * Vertex, OCI, Claude on AWS) store their credentials elsewhere and do not
+ * resolve references yet, so their fields stay as they are.
+ */
+function isSecretPickedField(providerId: string, key: string): boolean {
+  return key === "api_key" && !ENCRYPTED_PROVIDERS.has(providerId);
+}
+
 function ProviderConfigDialog({
   provider,
   onSave,
+  savedConfig,
 }: {
   provider: (typeof LLM_PROVIDERS)[0];
   onSave: (id: string, config: Record<string, string>) => Promise<{ ok: boolean; detail?: string }>;
+  /** The saved row's config, as this page reads it: says which secret, or that a key is saved. */
+  savedConfig?: Record<string, unknown>;
 }) {
   const [config, setConfig] = useState<Record<string, string>>({});
   const [open, setOpen] = useState(false);
+  const savedKey = savedSecretField(savedConfig, "api_key");
+  // A picked secret is a reference, not a key, so opening the dialog shows
+  // it again. A key saved directly stays out of the form, and is kept while
+  // the field is left alone.
+  useEffect(() => {
+    if (!open || !savedKey.ref || !isSecretPickedField(provider.id, "api_key")) return;
+    setConfig((c) => (c.api_key === undefined ? { ...c, api_key: savedKey.ref } : c));
+  }, [open, savedKey.ref, provider.id]);
   const [testing, setTesting] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
   const [pathCheck, setPathCheck] = useState<null | {
@@ -1389,14 +1422,35 @@ function ProviderConfigDialog({
             .filter((field) => field !== endpointField)
             .map((field) => (
               <div key={field.key} className="space-y-2">
-                <Label>{field.label}</Label>
-                <Input
-                  type={field.type}
-                  placeholder={field.placeholder}
-                  value={config[field.key] || ""}
-                  onChange={(e) => setConfig({ ...config, [field.key]: e.target.value })}
-                  disabled={testing}
-                />
+                <Label htmlFor={`provider-${provider.id}-${field.key}`}>{field.label}</Label>
+                {isSecretPickedField(provider.id, field.key) ? (
+                  <>
+                    <SecretSelect
+                      id={`provider-${provider.id}-${field.key}`}
+                      value={config[field.key] || ""}
+                      onChange={(v) => setConfig((c) => ({ ...c, [field.key]: v }))}
+                      storedKey={savedKey.stored}
+                      optional={provider.id === "vllm"}
+                      destination={integrationHosts("llm_provider", provider.id)(config) ?? []}
+                      disabled={testing}
+                      suggestedName={suggestSecretName(`${provider.id}_api_key`)}
+                      purpose={`For ${provider.name}'s API key${field.placeholder ? ` (${field.placeholder})` : ""}.`}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      A secret holding the key, sent only to this provider&apos;s API (or the base
+                      URL you set). Its value stays encrypted in Secrets and is never shown.
+                    </p>
+                  </>
+                ) : (
+                  <Input
+                    id={`provider-${provider.id}-${field.key}`}
+                    type={field.type}
+                    placeholder={field.placeholder}
+                    value={config[field.key] || ""}
+                    onChange={(e) => setConfig({ ...config, [field.key]: e.target.value })}
+                    disabled={testing}
+                  />
+                )}
               </div>
             ))}
           <fieldset className="space-y-3 rounded-md border p-2.5" data-testid="network-section">

@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SecretSelect } from "@/components/secrets/SecretSelect";
 import { useAuth } from "@/hooks/use-auth";
 import {
   icebergCatalogCreate,
@@ -102,6 +103,9 @@ export function IcebergCatalogsDialog({ onChanged }: { onChanged: () => void }) 
   const [ruleBusy, setRuleBusy] = useState("");
 
   const [form, setForm] = useState<IcebergCatalogConfig>(defaultIcebergCatalog());
+  // Where OAuth2 client credentials go: the token server, or the catalog's own
+  // endpoint when none is set (catalogSecrets in iceberg.server.ts).
+  const tokenServer = form.oauth2_server_uri.trim() || form.endpoint.trim();
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -344,35 +348,60 @@ export function IcebergCatalogsDialog({ onChanged }: { onChanged: () => void }) 
                 </div>
                 {form.auth_type === "bearer" && (
                   <div className="space-y-1 sm:col-span-2">
-                    <Label className="text-xs">Token secret (Settings → Secrets)</Label>
-                    <Input
-                      className="h-8 font-mono text-xs"
+                    <Label className="text-xs" htmlFor="iceberg-token-secret">
+                      Bearer token
+                    </Label>
+                    <SecretSelect
+                      id="iceberg-token-secret"
+                      format="name"
+                      size="sm"
                       value={form.token_secret}
-                      onChange={(e) => set("token_secret", e.target.value)}
-                      placeholder="ICEBERG_TOKEN"
+                      onChange={(v) => set("token_secret", v)}
+                      destination={form.endpoint.trim() || undefined}
+                      suggestedName="ICEBERG_TOKEN"
+                      purpose="For the Iceberg catalog's bearer token."
                     />
+                    <p className="text-[11px] text-muted-foreground">
+                      A secret holding the token, sent only to the endpoint above.
+                    </p>
                   </div>
                 )}
                 {form.auth_type === "oauth2" && (
                   <>
                     <div className="space-y-1">
-                      <Label className="text-xs">Client id secret</Label>
-                      <Input
-                        className="h-8 font-mono text-xs"
+                      <Label className="text-xs" htmlFor="iceberg-client-id-secret">
+                        Client id
+                      </Label>
+                      <SecretSelect
+                        id="iceberg-client-id-secret"
+                        format="name"
+                        size="sm"
                         value={form.client_id_secret}
-                        onChange={(e) => set("client_id_secret", e.target.value)}
-                        placeholder="ICEBERG_CLIENT_ID"
+                        onChange={(v) => set("client_id_secret", v)}
+                        destination={tokenServer || undefined}
+                        suggestedName="ICEBERG_CLIENT_ID"
+                        purpose="For the Iceberg catalog's OAuth2 client id."
                       />
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-xs">Client secret secret</Label>
-                      <Input
-                        className="h-8 font-mono text-xs"
+                      <Label className="text-xs" htmlFor="iceberg-client-secret-secret">
+                        Client secret
+                      </Label>
+                      <SecretSelect
+                        id="iceberg-client-secret-secret"
+                        format="name"
+                        size="sm"
                         value={form.client_secret_secret}
-                        onChange={(e) => set("client_secret_secret", e.target.value)}
-                        placeholder="ICEBERG_CLIENT_SECRET"
+                        onChange={(v) => set("client_secret_secret", v)}
+                        destination={tokenServer || undefined}
+                        suggestedName="ICEBERG_CLIENT_SECRET"
+                        purpose="For the Iceberg catalog's OAuth2 client secret."
                       />
                     </div>
+                    <p className="text-[11px] text-muted-foreground sm:col-span-2">
+                      Secrets holding the OAuth2 client credentials, sent only to the token server
+                      (the endpoint&apos;s own when no URI is set below).
+                    </p>
                     <div className="space-y-1 sm:col-span-2">
                       <Label className="text-xs">OAuth2 server URI (optional)</Label>
                       <Input

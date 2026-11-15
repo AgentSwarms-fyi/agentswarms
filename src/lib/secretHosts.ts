@@ -13,6 +13,9 @@
 /** How many hosts one secret may list. */
 export const MAX_ALLOWED_HOSTS = 50;
 
+/** An allowed-hosts box's text as entries: one host per line (commas too), as typed. */
+export const hostLines = (text: string) => text.split(/[\n,]+/).map((l) => l.trim());
+
 const SCHEME_RE = /^[a-z][a-z0-9+.-]*:\/\//i;
 
 /**
