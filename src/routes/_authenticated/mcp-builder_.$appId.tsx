@@ -821,7 +821,11 @@ function DeployTab({
             ownedOnly
             aria-label="Secret to bind"
             value={secretName}
-            onChange={setSecretName}
+            onChange={(name) => {
+              setSecretName(name);
+              // A variable is usually named after its secret: start it there.
+              if (!envName && name) setEnvName(name.toUpperCase().replace(/[^A-Z0-9_]/g, ""));
+            }}
             suggestedName={envName || undefined}
             purpose={envName ? `For this server's ${envName} environment variable.` : undefined}
           />

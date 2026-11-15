@@ -93,21 +93,23 @@ export function SecretHeaderValue({
 
   return (
     <div className="grid min-w-0 gap-1">
-      <Select value={source} onValueChange={(v) => switchTo(v as Source)}>
-        <SelectTrigger className={h} aria-label={`${label} value source`}>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="text" className="text-xs">
-            Text
-          </SelectItem>
-          <SelectItem value="secret" className="text-xs">
-            Secret
-          </SelectItem>
-        </SelectContent>
-      </Select>
-      {source === "secret" ? (
-        <div className="flex min-w-0 items-start gap-1">
+      {/* The secret picker gets a line of its own: beside the scheme, in a
+          narrow inspector, it had room for its icon and not the name. */}
+      <div className="flex min-w-0 gap-1">
+        <Select value={source} onValueChange={(v) => switchTo(v as Source)}>
+          <SelectTrigger className={cn(h, "min-w-0 flex-1")} aria-label={`${label} value source`}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="text" className="text-xs">
+              Text
+            </SelectItem>
+            <SelectItem value="secret" className="text-xs">
+              Secret
+            </SelectItem>
+          </SelectContent>
+        </Select>
+        {source === "secret" ? (
           <Select
             value={prefix === "" ? PREFIX_NONE : prefix}
             onValueChange={(v) => {
@@ -116,7 +118,7 @@ export function SecretHeaderValue({
               if (parsed) onChange(headerSecretValue(p, parsed.name));
             }}
           >
-            <SelectTrigger className={cn(h, "w-[5.5rem] shrink-0")} aria-label={`${label} scheme`}>
+            <SelectTrigger className={cn(h, "w-[6.5rem] shrink-0")} aria-label={`${label} scheme`}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -127,21 +129,23 @@ export function SecretHeaderValue({
               ))}
             </SelectContent>
           </Select>
-          <SecretSelect
-            className="flex-1"
-            size={size}
-            aria-label={`${label} secret`}
-            // The secret part, or the key typed here before, which the picker
-            // shows as a key saved directly and never displays.
-            value={parsed ? secretRef(parsed.name) : value}
-            onChange={(v) => {
-              const name = parseSecretRef(v);
-              onChange(name ? headerSecretValue(prefix, name) : "");
-            }}
-            destination={destination ? [destination] : undefined}
-            purpose={headerName.trim() ? `For the ${headerName.trim()} header.` : undefined}
-          />
-        </div>
+        ) : null}
+      </div>
+      {source === "secret" ? (
+        <SecretSelect
+          className="min-w-0"
+          size={size}
+          aria-label={`${label} secret`}
+          // The secret part, or the key typed here before, which the picker
+          // shows as a key saved directly and never displays.
+          value={parsed ? secretRef(parsed.name) : value}
+          onChange={(v) => {
+            const name = parseSecretRef(v);
+            onChange(name ? headerSecretValue(prefix, name) : "");
+          }}
+          destination={destination ? [destination] : undefined}
+          purpose={headerName.trim() ? `For the ${headerName.trim()} header.` : undefined}
+        />
       ) : (
         <>
           <Input
@@ -149,7 +153,13 @@ export function SecretHeaderValue({
             placeholder={textPlaceholder}
             aria-label={`${label} value`}
             value={value}
-            onChange={(e) => onChange(e.target.value)}
+            onChange={(e) => {
+              const next = e.target.value;
+              // A reference typed or pasted here is a secret: show it as one,
+              // where the picker can say whether it still exists.
+              if (parseHeaderSecret(next)) setSource("secret");
+              onChange(next);
+            }}
           />
           {typedKey ? (
             <p className="text-[10px] leading-snug text-warning">

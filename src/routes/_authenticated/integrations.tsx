@@ -863,6 +863,7 @@ function IntegrationsPage() {
                           value={notifUrls[ch.kind] || ""}
                           onChange={(v) => setNotifUrls((u) => ({ ...u, [ch.kind]: v }))}
                           storedKey={savedSecretField(savedChannel?.config, "webhook_url").stored}
+                          rawNoun="webhook URL"
                           suggestedName={suggestSecretName(`${ch.kind}_webhook_url`)}
                           purpose={`For the ${ch.label} webhook URL, such as ${ch.placeholder}`}
                         />

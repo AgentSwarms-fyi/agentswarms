@@ -76,6 +76,11 @@ export type SecretSelectProps = {
    * run ignores unless it names a secret, say.
    */
   rawNote?: string;
+  /**
+   * What the field holds, for a value saved in it directly: "key" (default),
+   * or "webhook URL" where the URL itself is the credential.
+   */
+  rawNoun?: string;
   /** Offer "None" to clear the field. */
   optional?: boolean;
   /** For a `<Label htmlFor>`. */
@@ -107,6 +112,7 @@ export function SecretSelect({
   destination,
   storedKey = false,
   rawNote,
+  rawNoun = "key",
   optional = false,
   id,
   "aria-label": ariaLabel,
@@ -148,6 +154,9 @@ export function SecretSelect({
     !q || s.name.toLowerCase().includes(q) || (s.description ?? "").toLowerCase().includes(q);
   const mineShown = usable.filter((s) => ownsSecret(s, me) && matches(s));
   const sharedShown = usable.filter((s) => !ownsSecret(s, me) && matches(s));
+  // Secrets shared with you that this field leaves out: say so, or a list
+  // without them reads as if they were gone.
+  const sharedHidden = ownedOnly && list.secrets.some((s) => !ownsSecret(s, me));
 
   const pick = (name: string) => {
     onChange(secretFieldValue(name, format));
@@ -166,7 +175,9 @@ export function SecretSelect({
     shown = rawNote ? (
       <span className="truncate text-destructive">Text, not a secret</span>
     ) : (
-      <span className="truncate text-warning">Key saved in this field</span>
+      <span className="truncate text-warning">
+        {rawNoun.charAt(0).toUpperCase() + rawNoun.slice(1)} saved in this field
+      </span>
     );
   } else if (state.kind === "invalid") {
     shown = (
@@ -201,7 +212,7 @@ export function SecretSelect({
       ? { tone: "error", text: rawNote }
       : {
           tone: "warn",
-          text: "A key is saved here directly — replace it with a secret. It keeps working until you pick one, and is never shown.",
+          text: `A ${rawNoun} is saved here directly — replace it with a secret. It keeps working until you pick one, and is never shown.`,
         };
   } else if (state.kind === "invalid") {
     status = {
@@ -298,9 +309,15 @@ export function SecretSelect({
                 <p className="px-3 py-3 text-xs text-muted-foreground">
                   {q
                     ? `No secret matches “${query.trim()}”.`
-                    : ownedOnly
-                      ? "You have no secrets yet. Create one with New secret below."
-                      : "No secrets yet, of yours or shared with you. Create one with New secret below."}
+                    : sharedHidden
+                      ? "You have no secrets of your own yet, and only yours work here, not ones shared with you. Create one with New secret below."
+                      : ownedOnly
+                        ? "You have no secrets yet. Create one with New secret below."
+                        : "No secrets yet, of yours or shared with you. Create one with New secret below."}
+                </p>
+              ) : sharedHidden && !q ? (
+                <p className="px-3 pb-1 pt-2 text-[11px] text-muted-foreground">
+                  Only your own secrets work here, so ones shared with you are not listed.
                 </p>
               ) : null}
               {mineShown.length > 0 ? (

@@ -2698,14 +2698,16 @@ function HttpPanel({
       <Section label="Headers">
         {headers.map((h, i) => (
           <div key={rowKeys.keys[i]} className="mb-2 flex items-start gap-1.5">
-            <Input
-              value={h.key}
-              onChange={(e) => updateHeader(i, { key: e.target.value })}
-              placeholder="Authorization"
-              aria-label={`Header ${i + 1} name`}
-              className="h-7 w-28 shrink-0 font-mono text-xs"
-            />
-            <div className="min-w-0 flex-1">
+            {/* Name above value: beside it, the value had too little room to
+                show a secret's name. */}
+            <div className="grid min-w-0 flex-1 gap-1">
+              <Input
+                value={h.key}
+                onChange={(e) => updateHeader(i, { key: e.target.value })}
+                placeholder="Authorization"
+                aria-label={`Header ${i + 1} name`}
+                className="h-7 font-mono text-xs"
+              />
               <SecretHeaderValue
                 index={i}
                 headerName={h.key}

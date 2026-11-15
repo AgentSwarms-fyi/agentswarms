@@ -55,7 +55,10 @@ development branch and may be ahead of the latest tag.
   Integrations. A shared secret shows whose it is and where its owner lets it
   go, and is flagged when the field sends it to a host its owner has not
   allowed; fields that take only your own secrets (a run's environment, a
-  webhook URL) list only those. A key saved before shows as "A key is saved here
+  webhook URL) list only those, and say that shared ones are left out. Picking a
+  secret for a binding with no variable name yet names it after the secret, and
+  a header value typed as `{{secret:NAME}}` turns into a Secret row, where a
+  missing secret shows as not found. A key saved before shows as "A key is saved here
   directly — replace it with a secret", is never displayed, and keeps working
   until a secret is picked; a secret that no longer exists shows as not found.
   The Test buttons on the Integrations page now resolve a picked secret the way

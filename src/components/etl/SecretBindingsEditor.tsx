@@ -71,7 +71,11 @@ export function SecretBindingsEditor({
                 ownedOnly
                 aria-label={`Binding ${i + 1} secret`}
                 value={r.secret ? secretRef(r.secret) : r.value}
-                onChange={(v) => edit(i, { value: v, secret: parseSecretRef(v) })}
+                onChange={(v) => {
+                  const secret = parseSecretRef(v);
+                  // A variable is usually named after its secret: start it there.
+                  edit(i, { value: v, secret, ...(!r.env && secret ? { env: secret } : {}) });
+                }}
                 suggestedName={suggestSecretName(r.env) || undefined}
                 rawNote="Set to text, not a secret, so the run ignores it. Pick a secret."
                 purpose={r.env ? `For the ${r.env} environment variable.` : undefined}
