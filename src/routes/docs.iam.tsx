@@ -273,7 +273,9 @@ function IamPage() {
         A row filter's values do not have to be literals. Writing <C>{"{{user.<key>}}"}</C> in place
         of a value resolves it, at query time, to the calling user's own values for that attribute —
         so a <em>single</em> grant on a group scopes every member to their own slice, instead of one
-        grant per person.
+        grant per person. When you share, the <strong>Attribute</strong> menu beside the
+        filter&apos;s values lists every key set on the Attributes tab. Picking one adds it as its
+        own value, so you never have to remember a key&apos;s spelling.
       </P>
       <P>
         Attributes are key/value pairs pinned to a user on the <strong>Attributes</strong> tab. They

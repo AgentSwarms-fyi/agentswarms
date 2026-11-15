@@ -117,6 +117,21 @@ development branch and may be ahead of the latest tag.
   a workflow's Parameter menu, as a parameter is added in Settings — opened
   into nothing once that dialog closed. Every popover now lets go of a dialog
   that has left the page.
+- **Data references are picked too** (R496). In an ETL pipeline, the four node
+  fields that read a run parameter — a storage source's path, an HTTP source's
+  URL, a filter's condition and a SQL step's query — list the pipeline's
+  default parameters and any name its nodes already read, and say the format
+  (`{{params.name}}`, or `{{params.name|fallback}}`) and where the value comes
+  from. The UI never mentioned these before. The filter, SQL and derive fields
+  also list the upstream columns, spelled so a name like `Unit Price` works.
+  **Run with parameters** opens on the names the nodes read, not on an
+  example whose names nothing read. A storage source whose crawl found nothing
+  now shows its saved path instead of an empty folder list. In the semantic
+  layer, each dimension's and metric's SQL has an **Insert** menu: the source's
+  columns, the declared `{{parameters}}`, and in a derived formula the other
+  `{metrics}`. An IAM share's row filter has an **Attribute** menu listing every
+  key set on the Attributes tab, added as its own `{{user.key}}` value — a
+  misspelt key was a grant that refused every query its grantees made.
 
 ### Added
 

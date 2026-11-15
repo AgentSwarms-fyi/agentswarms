@@ -101,6 +101,9 @@ import {
 } from "@/utils/semantic.functions";
 import { diffSemanticDefinitions, type SemanticDefinitionDiff } from "@/lib/semanticDiff";
 import { DbtImportDialog } from "@/components/semantics/DbtImportDialog";
+import { TemplateInsertMenu, type TemplateToken } from "@/components/templates/TemplateInsert";
+import { useInsertAtCaret } from "@/hooks/use-insert-at-caret";
+import { semanticFragmentTokens } from "@/lib/semanticFieldTokens";
 import type { Json } from "@/integrations/supabase/types";
 import { listWarehouseConnections, saveWarehouseConnection } from "@/utils/warehouse.functions";
 import { reportFailure } from "@/lib/silentFailureNet";
@@ -745,6 +748,19 @@ function SemanticsPage() {
     const t = tables.find((x) => `${x.schema}.${x.name}` === draft.source_table);
     return t?.columns ?? null;
   }, [draft, selectedSource, whTables]);
+
+  // What a dimension's or a (non-derived) metric's SQL can reference: the
+  // source's columns and the declared parameters (R496).
+  const fragmentTokens = useMemo(
+    () =>
+      semanticFragmentTokens({
+        kind: "dimension",
+        columns: sourceColumns ?? [],
+        parameters: draft?.parameters ?? [],
+        metrics: [],
+      }),
+    [sourceColumns, draft?.parameters],
+  );
 
   // A model owned by someone else (shared via IAM) is read-only: run + add to
   // dashboard are allowed, but editing/saving/deleting is the owner's.
@@ -2338,9 +2354,10 @@ function SemanticsPage() {
                           <code>
                             {"{{"}name{"}}"}
                           </code>{" "}
-                          — e.g. a commission rate or a status filter. Callers (the runner, agents,
-                          dashboards) may override them per query; the default applies otherwise.
-                          Not allowed in join conditions.
+                          — e.g. a commission rate or a status filter. A dimension&apos;s or
+                          metric&apos;s Insert menu on the Fields tab lists them. Callers (the
+                          runner, agents, dashboards) may override them per query; the default
+                          applies otherwise. Not allowed in join conditions.
                         </>
                       }
                     />
@@ -2814,15 +2831,18 @@ function SemanticsPage() {
                               })
                             }
                           />
-                          <Input
+                          <SqlFragmentInput
                             value={d.sql}
-                            placeholder="`Region`"
-                            aria-label="Dimension SQL expression"
-                            className="order-4 h-8 w-full basis-full font-mono @[30rem]/row:order-2 @[30rem]/row:w-auto @[30rem]/row:flex-[1.4] @[30rem]/row:basis-auto"
-                            onChange={(e) =>
+                            placeholder={'"Region"'}
+                            ariaLabel="Dimension SQL expression"
+                            tokens={fragmentTokens}
+                            menuAriaLabel="Insert a column or parameter into the dimension SQL"
+                            emptyNote={FRAGMENT_MENU_NOTE}
+                            className="order-4 w-full basis-full @[30rem]/row:order-2 @[30rem]/row:w-auto @[30rem]/row:flex-[1.4] @[30rem]/row:basis-auto"
+                            onChange={(sql) =>
                               patch({
                                 dimensions: draft.dimensions.map((x, j) =>
-                                  j === i ? { ...x, sql: e.target.value } : x,
+                                  j === i ? { ...x, sql } : x,
                                 ),
                               })
                             }
@@ -2997,27 +3017,42 @@ function SemanticsPage() {
                               ))}
                             </SelectContent>
                           </Select>
-                          <Input
+                          <SqlFragmentInput
                             value={m.sql ?? ""}
                             placeholder={
                               m.agg === "count"
                                 ? "(optional)"
                                 : m.agg === "derived"
                                   ? "{revenue} / NULLIF({orders}, 0)"
-                                  : "`Amount`"
+                                  : '"Amount"'
                             }
                             title={
                               m.agg === "derived"
                                 ? "Formula over other metrics — reference them as {metric_name}"
                                 : undefined
                             }
-                            aria-label="Metric SQL expression"
-                            className="order-4 h-8 w-full basis-full font-mono @[30rem]/row:order-2 @[30rem]/row:w-auto @[30rem]/row:flex-[1.3] @[30rem]/row:basis-auto"
-                            onChange={(e) =>
+                            ariaLabel="Metric SQL expression"
+                            tokens={
+                              m.agg === "derived"
+                                ? semanticFragmentTokens({
+                                    kind: "derived",
+                                    columns: [],
+                                    parameters: draft.parameters,
+                                    metrics: draft.metrics,
+                                    self: m.name,
+                                  })
+                                : fragmentTokens
+                            }
+                            menuAriaLabel={
+                              m.agg === "derived"
+                                ? "Insert a metric or parameter into the formula"
+                                : "Insert a column or parameter into the metric SQL"
+                            }
+                            emptyNote={m.agg === "derived" ? DERIVED_MENU_NOTE : FRAGMENT_MENU_NOTE}
+                            className="order-4 w-full basis-full @[30rem]/row:order-2 @[30rem]/row:w-auto @[30rem]/row:flex-[1.3] @[30rem]/row:basis-auto"
+                            onChange={(sql) =>
                               patch({
-                                metrics: draft.metrics.map((x, j) =>
-                                  j === i ? { ...x, sql: e.target.value } : x,
-                                ),
+                                metrics: draft.metrics.map((x, j) => (j === i ? { ...x, sql } : x)),
                               })
                             }
                           />
@@ -3902,6 +3937,62 @@ const FIELD_TONES = {
   },
 } as const;
 type FieldTone = keyof typeof FIELD_TONES;
+
+const FRAGMENT_MENU_NOTE =
+  "Columns come from the source picked on Source & joins; parameters are declared in its Parameters card.";
+const DERIVED_MENU_NOTE =
+  "A formula combines other metrics on this model; parameters are declared on Source & joins, in its Parameters card.";
+
+/**
+ * A one-line SQL fragment with an Insert menu inside its right edge (R496):
+ * source columns, declared `{{parameters}}`, or, in a derived formula, other
+ * `{metrics}`, put at the cursor.
+ */
+function SqlFragmentInput({
+  value,
+  onChange,
+  tokens,
+  placeholder,
+  title,
+  ariaLabel,
+  menuAriaLabel,
+  emptyNote,
+  className,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  tokens: TemplateToken[];
+  placeholder?: string;
+  title?: string;
+  ariaLabel: string;
+  menuAriaLabel: string;
+  emptyNote: string;
+  className: string;
+}) {
+  const { ref, insert } = useInsertAtCaret<HTMLInputElement>(value, onChange);
+  return (
+    <div className={`relative ${className}`}>
+      <Input
+        ref={ref}
+        value={value}
+        placeholder={placeholder}
+        title={title}
+        aria-label={ariaLabel}
+        className="h-8 w-full pr-[4.5rem] font-mono"
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <TemplateInsertMenu
+        tokens={tokens}
+        onPick={insert}
+        label="Insert"
+        ariaLabel={menuAriaLabel}
+        searchPlaceholder="Search…"
+        emptyNote={emptyNote}
+        className="absolute right-1 top-1/2 -translate-y-1/2 bg-background"
+      />
+    </div>
+  );
+}
 
 function FieldSection({
   title,

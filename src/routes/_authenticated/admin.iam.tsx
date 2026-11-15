@@ -94,6 +94,8 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { TemplateInsertMenu, type TemplateToken } from "@/components/templates/TemplateInsert";
+import { addFilterValue, attributeFilterTokens } from "@/lib/iamAttributeTokens";
 
 import { useAuth } from "@/hooks/use-auth";
 import { useTokenRef } from "@/hooks/use-token-ref";
@@ -1150,6 +1152,7 @@ function AccessTab({
   const setRulesFn = useServerFn(iamSetModelRules);
   const createGrant = useServerFn(iamCreateGrant);
   const deleteGrant = useServerFn(iamDeleteGrant);
+  const listAttributesFn = useServerFn(iamListUserAttributes);
 
   // Model rules editor state
   const [principalType, setPrincipalType] = useState<"group" | "user">("group");
@@ -1219,6 +1222,24 @@ function AccessTab({
     shareResourceType === "data_table" ||
     shareResourceType === "semantic_model" ||
     shareResourceType === "ontology";
+
+  // The attribute keys set on the Attributes tab, offered as {{user.<key>}}
+  // values (R496): the token was typed from memory, and a misspelt key is a
+  // grant that refuses every query its grantees make. Loaded when the row
+  // filter first appears; the tab remounts on return, so new keys show.
+  const [attributeTokens, setAttributeTokens] = useState<TemplateToken[] | null>(null);
+  useEffect(() => {
+    if (!shareIsDashboard || attributeTokens) return;
+    let alive = true;
+    listAttributesFn({ data: { access_token: token } })
+      .then((res) => {
+        if (alive && "attributes" in res) setAttributeTokens(attributeFilterTokens(res.attributes));
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [shareIsDashboard, attributeTokens, listAttributesFn, token]);
   const shareTypeOptions: { value: ShareResourceType; label: string }[] = [
     { value: "knowledge_base", label: "📚 Knowledge base" },
     { value: "data_table", label: "🗃 SQL data table" },
@@ -1550,6 +1571,7 @@ function AccessTab({
               </span>
               <Input
                 className="h-8 w-44 text-xs"
+                aria-label="Row filter column"
                 value={shareFilterColumn}
                 onChange={(e) => setShareFilterColumn(e.target.value)}
                 placeholder={
@@ -1560,15 +1582,31 @@ function AccessTab({
                       : "Column, e.g. Region"
                 }
               />
-              <Input
-                className="h-8 w-72 text-xs"
-                value={shareFilterValues}
-                onChange={(e) => setShareFilterValues(e.target.value)}
-                placeholder="Values or {{user.region}} — comma-separated"
-              />
+              <div className="flex items-center gap-1">
+                <Input
+                  className="h-8 w-72 text-xs"
+                  aria-label="Row filter values"
+                  value={shareFilterValues}
+                  onChange={(e) => setShareFilterValues(e.target.value)}
+                  placeholder="Values, comma-separated — e.g. EMEA, APAC"
+                />
+                <TemplateInsertMenu
+                  tokens={attributeTokens ?? []}
+                  onPick={(v) => setShareFilterValues((cur) => addFilterValue(cur, v))}
+                  label="Attribute"
+                  ariaLabel="Insert an attribute into the row filter values"
+                  emptyNote={
+                    attributeTokens === null
+                      ? "Loading attributes…"
+                      : "Attributes are set per user on the Attributes tab; each key set there is listed here."
+                  }
+                  className="h-8"
+                />
+              </div>
               <span className="text-[11px] text-muted-foreground">
-                The grantee only sees rows where the column matches one of these values. A value
-                like <code className="font-mono">{"{{user.region}}"}</code> resolves to each
+                The grantee only sees rows where the column matches one of these values. Pick an{" "}
+                <strong>Attribute</strong> to add a value like{" "}
+                <code className="font-mono">{"{{user.region}}"}</code>: it resolves to each
                 viewer&apos;s own values from the Attributes tab — one grant, per-viewer rows; a
                 viewer missing the attribute is refused, never unfiltered. Re-sharing with the same
                 principal updates the filter.
@@ -1578,6 +1616,7 @@ function AccessTab({
               </span>
               <Input
                 className="h-8 w-72 text-xs"
+                aria-label="Hidden columns"
                 value={shareMaskColumns}
                 onChange={(e) => setShareMaskColumns(e.target.value)}
                 placeholder={
@@ -2733,8 +2772,9 @@ function AttributesTab({
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No attributes yet. Set one above, then reference it from an Access grant&apos;s row
-            filter as <code className="font-mono text-xs">{"{{user.<key>}}"}</code>.
+            No attributes yet. Set one above, then pick it from the <strong>Attribute</strong> menu
+            on an Access share&apos;s row filter, where it goes in as{" "}
+            <code className="font-mono text-xs">{"{{user.<key>}}"}</code>.
           </p>
         ) : (
           <div className="divide-y divide-border rounded-md border">

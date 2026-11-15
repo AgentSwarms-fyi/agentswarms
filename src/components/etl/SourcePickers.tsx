@@ -18,6 +18,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
+import { TemplateInsertMenu, type TemplateToken } from "@/components/templates/TemplateInsert";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -34,6 +35,8 @@ import {
   type CatalogSource,
 } from "@/lib/dataCatalog";
 import { catalogListStorageTables } from "@/utils/catalog.functions";
+import { useInsertAtCaret } from "@/hooks/use-insert-at-caret";
+import { ETL_PARAM_EMPTY, ETL_PARAM_HINT } from "@/lib/etlParams";
 import { etlListLakehouseTables, etlListWarehouseTables } from "@/utils/etl.functions";
 import {
   describeResolvedSource,
@@ -132,22 +135,37 @@ function NameField({
   onValue,
   placeholder,
   onPick,
+  tokens,
 }: {
   value: string;
   onValue: (v: string) => void;
   placeholder: string;
   /** Present when there is a list to go back to. */
   onPick?: () => void;
+  /** `{{params.x}}` the field resolves at run time, offered from a menu (R496). */
+  tokens?: TemplateToken[];
 }) {
+  const { ref, insert } = useInsertAtCaret<HTMLInputElement>(value, onValue);
   return (
     <div className="flex items-center gap-1">
       <Input
+        ref={ref}
         className="h-8 font-mono text-xs"
         value={value}
         onChange={(e) => onValue(e.target.value.trim())}
         placeholder={placeholder}
         autoFocus
       />
+      {tokens ? (
+        <TemplateInsertMenu
+          tokens={tokens}
+          onPick={insert}
+          label="Parameter"
+          fieldLabel="the path"
+          emptyNote={ETL_PARAM_EMPTY}
+          className="shrink-0"
+        />
+      ) : null}
       {onPick ? (
         <button
           type="button"
@@ -204,10 +222,14 @@ function useStorageTables(token: string, sourceId: string | undefined) {
   const fn = useServerFn(catalogListStorageTables);
   const [tables, setTables] = useState<StorageTable[]>([]);
   const [loading, setLoading] = useState(false);
+  // True once a listing has come back (or failed). `loading` alone cannot say
+  // so: it starts false, before anything was asked for.
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     setTables([]);
     setError(null);
+    setLoaded(false);
     if (!token || !sourceId) return;
     let alive = true;
     setLoading(true);
@@ -218,13 +240,17 @@ function useStorageTables(token: string, sourceId: string | undefined) {
         else setError(res.error);
       })
       .catch((e) => alive && setError(e instanceof Error ? e.message : "Could not list the bucket"))
-      .finally(() => alive && setLoading(false));
+      .finally(() => {
+        if (!alive) return;
+        setLoading(false);
+        setLoaded(true);
+      });
     return () => {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, sourceId]);
-  return { tables, loading, error };
+  return { tables, loading, loaded, error };
 }
 
 type LakehouseListing = {
@@ -593,14 +619,17 @@ export function StoragePathPicker({
   path,
   format,
   onChange,
+  paramTokens,
 }: {
   token: string;
   sourceId: string | undefined;
   path: string;
   format: string;
   onChange: (v: { path?: string; format?: SourceFileFormat; columns?: string[] }) => void;
+  /** Run parameters a custom path can read, e.g. raw/{{params.day}}/*.csv (R496). */
+  paramTokens?: TemplateToken[];
 }) {
-  const { tables, loading, error } = useStorageTables(token, sourceId);
+  const { tables, loading, loaded, error } = useStorageTables(token, sourceId);
   const known = tables.find((t) => t.key === path);
   const folders = useMemo(
     () => [...new Set(tables.map((t) => splitKey(t.key).folder))].sort(),
@@ -609,11 +638,16 @@ export function StoragePathPicker({
   const [folder, setFolder] = useState<string | null>(null);
   const [custom, setCustom] = useState(false);
   useEffect(() => {
-    if (loading) return;
+    if (!loaded) return;
     if (known) setFolder(splitKey(known.key).folder);
-    else if (tables.length && path) setCustom(true);
+    // A saved path the crawl does not list — a glob, a `{{params.day}}`
+    // path, or a bucket the crawl found nothing in — is shown as the custom
+    // path it is (R496). With an empty crawl it stayed hidden behind an empty
+    // folder list, so the path the pipeline reads was nowhere on screen. A
+    // failed listing keeps the folder list, which is where its error shows.
+    else if (path && !error) setCustom(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading]);
+  }, [loaded]);
   const currentFolder = folder ?? (known ? splitKey(known.key).folder : null);
   const inFolder = tables.filter((t) => splitKey(t.key).folder === (currentFolder ?? ""));
 
@@ -624,11 +658,15 @@ export function StoragePathPicker({
     return (
       <PickField
         label="Path or glob"
-        hint="A key or glob under the bucket's prefix, e.g. raw/orders/*.csv."
+        hint={
+          "A key or glob under the bucket's prefix, e.g. raw/orders/*.csv" +
+          (paramTokens ? `, or raw/orders/{{params.day}}/*.csv. ${ETL_PARAM_HINT}` : ".")
+        }
       >
         <NameField
           value={path}
           onValue={(v) => onChange({ path: v })}
+          tokens={paramTokens}
           placeholder="raw/orders/*.csv"
           onPick={
             tables.length

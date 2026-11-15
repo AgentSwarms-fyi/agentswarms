@@ -322,6 +322,48 @@ export function hasParams(s: string): boolean {
   return PARAM_RE.test(String(s ?? ""));
 }
 
+/** Every `{{params.x}}` in a field, with the fallback written after `|`. */
+export function paramRefs(s: string): Array<{ name: string; fallback?: string }> {
+  const raw = String(s ?? "");
+  const out: Array<{ name: string; fallback?: string }> = [];
+  PARAM_RE.lastIndex = 0;
+  for (let m = PARAM_RE.exec(raw); m; m = PARAM_RE.exec(raw)) {
+    out.push(m[2] === undefined ? { name: m[1]! } : { name: m[1]!, fallback: m[2] });
+  }
+  return out;
+}
+
+/**
+ * The text of a node's fields that a run parameter reaches — exactly the ones
+ * compiled through pyTemplate below (R496). The editor offers its Parameter
+ * menu on these and nowhere else: a `{{params.x}}` typed into any other field
+ * reaches the program as those literal characters.
+ */
+export function templatedFields(node: EtlNode): string[] {
+  const c = node.config as { type: string } & Record<string, unknown>;
+  const text = (v: unknown) => (typeof v === "string" ? v : "");
+  if (node.kind === "source" && c.type === "object_storage") return [text(c.path)];
+  if (node.kind === "source" && c.type === "http_api") return [text(c.url)];
+  if (node.kind === "transform" && c.type === "filter") return [text(c.expr)];
+  if (node.kind === "transform" && c.type === "sql") return [text(c.query)];
+  return [];
+}
+
+/** Every parameter a pipeline's nodes read, with the first fallback written for it. */
+export function graphParamRefs(graph: EtlGraph): Map<string, string | undefined> {
+  const out = new Map<string, string | undefined>();
+  for (const node of graph.nodes) {
+    for (const field of templatedFields(node)) {
+      for (const r of paramRefs(field)) {
+        if (!out.has(r.name) || (out.get(r.name) === undefined && r.fallback !== undefined)) {
+          out.set(r.name, r.fallback);
+        }
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * A field as a Python EXPRESSION, with `{{params.x}}` resolved at run time.
  *

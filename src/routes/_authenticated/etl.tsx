@@ -81,6 +81,14 @@ import {
   WarehouseTablePicker,
 } from "@/components/etl/SourcePickers";
 import { SecretBindingsEditor } from "@/components/etl/SecretBindingsEditor";
+import { TemplateText, type TemplateToken } from "@/components/templates/TemplateInsert";
+import {
+  ETL_PARAM_EMPTY,
+  ETL_PARAM_HINT,
+  etlColumnTokens,
+  etlParamTokens,
+  runParamsDraft,
+} from "@/lib/etlParams";
 import { secretBindingsError } from "@/lib/secretBindings";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -136,6 +144,7 @@ import {
   compileGraph,
   codeTemplate,
   dbFamily,
+  graphParamRefs,
   nativeWarehouseTarget,
   normalizeGraph,
   requirementsFor,
@@ -1037,6 +1046,14 @@ function PipelineEditor({ id, onBack }: { id: string; onBack: () => void }) {
   };
 
   const [paramsOpen, setParamsOpen] = useState(false);
+  // The parameters the canvas's nodes read, for Run with parameters (R496).
+  const paramReads = useMemo(
+    () =>
+      p?.mode === "visual"
+        ? graphParamRefs(p.graph ?? starterGraph())
+        : new Map<string, string | undefined>(),
+    [p?.mode, p?.graph],
+  );
 
   const runNow = async (params?: Record<string, unknown>) => {
     if (!p) return;
@@ -1160,6 +1177,7 @@ function PipelineEditor({ id, onBack }: { id: string; onBack: () => void }) {
       <RunParamsDialog
         open={paramsOpen}
         defaults={p.default_params}
+        reads={paramReads}
         onClose={() => setParamsOpen(false)}
         onRun={(params) => {
           setParamsOpen(false);
@@ -1178,6 +1196,7 @@ function PipelineEditor({ id, onBack }: { id: string; onBack: () => void }) {
             <CanvasBuilder
               pipelineId={p.id}
               destCatalogSourceId={p.dest_catalog_source_id}
+              defaultParams={p.default_params}
               graph={p.graph ?? starterGraph()}
               onChange={(graph) => patch({ graph, requirements: requirementsFor(graph) })}
               onEject={(code) => {
@@ -1208,22 +1227,35 @@ function PipelineEditor({ id, onBack }: { id: string; onBack: () => void }) {
 function RunParamsDialog({
   open,
   defaults,
+  reads,
   onClose,
   onRun,
 }: {
   open: boolean;
   defaults: Record<string, unknown> | null;
+  /** Parameters the canvas's nodes read, with the fallback written for each. */
+  reads: Map<string, string | undefined>;
   onClose: () => void;
   onRun: (params: Record<string, unknown>) => void;
 }) {
   const [text, setText] = useState("");
   useEffect(() => {
     if (open) {
+      // Opens on the keys this pipeline actually reads (R496): before, a
+      // pipeline with no defaults opened on an example whose names nothing
+      // read. The example stays for a pipeline whose canvas reads none (a code
+      // pipeline reads `inputs` itself); one whose nodes read only names with
+      // a fallback opens empty, with those names listed under the box.
       setText(
-        JSON.stringify(defaults ?? { start_date: "2026-08-01", end_date: "2026-08-07" }, null, 2),
+        JSON.stringify(
+          runParamsDraft(defaults, reads) ??
+            (reads.size ? {} : { start_date: "2026-08-01", end_date: "2026-08-07" }),
+          null,
+          2,
+        ),
       );
     }
-  }, [open, defaults]);
+  }, [open, defaults, reads]);
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent>
@@ -1239,7 +1271,22 @@ function RunParamsDialog({
           onChange={(e) => setText(e.target.value)}
           rows={8}
           className="font-mono text-xs"
+          aria-label="Run parameters (JSON)"
         />
+        {reads.size > 0 ? (
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            This pipeline&apos;s nodes read{" "}
+            {[...reads].map(([name, fallback], i) => (
+              <span key={name}>
+                {i ? ", " : ""}
+                <code className="font-mono">{name}</code>
+                {fallback !== undefined ? ` (falls back to "${fallback}")` : ""}
+              </span>
+            ))}
+            . A name left out uses the pipeline&apos;s default parameter, else the fallback written
+            in the field, else empty.
+          </p>
+        ) : null}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Cancel
@@ -1638,6 +1685,7 @@ function CanvasBuilder({
   onChange,
   onEject,
   destCatalogSourceId,
+  defaultParams,
 }: {
   graph: EtlGraph;
   pipelineId: string;
@@ -1645,7 +1693,10 @@ function CanvasBuilder({
   onEject: (code: string) => void;
   /** The pipeline's default storage destination (Settings), for targets that pick no bucket. */
   destCatalogSourceId?: string | null;
+  /** The pipeline's default parameters (Settings): what `{{params.x}}` offers. */
+  defaultParams?: Record<string, unknown> | null;
 }) {
+  const paramTokens = useMemo(() => etlParamTokens(defaultParams, graph), [defaultParams, graph]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showCode, setShowCode] = useState(false);
   // Column names each node's preview resolved. Kept here rather than inside
@@ -1898,6 +1949,7 @@ function CanvasBuilder({
             graph={graph}
             pipelineId={pipelineId}
             destCatalogSourceId={destCatalogSourceId}
+            paramTokens={paramTokens}
             columnsByNode={columnsByNode}
             onColumns={rememberColumns}
             onChange={updateSelected}
@@ -1967,10 +2019,13 @@ function NodePanel({
   columnsByNode,
   onColumns,
   destCatalogSourceId,
+  paramTokens,
 }: {
   node: EtlNode;
   graph: EtlGraph;
   pipelineId: string;
+  /** `{{params.x}}` this pipeline can reference (R496). */
+  paramTokens: TemplateToken[];
   onChange: (config: EtlNode["config"], label?: string) => void;
   onDelete: () => void;
   /** Columns a preview has resolved, per node id. */
@@ -2269,6 +2324,7 @@ function NodePanel({
             sourceId={(c.catalog_source_id as string) || undefined}
             path={(c.path as string) ?? ""}
             format={(c.format as string) ?? "csv"}
+            paramTokens={paramTokens}
             onChange={(v) => {
               set({
                 ...(v.path !== undefined ? { path: v.path } : {}),
@@ -2419,10 +2475,16 @@ function NodePanel({
       {c.type === "http_api" && node.kind === "source" && (
         <>
           <Field label="URL">
-            <Input
-              className="h-8 font-mono text-xs"
-              value={c.url as string}
-              onChange={(e) => set({ url: e.target.value })}
+            <TemplateText
+              value={(c.url as string) ?? ""}
+              onChange={(url) => set({ url })}
+              tokens={paramTokens}
+              ariaLabel="URL"
+              menuLabel="Parameter"
+              placeholder="https://api.example.com/orders?day={{params.day}}"
+              emptyNote={ETL_PARAM_EMPTY}
+              hint={ETL_PARAM_HINT}
+              className="h-8"
             />
           </Field>
           <Field label="Records path (optional)">
@@ -2447,17 +2509,24 @@ function NodePanel({
       )}
       {c.type === "filter" && (
         <Field label="Condition (query syntax)">
-          <Input
-            className="h-8 font-mono text-xs"
-            value={c.expr as string}
-            onChange={(e) => set({ expr: e.target.value })}
+          <TemplateText
+            value={(c.expr as string) ?? ""}
+            onChange={(expr) => set({ expr })}
+            tokens={[...etlColumnTokens(upstreamColumns, "pandas"), ...paramTokens]}
+            ariaLabel="Condition"
+            menuLabel="Insert"
+            menuAriaLabel="Insert a column or parameter into the condition"
+            searchPlaceholder="Search columns and parameters…"
             placeholder="amount > 0 and country == 'DE'"
+            emptyNote={<>Columns appear once a preview has run upstream. {ETL_PARAM_EMPTY}</>}
+            hint={
+              <>
+                {ETL_PARAM_HINT} Quote it where the condition needs a string:{" "}
+                <code className="font-mono">{"country == '{{params.country}}'"}</code>.
+              </>
+            }
+            className="h-8"
           />
-          {upstreamColumns.length > 0 && (
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              Available: <span className="font-mono">{upstreamColumns.join(", ")}</span>
-            </p>
-          )}
         </Field>
       )}
       {c.type === "select" && (
@@ -2489,17 +2558,16 @@ function NodePanel({
             />
           </Field>
           <Field label="Expression">
-            <Input
-              className="h-8 font-mono text-xs"
-              value={c.expr as string}
-              onChange={(e) => set({ expr: e.target.value })}
+            <TemplateText
+              value={(c.expr as string) ?? ""}
+              onChange={(expr) => set({ expr })}
+              tokens={etlColumnTokens(upstreamColumns, "pandas")}
+              ariaLabel="Expression"
+              menuLabel="Column"
               placeholder="price * quantity"
+              emptyNote="Columns appear once a preview has run upstream."
+              className="h-8"
             />
-            {upstreamColumns.length > 0 && (
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                Available: <span className="font-mono">{upstreamColumns.join(", ")}</span>
-              </p>
-            )}
           </Field>
         </>
       )}
@@ -2650,11 +2718,23 @@ function NodePanel({
       )}
       {c.type === "sql" && (
         <Field label="SQL (input frame is table t)">
-          <Textarea
+          <TemplateText
             rows={4}
-            className="font-mono text-xs"
-            value={c.query as string}
-            onChange={(e) => set({ query: e.target.value })}
+            value={(c.query as string) ?? ""}
+            onChange={(query) => set({ query })}
+            tokens={[...etlColumnTokens(upstreamColumns, "sql"), ...paramTokens]}
+            ariaLabel="SQL"
+            menuLabel="Insert"
+            menuAriaLabel="Insert a column or parameter into the SQL"
+            searchPlaceholder="Search columns and parameters…"
+            placeholder={"SELECT * FROM t WHERE day = '{{params.day}}'"}
+            emptyNote={<>Columns appear once a preview has run upstream. {ETL_PARAM_EMPTY}</>}
+            hint={
+              <>
+                {ETL_PARAM_HINT} Quote it where the SQL needs a string:{" "}
+                <code className="font-mono">{"day = '{{params.day}}'"}</code>.
+              </>
+            }
           />
         </Field>
       )}
@@ -3945,7 +4025,14 @@ function SettingsTab({
               rows={3}
               className="font-mono text-xs"
               placeholder='{"lookback_days": 7}'
+              aria-label="Default parameters (JSON)"
             />
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              A JSON object. A canvas node reads one as{" "}
+              <code className="font-mono">{"{{params.lookback_days}}"}</code> — a storage path, an
+              HTTP URL, a filter condition and a SQL step list them in their menus. Run with
+              parameters overrides them for one run.
+            </p>
           </div>
           <div className="flex items-center justify-between rounded-md border p-2">
             <div>

@@ -490,6 +490,21 @@ function EtlDocsPage() {
     start = inputs.get('start_date', '2026-08-01')
     end = inputs.get('end_date', '2026-08-07')
     # query/filter the window, load as usual`}</Code>
+      <P>
+        On the canvas, four node fields read a parameter by name: a storage source&apos;s path, an
+        HTTP source&apos;s URL, a filter&apos;s condition and a SQL step&apos;s query. Write{" "}
+        <C>{"{{params.name}}"}</C> where the value goes, or <C>{"{{params.name|value}}"}</C> to give
+        it a fallback. Each of those fields has a <strong>Parameter</strong> (or{" "}
+        <strong>Insert</strong>) menu listing the pipeline&apos;s default parameters and any name
+        its nodes already read, so the name is picked rather than typed. A run&apos;s value wins,
+        then the default parameter, then the fallback, then the empty string. The value goes in as
+        text, so a condition or a query quotes it where it needs a string:
+      </P>
+      <Code lang="Filter condition">{`order_date >= '{{params.start_date}}' and order_date <= '{{params.end_date}}'`}</Code>
+      <P>
+        Other fields keep the characters as written. <strong>Run with parameters</strong> opens on
+        the names the nodes read, so the keys to change for a backfill are already there.
+      </P>
 
       <H3 id="incremental">Engine-managed incremental loads</H3>
       <P>

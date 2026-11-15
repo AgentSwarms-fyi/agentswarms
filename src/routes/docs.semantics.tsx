@@ -388,6 +388,13 @@ GROUP BY 1, 2`}</Code>
       </P>
       <Code lang="Metric SQL">{`-- metric big_sales, with parameter {{min_amount}} (number, default 100)
 SUM(CASE WHEN amount >= {{min_amount}} THEN amount ELSE 0 END)`}</Code>
+      <P>
+        You don&apos;t have to type these names. Each dimension&apos;s and metric&apos;s SQL field
+        on the Fields tab has an <strong>Insert</strong> menu that lists the source&apos;s columns
+        and the declared parameters. In a derived metric&apos;s formula it lists the other metrics,
+        as <C>{"{metric_name}"}</C>. Whatever you pick goes in at the cursor, spelled the way the
+        compiler reads it.
+      </P>
 
       <H3 id="hierarchies">Hierarchies — declared drill paths</H3>
       <P>

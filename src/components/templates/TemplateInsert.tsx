@@ -44,6 +44,8 @@ export function TemplateInsertMenu({
   onPick,
   label = "Variable",
   fieldLabel,
+  ariaLabel,
+  searchPlaceholder,
   emptyNote,
   className,
 }: {
@@ -53,6 +55,10 @@ export function TemplateInsertMenu({
   label?: string;
   /** The field it inserts into, for the button's accessible name. */
   fieldLabel?: string;
+  /** The button's whole accessible name, when the menu mixes kinds (R496). */
+  ariaLabel?: string;
+  /** The search box's placeholder; "Search <label>s…" when omitted. */
+  searchPlaceholder?: string;
   /** Shown under the list, e.g. how to make more appear. */
   emptyNote?: ReactNode;
   className?: string;
@@ -72,7 +78,9 @@ export function TemplateInsertMenu({
           // would otherwise be harmless, but a mousedown on some browsers
           // collapses the field's selection first.
           onMouseDown={(e) => e.preventDefault()}
-          aria-label={`Insert a ${label.toLowerCase()}${fieldLabel ? ` into ${fieldLabel}` : ""}`}
+          aria-label={
+            ariaLabel ?? `Insert a ${label.toLowerCase()}${fieldLabel ? ` into ${fieldLabel}` : ""}`
+          }
           className={cn(
             "inline-flex h-6 items-center gap-1 rounded-md border border-dashed px-1.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground",
             className,
@@ -84,7 +92,10 @@ export function TemplateInsertMenu({
       </PopoverTrigger>
       <PopoverContent className="w-72 p-0" align="end">
         <Command>
-          <CommandInput placeholder={`Search ${label.toLowerCase()}s…`} className="h-8 text-xs" />
+          <CommandInput
+            placeholder={searchPlaceholder ?? `Search ${label.toLowerCase()}s…`}
+            className="h-8 text-xs"
+          />
           <CommandList className="max-h-72">
             <CommandEmpty className="px-3 py-3 text-xs text-muted-foreground">
               Nothing matches.
@@ -133,6 +144,8 @@ export function TemplateText({
   placeholder,
   ariaLabel,
   menuLabel,
+  menuAriaLabel,
+  searchPlaceholder,
   emptyNote,
   hint,
   toolbar,
@@ -146,6 +159,9 @@ export function TemplateText({
   placeholder?: string;
   ariaLabel: string;
   menuLabel?: string;
+  /** The menu button's whole accessible name, for a menu of mixed kinds. */
+  menuAriaLabel?: string;
+  searchPlaceholder?: string;
   emptyNote?: ReactNode;
   /** What the field takes, under it. */
   hint?: ReactNode;
@@ -163,6 +179,8 @@ export function TemplateText({
           onPick={insert}
           label={menuLabel}
           fieldLabel={ariaLabel.toLowerCase()}
+          ariaLabel={menuAriaLabel}
+          searchPlaceholder={searchPlaceholder}
           emptyNote={emptyNote}
         />
       </div>
