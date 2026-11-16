@@ -287,7 +287,10 @@ const REVIEWED: Record<string, number> = {
   "src/components/sheets/SaveToLakehouseDialog.tsx": 1,
   // R158: reads the admin's model name once, for the picker's default; edits nothing.
   "src/components/sheets/useAssistModel.ts": 1,
-  "src/routes/_authenticated/admin.iam.tsx": 3,
+  // R496 added the fourth: the row filter's attribute menu loads the attribute
+  // KEYS (read-only) once and returns early after that, so a refresh neither
+  // re-fetches nor touches the filter being typed. Read in R498.
+  "src/routes/_authenticated/admin.iam.tsx": 4,
   "src/routes/_authenticated/ai-analyst.tsx": 3,
   "src/routes/_authenticated/bi_.$dashboardId.tsx": 6,
   "src/routes/_authenticated/bi_.report.$reportId.tsx": 3,

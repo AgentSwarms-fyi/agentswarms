@@ -30,6 +30,7 @@ import {
   Grid3x3,
   Layers,
   LayoutList,
+  Lightbulb,
   LineChart,
   Loader2,
   PieChart,
@@ -74,6 +75,7 @@ import {
   generationSourceOptions,
 } from "@/lib/biGenerationSource";
 import { reconcileChartFields } from "@/lib/biChartFields";
+import { shapeGeneratedChart } from "@/lib/biGeneratedShape";
 import { parseTitleClaim, reconcileWidgetResult } from "@/lib/biTitleClaims";
 import {
   suggestGovernedWidgets,
@@ -121,6 +123,8 @@ function ChartTypeIcon({ type }: { type: string }) {
       return <Grid3x3 className={cls} />;
     case "table":
       return <LayoutList className={cls} />;
+    case "insight":
+      return <Lightbulb className={cls} />;
     default:
       return <BarChart3 className={cls} />;
   }
@@ -420,6 +424,22 @@ export function GenerateDashboardDialog({
             rows: turn.result?.rows ?? [],
           });
           if (fields.verdict !== "ok") turn.chart = fields.chart;
+          // A period KPI or a narrative, when that is what was planned and
+          // the columns that came back can carry it (R498). The chart step
+          // above never offers either; see lib/biGeneratedShape.
+          if (fields.verdict !== "unplottable") {
+            turn.chart = shapeGeneratedChart(
+              {
+                chartType: picks[i].chartType,
+                title: picks[i].title,
+                compare: picks[i].compare,
+                insightKind: picks[i].insightKind,
+              },
+              turn.result?.columns ?? [],
+              turn.result?.rows ?? [],
+              turn.chart,
+            );
+          }
           const widget = widgetFromBiTurn(turn, gen.source);
           // A race caps its own frame at twelve rows regardless of the query,
           // so a title promising ten has to reach the renderer as a number.

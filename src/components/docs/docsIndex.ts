@@ -398,6 +398,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "$837.9k",
       "$837k",
       "2.6×",
+      "2026-Q3",
+      "2026-W05",
       "410,379.26",
       "LIMIT",
       "PUBLIC_BI_SNAPSHOT_ROWS_CAP",
@@ -414,6 +416,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "columnFormats",
       "combo",
       "compare",
+      "contains",
       "count",
       "count_distinct",
       "currency",
@@ -429,11 +432,16 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "gte",
       "hbar",
       "heatmap",
+      "http://",
+      "https://",
       "image",
+      "insight",
+      "is",
       "kpi",
       "line",
       "lt",
       "lte",
+      "mailto:",
       "map",
       "matrix",
       "max",
@@ -547,7 +555,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       },
       {
         "id": "charts",
-        "text": "Chart types — all 26, with required fields",
+        "text": "Chart types — all 27, with required fields",
         "level": 2
       },
       {
@@ -563,6 +571,16 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "ch-single",
         "text": "Single value",
+        "level": 3
+      },
+      {
+        "id": "kpi-periods",
+        "text": "KPIs that compare periods",
+        "level": 3
+      },
+      {
+        "id": "ch-narrative",
+        "text": "Narratives",
         "level": 3
       },
       {
@@ -597,7 +615,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       },
       {
         "id": "condformat",
-        "text": "Conditional formatting (matrix)",
+        "text": "Conditional formatting (matrix and table)",
         "level": 3
       },
       {

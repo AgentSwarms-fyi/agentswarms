@@ -224,7 +224,8 @@ describe("the trust pages describe the software that exists", () => {
     // that drifts once per feature, so parse it out of each claim.
     const { VIZ_TYPES } = await import("@/components/bi/vizTypes");
     const n = VIZ_TYPES.length;
-    expect(n).toBe(26);
+    // 27 since R498 added the Narrative visual.
+    expect(n).toBe(27);
     for (const [page, claim] of [
       ["README.md", /multi-page dashboards with (\d+) visual types/],
       ["docs/BUSINESS_INTELLIGENCE.md", /pick from \*\*(\d+) visual types\*\*/],

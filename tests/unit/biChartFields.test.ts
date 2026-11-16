@@ -238,8 +238,13 @@ describe("a single-value chart drawing one row of several", () => {
     // exactly the sentence that goes stale. This one is derived at render, so
     // there is nothing to restate and nothing that can outlive its data.
     const render = fs.readFileSync("src/components/bi/BiChartRender.tsx", "utf8");
-    expect(render).toContain("const ofRows = unshownRows(rows, chart.valueField);");
-    expect(render).toMatch(/1 of \{ofRows\} rows/);
+    // The KPI moved to its own component in R498. A period KPI shows the
+    // LATEST period of a series on purpose, so only the plain tile carries
+    // the caveat.
+    const kpi = fs.readFileSync("src/components/bi/BiKpiTile.tsx", "utf8");
+    expect(kpi).toContain("const ofRows = period ? null : unshownRows(rows, chart.valueField);");
+    expect(kpi).toMatch(/1 of \{ofRows\} rows/);
+    expect(render).toContain("<BiKpiTile chart={chart} rows={rows}");
     expect(render).toContain("const gaugeOf = unshownRows(rows, chart.valueField);");
     expect(render).toMatch(/caveat=\{gaugeOf !== null \? `1 of \$\{gaugeOf\} rows` : undefined\}/);
     // And the gauge has to actually render what it is handed.

@@ -53,6 +53,23 @@ import { BiOntologyTab } from "@/components/bi/BiOntologyTab";
 import { BiTablePicker } from "@/components/bi/BiTablePicker";
 import { BiSqlEditor } from "@/components/bi/BiSqlEditor";
 import { BiCondFormatEditor } from "@/components/bi/BiCondFormatEditor";
+import { BiColumnFormats } from "@/components/bi/BiColumnFormats";
+import { CURRENCY_CODES } from "@/lib/biCurrencies";
+import { BiInsightOptions, BiKpiOptions } from "@/components/bi/BiKpiInsightOptions";
+import {
+  INSIGHT_OPTS_DEFAULT,
+  KPI_OPTS_DEFAULT,
+  insightNeedsCategory,
+  insightNeedsDate,
+  insightOptsFrom,
+  insightSpec,
+  kpiOptsFrom,
+  kpiSpecFields,
+  type InsightOpts,
+  type KpiOpts,
+} from "@/lib/biKpiInsightOpts";
+import { WidgetDataTable } from "@/components/bi/BiWidgetCard";
+import { dateLikeColumns } from "@/lib/biPeriods";
 import {
   BiDrillHierarchy,
   BiRefLineOptions,
@@ -112,22 +129,6 @@ import { listPrepFlows, parsePrepConfig, prepTables } from "@/lib/dataPrep";
 import type { QueryResult } from "@/lib/sqlEngine";
 import { SqlEngineStatus } from "@/components/data/SqlEngineStatus";
 
-// Common ISO 4217 codes offered in format pickers (any code still works
-// via saved specs; Intl validates at render time with a safe fallback).
-const CURRENCY_CODES = [
-  "USD",
-  "EUR",
-  "GBP",
-  "JPY",
-  "CNY",
-  "INR",
-  "AUD",
-  "CAD",
-  "CHF",
-  "BRL",
-  "SGD",
-  "AED",
-];
 import { warehouseTablesAsDatasets } from "@/lib/warehouseClient";
 import { WAREHOUSE_LABELS } from "@/utils/warehouse/types";
 
@@ -207,6 +208,9 @@ export function BiBuilderPane({
   const [decimalsSel, setDecimalsSel] = useState("auto");
   // Table widgets: per-column display formats keyed by column name.
   const [colFormats, setColFormats] = useState<Record<string, BiColumnFormat>>({});
+  // KPI period comparison and the narrative widget (R498).
+  const [kpiOpts, setKpiOpts] = useState<KpiOpts>(KPI_OPTS_DEFAULT);
+  const [insOpts, setInsOpts] = useState<InsightOpts>(INSIGHT_OPTS_DEFAULT);
   // Chart analytics (drill / time intelligence / reference line)
   const [drillList, setDrillList] = useState<string[]>([]);
   const [grainSel, setGrainSel] = useState("auto");
@@ -365,6 +369,8 @@ export function BiBuilderPane({
       setCurrencyCode(c.currency ?? "USD");
       setDecimalsSel(c.decimals !== undefined ? String(c.decimals) : "auto");
       setColFormats(c.columnFormats ?? {});
+      setKpiOpts(kpiOptsFrom(c));
+      setInsOpts(insightOptsFrom(c));
       setOntoSpec(c.type === "ontology" ? c.spec : null);
       setDrillList(c.drillFields ?? []);
       setGrainSel(c.dateGrain ?? "auto");
@@ -417,6 +423,8 @@ export function BiBuilderPane({
       setCurrencyCode("USD");
       setDecimalsSel("auto");
       setColFormats({});
+      setKpiOpts(KPI_OPTS_DEFAULT);
+      setInsOpts(INSIGHT_OPTS_DEFAULT);
       setOntoSpec(null);
       setDrillList([]);
       setGrainSel("auto");
@@ -765,8 +773,11 @@ export function BiBuilderPane({
                 valueField,
                 label: kpiLabel || undefined,
                 targetField: targetField || undefined,
+                ...kpiSpecFields(kpiOpts),
               }
             : null;
+        case "insight":
+          return insightSpec(valueField, kpiLabel, insOpts);
         case "gauge": {
           const max = maxInput.trim() ? Number(maxInput) : undefined;
           return valueField
@@ -871,6 +882,13 @@ export function BiBuilderPane({
     ) {
       analytics.drillFields = drillList;
     }
+    // A KPI over periods and a narrative over time bucket by the same grain.
+    if (
+      (spec.type === "kpi" && spec.dateField) ||
+      (spec.type === "insight" && insightNeedsDate(spec.kind))
+    ) {
+      if (grainSel !== "auto") analytics.dateGrain = grainSel as ChartSpec["dateGrain"];
+    }
     if (spec.type === "line" || spec.type === "area") {
       if (grainSel !== "auto") analytics.dateGrain = grainSel as ChartSpec["dateGrain"];
       // Running total / compare / trend / forecast are single-series only — the
@@ -945,6 +963,8 @@ export function BiBuilderPane({
     currencyCode,
     decimalsSel,
     colFormats,
+    kpiOpts,
+    insOpts,
     ontoSpec,
     drillList,
     grainSel,
@@ -977,6 +997,29 @@ export function BiBuilderPane({
       });
     });
   }, [preview]);
+
+  // The narrative needs a date and a category the KPI does not; pick the
+  // likely ones once a preview exists so the first render already says
+  // something (R498). A pick the new query still returns is kept; one it no
+  // longer returns is replaced — FOUND IN R498's UI test, a narrative kept
+  // ranking by a `country` the query had dropped. The KPI's date the same.
+  useEffect(() => {
+    if (!preview) return;
+    const cols = preview.columns;
+    const keep = (v: string) => (v && cols.includes(v) ? v : "");
+    if (chartType === "kpi") {
+      setKpiOpts((o) => (o.dateField && !cols.includes(o.dateField) ? { ...o, dateField: "" } : o));
+      return;
+    }
+    if (chartType !== "insight") return;
+    const dates = dateLikeColumns(cols, preview.rows);
+    const text = cols.filter((c) => !dates.includes(c) && typeof preview.rows[0]?.[c] === "string");
+    setInsOpts((o) => ({
+      ...o,
+      dateField: keep(o.dateField) || (insightNeedsDate(o.kind) ? (dates[0] ?? "") : ""),
+      categoryField: keep(o.categoryField) || (insightNeedsCategory(o.kind) ? (text[0] ?? "") : ""),
+    }));
+  }, [preview, chartType, insOpts.kind]);
 
   // What is still missing, said under the button while it is disabled (R203).
   const blocker = chartBlocker({
@@ -1376,75 +1419,14 @@ export function BiBuilderPane({
     </div>
   );
 
-  // Table widgets: per-column format editor over the preview's columns.
+  // Table widgets: per-column number format and cell style (BiColumnFormats).
   const columnFormatEditor =
     chartType === "table" && (preview?.columns ?? []).length > 0 ? (
-      <div className="space-y-1">
-        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Column formats
-        </Label>
-        <div className="space-y-1">
-          {(preview?.columns ?? []).map((c) => {
-            const cf = colFormats[c] ?? {};
-            const val = cf.format ?? "auto";
-            return (
-              <div key={c} className="flex items-center gap-1.5">
-                <span className="min-w-0 flex-1 truncate text-[11px]" title={c}>
-                  {c}
-                </span>
-                <Select
-                  value={val}
-                  onValueChange={(v) =>
-                    setColFormats((prev) => {
-                      const next = { ...prev };
-                      if (v === "auto") delete next[c];
-                      else next[c] = { ...next[c], format: v as BiColumnFormat["format"] };
-                      return next;
-                    })
-                  }
-                >
-                  <SelectTrigger className="h-7 w-24 text-[11px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="auto" className="text-xs">
-                      Auto
-                    </SelectItem>
-                    <SelectItem value="number" className="text-xs">
-                      Number
-                    </SelectItem>
-                    <SelectItem value="currency" className="text-xs">
-                      Currency
-                    </SelectItem>
-                    <SelectItem value="percent" className="text-xs">
-                      Percent
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-                {cf.format === "currency" && (
-                  <Select
-                    value={cf.currency ?? "USD"}
-                    onValueChange={(v) =>
-                      setColFormats((prev) => ({ ...prev, [c]: { ...prev[c], currency: v } }))
-                    }
-                  >
-                    <SelectTrigger className="h-7 w-20 text-[11px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {CURRENCY_CODES.map((cc) => (
-                        <SelectItem key={cc} value={cc} className="text-xs">
-                          {cc}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      <BiColumnFormats
+        columns={preview?.columns ?? []}
+        colFormats={colFormats}
+        setColFormats={setColFormats}
+      />
     ) : null;
 
   const sourceSelect = (
@@ -1803,10 +1785,34 @@ export function BiBuilderPane({
                             chartType !== "gauge" &&
                             formatSelect}
                           {columnFormatEditor}
+                          {chartType === "insight" && (
+                            <>
+                              <BiInsightOptions
+                                opts={insOpts}
+                                setOpts={setInsOpts}
+                                columns={preview?.columns ?? []}
+                                valueField={valueField}
+                                setValueField={setValueField}
+                                label={kpiLabel}
+                                setLabel={setKpiLabel}
+                                grain={grainSel}
+                                setGrain={setGrainSel}
+                              />
+                            </>
+                          )}
                           {(chartType === "kpi" || chartType === "gauge") && (
                             <>
                               {fieldSelect("Value column", valueField, setValueField)}
                               {optionalFieldSelect("Target column", targetField, setTargetField)}
+                              {chartType === "kpi" && (
+                                <BiKpiOptions
+                                  opts={kpiOpts}
+                                  setOpts={setKpiOpts}
+                                  columns={preview?.columns ?? []}
+                                  grain={grainSel}
+                                  setGrain={setGrainSel}
+                                />
+                              )}
                               {chartType === "gauge" && (
                                 <div className="space-y-1">
                                   <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -1847,6 +1853,16 @@ export function BiBuilderPane({
                         <div className="rounded-lg border border-border/60 bg-card p-2">
                           {chartSpec && chartSpec.type !== "table" ? (
                             <BiChartRender chart={chartSpec} rows={preview.rows} />
+                          ) : chartType === "table" ? (
+                            // The real table, so cell styles show as they will
+                            // on the dashboard (R498).
+                            <div className="h-56">
+                              <WidgetDataTable
+                                columns={preview.columns}
+                                rows={preview.rows}
+                                columnFormats={colFormats}
+                              />
+                            </div>
                           ) : (
                             <div className="max-h-48 overflow-auto rounded border border-border/50">
                               <table className="w-full text-left">

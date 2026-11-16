@@ -54,6 +54,8 @@ import {
   NightingaleChart,
 } from "@/components/bi/BiChartParts";
 import { BiGeoMap } from "@/components/bi/BiGeoMap";
+import { BiInsightBody } from "@/components/bi/BiInsight";
+import { BiKpiTile } from "@/components/bi/BiKpiTile";
 import { OntologyGraph } from "@/components/bi/OntologyGraph";
 import { unshownRows } from "@/lib/biChartFields";
 import { isOntologySpec } from "@/lib/biOntology";
@@ -289,64 +291,12 @@ function BiChartRenderInner({
   }
 
   if (chart.type === "kpi") {
-    const v = rows[0]?.[chart.valueField];
-    // A KPI draws row zero. When the query returned more, the card is showing
-    // one slice of a breakdown in the type size reserved for a headline.
-    const ofRows = unshownRows(rows, chart.valueField);
-    const target = chart.targetField ? Number(rows[0]?.[chart.targetField]) : undefined;
-    const num = Number(v);
-    const deltaPct =
-      target !== undefined && Number.isFinite(target) && target !== 0 && Number.isFinite(num)
-        ? (num / target - 1) * 100
-        : undefined;
-    const centered = large || fill;
-    return (
-      <div
-        className={`flex flex-col ${
-          centered ? "h-full w-full items-center justify-center py-4" : "items-start py-3"
-        }`}
-      >
-        <span
-          className={`font-medium uppercase tracking-widest text-muted-foreground ${
-            large ? "text-sm" : "text-[10px]"
-          }`}
-        >
-          {chart.label || chart.valueField}
-        </span>
-        <span
-          className={`mt-1 font-semibold tracking-tight text-foreground tabular-nums ${
-            large ? "text-7xl" : fill ? "text-5xl" : "text-3xl"
-          }`}
-        >
-          {fmt(v)}
-        </span>
-        {deltaPct !== undefined && (
-          <span
-            className={`mt-1.5 flex items-center gap-1 text-xs font-medium tabular-nums ${
-              deltaPct >= 0
-                ? "text-emerald-600 dark:text-emerald-400"
-                : "text-red-600 dark:text-red-400"
-            }`}
-          >
-            {deltaPct >= 0 ? "▲" : "▼"} {Math.abs(deltaPct).toFixed(1)}% vs target ({fmt(target)})
-          </span>
-        )}
-        {ofRows !== null && (
-          <span
-            className={`mt-1 cursor-help text-muted-foreground ${
-              large ? "text-xs" : "text-[10px]"
-            }`}
-            title={
-              `This query returned ${ofRows} rows and a single-value chart draws the first. ` +
-              "The other rows are not on this card — edit the widget and pick a bar chart " +
-              "to see the whole breakdown."
-            }
-          >
-            1 of {ofRows} rows
-          </span>
-        )}
-      </div>
-    );
+    // Plain, or the latest period against the one before (R498).
+    return <BiKpiTile chart={chart} rows={rows} large={large} fill={fill} />;
+  }
+
+  if (chart.type === "insight") {
+    return <BiInsightBody chart={chart} rows={rows} large={large} fill={fill} />;
   }
 
   if (chart.type === "gauge") {

@@ -8,12 +8,13 @@ and reports. An editable dashboard is called a **BI project**:
 - **Build visuals by hand** — a right-hand builder pane: pick a source (your
   Data & SQL datasets or any connected warehouse), tick one or **more tables
   to join** (a JOIN skeleton is written for you with auto-detected join
-  keys), run the read-only SQL, then pick from **26 visual types** in an
+  keys), run the read-only SQL, then pick from **27 visual types** in an
   icon picker: column, bar, **stacked column**, **stacked bar**, **bar
   race**, line, area, **combo (bars + line, dual axis)**, **scatter**,
   pie/donut, **nightingale**, **radar**, **funnel**, **sankey**,
   **treemap**, **word cloud**, **heatmap**, **box &amp; whisker**,
-  **waterfall**, KPI card (with target comparison), **gauge**, **matrix
+  **waterfall**, KPI card (latest period against the one before, a trend
+  line and progress toward a target), **narrative**, **gauge**, **matrix
   (pivot) table**, **filled map**, **bubble map** (country-level, fully
   offline — no tile servers), table and **ontology**. Column, line
   and area charts support **multi-series** (split by a category column —
@@ -34,7 +35,10 @@ and reports. An editable dashboard is called a **BI project**:
   plans 5–8 analyst questions against your schema, runs each through the
   GenBI pipeline with live per-question progress, and lays the finished
   widgets out automatically (KPIs on top, charts in the middle, tables
-  at the bottom). Failed questions are skipped, never faked.
+  at the bottom). Failed questions are skipped, never faked. With a date
+  in the table, headline KPIs compare periods and the plan can add
+  narratives (top regions, change since last month, next month's
+  forecast), each shaped from the columns the query returned (R498).
 
   **Generate from a governed model instead of a table.** The source picker
   offers a semantic model alongside your tables, and choosing one governs the
@@ -881,6 +885,41 @@ than fixed: 60 s upstream for a chat model, 150 s for a reasoning one, plus
 time proportional to the completion budget, capped at 300 s — with the client
 always given 30 s more than the upstream deadline so the server gives up
 first.
+
+## KPIs that compare periods
+
+A KPI with a **date** treats its rows as a series and shows the **latest
+period**, its change against **the period before** or **the same period last
+year**, and — with **Trend line** — the periods behind it; a target column
+adds a progress bar, and **Lower is better** turns a fall green (R498).
+**Period** sets what one period is: *As the rows are* keeps one row per
+period, so rates and averages are never summed, while a month, week, quarter
+or year adds the rows inside each together. `2026-Q3` and `2026-W05` labels
+read as dates. A comparison period with no data is reported as missing
+("No data for Oct 2026 to compare with"), never replaced by an older one.
+The e-mailed digest, the "what changed" log and the PowerPoint export use
+the same latest period.
+
+## Narratives computed from the data
+
+The **Narrative** visual writes one sentence from its own rows: top or
+bottom N, period over period, forecast (8+ periods), most recent anomaly
+(5+ periods, median-based), compounded growth rate, or top movers between
+the latest two periods (R498). It is arithmetic, not model prose, so it
+follows filters and cross-filters like a chart and cannot state a number the
+data lacks; too little history gets the reason instead of a sentence. **Your
+own sentence** replaces the wording, with `{{period}}`, `{{change_pct}}`,
+`{{list}}` and the other values picked from a menu. AI insight remains the
+written reading of one snapshot.
+
+## Table cell styles
+
+Each table column has a style button in **Column formats** (R498): draw the
+cells as a **data bar**, a **picture** or a **link** (absolute http(s) only,
+plus image data and `mailto:`), colour them with a **scale** or **rules** —
+numeric, or text rules `is` / `contains` — give each rule an **icon**, and
+let a matching rule **colour the whole row**. Scales and bars are measured
+over every row, not the page shown.
 
 ## Pivot conditional formatting
 

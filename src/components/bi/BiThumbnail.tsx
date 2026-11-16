@@ -53,6 +53,7 @@ function MiniChart({ type, color }: { type: string; color: string }) {
       );
     case "kpi":
     case "gauge":
+    case "insight":
       return (
         <div className="flex w-full flex-col items-center gap-1 px-2">
           <div className="h-2 w-8 rounded-full" style={{ background: c, opacity: 0.9 }} />

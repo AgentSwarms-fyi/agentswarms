@@ -301,6 +301,14 @@ function BiPage() {
         <strong>Add to dashboard</strong> once a query returns something worth keeping.
       </P>
 
+      <P>
+        Generated from a table with a date, the headline KPIs compare periods — the latest month
+        against the one before, with a trend line — and the plan can include narratives: the top
+        regions, the change since last month, the next month&apos;s forecast. Each is shaped from
+        the columns the query actually returned, so a plan the data cannot carry falls back to the
+        chart the model picked rather than an empty frame.
+      </P>
+
       <H3 id="generate-governed">Generate a dashboard from a governed model</H3>
       <P>
         <strong>Generate dashboard with AI</strong> offers two sources: your <strong>tables</strong>
@@ -429,7 +437,7 @@ GROUP BY region`}</Code>
         leave incremental off.
       </Callout>
 
-      <H2 id="charts">Chart types — all 26, with required fields</H2>
+      <H2 id="charts">Chart types — all 27, with required fields</H2>
       <P>
         Each chart declares which fields it needs. The builder only offers types your selected
         columns can satisfy, so a chart missing a required field cannot be created.
@@ -492,8 +500,8 @@ GROUP BY region`}</Code>
           [
             <C key="a">kpi</C>,
             "valueField",
-            "label, targetField",
-            "One headline number, optionally against a target",
+            "label, targetField, dateField, compareTo, sparkline, lowerIsBetter",
+            "One headline number. With dateField: the latest period, its change and a trend line",
           ],
           [
             <C key="b">gauge</C>,
@@ -503,6 +511,85 @@ GROUP BY region`}</Code>
           ],
         ]}
       />
+
+      <H3 id="kpi-periods">KPIs that compare periods</H3>
+      <P>
+        Give a KPI a <strong>date</strong> in the builder and its rows become a series: the tile
+        shows the <strong>latest period</strong>, the change against{" "}
+        <strong>the period before</strong> or <strong>the same period last year</strong> (▲ 4.2%
+        (+$1.2M) vs Oct 2026) and, with <strong>Trend line</strong> on, the periods behind it. A
+        target column adds a progress bar. <strong>Lower is better</strong> turns a fall green for
+        costs, churn and defects.
+      </P>
+      <P>
+        <strong>Period</strong> decides what one period is. <em>As the rows are</em> keeps each row
+        as its own period, so a rate or an average per month is never added up; picking a month,
+        week, quarter or year adds the rows inside each one together. Quarter labels such as{" "}
+        <C>2026-Q3</C> and week labels such as <C>2026-W05</C> are read as dates.
+      </P>
+      <Callout kind="warn" title="A missing month is said, not skipped">
+        When the period being compared with has no row — November against an October the query did
+        not return — the tile says <em>No data for Oct 2026 to compare with</em>. It never compares
+        with the nearest month that does have data, which would call August &ldquo;last
+        month&rdquo;.
+      </Callout>
+
+      <H3 id="ch-narrative">Narratives</H3>
+      <P>
+        A <strong>Narrative</strong> widget is a sentence computed from its own rows — the kind
+        every good dashboard leads with. It is arithmetic, not prose from a model, so it is
+        recomputed whenever a filter or a cross-filter changes those rows, and it cannot state a
+        number the data does not contain.
+      </P>
+      <Table
+        headers={["Narrative", "Needs", "Says"]}
+        rows={[
+          [
+            "Top ranked / Bottom ranked",
+            "A category and a measure",
+            "The top (or bottom) N members with their values and share of the total",
+          ],
+          [
+            "Period over period",
+            "A date and a measure",
+            "Revenue for Nov 2026 increased by 44.4% (+$34.5M) from $77.8M to $112.3M.",
+          ],
+          [
+            "Forecast",
+            "A date and a measure, 8+ periods",
+            "The next period's forecast with its likely range and method",
+          ],
+          [
+            "Anomaly",
+            "A date and a measure, 5+ periods",
+            "The most recent period 3+ deviations from the median, or that none is",
+          ],
+          [
+            "Growth rate",
+            "A date and a measure",
+            "The compounded growth rate per period over the last N periods",
+          ],
+          [
+            "Top movers",
+            "A category, a date and a measure",
+            "The members that changed most between the latest two periods",
+          ],
+        ]}
+      />
+      <P>
+        <strong>Your own sentence</strong> replaces the standard wording. Its <strong>Value</strong>{" "}
+        menu lists what the kind computes — <C>{"{{period}}"}</C>, <C>{"{{change_pct}}"}</C>,{" "}
+        <C>{"{{list}}"}</C> and so on — and each fills in from the data. A token the kind does not
+        have stays visible as written, so a typo shows rather than vanishing. Too little history is
+        answered with the reason (&ldquo;A forecast needs at least 8 periods; this has 5&rdquo;),
+        never with a weaker sentence.
+      </P>
+      <Callout kind="why" title="Narrative or AI insight?">
+        <strong>AI insight</strong> writes a paragraph about one snapshot, the way a person would;
+        it does not change when the filters do. A narrative is one sentence a dashboard must never
+        get wrong, so it is computed every time it is drawn. Use the narrative for the headline
+        facts and the insight for the reading of them.
+      </Callout>
 
       <H3 id="ch-dist">Distribution and relationship</H3>
       <Table
@@ -534,7 +621,12 @@ GROUP BY region`}</Code>
       <Table
         headers={["Type", "Required fields", "Optional", "Use for"]}
         rows={[
-          [<C key="a">table</C>, "—", "columnFormats", "Exact figures read row by row"],
+          [
+            <C key="a">table</C>,
+            "—",
+            "columnFormats",
+            "Exact figures read row by row; cells can be data bars, pictures, links, coloured and given icons",
+          ],
           [
             <C key="b">matrix</C>,
             "rowField, colField, valueField",
@@ -556,6 +648,12 @@ GROUP BY region`}</Code>
             "textField",
             "valueField",
             "Term frequency; weight by valueField when you have one",
+          ],
+          [
+            <C key="d">insight</C>,
+            "kind, valueField",
+            "categoryField, dateField, topN, periods, label, template, lowerIsBetter",
+            "A narrative sentence computed from the rows — see Narratives above",
           ],
           [
             <C key="c">ontology</C>,
@@ -621,7 +719,7 @@ GROUP BY region`}</Code>
           [
             <C key="d">columnFormats</C>,
             "per column",
-            "Table widgets only — format each column independently (number | currency | percent, with its own currency and decimals).",
+            "Table widgets only — format each column independently (number | currency | percent, with its own currency and decimals), and style its cells: display (bar | image | link), cond (colours and icons) and rowHighlight.",
           ],
         ]}
       />
@@ -643,7 +741,7 @@ GROUP BY region`}</Code>
           [
             <C key="b">dateGrain</C>,
             "auto | day | week | month | quarter | year",
-            "line, area",
+            "line, area, period KPIs, narratives",
             "Default bucketing; viewers can toggle it. Buckets are UTC, the zone the SQL engines run in: a timestamp written without an offset is read as UTC, so a viewer in any time zone sees the months and days the query returned.",
           ],
           [
@@ -678,7 +776,7 @@ GROUP BY region`}</Code>
         registry. Use any of them to frame a conversation, never to commit to a number.
       </Callout>
 
-      <H3 id="condformat">Conditional formatting (matrix)</H3>
+      <H3 id="condformat">Conditional formatting (matrix and table)</H3>
       <Table
         headers={["Mode", "Configuration"]}
         rows={[
@@ -697,6 +795,17 @@ GROUP BY region`}</Code>
           ],
         ]}
       />
+      <P>
+        A <strong>table</strong> column takes the same two modes from the brush button beside it in{" "}
+        <strong>Column formats</strong>, plus three things the pivot has no room for: text rules (
+        <C>is</C> and <C>contains</C>, ignoring case, so a sentiment column can read NEGATIVE in
+        red), an <strong>icon</strong> per rule (▲ ▼ ● ⚑ ✓ ⚠), and{" "}
+        <strong>Colour the whole row</strong> — a results table can paint first place gold and a
+        did-not-finish row grey. The same button draws a column as a <strong>data bar</strong> sized
+        against its largest value, a <strong>picture</strong> or a <strong>link</strong>. Pictures
+        and links are drawn only from absolute <C>https://</C> and <C>http://</C> addresses (and
+        image data or <C>mailto:</C>); anything else shows as text.
+      </P>
 
       <H3 id="refline">Reference lines</H3>
       <P>
@@ -932,10 +1041,11 @@ GROUP BY region`}</Code>
       </P>
       <P>
         Single-value charts now carry <strong>1 of N rows</strong> under the number whenever their
-        query returned more rows than they draw. It appears only when the value is a{" "}
-        <em>measure</em>: <C>Best Month by Revenue</C> is a KPI over thirty-six ordered rows whose
-        value is a month name, and there row one is the answer. A caveat on that would be noise, and
-        noise is what teaches people to ignore the caveats that matter.
+        query returned more rows than they draw. A KPI with a date is exempt: it shows the latest
+        period of a series on purpose, and says which period that is. It appears only when the value
+        is a <em>measure</em>: <C>Best Month by Revenue</C> is a KPI over thirty-six ordered rows
+        whose value is a month name, and there row one is the answer. A caveat on that would be
+        noise, and noise is what teaches people to ignore the caveats that matter.
       </P>
       <P>
         It is computed where the number is drawn rather than stored with the widget. A count of rows

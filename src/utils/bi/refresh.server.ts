@@ -51,6 +51,7 @@ import { namesMentioned } from "@/lib/sqlRefs";
 import { restateWidgetNote } from "@/lib/biTitleClaims";
 import { restateWidgetNarrative } from "@/lib/biNumericClaims";
 import { STAGING_PREFIX } from "@/lib/datasetParse";
+import { kpiHeadlineValue } from "@/lib/biPeriods";
 import { localEngineName } from "@/utils/data/localEngine.server";
 import { scanDatasetRows } from "@/utils/data/datasetRows.server";
 
@@ -631,6 +632,9 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
 type ChartFields = {
   type?: string;
   valueField?: string;
+  /** A period KPI (R498): its headline is the latest period, not row zero. */
+  dateField?: string;
+  dateGrain?: string;
   yField?: string;
   xField?: string;
   nameField?: string;
@@ -659,8 +663,8 @@ export function computeSnapshotChanges(before: WidgetJson[], after: WidgetJson[]
     const title = w.title ?? "Widget";
 
     if (chart.type === "kpi" && chart.valueField) {
-      const a = Number(oldRows[0]?.[chart.valueField]);
-      const b = Number(newRows[0]?.[chart.valueField]);
+      const a = Number(kpiHeadlineValue(chart, oldRows));
+      const b = Number(kpiHeadlineValue(chart, newRows));
       if (Number.isFinite(a) && Number.isFinite(b) && a !== b) {
         const pct = a !== 0 ? ((b - a) / Math.abs(a)) * 100 : null;
         if (pct === null || Math.abs(pct) >= 2) {
@@ -862,8 +866,7 @@ export function buildReportDigest(
   const kpiCells = kpis
     .slice(0, 6)
     .map((w) => {
-      const chart = w.chart as { valueField?: string } | undefined;
-      const v = chart?.valueField ? w.rows?.[0]?.[chart.valueField] : undefined;
+      const v = kpiHeadlineValue(w.chart as ChartFields | undefined, w.rows);
       return `<td style="padding:10px 14px;border:1px solid #e5e7eb;border-radius:8px">
         <div style="font-size:11px;color:#6b7280">${w.title ?? ""}</div>
         <div style="font-size:20px;font-weight:600">${fmtNum(v)}</div></td>`;
@@ -894,8 +897,7 @@ export function buildReportDigest(
     (changes.length ? `What changed:\n${changes.join("\n")}\n\n` : "") +
     kpis
       .map((w) => {
-        const chart = w.chart as { valueField?: string } | undefined;
-        const v = chart?.valueField ? w.rows?.[0]?.[chart.valueField] : undefined;
+        const v = kpiHeadlineValue(w.chart as ChartFields | undefined, w.rows);
         return `${w.title}: ${fmtNum(v)}`;
       })
       .join("\n") +

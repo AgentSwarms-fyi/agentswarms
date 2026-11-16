@@ -27,6 +27,11 @@ export const COND_COLORS: Record<string, { label: string; hex: string }> = {
 
 export function condRuleMatches(v: number, r: BiCondRule): boolean {
   switch (r.op) {
+    case "is":
+    case "contains":
+      // Text rules never match a number on the numeric path; see
+      // condRuleMatchesValue, which is what table cells call.
+      return false;
     case "gt":
       return v > r.value;
     case "gte":
@@ -42,6 +47,44 @@ export function condRuleMatches(v: number, r: BiCondRule): boolean {
     case "between":
       return v >= r.value && v <= (r.value2 ?? r.value);
   }
+}
+
+/** Text rules ("is" / "contains") compare the cell's text; the rest its number. */
+export function isTextRule(r: BiCondRule): boolean {
+  return r.op === "is" || r.op === "contains";
+}
+
+/**
+ * Does a table cell's raw value match a rule? Text rules compare the value as
+ * text, ignoring case and surrounding space; numeric rules need a number and
+ * a finite threshold.
+ */
+export function condRuleMatchesValue(raw: unknown, r: BiCondRule): boolean {
+  if (raw === null || raw === undefined) return false;
+  if (isTextRule(r)) {
+    const want = (r.text ?? "").trim().toLowerCase();
+    if (!want) return false;
+    const have = String(raw).trim().toLowerCase();
+    return r.op === "is" ? have === want : have.includes(want);
+  }
+  const n =
+    typeof raw === "number" ? raw : typeof raw === "string" && raw.trim() ? Number(raw) : NaN;
+  return Number.isFinite(n) && Number.isFinite(r.value) && condRuleMatches(n, r);
+}
+
+/** The first rule a cell matches, under a rules-mode format (tables, R498). */
+export function firstMatchingRule(
+  raw: unknown,
+  cf: BiCondFormat | undefined,
+): BiCondRule | undefined {
+  if (!cf || cf.mode !== "rules") return undefined;
+  return (cf.rules ?? []).find((r) => COND_COLORS[r.color] && condRuleMatchesValue(raw, r));
+}
+
+/** Tinted background and text colour for a matched rule. */
+export function ruleFill(r: BiCondRule): { bg: string; fg: string } | null {
+  const hex = COND_COLORS[r.color]?.hex;
+  return hex ? { bg: `color-mix(in oklch, ${hex} 22%, transparent)`, fg: hex } : null;
 }
 
 /**

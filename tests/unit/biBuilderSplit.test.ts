@@ -34,6 +34,12 @@ const CHILDREN = {
   // as a child from day one BECAUSE this file's ceiling flagged the inlined
   // draft. Same contract as the others — no hooks, values and setters in.
   "BiMetricSource.tsx": readFileSync("src/components/bi/BiMetricSource.tsx", "utf8"),
+  // R498: the KPI period and narrative options, and the table's column
+  // formats and cell styles. The column editor moved out when the cell styles
+  // pushed the parent past its ceiling.
+  "BiKpiInsightOptions.tsx": readFileSync("src/components/bi/BiKpiInsightOptions.tsx", "utf8"),
+  "BiColumnFormats.tsx": readFileSync("src/components/bi/BiColumnFormats.tsx", "utf8"),
+  "BiColumnStyle.tsx": readFileSync("src/components/bi/BiColumnStyle.tsx", "utf8"),
 };
 
 describe("no hook moved out of the parent", () => {
@@ -66,6 +72,9 @@ describe("the extracted regions are gone from the parent", () => {
       "<BiTimeSeriesOptions",
       "<BiRefLineOptions",
       "<BiMetricSource",
+      "<BiKpiOptions",
+      "<BiInsightOptions",
+      "<BiColumnFormats",
     ]) {
       expect(parent, `${tag} is not rendered`).toContain(tag);
     }

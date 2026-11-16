@@ -143,6 +143,19 @@ development branch and may be ahead of the latest tag.
   columns, **Shift+Space** whole rows (it used to type a space into the cell)
   and **Ctrl+Shift+Space** the sheet. A whole-column selection stays whole as
   the grid grows while you scroll.
+- **BI: KPIs that compare periods, narratives, and styled table cells**
+  (R498). A KPI given a date shows the latest period, its change against the
+  period before or the same period last year, a trend line and progress
+  toward a target; a missing comparison period is said, not replaced by an
+  older one. The new **Narrative** visual computes a sentence from its rows —
+  top or bottom N, period over period, forecast, anomaly, growth rate, top
+  movers — and follows the dashboard's filters; an author can write their own
+  sentence with values picked from a menu. Table columns gain data bars,
+  pictures and links (http(s) only), colour rules on text as well as numbers,
+  rule icons and whole-row highlights. **Generate Entire Dashboard** now plans
+  period KPIs and narratives, shaped from the columns each query returned;
+  the e-mailed digest, the change log and the PowerPoint export read a period
+  KPI's latest value.
 
 ### Added
 

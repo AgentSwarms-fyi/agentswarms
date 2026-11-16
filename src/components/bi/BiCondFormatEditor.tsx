@@ -20,8 +20,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { BiCondRule } from "@/lib/biAgent";
+import type { BiCondIcon, BiCondRule } from "@/lib/biAgent";
 import { COND_COLORS } from "@/lib/biChartMath";
+
+/** Rule icons offered for table cells (R498); the matrix has no room for them. */
+const ICON_CHOICES: [BiCondIcon | "none", string][] = [
+  ["none", "No icon"],
+  ["up", "▲ Up"],
+  ["down", "▼ Down"],
+  ["dot", "● Dot"],
+  ["flag", "⚑ Flag"],
+  ["check", "✓ Check"],
+  ["alert", "⚠ Warning"],
+];
 
 export function BiCondFormatEditor({
   matFmtMode,
@@ -30,6 +41,9 @@ export function BiCondFormatEditor({
   setMatScaleColor,
   matRules,
   setMatRules,
+  withIcons = false,
+  totalsNote = true,
+  allowText = false,
 }: {
   matFmtMode: string;
   setMatFmtMode: (v: string) => void;
@@ -37,6 +51,12 @@ export function BiCondFormatEditor({
   setMatScaleColor: (v: string) => void;
   matRules: BiCondRule[];
   setMatRules: React.Dispatch<React.SetStateAction<BiCondRule[]>>;
+  /** Offer an icon per rule (table columns, R498). */
+  withIcons?: boolean;
+  /** Say that totals stay uncoloured (true for the matrix). */
+  totalsNote?: boolean;
+  /** Offer text rules — "is" and "contains" (table columns, R498). */
+  allowText?: boolean;
 }) {
   return (
     <div className="col-span-2 space-y-1.5">
@@ -102,6 +122,12 @@ export function BiCondFormatEditor({
                       ["eq", "= equals"],
                       ["neq", "≠ not"],
                       ["between", "between"],
+                      ...(allowText
+                        ? ([
+                            ["is", "is (text)"],
+                            ["contains", "contains (text)"],
+                          ] as const)
+                        : []),
                     ] as const
                   ).map(([v, l]) => (
                     <SelectItem key={v} value={v} className="text-xs">
@@ -110,17 +136,32 @@ export function BiCondFormatEditor({
                   ))}
                 </SelectContent>
               </Select>
-              <Input
-                value={Number.isFinite(r.value) ? String(r.value) : ""}
-                onChange={(e) =>
-                  setMatRules((rs) =>
-                    rs.map((x, j) => (j === i ? { ...x, value: Number(e.target.value) } : x)),
-                  )
-                }
-                inputMode="decimal"
-                placeholder="value"
-                className="h-7 w-20 text-[11px]"
-              />
+              {r.op === "is" || r.op === "contains" ? (
+                <Input
+                  value={r.text ?? ""}
+                  onChange={(e) =>
+                    setMatRules((rs) =>
+                      rs.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)),
+                    )
+                  }
+                  placeholder="text"
+                  aria-label={`Rule ${i + 1} text`}
+                  className="h-7 w-28 text-[11px]"
+                />
+              ) : (
+                <Input
+                  value={Number.isFinite(r.value) ? String(r.value) : ""}
+                  onChange={(e) =>
+                    setMatRules((rs) =>
+                      rs.map((x, j) => (j === i ? { ...x, value: Number(e.target.value) } : x)),
+                    )
+                  }
+                  inputMode="decimal"
+                  placeholder="value"
+                  aria-label={`Rule ${i + 1} value`}
+                  className="h-7 w-20 text-[11px]"
+                />
+              )}
               {r.op === "between" && (
                 <Input
                   value={
@@ -152,8 +193,32 @@ export function BiCondFormatEditor({
                   />
                 ))}
               </div>
+              {withIcons && (
+                <Select
+                  value={r.icon ?? "none"}
+                  onValueChange={(v) =>
+                    setMatRules((rs) =>
+                      rs.map((x, j) =>
+                        j === i ? { ...x, icon: v === "none" ? undefined : (v as BiCondIcon) } : x,
+                      ),
+                    )
+                  }
+                >
+                  <SelectTrigger className="h-7 w-24 text-[11px]" aria-label={`Rule ${i + 1} icon`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ICON_CHOICES.map(([v, l]) => (
+                      <SelectItem key={v} value={v} className="text-xs">
+                        {l}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
               <button
                 type="button"
+                aria-label={`Remove rule ${i + 1}`}
                 className="ml-auto text-muted-foreground hover:text-destructive"
                 onClick={() => setMatRules((rs) => rs.filter((_, j) => j !== i))}
               >
@@ -170,7 +235,8 @@ export function BiCondFormatEditor({
             <Plus className="h-3 w-3" /> Add rule
           </Button>
           <p className="text-[9px] text-muted-foreground">
-            Rules are checked top-down; the first match colours the cell. Totals stay uncoloured.
+            Rules are checked top-down; the first match colours the cell.
+            {totalsNote ? " Totals stay uncoloured." : ""}
           </p>
         </div>
       )}

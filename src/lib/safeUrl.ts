@@ -46,3 +46,23 @@ export function safeUrl(url: string): string {
 
   return ["http", "https", "mailto", "tel", "ftp"].includes(scheme) ? raw : "";
 }
+
+/**
+ * A table cell's value as a picture source, or "" (R498).
+ *
+ * Narrower than safeUrl: only an absolute http(s) address or an image data
+ * URI. A relative path would load from this app's own origin, which a cell
+ * value has no business pointing at.
+ */
+export function safeImageSrc(url: unknown): string {
+  if (typeof url !== "string") return "";
+  const s = safeUrl(url);
+  return /^(https?:\/\/|data:image\/)/i.test(s.trim()) ? s.trim() : "";
+}
+
+/** A table cell's value as a link, or "" — absolute http(s) and mailto only (R498). */
+export function safeLinkHref(url: unknown): string {
+  if (typeof url !== "string") return "";
+  const s = safeUrl(url);
+  return /^(https?:\/\/|mailto:)/i.test(s.trim()) ? s.trim() : "";
+}

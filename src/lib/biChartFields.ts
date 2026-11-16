@@ -55,11 +55,21 @@ const MEASURE_FIELDS: Record<string, readonly string[]> = {
   bubblemap: ["valueField"],
   wordcloud: ["valueField"],
   kpi: ["valueField", "targetField"],
+  insight: ["valueField"],
   gauge: ["valueField", "targetField"],
 };
 
 /** Fields a chart still draws without: decorations, not the drawing itself. */
-const ALWAYS_OPTIONAL = new Set(["seriesField", "sizeField", "targetField", "rowSubField"]);
+// dateField and categoryField (R498) decorate a KPI and drive a narrative; a
+// narrative missing one says which in its own body, which beats a table.
+const ALWAYS_OPTIONAL = new Set([
+  "seriesField",
+  "sizeField",
+  "targetField",
+  "rowSubField",
+  "dateField",
+  "categoryField",
+]);
 
 /** Keys that belong to every spec and survive a fall back to a table. */
 const SHARED_KEYS = ["format", "currency", "decimals", "columnFormats"] as const;

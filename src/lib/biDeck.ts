@@ -14,11 +14,14 @@
 // charts are missing. Each one is either degraded to a table of the same data
 // or withheld with the reason attached, and the dialog shows both.
 //
-// Pure module: no imports beyond types, so the mapping is testable without a
-// browser, a database or pptxgenjs.
+// Pure module: no imports beyond types and other pure modules (the period
+// and narrative arithmetic the cards themselves run), so the mapping is
+// testable without a browser, a database or pptxgenjs.
 import type { ChartSpec } from "./biAgent";
 import type { BiWidget } from "./biDashboards";
 import type { DocChart, DocTable, PptxKpi, PptxPlan, PptxSlide } from "./docGen/types";
+import { computeInsight } from "./biInsights";
+import { comparePeriods, periodSeries, prettyPeriod } from "./biPeriods";
 
 /**
  * Deck accent, as pptxgenjs wants it: hex, no leading "#".
@@ -181,13 +184,46 @@ export function kpiFromWidget(widget: BiWidget): PptxKpi | null {
   if (!spec || spec.type !== "kpi" || !Array.isArray(rows) || rows.length === 0) return null;
   const field = (spec as unknown as { valueField?: string }).valueField;
   if (!field) return null;
+  const label = (spec as unknown as { label?: string }).label || widget.title;
+  // A period KPI (R498) shows its LATEST period and the change against the
+  // one it is compared with — the same arithmetic the card runs, so the deck
+  // and the dashboard cannot disagree about which month is "this month".
+  if (spec.dateField) {
+    const series = periodSeries(rows, spec.dateField, field, spec.dateGrain ?? "auto");
+    const last = series.points[series.points.length - 1];
+    if (last) {
+      const compareTo = spec.compareTo ?? "previous";
+      const cmp = compareTo === "none" ? null : comparePeriods(series, compareTo);
+      const kpi: PptxKpi = {
+        label: `${label} · ${prettyPeriod(last.label, "en-US")}`,
+        value: formatCompact(last.value),
+      };
+      if (cmp?.change !== undefined && cmp.changePct !== undefined && cmp.changePct !== null) {
+        const p = cmp.changePct * 100;
+        kpi.delta = `${p >= 0 ? "+" : "−"}${Math.abs(p).toFixed(1)}% vs ${prettyPeriod(cmp.previousLabel, "en-US")}`;
+        kpi.positive = p >= 0 !== Boolean(spec.lowerIsBetter);
+      }
+      return kpi;
+    }
+  }
   const raw = rows[0][field];
   const n = num(raw);
   if (n === null) return null;
-  return {
-    label: (spec as unknown as { label?: string }).label || widget.title,
-    value: formatCompact(n),
-  };
+  return { label, value: formatCompact(n) };
+}
+
+/** A narrative widget's sentence as slide bullets (R498), or null. */
+export function insightBullets(widget: BiWidget): string[] | null {
+  const spec = widget.chart;
+  if (!spec || spec.type !== "insight" || !Array.isArray(widget.rows)) return null;
+  const r = computeInsight({ ...spec, dateGrain: spec.dateGrain }, widget.rows, {
+    value: formatCompact,
+    percentMeasure: spec.format === "percent",
+    locale: "en-US",
+  });
+  if (!r.ok) return null;
+  const text = (parts: { text: string }[]) => parts.map((p) => p.text).join("");
+  return [text(r.lead), ...(r.items ?? []).map(text)].filter((s) => s.trim().length > 0);
 }
 
 /**
@@ -231,6 +267,13 @@ export function widgetToSlide(widget: BiWidget): DeckCandidate {
       ok: false,
       reason: "No saved data — refresh the dashboard, then export",
     };
+  }
+
+  if (spec.type === "insight") {
+    const bullets = insightBullets(widget);
+    return bullets
+      ? { widget, ok: true, slide: { title: widget.title, layout: "bullets", bullets } }
+      : { widget, ok: false, reason: "This narrative has nothing to say about its data" };
   }
 
   if (spec.type === "kpi" || spec.type === "gauge") {

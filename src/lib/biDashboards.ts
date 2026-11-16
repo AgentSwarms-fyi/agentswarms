@@ -638,7 +638,10 @@ export function defaultWidgetSize(widget: BiWidget): { w: number; h: number } {
   if (widget.kind === "image") return { w: 4, h: 4 };
   const t = widget.chart?.type;
   if (t === "wordcloud") return { w: 5, h: 5 };
-  if (t === "kpi") return { w: 3, h: 3 };
+  // A period KPI carries its period, its change and a trend line (R498).
+  if (t === "kpi")
+    return widget.chart?.type === "kpi" && widget.chart.dateField ? { w: 3, h: 4 } : { w: 3, h: 3 };
+  if (t === "insight") return { w: 6, h: 3 };
   if (t === "gauge") return { w: 4, h: 4 };
   if (t === "map" || t === "bubblemap") return { w: 8, h: 6 };
   if (t === "matrix") return { w: 8, h: 6 };

@@ -31,6 +31,8 @@ import type { GovernedModelFields } from "@/lib/aiAnalyst";
 import type { ScenarioParameter } from "@/lib/analystScenario";
 import { computeInsightFacts, formatInsightFacts, queryRowLimit } from "@/lib/biInsightFacts";
 import { unsupportedFigures, valuesStatedIn, verifyClaims } from "@/lib/biNumericClaims";
+import { parseCompare, parseInsightKind } from "@/lib/biGeneratedShape";
+import { isPreAggregated } from "@/lib/biColumnKinds";
 
 export type ColumnMeta = {
   description?: string;
@@ -65,13 +67,24 @@ export type BiNumberFormat = "currency" | "percent";
 
 /** One conditional-formatting rule (first match wins). */
 export type BiCondRule = {
-  op: "gt" | "gte" | "lt" | "lte" | "eq" | "neq" | "between";
+  /**
+   * Numeric comparisons, or (table cells only, R498) a text match: "is"
+   * equals `text` ignoring case, "contains" finds it anywhere — so a
+   * sentiment column can read NEGATIVE in red without a number behind it.
+   */
+  op: "gt" | "gte" | "lt" | "lte" | "eq" | "neq" | "between" | "is" | "contains";
   value: number;
+  /** The text an "is" / "contains" rule looks for. */
+  text?: string;
   /** Upper bound for "between" (inclusive). */
   value2?: number;
   /** Colour key from COND_COLORS (biChartMath). */
   color: string;
+  /** Table cells only: an icon drawn before the value (R498). */
+  icon?: BiCondIcon;
 };
+
+export type BiCondIcon = "up" | "down" | "dot" | "flag" | "check" | "alert";
 
 /** Conditional cell colouring for the pivot (matrix) widget. */
 export type BiCondFormat =
@@ -105,7 +118,29 @@ export type BiColumnFormat = {
   format?: BiNumberFormat | "number";
   currency?: string;
   decimals?: number;
+  /**
+   * How the cell is drawn (R498). Unset draws the value. "bar" draws a data
+   * bar sized against the column's largest value; "image" and "link" read
+   * the cell as a URL, and only http(s) (and data:image for pictures) are
+   * ever rendered as one.
+   */
+  display?: "bar" | "image" | "link";
+  /** Colour scale or first-match rules for this column's cells (R498). */
+  cond?: BiCondFormat;
+  /** A matching rule tints the whole row, not just this cell (R498). */
+  rowHighlight?: boolean;
 };
+
+/** What a KPI's latest period is compared with (R498). */
+export type BiKpiCompare = "previous" | "year" | "none";
+
+/**
+ * Narratives computed from a widget's rows (R498). They are recomputed on
+ * every render, so they follow the dashboard's filters like a chart does —
+ * unlike "AI insight", which is prose written once about one snapshot.
+ */
+export type BiInsightKind =
+  "top" | "bottom" | "change" | "forecast" | "anomaly" | "growth" | "movers";
 
 export type ChartSpec = {
   format?: BiNumberFormat;
@@ -118,7 +153,42 @@ export type ChartSpec = {
 } & BiChartAnalytics &
   (
     | { type: "table" }
-    | { type: "kpi"; valueField: string; label?: string; targetField?: string }
+    | {
+        type: "kpi";
+        valueField: string;
+        label?: string;
+        targetField?: string;
+        /**
+         * Rows are a series over this date column (R498): the tile shows the
+         * latest period, its change against `compareTo` and, with
+         * `sparkline`, the line of periods behind it. Bucketed by the shared
+         * `dateGrain` ("auto" = the grain the rows are already at).
+         */
+        dateField?: string;
+        compareTo?: BiKpiCompare;
+        sparkline?: boolean;
+        /** Costs, churn, defects: a fall is the good news, so green goes down. */
+        lowerIsBetter?: boolean;
+      }
+    | {
+        type: "insight";
+        kind: BiInsightKind;
+        /** The measure the sentence is about. */
+        valueField: string;
+        /** top / bottom / movers: what is ranked. */
+        categoryField?: string;
+        /** change / forecast / anomaly / growth / movers: the period column. */
+        dateField?: string;
+        /** How many items a ranking lists (1–10, default 3). */
+        topN?: number;
+        /** growth: how many periods the rate is compounded over. */
+        periods?: number;
+        /** The measure's name in the sentence (default: the column, humanised). */
+        label?: string;
+        /** The author's own sentence, with {{tokens}} filled from the data. */
+        template?: string;
+        lowerIsBetter?: boolean;
+      }
     | { type: "bar"; xField: string; yField: string; seriesField?: string; stacked?: boolean }
     | { type: "hbar"; xField: string; yField: string }
     | { type: "line"; xField: string; yField: string; seriesField?: string }
@@ -918,7 +988,9 @@ export async function suggestChart(args: {
       "line/area for time series; set seriesField to a second categorical column when the data " +
       "should be split into multiple series (e.g. revenue by month per region)\n" +
       "- 'pie': { nameField, valueField } — part-of-whole, ≤8 rows\n" +
-      "- 'kpi': { valueField, label? } — single-value results only\n" +
+      "- 'kpi': { valueField, label? } — single-value results; or, when the rows are the " +
+      "measure per period, { valueField, dateField, sparkline: true } to show the latest " +
+      "period against the one before\n" +
       "- 'scatter': { xField, yField } — two numeric columns, correlation questions\n" +
       "- 'combo': { xField, barField, lineField } — two measures on different scales over one dimension\n" +
       "- 'funnel': { nameField, valueField } — sequential pipeline stages with decreasing values\n" +
@@ -952,27 +1024,9 @@ export async function suggestChart(args: {
  * a truncated set — an honest "of the rows shown" beats a total presented as
  * complete.
  */
-/**
- * Is this column already an average, rate or ratio — something whose values
- * must not be added together?
- *
- * Judged from the column NAME because that is what the result carries: by the
- * time rows come back, `AVG(x) AS avg_salary` and `SUM(x) AS total_salary` are
- * both just a numeric column, and the aggregate that produced them is gone.
- *
- * Deliberately conservative. A false positive costs a sum nobody wanted; a
- * false negative is the bug this exists to stop, where a meaningless total is
- * offered as authoritative and then read out as "the average".
- */
-export function isPreAggregated(column: string): boolean {
-  const c = column.toLowerCase();
-  return (
-    /(^|_)(avg|average|mean|median)($|_)/.test(c) ||
-    /(^|_)(rate|ratio|pct|percent|percentage|share|margin|score|index)($|_)/.test(c) ||
-    /_per_/.test(c) ||
-    /(^|_)per_/.test(c)
-  );
-}
+// isPreAggregated moved to lib/biColumnKinds (R498) so the table renderer,
+// which public share pages load, can use it without pulling this module in.
+export { isPreAggregated };
 
 /**
  * A column that names things rather than measures them: ids, keys, codes.
@@ -1604,10 +1658,18 @@ export type WidgetSuggestion = {
   content?: string;
   /** Image URL for an "image" widget. */
   imageUrl?: string;
+  /**
+   * kpi only (R498): compare the latest period with the one before or the
+   * same period a year earlier. The question then asks for the measure PER
+   * PERIOD, and the tile shows the latest one with its change and a line.
+   */
+  compare?: "previous" | "year";
+  /** insight only (R498): which sentence the narrative computes. */
+  insightKind?: BiInsightKind;
 };
 
 const SUGGESTABLE_CHARTS =
-  "kpi, bar, hbar, scolumn, shbar, barrace, line, area, pie, nightingale, radar, combo, scatter, funnel, waterfall, gauge, sankey, treemap, heatmap, wordcloud, boxplot, matrix, table";
+  "kpi, insight, bar, hbar, scolumn, shbar, barrace, line, area, pie, nightingale, radar, combo, scatter, funnel, waterfall, gauge, sankey, treemap, heatmap, wordcloud, boxplot, matrix, table";
 
 /**
  * Analyze a table's structure + semantics and propose a set of dashboard
@@ -1635,6 +1697,8 @@ export async function suggestDashboardWidgets(args: {
       rationale?: string;
       content?: string;
       imageUrl?: string;
+      compare?: string;
+      insightKind?: string;
     }>;
   }>({
     model: args.model,
@@ -1645,7 +1709,15 @@ export async function suggestDashboardWidgets(args: {
       "that together tell the story of this data, MAXIMIZING the variety of chart types " +
       "the columns can actually support — do not use the same type repeatedly when a " +
       `richer one fits. Available chart types: ${SUGGESTABLE_CHARTS}. Guidance: use 'kpi' ` +
-      "for headline single numbers (2-4 of them); 'line'/'area' for measures over a date; " +
+      "for headline numbers (2-4 of them). When the table has a date, make a headline KPI " +
+      'compare periods: set "compare": "previous" (or "year" for seasonal data) and ' +
+      "phrase its question as the measure PER MONTH (e.g. 'Total revenue by month') — the " +
+      "tile then shows the latest month, its change and a trend line; a KPI without compare " +
+      "asks for one total. Use 'insight' for 1-3 narrative sentences computed from the data " +
+      "and set \"insightKind\": 'top' or 'bottom' (question: the measure by a category, e.g. " +
+      "'Revenue by region'), 'change', 'forecast', 'anomaly' or 'growth' (question: the " +
+      "measure by month), or 'movers' (question: the measure by month and by a category). " +
+      "'line'/'area' for measures over a date; " +
       "'bar'/'hbar' for rankings and category comparisons; 'pie'/'treemap' for part-of-whole; " +
       "'heatmap'/'matrix' for a measure across two dimensions; 'scatter' for two-measure " +
       "correlation; 'boxplot' for distribution across groups; 'funnel'/'waterfall' where the " +
@@ -1666,7 +1738,8 @@ export async function suggestDashboardWidgets(args: {
       `${schema}\n\n${args.focus ? `FOCUS: ${args.focus}\n\n` : ""}` +
       'Return JSON: { "title": "short dashboard title", "summary": "executive summary (markdown ok)", ' +
       '"widgets": [ { "title": "widget title", "chartType": "bar", "question": "analyst question", ' +
-      '"rationale": "why this visual" }, ... ] }',
+      '"rationale": "why this visual", "compare"?: "previous"|"year", ' +
+      '"insightKind"?: "top"|"bottom"|"change"|"forecast"|"anomaly"|"growth"|"movers" }, ... ] }',
   });
 
   const suggestions: WidgetSuggestion[] = (out.widgets ?? [])
@@ -1682,6 +1755,8 @@ export async function suggestDashboardWidgets(args: {
         rationale: (w.rationale ?? "").trim().slice(0, 160),
         content: typeof w.content === "string" ? w.content.trim() : undefined,
         imageUrl: typeof w.imageUrl === "string" ? w.imageUrl.trim() : undefined,
+        compare: parseCompare(w.compare),
+        insightKind: parseInsightKind(w.insightKind),
       };
     })
     // Keep widgets that are actually buildable: charts need a question, text
