@@ -311,6 +311,168 @@ export function BiVisualOptions({
     );
   }
 
+  // R502: Pareto, calendar, small multiples, pictogram.
+  if (type === "pareto" || type === "calendar" || type === "pictogram") {
+    parts.push(
+      <div
+        key="r502"
+        className="col-span-2 grid grid-cols-2 gap-2 rounded-md border border-border/60 p-2"
+      >
+        {type === "calendar" ? (
+          <ColumnSelect
+            label="Date"
+            value={opts.dateField}
+            onChange={(v) => set({ dateField: v })}
+            columns={columns}
+          />
+        ) : (
+          <ColumnSelect
+            label={type === "pareto" ? "Each bar is" : "Each row is"}
+            value={opts.categoryField}
+            onChange={(v) => set({ categoryField: v })}
+            columns={columns}
+          />
+        )}
+        <ColumnSelect
+          label={type === "calendar" ? "Colour by" : "Value"}
+          value={opts.measureField}
+          onChange={(v) => set({ measureField: v })}
+          columns={columns}
+        />
+        {type === "pictogram" && (
+          <>
+            <div className="space-y-1">
+              <Label className={small}>Picture</Label>
+              <Select
+                value={opts.icon}
+                onValueChange={(v) => set({ icon: v as VisualOpts["icon"] })}
+              >
+                <SelectTrigger className="h-8 text-xs" aria-label="Picture">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(
+                    [
+                      ["person", "A person"],
+                      ["bike", "A bicycle"],
+                      ["car", "A car"],
+                      ["house", "A house"],
+                      ["coin", "A coin"],
+                      ["box", "A box"],
+                    ] as const
+                  ).map(([v, l]) => (
+                    <SelectItem key={v} value={v} className="text-xs">
+                      {l}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className={small}>One picture is</Label>
+              <Input
+                aria-label="One picture is"
+                value={opts.unit}
+                onChange={(e) => set({ unit: e.target.value })}
+                inputMode="decimal"
+                placeholder="chosen from the data"
+                className="h-8 text-xs"
+              />
+            </div>
+          </>
+        )}
+        <p className="col-span-2 text-[10px] leading-snug text-muted-foreground">
+          {type === "pareto"
+            ? "Bars largest first; the line is the running share of the total, with 80% marked."
+            : type === "calendar"
+              ? "One square per day, a column per week. Values on the same day are added up; a day with no row is grey."
+              : "Rows of pictures, one per unit of the value; the remainder is a part of a picture."}
+        </p>
+      </div>,
+    );
+  }
+
+  if (type === "smallmultiples") {
+    parts.push(
+      <div
+        key="sm"
+        className="col-span-2 grid grid-cols-2 gap-2 rounded-md border border-border/60 p-2"
+      >
+        <ColumnSelect
+          label="Along (x)"
+          value={opts.smX}
+          onChange={(v) => set({ smX: v })}
+          columns={columns}
+        />
+        <ColumnSelect
+          label="Value (y)"
+          value={opts.smY}
+          onChange={(v) => set({ smY: v })}
+          columns={columns}
+        />
+        <ColumnSelect
+          label="One panel per"
+          value={opts.splitField}
+          onChange={(v) => set({ splitField: v })}
+          columns={columns}
+        />
+        <div className="space-y-1">
+          <Label className={small}>Each panel</Label>
+          <Select value={opts.smKind} onValueChange={(v) => set({ smKind: v as "line" | "bar" })}>
+            <SelectTrigger className="h-8 text-xs" aria-label="Each panel">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="line" className="text-xs">
+                A line
+              </SelectItem>
+              <SelectItem value="bar" className="text-xs">
+                Columns
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <p className="col-span-2 text-[10px] leading-snug text-muted-foreground">
+          Every panel shares one scale, so they compare at a glance; up to 12 panels, largest first.
+        </p>
+      </div>,
+    );
+  }
+
+  // R502: a moving average, a log axis and a zoom bar for lines and columns.
+  if (type === "line" || type === "bar") {
+    parts.push(
+      <div key="r502line" className="col-span-2 flex flex-wrap items-end gap-x-4 gap-y-2">
+        {type === "line" && (
+          <div className="space-y-1">
+            <Label className={small}>Moving average over</Label>
+            <Input
+              aria-label="Moving average over"
+              value={opts.maWindow}
+              onChange={(e) => set({ maWindow: e.target.value })}
+              inputMode="numeric"
+              placeholder="e.g. 7 points"
+              className="h-8 w-28 text-xs"
+            />
+            {/* Like the trend and forecast, it smooths a line with one series. */}
+            <p className="text-[10px] text-muted-foreground">Drawn on a line with one series</p>
+          </div>
+        )}
+        <Label className="flex cursor-pointer items-center gap-2 text-xs font-normal">
+          <Checkbox
+            checked={opts.logScale}
+            onCheckedChange={(v) => set({ logScale: v === true })}
+          />
+          Log scale
+        </Label>
+        <Label className="flex cursor-pointer items-center gap-2 text-xs font-normal">
+          <Checkbox checked={opts.zoomBar} onCheckedChange={(v) => set({ zoomBar: v === true })} />
+          Zoom bar
+        </Label>
+      </div>,
+    );
+  }
+
   if (type === "controls") {
     parts.push(
       <div key="controls" className="col-span-2 space-y-2 rounded-md border border-border/60 p-2">

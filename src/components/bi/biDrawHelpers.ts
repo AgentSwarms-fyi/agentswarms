@@ -272,6 +272,133 @@ export function pinPath(x: number, y: number, r: number): string {
   return `M${f(x)} ${f(y)} L${f(lx)} ${f(ty)} A${f(r)} ${f(r)} 0 1 1 ${f(rx)} ${f(ty)} Z`;
 }
 
+// ── R502: moving average, Pareto, calendar, small multiples, pictogram ─────
+
+/**
+ * The average of each point and the n−1 before it; null until n points have
+ * been seen, so the line starts where a full window does. Missing values are
+ * skipped, not counted as zero.
+ */
+export function movingAverage(values: (number | null)[], n: number): (number | null)[] {
+  const w = Math.max(1, Math.round(n));
+  return values.map((_, i) => {
+    if (i + 1 < w) return null;
+    const win = values.slice(i + 1 - w, i + 1).filter((v): v is number => v !== null);
+    return win.length ? win.reduce((s, v) => s + v, 0) / win.length : null;
+  });
+}
+
+/**
+ * Categories summed and sorted largest first, each with the running share of
+ * the total — a Pareto chart's bars and line. Negative values are left out:
+ * a share of a total they reduce means nothing.
+ */
+export function paretoRows(
+  rows: Record<string, unknown>[],
+  categoryField: string,
+  valueField: string,
+): { category: string; value: number; cumPct: number }[] {
+  const sums = new Map<string, number>();
+  for (const r of rows) {
+    const v = toBiNumber(r[valueField]);
+    if (v === null || v < 0) continue;
+    const k = String(r[categoryField] ?? "(blank)");
+    sums.set(k, (sums.get(k) ?? 0) + v);
+  }
+  const sorted = [...sums.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const total = sorted.reduce((s, [, v]) => s + v, 0);
+  let run = 0;
+  return sorted.map(([category, value]) => {
+    run += value;
+    return { category, value, cumPct: total > 0 ? (run / total) * 100 : 0 };
+  });
+}
+
+export type CalendarCell = { date: string; week: number; weekday: number; value: number | null };
+
+/**
+ * One cell per day from the first date in the rows to the last, Sunday on
+ * row 0, a column per week. Values on the same day are added up; a day with
+ * no row is null, which is not the same as zero.
+ */
+export function calendarCells(
+  rows: Record<string, unknown>[],
+  dateField: string,
+  valueField: string,
+  maxDays = 400,
+): { cells: CalendarCell[]; weeks: number; months: { week: number; label: string }[] } {
+  const byDay = new Map<string, number>();
+  for (const r of rows) {
+    const raw = r[dateField];
+    const d = raw instanceof Date ? raw : new Date(String(raw ?? "").slice(0, 10) + "T00:00:00Z");
+    if (Number.isNaN(d.getTime())) continue;
+    const key = d.toISOString().slice(0, 10);
+    const v = toBiNumber(r[valueField]);
+    byDay.set(key, (byDay.get(key) ?? 0) + (v ?? 0));
+  }
+  const days = [...byDay.keys()].sort();
+  if (days.length === 0) return { cells: [], weeks: 0, months: [] };
+  // The last maxDays days, so a long history shows its latest year.
+  const last = new Date(`${days[days.length - 1]}T00:00:00Z`);
+  const first = new Date(
+    Math.max(new Date(`${days[0]}T00:00:00Z`).getTime(), last.getTime() - (maxDays - 1) * 86400000),
+  );
+  const start = new Date(first.getTime() - first.getUTCDay() * 86400000);
+  const cells: CalendarCell[] = [];
+  const months: { week: number; label: string }[] = [];
+  let lastMonth = -1;
+  for (let t = first.getTime(); t <= last.getTime(); t += 86400000) {
+    const d = new Date(t);
+    const key = d.toISOString().slice(0, 10);
+    const week = Math.floor((t - start.getTime()) / (7 * 86400000));
+    if (d.getUTCMonth() !== lastMonth) {
+      lastMonth = d.getUTCMonth();
+      months.push({ week, label: d.toLocaleString("en-US", { month: "short", timeZone: "UTC" }) });
+    }
+    cells.push({ date: key, week, weekday: d.getUTCDay(), value: byDay.get(key) ?? null });
+  }
+  return { cells, weeks: (cells.at(-1)?.week ?? 0) + 1, months };
+}
+
+/**
+ * Rows split by a column's values, at most `max` groups: largest total of
+ * `valueField` first when given (equal-sized groups would otherwise fall back
+ * to alphabetical — FOUND IN R502's UI test), else most rows first.
+ */
+export function splitRows(
+  rows: Record<string, unknown>[],
+  splitField: string,
+  max = 12,
+  valueField?: string,
+): { key: string; rows: Record<string, unknown>[] }[] {
+  const groups = new Map<string, Record<string, unknown>[]>();
+  for (const r of rows) {
+    const k = String(r[splitField] ?? "(blank)");
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k)!.push(r);
+  }
+  const weight = (rs: Record<string, unknown>[]) =>
+    valueField ? rs.reduce((s, r) => s + (toBiNumber(r[valueField]) ?? 0), 0) : rs.length;
+  return [...groups.entries()]
+    .map(([key, rs]) => ({ key, rows: rs, w: weight(rs) }))
+    .sort((a, b) => b.w - a.w || a.key.localeCompare(b.key))
+    .slice(0, max)
+    .map(({ key, rows: rs }) => ({ key, rows: rs }));
+}
+
+/**
+ * What one picture stands for when the author gave nothing: a round number
+ * (1, 2, 5 × a power of ten) that draws the largest value in at most `most`
+ * pictures.
+ */
+export function pictogramUnit(max: number, most = 20): number {
+  if (!(max > 0)) return 1;
+  const raw = max / most;
+  const p = 10 ** Math.floor(Math.log10(raw));
+  for (const m of [1, 2, 5, 10]) if (m * p >= raw) return m * p;
+  return 10 * p;
+}
+
 /**
  * The measure and the category the visual itself shows, so suggested
  * narratives are about what the chart draws (R500): a points race is about

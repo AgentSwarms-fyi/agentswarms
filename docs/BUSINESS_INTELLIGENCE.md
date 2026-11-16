@@ -13,7 +13,7 @@ and reports. An editable dashboard is called a **BI project**:
 - **Build visuals by hand** — a right-hand builder pane: pick a source (your
   Data & SQL datasets or any connected warehouse), tick one or **more tables
   to join** (a JOIN skeleton is written for you with auto-detected join
-  keys), run the read-only SQL, then pick from **34 visual types** in an
+  keys), run the read-only SQL, then pick from **38 visual types** in an
   icon picker: column, bar, **stacked column**, **stacked bar**, **bar
   race**, line, area, **combo (bars + line, dual axis)**, **scatter**,
   pie/donut, **nightingale**, **radar**, **funnel**, **sankey**,
@@ -1114,6 +1114,46 @@ Picking Member makes it 19,915,795.
 
 **Also fixed:** a Direct-query widget on any page but the first answered
 "Widget not found". The server looked only at the first page's list of widgets.
+
+## Pareto, calendars, small multiples and pictograms
+
+R502 adds four visuals (38 in all) and three options for lines and columns.
+
+- **Pareto** (`pareto`): bars largest first, the running share of the total
+  on a second axis from 0 to 100%, and a line at 80%.
+  - A sentence above it says how many rows make up 80%.
+  - At most 40 bars are drawn, but the share and the sentence count every row.
+    On the bike-share sample, stations by rides read "216 of 458 make up 80%
+    of the total. The largest 40 are drawn."
+  - Negative values are left out, since a share of a total cannot be negative.
+- **Calendar** (`calendar`): one square per day, a column per week (Sunday
+  first), shaded by the day's total.
+  - Rows on the same day are added together.
+  - Days with no row are drawn empty, not as zero.
+  - The latest 400 days are drawn.
+- **Small multiples** (`smallmultiples`): the same small line or column chart
+  once per value of a split field.
+  - Every panel uses the same value scale, so the panels compare by eye.
+  - Panels are ordered by their total, largest first, and at most 12 are drawn.
+- **Pictogram** (`pictogram`): a row of pictures per category (a person, a
+  bike, a car, a house, a coin or a box).
+  - Each picture is worth a set unit. With no unit set, a round one (1, 2, 5
+    or 10 times a power of ten) is picked so the largest row needs about 20.
+  - The last picture is cut to the remainder.
+  - On the sample, riders by type with bikes give "Each picture is 1.00M":
+    members 19.92M, casual riders 5.29M.
+
+**Line and column options**, under the visual's options in the builder:
+
+- **Moving average over** _N_ points (2–365) draws the average of the last _N_
+  points beside the line. Like the trend and forecast, it applies to a line
+  with one series. It starts once _N_ points are in, and a missing point is
+  skipped rather than counted as zero.
+- **Log scale** makes the value axis logarithmic, so an area in the hundreds
+  of thousands and one in the millions both read. A log axis cannot show zero
+  or a negative number, so those points are left out.
+- **Zoom bar** puts a slider under the chart. Dragging its ends shows part of
+  the range; the data is not fetched again.
 
 ## Building a visual from fields
 

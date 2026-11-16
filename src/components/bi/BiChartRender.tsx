@@ -16,6 +16,7 @@ import {
   AreaChart,
   Bar,
   BarChart,
+  Brush,
   CartesianGrid,
   Cell,
   ComposedChart,
@@ -63,7 +64,13 @@ import { BiEndLabels } from "@/components/bi/BiEndLabels";
 import { BiJourney } from "@/components/bi/BiJourney";
 import { BiControlsVisual } from "@/components/bi/BiParamControls";
 import { BiPointMap } from "@/components/bi/BiPointMap";
-import { lastPoints } from "@/components/bi/biDrawHelpers";
+import { lastPoints, movingAverage } from "@/components/bi/biDrawHelpers";
+import {
+  BiCalendar,
+  BiPareto,
+  BiPictogram,
+  BiSmallMultiples,
+} from "@/components/bi/BiBreadthCharts";
 import { BiBumpChart, BiRadialBars, BiRangeBars } from "@/components/bi/BiRankCharts";
 import { OntologyGraph } from "@/components/bi/OntologyGraph";
 import { unshownRows } from "@/lib/biChartFields";
@@ -351,6 +358,35 @@ function BiChartRenderInner({
       </div>
     );
   }
+  // R502: Pareto, calendar, small multiples, pictogram.
+  if (chart.type === "pareto") {
+    return (
+      <div className={`${heightClass} w-full`}>
+        <BiPareto chart={chart} rows={rows} />
+      </div>
+    );
+  }
+  if (chart.type === "calendar") {
+    return (
+      <div className={`${heightClass} w-full`}>
+        <BiCalendar chart={chart} rows={rows} />
+      </div>
+    );
+  }
+  if (chart.type === "smallmultiples") {
+    return (
+      <div className={`${heightClass} w-full`}>
+        <BiSmallMultiples chart={chart} rows={rows} />
+      </div>
+    );
+  }
+  if (chart.type === "pictogram") {
+    return (
+      <div className={`${heightClass} w-full`}>
+        <BiPictogram chart={chart} rows={rows} />
+      </div>
+    );
+  }
   // R501: points on a map, pins along a road, the dashboard's parameters.
   if (chart.type === "pointmap") {
     return (
@@ -457,7 +493,18 @@ function BiChartRenderInner({
       : extra.length
         ? measureSeries(rows, chart.xField, [chart.yField, ...extra])
         : null;
-    const barData = pivoted ? pivoted.data : aggregateByField(rows, chart.xField, [chart.yField]);
+    const barRaw = pivoted ? pivoted.data : aggregateByField(rows, chart.xField, [chart.yField]);
+    // A log axis has no place for zero or less (R502): those bars are left out.
+    const barData = chart.logScale
+      ? barRaw.map((d) => {
+          const out = { ...d };
+          for (const k of pivoted ? pivoted.series : [chart.yField]) {
+            const v = toBiNumber(out[k]);
+            if (v !== null && v <= 0) out[k] = null;
+          }
+          return out;
+        })
+      : barRaw;
     const barCat = catAxis(barData, chart.xField);
     const handleClick = onElementClick
       ? (data: { payload?: Record<string, unknown> } | Record<string, unknown>) => {
@@ -486,7 +533,27 @@ function BiChartRenderInner({
               tickLine={false}
               {...barCat.axis}
             />
-            <YAxis tick={tick} axisLine={false} tickLine={false} tickFormatter={fmt} width={48} />
+            <YAxis
+              tick={tick}
+              axisLine={false}
+              tickLine={false}
+              tickFormatter={fmt}
+              width={48}
+              // R502: a log axis for values spanning orders of magnitude; a bar
+              // cannot start at zero on one, so it starts at the axis' floor.
+              scale={chart.logScale ? "log" : "auto"}
+              domain={chart.logScale ? ["auto", "auto"] : undefined}
+              allowDataOverflow={chart.logScale || undefined}
+            />
+            {chart.zoomBar && (
+              <Brush
+                dataKey={chart.xField}
+                height={18}
+                stroke="var(--primary)"
+                travellerWidth={8}
+                tickFormatter={() => ""}
+              />
+            )}
             <Tooltip
               contentStyle={tooltipStyle}
               labelStyle={labelStyle}
@@ -672,6 +739,14 @@ function BiChartRenderInner({
         const fit = linearFit(data.map((d) => Number(d[chart.yField])));
         if (fit) data = data.map((d, i) => ({ ...d, __trend: fit.slope * i + fit.intercept }));
       }
+      // R502: the average of the last N points, beside the line it smooths.
+      if (chart.movingAverage && chart.movingAverage > 1) {
+        const ma = movingAverage(
+          data.map((d) => toBiNumber(d[chart.yField])),
+          chart.movingAverage,
+        );
+        data = data.map((d, i) => ({ ...d, __ma: ma[i] }));
+      }
       if (forecastPeriods(chart.forecast) > 0) {
         const fc = forecastRows(data, chart.xField, chart.yField, chart.forecast ?? 0);
         if (fc) {
@@ -679,6 +754,19 @@ function BiChartRenderInner({
           hasForecast = true;
         }
       }
+    }
+    // A log axis cannot place zero or less (R502): those points are left out
+    // rather than drawn at a made-up height.
+    if (chart.logScale) {
+      const keys = pivoted ? pivoted.series : [chart.yField, "__ma", "__trend"];
+      data = data.map((d) => {
+        const out = { ...d };
+        for (const k of keys) {
+          const v = toBiNumber(out[k]);
+          if (v !== null && v <= 0) out[k] = null;
+        }
+        return out;
+      });
     }
     const refY = refLineY(chart.refLine, data, pivoted ? pivoted.series : [chart.yField]);
     const lineColors =
@@ -714,8 +802,33 @@ function BiChartRenderInner({
             onClick={lineClick}
           >
             <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
-            <XAxis dataKey={chart.xField} tick={tick} axisLine={false} tickLine={false} />
-            <YAxis tick={tick} axisLine={false} tickLine={false} tickFormatter={fmt} width={48} />
+            {/* A gap between ticks: 365 daily dates printed over each other. */}
+            <XAxis
+              dataKey={chart.xField}
+              tick={tick}
+              axisLine={false}
+              tickLine={false}
+              minTickGap={28}
+            />
+            <YAxis
+              tick={tick}
+              axisLine={false}
+              tickLine={false}
+              tickFormatter={fmt}
+              width={48}
+              scale={chart.logScale ? "log" : "auto"}
+              domain={chart.logScale ? ["auto", "auto"] : undefined}
+              allowDataOverflow={chart.logScale || undefined}
+            />
+            {chart.zoomBar && (
+              <Brush
+                dataKey={chart.xField}
+                height={18}
+                stroke="var(--primary)"
+                travellerWidth={8}
+                tickFormatter={() => ""}
+              />
+            )}
             <Tooltip
               contentStyle={tooltipStyle}
               labelStyle={labelStyle}
@@ -778,6 +891,19 @@ function BiChartRenderInner({
                 strokeDasharray="5 4"
                 strokeWidth={1.5}
                 dot={false}
+              />
+            )}
+            {!pivoted && chart.movingAverage && chart.movingAverage > 1 && (
+              <Line
+                type="monotone"
+                dataKey="__ma"
+                name={`${chart.movingAverage}-point average`}
+                // Its own colour: in the line's colour it vanished into a
+                // jagged daily series (FOUND IN R502's UI test).
+                stroke="#F28E2B"
+                strokeWidth={2.5}
+                dot={false}
+                connectNulls
               />
             )}
             {!pivoted && chart.trend && (

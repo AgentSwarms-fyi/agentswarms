@@ -225,8 +225,9 @@ describe("the trust pages describe the software that exists", () => {
     const { VIZ_TYPES } = await import("@/components/bi/vizTypes");
     const n = VIZ_TYPES.length;
     // 31 since R500 added cards, start → finish, radial bars and rank over time;
-    // 34 since R501 added the point map, pins on a road and controls.
-    expect(n).toBe(34);
+    // 34 since R501 added the point map, pins on a road and controls; 38 since
+    // R502 added Pareto, calendar, small multiples and pictogram.
+    expect(n).toBe(38);
     for (const [page, claim] of [
       ["README.md", /multi-page dashboards with (\d+) visual types/],
       ["docs/BUSINESS_INTELLIGENCE.md", /pick from \*\*(\d+) visual types\*\*/],

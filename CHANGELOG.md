@@ -202,6 +202,19 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **BI: Pareto, calendar, small multiples and pictogram** (R502), bringing the
+  visuals to 38.
+  - **Pareto** sorts bars largest first under the running share of the total
+    and a line at 80%, with a sentence saying how many rows make up 80%.
+  - **Calendar** shades one square per day, a column per week.
+  - **Small multiples** repeats one line or column chart per value of a field,
+    every panel on the same scale.
+  - **Pictogram** draws rows of pictures, each worth a round unit.
+
+  Line charts gain a **moving average**. Lines and columns gain a **log
+  scale** and a **zoom bar** that shows part of the range without fetching the
+  data again.
+
 - **BI: parameters, point maps, pins on a road** (R501). A dashboard can
   define parameters, picked from a radio list, a dropdown or a date, that
   widget SQL reads as `{{name}}`. The query re-runs when a value changes, so a

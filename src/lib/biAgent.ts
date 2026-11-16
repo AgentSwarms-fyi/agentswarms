@@ -132,7 +132,19 @@ export type BiChartAnalytics = {
    * over laps 18–28. `from`/`to` are x values as they appear in the rows.
    */
   xBands?: { from: string | number; to: string | number; label?: string }[];
+  /**
+   * A line of the average over the last N points (R502), over a single
+   * series: 7 smooths a daily series by the week.
+   */
+  movingAverage?: number;
+  /** Log scale on the value axis (R502); values of zero or less are left out. */
+  logScale?: boolean;
+  /** A range slider under the x axis to zoom into part of a long series (R502). */
+  zoomBar?: boolean;
 };
+
+/** The pictures a pictogram counts in (R502). */
+export type BiPictogramIcon = "person" | "bike" | "car" | "house" | "coin" | "box";
 
 /** Per-column display format for table widgets. */
 export type BiColumnFormat = {
@@ -275,6 +287,45 @@ export type ChartSpec = {
         params: string[];
         /** A line or two above the controls, in Markdown. */
         intro?: string;
+      }
+    | {
+        /**
+         * Pareto (R502): the categories as bars, largest first, with the
+         * running share of the total as a line on its own axis and a mark at
+         * 80% — which few causes make most of the effect.
+         */
+        type: "pareto";
+        categoryField: string;
+        valueField: string;
+      }
+    | {
+        /** One square per day, a column per week, coloured by the value (R502). */
+        type: "calendar";
+        dateField: string;
+        valueField: string;
+      }
+    | {
+        /**
+         * The same small chart once per value of `splitField` (R502), on one
+         * shared scale so the panels compare at a glance.
+         */
+        type: "smallmultiples";
+        xField: string;
+        yField: string;
+        splitField: string;
+        kind?: "line" | "bar";
+      }
+    | {
+        /**
+         * Rows of pictures, one per `unit` of the value (R502): "each bike is
+         * a million rides".
+         */
+        type: "pictogram";
+        categoryField: string;
+        valueField: string;
+        icon?: BiPictogramIcon;
+        /** What one picture stands for; chosen from the data when unset. */
+        unit?: number;
       }
     | {
         type: "kpi";

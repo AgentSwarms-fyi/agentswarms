@@ -3,7 +3,7 @@
 // column, end labels and shaded bands lines take, the heatmap's diverging
 // scale and striped tables. Held in one object so the builder pane wires them
 // with one state, one prefill and one call into the spec.
-import type { BiChartAnalytics, ChartSpec } from "@/lib/biAgent";
+import type { BiChartAnalytics, BiPictogramIcon, ChartSpec } from "@/lib/biAgent";
 
 export type VisualBand = { from: string; to: string; label: string };
 
@@ -34,6 +34,17 @@ export type VisualOpts = {
   measureField: string;
   params: string[];
   intro: string;
+  // R502: Pareto, calendar, small multiples, pictogram; line/bar options.
+  dateField: string;
+  splitField: string;
+  smX: string;
+  smY: string;
+  smKind: "line" | "bar";
+  icon: BiPictogramIcon;
+  unit: string;
+  maWindow: string;
+  logScale: boolean;
+  zoomBar: boolean;
 };
 
 export const VISUAL_OPTS_DEFAULT: VisualOpts = {
@@ -62,10 +73,30 @@ export const VISUAL_OPTS_DEFAULT: VisualOpts = {
   measureField: "",
   params: [],
   intro: "",
+  dateField: "",
+  splitField: "",
+  smX: "",
+  smY: "",
+  smKind: "line",
+  icon: "person",
+  unit: "",
+  maWindow: "",
+  logScale: false,
+  zoomBar: false,
 };
 
 /** Visual types whose fields live in these options rather than the pane's. */
-export const OPTS_VISUALS = new Set(["cards", "range", "pointmap", "journey", "controls"]);
+export const OPTS_VISUALS = new Set([
+  "cards",
+  "range",
+  "pointmap",
+  "journey",
+  "controls",
+  "pareto",
+  "calendar",
+  "smallmultiples",
+  "pictogram",
+]);
 /** Types that need no query: they draw from their own spec (R501). */
 export const NO_DATA_VISUALS = new Set(["controls"]);
 /** Types that take a colour column (`colorField`). */
@@ -106,6 +137,29 @@ export function visualOptsFrom(c: ChartSpec): VisualOpts {
     o.params = [...c.params];
     o.intro = c.intro ?? "";
   }
+  if (c.type === "pareto") {
+    o.categoryField = c.categoryField;
+    o.measureField = c.valueField;
+  }
+  if (c.type === "calendar") {
+    o.dateField = c.dateField;
+    o.measureField = c.valueField;
+  }
+  if (c.type === "smallmultiples") {
+    o.smX = c.xField;
+    o.smY = c.yField;
+    o.splitField = c.splitField;
+    o.smKind = c.kind === "bar" ? "bar" : "line";
+  }
+  if (c.type === "pictogram") {
+    o.categoryField = c.categoryField;
+    o.measureField = c.valueField;
+    o.icon = c.icon ?? "person";
+    o.unit = c.unit !== undefined ? String(c.unit) : "";
+  }
+  o.maWindow = c.movingAverage !== undefined ? String(c.movingAverage) : "";
+  o.logScale = c.logScale === true;
+  o.zoomBar = c.zoomBar === true;
   if (c.type === "heatmap") o.heatScale = c.scale ?? "sequential";
   if (c.type === "table") o.striped = c.striped === true;
   o.colorField = c.colorField ?? "";
@@ -190,6 +244,35 @@ export function visualSpec(
             colorField: o.colorField || undefined,
           }
         : null;
+    case "pareto":
+      return o.categoryField && o.measureField
+        ? { type: "pareto", categoryField: o.categoryField, valueField: o.measureField }
+        : null;
+    case "calendar":
+      return o.dateField && o.measureField
+        ? { type: "calendar", dateField: o.dateField, valueField: o.measureField }
+        : null;
+    case "smallmultiples":
+      return o.smX && o.smY && o.splitField
+        ? {
+            type: "smallmultiples",
+            xField: o.smX,
+            yField: o.smY,
+            splitField: o.splitField,
+            kind: o.smKind === "bar" ? "bar" : undefined,
+          }
+        : null;
+    case "pictogram": {
+      if (!o.categoryField || !o.measureField) return null;
+      const unit = Number(o.unit);
+      return {
+        type: "pictogram",
+        categoryField: o.categoryField,
+        valueField: o.measureField,
+        icon: o.icon === "person" ? undefined : o.icon,
+        unit: o.unit.trim() && Number.isFinite(unit) && unit > 0 ? unit : undefined,
+      };
+    }
     case "controls":
       return o.params.length
         ? { type: "controls", params: o.params, intro: o.intro.trim() || undefined }
@@ -204,6 +287,15 @@ export function visualAnalytics(type: string, o: VisualOpts): Partial<BiChartAna
   const out: Partial<BiChartAnalytics> = {};
   if (COLOR_FIELD_VISUALS.has(type) && o.colorField) out.colorField = o.colorField;
   if (type === "line" && o.endLabels) out.endLabels = true;
+  // R502: a moving average (lines), a log axis and a zoom bar (lines, bars).
+  if (type === "line") {
+    const n = Number(o.maWindow);
+    if (o.maWindow.trim() && Number.isInteger(n) && n >= 2 && n <= 365) out.movingAverage = n;
+  }
+  if (type === "line" || type === "bar") {
+    if (o.logScale) out.logScale = true;
+    if (o.zoomBar) out.zoomBar = true;
+  }
   if (type === "line" || type === "bump") {
     const bands = o.bands
       .filter((b) => b.from.trim() !== "" && b.to.trim() !== "")

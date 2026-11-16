@@ -931,6 +931,10 @@ export function BiBuilderPane({
         case "pointmap":
         case "journey":
         case "controls":
+        case "pareto":
+        case "calendar":
+        case "smallmultiples":
+        case "pictogram":
           return visualSpec(chartType, vizOpts, {
             xField,
             yField,

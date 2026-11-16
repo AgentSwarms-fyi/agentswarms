@@ -687,7 +687,7 @@ GROUP BY region`}</Code>
         leave incremental off.
       </Callout>
 
-      <H2 id="charts">Chart types — all 34, with required fields</H2>
+      <H2 id="charts">Chart types — all 38, with required fields</H2>
       <P>
         Each chart declares which fields it needs. The builder only offers types your selected
         columns can satisfy, so a chart missing a required field cannot be created.
@@ -957,6 +957,30 @@ GROUP BY region`}</Code>
             "params",
             "intro",
             "The dashboard's parameters as controls on the canvas — no query of its own. See Parameters",
+          ],
+          [
+            <C key="p1">pareto</C>,
+            "categoryField, valueField",
+            "—",
+            "Bars largest first with the running share of the total on a 0–100% axis and a line at 80%, under a sentence naming how many rows make up 80%. At most 40 bars are drawn; the share and the sentence count every row",
+          ],
+          [
+            <C key="p2">calendar</C>,
+            "dateField, valueField",
+            "—",
+            "One square per day, a column per week, shaded by the day's total (rows on the same day are added). The latest 400 days are drawn",
+          ],
+          [
+            <C key="p3">smallmultiples</C>,
+            "xField, yField, splitField",
+            "kind (line | bar)",
+            "The same small chart once per value of splitField, all on one value scale so the panels compare by eye; panels ordered by their total, at most 12",
+          ],
+          [
+            <C key="p4">pictogram</C>,
+            "categoryField, valueField",
+            "icon (person, bike, car, house, coin, box), unit",
+            "A row of pictures per category, each worth unit (a round unit is picked when none is set), with the last picture cut to the remainder",
           ],
           [
             <C key="b">wordcloud</C>,
@@ -1356,6 +1380,24 @@ ORDER BY r.round, total_points DESC`}</Code>
             "number of buckets, or a registry model",
             "line (single series)",
             "Projects ahead — seasonal exponential smoothing when the history shows a season that beats a straight line, else a linear trend — with a residual band that widens with distance. Or draws a registry forecast model's projection.",
+          ],
+          [
+            <C key="g">movingAverage</C>,
+            "2–365 points",
+            "line (single series)",
+            "Draws the average of the last N points beside the line, starting once N points are in. Missing points are skipped, not counted as zero.",
+          ],
+          [
+            <C key="h">logScale</C>,
+            "boolean",
+            "line, bar",
+            "Logarithmic value axis, so a series in the hundreds and one in the millions both read. Zero and negative values cannot sit on a log axis and are left out.",
+          ],
+          [
+            <C key="i">zoomBar</C>,
+            "boolean",
+            "line, bar",
+            "A slider under the chart; drag its ends to look at part of the range. The data is not refetched.",
           ],
         ]}
       />

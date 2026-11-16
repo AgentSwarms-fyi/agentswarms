@@ -675,6 +675,10 @@ export function defaultWidgetSize(widget: BiWidget): { w: number; h: number } {
   if (t === "pointmap") return { w: 8, h: 7 };
   if (t === "journey") return { w: 7, h: 6 };
   if (t === "controls") return { w: 3, h: 5 };
+  if (t === "calendar") return { w: 12, h: 4 };
+  if (t === "smallmultiples") return { w: 8, h: 6 };
+  if (t === "pareto") return { w: 8, h: 6 };
+  if (t === "pictogram") return { w: 6, h: 5 };
   if (t === "radar" || t === "nightingale") return { w: 5, h: 5 };
   return { w: 6, h: 6 };
 }

@@ -427,6 +427,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "boxplot",
       "bubblemap",
       "bump",
+      "calendar",
       "cards",
       "caveats",
       "columnFormats",
@@ -459,6 +460,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "journey",
       "kpi",
       "line",
+      "logScale",
       "lt",
       "lte",
       "m/d/yyyy",
@@ -467,10 +469,13 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "matrix",
       "max",
       "min",
+      "movingAverage",
       "neq",
       "nightingale",
       "ontology",
       "order_id",
+      "pareto",
+      "pictogram",
       "pie",
       "pointmap",
       "predicted_",
@@ -490,6 +495,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "score",
       "seriesField",
       "shbar",
+      "smallmultiples",
       "sum",
       "sum(amount)",
       "table",
@@ -503,7 +509,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "wordcloud",
       "xBands",
       "xField",
-      "yField"
+      "yField",
+      "zoomBar"
     ],
     "headings": [
       {
@@ -613,7 +620,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       },
       {
         "id": "charts",
-        "text": "Chart types — all 34, with required fields",
+        "text": "Chart types — all 38, with required fields",
         "level": 2
       },
       {

@@ -2,11 +2,13 @@ import type { ChartSpec } from "@/lib/biAgent";
 import type React from "react";
 import {
   AreaChart,
+  ArrowDownWideNarrow,
   ArrowLeftRight,
   BarChart2,
   BarChart3,
   BarChart4,
   BarChartHorizontal,
+  CalendarDays,
   CandlestickChart,
   Cloud,
   FastForward,
@@ -14,6 +16,7 @@ import {
   Flame,
   Flower2,
   Gauge,
+  Grid2x2,
   Grid3x3,
   Hash,
   IdCard,
@@ -34,6 +37,7 @@ import {
   Rows3,
   ScatterChart,
   Table2,
+  Users,
   Workflow,
 } from "lucide-react";
 
@@ -61,6 +65,10 @@ export const VIZ_TYPES: {
   { value: "pointmap", label: "Point map", icon: MapPinned },
   { value: "journey", label: "Pins on a road", icon: Route },
   { value: "controls", label: "Controls", icon: SlidersHorizontal },
+  { value: "pareto", label: "Pareto", icon: ArrowDownWideNarrow },
+  { value: "calendar", label: "Calendar", icon: CalendarDays },
+  { value: "smallmultiples", label: "Small multiples", icon: Grid2x2 },
+  { value: "pictogram", label: "Pictogram", icon: Users },
   { value: "funnel", label: "Funnel", icon: Filter },
   { value: "sankey", label: "Sankey", icon: Workflow },
   { value: "treemap", label: "Treemap", icon: LayoutGrid },
