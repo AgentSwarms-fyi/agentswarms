@@ -18,7 +18,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { TemplateText, type TemplateToken } from "@/components/templates/TemplateInsert";
+import type { BiParamConfig } from "@/lib/biParams";
 import { COLOR_FIELD_VISUALS, type VisualOpts } from "@/lib/biVisualOpts";
 import { cn } from "@/lib/utils";
 
@@ -70,11 +72,14 @@ export function BiVisualOptions({
   opts,
   setOpts,
   columns,
+  params = [],
 }: {
   type: string;
   opts: VisualOpts;
   setOpts: (o: VisualOpts) => void;
   columns: string[];
+  /** The dashboard's parameters, for a Controls visual (R501). */
+  params?: BiParamConfig[];
 }) {
   const set = (patch: Partial<VisualOpts>) => setOpts({ ...opts, ...patch });
   const tokens: TemplateToken[] = columns.flatMap((c) => [
@@ -223,6 +228,133 @@ export function BiVisualOptions({
           />
           Higher is better (otherwise a lower number, like a position, is better)
         </Label>
+      </div>,
+    );
+  }
+
+  if (type === "pointmap") {
+    parts.push(
+      <div
+        key="pointmap"
+        className="col-span-2 grid grid-cols-2 gap-2 rounded-md border border-border/60 p-2"
+      >
+        <ColumnSelect
+          label="Latitude"
+          value={opts.latField}
+          onChange={(v) => set({ latField: v })}
+          columns={columns}
+        />
+        <ColumnSelect
+          label="Longitude"
+          value={opts.lngField}
+          onChange={(v) => set({ lngField: v })}
+          columns={columns}
+        />
+        <ColumnSelect
+          label="Colour by"
+          value={opts.colorField}
+          onChange={(v) => set({ colorField: v })}
+          columns={columns}
+          optional
+        />
+        <ColumnSelect
+          label="Size by"
+          value={opts.sizeField}
+          onChange={(v) => set({ sizeField: v })}
+          columns={columns}
+          optional
+        />
+        <ColumnSelect
+          label="Name on hover"
+          value={opts.labelField}
+          onChange={(v) => set({ labelField: v })}
+          columns={columns}
+          optional
+        />
+        <p className="col-span-2 text-[10px] leading-snug text-muted-foreground">
+          Colour by a category, or by a column of #rrggbb colours. Double-click or Ctrl + scroll to
+          zoom; drag to move.
+        </p>
+      </div>,
+    );
+  }
+
+  if (type === "journey") {
+    parts.push(
+      <div
+        key="journey"
+        className="col-span-2 grid grid-cols-2 gap-2 rounded-md border border-border/60 p-2"
+      >
+        <ColumnSelect
+          label="Each pin is"
+          value={opts.categoryField}
+          onChange={(v) => set({ categoryField: v })}
+          columns={columns}
+        />
+        <ColumnSelect
+          label="Value in the pin"
+          value={opts.measureField}
+          onChange={(v) => set({ measureField: v })}
+          columns={columns}
+        />
+        <ColumnSelect
+          label="Pin colour from column"
+          value={opts.colorField}
+          onChange={(v) => set({ colorField: v })}
+          columns={columns}
+          optional
+        />
+        <p className="col-span-2 text-[10px] leading-snug text-muted-foreground">
+          Pins follow the road in the order the query returns its rows: ORDER BY sets the route.
+        </p>
+      </div>,
+    );
+  }
+
+  if (type === "controls") {
+    parts.push(
+      <div key="controls" className="col-span-2 space-y-2 rounded-md border border-border/60 p-2">
+        <Label className={small}>Parameters shown</Label>
+        {params.length === 0 ? (
+          <p className="text-[11px] text-muted-foreground">
+            This dashboard has no parameters yet. Add one with <strong>Add parameter</strong> in the
+            filter bar, then pick it here.
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            {params.map((p) => (
+              <Label
+                key={p.id}
+                className="flex cursor-pointer items-center gap-1.5 text-xs font-normal"
+              >
+                <Checkbox
+                  aria-label={`Show ${p.label}`}
+                  checked={opts.params.includes(p.name)}
+                  onCheckedChange={(v) =>
+                    set({
+                      params:
+                        v === true
+                          ? params
+                              .map((x) => x.name)
+                              .filter((n) => n === p.name || opts.params.includes(n))
+                          : opts.params.filter((n) => n !== p.name),
+                    })
+                  }
+                />
+                {p.label}
+              </Label>
+            ))}
+          </div>
+        )}
+        <Label className={small}>Above the controls (Markdown)</Label>
+        <Textarea
+          aria-label="Above the controls"
+          value={opts.intro}
+          onChange={(e) => set({ intro: e.target.value })}
+          rows={3}
+          className="text-xs"
+          placeholder="You can use the controls below to see…"
+        />
       </div>,
     );
   }

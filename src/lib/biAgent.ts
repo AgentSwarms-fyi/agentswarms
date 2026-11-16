@@ -166,7 +166,7 @@ export type BiKpiCompare = "previous" | "year" | "none";
  * unlike "AI insight", which is prose written once about one snapshot.
  */
 export type BiInsightKind =
-  "top" | "bottom" | "change" | "forecast" | "anomaly" | "growth" | "movers";
+  "top" | "bottom" | "change" | "forecast" | "anomaly" | "growth" | "movers" | "figures";
 
 export type ChartSpec = {
   format?: BiNumberFormat;
@@ -242,6 +242,41 @@ export type ChartSpec = {
         seriesField: string;
       }
     | {
+        /**
+         * Points at a latitude and longitude (R501): stations, stores,
+         * sensors. Coloured by a category (or a #rrggbb column), sized by a
+         * measure, with zoom and pan. Street tiles are drawn only when the
+         * deployment names a tile server (PUBLIC_MAP_TILES_URL).
+         */
+        type: "pointmap";
+        latField: string;
+        lngField: string;
+        colorField?: string;
+        sizeField?: string;
+        labelField?: string;
+      }
+    | {
+        /**
+         * One pin per row along a winding road, in row order (R501): the days
+         * of a week, the stages of a journey, each pin holding its value.
+         */
+        type: "journey";
+        categoryField: string;
+        valueField: string;
+        colorField?: string;
+      }
+    | {
+        /**
+         * The dashboard's parameters as controls on the canvas (R501): radio
+         * lists, dropdowns, dates. No query of its own.
+         */
+        type: "controls";
+        /** Parameter names, in the order shown. */
+        params: string[];
+        /** A line or two above the controls, in Markdown. */
+        intro?: string;
+      }
+    | {
         type: "kpi";
         valueField: string;
         label?: string;
@@ -276,6 +311,10 @@ export type ChartSpec = {
         /** The author's own sentence, with {{tokens}} filled from the data. */
         template?: string;
         lowerIsBetter?: boolean;
+        /** The colour the sentence's figures are set in, #rrggbb (R501). */
+        valueColor?: string;
+        /** Leave out the lightbulb, for a sentence that is part of a design. */
+        hideIcon?: boolean;
       }
     | { type: "bar"; xField: string; yField: string; seriesField?: string; stacked?: boolean }
     | { type: "hbar"; xField: string; yField: string }

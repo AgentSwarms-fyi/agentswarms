@@ -16,6 +16,10 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Point maps can draw streets** (R501, optional). Set
+  `PUBLIC_MAP_TILES_URL` to a tile server's `{z}/{x}/{y}` template and
+  `PUBLIC_MAP_TILES_ATTRIBUTION` to the credit it requires. Unset, point maps
+  draw on a plain ground and no viewer's browser contacts a third party.
 - **Apply migration `20261117000000`** (R500) to add the **Grand Prix Results ·
   Sample** dashboard, for example with `npx supabase db push --remote`. It
   adds the sample and gives each existing account a copy, unless the account
@@ -198,6 +202,26 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **BI: parameters, point maps, pins on a road** (R501). A dashboard can
+  define parameters, picked from a radio list, a dropdown or a date, that
+  widget SQL reads as `{{name}}`. The query re-runs when a value changes, so a
+  date range or a rider group reaches widgets whose rows are already totals,
+  which a filter cannot. Values go in as literals and only as one of the
+  owner's choices or a real date; anything else becomes the default.
+  Refreshes, schedules and alerts run at the defaults. People a dashboard is
+  shared with change them through Direct-query widgets, which the server runs
+  as the owner.
+  - A **Controls** visual places parameters on the canvas.
+  - **Point map** places rows by latitude and longitude, coloured by a
+    category, sized by a measure, with zoom and pan.
+  - **Pins on a road** draws one pin per row along a winding road.
+
+  Those three visuals bring the total to 34. Narratives gain **Figures in a
+  sentence**, a colour for their figures and an option to drop the lightbulb.
+  Value format gains **Whole** (25,207,936). Dashboards gain a
+  **Handwritten** font. The BI docs walk through a bike-share dashboard on the
+  lakehouse, with generated data from `scripts/buildBikeShareSample.mjs`.
+
 - **Every setting, in the app** (R485). Docs → Self-hosting → All settings lists
   every environment variable the server reads, with what each does, generated
   from `.env.example` so the two cannot drift; a filter finds one by name or
@@ -226,6 +250,9 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **A live widget on a dashboard's second page was "not found"** (R501). The
+  direct-query route looked for widgets only in the first page's list, so a
+  Direct-query widget on any other page fell back to its stored snapshot.
 - **Editing a widget reset its appearance** (R500). The editor rebuilt the
   widget from the fields it shows, so saving an edit dropped the accent, card
   style and title settings, and turned a Direct widget back to Import. An

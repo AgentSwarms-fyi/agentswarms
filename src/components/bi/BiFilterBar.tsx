@@ -12,6 +12,7 @@ import {
   Filter,
   Hash,
   ListFilter,
+  Loader2,
   Pin,
   Plus,
   Trash2,
@@ -50,6 +51,8 @@ import {
   type BiFilterState,
   type BiWidget,
 } from "@/lib/biDashboards";
+import type { BiParamConfig, BiParamValues } from "@/lib/biParams";
+import { BiParamBarItems } from "@/components/bi/BiParamBar";
 
 /** Footer shared by every chip: clear, save-default (owners), remove. */
 function ChipFooter({
@@ -121,6 +124,11 @@ export function BiFilterBar({
   onClearCross,
   editable = false,
   onConfigsChange,
+  params = [],
+  paramValues = {},
+  onParamValue,
+  onParamsChange,
+  paramBusy = false,
 }: {
   configs: BiFilterConfig[];
   widgets: BiWidget[];
@@ -131,6 +139,13 @@ export function BiFilterBar({
   /** Owner mode: can add/remove filter definitions. */
   editable?: boolean;
   onConfigsChange?: (next: BiFilterConfig[]) => void;
+  /** Dashboard parameters (R501): chips here, controls on the canvas. */
+  params?: BiParamConfig[];
+  paramValues?: BiParamValues;
+  onParamValue?: (name: string, value: string) => void;
+  onParamsChange?: (next: BiParamConfig[]) => void;
+  /** Widgets are re-running for a new parameter value. */
+  paramBusy?: boolean;
 }) {
   const [addOpen, setAddOpen] = useState(false);
 
@@ -155,7 +170,8 @@ export function BiFilterBar({
     );
   };
 
-  if (configs.length === 0 && !editable && !cross) return null;
+  const barParams = params.filter((p) => editable || p.placement !== "canvas");
+  if (configs.length === 0 && barParams.length === 0 && !editable && !cross) return null;
 
   return (
     <div className="mb-3 flex flex-wrap items-center gap-1.5">
@@ -200,6 +216,18 @@ export function BiFilterBar({
             onRemove={() => onConfigsChange?.(configs.filter((c) => c.id !== cfg.id))}
           />
         ),
+      )}
+      <BiParamBarItems
+        params={params}
+        values={paramValues}
+        onValue={(name, v) => onParamValue?.(name, v)}
+        editable={editable}
+        onParamsChange={onParamsChange}
+      />
+      {paramBusy && (
+        <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin" /> Re-running…
+        </span>
       )}
       {cross && (
         <Badge variant="secondary" className="gap-1 text-[10px]">

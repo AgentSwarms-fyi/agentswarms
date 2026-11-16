@@ -975,6 +975,44 @@ export const SETTINGS_REFERENCE: SettingsTier[] = [
                 "text": "Rows kept in a BI widget's cached snapshot (default 500, ceiling 100000). The snapshot is what shared links, public embeds and offline views render, and it lives inside the dashboard row — so raising it trades storage and dashboard load time for how much raw data a browser-side sum can see. An aggregated widget (agg_pushdown) needs far less than 500; a widget summing RAW rows is capped here and reports `truncated` when it hits it. PUBLIC_BI_SNAPSHOT_ROWS_CAP is read when the app starts (change it, restart); VITE_BI_SNAPSHOT_ROWS_CAP is baked in at BUILD time (change it, rebuild). The PUBLIC_ one wins when set; the browser and the scheduled refresh read the same value either way. Details: docs/SCALE_AND_LIMITS.md"
               }
             ]
+          },
+          {
+            "settings": [
+              {
+                "name": "VITE_MAP_TILES_URL",
+                "line": "VITE_MAP_TILES_URL=\"\"",
+                "note": ""
+              },
+              {
+                "name": "PUBLIC_MAP_TILES_URL",
+                "line": "PUBLIC_MAP_TILES_URL=\"\"",
+                "note": ""
+              },
+              {
+                "name": "VITE_MAP_TILES_ATTRIBUTION",
+                "line": "VITE_MAP_TILES_ATTRIBUTION=\"\"",
+                "note": ""
+              },
+              {
+                "name": "PUBLIC_MAP_TILES_ATTRIBUTION",
+                "line": "PUBLIC_MAP_TILES_ATTRIBUTION=\"\"",
+                "note": ""
+              }
+            ],
+            "body": [
+              {
+                "kind": "text",
+                "text": "Street tiles under BI point maps (optional). Unset (default): a point map draws its points on a plain background, and no viewer's browser asks a third party for anything. Set a tile server's URL template, with {z}, {x} and {y}, to draw streets under the points: every viewer's browser then fetches tiles from that server, so it learns which areas they look at. Pick one whose terms allow your use — the OpenStreetMap Foundation's own tile servers do not allow use by an application; run your own or use a tile provider. The attribution is the credit that server requires, shown in the map's corner."
+              },
+              {
+                "kind": "code",
+                "text": "PUBLIC_MAP_TILES_URL=\"https://tiles.example.com/{z}/{x}/{y}.png\"\nPUBLIC_MAP_TILES_ATTRIBUTION=\"© OpenStreetMap contributors\""
+              },
+              {
+                "kind": "text",
+                "text": "PUBLIC_ is read when the app starts; VITE_ is baked in at build time."
+              }
+            ]
           }
         ]
       },

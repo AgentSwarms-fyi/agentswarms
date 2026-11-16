@@ -928,6 +928,9 @@ export function BiBuilderPane({
         case "range":
         case "radialbar":
         case "bump":
+        case "pointmap":
+        case "journey":
+        case "controls":
           return visualSpec(chartType, vizOpts, {
             xField,
             yField,
@@ -1155,20 +1158,29 @@ export function BiBuilderPane({
   }, [preview, chartType, insOpts.kind]);
 
   // What is still missing, said under the button while it is disabled (R203).
-  const blocker = chartBlocker({
-    ontology: chartType === "ontology",
-    sql,
-    ran: Boolean(preview),
-    chart: Boolean(chartSpec),
-    title,
-    fields: queryMode === "fields",
-  });
+  // Controls (R501) run no query: only their parameters and title are needed.
+  const blocker =
+    chartType === "controls"
+      ? !chartSpec
+        ? "Pick the parameters to show."
+        : !title.trim()
+          ? "Give the widget a title."
+          : null
+      : chartBlocker({
+          ontology: chartType === "ontology",
+          sql,
+          ran: Boolean(preview),
+          chart: Boolean(chartSpec),
+          title,
+          fields: queryMode === "fields",
+        });
   const canSubmit = blocker === null;
 
   function submit() {
     if (!canSubmit || !chartSpec) return;
-    if (chartType === "ontology") {
-      // The whole map lives in the chart spec — no SQL, no row snapshot.
+    if (chartType === "ontology" || chartType === "controls") {
+      // The whole map (or the controls) lives in the chart spec — no SQL, no
+      // row snapshot.
       onSubmit({
         id: initial?.id ?? crypto.randomUUID(),
         kind: "chart",
@@ -1635,6 +1647,28 @@ export function BiBuilderPane({
                 ontoSampleRows={ontoSampleRows}
                 setOntoSampleRows={setOntoSampleRows}
               />
+            ) : chartType === "controls" ? (
+              // R501: the dashboard's parameters on the canvas — no query.
+              <div className="space-y-3">
+                <BiVisualOptions
+                  type="controls"
+                  opts={vizOpts}
+                  setOpts={setVizOpts}
+                  columns={[]}
+                  params={ctx.params}
+                />
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Widget title
+                  </Label>
+                  <Input
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    placeholder="e.g. Revenue by month"
+                    className="h-8 text-xs"
+                  />
+                </div>
+              </div>
             ) : (
               <>
                 {sourceSelect}

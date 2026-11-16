@@ -433,6 +433,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "combo",
       "compare",
       "contains",
+      "controls",
       "count",
       "count_distinct",
       "currency",
@@ -455,6 +456,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "image",
       "insight",
       "is",
+      "journey",
       "kpi",
       "line",
       "lt",
@@ -470,6 +472,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "ontology",
       "order_id",
       "pie",
+      "pointmap",
       "predicted_",
       "prediction",
       "probability",
@@ -610,7 +613,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       },
       {
         "id": "charts",
-        "text": "Chart types — all 31, with required fields",
+        "text": "Chart types — all 34, with required fields",
         "level": 2
       },
       {
@@ -727,6 +730,21 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "interactive",
         "text": "Making it interactive",
         "level": 2
+      },
+      {
+        "id": "parameters",
+        "text": "Parameters: values people pick that the query reads",
+        "level": 2
+      },
+      {
+        "id": "pointmap-tiles",
+        "text": "Streets under a point map",
+        "level": 3
+      },
+      {
+        "id": "bike-share",
+        "text": "Walkthrough: bike share rides from the lakehouse",
+        "level": 3
       },
       {
         "id": "insights",
@@ -4846,6 +4864,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "PUBLIC_BI_SNAPSHOT_ROWS_CAP",
       "PUBLIC_GA_ID",
       "PUBLIC_GTM_ID",
+      "PUBLIC_MAP_TILES_ATTRIBUTION",
+      "PUBLIC_MAP_TILES_URL",
       "PUBLIC_NOTEBOOK_GATEWAY_PORT",
       "PUBLIC_SUPABASE_PUBLISHABLE_KEY",
       "PUBLIC_SUPABASE_REALTIME",
@@ -4933,6 +4953,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "VITE_BI_SNAPSHOT_ROWS_CAP",
       "VITE_GA_ID",
       "VITE_GTM_ID",
+      "VITE_MAP_TILES_ATTRIBUTION",
+      "VITE_MAP_TILES_URL",
       "VITE_NOTEBOOK_GATEWAY_PORT",
       "VITE_SUPABASE_PUBLISHABLE_KEY",
       "VITE_SUPABASE_REALTIME",

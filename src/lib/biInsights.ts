@@ -77,7 +77,48 @@ export const INSIGHT_KINDS: { value: BiInsightKind; label: string; needs: string
   { value: "anomaly", label: "Anomaly", needs: "a date and a measure, 5+ periods" },
   { value: "growth", label: "Growth rate", needs: "a date and a measure" },
   { value: "movers", label: "Top movers", needs: "a category, a date and a measure" },
+  { value: "figures", label: "Figures in a sentence", needs: "one or more numeric columns" },
 ];
+
+/**
+ * Every numeric column's total over the rows, formatted, keyed by the column
+ * name lower-cased — the tokens of a "figures" sentence (R501): "About
+ * {{rides}} rides, {{electric}} of them on electric bikes".
+ */
+function figureTokens(
+  rows: Record<string, unknown>[],
+  f: InsightFormat,
+): { tokens: Record<string, string>; names: string[] } {
+  const sums = new Map<string, number>();
+  const order: string[] = [];
+  for (const r of rows) {
+    if (!r || typeof r !== "object") continue;
+    for (const [k, v] of Object.entries(r)) {
+      const n = toNumber(v);
+      if (n === null) continue;
+      const key = k.toLowerCase();
+      if (!sums.has(key)) order.push(key);
+      sums.set(key, (sums.get(key) ?? 0) + n);
+    }
+  }
+  const tokens: Record<string, string> = { rows: rows.length.toLocaleString(f.locale) };
+  for (const k of order) tokens[k] = f.value(sums.get(k)!);
+  return { tokens, names: order };
+}
+
+function figures(rows: Record<string, unknown>[], f: InsightFormat, measure: string): Internal {
+  const { tokens, names } = figureTokens(rows, f);
+  if (names.length === 0) return { ok: false, reason: "The query returns no numbers to state." };
+  return {
+    ok: true,
+    // Without the author's own sentence: each figure named, in column order.
+    lead: names.flatMap((k, i) => [
+      { text: `${i === 0 ? "" : ", "}${i === 0 ? measure : humanizeField(k)} ` },
+      { text: tokens[k], tone: "strong" as const },
+    ]),
+    tokens,
+  };
+}
 
 /** "total_revenue" → "Total revenue". */
 export function humanizeField(field: string): string {
@@ -155,7 +196,8 @@ export function renderTemplate(
   tones: Record<string, InsightPart["tone"]> = {},
 ): InsightPart[] {
   const parts: InsightPart[] = [];
-  const re = /\{\{\s*([a-z_]+)\s*\}\}/gi;
+  // Digits too (R501): a figures sentence names its columns, e.g. {{rides_2026}}.
+  const re = /\{\{\s*([a-z_][a-z0-9_]*)\s*\}\}/gi;
   let last = 0;
   for (let m = re.exec(template); m; m = re.exec(template)) {
     if (m.index > last) parts.push({ text: template.slice(last, m.index) });
@@ -225,6 +267,10 @@ export const INSIGHT_TOKENS: Record<BiInsightKind, { token: string; detail: stri
     { token: "top", detail: "The biggest mover" },
     { token: "top_change_pct", detail: "Its change in percent" },
   ],
+  figures: [
+    { token: "<column>", detail: "Any numeric column's total, by its name" },
+    { token: "rows", detail: "How many rows were added up" },
+  ],
 };
 INSIGHT_TOKENS.bottom = INSIGHT_TOKENS.top;
 
@@ -248,7 +294,9 @@ export function computeInsight(
       ...(spec.kind === "top" || spec.kind === "bottom" || spec.kind === "movers"
         ? [spec.categoryField]
         : []),
-      ...(spec.kind !== "top" && spec.kind !== "bottom" ? [spec.dateField] : []),
+      ...(spec.kind !== "top" && spec.kind !== "bottom" && spec.kind !== "figures"
+        ? [spec.dateField]
+        : []),
     ].filter((x): x is string => typeof x === "string" && x.length > 0);
     const missing = needed.filter((x) => !has(x));
     if (missing.length > 0) {
@@ -265,6 +313,8 @@ export function computeInsight(
         return ranked(spec, data, f, measure);
       case "movers":
         return movers(spec, data, f, measure, grainSel);
+      case "figures":
+        return figures(data, f, measure);
       default:
         return overTime(spec, data, f, measure, grainSel);
     }

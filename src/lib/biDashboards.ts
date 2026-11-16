@@ -672,6 +672,9 @@ export function defaultWidgetSize(widget: BiWidget): { w: number; h: number } {
   if (t === "matrix") return { w: 8, h: 6 };
   if (t === "sankey") return { w: 8, h: 6 };
   if (t === "ontology") return { w: 12, h: 8 };
+  if (t === "pointmap") return { w: 8, h: 7 };
+  if (t === "journey") return { w: 7, h: 6 };
+  if (t === "controls") return { w: 3, h: 5 };
   if (t === "radar" || t === "nightingale") return { w: 5, h: 5 };
   return { w: 6, h: 6 };
 }
@@ -751,6 +754,12 @@ export const DASH_FONTS: Record<string, { label: string; stack: string }> = {
   humanist: { label: "Humanist", stack: "'Segoe UI', 'Trebuchet MS', Verdana, sans-serif" },
   mono: { label: "Mono", stack: "ui-monospace, 'Cascadia Code', Consolas, monospace" },
   rounded: { label: "Rounded", stack: "'Comfortaa', 'Trebuchet MS', 'Segoe UI', sans-serif" },
+  // Handwriting the viewer's system already has (R501): Segoe Print and Ink
+  // Free on Windows, Bradley Hand on macOS; nothing is downloaded.
+  hand: {
+    label: "Handwritten",
+    stack: "'Segoe Print', 'Bradley Hand', 'Ink Free', 'Comic Sans MS', cursive",
+  },
 };
 
 export const WIDGET_ACCENTS: Record<string, { label: string; color: string }> = {

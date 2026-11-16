@@ -27,6 +27,13 @@ export type VisualOpts = {
   bands: VisualBand[];
   heatScale: "sequential" | "diverging";
   striped: boolean;
+  // R501: point map, pins on a road, controls.
+  latField: string;
+  lngField: string;
+  sizeField: string;
+  measureField: string;
+  params: string[];
+  intro: string;
 };
 
 export const VISUAL_OPTS_DEFAULT: VisualOpts = {
@@ -49,16 +56,24 @@ export const VISUAL_OPTS_DEFAULT: VisualOpts = {
   bands: [],
   heatScale: "sequential",
   striped: false,
+  latField: "",
+  lngField: "",
+  sizeField: "",
+  measureField: "",
+  params: [],
+  intro: "",
 };
 
 /** Visual types whose fields live in these options rather than the pane's. */
-export const OPTS_VISUALS = new Set(["cards", "range"]);
+export const OPTS_VISUALS = new Set(["cards", "range", "pointmap", "journey", "controls"]);
+/** Types that need no query: they draw from their own spec (R501). */
+export const NO_DATA_VISUALS = new Set(["controls"]);
 /** Types that take a colour column (`colorField`). */
 export const COLOR_FIELD_VISUALS = new Set(["line", "bump", "radialbar"]);
 
 /** The options a saved chart was built with. */
 export function visualOptsFrom(c: ChartSpec): VisualOpts {
-  const o: VisualOpts = { ...VISUAL_OPTS_DEFAULT, bands: [] };
+  const o: VisualOpts = { ...VISUAL_OPTS_DEFAULT, bands: [], params: [] };
   if (c.type === "cards") {
     o.cardsLayout = c.layout ?? "tiles";
     o.imageField = c.imageField ?? "";
@@ -76,6 +91,20 @@ export function visualOptsFrom(c: ChartSpec): VisualOpts {
     o.endField = c.endField;
     o.labelField = c.labelField ?? "";
     o.higherIsBetter = c.higherIsBetter === true;
+  }
+  if (c.type === "pointmap") {
+    o.latField = c.latField;
+    o.lngField = c.lngField;
+    o.sizeField = c.sizeField ?? "";
+    o.labelField = c.labelField ?? "";
+  }
+  if (c.type === "journey") {
+    o.categoryField = c.categoryField;
+    o.measureField = c.valueField;
+  }
+  if (c.type === "controls") {
+    o.params = [...c.params];
+    o.intro = c.intro ?? "";
   }
   if (c.type === "heatmap") o.heatScale = c.scale ?? "sequential";
   if (c.type === "table") o.striped = c.striped === true;
@@ -140,6 +169,30 @@ export function visualSpec(
     case "bump":
       return f.xField && f.yField && f.seriesField
         ? { type: "bump", xField: f.xField, yField: f.yField, seriesField: f.seriesField }
+        : null;
+    case "pointmap":
+      return o.latField && o.lngField
+        ? {
+            type: "pointmap",
+            latField: o.latField,
+            lngField: o.lngField,
+            colorField: o.colorField || undefined,
+            sizeField: o.sizeField || undefined,
+            labelField: o.labelField || undefined,
+          }
+        : null;
+    case "journey":
+      return o.categoryField && o.measureField
+        ? {
+            type: "journey",
+            categoryField: o.categoryField,
+            valueField: o.measureField,
+            colorField: o.colorField || undefined,
+          }
+        : null;
+    case "controls":
+      return o.params.length
+        ? { type: "controls", params: o.params, intro: o.intro.trim() || undefined }
         : null;
     default:
       return null;

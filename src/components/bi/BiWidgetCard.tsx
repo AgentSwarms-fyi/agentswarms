@@ -14,6 +14,7 @@ import {
   Image as ImageIcon,
   Lightbulb,
   Network,
+  SlidersHorizontal,
   Table2,
   Type,
   type LucideIcon,
@@ -409,8 +410,9 @@ export function BiWidgetCard({
   const chart = widget.chart ?? { type: "table" as const };
   const rows = widget.rows ?? [];
   const columns = widget.columns ?? [];
-  // Ontology widgets render from the spec inside `chart` — no row snapshot.
-  const isOntology = chart.type === "ontology";
+  // Ontology widgets render from the spec inside `chart` — no row snapshot —
+  // and so do Controls (R501), which hold the dashboard's parameters.
+  const isOntology = chart.type === "ontology" || chart.type === "controls";
   // Text and image tiles have no queried data, so an age would be meaningless.
   const freshness = useMemo(
     () => (isText || isImage ? null : describeFreshness(widget.refreshed_at)),
@@ -421,7 +423,9 @@ export function BiWidgetCard({
     : isText
       ? Type
       : isOntology
-        ? Network
+        ? chart.type === "controls"
+          ? SlidersHorizontal
+          : Network
         : chart.type === "table"
           ? Table2
           : chart.type === "insight"

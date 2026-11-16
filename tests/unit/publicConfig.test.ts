@@ -72,6 +72,8 @@ describe("the server reads PUBLIC_* from its environment", () => {
       PUBLIC_GTM_ID: "GTM-XYZ9",
       PUBLIC_NOTEBOOK_GATEWAY_PORT: "9443",
       PUBLIC_SUPABASE_REALTIME: "off",
+      PUBLIC_MAP_TILES_URL: "https://tiles.example.com/{z}/{x}/{y}.png",
+      PUBLIC_MAP_TILES_ATTRIBUTION: "© OpenStreetMap contributors",
     };
     expect(runtimePublicConfig(env)).toEqual({
       supabaseUrl: "https://db.example.com",
@@ -82,6 +84,8 @@ describe("the server reads PUBLIC_* from its environment", () => {
       gtmId: "GTM-XYZ9",
       notebookGatewayPort: "9443",
       supabaseRealtime: "off",
+      mapTilesUrl: "https://tiles.example.com/{z}/{x}/{y}.png",
+      mapTilesAttribution: "© OpenStreetMap contributors",
     });
     // Each runtime name in the table is one the reader actually reads.
     for (const { runtime } of Object.values(PUBLIC_CONFIG_VARS)) {

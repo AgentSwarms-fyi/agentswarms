@@ -14,7 +14,13 @@ import type { DirectFilter } from "@/lib/biDirectQuery";
  */
 export async function runBiDirectQuery(
   accessToken: string,
-  args: { dashboardId: string; widgetId: string; filters?: DirectFilter[] },
+  args: {
+    dashboardId: string;
+    widgetId: string;
+    filters?: DirectFilter[];
+    /** Picked parameter values (R501); the server checks each against its definition. */
+    params?: Record<string, string>;
+  },
 ): Promise<QueryResult> {
   const resp = await fetch("/api/bi/direct-query", {
     method: "POST",
@@ -23,6 +29,7 @@ export async function runBiDirectQuery(
       dashboard_id: args.dashboardId,
       widget_id: args.widgetId,
       filters: args.filters ?? [],
+      ...(args.params ? { params: args.params } : {}),
     }),
   });
   const j = (await resp.json()) as {

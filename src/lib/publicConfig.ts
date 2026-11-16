@@ -55,6 +55,14 @@ export type PublicConfig = {
    * that listen for changes poll instead (src/lib/liveRows.ts). Unset: on.
    */
   supabaseRealtime?: string;
+  /**
+   * A map tile server for point maps (R501), as a template with {z}, {x} and
+   * {y}. Unset (default): point maps draw no street layer and the browser asks
+   * no third party for anything.
+   */
+  mapTilesUrl?: string;
+  /** The credit the tile server requires, shown in the map's corner. */
+  mapTilesAttribution?: string;
 };
 
 export type PublicConfigKey = keyof PublicConfig;
@@ -75,6 +83,11 @@ export const PUBLIC_CONFIG_VARS: Record<PublicConfigKey, { runtime: string; buil
     build: "VITE_NOTEBOOK_GATEWAY_PORT",
   },
   supabaseRealtime: { runtime: "PUBLIC_SUPABASE_REALTIME", build: "VITE_SUPABASE_REALTIME" },
+  mapTilesUrl: { runtime: "PUBLIC_MAP_TILES_URL", build: "VITE_MAP_TILES_URL" },
+  mapTilesAttribution: {
+    runtime: "PUBLIC_MAP_TILES_ATTRIBUTION",
+    build: "VITE_MAP_TILES_ATTRIBUTION",
+  },
 };
 
 const KEYS = Object.keys(PUBLIC_CONFIG_VARS) as PublicConfigKey[];
@@ -90,6 +103,8 @@ export function buildTimePublicConfig(): PublicConfig {
     gtmId: import.meta.env.VITE_GTM_ID,
     notebookGatewayPort: import.meta.env.VITE_NOTEBOOK_GATEWAY_PORT,
     supabaseRealtime: import.meta.env.VITE_SUPABASE_REALTIME,
+    mapTilesUrl: import.meta.env.VITE_MAP_TILES_URL,
+    mapTilesAttribution: import.meta.env.VITE_MAP_TILES_ATTRIBUTION,
   });
 }
 
@@ -142,6 +157,20 @@ export function rejectPublicValue(
     }
     case "supabaseRealtime":
       return /^(on|off|true|false|1|0|yes|no)$/i.test(value) ? null : 'must be "on" or "off"';
+    case "mapTilesUrl": {
+      if (!/\{z\}/.test(value) || !/\{x\}/.test(value) || !/\{y\}/.test(value)) {
+        return "must contain {z}, {x} and {y}";
+      }
+      let url: URL;
+      try {
+        url = new URL(value.replace(/\{[a-z]\}/g, "0"));
+      } catch {
+        return "is not a URL";
+      }
+      return url.protocol === "https:" || url.protocol === "http:" ? null : "must be http(s)";
+    }
+    case "mapTilesAttribution":
+      return value.length <= 300 && !/[<>]/.test(value) ? null : "must be plain text";
   }
 }
 
@@ -167,6 +196,8 @@ export function runtimePublicConfig(env: Env, warn: Warn = () => {}): PublicConf
     gtmId: env.PUBLIC_GTM_ID,
     notebookGatewayPort: env.PUBLIC_NOTEBOOK_GATEWAY_PORT,
     supabaseRealtime: env.PUBLIC_SUPABASE_REALTIME,
+    mapTilesUrl: env.PUBLIC_MAP_TILES_URL,
+    mapTilesAttribution: env.PUBLIC_MAP_TILES_ATTRIBUTION,
   };
   const legacy: PublicConfig = {
     supabaseUrl: env.VITE_SUPABASE_URL,
@@ -177,6 +208,8 @@ export function runtimePublicConfig(env: Env, warn: Warn = () => {}): PublicConf
     gtmId: env.VITE_GTM_ID,
     notebookGatewayPort: env.VITE_NOTEBOOK_GATEWAY_PORT,
     supabaseRealtime: env.VITE_SUPABASE_REALTIME,
+    mapTilesUrl: env.VITE_MAP_TILES_URL,
+    mapTilesAttribution: env.VITE_MAP_TILES_ATTRIBUTION,
   };
   const out: PublicConfig = {};
   for (const key of KEYS) {

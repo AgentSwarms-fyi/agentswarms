@@ -6,11 +6,12 @@ import { Lightbulb } from "lucide-react";
 import type { ChartSpec } from "@/lib/biAgent";
 import { computeInsight, type InsightPart } from "@/lib/biInsights";
 import { fmtBiValue } from "@/components/bi/biChartData";
+import { hexColor } from "@/lib/biDashboards";
 import { cn } from "@/lib/utils";
 
 type InsightChart = Extract<ChartSpec, { type: "insight" }>;
 
-function Part({ p }: { p: InsightPart }) {
+function Part({ p, color }: { p: InsightPart; color?: string }) {
   if (!p.tone) return <>{p.text}</>;
   return (
     <span
@@ -22,6 +23,9 @@ function Part({ p }: { p: InsightPart }) {
             ? "text-red-600 dark:text-red-400"
             : "text-foreground",
       )}
+      // The author's colour for plain figures (R501); good and bad news keep
+      // their green and red, which carry meaning a chosen colour would hide.
+      style={color && p.tone === "strong" ? { color } : undefined}
     >
       {p.text}
     </span>
@@ -71,6 +75,7 @@ export function BiInsightBody({
     );
   }
 
+  const color = hexColor(chart.valueColor);
   return (
     <div
       className={cn(
@@ -79,14 +84,16 @@ export function BiInsightBody({
         large ? "text-base" : "text-[13px]",
       )}
     >
-      <Lightbulb
-        className={cn("mt-0.5 shrink-0 text-primary", large ? "h-5 w-5" : "h-4 w-4")}
-        aria-hidden
-      />
+      {!chart.hideIcon && (
+        <Lightbulb
+          className={cn("mt-0.5 shrink-0 text-primary", large ? "h-5 w-5" : "h-4 w-4")}
+          aria-hidden
+        />
+      )}
       <div className="min-w-0 space-y-1">
         <p>
           {result.lead.map((p, i) => (
-            <Part key={i} p={p} />
+            <Part key={i} p={p} color={color} />
           ))}
         </p>
         {result.items && result.items.length > 0 && (
@@ -94,7 +101,7 @@ export function BiInsightBody({
             {result.items.map((line, i) => (
               <li key={i}>
                 {line.map((p, j) => (
-                  <Part key={j} p={p} />
+                  <Part key={j} p={p} color={color} />
                 ))}
               </li>
             ))}

@@ -25,6 +25,9 @@ export type InsightOpts = {
   periods: string;
   template: string;
   lowerIsBetter: boolean;
+  /** R501: the figures' colour (#rrggbb, empty for the standard look). */
+  valueColor: string;
+  hideIcon: boolean;
 };
 
 export const INSIGHT_OPTS_DEFAULT: InsightOpts = {
@@ -35,6 +38,8 @@ export const INSIGHT_OPTS_DEFAULT: InsightOpts = {
   periods: "",
   template: "",
   lowerIsBetter: false,
+  valueColor: "",
+  hideIcon: false,
 };
 
 export function kpiOptsFrom(c: ChartSpec | undefined): KpiOpts {
@@ -58,6 +63,8 @@ export function insightOptsFrom(c: ChartSpec | undefined): InsightOpts {
     periods: c.periods !== undefined ? String(c.periods) : "",
     template: c.template ?? "",
     lowerIsBetter: Boolean(c.lowerIsBetter),
+    valueColor: c.valueColor ?? "",
+    hideIcon: Boolean(c.hideIcon),
   };
 }
 
@@ -74,7 +81,8 @@ export function kpiSpecFields(o: KpiOpts): Partial<Extract<ChartSpec, { type: "k
 
 export const insightNeedsCategory = (k: BiInsightKind) =>
   k === "top" || k === "bottom" || k === "movers";
-export const insightNeedsDate = (k: BiInsightKind) => k !== "top" && k !== "bottom";
+export const insightNeedsDate = (k: BiInsightKind) =>
+  k !== "top" && k !== "bottom" && k !== "figures";
 
 /** The insight spec, or null while a field it needs is unset. */
 export function insightSpec(
@@ -104,5 +112,7 @@ export function insightSpec(
     label: label.trim() || undefined,
     template: o.template.trim() || undefined,
     lowerIsBetter: o.lowerIsBetter || undefined,
+    valueColor: /^#[0-9a-f]{6}$/i.test(o.valueColor) ? o.valueColor : undefined,
+    hideIcon: o.hideIcon || undefined,
   };
 }

@@ -41,6 +41,7 @@ import {
   stripWidgetData,
   widgetRowCap,
 } from "@/lib/biDashboards";
+import { defaultParamValues, parseParams, substituteParams } from "@/lib/biParams";
 import { fetchWidgetResultsAdmin, upsertWidgetResultsAdmin } from "@/utils/bi/results.server";
 import { sendMail } from "@/lib/email/mailer.server";
 import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.server";
@@ -499,6 +500,12 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
   // cannot find — so grouping one away would silently stop that filter from
   // applying rather than raise anything.
   const preserve = parseFilters(dash.filters).map((f) => f.column);
+  // Parameters (R501) run at their defaults: the snapshot is what a viewer
+  // sees before picking anything, and what the controls say on open.
+  const params = parseParams(dash.filters);
+  const paramDefaults = defaultParamValues(params);
+  const withParams = <T extends { sql?: string }>(w: T): T =>
+    w.sql && params.length ? { ...w, sql: substituteParams(w.sql, params, paramDefaults) } : w;
 
   const docWidgetsRaw = (Array.isArray(dash.widgets) ? dash.widgets : []) as WidgetJson[];
   // Hydrate the prior snapshots from the results store: the document's own
@@ -564,7 +571,12 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
           { connectionId: w.source.connection_id },
           dash.user_id,
         );
-        const sql = widgetQuerySql(w, preserve, conn.config.provider as SqlDialect, inc);
+        const sql = widgetQuerySql(
+          withParams(w),
+          preserve,
+          conn.config.provider as SqlDialect,
+          inc,
+        );
         const res = await executeWarehouseQuery(conn.config, sql, WIDGET_ROW_CAP, {
           userId: dash.user_id,
         });
@@ -578,7 +590,7 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
         const localDialect = await localEngineName();
         result = await runLocalSqlForUser(
           dash.user_id,
-          widgetQuerySql(w, preserve, localDialect, inc),
+          widgetQuerySql(withParams(w), preserve, localDialect, inc),
         );
       }
       applyResult(w, result, inc);
@@ -1095,9 +1107,21 @@ export async function evaluateAlerts(
   // crossed a threshold notified nobody.
   if (alertsErr) throw new Error(`could not read alerts: ${alertsErr.message}`);
   const now = new Date().toISOString();
+  // A widget's SQL with {{parameters}} (R501) re-runs at their defaults, as the
+  // refresh does; the definitions are read only if some widget needs them.
+  let paramDefs: Promise<ReturnType<typeof parseParams>> | null = null;
+  const withParamDefaults = async (w: WidgetJson): Promise<WidgetJson> => {
+    if (!w.sql?.includes("{{")) return w;
+    paramDefs ??= Promise.resolve(
+      supabaseAdmin.from("bi_dashboards").select("filters").eq("id", dashboardId).maybeSingle(),
+    ).then((r) => parseParams(r.data?.filters));
+    const ps = await paramDefs;
+    return ps.length ? { ...w, sql: substituteParams(w.sql, ps, defaultParamValues(ps)) } : w;
+  };
   for (const a of alerts ?? []) {
-    const widget = widgets.find((w) => w.id === a.widget_id);
-    if (!widget) continue;
+    const found = widgets.find((w) => w.id === a.widget_id);
+    if (!found) continue;
+    const widget = await withParamDefaults(found);
     const basis = (a as { basis?: string }).basis ?? "actual";
     const horizon = (a as { horizon?: number | null }).horizon ?? null;
     // A partial snapshot is not the data. Every aggregation over it is wrong

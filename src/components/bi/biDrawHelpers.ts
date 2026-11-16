@@ -112,6 +112,166 @@ export function hardBreaks(text: string): string {
   return text.replace(/([^\n])\n(?!\n)/g, "$1  \n");
 }
 
+// ── Point map geometry (R501) ────────────────────────────────────────────────
+
+/** A tile is 256 px; at zoom 0 the whole world is one tile. */
+export const TILE = 256;
+
+/** Web Mercator: longitude and latitude to pixels at zoom 0. */
+export function project(lng: number, lat: number): [number, number] {
+  const s = Math.sin((Math.max(-85.05, Math.min(85.05, lat)) * Math.PI) / 180);
+  return [((lng + 180) / 360) * TILE, (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * TILE];
+}
+
+export type MapView = { zoom: number; cx: number; cy: number };
+
+/** The view that fits every point inside w × h with `pad` px to spare. */
+export function fitView(points: [number, number][], w: number, h: number, pad = 24): MapView {
+  if (points.length === 0) return { zoom: 1, cx: TILE / 2, cy: TILE / 2 };
+  const xs = points.map((p) => p[0]);
+  const ys = points.map((p) => p[1]);
+  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  const dx = Math.max(x1 - x0, 1e-9);
+  const dy = Math.max(y1 - y0, 1e-9);
+  const fit = Math.log2(Math.min((w - 2 * pad) / dx, (h - 2 * pad) / dy));
+  // One point (or several on one spot) would zoom without end: a street's width.
+  const zoom = points.length === 1 || !Number.isFinite(fit) ? 14 : Math.max(0, Math.min(18, fit));
+  return { zoom, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2 };
+}
+
+/** A zoom-0 pixel at this view, as a pixel on screen. */
+export function toScreen(p: [number, number], v: MapView, w: number, h: number): [number, number] {
+  const k = 2 ** v.zoom;
+  return [(p[0] - v.cx) * k + w / 2, (p[1] - v.cy) * k + h / 2];
+}
+
+/** The tiles that cover the view: their z/x/y and where each is drawn. */
+export function visibleTiles(
+  v: MapView,
+  w: number,
+  h: number,
+): { z: number; x: number; y: number; left: number; top: number; size: number }[] {
+  const z = Math.max(0, Math.min(19, Math.round(v.zoom)));
+  const n = 2 ** z;
+  const size = TILE * 2 ** (v.zoom - z);
+  const k = 2 ** z; // zoom-0 px → tile-zoom px
+  const cx = v.cx * k;
+  const cy = v.cy * k;
+  const scale = size / TILE;
+  const x0 = Math.floor((cx - w / 2 / scale) / TILE);
+  const x1 = Math.floor((cx + w / 2 / scale) / TILE);
+  const y0 = Math.max(0, Math.floor((cy - h / 2 / scale) / TILE));
+  const y1 = Math.min(n - 1, Math.floor((cy + h / 2 / scale) / TILE));
+  const out = [];
+  for (let ty = y0; ty <= y1; ty++) {
+    for (let tx = x0; tx <= x1; tx++) {
+      out.push({
+        z,
+        x: ((tx % n) + n) % n,
+        y: ty,
+        left: (tx * TILE - cx) * scale + w / 2,
+        top: (ty * TILE - cy) * scale + h / 2,
+        size,
+      });
+    }
+  }
+  return out;
+}
+
+/** A tile's address from a {z}/{x}/{y} template. */
+export function tileUrl(template: string, t: { z: number; x: number; y: number }): string {
+  return template
+    .replace("{z}", String(t.z))
+    .replace("{x}", String(t.x))
+    .replace("{y}", String(t.y));
+}
+
+/**
+ * A colour per category: the values' own when every one is a #rrggbb colour,
+ * otherwise the palette, most frequent category first.
+ */
+export function categoryColors(values: unknown[], palette: string[]): Map<string, string> {
+  const counts = new Map<string, number>();
+  for (const v of values) {
+    const k = v === null || v === undefined ? "" : String(v);
+    counts.set(k, (counts.get(k) ?? 0) + 1);
+  }
+  const keys = [...counts.keys()];
+  const hex = /^#[0-9a-f]{6}$/i;
+  if (keys.length > 0 && keys.every((k) => hex.test(k))) {
+    return new Map(keys.map((k) => [k, k]));
+  }
+  const ordered = keys.sort((a, b) => counts.get(b)! - counts.get(a)! || a.localeCompare(b));
+  return new Map(ordered.map((k, i) => [k, palette[i % palette.length]]));
+}
+
+// ── Journey geometry (R501) ──────────────────────────────────────────────────
+
+/**
+ * A winding road through a w × h box, as points every few pixels: three
+ * stretches joined by U-turns, starting bottom left and ending top right.
+ */
+export function roadPoints(w: number, h: number): [number, number][] {
+  // The top stretch sits low enough for a pin above it (BiJourney's largest).
+  const r = h * 0.15;
+  const ys = [h * 0.9, h * 0.9 - 2 * r, h * 0.9 - 4 * r];
+  // Turns far enough in that a pin on one stays inside the picture.
+  const left = w * 0.17;
+  const right = w * 0.8;
+  const pts: [number, number][] = [];
+  const line = (x0: number, x1: number, y: number) => {
+    const n = Math.max(2, Math.ceil(Math.abs(x1 - x0) / 6));
+    for (let i = 0; i <= n; i++) pts.push([x0 + ((x1 - x0) * i) / n, y]);
+  };
+  // A U-turn upward around (cx, y - r), on the right (side 1) or left (-1).
+  const turn = (cx: number, y: number, side: 1 | -1) => {
+    for (let i = 1; i <= 24; i++) {
+      const a = Math.PI / 2 - (Math.PI * i) / 24;
+      pts.push([cx + side * r * Math.cos(a), y - r + r * Math.sin(a)]);
+    }
+  };
+  line(w * 0.04, right, ys[0]);
+  turn(right, ys[0], 1);
+  line(right, left, ys[1]);
+  turn(left, ys[1], -1);
+  line(left, w * 0.96, ys[2]);
+  return pts;
+}
+
+/** Evenly spaced stops along a polyline: each point and how far along it is. */
+export function stopsAlong(pts: [number, number][], n: number): [number, number][] {
+  if (pts.length < 2 || n < 1) return [];
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) {
+    cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  }
+  const total = cum[cum.length - 1];
+  const out: [number, number][] = [];
+  let j = 1;
+  for (let k = 0; k < n; k++) {
+    const target = (total * (k + 0.5)) / n;
+    while (j < cum.length - 1 && cum[j] < target) j++;
+    const t = (target - cum[j - 1]) / Math.max(cum[j] - cum[j - 1], 1e-9);
+    out.push([
+      pts[j - 1][0] + (pts[j][0] - pts[j - 1][0]) * t,
+      pts[j - 1][1] + (pts[j][1] - pts[j - 1][1]) * t,
+    ]);
+  }
+  return out;
+}
+
+/** A map pin whose tip touches (x, y): a round head of radius r above it. */
+export function pinPath(x: number, y: number, r: number): string {
+  const d = 1.75 * r; // tip to the head's centre
+  const cy = y - d;
+  const b = Math.acos(r / d);
+  const lx = x - r * Math.sin(b);
+  const rx = x + r * Math.sin(b);
+  const ty = cy + r * Math.cos(b);
+  const f = (n: number) => n.toFixed(1);
+  return `M${f(x)} ${f(y)} L${f(lx)} ${f(ty)} A${f(r)} ${f(r)} 0 1 1 ${f(rx)} ${f(ty)} Z`;
+}
+
 /**
  * The measure and the category the visual itself shows, so suggested
  * narratives are about what the chart draws (R500): a points race is about

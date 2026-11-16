@@ -38,6 +38,13 @@ import {
 } from "@/lib/biDirectQuery";
 import { aggregationPlan } from "@/lib/biAggregate";
 import { applyColumnMask, intersectColumnMasks, mergeGrantRowFilters } from "@/lib/biDashboards";
+import {
+  defaultParamValues,
+  parseParams,
+  resolveParamValues,
+  substituteParams,
+  usesParams,
+} from "@/lib/biParams";
 import { attributeKeysInGrants, resolveAttributeGrants } from "@/lib/semanticPolicy";
 import type { ChartSpec } from "@/lib/biAgent";
 import type { SqlDialect } from "@/lib/semanticLayer";
@@ -94,7 +101,12 @@ export const Route = createFileRoute("/api/bi/direct-query")({
           });
         }
 
-        let body: { dashboard_id?: string; widget_id?: string; filters?: DirectFilter[] };
+        let body: {
+          dashboard_id?: string;
+          widget_id?: string;
+          filters?: DirectFilter[];
+          params?: Record<string, unknown>;
+        };
         try {
           body = await request.json();
         } catch {
@@ -107,7 +119,7 @@ export const Route = createFileRoute("/api/bi/direct-query")({
         // Load the dashboard (service role) to get the owner + widget.
         const { data: dash } = await supabaseAdmin
           .from("bi_dashboards")
-          .select("id, user_id, widgets")
+          .select("id, user_id, widgets, pages, filters")
           .eq("id", body.dashboard_id)
           .maybeSingle();
         if (!dash) return json(404, { error: "Dashboard not found" });
@@ -123,7 +135,17 @@ export const Route = createFileRoute("/api/bi/direct-query")({
           if (!allowed) return json(403, { error: "You don't have access to this dashboard" });
         }
 
-        const widgets = (Array.isArray(dash.widgets) ? dash.widgets : []) as WidgetLike[];
+        // Every page's widgets, not only the top-level list: that list mirrors
+        // page 1, so a live widget on page 2 was "not found" (R501).
+        const pageWidgets = (Array.isArray(dash.pages) ? dash.pages : []).flatMap((p) =>
+          p && typeof p === "object" && Array.isArray((p as { widgets?: unknown }).widgets)
+            ? ((p as { widgets: WidgetLike[] }).widgets ?? [])
+            : [],
+        );
+        const widgets = [
+          ...((Array.isArray(dash.widgets) ? dash.widgets : []) as WidgetLike[]),
+          ...pageWidgets,
+        ];
         const widget = widgets.find((w) => w?.id === body.widget_id);
         if (!widget) return json(404, { error: "Widget not found" });
         if (widget.query_mode !== "direct") {
@@ -227,6 +249,23 @@ export const Route = createFileRoute("/api/bi/direct-query")({
           .filter((f) => !usableFilters.includes(f))
           .map((f) => String(f?.column ?? ""));
 
+        // Parameters (R501): only the dashboard's own definitions decide what a
+        // value may be — one of the owner's options, or a real date — and an
+        // invalid one becomes the default. A viewer under a column mask gets
+        // the defaults outright: the server cannot see which columns the
+        // owner's SQL compares a parameter with, so a picked value could ask
+        // the same yes/no questions about a masked column that the filter
+        // rule above refuses.
+        const params = parseParams(dash.filters);
+        const paramsUsed = usesParams(widget.sql, params);
+        const paramValues =
+          maskedColumns.length > 0 && paramsUsed
+            ? defaultParamValues(params)
+            : resolveParamValues(params, body.params);
+        const droppedParams =
+          maskedColumns.length > 0 && paramsUsed && body.params && Object.keys(body.params).length;
+        const widgetSql = substituteParams(widget.sql, params, paramValues);
+
         try {
           // Load the connection AS THE OWNER (hard user_id filter in the loader).
           const conn = await loadWarehouseConnection(
@@ -245,7 +284,7 @@ export const Route = createFileRoute("/api/bi/direct-query")({
           // module constant — is the real limit.
           const effectiveRowCap = Math.min(DIRECT_QUERY_MAX_ROWS, warehouseAbsMaxRows());
           const effectiveSql = buildDirectQuerySql({
-            baseSql: widget.sql,
+            baseSql: widgetSql,
             columns: Array.isArray(widget.columns) ? (widget.columns as string[]) : [],
             filters: usableFilters,
             rowFilters,
@@ -290,6 +329,7 @@ export const Route = createFileRoute("/api/bi/direct-query")({
               row_count: result.row_count,
               truncated: result.truncated,
               ...(droppedFilters.length ? { dropped_filters: droppedFilters } : {}),
+              ...(droppedParams ? { params_defaulted: true } : {}),
             });
           }
           return json(200, {

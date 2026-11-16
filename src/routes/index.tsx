@@ -961,7 +961,7 @@ function LandingPage() {
               {[
                 {
                   icon: BarChart3,
-                  title: "31 visual types",
+                  title: "34 visual types",
                   body: "Bars to box plots, KPI targets, gauges, funnels, waterfalls, pivots, filled & bubble maps, treemaps, heatmaps — plus the AI-built ontology.",
                 },
                 {

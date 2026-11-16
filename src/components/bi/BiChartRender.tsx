@@ -60,6 +60,9 @@ import { BiInsightBody } from "@/components/bi/BiInsight";
 import { BiKpiTile } from "@/components/bi/BiKpiTile";
 import { BiCards } from "@/components/bi/BiCards";
 import { BiEndLabels } from "@/components/bi/BiEndLabels";
+import { BiJourney } from "@/components/bi/BiJourney";
+import { BiControlsVisual } from "@/components/bi/BiParamControls";
+import { BiPointMap } from "@/components/bi/BiPointMap";
 import { lastPoints } from "@/components/bi/biDrawHelpers";
 import { BiBumpChart, BiRadialBars, BiRangeBars } from "@/components/bi/BiRankCharts";
 import { OntologyGraph } from "@/components/bi/OntologyGraph";
@@ -345,6 +348,28 @@ function BiChartRenderInner({
     return (
       <div className={`${heightClass} w-full`}>
         <BiBumpChart chart={chart} rows={rows} />
+      </div>
+    );
+  }
+  // R501: points on a map, pins along a road, the dashboard's parameters.
+  if (chart.type === "pointmap") {
+    return (
+      <div className={`${heightClass} w-full`}>
+        <BiPointMap chart={chart} rows={rows} />
+      </div>
+    );
+  }
+  if (chart.type === "journey") {
+    return (
+      <div className={`${heightClass} w-full`}>
+        <BiJourney chart={chart} rows={rows} />
+      </div>
+    );
+  }
+  if (chart.type === "controls") {
+    return (
+      <div className={`${heightClass} w-full`}>
+        <BiControlsVisual chart={chart} />
       </div>
     );
   }

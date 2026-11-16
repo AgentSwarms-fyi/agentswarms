@@ -340,15 +340,17 @@ image is built with none of them (R469): it is the same image a release
 publishes, whatever the install. Only a build on the host (`npm run build`)
 still inlines the `VITE_` names; per setting the runtime one wins:
 
-| Setting                                     | Read at startup: restart to change | Inlined by `npm run build` only      |
-| ------------------------------------------- | ---------------------------------- | ------------------------------------ |
-| Supabase URL, as the **browser** reaches it | `PUBLIC_SUPABASE_URL`              | `VITE_SUPABASE_URL`                  |
-| Supabase publishable (anon) key             | `PUBLIC_SUPABASE_PUBLISHABLE_KEY`  | `VITE_SUPABASE_PUBLISHABLE_KEY`      |
-| Bootstrap admin e-mail                      | `PUBLIC_ADMIN_EMAIL`               | `VITE_ADMIN_EMAIL`                   |
-| BI snapshot row cap                         | `PUBLIC_BI_SNAPSHOT_ROWS_CAP`      | `VITE_BI_SNAPSHOT_ROWS_CAP`          |
-| Your Google Analytics / Tag Manager IDs     | `PUBLIC_GA_ID`, `PUBLIC_GTM_ID`    | `VITE_GA_ID`, `VITE_GTM_ID`          |
-| Notebook gateway port                       | `PUBLIC_NOTEBOOK_GATEWAY_PORT`     | `VITE_NOTEBOOK_GATEWAY_PORT`         |
-| Supabase Realtime (`off` on Amazon RDS)     | `PUBLIC_SUPABASE_REALTIME`         | `VITE_SUPABASE_REALTIME`             |
+| Setting                                     | Read at startup: restart to change | Inlined by `npm run build` only |
+| ------------------------------------------- | ---------------------------------- | ------------------------------- |
+| Supabase URL, as the **browser** reaches it | `PUBLIC_SUPABASE_URL`              | `VITE_SUPABASE_URL`             |
+| Supabase publishable (anon) key             | `PUBLIC_SUPABASE_PUBLISHABLE_KEY`  | `VITE_SUPABASE_PUBLISHABLE_KEY` |
+| Bootstrap admin e-mail                      | `PUBLIC_ADMIN_EMAIL`               | `VITE_ADMIN_EMAIL`              |
+| BI snapshot row cap                         | `PUBLIC_BI_SNAPSHOT_ROWS_CAP`      | `VITE_BI_SNAPSHOT_ROWS_CAP`     |
+| Your Google Analytics / Tag Manager IDs     | `PUBLIC_GA_ID`, `PUBLIC_GTM_ID`    | `VITE_GA_ID`, `VITE_GTM_ID`     |
+| Notebook gateway port                       | `PUBLIC_NOTEBOOK_GATEWAY_PORT`     | `VITE_NOTEBOOK_GATEWAY_PORT`    |
+| Supabase Realtime (`off` on Amazon RDS)     | `PUBLIC_SUPABASE_REALTIME`         | `VITE_SUPABASE_REALTIME`        |
+| Street tiles under BI point maps (optional) | `PUBLIC_MAP_TILES_URL`             | `VITE_MAP_TILES_URL`            |
+| The credit the tile server requires         | `PUBLIC_MAP_TILES_ATTRIBUTION`     | `VITE_MAP_TILES_ATTRIBUTION`    |
 
 - **How it reaches the browser.** The server renders the `PUBLIC_*` values it
   was started with into every page, as a JSON data block
@@ -1901,7 +1903,7 @@ storage-api v1.89.12 and PostgREST v14.18.
   grantee could not read the dataset's own row, so not its owner's column
   list either. `shared_dataset_columns()` and `shared_datasets()` listed it
   without the masked column, and `shared_dataset_rows()` returned no value of
-  it, with masks of two grants written `SALARY` and ` Salary ` over a column
+  it, with masks of two grants written `SALARY` and `Salary` over a column
   `salary`. A share with no mask and a sample read as before, and a stranger
   and anonymous callers got nothing. Without migration `20261115000000` the
   same run named the masked column to the grantee and returned its values.

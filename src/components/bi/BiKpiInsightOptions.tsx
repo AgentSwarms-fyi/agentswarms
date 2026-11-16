@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { TemplateText, type TemplateToken } from "@/components/templates/TemplateInsert";
+import { BiColourPick } from "@/components/bi/BiColourPick";
 import type { BiInsightKind, BiKpiCompare } from "@/lib/biAgent";
 import { INSIGHT_KINDS, INSIGHT_TOKENS } from "@/lib/biInsights";
 import {
@@ -206,11 +207,22 @@ export function BiInsightOptions({
   grain: string;
   setGrain: (v: string) => void;
 }) {
-  const tokens: TemplateToken[] = INSIGHT_TOKENS[opts.kind].map((t) => ({
-    insert: `{{${t.token}}}`,
-    label: t.token,
-    detail: t.detail,
-  }));
+  // A figures sentence (R501) reads the query's own columns, each by name.
+  const tokens: TemplateToken[] =
+    opts.kind === "figures"
+      ? [
+          ...columns.map((c) => ({
+            insert: `{{${c.toLowerCase()}}}`,
+            label: c,
+            detail: "This column's total",
+          })),
+          { insert: "{{rows}}", label: "rows", detail: "How many rows were added up" },
+        ]
+      : INSIGHT_TOKENS[opts.kind].map((t) => ({
+          insert: `{{${t.token}}}`,
+          label: t.token,
+          detail: t.detail,
+        }));
   const kind = INSIGHT_KINDS.find((k) => k.value === opts.kind);
   return (
     <div className="col-span-2 space-y-2 rounded-md border border-border/60 p-2">
@@ -297,14 +309,17 @@ export function BiInsightOptions({
           aria-label="Measure name in the sentence"
         />
       </div>
-      {opts.kind !== "top" && opts.kind !== "bottom" && opts.kind !== "forecast" && (
-        <Toggle
-          checked={opts.lowerIsBetter}
-          onChange={(v) => setOpts({ ...opts, lowerIsBetter: v })}
-        >
-          Lower is better (a fall shows green)
-        </Toggle>
-      )}
+      {opts.kind !== "top" &&
+        opts.kind !== "bottom" &&
+        opts.kind !== "forecast" &&
+        opts.kind !== "figures" && (
+          <Toggle
+            checked={opts.lowerIsBetter}
+            onChange={(v) => setOpts({ ...opts, lowerIsBetter: v })}
+          >
+            Lower is better (a fall shows green)
+          </Toggle>
+        )}
       <div className="space-y-1">
         <Label className={sectionLabel}>Your own sentence (optional)</Label>
         <TemplateText
@@ -320,6 +335,18 @@ export function BiInsightOptions({
           className="font-sans"
         />
       </div>
+      {/* R501: a sentence that is part of a design — its own figure colour, no icon. */}
+      <div className="space-y-1">
+        <Label className={sectionLabel}>Colour of the figures</Label>
+        <BiColourPick
+          label="Colour of the figures"
+          value={opts.valueColor || undefined}
+          onChange={(c) => setOpts({ ...opts, valueColor: c ?? "" })}
+        />
+      </div>
+      <Toggle checked={opts.hideIcon} onChange={(v) => setOpts({ ...opts, hideIcon: v })}>
+        Leave out the lightbulb
+      </Toggle>
     </div>
   );
 }

@@ -50,39 +50,43 @@ export function BiValueFormat({
           </SelectItem>
         </SelectContent>
       </Select>
-      {(numFormat === "currency" || numFormat === "percent") && (
-        <div className="flex gap-1.5">
-          {numFormat === "currency" && (
-            <Select value={currencyCode} onValueChange={setCurrencyCode}>
-              <SelectTrigger className="h-7 flex-1 text-[11px]" title="Currency (ISO 4217)">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {CURRENCY_CODES.map((c) => (
-                  <SelectItem key={c} value={c} className="text-xs">
-                    {c}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-          <Select value={decimalsSel} onValueChange={setDecimalsSel}>
-            <SelectTrigger className="h-7 flex-1 text-[11px]" title="Fixed decimal places">
+      {/* Decimals for every format (R501): a plain number could only ever be
+          compact (25.2M), never the exact 25,207,936 a sentence wants. */}
+      <div className="flex gap-1.5">
+        {numFormat === "currency" && (
+          <Select value={currencyCode} onValueChange={setCurrencyCode}>
+            <SelectTrigger className="h-7 flex-1 text-[11px]" title="Currency (ISO 4217)">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="auto" className="text-xs">
-                Auto decimals
-              </SelectItem>
-              {["0", "1", "2", "3"].map((d) => (
-                <SelectItem key={d} value={d} className="text-xs">
-                  {d} decimals
+              {CURRENCY_CODES.map((c) => (
+                <SelectItem key={c} value={c} className="text-xs">
+                  {c}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-        </div>
-      )}
+        )}
+        <Select value={decimalsSel} onValueChange={setDecimalsSel}>
+          <SelectTrigger
+            className="h-7 flex-1 text-[11px]"
+            title="Fixed decimal places"
+            aria-label="Decimal places"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="auto" className="text-xs">
+              {numFormat === "auto" ? "Compact — 1.2k, 25.2M" : "Auto decimals"}
+            </SelectItem>
+            {["0", "1", "2", "3"].map((d) => (
+              <SelectItem key={d} value={d} className="text-xs">
+                {numFormat === "auto" && d === "0" ? "Whole — 25,207,936" : `${d} decimals`}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
       <p className="text-[10px] text-muted-foreground">
         Formats follow each viewer's locale (separators & symbols).
       </p>

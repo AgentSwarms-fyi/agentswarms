@@ -687,7 +687,7 @@ GROUP BY region`}</Code>
         leave incremental off.
       </Callout>
 
-      <H2 id="charts">Chart types — all 31, with required fields</H2>
+      <H2 id="charts">Chart types — all 34, with required fields</H2>
       <P>
         Each chart declares which fields it needs. The builder only offers types your selected
         columns can satisfy, so a chart missing a required field cannot be created.
@@ -834,6 +834,11 @@ GROUP BY region`}</Code>
             "A category, a date and a measure",
             "The members that changed most between the latest two periods",
           ],
+          [
+            "Figures in a sentence",
+            "One or more numeric columns",
+            "Your own sentence with each column's total in it: About {{rides}} rides, {{electric}} on electric bikes",
+          ],
         ]}
       />
       <P>
@@ -843,6 +848,14 @@ GROUP BY region`}</Code>
         have stays visible as written, so a typo shows rather than vanishing. Too little history is
         answered with the reason (&ldquo;A forecast needs at least 8 periods; this has 5&rdquo;),
         never with a weaker sentence.
+      </P>
+      <P>
+        <strong>Figures in a sentence</strong> offers every numeric column the query returns as a
+        value, by name, plus <C>{"{{rows}}"}</C>. Each is that column&apos;s total over the rows, so
+        a query that returns one row of totals reads exactly as written. For the whole number rather
+        than 25.2M, set <strong>Value format</strong> to <em>Whole — 25,207,936</em>. A narrative
+        can also set its figures in a colour of your choice (good and bad news keep their green and
+        red) and leave out the lightbulb, when the sentence is part of a design.
       </P>
       <Callout kind="why" title="Narrative or AI insight?">
         <strong>AI insight</strong> writes a paragraph about one snapshot, the way a person would;
@@ -926,6 +939,24 @@ GROUP BY region`}</Code>
             "title (a template)",
             "layout, imageField, iconFields, heading, body, lead, value, max",
             "One card per row from templates: a podium, a fastest lap, a top three, the races left",
+          ],
+          [
+            <C key="i">pointmap</C>,
+            "latField, lngField",
+            "colorField, sizeField, labelField",
+            "Points at a latitude and longitude — stations, stores, sensors — coloured by a category (or a #rrggbb column), sized by a measure, with zoom and pan. Streets appear only if the deployment names a tile server (see below)",
+          ],
+          [
+            <C key="j">journey</C>,
+            "categoryField, valueField",
+            "colorField",
+            "One pin per row along a winding road, in the order the query returns them: the days of a week, the stages of a trip",
+          ],
+          [
+            <C key="k">controls</C>,
+            "params",
+            "intro",
+            "The dashboard's parameters as controls on the canvas — no query of its own. See Parameters",
           ],
           [
             <C key="b">wordcloud</C>,
@@ -1025,7 +1056,7 @@ GROUP BY region`}</Code>
           },
           {
             name: "Background image and font",
-            body: "As before: an image (compressed to 0.9 MB and kept with the dashboard) with fit and darken, and a dashboard font.",
+            body: "As before: an image (compressed to 0.9 MB and kept with the dashboard) with fit and darken, and a dashboard font — now including Handwritten, from the handwriting fonts viewers' systems already have (nothing is downloaded).",
           },
         ]}
       />
@@ -1277,7 +1308,7 @@ ORDER BY r.round, total_points DESC`}</Code>
           [
             <C key="c">decimals</C>,
             "0 – 4",
-            "Fixed fraction digits. Leave undefined for automatic/compact (1.24M).",
+            "Fixed fraction digits. Leave undefined for automatic/compact (1.24M). In the builder, Value format → Whole gives 25,207,936 for a plain number.",
           ],
           [
             <C key="d">columnFormats</C>,
@@ -1385,6 +1416,10 @@ ORDER BY r.round, total_points DESC`}</Code>
             body: "Dashboard-level controls — value pickers, numeric ranges and relative-date presets (last 7 days, this quarter). Save defaults so the dashboard opens on the right view.",
           },
           {
+            name: "Parameters",
+            body: "Values people pick — a radio list, a dropdown, a date — that widget SQL reads as {{name}}, so the query itself changes: see Parameters below.",
+          },
+          {
             name: "Cross-filtering",
             body: 'Click a bar and every other widget filters to it. The fastest way to answer "what\'s driving that spike" without building anything.',
           },
@@ -1402,6 +1437,109 @@ ORDER BY r.round, total_points DESC`}</Code>
           },
         ]}
       />
+
+      <H2 id="parameters">Parameters: values people pick that the query reads</H2>
+      <P>
+        A filter narrows a widget&apos;s rows <em>after</em> its query, by a column the result still
+        has. A map of stations grouped by station has no date column left to narrow, and its rows
+        are already totals — the date has to go <em>into</em> the query, before it groups. A{" "}
+        <strong>parameter</strong> does that. The widget&apos;s SQL names it, and the query runs
+        again when the value changes:
+      </P>
+      <Code lang="sql">{`SELECT s.station_name, s.latitude, s.longitude, s.area,
+  SUM(CASE WHEN {{location}} = 'start' THEN d.started_electric + d.started_classic
+           ELSE d.ended_electric + d.ended_classic END) AS rides
+FROM bikeshare.bike_station_days d
+JOIN bikeshare.bike_stations s ON s.station_id = d.station_id
+WHERE d.ride_date BETWEEN {{date_from}} AND {{date_to}}
+  AND ({{rider}} = 'all' OR d.rider_type = {{rider}})
+GROUP BY s.station_name, s.latitude, s.longitude, s.area`}</Code>
+      <Steps
+        items={[
+          {
+            title: "Add the parameter",
+            body: "Add parameter in the filter bar: its name in SQL, a label, how it is picked (a radio list, a dropdown or a date), its choices as value | label lines, and its default. Shown says whether it sits in the filter bar or only in a Controls visual on the canvas.",
+          },
+          {
+            title: "Write {{name}} in the query",
+            body: "Bare, not quoted: a choice goes in as a quoted literal ('member') and a date as DATE '2026-03-01'. The builder's Run uses the defaults, so the preview is what a viewer first sees.",
+          },
+          {
+            title: "Put the controls where people look",
+            body: "The Controls visual shows the parameters you tick, under a line of your own; or leave them in the filter bar.",
+          },
+        ]}
+      />
+      <FieldList
+        items={[
+          {
+            name: "What a value can be",
+            body: "Only one of the owner's choices, or a real calendar date. Anything else — a value typed into a request, a 30 February — is replaced by the default before the query is built, so a parameter cannot carry SQL.",
+          },
+          {
+            name: "Refreshes and alerts",
+            body: "Run at the defaults: the saved snapshot is what a viewer sees before picking anything, and what the controls say on open.",
+          },
+          {
+            name: "Who can change them",
+            body: "The owner, for every widget: picking a value re-runs the widgets that read it. People a dashboard is shared with change them through Direct-query widgets (Use direct query in the widget's menu), which the server re-runs as the owner with the picked values. A public link or embed shows the saved snapshot. A viewer whose access masks columns gets the defaults: the server cannot tell which columns the SQL compares a parameter with.",
+          },
+        ]}
+      />
+
+      <H3 id="pointmap-tiles">Streets under a point map</H3>
+      <P>
+        By default a point map draws its points on a plain ground and no viewer&apos;s browser asks
+        anyone for anything, like the country maps. To draw streets, name a tile server — a URL
+        template with <C>{"{z}"}</C>, <C>{"{x}"}</C> and <C>{"{y}"}</C> — and the credit it
+        requires:
+      </P>
+      <Code lang="bash">{`PUBLIC_MAP_TILES_URL="https://tiles.example.com/{z}/{x}/{y}.png"
+PUBLIC_MAP_TILES_ATTRIBUTION="© OpenStreetMap contributors"`}</Code>
+      <Callout kind="warn" title="Every tile is a request from the viewer's browser">
+        The tile server learns which part of the map each viewer looks at. Use one whose terms allow
+        your use: the OpenStreetMap Foundation&apos;s own tile servers do not allow use by an
+        application — run your own, or use a tile provider.
+      </Callout>
+
+      <H3 id="bike-share">Walkthrough: bike share rides from the lakehouse</H3>
+      <P>
+        The dashboard rebuilt for R501, on generated rides of a made-up bike-share over New
+        York&apos;s geography — 480 stations, a year of daily totals per station and rider group.
+        Its tables live in the lakehouse and every widget reads them there.
+      </P>
+      <Steps
+        items={[
+          {
+            title: "Make the data",
+            body: "node scripts/buildBikeShareSample.mjs writes bike_stations.csv (480 rows) and bike_station_days.csv (350,400 rows), the same rows every run. Upload both in Data & SQL, then Lakehouse → Import dataset into a schema of your own (bikeshare here).",
+          },
+          {
+            title: "Connect the dashboard to the lakehouse",
+            body: "Add the built-in Lakehouse connection under Integrations → Warehouses if you have none; the builder's Data source then offers it, and widgets query schema.table names.",
+          },
+          {
+            title: "Add the parameters",
+            body: "rider (radio: all | Select all, member | Member, casual | Casual), location (dropdown: start | Start, end | End), date_from and date_to (dates), each shown only in a Controls visual.",
+          },
+          {
+            title: "Build the four visuals",
+            body: "Pins on a road from rides per weekday (ORDER BY the weekday number, Sunday first); a point map of the stations, coloured by area and sized by rides; a figures sentence, set to Whole numbers with green figures; and Controls with all four parameters. Theme: white canvas, a grey Fine grid, the Handwritten font; every widget without a card.",
+          },
+        ]}
+      />
+      <Code lang="sql">{`-- Pins on a road: rides per weekday, Sunday first
+SELECT dayname(ride_date) AS weekday, SUM(started_electric + started_classic) AS rides
+FROM bikeshare.bike_station_days
+WHERE ride_date BETWEEN {{date_from}} AND {{date_to}}
+  AND ({{rider}} = 'all' OR rider_type = {{rider}})
+GROUP BY dayofweek(ride_date), dayname(ride_date)
+ORDER BY dayofweek(ride_date)`}</Code>
+      <P>
+        With every rider and the whole year the sentence reads &ldquo;About 25,207,936 rides were
+        taken on the shared bikes in this period: 16,105,496 of them on electric bikes and 9,102,440
+        on classic bikes&rdquo;; picking Member makes it 19,915,795.
+      </P>
 
       <H2 id="insights">AI insights</H2>
       <P>

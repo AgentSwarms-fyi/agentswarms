@@ -224,8 +224,9 @@ describe("the trust pages describe the software that exists", () => {
     // that drifts once per feature, so parse it out of each claim.
     const { VIZ_TYPES } = await import("@/components/bi/vizTypes");
     const n = VIZ_TYPES.length;
-    // 31 since R500 added cards, start → finish, radial bars and rank over time.
-    expect(n).toBe(31);
+    // 31 since R500 added cards, start → finish, radial bars and rank over time;
+    // 34 since R501 added the point map, pins on a road and controls.
+    expect(n).toBe(34);
     for (const [page, claim] of [
       ["README.md", /multi-page dashboards with (\d+) visual types/],
       ["docs/BUSINESS_INTELLIGENCE.md", /pick from \*\*(\d+) visual types\*\*/],

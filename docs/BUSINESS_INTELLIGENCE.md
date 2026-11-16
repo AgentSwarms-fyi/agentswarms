@@ -13,7 +13,7 @@ and reports. An editable dashboard is called a **BI project**:
 - **Build visuals by hand** — a right-hand builder pane: pick a source (your
   Data & SQL datasets or any connected warehouse), tick one or **more tables
   to join** (a JOIN skeleton is written for you with auto-detected join
-  keys), run the read-only SQL, then pick from **31 visual types** in an
+  keys), run the read-only SQL, then pick from **34 visual types** in an
   icon picker: column, bar, **stacked column**, **stacked bar**, **bar
   race**, line, area, **combo (bars + line, dual axis)**, **scatter**,
   pie/donut, **nightingale**, **radar**, **funnel**, **sankey**,
@@ -1024,6 +1024,96 @@ and category first. Before, a standings table offered "the top 3 given names
 by position" with percentages of summed positions. A query that returns a
 running total still gets a sum of that total, because nothing marks a column
 as cumulative. Write the narrative from the per-round figures instead.
+
+## Parameters, point maps and pins on a road
+
+R501 adds what a dashboard over detailed data needs when the viewer should
+steer it: a value people pick that the query itself reads.
+
+**Parameters.** A filter narrows a widget's rows after its query, by a column
+the result still has. A station map grouped by station has no date left to
+narrow, so the date has to go into the query before it groups.
+
+- **Define it.** Add parameter (filter bar) takes:
+  - a name for SQL;
+  - a label;
+  - how it is picked: a radio list, a dropdown or a date;
+  - the choices, as `value | label` lines;
+  - a default;
+  - whether it shows in the filter bar or only in a **Controls** visual.
+- **Use it.** The widget's SQL says `{{name}}`, bare:
+
+  ```sql
+  WHERE ride_date BETWEEN {{date_from}} AND {{date_to}}
+    AND ({{rider}} = 'all' OR rider_type = {{rider}})
+  ```
+
+- **Values are literals.** A choice goes in as a quoted literal and a date as
+  `DATE '2026-03-01'`. A value that is not one of the owner's choices, or not a
+  real date, is replaced by the default before the query is built, so a
+  parameter cannot carry SQL.
+- **Defaults run everywhere else.** Refreshes, schedules, alerts and the
+  builder's Run use the defaults.
+- **Who sees changes.**
+  - The owner's picks re-run every widget that reads the parameter.
+  - People the dashboard is shared with see their picks re-run through
+    Direct-query widgets, which the server runs as the owner with the picked
+    values.
+  - A viewer whose access masks columns gets the defaults, because the server
+    cannot tell which columns the SQL compares a parameter with.
+  - A public link or embed shows the saved snapshot.
+- **Where they live.** Parameters are saved in the dashboard's filter list, so
+  they travel with copies, versions and promotion. Releases before R501 ignore
+  them.
+
+**New visuals (34 in all):**
+
+- **Point map** (`pointmap`): rows at `latField` and `lngField`.
+  - Coloured by a category, or by a `#rrggbb` column, and sized by a measure.
+  - Name on hover, zoom and pan: double-click or Ctrl + scroll to zoom, drag to
+    move, and a button to fit every point.
+  - Streets are drawn only when the deployment names a tile server with
+    `PUBLIC_MAP_TILES_URL` (a `{z}/{x}/{y}` template) and
+    `PUBLIC_MAP_TILES_ATTRIBUTION`.
+  - Otherwise the browser asks no third party for anything. Each tile request
+    tells the tile server which area a viewer looks at, and the OpenStreetMap
+    Foundation's own servers do not allow use by an application.
+- **Pins on a road** (`journey`): one pin per row along a winding road, in the
+  query's row order, each pin holding its value.
+- **Controls** (`controls`): the dashboard's parameters on the canvas, under a
+  line of Markdown. It runs no query.
+
+**Also new:**
+
+- **Figures in a sentence** is a narrative kind that offers every numeric
+  column's total by name (`{{rides}}`, `{{electric}}`), plus `{{rows}}`.
+- Any narrative can set its figures in a colour of its own and leave out the
+  lightbulb.
+- **Value format → Whole** gives `25,207,936` for a plain number. Before, a
+  plain number could only be compact (`25.2M`).
+- **Handwritten** joins the dashboard fonts, using handwriting fonts viewers'
+  systems already have.
+
+**The bike-share walkthrough.** It is built on the lakehouse:
+
+1. `node scripts/buildBikeShareSample.mjs` writes two CSVs: `bike_stations`
+   (480 rows) and `bike_station_days` (350,400 rows). They hold generated rides
+   of a made-up system over New York's geography, and every run writes the same
+   rows.
+2. Upload both in Data & SQL, then Lakehouse → Import dataset into a schema of
+   your own (`bikeshare` here).
+3. Build the dashboard on the built-in Lakehouse connection:
+   - pins for rides per weekday (`ORDER BY dayofweek(ride_date)`, Sunday first);
+   - a point map of stations coloured by area and sized by rides;
+   - a figures sentence;
+   - Controls for `rider`, `location`, `date_from` and `date_to`.
+
+With every rider and the whole year, the sentence reads "About 25,207,936 rides
+… 16,105,496 of them on electric bikes and 9,102,440 on classic bikes".
+Picking Member makes it 19,915,795.
+
+**Also fixed:** a Direct-query widget on any page but the first answered
+"Widget not found". The server looked only at the first page's list of widgets.
 
 ## Building a visual from fields
 

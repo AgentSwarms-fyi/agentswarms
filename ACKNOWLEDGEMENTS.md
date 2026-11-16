@@ -136,7 +136,10 @@ shipments and carrier scorecard, the HR roster and department rollup, and the
 messy-orders and ETL sample files under `public/etl-samples/` — is synthetic:
 the supply-chain and HR tables come from `scripts/buildBiSamples.ts`, the ETL
 samples from their pipeline templates, and the rest were written for this
-repository. None contains third-party data.
+repository. None contains third-party data. The bike-share tables of the
+lakehouse walkthrough are generated too, by `scripts/buildBikeShareSample.mjs`
+and not shipped: a made-up system over rough outlines of New York, with no
+trip records and no operator's name or brand.
 
 Sample dashboard backgrounds use public-domain NASA imagery
 ([NASA Image and Video Library](https://images.nasa.gov/): Black Marble city

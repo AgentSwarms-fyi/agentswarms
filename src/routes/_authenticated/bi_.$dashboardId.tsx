@@ -147,6 +147,18 @@ import {
   type DatasetMeta,
   type QueryResult,
 } from "@/lib/sqlEngine";
+import { BiParamContext } from "@/components/bi/biParamContext";
+import {
+  atDefaults,
+  defaultParamValues,
+  joinFiltersColumn,
+  parseParams,
+  resolveParamValues,
+  substituteParams,
+  usesParams,
+  type BiParamConfig,
+  type BiParamValues,
+} from "@/lib/biParams";
 import { listWarehouseConnections } from "@/utils/warehouse.functions";
 import { semanticListModels, semanticRunQuery } from "@/utils/semantic.functions";
 import type { SemanticQuery } from "@/lib/semanticLayer";
@@ -316,7 +328,8 @@ function BiProjectPage() {
   // The save state cannot say this: the filters' save sets "saved" while a
   // pages save is still waiting on its timer.
   const owedPagesRef = useRef<BiPage[] | null>(null);
-  const owedFiltersRef = useRef<BiFilterConfig[] | null>(null);
+  // The whole saved list: filters, then parameters (R501).
+  const owedFiltersRef = useRef<unknown[] | null>(null);
   const [owed, setOwed] = useState(false);
   const syncOwed = useCallback(() => {
     setOwed(owedPagesRef.current !== null || owedFiltersRef.current !== null);
@@ -357,6 +370,18 @@ function BiProjectPage() {
   // Dashboard filters: definitions persist, selections are runtime-only.
   const [filterConfigs, setFilterConfigs] = useState<BiFilterConfig[]>([]);
   const [filterState, setFilterState] = useState<BiFilterState>({});
+  // Parameters (R501): definitions persist with the filters; picked values
+  // are runtime-only. Widgets whose SQL reads a parameter re-run when it
+  // changes; their re-run rows overlay the saved snapshot, which stays at the
+  // defaults (what every refresh writes and every viewer first sees).
+  const [paramConfigs, setParamConfigs] = useState<BiParamConfig[]>([]);
+  const paramConfigsRef = useRef<BiParamConfig[]>([]);
+  paramConfigsRef.current = paramConfigs;
+  const [paramValues, setParamValues] = useState<BiParamValues>({});
+  const [paramRows, setParamRows] = useState<
+    Map<string, { columns: string[]; rows: Record<string, unknown>[]; truncated: boolean }>
+  >(new Map());
+  const [paramBusy, setParamBusy] = useState(false);
   // Live results for Direct-query widgets, keyed by widget id.
   const [directRows, setDirectRows] = useState<
     Map<
@@ -441,7 +466,7 @@ function BiProjectPage() {
           pages: pages.map((p) =>
             p.id === activePageId ? { ...p, widgets, layout } : p,
           ) as unknown as Json,
-          filters: filterConfigs as unknown as Json,
+          filters: joinFiltersColumn(filterConfigs, paramConfigs) as unknown as Json,
         }
       : null;
   const liveRowRef = useRef<BiDashboardRow | null>(null);
@@ -518,6 +543,11 @@ function BiProjectPage() {
         const cfgs = parseFilters(r.filters);
         setFilterConfigs(cfgs);
         setFilterState(defaultFilterState(cfgs));
+        const ps = parseParams(r.filters);
+        setParamConfigs(ps);
+        paramConfigsRef.current = ps;
+        setParamValues(defaultParamValues(ps));
+        setParamRows(new Map());
         originalRef.current = r;
       })
       .catch((e) => {
@@ -621,7 +651,10 @@ function BiProjectPage() {
   );
 
   const runSql = useCallback(
-    async (source: BiWidgetSource, sql: string): Promise<QueryResult> => {
+    async (source: BiWidgetSource, rawSql: string): Promise<QueryResult> => {
+      // {{parameters}} run at their defaults (R501): what a refresh stores.
+      const ps = paramConfigsRef.current;
+      const sql = substituteParams(rawSql, ps, defaultParamValues(ps));
       if (source.kind === "warehouse") {
         if (!token) throw new Error("Not signed in");
         return runWarehouseQuery(token, source.connection_id, sql);
@@ -707,6 +740,7 @@ function BiProjectPage() {
       whTables,
       ensureSchema,
       runSql,
+      params: paramConfigs,
       listMetricModels,
       runMetric,
     }),
@@ -723,6 +757,7 @@ function BiProjectPage() {
       whTables,
       ensureSchema,
       runSql,
+      paramConfigs,
       listMetricModels,
       runMetric,
     ],
@@ -890,9 +925,10 @@ function BiProjectPage() {
     [readOnly, captureActivePage, savePages],
   );
 
-  function persistFilterConfigs(next: BiFilterConfig[]) {
-    setFilterConfigs(next);
+  function persistFilterColumn(nextFilters: BiFilterConfig[], nextParams: BiParamConfig[]) {
     if (readOnly || conflictRef.current) return;
+    // The whole saved list: the filters, then the parameters (R501).
+    const next = joinFiltersColumn(nextFilters, nextParams);
     owedFiltersRef.current = next;
     syncOwed();
     setSaveState("saving");
@@ -903,6 +939,19 @@ function BiProjectPage() {
         setSaveState("saved");
       })
       .catch(onSaveError);
+  }
+
+  function persistFilterConfigs(next: BiFilterConfig[]) {
+    setFilterConfigs(next);
+    persistFilterColumn(next, paramConfigsRef.current);
+  }
+
+  /** Parameters changed in the filter bar (R501): save, and keep valid picks. */
+  function persistParams(next: BiParamConfig[]) {
+    setParamConfigs(next);
+    paramConfigsRef.current = next;
+    setParamValues((cur) => resolveParamValues(next, cur));
+    persistFilterColumn(filterConfigs, next);
   }
 
   async function saveName() {
@@ -1256,7 +1305,12 @@ function BiProjectPage() {
     .filter((w) => w.query_mode === "direct" && w.source?.kind === "warehouse" && w.sql)
     .map((w) => w.id);
   const activeDirectFilters = toDirectFilters(filterConfigs, filterState);
-  const directSig = JSON.stringify([directWidgetIds, activeDirectFilters, crossFilter]);
+  const directSig = JSON.stringify([
+    directWidgetIds,
+    activeDirectFilters,
+    crossFilter,
+    paramValues,
+  ]);
   useEffect(() => {
     if (!token || directWidgetIds.length === 0) return;
     let cancelled = false;
@@ -1279,6 +1333,8 @@ function BiProjectPage() {
             dashboardId,
             widgetId: id,
             filters: perWidget,
+            // The server checks each value against the saved definitions.
+            params: paramValues,
           });
           if (!cancelled) {
             setDirectRows((prev) =>
@@ -1299,6 +1355,64 @@ function BiProjectPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [directSig, token, dashboardId]);
+
+  // Import widgets that read a parameter (R501): re-run with the picked values
+  // and shown over the saved snapshot; at the defaults the snapshot is the
+  // answer. Only the owner can run the query this way — a viewer's picks reach
+  // the data through Direct-query widgets, which the server re-runs as the
+  // owner (the effect above).
+  const paramWidgetIds = widgets
+    .filter(
+      (w) =>
+        w.kind === "chart" && w.sql && w.query_mode !== "direct" && usesParams(w.sql, paramConfigs),
+    )
+    .map((w) => w.id);
+  const paramSig = JSON.stringify([paramWidgetIds, paramValues]);
+  useEffect(() => {
+    if (paramWidgetIds.length === 0) return;
+    let cancelled = false;
+    const targets = widgets.filter((w) => paramWidgetIds.includes(w.id));
+    const atDefault = targets
+      .filter((w) => atDefaults(w.sql, paramConfigs, paramValues))
+      .map((w) => w.id);
+    if (atDefault.length > 0) {
+      setParamRows((prev) => {
+        const next = new Map(prev);
+        for (const id of atDefault) next.delete(id);
+        return next;
+      });
+    }
+    const toRun = targets.filter((w) => !atDefault.includes(w.id));
+    if (toRun.length === 0 || readOnly) return;
+    setParamBusy(true);
+    void Promise.all(
+      toRun.map(async (w) => {
+        try {
+          const res = await runSql(
+            w.source ?? { kind: "local" },
+            substituteParams(w.sql!, paramConfigs, paramValues),
+          );
+          if (!cancelled) {
+            setParamRows((prev) =>
+              new Map(prev).set(w.id, {
+                columns: res.columns,
+                rows: snapshotRows(res.rows),
+                truncated: res.capped || res.rows.length > widgetRowCap(),
+              }),
+            );
+          }
+        } catch (e) {
+          if (!cancelled) toast.error(`"${w.title}": ${(e as Error).message}`);
+        }
+      }),
+    ).finally(() => {
+      if (!cancelled) setParamBusy(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paramSig]);
 
   // ── Render ──────────────────────────────────────────────────────────
   if (row === null) {
@@ -1369,11 +1483,16 @@ function BiProjectPage() {
         }
         return [w.id, w] as const;
       }
+      // Re-run for picked parameter values (R501), over the saved snapshot.
+      const picked = paramRows.get(w.id);
+      const base = picked
+        ? { ...w, columns: picked.columns, rows: picked.rows, truncated: picked.truncated }
+        : w;
       return [
         w.id,
-        w.kind === "chart" && (w.rows?.length ?? 0) > 0
-          ? { ...w, rows: filterWidgetRows(w, filterConfigs, filterState, crossFilter) }
-          : w,
+        base.kind === "chart" && (base.rows?.length ?? 0) > 0
+          ? { ...base, rows: filterWidgetRows(base, filterConfigs, filterState, crossFilter) }
+          : base,
       ] as const;
     }),
   );
@@ -1383,64 +1502,73 @@ function BiProjectPage() {
       prev && prev.column === column && prev.value === value ? null : { widgetId, column, value },
     );
 
-  return (
-    // Bounded to the viewport (same pattern as /data-sql) so the canvas and
-    // the builder pane scroll independently instead of the whole page.
-    <div className="flex h-canvas flex-col overflow-hidden">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-border bg-background px-3 py-2">
-        <Button
-          asChild
-          size="sm"
-          variant="ghost"
-          className="h-8 w-8 p-0 text-muted-foreground"
-          title="Back to BI Workspace"
-        >
-          <Link to="/bi">
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-        </Button>
-        <div className="flex min-w-0 items-center gap-2">
-          <Link
-            to="/bi"
-            className="hidden shrink-0 text-xs font-medium text-muted-foreground hover:text-foreground sm:block"
-          >
-            BI Workspace
-          </Link>
-          <span className="hidden text-xs text-muted-foreground/50 sm:block">/</span>
-          {readOnly ? (
-            <h1 className="min-w-0 truncate text-[15px] font-semibold">{row.name}</h1>
-          ) : (
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onBlur={() => void saveName()}
-              onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-              className="h-8 w-56 rounded-md border-transparent bg-transparent px-2 text-[15px] font-semibold shadow-none hover:bg-muted/60 focus:bg-background focus-visible:border-border"
-            />
-          )}
-        </div>
-        {row.published && (
-          <Badge className="gap-1 border-0 bg-emerald-500/15 text-[10px] font-medium text-emerald-600 hover:bg-emerald-500/15 dark:text-emerald-400">
-            <Globe className="h-2.5 w-2.5" /> Published
-          </Badge>
-        )}
-        {readOnly && (
-          <Badge variant="outline" className="text-[10px] font-medium">
-            Read-only
-          </Badge>
-        )}
-        {readOnly && rowFilters && (
-          <Badge
-            className="gap-1 border-0 bg-sky-500/15 text-[10px] font-medium text-sky-600 hover:bg-sky-500/15 dark:text-sky-400"
-            title={`Your administrator limited this view to: ${rowFilters
-              .map((f) => `${f.column} ∈ ${f.values.join(", ")}`)
-              .join(" · ")}`}
-          >
-            <ShieldCheck className="h-2.5 w-2.5" /> Filtered view
-          </Badge>
-        )}
+  // What Controls visuals read and set (R501).
+  const paramCtx = {
+    params: paramConfigs,
+    values: paramValues,
+    setValue: (name: string, v: string) => setParamValues((cur) => ({ ...cur, [name]: v })),
+    busy: paramBusy,
+  };
 
-        {/*
+  return (
+    <BiParamContext.Provider value={paramCtx}>
+      {/* Bounded to the viewport (same pattern as /data-sql) so the canvas and
+        the builder pane scroll independently instead of the whole page. */}
+      <div className="flex h-canvas flex-col overflow-hidden">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-border bg-background px-3 py-2">
+          <Button
+            asChild
+            size="sm"
+            variant="ghost"
+            className="h-8 w-8 p-0 text-muted-foreground"
+            title="Back to BI Workspace"
+          >
+            <Link to="/bi">
+              <ArrowLeft className="h-4 w-4" />
+            </Link>
+          </Button>
+          <div className="flex min-w-0 items-center gap-2">
+            <Link
+              to="/bi"
+              className="hidden shrink-0 text-xs font-medium text-muted-foreground hover:text-foreground sm:block"
+            >
+              BI Workspace
+            </Link>
+            <span className="hidden text-xs text-muted-foreground/50 sm:block">/</span>
+            {readOnly ? (
+              <h1 className="min-w-0 truncate text-[15px] font-semibold">{row.name}</h1>
+            ) : (
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onBlur={() => void saveName()}
+                onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                className="h-8 w-56 rounded-md border-transparent bg-transparent px-2 text-[15px] font-semibold shadow-none hover:bg-muted/60 focus:bg-background focus-visible:border-border"
+              />
+            )}
+          </div>
+          {row.published && (
+            <Badge className="gap-1 border-0 bg-emerald-500/15 text-[10px] font-medium text-emerald-600 hover:bg-emerald-500/15 dark:text-emerald-400">
+              <Globe className="h-2.5 w-2.5" /> Published
+            </Badge>
+          )}
+          {readOnly && (
+            <Badge variant="outline" className="text-[10px] font-medium">
+              Read-only
+            </Badge>
+          )}
+          {readOnly && rowFilters && (
+            <Badge
+              className="gap-1 border-0 bg-sky-500/15 text-[10px] font-medium text-sky-600 hover:bg-sky-500/15 dark:text-sky-400"
+              title={`Your administrator limited this view to: ${rowFilters
+                .map((f) => `${f.column} ∈ ${f.values.join(", ")}`)
+                .join(" · ")}`}
+            >
+              <ShieldCheck className="h-2.5 w-2.5" /> Filtered view
+            </Badge>
+          )}
+
+          {/*
           WRAPS. The row around this already wraps, but that never helped: this
           group was one atomic flex item, so twelve buttons formed a single
           unbreakable line that simply overflowed the viewport. Measured at
@@ -1448,573 +1576,579 @@ function BiProjectPage() {
           Export PDF and Publish & share — which meant a dashboard could not be
           published at all on a laptop, with nothing on screen saying why.
         */}
-        <div className="ml-auto flex flex-wrap items-center justify-end gap-x-0.5 gap-y-1">
-          {!readOnly && (
-            <span
-              className="mr-2 flex items-center gap-1.5 text-[11px] text-muted-foreground"
-              title="Changes save automatically"
-            >
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-x-0.5 gap-y-1">
+            {!readOnly && (
               <span
-                className={`h-1.5 w-1.5 rounded-full ${
-                  saveState === "saving" || (saveState === "saved" && owed)
-                    ? "animate-pulse bg-amber-500"
-                    : saveState === "error" || saveState === "conflict"
-                      ? "bg-destructive"
-                      : "bg-emerald-500"
-                }`}
-              />
-              {saveState === "saving" || (saveState === "saved" && owed)
-                ? "Saving"
-                : saveState === "conflict"
-                  ? "Changed elsewhere — reload"
-                  : saveState === "error"
-                    ? "Save failed"
-                    : "Saved"}
-            </span>
-          )}
-          {!readOnly && (
-            <>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 gap-1.5 px-2.5 text-xs"
-                onClick={() => {
-                  setBuilderInitial(null);
-                  setPane("build");
-                }}
+                className="mr-2 flex items-center gap-1.5 text-[11px] text-muted-foreground"
+                title="Changes save automatically"
               >
-                <Plus className="h-3.5 w-3.5" /> Chart
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 gap-1.5 px-2.5 text-xs"
-                onClick={() => setPane("ai")}
-              >
-                <Sparkles className="h-3.5 w-3.5 text-primary" /> AI analyst
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 gap-1.5 px-2.5 text-xs"
-                onClick={() => {
-                  setTextInitial(null);
-                  setTextOpen(true);
-                }}
-              >
-                <Type className="h-3.5 w-3.5" /> Text
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 gap-1.5 px-2.5 text-xs"
-                onClick={() => {
-                  setImageInitial(null);
-                  setImageOpen(true);
-                }}
-              >
-                <ImageIcon className="h-3.5 w-3.5" /> Image
-              </Button>
-              <div className="mx-1.5 h-5 w-px bg-border" />
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 gap-1.5 px-2.5 text-xs"
-                onClick={() => void refreshAll()}
-                disabled={refreshing}
-              >
-                {refreshing ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <RefreshCw className="h-3.5 w-3.5" />
-                )}
-                Refresh
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 gap-1.5 px-2.5 text-xs"
-                onClick={() => setScheduleOpen(true)}
-                title="Scheduled refresh & data alerts"
-              >
-                <CalendarClock className="h-3.5 w-3.5" /> Schedule
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 gap-1.5 px-2.5 text-xs"
-                onClick={() => setSweepOpen(true)}
-                title="Scan the snapshots for trends, outliers and concentration — computed, no model call"
-              >
-                <Radar className="h-3.5 w-3.5 text-primary" /> Scan
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 gap-1.5 px-2.5 text-xs"
-                onClick={() => setThemeOpen(true)}
-                title="Background image & font"
-              >
-                <Palette className="h-3.5 w-3.5" /> Theme
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 gap-1.5 px-2.5 text-xs"
-                onClick={() => setHistoryOpen(true)}
-                title="Version history — snapshots & restore"
-              >
-                <History className="h-3.5 w-3.5" /> History
-              </Button>
-            </>
-          )}
-          {/* One Export control with two destinations. Two side-by-side
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    saveState === "saving" || (saveState === "saved" && owed)
+                      ? "animate-pulse bg-amber-500"
+                      : saveState === "error" || saveState === "conflict"
+                        ? "bg-destructive"
+                        : "bg-emerald-500"
+                  }`}
+                />
+                {saveState === "saving" || (saveState === "saved" && owed)
+                  ? "Saving"
+                  : saveState === "conflict"
+                    ? "Changed elsewhere — reload"
+                    : saveState === "error"
+                      ? "Save failed"
+                      : "Saved"}
+              </span>
+            )}
+            {!readOnly && (
+              <>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 gap-1.5 px-2.5 text-xs"
+                  onClick={() => {
+                    setBuilderInitial(null);
+                    setPane("build");
+                  }}
+                >
+                  <Plus className="h-3.5 w-3.5" /> Chart
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 gap-1.5 px-2.5 text-xs"
+                  onClick={() => setPane("ai")}
+                >
+                  <Sparkles className="h-3.5 w-3.5 text-primary" /> AI analyst
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 gap-1.5 px-2.5 text-xs"
+                  onClick={() => {
+                    setTextInitial(null);
+                    setTextOpen(true);
+                  }}
+                >
+                  <Type className="h-3.5 w-3.5" /> Text
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 gap-1.5 px-2.5 text-xs"
+                  onClick={() => {
+                    setImageInitial(null);
+                    setImageOpen(true);
+                  }}
+                >
+                  <ImageIcon className="h-3.5 w-3.5" /> Image
+                </Button>
+                <div className="mx-1.5 h-5 w-px bg-border" />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 gap-1.5 px-2.5 text-xs"
+                  onClick={() => void refreshAll()}
+                  disabled={refreshing}
+                >
+                  {refreshing ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-3.5 w-3.5" />
+                  )}
+                  Refresh
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 gap-1.5 px-2.5 text-xs"
+                  onClick={() => setScheduleOpen(true)}
+                  title="Scheduled refresh & data alerts"
+                >
+                  <CalendarClock className="h-3.5 w-3.5" /> Schedule
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 gap-1.5 px-2.5 text-xs"
+                  onClick={() => setSweepOpen(true)}
+                  title="Scan the snapshots for trends, outliers and concentration — computed, no model call"
+                >
+                  <Radar className="h-3.5 w-3.5 text-primary" /> Scan
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 gap-1.5 px-2.5 text-xs"
+                  onClick={() => setThemeOpen(true)}
+                  title="Background image & font"
+                >
+                  <Palette className="h-3.5 w-3.5" /> Theme
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 gap-1.5 px-2.5 text-xs"
+                  onClick={() => setHistoryOpen(true)}
+                  title="Version history — snapshots & restore"
+                >
+                  <History className="h-3.5 w-3.5" /> History
+                </Button>
+              </>
+            )}
+            {/* One Export control with two destinations. Two side-by-side
               buttons would cost a toolbar slot on a row that already overflowed
               once (see the flex-wrap fix), and the choice belongs together:
               they are the same intent with different output. */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 gap-1.5 px-2.5 text-xs"
-                disabled={exporting || layout.length === 0}
-                title="Export this dashboard"
-              >
-                {exporting ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <FileDown className="h-3.5 w-3.5" />
-                )}
-                Export
-                <ChevronDown className="h-3 w-3 opacity-60" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuItem onClick={() => void handleExport()}>
-                <FileDown className="mr-2 h-3.5 w-3.5" />
-                <span className="flex-1">Export PDF</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setDeckOpen(true)}>
-                <FileType2 className="mr-2 h-3.5 w-3.5" />
-                <span className="flex-1">Export to PowerPoint</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          {!readOnly && (
-            <>
-              <div className="mx-1.5 h-5 w-px bg-border" />
-              {/* The two controls that act on the WHOLE dashboard, kept
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 gap-1.5 px-2.5 text-xs"
+                  disabled={exporting || layout.length === 0}
+                  title="Export this dashboard"
+                >
+                  {exporting ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <FileDown className="h-3.5 w-3.5" />
+                  )}
+                  Export
+                  <ChevronDown className="h-3 w-3 opacity-60" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuItem onClick={() => void handleExport()}>
+                  <FileDown className="mr-2 h-3.5 w-3.5" />
+                  <span className="flex-1">Export PDF</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setDeckOpen(true)}>
+                  <FileType2 className="mr-2 h-3.5 w-3.5" />
+                  <span className="flex-1">Export to PowerPoint</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {!readOnly && (
+              <>
+                <div className="mx-1.5 h-5 w-px bg-border" />
+                {/* The two controls that act on the WHOLE dashboard, kept
                   together and away from the per-widget actions above. Sitting
                   in that row, "Generate" read as one more way to add a single
                   chart; here it reads as what it is — the counterpart to
                   publishing the finished thing. */}
-              <Button
-                size="sm"
-                className="h-8 gap-1.5 px-3 text-xs"
-                onClick={() => setGenerateOpen(true)}
-                title="Generate a whole dashboard from a goal with AI"
-              >
-                <Wand2 className="h-3.5 w-3.5" /> Generate Entire Dashboard
-              </Button>
-              <Button
-                size="sm"
-                className="h-8 gap-1.5 px-3 text-xs"
-                onClick={() => setPublishOpen(true)}
-              >
-                <Share2 className="h-3.5 w-3.5" /> Publish &amp; share
-              </Button>
-            </>
-          )}
-        </div>
-      </div>
-
-      <div className="flex min-h-0 flex-1">
-        <div
-          className="min-w-0 flex-1 overflow-y-auto bg-muted/30 p-5"
-          style={{
-            backgroundImage: "radial-gradient(circle, var(--border) 1px, transparent 1px)",
-            backgroundSize: "22px 22px",
-          }}
-        >
-          <BiPageTabs
-            pages={pages}
-            activePageId={activePageId}
-            readOnly={readOnly}
-            onSwitch={switchPage}
-            onAdd={addPage}
-            onRename={renamePage}
-            onDelete={deletePage}
-          />
-          <BiFilterBar
-            configs={filterConfigs}
-            widgets={securedWidgets}
-            state={filterState}
-            onStateChange={setFilterState}
-            cross={crossFilter}
-            onClearCross={() => setCrossFilter(null)}
-            editable={!readOnly}
-            onConfigsChange={persistFilterConfigs}
-          />
-          <div
-            ref={gridWrapRef}
-            className={cn("rounded-xl", dashSurfaceClass(dashTheme))}
-            style={dashSurfaceStyle(dashTheme)}
-          >
-            <DashboardGrid
-              layout={layout}
-              editable={!readOnly}
-              onLayoutChange={(next) => persist(widgets, next)}
-              emptyState={
-                <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border/70 py-20 text-center">
-                  <BarChart3 className="h-8 w-8 text-muted-foreground" />
-                  <p className="text-sm font-medium">This dashboard is empty</p>
-                  {!readOnly && (
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        className="gap-1.5"
-                        onClick={() => {
-                          setBuilderInitial(null);
-                          setPane("build");
-                        }}
-                      >
-                        <Plus className="h-3.5 w-3.5" /> Add a chart
-                      </Button>
-                      <Button size="sm" className="gap-1.5" onClick={() => setPane("ai")}>
-                        <Sparkles className="h-3.5 w-3.5" /> Generate with AI
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              }
-              renderItem={(id) => {
-                const w = widgetById.get(id);
-                if (!w) return null;
-                return (
-                  <BiWidgetCard
-                    widget={w}
-                    onElementClick={handleElementClick(id)}
-                    onDrillChange={(path) =>
-                      setDrillPaths((prev) =>
-                        // Same path → same object, so an unchanged drill does
-                        // not re-render every widget on the page.
-                        (prev[id]?.length ?? 0) === path.length &&
-                        (prev[id] ?? []).every(
-                          (e, i) => e.field === path[i].field && e.value === path[i].value,
-                        )
-                          ? prev
-                          : { ...prev, [id]: path },
-                      )
-                    }
-                    selectedValue={
-                      crossFilter && crossFilter.widgetId === id ? crossFilter.value : null
-                    }
-                    actions={
-                      readOnly ? undefined : (
-                        <div className="flex items-center gap-1">
-                          {w.source?.kind === "semantic" && (
-                            <Badge
-                              variant="secondary"
-                              className="h-5 px-1.5 text-[10px]"
-                              title="Backed by a governed semantic metric — edit it in the Semantic Layer"
-                            >
-                              Metric
-                            </Badge>
-                          )}
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-6 w-6 shrink-0 p-0"
-                                aria-label={`Actions for ${w.title}`}
-                              >
-                                <MoreVertical className="h-3.5 w-3.5" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              {w.source?.kind === "semantic" ? (
-                                <DropdownMenuItem disabled>
-                                  <Pencil className="mr-2 h-3.5 w-3.5" /> Edit in Semantic Layer
-                                </DropdownMenuItem>
-                              ) : (
-                                <DropdownMenuItem onClick={() => editWidget(w)}>
-                                  <Pencil className="mr-2 h-3.5 w-3.5" /> Edit
-                                </DropdownMenuItem>
-                              )}
-                              {w.source?.kind === "semantic" &&
-                                w.source.params &&
-                                Object.keys(w.source.params).length > 0 && (
-                                  <DropdownMenuItem onClick={() => openWidgetParams(w)}>
-                                    <SlidersHorizontal className="mr-2 h-3.5 w-3.5" />
-                                    Parameters…
-                                  </DropdownMenuItem>
-                                )}
-                              {w.source?.kind === "warehouse" && (
-                                <DropdownMenuItem
-                                  onClick={() =>
-                                    setWidgetQueryMode(
-                                      w,
-                                      w.query_mode === "direct" ? "import" : "direct",
-                                    )
-                                  }
-                                >
-                                  <SearchCode className="mr-2 h-3.5 w-3.5" />
-                                  {w.query_mode === "direct"
-                                    ? "Use in-memory engine (snapshot)"
-                                    : "Use direct query (live)"}
-                                </DropdownMenuItem>
-                              )}
-                              {isAggregatableChart(w.chart) && (
-                                <DropdownMenuItem onClick={() => toggleAggPushdown(w)}>
-                                  <Sigma className="mr-2 h-3.5 w-3.5" />
-                                  {w.agg_pushdown
-                                    ? "Aggregate in the browser (snapshot)"
-                                    : "Aggregate in SQL (complete totals)"}
-                                </DropdownMenuItem>
-                              )}
-                              {w.kind === "chart" && (
-                                <DropdownMenuItem
-                                  disabled={insightBusyId !== null}
-                                  onClick={() => void addInsight(w)}
-                                >
-                                  {insightBusyId === w.id ? (
-                                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                                  ) : (
-                                    <Sparkles className="mr-2 h-3.5 w-3.5 text-primary" />
-                                  )}
-                                  AI insight
-                                </DropdownMenuItem>
-                              )}
-                              {w.kind === "chart" && extractBaseTable(w.sql) && (
-                                <DropdownMenuItem onClick={() => setExploreWidget(w)}>
-                                  <SearchCode className="mr-2 h-3.5 w-3.5" /> Explore data
-                                </DropdownMenuItem>
-                              )}
-                              {w.kind === "chart" && (w.rows?.length ?? 0) > 0 && (
-                                <DropdownMenuSub>
-                                  <DropdownMenuSubTrigger>
-                                    <FileDown className="mr-2 h-3.5 w-3.5" /> Export data
-                                  </DropdownMenuSubTrigger>
-                                  <DropdownMenuPortal>
-                                    <DropdownMenuSubContent>
-                                      <DropdownMenuItem
-                                        onClick={() =>
-                                          downloadCsv(
-                                            w.columns ?? [],
-                                            w.rows ?? [],
-                                            w.title || "widget",
-                                          )
-                                        }
-                                      >
-                                        CSV (.csv)
-                                      </DropdownMenuItem>
-                                      <DropdownMenuItem
-                                        onClick={() =>
-                                          void downloadXlsx(
-                                            w.columns ?? [],
-                                            w.rows ?? [],
-                                            w.title || "widget",
-                                            {
-                                              sheet: w.title || "Data",
-                                              columnFormats: w.chart?.columnFormats,
-                                            },
-                                          )
-                                        }
-                                      >
-                                        Excel (.xlsx)
-                                      </DropdownMenuItem>
-                                    </DropdownMenuSubContent>
-                                  </DropdownMenuPortal>
-                                </DropdownMenuSub>
-                              )}
-                              <DropdownMenuItem onClick={() => duplicateWidget(w.id)}>
-                                <Copy className="mr-2 h-3.5 w-3.5" /> Duplicate
-                              </DropdownMenuItem>
-                              <BiWidgetAppearance
-                                theme={w.theme}
-                                onChange={(patch) => setWidgetTheme(w.id, patch)}
-                              />
-                              {w.kind === "chart" && (w.rows?.length ?? 0) > 0 && (
-                                <DropdownMenuItem onClick={() => downloadWidgetCsv(w)}>
-                                  <FileDown className="mr-2 h-3.5 w-3.5" /> Download CSV
-                                </DropdownMenuItem>
-                              )}
-                              <DropdownMenuItem onClick={() => void downloadWidgetPng(w)}>
-                                <FileDown className="mr-2 h-3.5 w-3.5" /> Download PNG
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                className="text-destructive focus:text-destructive"
-                                onClick={() => removeWidget(w.id)}
-                              >
-                                <Trash2 className="mr-2 h-3.5 w-3.5" /> Remove
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
-                      )
-                    }
-                  />
-                );
-              }}
-            />
+                <Button
+                  size="sm"
+                  className="h-8 gap-1.5 px-3 text-xs"
+                  onClick={() => setGenerateOpen(true)}
+                  title="Generate a whole dashboard from a goal with AI"
+                >
+                  <Wand2 className="h-3.5 w-3.5" /> Generate Entire Dashboard
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-8 gap-1.5 px-3 text-xs"
+                  onClick={() => setPublishOpen(true)}
+                >
+                  <Share2 className="h-3.5 w-3.5" /> Publish &amp; share
+                </Button>
+              </>
+            )}
           </div>
         </div>
 
-        {!readOnly && pane !== null && (
-          <BiBuilderPane
-            ctx={ctx}
-            tab={pane}
-            onTabChange={setPane}
-            initial={builderInitial}
-            onSubmit={(w) => {
-              if (builderInitial) {
-                replaceWidget(w);
+        <div className="flex min-h-0 flex-1">
+          <div
+            className="min-w-0 flex-1 overflow-y-auto bg-muted/30 p-5"
+            style={{
+              backgroundImage: "radial-gradient(circle, var(--border) 1px, transparent 1px)",
+              backgroundSize: "22px 22px",
+            }}
+          >
+            <BiPageTabs
+              pages={pages}
+              activePageId={activePageId}
+              readOnly={readOnly}
+              onSwitch={switchPage}
+              onAdd={addPage}
+              onRename={renamePage}
+              onDelete={deletePage}
+            />
+            <BiFilterBar
+              configs={filterConfigs}
+              widgets={securedWidgets}
+              state={filterState}
+              onStateChange={setFilterState}
+              cross={crossFilter}
+              onClearCross={() => setCrossFilter(null)}
+              editable={!readOnly}
+              onConfigsChange={persistFilterConfigs}
+              params={paramConfigs}
+              paramValues={paramValues}
+              onParamValue={(name, v) => setParamValues((cur) => ({ ...cur, [name]: v }))}
+              onParamsChange={persistParams}
+              paramBusy={paramBusy}
+            />
+            <div
+              ref={gridWrapRef}
+              className={cn("rounded-xl", dashSurfaceClass(dashTheme))}
+              style={dashSurfaceStyle(dashTheme)}
+            >
+              <DashboardGrid
+                layout={layout}
+                editable={!readOnly}
+                onLayoutChange={(next) => persist(widgets, next)}
+                emptyState={
+                  <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border/70 py-20 text-center">
+                    <BarChart3 className="h-8 w-8 text-muted-foreground" />
+                    <p className="text-sm font-medium">This dashboard is empty</p>
+                    {!readOnly && (
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="gap-1.5"
+                          onClick={() => {
+                            setBuilderInitial(null);
+                            setPane("build");
+                          }}
+                        >
+                          <Plus className="h-3.5 w-3.5" /> Add a chart
+                        </Button>
+                        <Button size="sm" className="gap-1.5" onClick={() => setPane("ai")}>
+                          <Sparkles className="h-3.5 w-3.5" /> Generate with AI
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                }
+                renderItem={(id) => {
+                  const w = widgetById.get(id);
+                  if (!w) return null;
+                  return (
+                    <BiWidgetCard
+                      widget={w}
+                      onElementClick={handleElementClick(id)}
+                      onDrillChange={(path) =>
+                        setDrillPaths((prev) =>
+                          // Same path → same object, so an unchanged drill does
+                          // not re-render every widget on the page.
+                          (prev[id]?.length ?? 0) === path.length &&
+                          (prev[id] ?? []).every(
+                            (e, i) => e.field === path[i].field && e.value === path[i].value,
+                          )
+                            ? prev
+                            : { ...prev, [id]: path },
+                        )
+                      }
+                      selectedValue={
+                        crossFilter && crossFilter.widgetId === id ? crossFilter.value : null
+                      }
+                      actions={
+                        readOnly ? undefined : (
+                          <div className="flex items-center gap-1">
+                            {w.source?.kind === "semantic" && (
+                              <Badge
+                                variant="secondary"
+                                className="h-5 px-1.5 text-[10px]"
+                                title="Backed by a governed semantic metric — edit it in the Semantic Layer"
+                              >
+                                Metric
+                              </Badge>
+                            )}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 w-6 shrink-0 p-0"
+                                  aria-label={`Actions for ${w.title}`}
+                                >
+                                  <MoreVertical className="h-3.5 w-3.5" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                {w.source?.kind === "semantic" ? (
+                                  <DropdownMenuItem disabled>
+                                    <Pencil className="mr-2 h-3.5 w-3.5" /> Edit in Semantic Layer
+                                  </DropdownMenuItem>
+                                ) : (
+                                  <DropdownMenuItem onClick={() => editWidget(w)}>
+                                    <Pencil className="mr-2 h-3.5 w-3.5" /> Edit
+                                  </DropdownMenuItem>
+                                )}
+                                {w.source?.kind === "semantic" &&
+                                  w.source.params &&
+                                  Object.keys(w.source.params).length > 0 && (
+                                    <DropdownMenuItem onClick={() => openWidgetParams(w)}>
+                                      <SlidersHorizontal className="mr-2 h-3.5 w-3.5" />
+                                      Parameters…
+                                    </DropdownMenuItem>
+                                  )}
+                                {w.source?.kind === "warehouse" && (
+                                  <DropdownMenuItem
+                                    onClick={() =>
+                                      setWidgetQueryMode(
+                                        w,
+                                        w.query_mode === "direct" ? "import" : "direct",
+                                      )
+                                    }
+                                  >
+                                    <SearchCode className="mr-2 h-3.5 w-3.5" />
+                                    {w.query_mode === "direct"
+                                      ? "Use in-memory engine (snapshot)"
+                                      : "Use direct query (live)"}
+                                  </DropdownMenuItem>
+                                )}
+                                {isAggregatableChart(w.chart) && (
+                                  <DropdownMenuItem onClick={() => toggleAggPushdown(w)}>
+                                    <Sigma className="mr-2 h-3.5 w-3.5" />
+                                    {w.agg_pushdown
+                                      ? "Aggregate in the browser (snapshot)"
+                                      : "Aggregate in SQL (complete totals)"}
+                                  </DropdownMenuItem>
+                                )}
+                                {w.kind === "chart" && (
+                                  <DropdownMenuItem
+                                    disabled={insightBusyId !== null}
+                                    onClick={() => void addInsight(w)}
+                                  >
+                                    {insightBusyId === w.id ? (
+                                      <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      <Sparkles className="mr-2 h-3.5 w-3.5 text-primary" />
+                                    )}
+                                    AI insight
+                                  </DropdownMenuItem>
+                                )}
+                                {w.kind === "chart" && extractBaseTable(w.sql) && (
+                                  <DropdownMenuItem onClick={() => setExploreWidget(w)}>
+                                    <SearchCode className="mr-2 h-3.5 w-3.5" /> Explore data
+                                  </DropdownMenuItem>
+                                )}
+                                {w.kind === "chart" && (w.rows?.length ?? 0) > 0 && (
+                                  <DropdownMenuSub>
+                                    <DropdownMenuSubTrigger>
+                                      <FileDown className="mr-2 h-3.5 w-3.5" /> Export data
+                                    </DropdownMenuSubTrigger>
+                                    <DropdownMenuPortal>
+                                      <DropdownMenuSubContent>
+                                        <DropdownMenuItem
+                                          onClick={() =>
+                                            downloadCsv(
+                                              w.columns ?? [],
+                                              w.rows ?? [],
+                                              w.title || "widget",
+                                            )
+                                          }
+                                        >
+                                          CSV (.csv)
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                          onClick={() =>
+                                            void downloadXlsx(
+                                              w.columns ?? [],
+                                              w.rows ?? [],
+                                              w.title || "widget",
+                                              {
+                                                sheet: w.title || "Data",
+                                                columnFormats: w.chart?.columnFormats,
+                                              },
+                                            )
+                                          }
+                                        >
+                                          Excel (.xlsx)
+                                        </DropdownMenuItem>
+                                      </DropdownMenuSubContent>
+                                    </DropdownMenuPortal>
+                                  </DropdownMenuSub>
+                                )}
+                                <DropdownMenuItem onClick={() => duplicateWidget(w.id)}>
+                                  <Copy className="mr-2 h-3.5 w-3.5" /> Duplicate
+                                </DropdownMenuItem>
+                                <BiWidgetAppearance
+                                  theme={w.theme}
+                                  onChange={(patch) => setWidgetTheme(w.id, patch)}
+                                />
+                                {w.kind === "chart" && (w.rows?.length ?? 0) > 0 && (
+                                  <DropdownMenuItem onClick={() => downloadWidgetCsv(w)}>
+                                    <FileDown className="mr-2 h-3.5 w-3.5" /> Download CSV
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem onClick={() => void downloadWidgetPng(w)}>
+                                  <FileDown className="mr-2 h-3.5 w-3.5" /> Download PNG
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  className="text-destructive focus:text-destructive"
+                                  onClick={() => removeWidget(w.id)}
+                                >
+                                  <Trash2 className="mr-2 h-3.5 w-3.5" /> Remove
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        )
+                      }
+                    />
+                  );
+                }}
+              />
+            </div>
+          </div>
+
+          {!readOnly && pane !== null && (
+            <BiBuilderPane
+              ctx={ctx}
+              tab={pane}
+              onTabChange={setPane}
+              initial={builderInitial}
+              onSubmit={(w) => {
+                if (builderInitial) {
+                  replaceWidget(w);
+                  setBuilderInitial(null);
+                } else {
+                  addWidget(w);
+                }
+              }}
+              onInsertAi={addWidget}
+              onClose={() => {
+                setPane(null);
                 setBuilderInitial(null);
-              } else {
-                addWidget(w);
-              }
-            }}
-            onInsertAi={addWidget}
-            onClose={() => {
-              setPane(null);
-              setBuilderInitial(null);
-            }}
-          />
+              }}
+            />
+          )}
+        </div>
+
+        {!readOnly && (
+          <>
+            <BiTextWidgetDialog
+              open={textOpen}
+              onOpenChange={setTextOpen}
+              initial={textInitial}
+              onSubmit={(w) => (textInitial ? replaceWidget(w) : addWidget(w))}
+            />
+            <ImageWidgetDialog
+              open={imageOpen}
+              onOpenChange={setImageOpen}
+              initial={imageInitial}
+              onSubmit={(w) => (imageInitial ? replaceWidget(w) : addWidget(w))}
+            />
+            <PublishDialog
+              open={publishOpen}
+              onOpenChange={setPublishOpen}
+              dashboard={row}
+              accessToken={token}
+              onUpdated={(patch) => setRow({ ...row, ...patch })}
+            />
+            {user?.id && (
+              <ScheduleDialog
+                open={scheduleOpen}
+                onOpenChange={setScheduleOpen}
+                dashboardId={row.id}
+                userId={user.id}
+                widgets={widgets}
+              />
+            )}
+            <InsightSweepDialog open={sweepOpen} onOpenChange={setSweepOpen} widgets={widgets} />
+            <GenerateDashboardDialog
+              open={generateOpen}
+              onOpenChange={setGenerateOpen}
+              ctx={ctx}
+              onDone={(newWidgets) => {
+                // Executive summary first (full width), then KPIs, charts,
+                // tables at the bottom.
+                const rank = (w: BiWidget) => {
+                  if (w.kind === "text") return -1;
+                  const t = w.chart?.type;
+                  return t === "kpi" || t === "gauge" ? 0 : t === "table" ? 2 : 1;
+                };
+                const sorted = [...newWidgets].sort((a, b) => rank(a) - rank(b));
+                let lay = layout;
+                for (const w of sorted) {
+                  lay = addWidgetToLayout(lay, w, w.kind === "text" ? { w: 12, h: 3 } : undefined);
+                }
+                persist([...widgets, ...sorted], lay);
+              }}
+            />
+            <BiThemeDialog
+              open={themeOpen}
+              onOpenChange={setThemeOpen}
+              theme={dashTheme}
+              onSave={saveTheme}
+            />
+            {liveRow && (
+              <BiHistoryDialog
+                open={historyOpen}
+                onOpenChange={setHistoryOpen}
+                row={liveRow}
+                onRestored={loadDashboard}
+              />
+            )}
+          </>
         )}
-      </div>
 
-      {!readOnly && (
-        <>
-          <BiTextWidgetDialog
-            open={textOpen}
-            onOpenChange={setTextOpen}
-            initial={textInitial}
-            onSubmit={(w) => (textInitial ? replaceWidget(w) : addWidget(w))}
-          />
-          <ImageWidgetDialog
-            open={imageOpen}
-            onOpenChange={setImageOpen}
-            initial={imageInitial}
-            onSubmit={(w) => (imageInitial ? replaceWidget(w) : addWidget(w))}
-          />
-          <PublishDialog
-            open={publishOpen}
-            onOpenChange={setPublishOpen}
-            dashboard={row}
-            accessToken={token}
-            onUpdated={(patch) => setRow({ ...row, ...patch })}
-          />
-          {user?.id && (
-            <ScheduleDialog
-              open={scheduleOpen}
-              onOpenChange={setScheduleOpen}
-              dashboardId={row.id}
-              userId={user.id}
-              widgets={widgets}
-            />
-          )}
-          <InsightSweepDialog open={sweepOpen} onOpenChange={setSweepOpen} widgets={widgets} />
-          <GenerateDashboardDialog
-            open={generateOpen}
-            onOpenChange={setGenerateOpen}
-            ctx={ctx}
-            onDone={(newWidgets) => {
-              // Executive summary first (full width), then KPIs, charts,
-              // tables at the bottom.
-              const rank = (w: BiWidget) => {
-                if (w.kind === "text") return -1;
-                const t = w.chart?.type;
-                return t === "kpi" || t === "gauge" ? 0 : t === "table" ? 2 : 1;
-              };
-              const sorted = [...newWidgets].sort((a, b) => rank(a) - rank(b));
-              let lay = layout;
-              for (const w of sorted) {
-                lay = addWidgetToLayout(lay, w, w.kind === "text" ? { w: 12, h: 3 } : undefined);
-              }
-              persist([...widgets, ...sorted], lay);
-            }}
-          />
-          <BiThemeDialog
-            open={themeOpen}
-            onOpenChange={setThemeOpen}
-            theme={dashTheme}
-            onSave={saveTheme}
-          />
-          {liveRow && (
-            <BiHistoryDialog
-              open={historyOpen}
-              onOpenChange={setHistoryOpen}
-              row={liveRow}
-              onRestored={loadDashboard}
-            />
-          )}
-        </>
-      )}
-
-      {row && (
-        <BiDeckDialog
-          open={deckOpen}
-          onOpenChange={setDeckOpen}
-          dashboardName={row.name}
-          dashboardDescription={row.description}
-          /* The ACTIVE page carries unsaved edits in local state, so it is
+        {row && (
+          <BiDeckDialog
+            open={deckOpen}
+            onOpenChange={setDeckOpen}
+            dashboardName={row.name}
+            dashboardDescription={row.description}
+            /* The ACTIVE page carries unsaved edits in local state, so it is
              spliced in here rather than read from `pages` — otherwise a widget
              the user just added would be missing from the deck it is visibly
              on screen for. Same substitution the PDF path makes. */
-          pages={pages.map((p) => (p.id === activePageId ? { ...p, widgets, layout } : p))}
-        />
-      )}
+            pages={pages.map((p) => (p.id === activePageId ? { ...p, widgets, layout } : p))}
+          />
+        )}
 
-      {!readOnly && (
-        <BiExploreDialog
-          widget={exploreWidget}
-          context={crossFilter}
-          drillPath={exploreWidget ? (drillPaths[exploreWidget.id] ?? []) : []}
-          onClose={() => setExploreWidget(null)}
-        />
-      )}
+        {!readOnly && (
+          <BiExploreDialog
+            widget={exploreWidget}
+            context={crossFilter}
+            drillPath={exploreWidget ? (drillPaths[exploreWidget.id] ?? []) : []}
+            onClose={() => setExploreWidget(null)}
+          />
+        )}
 
-      {/* Per-widget parameter overrides: edit the pinned {{name}} values and
+        {/* Per-widget parameter overrides: edit the pinned {{name}} values and
           re-run the governed query, so SQL, rows and params stay one story. */}
-      <Dialog open={paramsWidget !== null} onOpenChange={(o) => !o && setParamsWidget(null)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Widget parameters</DialogTitle>
-            <DialogDescription>
-              Pinned overrides for &ldquo;{paramsWidget?.title}&rdquo; — the scheduled refresh
-              re-runs the metric with these values.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            {Object.entries(paramsDraft).map(([k, v]) => (
-              <div key={k} className="space-y-1">
-                <Label htmlFor={`wp-${k}`} className="font-mono text-xs">
-                  {"{{" + k + "}}"}
-                </Label>
-                <Input
-                  id={`wp-${k}`}
-                  value={v}
-                  className="h-8 font-mono text-xs"
-                  onChange={(e) => setParamsDraft((d) => ({ ...d, [k]: e.target.value }))}
-                />
-              </div>
-            ))}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setParamsWidget(null)}>
-              Cancel
-            </Button>
-            <Button size="sm" onClick={() => void saveWidgetParams()} disabled={paramsBusy}>
-              {paramsBusy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-              Save & re-run
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+        <Dialog open={paramsWidget !== null} onOpenChange={(o) => !o && setParamsWidget(null)}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Widget parameters</DialogTitle>
+              <DialogDescription>
+                Pinned overrides for &ldquo;{paramsWidget?.title}&rdquo; — the scheduled refresh
+                re-runs the metric with these values.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              {Object.entries(paramsDraft).map(([k, v]) => (
+                <div key={k} className="space-y-1">
+                  <Label htmlFor={`wp-${k}`} className="font-mono text-xs">
+                    {"{{" + k + "}}"}
+                  </Label>
+                  <Input
+                    id={`wp-${k}`}
+                    value={v}
+                    className="h-8 font-mono text-xs"
+                    onChange={(e) => setParamsDraft((d) => ({ ...d, [k]: e.target.value }))}
+                  />
+                </div>
+              ))}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={() => setParamsWidget(null)}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={() => void saveWidgetParams()} disabled={paramsBusy}>
+                {paramsBusy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+                Save & re-run
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </BiParamContext.Provider>
   );
 }
 

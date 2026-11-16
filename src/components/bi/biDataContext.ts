@@ -4,6 +4,7 @@
 import type { DatasetMeta, QueryResult } from "@/lib/sqlEngine";
 import type { SavedMetric, SemanticEntry } from "@/lib/biAgent";
 import type { BiWidgetSource } from "@/lib/biDashboards";
+import type { BiParamConfig } from "@/lib/biParams";
 import type { SemanticQuery } from "@/lib/semanticLayer";
 import type { WarehouseConnectionSummary, WarehouseTable } from "@/utils/warehouse/types";
 
@@ -37,8 +38,13 @@ export type BiDataContext = {
   whTables: Record<string, WarehouseTable[] | "loading" | "error">;
   /** Lazily load a warehouse connection's table list into whTables. */
   ensureSchema: (connectionId: string) => void;
-  /** Run read-only SQL against a widget source (local engine or warehouse). */
+  /**
+   * Run read-only SQL against a widget source (local engine or warehouse).
+   * {{name}} parameters are filled with their defaults first (R501).
+   */
   runSql: (source: BiWidgetSource, sql: string) => Promise<QueryResult>;
+  /** The dashboard's parameters (R501), for SQL and Controls visuals. */
+  params?: BiParamConfig[];
   /**
    * Governed metric source (Semantic Layer). Both are provided together by
    * the project editor; their presence is what makes the builder offer
