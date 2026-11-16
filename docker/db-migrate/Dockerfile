@@ -18,7 +18,7 @@
 # whole server for a task that needs psql: 443 MB measured, which a deploy
 # pulls for every rollout. Pinned by digest, as every base here is (R406);
 # Alpine 3.24.3, released 2026-10-23.
-FROM alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
+FROM alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 
 # psql 17 reads PostgreSQL 15, 16 and 17 servers. ca-certificates, so
 # sslrootcert=system can verify a database whose certificate a public CA
