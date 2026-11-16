@@ -113,11 +113,22 @@ own licence rather than ELv2:
   (1990–2023).
 - **[Ergast Motor Racing Data](https://ergast.com/mrd/)**, via its successor
   the **[Jolpica F1 API](https://github.com/jolpica/jolpica-f1)** (data
-  CC-BY-SA 4.0, provided for non-commercial use; API code Apache-2.0) —
-  `f1_driver_standings.csv`, `f1_constructor_standings.csv`,
-  `f1_world_champions.csv`, `f1_constructor_champions.csv`: the 2025
-  standings, the drivers' champions 1950–2025 and the constructors' champions
-  1958–2025, behind the "Formula 1 Analytics" sample dashboard.
+  [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/), free
+  for non-commercial use under the API's
+  [terms](https://github.com/jolpica/jolpica-f1/blob/main/TERMS.md); API code
+  Apache-2.0):
+  - `f1_driver_standings.csv`, `f1_constructor_standings.csv`,
+    `f1_world_champions.csv`, `f1_constructor_champions.csv`: the 2025
+    standings, the drivers' champions 1950–2025 and the constructors'
+    champions 1958–2025, behind the "Formula 1 Analytics" sample dashboard.
+  - `gp_race_results.csv`, `gp_race_laps.csv`, `gp_race_pitstops.csv`,
+    `gp_season_points.csv`, `gp_driver_standings.csv`,
+    `gp_constructor_standings.csv`, `gp_schedule.csv`: the 2026 Brazilian
+    Grand Prix (results, every lap, pit stops) and the 2026 season after it,
+    behind the "Grand Prix Results" sample dashboard. Made by
+    `scripts/buildGrandPrixSample.mjs`. The driver and team badges and the
+    flags in them are shapes drawn by that script (a number on a team colour,
+    simplified public-domain flags), not photographs or logos.
 
 Every other sample table — SaaS sales, budget variance, adverse-event reports,
 auto claims, factory defects, SIEM alerts, e-commerce returns, the supply-chain

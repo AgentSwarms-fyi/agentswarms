@@ -16,6 +16,11 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Apply migration `20261117000000`** (R500) to add the **Grand Prix Results ·
+  Sample** dashboard, for example with `npx supabase db push --remote`. It
+  adds the sample and gives each existing account a copy, unless the account
+  already has a dashboard of that name. No other sample is re-seeded, so one
+  an owner has deleted stays deleted. Nothing else depends on it.
 - **Apply migration `20261116000000`** (R492), for example with
   `npx supabase db push --remote`. The app works with or without it, but until
   it runs a grantee can still read the terms of the column mask on their own
@@ -169,6 +174,27 @@ development branch and may be ahead of the latest tag.
   build from is searched, not scrolled for. Table columns can be retitled and
   the totals row turned off; the preview suggests the narratives its rows
   support.
+- **BI: dashboards designed for their subject, and a Grand Prix sample**
+  (R500). A dashboard's canvas can be **Always dark** for every viewer, take
+  any colour and a faint Grid, Fine grid or Diagonal pattern. A widget can sit
+  on the canvas with **No card**, hide its title, and set its title's size and
+  colour and its accent from any colour. Text blocks take a size, alignment,
+  colours and italic, and keep typed line breaks. Four visuals are new (31 in
+  all):
+  - **Cards** from templates (`{{column}}`, `{{column|ordinal}}`, `**bold**`),
+    as a podium or a list, with pictures.
+  - **Rank over time**, drawn from only the rows where a rank changes.
+  - **Start → finish**.
+  - **Radial bars**.
+
+  Lines, rank charts and radial bars take each series' colour from a
+  `#rrggbb` column, and lines can name every line at its end. Lines also get
+  shaded spans. Tables get Gold/Silver/Bronze rules, text before and after a
+  value, and shaded alternate rows. Heatmaps get a green/red scale either
+  side of zero. The **Grand Prix Results · Sample** dashboard was built with
+  all of this in the editor: the 2026 Brazilian Grand Prix and the
+  championships after it. Its data comes from the public Jolpica F1 API, and
+  `scripts/buildGrandPrixSample.mjs` rebuilds it for any race.
 
 ### Added
 
@@ -200,6 +226,16 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **Editing a widget reset its appearance** (R500). The editor rebuilt the
+  widget from the fields it shows, so saving an edit dropped the accent, card
+  style and title settings, and turned a Direct widget back to Import. An
+  image widget lost its appearance the same way. Both are now carried over.
+- **Suggested narratives summed ranks** (R500). The first numeric column was
+  taken as the measure, so a standings table offered "the top 3 given names by
+  position" with percentages of summed positions, and a picture column could
+  name the rows. Ranks, rounds, sequence numbers and ids are no longer
+  measures. Pictures, links and colours are no longer labels. The visual's own
+  measure and category come first.
 - **A quote in a governed filter matched the wrong rows on Databricks** (R499).
   The semantic layer escaped a quote by doubling it on every engine. Spark
   reads `'O''Brien'` as two literals and joins them, so a filter on O'Brien
@@ -375,7 +411,7 @@ before you move: several migrations must be applied in the order given there.
   other reader of `/api/chat` show it as the error it is. Unset, nothing changes.
 - **Deploy to AWS with Terraform: VMs behind a load balancer, Amazon ECS, or EKS (R480).**
   `deploy/aws/terraform/{vm,ecs,eks}`, then `terraform apply -var release=1.7.0 -var
-  admin_email=you@example.com`. Each root builds the same base:
+admin_email=you@example.com`. Each root builds the same base:
   - a VM across 2 or 3 AZs;
   - RDS PostgreSQL 17 (Multi-AZ above the `dev` size);
   - versioned, encrypted S3 buckets for the lake and Supabase Storage;
@@ -391,6 +427,7 @@ before you move: several migrations must be applied in the order given there.
   starts. Upgrading is changing `release`. Sizes `dev`, `small`, `medium` and `large`
   live in `deploy/aws/spec/sizes.json`; `dev` costs about $260 to $400 a month before
   usage. See [AgentSwarms on AWS](docs/deploy/AWS.md).
+
 - **A deploy makes its own first admin, and two deploys never migrate at once (R479).**
   The db-migrate image gains `deploy` (migrate, then create the admin) and
   `create-admin`, which creates `ADMIN_EMAIL` through GoTrue with the address already

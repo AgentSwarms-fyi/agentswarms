@@ -71,6 +71,14 @@ import {
   type FieldSql,
 } from "@/lib/biFieldQuery";
 import { BiInsightOptions, BiKpiOptions } from "@/components/bi/BiKpiInsightOptions";
+import { BiVisualOptions } from "@/components/bi/BiVisualOptions";
+import {
+  VISUAL_OPTS_DEFAULT,
+  visualAnalytics,
+  visualOptsFrom,
+  visualSpec,
+  type VisualOpts,
+} from "@/lib/biVisualOpts";
 import {
   INSIGHT_OPTS_DEFAULT,
   KPI_OPTS_DEFAULT,
@@ -127,6 +135,7 @@ import {
 import type { BiColumnFormat, SavedMetric } from "@/lib/biAgent";
 import {
   coerceSemanticChart,
+  editorCarried,
   snapshotRows,
   widgetFromBiTurn,
   widgetFromSemantic,
@@ -232,6 +241,7 @@ export function BiBuilderPane({
   const chartTouched = useRef(false);
   const lastBuild = useRef<{ built: FieldSql; q: FieldQuery; fields: FieldInfo[] } | null>(null);
   const [insOpts, setInsOpts] = useState<InsightOpts>(INSIGHT_OPTS_DEFAULT);
+  const [vizOpts, setVizOpts] = useState<VisualOpts>(VISUAL_OPTS_DEFAULT);
   // Chart analytics (drill / time intelligence / reference line)
   const [drillList, setDrillList] = useState<string[]>([]);
   const [grainSel, setGrainSel] = useState("auto");
@@ -392,6 +402,7 @@ export function BiBuilderPane({
       setColFormats(c.columnFormats ?? {});
       setKpiOpts(kpiOptsFrom(c));
       setInsOpts(insightOptsFrom(c));
+      setVizOpts(visualOptsFrom(c));
       setQueryMode(initial.field_query ? "fields" : "sql");
       setFieldQuery(initial.field_query ?? EMPTY_FIELD_QUERY);
       setExtraMeasures(c.extraMeasures ?? []);
@@ -451,6 +462,7 @@ export function BiBuilderPane({
       setColFormats({});
       setKpiOpts(KPI_OPTS_DEFAULT);
       setInsOpts(INSIGHT_OPTS_DEFAULT);
+      setVizOpts(VISUAL_OPTS_DEFAULT);
       setQueryMode("fields");
       setFieldQuery(EMPTY_FIELD_QUERY);
       setExtraMeasures([]);
@@ -904,8 +916,25 @@ export function BiBuilderPane({
             : null;
         case "heatmap":
           return xField && yField && valueField
-            ? { type: "heatmap", xField, yField, valueField }
+            ? {
+                type: "heatmap",
+                xField,
+                yField,
+                valueField,
+                scale: vizOpts.heatScale === "diverging" ? "diverging" : undefined,
+              }
             : null;
+        case "cards":
+        case "range":
+        case "radialbar":
+        case "bump":
+          return visualSpec(chartType, vizOpts, {
+            xField,
+            yField,
+            seriesField,
+            nameField,
+            valueField,
+          });
         case "matrix": {
           if (!(rowField && colField && valueField)) return null;
           let condFormat: BiCondFormat | undefined;
@@ -1034,6 +1063,8 @@ export function BiBuilderPane({
       analytics.columnFormats = colFormats;
     }
     if (spec.type === "table" && !tableTotals) (spec as { totals?: boolean }).totals = false;
+    if (spec.type === "table" && vizOpts.striped) (spec as { striped?: boolean }).striped = true;
+    Object.assign(analytics, visualAnalytics(spec.type, vizOpts));
     // More values as their own series (R499), unless a field splits the chart.
     if (extraMeasures.length > 0 && !seriesField && MULTI_MEASURE_TYPES.has(spec.type)) {
       analytics.extraMeasures = extraMeasures;
@@ -1064,6 +1095,7 @@ export function BiBuilderPane({
     colFormats,
     kpiOpts,
     insOpts,
+    vizOpts,
     extraMeasures,
     tableTotals,
     ontoSpec,
@@ -1146,6 +1178,7 @@ export function BiBuilderPane({
         columns: [],
         rows: [],
         refreshed_at: new Date().toISOString(),
+        ...editorCarried(initial),
       });
       toast.success(initial ? "Widget updated" : "Widget added to the dashboard");
       return;
@@ -1188,6 +1221,8 @@ export function BiBuilderPane({
       reconcile_note: initial?.reconcile_note,
       // Fields mode keeps its picks so editing returns to them (R499).
       field_query: queryMode === "fields" ? fieldQuery : undefined,
+      // Appearance and Import/Direct are set from the card's menu (R500).
+      ...editorCarried(initial),
     };
     // The owner may have just changed the SQL, so the note is re-checked here
     // for the same reason a refresh re-checks it: the result underneath it has
@@ -1423,7 +1458,7 @@ export function BiBuilderPane({
         {label}
       </Label>
       <Select value={value || undefined} onValueChange={setter}>
-        <SelectTrigger className="h-8 text-xs">
+        <SelectTrigger className="h-8 text-xs" aria-label={label}>
           <SelectValue placeholder="Pick a column" />
         </SelectTrigger>
         <SelectContent>
@@ -1443,7 +1478,7 @@ export function BiBuilderPane({
         {label}
       </Label>
       <Select value={value || "__none__"} onValueChange={(v) => setter(v === "__none__" ? "" : v)}>
-        <SelectTrigger className="h-8 text-xs">
+        <SelectTrigger className="h-8 text-xs" aria-label={label}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -1716,6 +1751,13 @@ export function BiBuilderPane({
                               {optionalFieldSelect("Split by series", seriesField, setSeriesField)}
                             </>
                           )}
+                          {chartType === "bump" && (
+                            <>
+                              {fieldSelect("Along (e.g. lap)", xField, setXField)}
+                              {fieldSelect("Rank (e.g. position)", yField, setYField)}
+                              {fieldSelect("One line per", seriesField, setSeriesField)}
+                            </>
+                          )}
                           {chartType === "sankey" && (
                             <>
                               {fieldSelect("Source (from)", xField, setXField)}
@@ -1738,7 +1780,8 @@ export function BiBuilderPane({
                           {(chartType === "pie" ||
                             chartType === "funnel" ||
                             chartType === "treemap" ||
-                            chartType === "nightingale") && (
+                            chartType === "nightingale" ||
+                            chartType === "radialbar") && (
                             <>
                               {fieldSelect(
                                 chartType === "funnel" ? "Stage" : "Category",
@@ -1874,6 +1917,12 @@ export function BiBuilderPane({
                             chartType !== "gauge" &&
                             formatSelect}
                           {columnFormatEditor}
+                          <BiVisualOptions
+                            type={chartType}
+                            opts={vizOpts}
+                            setOpts={setVizOpts}
+                            columns={preview?.columns ?? []}
+                          />
                           {chartType === "insight" && (
                             <>
                               <BiInsightOptions
@@ -1949,7 +1998,7 @@ export function BiBuilderPane({
                           <BiSuggestedNarratives
                             columns={preview.columns}
                             rows={preview.rows}
-                            format={chartSpec ?? undefined}
+                            chart={chartSpec ?? undefined}
                             base={{
                               source: sourceFromKey(sourceKey, ctx.warehouses),
                               sql: sql.trim(),

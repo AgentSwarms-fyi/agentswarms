@@ -394,9 +394,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "BI Workspace",
     "description": "Dashboards built on the same catalog, prepared tables and metrics your agents use — so a chart and an agent answering about it cannot disagree.",
     "terms": [
+      "#rrggbb",
       "$1.0M",
       "$837.9k",
       "$837k",
+      "**bold**",
       "1/31/2025",
       "2.6×",
       "2024-11",
@@ -418,11 +420,14 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "answer",
       "area",
       "avg",
+      "badge",
       "bar",
       "barrace",
       "between",
       "boxplot",
       "bubblemap",
+      "bump",
+      "cards",
       "caveats",
       "columnFormats",
       "combo",
@@ -435,10 +440,12 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "decimals",
       "drillFields",
       "eq",
+      "flag",
       "forecast",
       "format",
       "funnel",
       "gauge",
+      "gp_*",
       "gt",
       "gte",
       "hbar",
@@ -467,6 +474,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "prediction",
       "probability",
       "radar",
+      "radialbar",
+      "range",
       "revenue",
       "rules",
       "running",
@@ -476,6 +485,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "scatter",
       "scolumn",
       "score",
+      "seriesField",
       "shbar",
       "sum",
       "sum(amount)",
@@ -488,6 +498,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "valueField",
       "waterfall",
       "wordcloud",
+      "xBands",
+      "xField",
       "yField"
     ],
     "headings": [
@@ -598,7 +610,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       },
       {
         "id": "charts",
-        "text": "Chart types — all 27, with required fields",
+        "text": "Chart types — all 31, with required fields",
         "level": 2
       },
       {
@@ -644,6 +656,51 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "non-chart-widgets",
         "text": "Two widgets that plot nothing",
+        "level": 3
+      },
+      {
+        "id": "design",
+        "text": "Designing a dashboard that looks like its subject",
+        "level": 2
+      },
+      {
+        "id": "design-canvas",
+        "text": "The canvas: always dark, a colour, a pattern",
+        "level": 3
+      },
+      {
+        "id": "design-cards",
+        "text": "A widget&apos;s appearance",
+        "level": 3
+      },
+      {
+        "id": "design-text",
+        "text": "Text blocks set like a title page",
+        "level": 3
+      },
+      {
+        "id": "design-card-templates",
+        "text": "Cards from templates",
+        "level": 3
+      },
+      {
+        "id": "design-rank",
+        "text": "Rank, range and radial visuals",
+        "level": 3
+      },
+      {
+        "id": "design-colours",
+        "text": "Colours from the data, names at line ends",
+        "level": 3
+      },
+      {
+        "id": "design-cap",
+        "text": "Fitting under the snapshot cap",
+        "level": 3
+      },
+      {
+        "id": "design-sample",
+        "text": "Walkthrough: the Grand Prix Results sample",
         "level": 3
       },
       {

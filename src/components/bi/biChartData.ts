@@ -202,6 +202,9 @@ export function pivotSeries(
   xField: string,
   yField: string,
   seriesField: string,
+  /** More than the default 12 where each series is told apart by its own
+   *  colour (R500): a race's twenty drivers, a season's teams. */
+  maxSeries = MAX_SERIES,
 ): { data: Record<string, unknown>[]; series: string[] } {
   const series: string[] = [];
   const byX = new Map<string, Record<string, unknown>>();
@@ -209,7 +212,7 @@ export function pivotSeries(
   for (const r of rows) {
     const s = String(r[seriesField] ?? "—");
     if (!series.includes(s)) {
-      if (series.length >= MAX_SERIES) continue;
+      if (series.length >= maxSeries) continue;
       series.push(s);
     }
     const xKey = String(r[xField]);
@@ -263,6 +266,27 @@ export function measuresAsSpokes(
   }
   const p = pivotSeries(long, spokeKey, "__value", "__series");
   return { ...p, spokeKey };
+}
+
+/**
+ * Each series' colour from a column of #rrggbb values (R500) — the first
+ * colour seen for a series wins. A series with no usable colour is absent,
+ * and draws in the palette.
+ */
+export function seriesColors(
+  rows: Record<string, unknown>[],
+  seriesField: string,
+  colorField: string | undefined,
+): Map<string, string> {
+  const out = new Map<string, string>();
+  if (!colorField) return out;
+  for (const r of rows) {
+    const s = String(r[seriesField] ?? "—");
+    if (out.has(s)) continue;
+    const c = typeof r[colorField] === "string" ? (r[colorField] as string).trim() : "";
+    if (/^#[0-9a-f]{6}$/i.test(c)) out.set(s, c);
+  }
+  return out;
 }
 
 /**

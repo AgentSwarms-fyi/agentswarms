@@ -78,6 +78,18 @@ export const HR_ROSTER_FILENAME = "HR_Roster.csv";
 export const HR_DEPT_MONTHLY_TABLE_NAME = "hr_dept_monthly";
 export const HR_DEPT_MONTHLY_FILENAME = "HR_Dept_Monthly.csv";
 
+// Nineteenth–twenty-fifth — the latest Grand Prix (R500), built by
+// scripts/buildGrandPrixSample.mjs from the Jolpica F1 API (CC BY-NC-SA 4.0,
+// see ACKNOWLEDGEMENTS.md): one race lap by lap, and the season around it.
+// Back the "Grand Prix Results · Sample" dashboard.
+export const GP_RACE_RESULTS_TABLE_NAME = "gp_race_results";
+export const GP_RACE_LAPS_TABLE_NAME = "gp_race_laps";
+export const GP_RACE_PITSTOPS_TABLE_NAME = "gp_race_pitstops";
+export const GP_SEASON_POINTS_TABLE_NAME = "gp_season_points";
+export const GP_DRIVER_STANDINGS_TABLE_NAME = "gp_driver_standings";
+export const GP_CONSTRUCTOR_STANDINGS_TABLE_NAME = "gp_constructor_standings";
+export const GP_SCHEDULE_TABLE_NAME = "gp_schedule";
+
 export type SampleDataset = { tableName: string; filename: string };
 
 export const SAMPLE_DATASETS: SampleDataset[] = [
@@ -99,4 +111,11 @@ export const SAMPLE_DATASETS: SampleDataset[] = [
   { tableName: SUPPLY_SCORECARD_TABLE_NAME, filename: SUPPLY_SCORECARD_FILENAME },
   { tableName: HR_ROSTER_TABLE_NAME, filename: HR_ROSTER_FILENAME },
   { tableName: HR_DEPT_MONTHLY_TABLE_NAME, filename: HR_DEPT_MONTHLY_FILENAME },
+  { tableName: GP_RACE_RESULTS_TABLE_NAME, filename: "GP_Race_Results.csv" },
+  { tableName: GP_RACE_LAPS_TABLE_NAME, filename: "GP_Race_Laps.csv" },
+  { tableName: GP_RACE_PITSTOPS_TABLE_NAME, filename: "GP_Race_Pitstops.csv" },
+  { tableName: GP_SEASON_POINTS_TABLE_NAME, filename: "GP_Season_Points.csv" },
+  { tableName: GP_DRIVER_STANDINGS_TABLE_NAME, filename: "GP_Driver_Standings.csv" },
+  { tableName: GP_CONSTRUCTOR_STANDINGS_TABLE_NAME, filename: "GP_Constructor_Standings.csv" },
+  { tableName: GP_SCHEDULE_TABLE_NAME, filename: "GP_Schedule.csv" },
 ];

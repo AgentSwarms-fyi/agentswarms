@@ -118,6 +118,20 @@ export type BiChartAnalytics = {
    * when a `seriesField` splits the chart instead.
    */
   extraMeasures?: string[];
+  /**
+   * A column holding each series' colour as #rrggbb (R500): a team's livery
+   * on its line, whatever order the series come in. Line, area, bump and
+   * radial bars read it; a value that is not a colour falls back to the
+   * palette.
+   */
+  colorField?: string;
+  /** Name each line at its last point, with its value (R500). */
+  endLabels?: boolean;
+  /**
+   * Shaded spans along the x axis, each with a caption (R500): "Pit stops"
+   * over laps 18–28. `from`/`to` are x values as they appear in the rows.
+   */
+  xBands?: { from: string | number; to: string | number; label?: string }[];
 };
 
 /** Per-column display format for table widgets. */
@@ -138,6 +152,9 @@ export type BiColumnFormat = {
   rowHighlight?: boolean;
   /** The column's header as readers see it ("Sales (Sum)"), R499. */
   label?: string;
+  /** Text around the formatted value: "25" with suffix " pts" reads "25 pts" (R500). */
+  prefix?: string;
+  suffix?: string;
 };
 
 /** What a KPI's latest period is compared with (R498). */
@@ -165,6 +182,64 @@ export type ChartSpec = {
         type: "table";
         /** false hides the totals row (R499); a total is shown by default. */
         totals?: boolean;
+        /** Alternate rows shaded, for long lists read across (R500). */
+        striped?: boolean;
+      }
+    | {
+        /**
+         * One card per row (R500): a podium of three, a fastest lap, the
+         * races left. Text comes from templates — "{{given_name}}
+         * **{{family_name}}**" — so a card reads like a design, not a grid.
+         * "tiles" stand side by side; "rows" are wide strips, one per row.
+         */
+        type: "cards";
+        layout?: "tiles" | "rows";
+        /** The big picture on each card (an http(s) or data:image value). */
+        imageField?: string;
+        /** Small pictures beside it — a flag, a team badge. */
+        iconFields?: string[];
+        /** Above the picture, e.g. "**{{finish_position|ordinal}}** Place". */
+        heading?: string;
+        /** The name line, in the accent colour. */
+        title: string;
+        /** Lines under the title, one per line of the template. */
+        body?: string;
+        /** "rows" layout: the number at the start and the value at the end. */
+        lead?: string;
+        value?: string;
+        /** Cards shown (default 4 tiles, 6 rows). */
+        max?: number;
+      }
+    | {
+        /**
+         * Where each row started and where it ended (R500): a bar from
+         * `startField` to `endField` per `categoryField`, green where it
+         * improved, red where it fell back, a dot where it held. Positions
+         * improve downwards, so `lowerIsBetter` is the default.
+         */
+        type: "range";
+        categoryField: string;
+        startField: string;
+        endField: string;
+        higherIsBetter?: boolean;
+        /** Text beside each bar, e.g. "Russell: +0 (1 → 1)". */
+        labelField?: string;
+      }
+    | {
+        /** Concentric arcs, one per name, longest for the largest (R500). */
+        type: "radialbar";
+        nameField: string;
+        valueField: string;
+      }
+    | {
+        /**
+         * Rank over time (R500): one line per series, 1 at the top, named
+         * at both ends — positions lap by lap, standings week by week.
+         */
+        type: "bump";
+        xField: string;
+        yField: string;
+        seriesField: string;
       }
     | {
         type: "kpi";
@@ -236,7 +311,18 @@ export type ChartSpec = {
     | { type: "waterfall"; xField: string; yField: string }
     | { type: "gauge"; valueField: string; label?: string; targetField?: string; max?: number }
     | { type: "treemap"; nameField: string; valueField: string }
-    | { type: "heatmap"; xField: string; yField: string; valueField: string }
+    | {
+        type: "heatmap";
+        xField: string;
+        yField: string;
+        valueField: string;
+        /**
+         * "diverging" colours below zero green and above it red, white-free
+         * so it reads on dark (R500): lap time against a driver's own median.
+         * Rows keep the order the query returned them in.
+         */
+        scale?: "sequential" | "diverging";
+      }
     // Word cloud — words sized by frequency of textField (optionally weighted by valueField).
     | { type: "wordcloud"; textField: string; valueField?: string }
     | { type: "boxplot"; xField: string; yField: string }

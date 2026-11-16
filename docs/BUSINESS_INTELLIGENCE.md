@@ -13,7 +13,7 @@ and reports. An editable dashboard is called a **BI project**:
 - **Build visuals by hand** — a right-hand builder pane: pick a source (your
   Data & SQL datasets or any connected warehouse), tick one or **more tables
   to join** (a JOIN skeleton is written for you with auto-detected join
-  keys), run the read-only SQL, then pick from **27 visual types** in an
+  keys), run the read-only SQL, then pick from **31 visual types** in an
   icon picker: column, bar, **stacked column**, **stacked bar**, **bar
   race**, line, area, **combo (bars + line, dual axis)**, **scatter**,
   pie/donut, **nightingale**, **radar**, **funnel**, **sankey**,
@@ -891,6 +891,140 @@ time proportional to the completion budget, capped at 300 s — with the client
 always given 30 s more than the upstream deadline so the server gives up
 first.
 
+## Dashboards that look like their subject
+
+R500 adds what a designed dashboard needs, such as a race result on black with
+the winner's name in large type. The **Grand Prix Results · Sample** dashboard
+uses all of it. Everything is saved with the dashboard and looks the same in
+the editor, on a shared view, a public link, an embed and a PDF.
+
+**The canvas** (Theme in the toolbar):
+
+- **Canvas: Always dark** keeps the dashboard and its widgets dark for every
+  viewer, whatever their app is set to. **Follow the app** is the default.
+- **Canvas colour**: Black, White, Racing red, Gold, Grey, Charcoal or any
+  colour from the picker.
+- **Pattern**: Grid, Fine grid or Diagonal, faint lines in a chosen colour
+  tiled behind the widgets. A pattern and a background image replace each
+  other.
+
+**A widget** (Appearance in its menu):
+
+- **Accent colour**: eight presets, six swatches or any colour.
+- **Card style**: Default, Accent tint, Glass, or **No card — sits on the
+  canvas**, which drops the frame. The frame shows faintly on hover, so the
+  widget can still be found and moved.
+- **Hide the title**, **Title size** S/M/L/XL and **Title colour**.
+
+Editing a widget keeps its appearance and its Import/Direct mode. Before R500
+the editor rebuilt the widget from the fields it shows, and saving an edit
+reset both.
+
+**Text blocks** take a size (Small to Headline), alignment, text and heading
+colours and italic. A line break typed is a line break shown:
+
+```text
+# Brazilian Grand Prix
+*8 November 2026 · Round 20 of 23*
+```
+
+That block is set at Display size, centred, white, with Racing red headings,
+in italic, with no card and its title hidden.
+
+**Cards** (`cards`) draw one card per row from templates over the row's
+columns:
+
+| Write                 | Gets                                        |
+| --------------------- | ------------------------------------------- |
+| `{{column}}`          | the value, in the visual's number format    |
+| `{{column\|ordinal}}` | a whole number as 1st, 2nd, 3rd, 11th, 22nd |
+| `**bold**`            | bold text                                   |
+
+Values are always text, never markup. **Side by side (a podium)** shows a
+heading, picture, title and lines; **One row each (a list)** shows a number,
+picture, title, lines and a value at the end. **Picture** takes an image
+address or data URI; **Small pictures** adds more, such as a flag. A list
+sizes itself to its card: below 24rem it drops the small pictures and steps
+the text down.
+
+**Rank, range and radial visuals:**
+
+- **Rank over time** (`bump`): a line per series with rank 1 at the top, named
+  at both ends. The chart holds a rank until it changes, so the query needs
+  only the rows where a rank changes. In the sample, 1,435 lap rows become 343,
+  which fits under the 500-row snapshot cap, and the chart is unchanged.
+  `xBands` shades spans such as pit-stop laps.
+- **Start → finish** (`range`): a bar from start to end per row, green where it
+  improved, red where it got worse and a dot where it held. Lower is better
+  unless `higherIsBetter`.
+- **Radial bars** (`radialbar`): concentric arcs, the largest outermost and
+  sweeping three quarters of a turn, so the names fit in the clear quarter.
+
+**Colours and labels:**
+
+- **Colour from column** (line, rank, radial) takes each series' colour from a
+  `#rrggbb` column, such as a team colour. Other values are ignored.
+- **Name each line at its end** prints each line's name and last value, spaced
+  apart where lines finish close together.
+- Table rules gain **Gold, Silver and Bronze**.
+- Table columns gain text before and after the value (`390 pts`). Such a cell
+  stays on one line.
+- Tables gain **Shade alternate rows**.
+- Heatmaps gain **Green below zero, red above** (`scale: "diverging"`), for a
+  value against a baseline where less is better.
+
+**Fitting under the 500-row cap:**
+
+- A rank chart needs only the rank-change rows.
+- A heatmap over time can group the time axis into blocks: three-lap blocks
+  give 487 cells for 22 drivers over 71 laps.
+- A running total is one row per series per step: 200 rows for 10 drivers
+  over 20 rounds.
+
+**The sample's queries.** The rank chart:
+
+```sql
+WITH p AS (
+  SELECT 0 AS lap, code, grid AS position, team_color FROM gp_race_results
+  UNION ALL
+  SELECT lap, code, position, team_color FROM gp_race_laps
+), k AS (
+  SELECT *, LAG(position) OVER (PARTITION BY code ORDER BY lap) AS prev,
+    LEAD(position) OVER (PARTITION BY code ORDER BY lap) AS nxt
+  FROM p
+)
+SELECT lap, code, position, team_color
+FROM k
+WHERE prev IS NULL OR nxt IS NULL OR position <> prev
+ORDER BY lap, position
+```
+
+The points race fills every round for every driver, so a driver who missed
+races keeps an unbroken line:
+
+```sql
+SELECT r.round, d.family_name, d.team_color, SUM(p.points) AS total_points
+FROM (SELECT DISTINCT round FROM gp_season_points) r
+CROSS JOIN gp_driver_standings d
+JOIN gp_season_points p ON p.code = d.code AND p.round <= r.round
+WHERE d.position <= 10
+GROUP BY r.round, d.family_name, d.team_color
+ORDER BY r.round, total_points DESC
+```
+
+The `gp_*` tables come from the Jolpica F1 API (CC BY-NC-SA 4.0, free for
+non-commercial use). Rebuild them for any race with
+`node scripts/buildGrandPrixSample.mjs [season] [round]`. Badges and flags are
+drawn shapes, not photographs or logos. The sample ships in migration
+`20261117000000`.
+
+**Suggested narratives** now leave out ranks, rounds and ids as the measure
+and pictures, links and colours as the label, and use the visual's own measure
+and category first. Before, a standings table offered "the top 3 given names
+by position" with percentages of summed positions. A query that returns a
+running total still gets a sum of that total, because nothing marks a column
+as cumulative. Write the narrative from the per-round figures instead.
+
 ## Building a visual from fields
 
 The builder opens in **Fields** mode (R499). Pick a table and click the
@@ -927,13 +1061,13 @@ aggregation into the query; the engine adds up every row.
    them. The visual is saved with its fields, so editing it reopens Fields
    mode with the same picks. A visual sent to SQL with Edit as SQL stays SQL.
 
-| Your fields | The chart it starts as |
-| --- | --- |
-| Values only, nothing grouped | KPI |
-| A date grouped by a period, with values | Line |
-| One text field, with values | Bar |
-| Two text fields and one value | Stacked column (the second field is the series) |
-| Groups only, no values | Table |
+| Your fields                             | The chart it starts as                          |
+| --------------------------------------- | ----------------------------------------------- |
+| Values only, nothing grouped            | KPI                                             |
+| A date grouped by a period, with values | Line                                            |
+| One text field, with values             | Bar                                             |
+| Two text fields and one value           | Stacked column (the second field is the series) |
+| Groups only, no values                  | Table                                           |
 
 Picking another type reassigns the same fields: the category becomes the
 pie's slices, a KPI takes the grouped date as its period, a narrative ranks
@@ -941,20 +1075,20 @@ by the first value, a combo draws the second value as its line.
 
 **Filters.**
 
-| Condition | Value | Example |
-| --- | --- | --- |
-| is one of / is not one of | One or more, comma-separated | Region · is one of · `EMEA, AMER` |
-| = ≠ > ≥ < ≤ | One value | Discount · > · `0` |
-| between | Two values, comma-separated, both ends included | Sales · between · `10, 500` |
-| contains | Text anywhere in the value, ignoring case | Customer · contains · `energy` |
-| is not empty | None; drops NULLs, and empty text too | Industry · is not empty |
+| Condition                 | Value                                           | Example                           |
+| ------------------------- | ----------------------------------------------- | --------------------------------- |
+| is one of / is not one of | One or more, comma-separated                    | Region · is one of · `EMEA, AMER` |
+| = ≠ > ≥ < ≤               | One value                                       | Discount · > · `0`                |
+| between                   | Two values, comma-separated, both ends included | Sales · between · `10, 500`       |
+| contains                  | Text anywhere in the value, ignoring case       | Customer · contains · `energy`    |
+| is not empty              | None; drops NULLs, and empty text too           | Industry · is not empty           |
 
 A number field takes numbers only. A date field takes ISO (`2025-01-31`,
 optionally with a time) or a date written the way the column writes it
 (`1/31/2025` for `m/d/yyyy` text), and compares dates as dates.
 
 **Calculated fields.** A name and an expression over the table's columns, in
-the source's SQL (quote names with spaces). With *It aggregates by itself*
+the source's SQL (quote names with spaces). With _It aggregates by itself_
 ticked — `100 * SUM("Profit") / SUM("Sales")` — it is a value used as
 written and cannot be grouped by. Unticked — `"Sales" - "Profit"` — it
 behaves like a column: summed or averaged if a number, grouped if text. It
@@ -1002,8 +1136,8 @@ cannot run DuckDB's date functions; build those visuals in SQL mode.
 text), Region, Customer, Industry, Segment, Product, Sales, Quantity,
 Discount, Profit. The SQL is exactly what Fields mode writes for it.
 
-**1. Sales by region** — click Region, then Sales → bar chart *Sales by
-Region*.
+**1. Sales by region** — click Region, then Sales → bar chart _Sales by
+Region_.
 
 ```sql
 SELECT "Region" AS "region",
@@ -1015,7 +1149,7 @@ LIMIT 1000
 ```
 
 **2. Sales and profit by month** — click Order Date, Sales and Profit → line
-chart with two lines, *Sales and Profit by month*. The text dates are parsed
+chart with two lines, _Sales and Profit by month_. The text dates are parsed
 in their own format before bucketing; months come back as `2024-11`,
 `2024-12`…, quarters as `2024-Q4`, weeks as `2024-W45`.
 
@@ -1048,8 +1182,8 @@ ORDER BY "order_date_month" ASC
 **KPI**: the latest month, its change against the month before and a trend
 line. **Compare with** → same period last year gives a year-on-year tile.
 
-**4. Top 10 customers in EMEA by profit** — Customer, Profit; filter *Region
-· is one of · EMEA*; Show top 10.
+**4. Top 10 customers in EMEA by profit** — Customer, Profit; filter _Region
+· is one of · EMEA_; Show top 10.
 
 ```sql
 SELECT "Customer" AS "customer",
@@ -1082,9 +1216,9 @@ totals row off. A customer who bought several products counts under each, so
 the Customers column adds up to 1,260 while there are 99 customers.
 
 **7. A headline sentence** — with example 2 built, Suggested narratives offers,
-computed from the sample: *Sales for Dec 2025 decreased by 19.5% (−21.9k) from
-112.3k to 90.5k.* and *The most recent anomaly was Nov 2025: sales was 112.3k,
-higher than the typical 39.8k.* Added, each is recomputed when filters change
+computed from the sample: _Sales for Dec 2025 decreased by 19.5% (−21.9k) from
+112.3k to 90.5k._ and _The most recent anomaly was Nov 2025: sales was 112.3k,
+higher than the typical 39.8k._ Added, each is recomputed when filters change
 its rows.
 
 ## KPIs that compare periods
@@ -1093,7 +1227,7 @@ A KPI with a **date** treats its rows as a series and shows the **latest
 period**, its change against **the period before** or **the same period last
 year**, and — with **Trend line** — the periods behind it; a target column
 adds a progress bar, and **Lower is better** turns a fall green (R498).
-**Period** sets what one period is: *As the rows are* keeps one row per
+**Period** sets what one period is: _As the rows are_ keeps one row per
 period, so rates and averages are never summed, while a month, week, quarter
 or year adds the rows inside each together. `2026-Q3` and `2026-W05` labels
 read as dates. A comparison period with no data is reported as missing

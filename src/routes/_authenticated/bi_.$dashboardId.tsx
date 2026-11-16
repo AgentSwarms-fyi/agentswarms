@@ -61,6 +61,8 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { BiWidgetAppearance } from "@/components/bi/BiWidgetAppearance";
+import { BiTextWidgetDialog } from "@/components/bi/BiTextWidgetDialog";
 import { BiBuilderPane, type BuilderTab } from "@/components/bi/BiBuilderPane";
 import { BiExploreDialog } from "@/components/bi/BiExploreDialog";
 import { extractBaseTable } from "@/components/bi/exploreSql";
@@ -90,12 +92,12 @@ import {
 } from "@/lib/biAgent";
 import {
   AUTO_SNAPSHOT_MS,
-  WIDGET_ACCENTS,
   addWidgetToLayout,
   applyRowFilters,
   compactLayout,
   dashSurfaceStyle,
   parseDashTheme,
+  dashSurfaceClass,
   filterWidgetRows,
   getDashboard,
   getMyDashboardRowFilters,
@@ -117,6 +119,7 @@ import {
   touchDashboardView,
   updateDashboard,
   DashboardConflictError,
+  editorCarried,
   type BiCrossFilter,
   type BiRowFilter,
   type BiDashboardRow,
@@ -1653,7 +1656,11 @@ function BiProjectPage() {
             editable={!readOnly}
             onConfigsChange={persistFilterConfigs}
           />
-          <div ref={gridWrapRef} className="rounded-xl" style={dashSurfaceStyle(dashTheme)}>
+          <div
+            ref={gridWrapRef}
+            className={cn("rounded-xl", dashSurfaceClass(dashTheme))}
+            style={dashSurfaceStyle(dashTheme)}
+          >
             <DashboardGrid
               layout={layout}
               editable={!readOnly}
@@ -1718,7 +1725,12 @@ function BiProjectPage() {
                           )}
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button size="sm" variant="ghost" className="h-6 w-6 shrink-0 p-0">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 w-6 shrink-0 p-0"
+                                aria-label={`Actions for ${w.title}`}
+                              >
                                 <MoreVertical className="h-3.5 w-3.5" />
                               </Button>
                             </DropdownMenuTrigger>
@@ -1821,62 +1833,10 @@ function BiProjectPage() {
                               <DropdownMenuItem onClick={() => duplicateWidget(w.id)}>
                                 <Copy className="mr-2 h-3.5 w-3.5" /> Duplicate
                               </DropdownMenuItem>
-                              <DropdownMenuSub>
-                                <DropdownMenuSubTrigger>
-                                  <Palette className="mr-2 h-3.5 w-3.5" /> Appearance
-                                </DropdownMenuSubTrigger>
-                                <DropdownMenuPortal>
-                                  <DropdownMenuSubContent className="w-48">
-                                    <p className="px-2 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                                      Accent
-                                    </p>
-                                    <div className="grid grid-cols-4 gap-1 px-2 pb-1.5">
-                                      {Object.entries(WIDGET_ACCENTS).map(([id, a]) => (
-                                        <button
-                                          key={id}
-                                          type="button"
-                                          title={a.label}
-                                          onClick={() =>
-                                            setWidgetTheme(w.id, {
-                                              accent: id === "default" ? undefined : id,
-                                            })
-                                          }
-                                          className={`h-6 rounded-md border ${
-                                            (w.theme?.accent ?? "default") === id
-                                              ? "border-foreground"
-                                              : "border-border/60"
-                                          }`}
-                                          style={{ background: a.color || "var(--primary)" }}
-                                        />
-                                      ))}
-                                    </div>
-                                    <p className="px-2 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                                      Card style
-                                    </p>
-                                    {(["default", "tint", "glass"] as const).map((c) => (
-                                      <DropdownMenuItem
-                                        key={c}
-                                        onClick={() =>
-                                          setWidgetTheme(w.id, {
-                                            card: c === "default" ? undefined : c,
-                                          })
-                                        }
-                                        className={
-                                          (w.theme?.card ?? "default") === c
-                                            ? "font-semibold"
-                                            : undefined
-                                        }
-                                      >
-                                        {c === "default"
-                                          ? "Default"
-                                          : c === "tint"
-                                            ? "Accent tint"
-                                            : "Glass (over image)"}
-                                      </DropdownMenuItem>
-                                    ))}
-                                  </DropdownMenuSubContent>
-                                </DropdownMenuPortal>
-                              </DropdownMenuSub>
+                              <BiWidgetAppearance
+                                theme={w.theme}
+                                onChange={(patch) => setWidgetTheme(w.id, patch)}
+                              />
                               {w.kind === "chart" && (w.rows?.length ?? 0) > 0 && (
                                 <DropdownMenuItem onClick={() => downloadWidgetCsv(w)}>
                                   <FileDown className="mr-2 h-3.5 w-3.5" /> Download CSV
@@ -1928,7 +1888,7 @@ function BiProjectPage() {
 
       {!readOnly && (
         <>
-          <TextWidgetDialog
+          <BiTextWidgetDialog
             open={textOpen}
             onOpenChange={setTextOpen}
             initial={textInitial}
@@ -2058,74 +2018,6 @@ function BiProjectPage() {
   );
 }
 
-function TextWidgetDialog({
-  open,
-  onOpenChange,
-  initial,
-  onSubmit,
-}: {
-  open: boolean;
-  onOpenChange: (o: boolean) => void;
-  initial: BiWidget | null;
-  onSubmit: (w: BiWidget) => void;
-}) {
-  const [title, setTitle] = useState("");
-  const [text, setText] = useState("");
-
-  useEffect(() => {
-    if (!open) return;
-    setTitle(initial?.title ?? "");
-    setText(initial?.text ?? "");
-  }, [open, initial]);
-
-  function submit() {
-    if (!title.trim()) return toast.error("Give the text block a title");
-    onSubmit({
-      id: initial?.id ?? crypto.randomUUID(),
-      kind: "text",
-      title: title.trim(),
-      text,
-    });
-    onOpenChange(false);
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{initial ? "Edit text block" : "Add text block"}</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div className="space-y-1.5">
-            <Label>Title</Label>
-            <Input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Executive summary"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Content (Markdown supported)</Label>
-            <Textarea
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              rows={8}
-              placeholder={"## Key takeaways\n- Revenue grew 12% QoQ\n- …"}
-              className="font-mono text-xs"
-            />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button onClick={submit}>{initial ? "Save" : "Add to dashboard"}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 const IMAGE_UPLOAD_MAX_BYTES = 3 * 1024 * 1024; // 3 MB — kept inline in the dashboard JSON
 
 function ImageWidgetDialog({
@@ -2182,6 +2074,8 @@ function ImageWidgetDialog({
       kind: "image",
       title: title.trim(),
       image: { src: src.trim(), fit, href: href.trim() || undefined, alt: alt.trim() || undefined },
+      // The card's appearance is set from its menu; editing must not reset it.
+      ...editorCarried(initial),
     });
     onOpenChange(false);
   }

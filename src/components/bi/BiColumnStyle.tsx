@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 
 /** True when the column has any style (or its own title) beyond its number format. */
 function hasColumnStyle(f: BiColumnFormat | undefined): boolean {
-  return Boolean(f?.display || f?.cond || f?.rowHighlight || f?.label);
+  return Boolean(f?.display || f?.cond || f?.rowHighlight || f?.label || f?.prefix || f?.suffix);
 }
 
 export function BiColumnStyle({
@@ -88,6 +88,32 @@ export function BiColumnStyle({
             aria-label={`Title of the ${column} column`}
             className="h-8 text-xs"
           />
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-1">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Before the value
+            </Label>
+            <Input
+              value={value.prefix ?? ""}
+              onChange={(e) => onChange({ ...value, prefix: e.target.value || undefined })}
+              placeholder="e.g. P"
+              aria-label={`Text before each ${column} value`}
+              className="h-8 text-xs"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              After the value
+            </Label>
+            <Input
+              value={value.suffix ?? ""}
+              onChange={(e) => onChange({ ...value, suffix: e.target.value || undefined })}
+              placeholder="e.g.  pts"
+              aria-label={`Text after each ${column} value`}
+              className="h-8 text-xs"
+            />
+          </div>
         </div>
         <div className="space-y-1">
           <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">

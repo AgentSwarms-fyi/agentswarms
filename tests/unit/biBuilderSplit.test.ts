@@ -44,6 +44,9 @@ const CHILDREN = {
   "BiValueFormat.tsx": readFileSync("src/components/bi/BiValueFormat.tsx", "utf8"),
   "BiBuildPreview.tsx": readFileSync("src/components/bi/BiBuildPreview.tsx", "utf8"),
   "BiExtraMeasures.tsx": readFileSync("src/components/bi/BiExtraMeasures.tsx", "utf8"),
+  // R500: the options of the visuals added for race dashboards (cards,
+  // ranges, radial bars, rank over time) and of line colours and bands.
+  "BiVisualOptions.tsx": readFileSync("src/components/bi/BiVisualOptions.tsx", "utf8"),
 };
 
 describe("no hook moved out of the parent", () => {

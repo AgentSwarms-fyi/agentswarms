@@ -465,6 +465,13 @@ function BiPage() {
         <a href="#ch-narrative">narrative</a> visual over the same query, so it follows filters and
         refreshes like the chart beside it.
       </P>
+      <P>
+        The sentences are about the visual&apos;s own measure and category when it has them — a
+        points chart gets sentences about points. A rank, a round, a sequence number or an id is
+        never summed as if it were an amount, and a column of pictures, links or colours never names
+        a row. A query that returns a running total still gets a sum of that total, since nothing
+        marks a column as cumulative: suggest from the per-period figures instead.
+      </P>
 
       <H3 id="fields-examples">Worked examples</H3>
       <P>
@@ -680,7 +687,7 @@ GROUP BY region`}</Code>
         leave incremental off.
       </Callout>
 
-      <H2 id="charts">Chart types — all 27, with required fields</H2>
+      <H2 id="charts">Chart types — all 31, with required fields</H2>
       <P>
         Each chart declares which fields it needs. The builder only offers types your selected
         columns can satisfy, so a chart missing a required field cannot be created.
@@ -697,7 +704,12 @@ GROUP BY region`}</Code>
             "Vertical columns; ranking and comparison",
           ],
           [<C key="b">hbar</C>, "xField, yField", "—", "Horizontal bars; long category names"],
-          [<C key="c">line</C>, "xField, yField", "seriesField, extraMeasures", "Change over time"],
+          [
+            <C key="c">line</C>,
+            "xField, yField",
+            "seriesField, extraMeasures, colorField, endLabels, xBands",
+            "Change over time. colorField takes each line's colour from a #rrggbb column; endLabels names every line at its end; xBands shades spans of the x axis",
+          ],
           [
             <C key="d">area</C>,
             "xField, yField",
@@ -852,8 +864,8 @@ GROUP BY region`}</Code>
           [
             <C key="b">heatmap</C>,
             "xField, yField, valueField",
-            "—",
-            "Density across two dimensions",
+            "scale",
+            "Density across two dimensions. scale: diverging (Green below zero, red above) for a value measured against a baseline where less is better, such as seconds against a median lap",
           ],
           [<C key="c">boxplot</C>, "xField, yField", "—", "Spread and outliers per category"],
           [
@@ -872,8 +884,8 @@ GROUP BY region`}</Code>
           [
             <C key="a">table</C>,
             "—",
-            "columnFormats, totals",
-            "Exact figures read row by row; cells can be data bars, pictures, links, coloured and given icons; columns can be retitled and the totals row turned off",
+            "columnFormats, totals, striped",
+            "Exact figures read row by row; cells can be data bars, pictures, links, coloured and given icons, with text before and after the value; columns can be retitled, alternate rows shaded and the totals row turned off",
           ],
           [
             <C key="b">matrix</C>,
@@ -891,6 +903,30 @@ GROUP BY region`}</Code>
         headers={["Type", "Required fields", "Optional", "Use for"]}
         rows={[
           [<C key="a">barrace</C>, "xField, yField, timeField", "—", "Animated ranking over time"],
+          [
+            <C key="e">bump</C>,
+            "xField, yField, seriesField",
+            "colorField, xBands",
+            "Rank over time: 1 at the top, every line named at the start and the end — positions lap by lap, standings round by round",
+          ],
+          [
+            <C key="f">range</C>,
+            "categoryField, startField, endField",
+            "labelField, higherIsBetter",
+            "Where each row started and finished: green where it gained, red where it lost, a dot where it held",
+          ],
+          [
+            <C key="g">radialbar</C>,
+            "nameField, valueField",
+            "colorField",
+            "Concentric arcs, the leader outermost — a standings table drawn as a ring",
+          ],
+          [
+            <C key="h">cards</C>,
+            "title (a template)",
+            "layout, imageField, iconFields, heading, body, lead, value, max",
+            "One card per row from templates: a podium, a fastest lap, a top three, the races left",
+          ],
           [
             <C key="b">wordcloud</C>,
             "textField",
@@ -953,6 +989,285 @@ GROUP BY region`}</Code>
         does more for adoption than another chart.
       </Callout>
 
+      <H2 id="design">Designing a dashboard that looks like its subject</H2>
+      <P>
+        A race result reads best on black with the winner&apos;s name in large type; a board pack
+        reads best on white with nothing competing for attention. Everything below is set from the
+        editor, is saved with the dashboard, and looks the same on a shared view, a public link, an
+        embed and a PDF. The <strong>Grand Prix Results · Sample</strong> dashboard uses all of it;
+        its walkthrough is at the end of this section.
+      </P>
+
+      <H3 id="design-canvas">The canvas: always dark, a colour, a pattern</H3>
+      <P>
+        <strong>Theme</strong> in the editor toolbar sets the page behind the widgets:
+      </P>
+      <FieldList
+        items={[
+          {
+            name: "Canvas",
+            body: (
+              <>
+                <strong>Follow the app</strong> (light or dark, as each viewer has it) or{" "}
+                <strong>Always dark</strong>. Always dark keeps the dashboard dark for every viewer,
+                with its widgets in dark colours too — the reader of a black race page should not
+                get a white one because their app is light.
+              </>
+            ),
+          },
+          {
+            name: "Canvas colour",
+            body: "A colour behind everything: Black, White, Racing red, Gold, Grey, Charcoal, or any colour from the picker. Theme colour clears it.",
+          },
+          {
+            name: "Pattern",
+            body: "Grid, Fine grid or Diagonal, drawn as faint lines in the colour beside them and tiled behind the widgets. A pattern replaces a background image, and an image replaces a pattern.",
+          },
+          {
+            name: "Background image and font",
+            body: "As before: an image (compressed to 0.9 MB and kept with the dashboard) with fit and darken, and a dashboard font.",
+          },
+        ]}
+      />
+
+      <H3 id="design-cards">A widget&apos;s appearance</H3>
+      <P>
+        Each widget&apos;s menu has <strong>Appearance</strong>:
+      </P>
+      <UL>
+        <li>
+          <strong>Accent colour</strong> — eight preset colours, six swatches and any colour from
+          the picker. It colours the chart&apos;s primary series, card titles and the header icon.
+        </li>
+        <li>
+          <strong>Card style</strong> — Default, Accent tint, Glass (over an image) or{" "}
+          <strong>No card — sits on the canvas</strong>, which drops the frame so a title or a row
+          of cards sits directly on the page. The frame shows faintly on hover, so the widget can
+          still be found and moved.
+        </li>
+        <li>
+          <strong>Hide the title</strong> — for a text block that is its own title. The menu stays
+          reachable on hover, and a chart still shows its <em>Partial</em> badge, and its data age
+          once stale.
+        </li>
+        <li>
+          <strong>Title size</strong> (S, M, L, XL) and <strong>title colour</strong>.
+        </li>
+      </UL>
+      <P>
+        Editing a widget keeps all of this. Saving an edit used to reset it, because the editor
+        rebuilt the widget from the fields it shows; the appearance and the Import/Direct choice are
+        now carried over.
+      </P>
+
+      <H3 id="design-text">Text blocks set like a title page</H3>
+      <P>
+        <strong>Text</strong> takes Markdown and, below it, a size (Small to Headline), an
+        alignment, a text colour, a heading colour and italic, with a preview on a dark ground. A
+        line break you type is a line break on the dashboard; a blank line starts a new paragraph.
+        The race title in the sample is:
+      </P>
+      <Code lang="markdown">{`# Brazilian Grand Prix
+*8 November 2026 · Round 20 of 23*`}</Code>
+      <P>
+        set at Display size, centred, white text, Racing red headings, italic, with no card and the
+        title hidden.
+      </P>
+
+      <H3 id="design-card-templates">Cards from templates</H3>
+      <P>
+        The <C>cards</C> visual draws one card per row, and each line of a card is a template over
+        the row&apos;s columns:
+      </P>
+      <Table
+        headers={["Write", "Gets", "Example"]}
+        rows={[
+          [<C key="a">{"{{column}}"}</C>, "The value, in the visual's number format", "Norris"],
+          [
+            <C key="b">{"{{column|ordinal}}"}</C>,
+            "A whole number as 1st, 2nd, 3rd, 11th, 22nd",
+            "1st",
+          ],
+          [<C key="c">**bold**</C>, "Bold text — around a value or plain words", "**Norris**"],
+          [
+            <C key="d">a new line</C>,
+            "Another line (in the lines under the title)",
+            "1:35:23.504 / 25 points",
+          ],
+        ]}
+      />
+      <P>
+        A value is always text: a column holding markup prints the markup. Two layouts:{" "}
+        <strong>Side by side (a podium)</strong> shows a heading, a picture, a title and lines under
+        it; <strong>One row each (a list)</strong> shows a number at the start, a picture, a title,
+        lines under it and a value at the end. <strong>Picture</strong> takes a column holding an
+        image address or an image data URI; <strong>Small pictures</strong> adds more, such as a
+        flag. Lists size themselves to the card they are in, so a narrow card drops the small
+        pictures and steps the text down rather than cutting a name to one letter.
+      </P>
+
+      <H3 id="design-rank">Rank, range and radial visuals</H3>
+      <FieldList
+        items={[
+          {
+            name: "Rank over time (bump)",
+            body: (
+              <>
+                One line per series (<C>seriesField</C>) along <C>xField</C>, with rank 1 at the top
+                and each line named at its start and end. The chart holds a rank until it changes,
+                so the query only needs the points where a rank changes: the sample&apos;s 1,435 lap
+                rows become 343, under the snapshot cap, and draw the same chart. <C>xBands</C>{" "}
+                shades spans such as pit-stop laps.
+              </>
+            ),
+          },
+          {
+            name: "Start → finish (range)",
+            body: "A bar from startField to endField for each category: green where the value improved, red where it got worse, a dot where it held. Set higherIsBetter for values where bigger is better (lower is better by default, as for positions). labelField prints a sentence beside each bar.",
+          },
+          {
+            name: "Radial bars",
+            body: "Concentric arcs, the largest outermost and sweeping three quarters of a turn, so every name fits in the clear quarter at the top left.",
+          },
+        ]}
+      />
+
+      <H3 id="design-colours">Colours from the data, names at line ends</H3>
+      <P>
+        <strong>Colour from column</strong> (line, rank and radial visuals) takes each series&apos;
+        colour from a <C>#rrggbb</C> column in the rows — a team&apos;s colour, a product
+        line&apos;s brand colour. Anything that is not a six-digit colour is ignored and the series
+        keeps its default. <strong>Name each line at its end</strong> prints the series and its last
+        value at the end of each line, spaced apart when lines finish close together, so a chart
+        with ten lines can be read without the legend. In table conditional formatting, Gold, Silver
+        and Bronze sit beside the other rule colours.
+      </P>
+
+      <H3 id="design-cap">Fitting under the snapshot cap</H3>
+      <P>
+        A widget keeps at most 500 rows (see <a href="#row-cap">the row cap</a>). Detail-level data
+        — every lap of every car — is past that, so write the query at the level the chart draws:
+      </P>
+      <UL>
+        <li>
+          A rank chart needs only the rows where a rank changes, plus each series&apos; first and
+          last.
+        </li>
+        <li>
+          A heatmap over time can group the time axis into blocks: three-lap blocks give 487 cells
+          for 22 drivers over 71 laps.
+        </li>
+        <li>
+          A running total per series is one row per series per step (200 rows for 10 drivers over 20
+          rounds).
+        </li>
+      </UL>
+
+      <H3 id="design-sample">Walkthrough: the Grand Prix Results sample</H3>
+      <P>
+        Two pages over the <C>gp_*</C> sample tables: the 2026 Brazilian Grand Prix, and the
+        championships after it. The canvas is Always dark on black with a red Grid pattern. The
+        first page&apos;s visuals sit on the canvas with no card; the second page&apos;s keep their
+        cards, with Racing red titles at size L (M on the two radial charts, whose cards are
+        narrow).
+      </P>
+      <Table
+        headers={["Widget", "Visual", "Set up"]}
+        rows={[
+          [
+            "Wordmark, race title, circuit",
+            "Text",
+            "No card, title hidden; Larger or Display, white text, Racing red headings, italic",
+          ],
+          [
+            "Podium",
+            "Cards, side by side",
+            <>
+              Heading <C>{"**{{finish_position|ordinal}}** Place"}</C>, title{" "}
+              <C>{"{{given_name}} **{{family_name}}**"}</C>, picture <C>badge</C>, small picture{" "}
+              <C>flag</C>
+            </>,
+          ],
+          [
+            "Lap by lap",
+            "Rank over time",
+            "Along lap, rank position, one line per code, colour team_color, band laps 14–17",
+          ],
+          [
+            "Final result",
+            "Table",
+            'badge as a picture with a blank title, points after the value " pts", pos rules = 1 Gold, = 2 Silver, = 3 Bronze colouring the whole row, totals off',
+          ],
+          [
+            "Lap times",
+            "Heatmap, diverging",
+            "Seconds against each driver's median lap, capped at ±1.5 s",
+          ],
+          [
+            "Starting grid vs final position",
+            "Start → finish",
+            "From grid to finish, label a sentence per driver",
+          ],
+          [
+            "Driver and constructor leaders",
+            "Cards, one row each",
+            <>
+              Number <C>{"{{position}}"}</C>, picture <C>badge</C>, title{" "}
+              <C>{"**{{family_name}}**"}</C>, line <C>{"{{team}} · {{wins}} wins"}</C>, value{" "}
+              <C>{"**{{points}}** pts"}</C>
+            </>,
+          ],
+          ["Top drivers, Constructors", "Radial bars", "Colour from team_color"],
+          [
+            "Points races",
+            "Line",
+            "x round, one line per driver or team, colour team_color, names at the ends",
+          ],
+        ]}
+      />
+      <P>The rank chart&apos;s query keeps only the laps where a position changed:</P>
+      <Code lang="sql">{`WITH p AS (
+  SELECT 0 AS lap, code, grid AS position, team_color FROM gp_race_results
+  UNION ALL
+  SELECT lap, code, position, team_color FROM gp_race_laps
+), k AS (
+  SELECT *, LAG(position) OVER (PARTITION BY code ORDER BY lap) AS prev,
+    LEAD(position) OVER (PARTITION BY code ORDER BY lap) AS nxt
+  FROM p
+)
+SELECT lap, code, position, team_color
+FROM k
+WHERE prev IS NULL OR nxt IS NULL OR position <> prev
+ORDER BY lap, position`}</Code>
+      <P>The heatmap compares each driver with their own median lap, in three-lap blocks:</P>
+      <Code lang="sql">{`WITH med AS (
+  SELECT code, MEDIAN(lap_seconds) AS m FROM gp_race_laps GROUP BY code
+)
+SELECT
+  CAST(FLOOR((l.lap - 1) / 3) AS INTEGER) * 3 + 1 AS lap,
+  CAST(l.final_position AS INTEGER) || '. ' || l.family_name AS driver,
+  ROUND(LEAST(GREATEST(AVG(l.lap_seconds) - MAX(med.m), -1.5), 1.5), 2) AS vs_median
+FROM gp_race_laps l JOIN med USING (code)
+GROUP BY 1, 2, l.final_position
+ORDER BY l.final_position, lap`}</Code>
+      <P>
+        The points race fills every round for every driver, so a driver who missed races keeps an
+        unbroken line:
+      </P>
+      <Code lang="sql">{`SELECT r.round, d.family_name, d.team_color, SUM(p.points) AS total_points
+FROM (SELECT DISTINCT round FROM gp_season_points) r
+CROSS JOIN gp_driver_standings d
+JOIN gp_season_points p ON p.code = d.code AND p.round <= r.round
+WHERE d.position <= 10
+GROUP BY r.round, d.family_name, d.team_color
+ORDER BY r.round, total_points DESC`}</Code>
+      <Callout kind="info" title="The data">
+        The <C>gp_*</C> tables come from the Jolpica F1 API (CC BY-NC-SA 4.0, free for
+        non-commercial use) and are rebuilt for any race with{" "}
+        <C>node scripts/buildGrandPrixSample.mjs [season] [round]</C>. Badges and flags are drawn
+        shapes, not photographs or logos.
+      </Callout>
+
       <H2 id="formatting">Number formatting</H2>
       <Table
         headers={["Option", "Values", "Notes"]}
@@ -967,7 +1282,7 @@ GROUP BY region`}</Code>
           [
             <C key="d">columnFormats</C>,
             "per column",
-            "Table widgets only — format each column independently (number | currency | percent, with its own currency and decimals), and style its cells: display (bar | image | link), cond (colours and icons) and rowHighlight.",
+            "Table widgets only — format each column independently (number | currency | percent, with its own currency and decimals), and style its cells: label (the column's title), prefix and suffix (text before and after each value, as in 390 pts), display (bar | image | link), cond (colours and icons) and rowHighlight.",
           ],
         ]}
       />

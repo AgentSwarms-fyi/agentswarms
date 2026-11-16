@@ -22,7 +22,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
-import { DASH_FONTS, dashSurfaceStyle, type BiDashTheme } from "@/lib/biDashboards";
+import { BiColourPick } from "@/components/bi/BiColourPick";
+import {
+  DASH_FONTS,
+  dashSurfaceStyle,
+  patternUrl,
+  type BiDashTheme,
+  type PatternKind,
+} from "@/lib/biDashboards";
+
+const PATTERNS: [PatternKind, string][] = [
+  ["grid", "Grid"],
+  ["fine", "Fine grid"],
+  ["diagonal", "Diagonal"],
+];
 
 const MAX_EDGE = 1600;
 const MAX_DATA_URL_BYTES = 900_000; // ~0.9MB after compression — keeps rows sane
@@ -59,6 +72,7 @@ export function BiThemeDialog({
 }) {
   const [draft, setDraft] = useState<BiDashTheme>(theme);
   const [busy, setBusy] = useState(false);
+  const [patternColor, setPatternColor] = useState("#e10600");
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Re-seed the draft each time the dialog opens.
@@ -211,6 +225,78 @@ export function BiThemeDialog({
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Canvas (R500) */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Canvas
+              </Label>
+              <Select
+                value={draft.mode ?? "app"}
+                onValueChange={(v) =>
+                  setDraft((d) => ({ ...d, mode: v === "dark" ? "dark" : undefined }))
+                }
+              >
+                <SelectTrigger className="h-8 text-xs" aria-label="Canvas">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="app" className="text-xs">
+                    Follow the app (light or dark)
+                  </SelectItem>
+                  <SelectItem value="dark" className="text-xs">
+                    Always dark
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="col-span-2 space-y-1">
+              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Canvas colour
+              </Label>
+              <BiColourPick
+                label="Canvas colour"
+                value={draft.page}
+                onChange={(page) => setDraft((d) => ({ ...d, page }))}
+              />
+            </div>
+          </div>
+
+          {/* Pattern (R500): a tiled line pattern as the background. */}
+          <div className="space-y-1.5">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Pattern
+            </Label>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {PATTERNS.map(([kind, name]) => (
+                <button
+                  key={kind}
+                  type="button"
+                  className="h-10 w-16 rounded-md border border-border text-[10px] text-muted-foreground hover:border-primary/60"
+                  style={{
+                    backgroundColor: draft.page ?? "#000000",
+                    backgroundImage: `url(${patternUrl(kind, patternColor)})`,
+                  }}
+                  onClick={() =>
+                    setDraft((d) => ({
+                      ...d,
+                      bg: { url: patternUrl(kind, patternColor), fit: "tile", dim: 0 },
+                    }))
+                  }
+                >
+                  <span className="rounded bg-background/80 px-1">{name}</span>
+                </button>
+              ))}
+              <input
+                type="color"
+                aria-label="Pattern colour"
+                value={patternColor}
+                onChange={(e) => setPatternColor(e.target.value)}
+                className="h-8 w-10 cursor-pointer rounded border border-border bg-transparent"
+              />
+            </div>
           </div>
 
           {/* Font */}

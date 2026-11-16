@@ -145,6 +145,7 @@ export function HeatmapGrid({
   yField,
   valueField,
   onElementClick,
+  scale = "sequential",
 }: {
   rows: Record<string, unknown>[];
   xField: string;
@@ -152,8 +153,10 @@ export function HeatmapGrid({
   valueField: string;
   /** Cross-filtering: column headers filter by xField, rows/cells by yField. */
   onElementClick?: (column: string, value: string) => void;
+  /** "diverging": below zero green, above it red, by distance from zero (R500). */
+  scale?: "sequential" | "diverging";
 }) {
-  const { xs, ys, cell, min, max } = useMemo(() => {
+  const { xs, ys, cell, min, max, maxAbs } = useMemo(() => {
     const xs: string[] = [];
     const ys: string[] = [];
     const cell = new Map<string, number>();
@@ -169,13 +172,18 @@ export function HeatmapGrid({
     }
     const all = [...cell.values()];
     return {
-      xs: xs.slice(0, 40),
+      // A race has 50-78 laps; 40 columns cut the last third off (R500).
+      xs: xs.slice(0, 120),
       ys: ys.slice(0, 60),
       cell,
       min: Math.min(...all, 0),
       max: Math.max(...all, 1e-9),
+      maxAbs: Math.max(...all.map((v) => Math.abs(v)), 1e-9),
     };
   }, [rows, xField, yField, valueField]);
+  // Past ~24 columns a number no longer fits a cell: the colour carries it,
+  // and the tooltip still gives the value.
+  const dense = xs.length > 24;
 
   if (xs.length === 0 || ys.length === 0) {
     return (
@@ -197,9 +205,9 @@ export function HeatmapGrid({
             {xs.map((x) => (
               <th
                 key={x}
-                className={`max-w-20 truncate px-1 pb-0.5 text-[9px] font-medium text-muted-foreground ${
-                  onElementClick ? "cursor-pointer hover:text-foreground" : ""
-                }`}
+                className={`max-w-20 truncate pb-0.5 font-medium text-muted-foreground ${
+                  dense ? "px-0 text-[7px]" : "px-1 text-[9px]"
+                } ${onElementClick ? "cursor-pointer hover:text-foreground" : ""}`}
                 title={x}
                 onClick={onElementClick ? () => onElementClick(xField, x) : undefined}
               >
@@ -223,22 +231,27 @@ export function HeatmapGrid({
               {xs.map((x) => {
                 const v = cell.get(`${y}\u0000${x}`);
                 const t = v === undefined ? 0 : (v - min) / (max - min || 1);
+                const fill =
+                  v === undefined
+                    ? "var(--muted)"
+                    : scale === "diverging"
+                      ? `color-mix(in oklab, ${v < 0 ? "#16a34a" : "#dc2626"} ${Math.round(
+                          6 + Math.min(1, Math.abs(v) / maxAbs) * 94,
+                        )}%, var(--muted))`
+                      : `color-mix(in oklab, var(--primary) ${Math.round(8 + t * 92)}%, var(--muted))`;
                 return (
                   <td
                     key={x}
                     title={v === undefined ? `${y} · ${x}: —` : `${y} · ${x}: ${fmtBiNumber(v)}`}
                     onClick={onElementClick ? () => onElementClick(yField, y) : undefined}
-                    className={`h-7 min-w-11 rounded-sm text-center text-[10px] tabular-nums ${
-                      t > 0.55 ? "text-primary-foreground" : "text-foreground/80"
-                    } ${onElementClick ? "cursor-pointer" : ""}`}
-                    style={{
-                      backgroundColor:
-                        v === undefined
-                          ? "var(--muted)"
-                          : `color-mix(in oklab, var(--primary) ${Math.round(8 + t * 92)}%, var(--muted))`,
-                    }}
+                    className={`rounded-sm text-center text-[10px] tabular-nums ${
+                      dense ? "h-4 min-w-1.5" : "h-7 min-w-11"
+                    } ${t > 0.55 ? "text-primary-foreground" : "text-foreground/80"} ${
+                      onElementClick ? "cursor-pointer" : ""
+                    }`}
+                    style={{ backgroundColor: fill }}
                   >
-                    {v === undefined ? "" : fmtBiNumber(v)}
+                    {v === undefined || dense ? "" : fmtBiNumber(v)}
                   </td>
                 );
               })}

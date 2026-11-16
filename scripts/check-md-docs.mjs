@@ -226,8 +226,11 @@ for (const file of FILES) {
   // them for env vars, where a fence is exactly where a variable is set.
   const prose = src.replace(/```[\s\S]*?```/g, "");
 
-  // 1. Relative markdown links resolve, including their anchors.
+  // 1. Relative markdown links resolve, including their anchors. A link to
+  // another site's .md file (a project's TERMS.md on GitHub) is not a file in
+  // this repository: it was resolved against docs/ and reported dead (R500).
   for (const m of prose.matchAll(/\]\(([^)\s#]+\.md)(#[^)\s]+)?\)/g)) {
+    if (/^[a-z][a-z0-9+.-]*:/i.test(m[1])) continue;
     const target = path.resolve(dir, m[1]);
     if (!fs.existsSync(target)) {
       fail("dead md link", `${name}: ${m[1]}`);

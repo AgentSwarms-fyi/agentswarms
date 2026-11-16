@@ -671,6 +671,25 @@ type InsightChart = Extract<ChartSpec, { type: "insight" }>;
 
 export type NarrativeSuggestion = { spec: InsightChart; title: string; text: string };
 
+/**
+ * Numbers that are not amounts: a rank, a round, a sequence or an id. Summed,
+ * they made sentences like "the top 3 given names by position are: George 3
+ * (50.0%)" — FOUND IN R500's UI test on a standings table.
+ */
+const NOT_A_MEASURE =
+  /^(id|.+_id|pos|position|.+_position|rank|ranking|.+_rank|round|lap|grid|seq|sequence|index|idx|no|number|.+_number|year)$/i;
+
+/** Pictures, links and colours are columns of a row, not names for it. */
+const NOT_A_LABEL = /^(data:|https?:\/\/|#[0-9a-f]{3,8}$)/i;
+
+function isLabelColumn(col: string, rows: Record<string, unknown>[]): boolean {
+  const vals = rows
+    .slice(0, 20)
+    .map((r) => r[col])
+    .filter((v): v is string => typeof v === "string" && v !== "");
+  return vals.length === 0 || !vals.every((v) => NOT_A_LABEL.test(v.trim()));
+}
+
 /** The narratives these rows support, best first, at most `max`. */
 export function suggestNarratives(
   columns: string[],
@@ -678,12 +697,21 @@ export function suggestNarratives(
   value: (n: number) => string,
   format: Pick<ChartSpec, "format" | "currency" | "decimals"> = {},
   max = 3,
+  /** The visual's own measure and category, used first when they qualify. */
+  prefer: { measure?: string; category?: string } = {},
 ): NarrativeSuggestion[] {
   if (!rows.length) return [];
   const dates = dateLikeColumns(columns, rows);
-  const nums = [...numericColumns(columns, rows)].filter((c) => !dates.includes(c));
-  const cats = columns.filter((c) => !dates.includes(c) && !nums.includes(c));
-  const m = nums[0];
+  const allNums = [...numericColumns(columns, rows)].filter((c) => !dates.includes(c));
+  const nums = allNums.filter((c) => !NOT_A_MEASURE.test(c));
+  const cats = columns.filter(
+    (c) => !dates.includes(c) && !allNums.includes(c) && isLabelColumn(c, rows),
+  );
+  if (prefer.category && cats.includes(prefer.category)) {
+    cats.splice(cats.indexOf(prefer.category), 1);
+    cats.unshift(prefer.category);
+  }
+  const m = prefer.measure && nums.includes(prefer.measure) ? prefer.measure : nums[0];
   if (!m) return [];
   const plan: { kind: BiInsightKind; title: string; categoryField?: string; dateField?: string }[] =
     [];

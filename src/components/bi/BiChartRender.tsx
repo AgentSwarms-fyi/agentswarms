@@ -19,6 +19,7 @@ import {
   CartesianGrid,
   Cell,
   ComposedChart,
+  Customized,
   Funnel,
   FunnelChart,
   LabelList,
@@ -34,6 +35,7 @@ import {
   Radar,
   RadarChart,
   Rectangle,
+  ReferenceArea,
   ReferenceLine,
   ResponsiveContainer,
   Sankey,
@@ -56,6 +58,10 @@ import {
 import { BiGeoMap } from "@/components/bi/BiGeoMap";
 import { BiInsightBody } from "@/components/bi/BiInsight";
 import { BiKpiTile } from "@/components/bi/BiKpiTile";
+import { BiCards } from "@/components/bi/BiCards";
+import { BiEndLabels } from "@/components/bi/BiEndLabels";
+import { lastPoints } from "@/components/bi/biDrawHelpers";
+import { BiBumpChart, BiRadialBars, BiRangeBars } from "@/components/bi/BiRankCharts";
 import { OntologyGraph } from "@/components/bi/OntologyGraph";
 import { unshownRows } from "@/lib/biChartFields";
 import { measureDisplayName } from "@/lib/biFieldQuery";
@@ -84,6 +90,7 @@ import {
   measureSeries,
   measuresAsSpokes,
   pivotSeries,
+  seriesColors,
   scaleSpokes,
   aggregateByField,
   toBiNumber,
@@ -312,6 +319,36 @@ function BiChartRenderInner({
     return <BiInsightBody chart={chart} rows={rows} large={large} fill={fill} />;
   }
 
+  // R500: cards, start→finish ranges, radial bars, rank over time.
+  if (chart.type === "cards") {
+    return (
+      <div className={`${heightClass} w-full`}>
+        <BiCards chart={chart} rows={rows} large={large} />
+      </div>
+    );
+  }
+  if (chart.type === "range") {
+    return (
+      <div className={`${heightClass} w-full`}>
+        <BiRangeBars chart={chart} rows={rows} />
+      </div>
+    );
+  }
+  if (chart.type === "radialbar") {
+    return (
+      <div className={`${heightClass} w-full`}>
+        <BiRadialBars chart={chart} rows={rows} />
+      </div>
+    );
+  }
+  if (chart.type === "bump") {
+    return (
+      <div className={`${heightClass} w-full`}>
+        <BiBumpChart chart={chart} rows={rows} />
+      </div>
+    );
+  }
+
   if (chart.type === "gauge") {
     const v = Number(rows[0]?.[chart.valueField]);
     const target = chart.targetField ? Number(rows[0]?.[chart.targetField]) : undefined;
@@ -337,6 +374,7 @@ function BiChartRenderInner({
         yField={chart.yField}
         valueField={chart.valueField}
         onElementClick={onElementClick}
+        scale={chart.scale}
       />
     );
   }
@@ -582,8 +620,16 @@ function BiChartRenderInner({
   }
 
   if (chart.type === "line") {
+    // Coloured from the rows (R500), each line is told apart by its own
+    // colour, so a race's twenty drivers can all be drawn.
     const pivoted = chart.seriesField
-      ? pivotSeries(rows, chart.xField, chart.yField, chart.seriesField)
+      ? pivotSeries(
+          rows,
+          chart.xField,
+          chart.yField,
+          chart.seriesField,
+          chart.colorField ? 40 : undefined,
+        )
       : extra.length
         ? measureSeries(rows, chart.xField, [chart.yField, ...extra])
         : null;
@@ -610,6 +656,19 @@ function BiChartRenderInner({
       }
     }
     const refY = refLineY(chart.refLine, data, pivoted ? pivoted.series : [chart.yField]);
+    const lineColors =
+      chart.seriesField && chart.colorField
+        ? seriesColors(rows, chart.seriesField, chart.colorField)
+        : new Map<string, string>();
+    // Room on the right for the names at the lines' ends, which were cut off
+    // at the card's edge (FOUND IN R500's UI test): ~5.4px a 9px character.
+    const lineRight =
+      chart.endLabels && pivoted
+        ? Math.min(
+            150,
+            16 + 5.4 * (Math.max(0, ...pivoted.series.map((s) => seriesName(s).length)) + 5),
+          )
+        : 12;
     // Category clicks on the x-axis position cross-filter by the x value.
     const lineClick = onElementClick
       ? (state: { activeLabel?: string | number } | null) => {
@@ -626,7 +685,7 @@ function BiChartRenderInner({
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart
             data={data}
-            margin={{ top: 12, right: 12, left: 0, bottom: 4 }}
+            margin={{ top: 12, right: lineRight, left: 0, bottom: 4 }}
             onClick={lineClick}
           >
             <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
@@ -665,6 +724,26 @@ function BiChartRenderInner({
                   />
                 ) : null;
               })()}
+            {(chart.xBands ?? []).map((b, i) => (
+              <ReferenceArea
+                key={`band${i}`}
+                x1={b.from}
+                x2={b.to}
+                fill="var(--foreground)"
+                fillOpacity={0.06}
+                stroke="none"
+                label={
+                  b.label
+                    ? {
+                        value: b.label,
+                        position: "insideTop",
+                        fontSize: 9,
+                        fill: "var(--muted-foreground)",
+                      }
+                    : undefined
+                }
+              />
+            ))}
             {!pivoted && chart.compare && (
               <Line
                 type="monotone"
@@ -746,12 +825,28 @@ function BiChartRenderInner({
                     type="monotone"
                     dataKey={s}
                     name={seriesName(s)}
-                    stroke={PIE_COLORS[i % PIE_COLORS.length]}
+                    stroke={lineColors.get(s) ?? PIE_COLORS[i % PIE_COLORS.length]}
                     strokeWidth={2.25}
                     dot={false}
                     activeDot={{ r: 4, strokeWidth: 0 }}
                   />
                 )),
+                chart.endLabels ? (
+                  <Customized
+                    key="__end_labels"
+                    component={
+                      <BiEndLabels
+                        labels={lastPoints(
+                          data,
+                          chart.xField,
+                          pivoted.series,
+                          seriesName,
+                          lineColors,
+                        )}
+                      />
+                    }
+                  />
+                ) : null,
               ]
             ) : (
               <Line

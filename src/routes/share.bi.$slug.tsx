@@ -11,6 +11,7 @@ import { BiFilterBar } from "@/components/bi/BiFilterBar";
 import { BiWidgetCard } from "@/components/bi/BiWidgetCard";
 import { DashboardGrid } from "@/components/bi/DashboardGrid";
 import {
+  dashSurfaceClass,
   dashSurfaceStyle,
   defaultFilterState,
   filterWidgetRows,
@@ -145,9 +146,9 @@ function PublicBiDashboardPage() {
       )}
 
       <main
-        className={isEmbed ? "p-3" : "mx-auto max-w-7xl p-6"}
+        className={cn(isEmbed ? "p-3" : "mx-auto max-w-7xl p-6", dashSurfaceClass(theme))}
         style={{
-          ...(isEmbed || theme.bg
+          ...(isEmbed || theme.bg || theme.page
             ? {}
             : {
                 backgroundImage: "radial-gradient(circle, var(--border) 1px, transparent 1px)",

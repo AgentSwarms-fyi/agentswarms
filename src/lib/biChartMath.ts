@@ -23,7 +23,18 @@ export const COND_COLORS: Record<string, { label: string; hex: string }> = {
   violet: { label: "Violet", hex: "#B07AA1" },
   teal: { label: "Teal", hex: "#76B7B2" },
   slate: { label: "Slate", hex: "#9c755f" },
+  // Medal colours for a podium (R500).
+  gold: { label: "Gold", hex: "#D4AF37" },
+  silver: { label: "Silver", hex: "#A8A9AD" },
+  bronze: { label: "Bronze", hex: "#CD7F32" },
 };
+
+/** A rule's colour as hex: a COND_COLORS key, or a #rrggbb value (R500). */
+export function condColorHex(c: string | undefined): string | undefined {
+  if (!c) return undefined;
+  if (COND_COLORS[c]) return COND_COLORS[c].hex;
+  return /^#[0-9a-f]{6}$/i.test(c.trim()) ? c.trim() : undefined;
+}
 
 export function condRuleMatches(v: number, r: BiCondRule): boolean {
   switch (r.op) {
@@ -78,12 +89,12 @@ export function firstMatchingRule(
   cf: BiCondFormat | undefined,
 ): BiCondRule | undefined {
   if (!cf || cf.mode !== "rules") return undefined;
-  return (cf.rules ?? []).find((r) => COND_COLORS[r.color] && condRuleMatchesValue(raw, r));
+  return (cf.rules ?? []).find((r) => condColorHex(r.color) && condRuleMatchesValue(raw, r));
 }
 
 /** Tinted background and text colour for a matched rule. */
 export function ruleFill(r: BiCondRule): { bg: string; fg: string } | null {
-  const hex = COND_COLORS[r.color]?.hex;
+  const hex = condColorHex(r.color);
   return hex ? { bg: `color-mix(in oklch, ${hex} 22%, transparent)`, fg: hex } : null;
 }
 
@@ -101,7 +112,7 @@ export function condFill(
   if (!cf || !Number.isFinite(v)) return null;
   if (cf.mode === "rules") {
     for (const r of cf.rules ?? []) {
-      const hex = COND_COLORS[r.color]?.hex;
+      const hex = condColorHex(r.color);
       if (!hex || !Number.isFinite(r.value)) continue;
       if (condRuleMatches(v, r)) {
         return { bg: `color-mix(in oklch, ${hex} 22%, transparent)`, fg: hex };

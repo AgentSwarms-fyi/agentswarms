@@ -162,9 +162,27 @@ export type BiWidget = {
   refreshed_at?: string;
   // text widgets (markdown)
   text?: string;
+  /** How a text widget's markdown is set (R500); absent = the standard look. */
+  textStyle?: BiTextStyle;
   // image widgets
   image?: BiImage;
 };
+
+/**
+ * What a widget's editor does not set, and so must carry from the widget it
+ * edits: the appearance and the Import/Direct mode, both set from the card's
+ * menu. Editors build the widget field by field, so anything left out is lost
+ * — FOUND IN R500's UI test: saving an edit reset a red, large title to the
+ * default look, and a Direct widget would have gone back to Import.
+ */
+export function editorCarried(
+  initial: BiWidget | null | undefined,
+): Pick<BiWidget, "theme" | "query_mode"> {
+  const out: Pick<BiWidget, "theme" | "query_mode"> = {};
+  if (initial?.theme) out.theme = initial.theme;
+  if (initial?.query_mode) out.query_mode = initial.query_mode;
+  return out;
+}
 
 // ── Public-surface sanitisation ──────────────────────────────────────────────
 // A dashboard served to an ANONYMOUS viewer (embed iframe or published share
@@ -187,6 +205,7 @@ const PUBLIC_WIDGET_FIELDS = [
   "theme",
   "refreshed_at",
   "text",
+  "textStyle",
   "image",
 ] as const;
 
@@ -679,15 +698,52 @@ export type BiDashTheme = {
     dim: number;
   };
   font?: string;
+  /**
+   * "dark" draws the canvas in the dark palette whatever the app's own theme
+   * (R500): a dashboard designed on black stays black for every viewer.
+   */
+  mode?: "dark";
+  /** Canvas colour (#rrggbb) behind the cards and any background image. */
+  page?: string;
 };
 
 /** Per-widget appearance, stored inside the widget json. */
 export type BiWidgetTheme = {
-  /** Accent id from WIDGET_ACCENTS — recolours the chart primary + header. */
+  /** Accent: an id from WIDGET_ACCENTS or a colour (#rrggbb) — recolours the
+   *  chart primary and the header icon. */
   accent?: string;
-  /** Card surface: default, soft accent tint, or glass (over backgrounds). */
-  card?: "default" | "tint" | "glass";
+  /** Card surface: default, soft accent tint, glass (over backgrounds), or
+   *  none — no border, fill or shadow, so the content sits on the canvas. */
+  card?: "default" | "tint" | "glass" | "none";
+  /** Hide the title bar; its menu still appears on hover (R500). */
+  hideTitle?: boolean;
+  /** The title's colour (#rrggbb) and size (R500). */
+  titleColor?: string;
+  titleSize?: "sm" | "md" | "lg" | "xl";
 };
+
+/** How a text widget's markdown is set (R500). */
+export type BiTextStyle = {
+  size?: "sm" | "md" | "lg" | "xl" | "2xl" | "3xl";
+  align?: "left" | "center" | "right";
+  /** Body text colour (#rrggbb). */
+  color?: string;
+  /** Headings' colour (#rrggbb). */
+  headingColor?: string;
+  italic?: boolean;
+};
+
+const HEX = /^#[0-9a-f]{6}$/i;
+/** A #rrggbb colour, or undefined for anything else — styles take only these. */
+export function hexColor(v: unknown): string | undefined {
+  return typeof v === "string" && HEX.test(v.trim()) ? v.trim() : undefined;
+}
+
+/** A widget accent as a CSS colour: a preset id or a #rrggbb value. */
+export function widgetAccentColor(accent: string | undefined): string {
+  if (!accent) return "";
+  return hexColor(accent) ?? WIDGET_ACCENTS[accent]?.color ?? "";
+}
 
 export const DASH_FONTS: Record<string, { label: string; stack: string }> = {
   default: { label: "Inter (default)", stack: "" },
@@ -719,12 +775,44 @@ export function parseDashTheme(v: Json | undefined): BiDashTheme {
     };
   }
   if (typeof t.font === "string" && t.font in DASH_FONTS) out.font = t.font;
+  if (t.mode === "dark") out.mode = "dark";
+  const page = hexColor(t.page);
+  if (page) out.page = page;
   return out;
+}
+
+export type PatternKind = "grid" | "fine" | "diagonal";
+
+/**
+ * A tiled line pattern as an SVG data URL (R500), stored as the dashboard's
+ * background image with fit "tile" — so public pages and PDF export draw it
+ * with no extra field. The lines are faint by design: the pattern sits behind
+ * charts and must not compete with them.
+ */
+export function patternUrl(kind: PatternKind, color: string): string {
+  const c = hexColor(color) ?? "#e10600";
+  const svg =
+    kind === "diagonal"
+      ? `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><path d="M-6 6L6-6M0 24L24 0M18 30L30 18" stroke="${c}" stroke-opacity="0.16" stroke-width="1"/></svg>`
+      : kind === "fine"
+        ? `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12"><path d="M12 0H0V12" fill="none" stroke="${c}" stroke-opacity="0.12" stroke-width="0.6"/></svg>`
+        : `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><path d="M48 0H0V48" fill="none" stroke="${c}" stroke-opacity="0.18" stroke-width="0.8"/></svg>`;
+  return `data:image/svg+xml;base64,${typeof btoa === "function" ? btoa(svg) : Buffer.from(svg).toString("base64")}`;
+}
+
+/**
+ * Classes for the canvas surface: an always-dark dashboard scopes the dark
+ * palette to the canvas (the `dark` class re-points every colour token inside
+ * it), so its cards, text and charts are dark in a light app too.
+ */
+export function dashSurfaceClass(theme: BiDashTheme): string {
+  return theme.mode === "dark" ? "dark bg-background text-foreground" : "";
 }
 
 /** Inline style for the dashboard canvas surface (editor, shared, public). */
 export function dashSurfaceStyle(theme: BiDashTheme): CSSProperties {
   const style: CSSProperties = {};
+  if (theme.page) style.backgroundColor = theme.page;
   if (theme.bg) {
     const dim =
       theme.bg.dim > 0

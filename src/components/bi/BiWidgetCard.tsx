@@ -23,13 +23,14 @@ import { fmtBiValue, toBiNumber } from "@/components/bi/biChartData";
 import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
 import type { BiColumnFormat, BiCondIcon } from "@/lib/biAgent";
 import {
-  COND_COLORS,
+  condColorHex,
   condFill,
   firstMatchingRule,
   ruleFill,
   type DrillEntry,
 } from "@/lib/biChartMath";
-import { WIDGET_ACCENTS, type BiImage, type BiWidget } from "@/lib/biDashboards";
+import { hexColor, widgetAccentColor, type BiImage, type BiWidget } from "@/lib/biDashboards";
+import { BiTextBlock } from "@/components/bi/BiTextBlock";
 import { describeFreshness } from "@/lib/biFreshness";
 import { safeImageSrc, safeLinkHref } from "@/lib/safeUrl";
 import { isPreAggregated } from "@/lib/biColumnKinds";
@@ -74,7 +75,9 @@ function TableCell({
     );
   }
   const n = toBiNumber(value);
-  const text = typeof value === "number" ? fmtBiValue(value, format) : String(value);
+  const text = `${format?.prefix ?? ""}${
+    typeof value === "number" ? fmtBiValue(value, format) : String(value)
+  }${format?.suffix ?? ""}`;
   // First matching rule — numeric or text ("is" / "contains") — or a scale.
   const rule = firstMatchingRule(value, format?.cond);
   const fillc = rule
@@ -83,7 +86,7 @@ function TableCell({
       ? condFill(n, format.cond, stats.min, stats.max)
       : null;
   const icon = rule?.icon ? COND_ICONS[rule.icon] : undefined;
-  const iconColor = rule ? COND_COLORS[rule.color]?.hex : undefined;
+  const iconColor = rule ? condColorHex(rule.color) : undefined;
 
   let body: React.ReactNode = text;
   if (format?.display === "image") {
@@ -135,7 +138,13 @@ function TableCell({
 
   return (
     <td
-      className={cn("px-2.5 py-1.5 text-xs", numeric && "text-right tabular-nums")}
+      className={cn(
+        "px-2.5 py-1.5 text-xs",
+        numeric && "text-right tabular-nums",
+        // "390 pts" stays on one line; a narrow column split it after the
+        // number (FOUND IN R500's UI test).
+        (format?.prefix || format?.suffix) && "whitespace-nowrap",
+      )}
       // A whole-row rule tints the <tr>; tinting this cell again would double it.
       style={
         fillc
@@ -164,6 +173,7 @@ export function WidgetDataTable({
   rows,
   columnFormats,
   totals: showTotals = true,
+  striped = false,
 }: {
   columns: string[];
   rows: Record<string, unknown>[];
@@ -171,6 +181,8 @@ export function WidgetDataTable({
   columnFormats?: Record<string, BiColumnFormat>;
   /** false hides the totals row (R499). */
   totals?: boolean;
+  /** Shade alternate rows (R500). */
+  striped?: boolean;
 }) {
   const [sort, setSort] = useState<{ col: string; dir: 1 | -1 } | null>(null);
   const [page, setPage] = useState(0);
@@ -279,7 +291,10 @@ export function WidgetDataTable({
             {view.map((row, i) => (
               <tr
                 key={i}
-                className="border-b border-border/30 transition-colors hover:bg-muted/40"
+                className={cn(
+                  "border-b border-border/30 transition-colors hover:bg-muted/40",
+                  striped && "even:bg-foreground/[0.06]",
+                )}
                 style={rowStyle(row)}
               >
                 {columns.map((c) => (
@@ -415,15 +430,22 @@ export function BiWidgetCard({
   // Per-widget appearance: the accent recolours the chart primary via a
   // scoped CSS variable; card styles suit plain, tinted or image-backed
   // dashboards.
-  const accent = widget.theme?.accent ? WIDGET_ACCENTS[widget.theme.accent]?.color : "";
+  const accent = widgetAccentColor(widget.theme?.accent);
   const cardStyle = widget.theme?.card ?? "default";
+  // No title bar (R500): the content takes the whole card and the widget's
+  // menu floats over its corner on hover, so it can still be edited.
+  const hideTitle = widget.theme?.hideTitle === true;
+  const titleColor = hexColor(widget.theme?.titleColor);
+  const titleSize = widget.theme?.titleSize ?? "sm";
   const surface = cn(
-    "group/widget flex h-full w-full flex-col overflow-hidden rounded-xl border shadow-sm transition-shadow hover:shadow-md",
-    cardStyle === "glass"
-      ? "border-border/40 bg-card/75 backdrop-blur-md"
-      : cardStyle === "tint"
-        ? "border-border/60"
-        : "border-border/60 bg-card",
+    "group/widget relative flex h-full w-full flex-col overflow-hidden rounded-xl transition-shadow",
+    cardStyle === "none"
+      ? "border border-transparent hover:border-border/40"
+      : cardStyle === "glass"
+        ? "border border-border/40 bg-card/75 shadow-sm backdrop-blur-md hover:shadow-md"
+        : cardStyle === "tint"
+          ? "border border-border/60 shadow-sm hover:shadow-md"
+          : "border border-border/60 bg-card shadow-sm hover:shadow-md",
   );
   const style: React.CSSProperties = {};
   if (accent) style["--primary" as never] = accent as never;
@@ -433,17 +455,42 @@ export function BiWidgetCard({
 
   return (
     <div className={surface} style={style}>
-      <div className="flex h-10 shrink-0 items-center gap-2 px-3.5 pt-1">
-        <Icon
-          className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70"
-          style={accent ? { color: accent } : undefined}
-        />
-        <span
-          className="min-w-0 flex-1 truncate text-[13px] font-semibold"
-          title={widget.narrative ? `${widget.title}\n\n${widget.narrative}` : widget.title}
-        >
-          {widget.title}
-        </span>
+      <div
+        className={cn(
+          "flex shrink-0 items-center gap-2 px-3.5 pt-1",
+          hideTitle
+            ? "absolute right-0 top-0 z-10 h-9"
+            : titleSize === "xl"
+              ? "h-14"
+              : titleSize === "lg"
+                ? "h-12"
+                : "h-10",
+        )}
+      >
+        {!hideTitle && (
+          <>
+            <Icon
+              className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70"
+              style={accent ? { color: accent } : undefined}
+            />
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate font-semibold",
+                titleSize === "xl"
+                  ? "text-[26px] font-bold tracking-tight"
+                  : titleSize === "lg"
+                    ? "text-[19px] font-bold tracking-tight"
+                    : titleSize === "md"
+                      ? "text-[15px]"
+                      : "text-[13px]",
+              )}
+              style={titleColor ? { color: titleColor } : undefined}
+              title={widget.narrative ? `${widget.title}\n\n${widget.narrative}` : widget.title}
+            >
+              {widget.title}
+            </span>
+          </>
+        )}
         {/* A snapshot that filled to the row cap means the chart is drawing a
             SUBSET and presenting it as the whole. Silent wrongness is worse
             than a visible caveat, so say it where the number is read.
@@ -452,7 +499,10 @@ export function BiWidgetCard({
             SQL makes each row's value complete; it does not make the row LIST
             complete. A daily series that returns 364 rows under a 50-row cap
             loses 314 points either way — measured: the cumulative line ended
-            the year 12x short while claiming to cover it. */}
+            the year 12x short while claiming to cover it.
+
+            Shown with the title hidden too (R500): a frameless card with no
+            title is still a chart whose total can be partial. */}
         {widget.truncated && (
           <span
             className="shrink-0 cursor-help rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400"
@@ -470,8 +520,9 @@ export function BiWidgetCard({
         {/* When the data was last computed. Every widget already recorded
             this; not showing it meant a viewer — especially on a published
             or embedded dashboard, which always renders a stored snapshot —
-            had no way to tell last night's numbers from last quarter's. */}
-        {freshness && (
+            had no way to tell last night's numbers from last quarter's.
+            With the title hidden (R500) it shows only once the data is stale. */}
+        {freshness && (!hideTitle || freshness.stale) && (
           <span
             className={cn(
               "shrink-0 cursor-help text-[9px] tabular-nums",
@@ -488,12 +539,16 @@ export function BiWidgetCard({
           {actions}
         </div>
       </div>
-      <div className="min-h-0 flex-1 px-2 pb-2">
+      <div className={cn("min-h-0 flex-1 px-2 pb-2", hideTitle && "pt-2")}>
         {isImage ? (
           <ImageWidgetBody image={widget.image} />
         ) : isText ? (
           <div className="h-full overflow-y-auto px-2 text-sm">
-            <MarkdownMessage content={widget.text ?? ""} />
+            {widget.textStyle ? (
+              <BiTextBlock text={widget.text ?? ""} style={widget.textStyle} />
+            ) : (
+              <MarkdownMessage content={widget.text ?? ""} />
+            )}
           </div>
         ) : isOntology ? (
           <BiChartRender chart={chart} rows={rows} fill />
@@ -515,6 +570,7 @@ export function BiWidgetCard({
             rows={rows}
             columnFormats={chart.columnFormats}
             totals={chart.type === "table" ? chart.totals !== false : true}
+            striped={chart.type === "table" && chart.striped === true}
           />
         ) : (
           <BiChartRender

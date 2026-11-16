@@ -1,0 +1,59 @@
+code,family_name,team,stop,lap,duration_s
+HAM,Hamilton,Ferrari,1,14,24.394
+SAI,Sainz,Williams,1,14,25.067
+ALB,Albon,Williams,1,15,24.448
+PER,Pérez,Cadillac F1 Team,1,15,32.163
+CAM,Camara,Haas F1 Team,1,15,25.007
+NOR,Norris,McLaren,1,16,23.995
+RUS,Russell,Mercedes,1,16,24.99
+HAD,Hadjar,Red Bull,1,16,24.175
+LAW,Lawson,RB F1 Team,1,16,23.74
+PIA,Piastri,McLaren,1,16,25.63
+HUL,Hülkenberg,Audi,1,16,24.7
+BEA,Bearman,Haas F1 Team,1,16,39.773
+LIN,Lindblad,RB F1 Team,1,16,23.919
+LEC,Leclerc,Ferrari,1,16,24.818
+STR,Stroll,Aston Martin,1,16,24.145
+BOR,Bortoleto,Audi,1,16,24.365
+ANT,Antonelli,Mercedes,1,17,24.458
+VER,Verstappen,Red Bull,1,17,23.745
+ALO,Alonso,Aston Martin,1,17,24.08
+GAS,Gasly,Alpine F1 Team,1,17,24.684
+COL,Colapinto,Alpine F1 Team,1,17,25.68
+BOR,Bortoleto,Audi,2,32,23.352
+GAS,Gasly,Alpine F1 Team,2,37,24.193
+HAM,Hamilton,Ferrari,2,38,24.581
+ALB,Albon,Williams,2,42,30.721
+HUL,Hülkenberg,Audi,2,44,24.706
+VER,Verstappen,Red Bull,2,45,23.346
+LIN,Lindblad,RB F1 Team,2,45,24.795
+SAI,Sainz,Williams,2,45,23.784
+ALO,Alonso,Aston Martin,2,46,24.351
+LAW,Lawson,RB F1 Team,2,48,23.755
+NOR,Norris,McLaren,2,49,23.957
+BEA,Bearman,Haas F1 Team,2,48,27.554
+HAD,Hadjar,Red Bull,2,50,23.809
+CAM,Camara,Haas F1 Team,2,49,24.409
+PIA,Piastri,McLaren,2,51,23.938
+ANT,Antonelli,Mercedes,2,53,23.628
+COL,Colapinto,Alpine F1 Team,2,53,23.652
+PER,Pérez,Cadillac F1 Team,2,59,25.87
+CAM,Camara,Haas F1 Team,3,59,25.332
+ALO,Alonso,Aston Martin,3,60,23.892
+RUS,Russell,Mercedes,2,61,24.097
+ALB,Albon,Williams,3,60,24.294
+LAW,Lawson,RB F1 Team,3,61,24.739
+BOR,Bortoleto,Audi,3,60,24.183
+BEA,Bearman,Haas F1 Team,3,60,25.357
+LEC,Leclerc,Ferrari,2,61,24.894
+HUL,Hülkenberg,Audi,3,61,35.299
+NOR,Norris,McLaren,3,62,24.917
+LIN,Lindblad,RB F1 Team,3,61,24.585
+VER,Verstappen,Red Bull,3,62,23.888
+HAD,Hadjar,Red Bull,3,62,23.957
+ANT,Antonelli,Mercedes,3,62,24.823
+COL,Colapinto,Alpine F1 Team,3,61,26.632
+GAS,Gasly,Alpine F1 Team,3,61,31.118
+PIA,Piastri,McLaren,3,62,24.695
+HAM,Hamilton,Ferrari,3,62,25.519
+SAI,Sainz,Williams,3,61,24.463

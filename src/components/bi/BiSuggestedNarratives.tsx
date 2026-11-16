@@ -9,6 +9,7 @@ import { useMemo } from "react";
 import { Lightbulb, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { fmtBiValue } from "@/components/bi/biChartData";
+import { visualFields } from "@/components/bi/biDrawHelpers";
 import type { ChartSpec } from "@/lib/biAgent";
 import { suggestNarratives } from "@/lib/biInsights";
 import { snapshotRows, type BiWidget } from "@/lib/biDashboards";
@@ -17,22 +18,30 @@ import { toast } from "sonner";
 export function BiSuggestedNarratives({
   columns,
   rows,
-  format,
+  chart,
   base,
   onAdd,
 }: {
   columns: string[];
   rows: Record<string, unknown>[];
-  format?: Pick<ChartSpec, "format" | "currency" | "decimals">;
+  /** The visual being built: its number format and its fields. */
+  chart?: ChartSpec;
   /** What the narrative widget shares with the visual being built. */
   base: Pick<BiWidget, "source" | "sql" | "truncated" | "field_query">;
   /** Puts the narrative on the dashboard. */
   onAdd: (w: BiWidget) => void;
 }) {
-  const list = useMemo(
-    () => suggestNarratives(columns, rows, (n) => fmtBiValue(n, format ?? {}), format ?? {}),
-    [columns, rows, format],
-  );
+  const list = useMemo(() => {
+    const format: Pick<ChartSpec, "format" | "currency" | "decimals"> = chart ?? {};
+    return suggestNarratives(
+      columns,
+      rows,
+      (n) => fmtBiValue(n, format),
+      format,
+      3,
+      visualFields(chart),
+    );
+  }, [columns, rows, chart]);
   if (list.length === 0) return null;
   return (
     <div className="space-y-1.5 rounded-lg border border-border/60 p-2">

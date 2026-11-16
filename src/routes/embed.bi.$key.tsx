@@ -13,6 +13,7 @@ import { BiFilterBar } from "@/components/bi/BiFilterBar";
 import { BiWidgetCard } from "@/components/bi/BiWidgetCard";
 import { DashboardGrid } from "@/components/bi/DashboardGrid";
 import {
+  dashSurfaceClass,
   dashSurfaceStyle,
   defaultFilterState,
   filterWidgetRows,
@@ -133,7 +134,7 @@ function EmbedBiPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <main className="p-3" style={dashSurfaceStyle(theme)}>
+      <main className={cn("p-3", dashSurfaceClass(theme))} style={dashSurfaceStyle(theme)}>
         {pages.length > 1 && (
           <div className="mb-3 flex items-center gap-1 overflow-x-auto pb-1">
             {pages.map((p, i) => (

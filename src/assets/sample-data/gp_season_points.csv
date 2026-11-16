@@ -1,0 +1,441 @@
+round,race,race_date,code,driver,family_name,team,team_color,race_points,sprint_points,points
+1,Australian Grand Prix,2026-03-08,RUS,George Russell,Russell,Mercedes,#27F4D2,25,0,25
+1,Australian Grand Prix,2026-03-08,ANT,Andrea Kimi Antonelli,Antonelli,Mercedes,#27F4D2,18,0,18
+1,Australian Grand Prix,2026-03-08,LEC,Charles Leclerc,Leclerc,Ferrari,#E8002D,15,0,15
+1,Australian Grand Prix,2026-03-08,HAM,Lewis Hamilton,Hamilton,Ferrari,#E8002D,12,0,12
+1,Australian Grand Prix,2026-03-08,NOR,Lando Norris,Norris,McLaren,#FF8000,10,0,10
+1,Australian Grand Prix,2026-03-08,VER,Max Verstappen,Verstappen,Red Bull,#3671C6,8,0,8
+1,Australian Grand Prix,2026-03-08,BEA,Oliver Bearman,Bearman,Haas F1 Team,#B6BABD,6,0,6
+1,Australian Grand Prix,2026-03-08,LIN,Arvid Lindblad,Lindblad,RB F1 Team,#6692FF,4,0,4
+1,Australian Grand Prix,2026-03-08,BOR,Gabriel Bortoleto,Bortoleto,Audi,#8A1538,2,0,2
+1,Australian Grand Prix,2026-03-08,GAS,Pierre Gasly,Gasly,Alpine F1 Team,#FF87BC,1,0,1
+1,Australian Grand Prix,2026-03-08,OCO,Esteban Ocon,Ocon,Haas F1 Team,#B6BABD,0,0,0
+1,Australian Grand Prix,2026-03-08,ALB,Alexander Albon,Albon,Williams,#64C4FF,0,0,0
+1,Australian Grand Prix,2026-03-08,LAW,Liam Lawson,Lawson,RB F1 Team,#6692FF,0,0,0
+1,Australian Grand Prix,2026-03-08,COL,Franco Colapinto,Colapinto,Alpine F1 Team,#FF87BC,0,0,0
+1,Australian Grand Prix,2026-03-08,SAI,Carlos Sainz,Sainz,Williams,#64C4FF,0,0,0
+1,Australian Grand Prix,2026-03-08,PER,Sergio Pérez,Pérez,Cadillac F1 Team,#D4AF37,0,0,0
+1,Australian Grand Prix,2026-03-08,STR,Lance Stroll,Stroll,Aston Martin,#229971,0,0,0
+1,Australian Grand Prix,2026-03-08,ALO,Fernando Alonso,Alonso,Aston Martin,#229971,0,0,0
+1,Australian Grand Prix,2026-03-08,BOT,Valtteri Bottas,Bottas,Cadillac F1 Team,#D4AF37,0,0,0
+1,Australian Grand Prix,2026-03-08,HAD,Isack Hadjar,Hadjar,Red Bull,#3671C6,0,0,0
+1,Australian Grand Prix,2026-03-08,PIA,Oscar Piastri,Piastri,McLaren,#FF8000,0,0,0
+1,Australian Grand Prix,2026-03-08,HUL,Nico Hülkenberg,Hülkenberg,Audi,#8A1538,0,0,0
+2,Chinese Grand Prix,2026-03-15,ANT,Andrea Kimi Antonelli,Antonelli,Mercedes,#27F4D2,25,4,29
+2,Chinese Grand Prix,2026-03-15,RUS,George Russell,Russell,Mercedes,#27F4D2,18,8,26
+2,Chinese Grand Prix,2026-03-15,HAM,Lewis Hamilton,Hamilton,Ferrari,#E8002D,15,6,21
+2,Chinese Grand Prix,2026-03-15,LEC,Charles Leclerc,Leclerc,Ferrari,#E8002D,12,7,19
+2,Chinese Grand Prix,2026-03-15,BEA,Oliver Bearman,Bearman,Haas F1 Team,#B6BABD,10,1,11
+2,Chinese Grand Prix,2026-03-15,GAS,Pierre Gasly,Gasly,Alpine F1 Team,#FF87BC,8,0,8
+2,Chinese Grand Prix,2026-03-15,LAW,Liam Lawson,Lawson,RB F1 Team,#6692FF,6,2,8
+2,Chinese Grand Prix,2026-03-15,NOR,Lando Norris,Norris,McLaren,#FF8000,0,5,5
+2,Chinese Grand Prix,2026-03-15,HAD,Isack Hadjar,Hadjar,Red Bull,#3671C6,4,0,4
+2,Chinese Grand Prix,2026-03-15,PIA,Oscar Piastri,Piastri,McLaren,#FF8000,0,3,3
+2,Chinese Grand Prix,2026-03-15,SAI,Carlos Sainz,Sainz,Williams,#64C4FF,2,0,2
+2,Chinese Grand Prix,2026-03-15,COL,Franco Colapinto,Colapinto,Alpine F1 Team,#FF87BC,1,0,1
+2,Chinese Grand Prix,2026-03-15,HUL,Nico Hülkenberg,Hülkenberg,Audi,#8A1538,0,0,0
+2,Chinese Grand Prix,2026-03-15,LIN,Arvid Lindblad,Lindblad,RB F1 Team,#6692FF,0,0,0
+2,Chinese Grand Prix,2026-03-15,BOT,Valtteri Bottas,Bottas,Cadillac F1 Team,#D4AF37,0,0,0
+2,Chinese Grand Prix,2026-03-15,OCO,Esteban Ocon,Ocon,Haas F1 Team,#B6BABD,0,0,0
+2,Chinese Grand Prix,2026-03-15,PER,Sergio Pérez,Pérez,Cadillac F1 Team,#D4AF37,0,0,0
+2,Chinese Grand Prix,2026-03-15,VER,Max Verstappen,Verstappen,Red Bull,#3671C6,0,0,0
+2,Chinese Grand Prix,2026-03-15,ALO,Fernando Alonso,Alonso,Aston Martin,#229971,0,0,0
+2,Chinese Grand Prix,2026-03-15,STR,Lance Stroll,Stroll,Aston Martin,#229971,0,0,0
+2,Chinese Grand Prix,2026-03-15,BOR,Gabriel Bortoleto,Bortoleto,Audi,#8A1538,0,0,0
+2,Chinese Grand Prix,2026-03-15,ALB,Alexander Albon,Albon,Williams,#64C4FF,0,0,0
+3,Japanese Grand Prix,2026-03-29,ANT,Andrea Kimi Antonelli,Antonelli,Mercedes,#27F4D2,25,0,25
+3,Japanese Grand Prix,2026-03-29,PIA,Oscar Piastri,Piastri,McLaren,#FF8000,18,0,18
+3,Japanese Grand Prix,2026-03-29,LEC,Charles Leclerc,Leclerc,Ferrari,#E8002D,15,0,15
+3,Japanese Grand Prix,2026-03-29,RUS,George Russell,Russell,Mercedes,#27F4D2,12,0,12
+3,Japanese Grand Prix,2026-03-29,NOR,Lando Norris,Norris,McLaren,#FF8000,10,0,10
+3,Japanese Grand Prix,2026-03-29,HAM,Lewis Hamilton,Hamilton,Ferrari,#E8002D,8,0,8
+3,Japanese Grand Prix,2026-03-29,GAS,Pierre Gasly,Gasly,Alpine F1 Team,#FF87BC,6,0,6
+3,Japanese Grand Prix,2026-03-29,VER,Max Verstappen,Verstappen,Red Bull,#3671C6,4,0,4
+3,Japanese Grand Prix,2026-03-29,LAW,Liam Lawson,Lawson,RB F1 Team,#6692FF,2,0,2
+3,Japanese Grand Prix,2026-03-29,OCO,Esteban Ocon,Ocon,Haas F1 Team,#B6BABD,1,0,1
+3,Japanese Grand Prix,2026-03-29,HUL,Nico Hülkenberg,Hülkenberg,Audi,#8A1538,0,0,0
+3,Japanese Grand Prix,2026-03-29,HAD,Isack Hadjar,Hadjar,Red Bull,#3671C6,0,0,0
+3,Japanese Grand Prix,2026-03-29,BOR,Gabriel Bortoleto,Bortoleto,Audi,#8A1538,0,0,0
+3,Japanese Grand Prix,2026-03-29,LIN,Arvid Lindblad,Lindblad,RB F1 Team,#6692FF,0,0,0
+3,Japanese Grand Prix,2026-03-29,SAI,Carlos Sainz,Sainz,Williams,#64C4FF,0,0,0
+3,Japanese Grand Prix,2026-03-29,COL,Franco Colapinto,Colapinto,Alpine F1 Team,#FF87BC,0,0,0
+3,Japanese Grand Prix,2026-03-29,PER,Sergio Pérez,Pérez,Cadillac F1 Team,#D4AF37,0,0,0
+3,Japanese Grand Prix,2026-03-29,ALO,Fernando Alonso,Alonso,Aston Martin,#229971,0,0,0
+3,Japanese Grand Prix,2026-03-29,BOT,Valtteri Bottas,Bottas,Cadillac F1 Team,#D4AF37,0,0,0
+3,Japanese Grand Prix,2026-03-29,ALB,Alexander Albon,Albon,Williams,#64C4FF,0,0,0
+3,Japanese Grand Prix,2026-03-29,STR,Lance Stroll,Stroll,Aston Martin,#229971,0,0,0
+3,Japanese Grand Prix,2026-03-29,BEA,Oliver Bearman,Bearman,Haas F1 Team,#B6BABD,0,0,0
+4,Miami Grand Prix,2026-05-03,ANT,Andrea Kimi Antonelli,Antonelli,Mercedes,#27F4D2,25,3,28
+4,Miami Grand Prix,2026-05-03,NOR,Lando Norris,Norris,McLaren,#FF8000,18,8,26
+4,Miami Grand Prix,2026-05-03,PIA,Oscar Piastri,Piastri,McLaren,#FF8000,15,7,22
+4,Miami Grand Prix,2026-05-03,RUS,George Russell,Russell,Mercedes,#27F4D2,12,5,17
+4,Miami Grand Prix,2026-05-03,VER,Max Verstappen,Verstappen,Red Bull,#3671C6,10,4,14
+4,Miami Grand Prix,2026-05-03,HAM,Lewis Hamilton,Hamilton,Ferrari,#E8002D,8,2,10
+4,Miami Grand Prix,2026-05-03,LEC,Charles Leclerc,Leclerc,Ferrari,#E8002D,4,6,10
+4,Miami Grand Prix,2026-05-03,COL,Franco Colapinto,Colapinto,Alpine F1 Team,#FF87BC,6,0,6
+4,Miami Grand Prix,2026-05-03,SAI,Carlos Sainz,Sainz,Williams,#64C4FF,2,0,2
+4,Miami Grand Prix,2026-05-03,ALB,Alexander Albon,Albon,Williams,#64C4FF,1,0,1
+4,Miami Grand Prix,2026-05-03,GAS,Pierre Gasly,Gasly,Alpine F1 Team,#FF87BC,0,1,1
+4,Miami Grand Prix,2026-05-03,BEA,Oliver Bearman,Bearman,Haas F1 Team,#B6BABD,0,0,0
+4,Miami Grand Prix,2026-05-03,BOR,Gabriel Bortoleto,Bortoleto,Audi,#8A1538,0,0,0
+4,Miami Grand Prix,2026-05-03,OCO,Esteban Ocon,Ocon,Haas F1 Team,#B6BABD,0,0,0
+4,Miami Grand Prix,2026-05-03,LIN,Arvid Lindblad,Lindblad,RB F1 Team,#6692FF,0,0,0
+4,Miami Grand Prix,2026-05-03,ALO,Fernando Alonso,Alonso,Aston Martin,#229971,0,0,0
+4,Miami Grand Prix,2026-05-03,PER,Sergio Pérez,Pérez,Cadillac F1 Team,#D4AF37,0,0,0
+4,Miami Grand Prix,2026-05-03,STR,Lance Stroll,Stroll,Aston Martin,#229971,0,0,0
+4,Miami Grand Prix,2026-05-03,BOT,Valtteri Bottas,Bottas,Cadillac F1 Team,#D4AF37,0,0,0
+4,Miami Grand Prix,2026-05-03,HUL,Nico Hülkenberg,Hülkenberg,Audi,#8A1538,0,0,0
+4,Miami Grand Prix,2026-05-03,LAW,Liam Lawson,Lawson,RB F1 Team,#6692FF,0,0,0
+4,Miami Grand Prix,2026-05-03,HAD,Isack Hadjar,Hadjar,Red Bull,#3671C6,0,0,0
+5,Canadian Grand Prix,2026-05-24,ANT,Andrea Kimi Antonelli,Antonelli,Mercedes,#27F4D2,25,6,31
+5,Canadian Grand Prix,2026-05-24,HAM,Lewis Hamilton,Hamilton,Ferrari,#E8002D,18,3,21
+5,Canadian Grand Prix,2026-05-24,VER,Max Verstappen,Verstappen,Red Bull,#3671C6,15,2,17
+5,Canadian Grand Prix,2026-05-24,LEC,Charles Leclerc,Leclerc,Ferrari,#E8002D,12,4,16
+5,Canadian Grand Prix,2026-05-24,HAD,Isack Hadjar,Hadjar,Red Bull,#3671C6,10,0,10
+5,Canadian Grand Prix,2026-05-24,COL,Franco Colapinto,Colapinto,Alpine F1 Team,#FF87BC,8,0,8
+5,Canadian Grand Prix,2026-05-24,RUS,George Russell,Russell,Mercedes,#27F4D2,0,8,8
+5,Canadian Grand Prix,2026-05-24,NOR,Lando Norris,Norris,McLaren,#FF8000,0,7,7
+5,Canadian Grand Prix,2026-05-24,LAW,Liam Lawson,Lawson,RB F1 Team,#6692FF,6,0,6
+5,Canadian Grand Prix,2026-05-24,PIA,Oscar Piastri,Piastri,McLaren,#FF8000,0,5,5
+5,Canadian Grand Prix,2026-05-24,GAS,Pierre Gasly,Gasly,Alpine F1 Team,#FF87BC,4,0,4
+5,Canadian Grand Prix,2026-05-24,SAI,Carlos Sainz,Sainz,Williams,#64C4FF,2,0,2
+5,Canadian Grand Prix,2026-05-24,BEA,Oliver Bearman,Bearman,Haas F1 Team,#B6BABD,1,0,1
+5,Canadian Grand Prix,2026-05-24,LIN,Arvid Lindblad,Lindblad,RB F1 Team,#6692FF,0,1,1
+5,Canadian Grand Prix,2026-05-24,HUL,Nico Hülkenberg,Hülkenberg,Audi,#8A1538,0,0,0
+5,Canadian Grand Prix,2026-05-24,BOR,Gabriel Bortoleto,Bortoleto,Audi,#8A1538,0,0,0
+5,Canadian Grand Prix,2026-05-24,OCO,Esteban Ocon,Ocon,Haas F1 Team,#B6BABD,0,0,0
+5,Canadian Grand Prix,2026-05-24,STR,Lance Stroll,Stroll,Aston Martin,#229971,0,0,0
+5,Canadian Grand Prix,2026-05-24,BOT,Valtteri Bottas,Bottas,Cadillac F1 Team,#D4AF37,0,0,0
+5,Canadian Grand Prix,2026-05-24,PER,Sergio Pérez,Pérez,Cadillac F1 Team,#D4AF37,0,0,0
+5,Canadian Grand Prix,2026-05-24,ALO,Fernando Alonso,Alonso,Aston Martin,#229971,0,0,0
+5,Canadian Grand Prix,2026-05-24,ALB,Alexander Albon,Albon,Williams,#64C4FF,0,0,0
+6,Monaco Grand Prix,2026-06-07,ANT,Andrea Kimi Antonelli,Antonelli,Mercedes,#27F4D2,25,0,25
+6,Monaco Grand Prix,2026-06-07,HAM,Lewis Hamilton,Hamilton,Ferrari,#E8002D,18,0,18
+6,Monaco Grand Prix,2026-06-07,HAD,Isack Hadjar,Hadjar,Red Bull,#3671C6,15,0,15
+6,Monaco Grand Prix,2026-06-07,PIA,Oscar Piastri,Piastri,McLaren,#FF8000,12,0,12
+6,Monaco Grand Prix,2026-06-07,LAW,Liam Lawson,Lawson,RB F1 Team,#6692FF,10,0,10
+6,Monaco Grand Prix,2026-06-07,LIN,Arvid Lindblad,Lindblad,RB F1 Team,#6692FF,8,0,8
+6,Monaco Grand Prix,2026-06-07,GAS,Pierre Gasly,Gasly,Alpine F1 Team,#FF87BC,6,0,6
+6,Monaco Grand Prix,2026-06-07,ALB,Alexander Albon,Albon,Williams,#64C4FF,4,0,4
+6,Monaco Grand Prix,2026-06-07,OCO,Esteban Ocon,Ocon,Haas F1 Team,#B6BABD,2,0,2
+6,Monaco Grand Prix,2026-06-07,ALO,Fernando Alonso,Alonso,Aston Martin,#229971,1,0,1
+6,Monaco Grand Prix,2026-06-07,BOR,Gabriel Bortoleto,Bortoleto,Audi,#8A1538,0,0,0
+6,Monaco Grand Prix,2026-06-07,RUS,George Russell,Russell,Mercedes,#27F4D2,0,0,0
+6,Monaco Grand Prix,2026-06-07,HUL,Nico Hülkenberg,Hülkenberg,Audi,#8A1538,0,0,0
+6,Monaco Grand Prix,2026-06-07,COL,Franco Colapinto,Colapinto,Alpine F1 Team,#FF87BC,0,0,0
+6,Monaco Grand Prix,2026-06-07,PER,Sergio Pérez,Pérez,Cadillac F1 Team,#D4AF37,0,0,0
+6,Monaco Grand Prix,2026-06-07,SAI,Carlos Sainz,Sainz,Williams,#64C4FF,0,0,0
+6,Monaco Grand Prix,2026-06-07,LEC,Charles Leclerc,Leclerc,Ferrari,#E8002D,0,0,0
+6,Monaco Grand Prix,2026-06-07,STR,Lance Stroll,Stroll,Aston Martin,#229971,0,0,0
+6,Monaco Grand Prix,2026-06-07,NOR,Lando Norris,Norris,McLaren,#FF8000,0,0,0
+6,Monaco Grand Prix,2026-06-07,BEA,Oliver Bearman,Bearman,Haas F1 Team,#B6BABD,0,0,0
+6,Monaco Grand Prix,2026-06-07,BOT,Valtteri Bottas,Bottas,Cadillac F1 Team,#D4AF37,0,0,0
+6,Monaco Grand Prix,2026-06-07,VER,Max Verstappen,Verstappen,Red Bull,#3671C6,0,0,0
+7,Barcelona Grand Prix,2026-06-14,HAM,Lewis Hamilton,Hamilton,Ferrari,#E8002D,25,0,25
+7,Barcelona Grand Prix,2026-06-14,RUS,George Russell,Russell,Mercedes,#27F4D2,18,0,18
+7,Barcelona Grand Prix,2026-06-14,NOR,Lando Norris,Norris,McLaren,#FF8000,15,0,15
+7,Barcelona Grand Prix,2026-06-14,VER,Max Verstappen,Verstappen,Red Bull,#3671C6,12,0,12
+7,Barcelona Grand Prix,2026-06-14,PIA,Oscar Piastri,Piastri,McLaren,#FF8000,10,0,10
+7,Barcelona Grand Prix,2026-06-14,HAD,Isack Hadjar,Hadjar,Red Bull,#3671C6,8,0,8
+7,Barcelona Grand Prix,2026-06-14,GAS,Pierre Gasly,Gasly,Alpine F1 Team,#FF87BC,6,0,6
+7,Barcelona Grand Prix,2026-06-14,LAW,Liam Lawson,Lawson,RB F1 Team,#6692FF,4,0,4
+7,Barcelona Grand Prix,2026-06-14,LIN,Arvid Lindblad,Lindblad,RB F1 Team,#6692FF,2,0,2
+7,Barcelona Grand Prix,2026-06-14,COL,Franco Colapinto,Colapinto,Alpine F1 Team,#FF87BC,1,0,1
+7,Barcelona Grand Prix,2026-06-14,BOR,Gabriel Bortoleto,Bortoleto,Audi,#8A1538,0,0,0
+7,Barcelona Grand Prix,2026-06-14,SAI,Carlos Sainz,Sainz,Williams,#64C4FF,0,0,0
+7,Barcelona Grand Prix,2026-06-14,OCO,Esteban Ocon,Ocon,Haas F1 Team,#B6BABD,0,0,0
+7,Barcelona Grand Prix,2026-06-14,PER,Sergio Pérez,Pérez,Cadillac F1 Team,#D4AF37,0,0,0
+7,Barcelona Grand Prix,2026-06-14,LEC,Charles Leclerc,Leclerc,Ferrari,#E8002D,0,0,0
+7,Barcelona Grand Prix,2026-06-14,ANT,Andrea Kimi Antonelli,Antonelli,Mercedes,#27F4D2,0,0,0
+7,Barcelona Grand Prix,2026-06-14,BEA,Oliver Bearman,Bearman,Haas F1 Team,#B6BABD,0,0,0
+7,Barcelona Grand Prix,2026-06-14,ALB,Alexander Albon,Albon,Williams,#64C4FF,0,0,0
+7,Barcelona Grand Prix,2026-06-14,ALO,Fernando Alonso,Alonso,Aston Martin,#229971,0,0,0
+7,Barcelona Grand Prix,2026-06-14,HUL,Nico Hülkenberg,Hülkenberg,Audi,#8A1538,0,0,0
+7,Barcelona Grand Prix,2026-06-14,BOT,Valtteri Bottas,Bottas,Cadillac F1 Team,#D4AF37,0,0,0
+7,Barcelona Grand Prix,2026-06-14,STR,Lance Stroll,Stroll,Aston Martin,#229971,0,0,0
+8,Austrian Grand Prix,2026-06-28,RUS,George Russell,Russell,Mercedes,#27F4D2,25,0,25
+8,Austrian Grand Prix,2026-06-28,VER,Max Verstappen,Verstappen,Red Bull,#3671C6,18,0,18
+8,Austrian Grand Prix,2026-06-28,ANT,Andrea Kimi Antonelli,Antonelli,Mercedes,#27F4D2,15,0,15
+8,Austrian Grand Prix,2026-06-28,PIA,Oscar Piastri,Piastri,McLaren,#FF8000,12,0,12
+8,Austrian Grand Prix,2026-06-28,HAM,Lewis Hamilton,Hamilton,Ferrari,#E8002D,10,0,10
+8,Austrian Grand Prix,2026-06-28,HAD,Isack Hadjar,Hadjar,Red Bull,#3671C6,8,0,8
+8,Austrian Grand Prix,2026-06-28,NOR,Lando Norris,Norris,McLaren,#FF8000,6,0,6
+8,Austrian Grand Prix,2026-06-28,LEC,Charles Leclerc,Leclerc,Ferrari,#E8002D,4,0,4
+8,Austrian Grand Prix,2026-06-28,LAW,Liam Lawson,Lawson,RB F1 Team,#6692FF,2,0,2
+8,Austrian Grand Prix,2026-06-28,LIN,Arvid Lindblad,Lindblad,RB F1 Team,#6692FF,1,0,1
+8,Austrian Grand Prix,2026-06-28,BOR,Gabriel Bortoleto,Bortoleto,Audi,#8A1538,0,0,0
+8,Austrian Grand Prix,2026-06-28,HUL,Nico Hülkenberg,Hülkenberg,Audi,#8A1538,0,0,0
+8,Austrian Grand Prix,2026-06-28,GAS,Pierre Gasly,Gasly,Alpine F1 Team,#FF87BC,0,0,0
+8,Austrian Grand Prix,2026-06-28,BEA,Oliver Bearman,Bearman,Haas F1 Team,#B6BABD,0,0,0
+8,Austrian Grand Prix,2026-06-28,COL,Franco Colapinto,Colapinto,Alpine F1 Team,#FF87BC,0,0,0
+8,Austrian Grand Prix,2026-06-28,OCO,Esteban Ocon,Ocon,Haas F1 Team,#B6BABD,0,0,0
+8,Austrian Grand Prix,2026-06-28,ALB,Alexander Albon,Albon,Williams,#64C4FF,0,0,0
+8,Austrian Grand Prix,2026-06-28,ALO,Fernando Alonso,Alonso,Aston Martin,#229971,0,0,0
+8,Austrian Grand Prix,2026-06-28,STR,Lance Stroll,Stroll,Aston Martin,#229971,0,0,0
+8,Austrian Grand Prix,2026-06-28,SAI,Carlos Sainz,Sainz,Williams,#64C4FF,0,0,0
+8,Austrian Grand Prix,2026-06-28,PER,Sergio Pérez,Pérez,Cadillac F1 Team,#D4AF37,0,0,0
+8,Austrian Grand Prix,2026-06-28,BOT,Valtteri Bottas,Bottas,Cadillac F1 Team,#D4AF37,0,0,0
+9,British Grand Prix,2026-07-05,LEC,Charles Leclerc,Leclerc,Ferrari,#E8002D,25,4,29
+9,British Grand Prix,2026-07-05,RUS,George Russell,Russell,Mercedes,#27F4D2,18,5,23
+9,British Grand Prix,2026-07-05,HAM,Lewis Hamilton,Hamilton,Ferrari,#E8002D,15,7,22
+9,British Grand Prix,2026-07-05,NOR,Lando Norris,Norris,McLaren,#FF8000,12,6,18
+9,British Grand Prix,2026-07-05,HAD,Isack Hadjar,Hadjar,Red Bull,#3671C6,10,0,10
+9,British Grand Prix,2026-07-05,LAW,Liam Lawson,Lawson,RB F1 Team,#6692FF,8,1,9
+9,British Grand Prix,2026-07-05,ANT,Andrea Kimi Antonelli,Antonelli,Mercedes,#27F4D2,0,8,8
+9,British Grand Prix,2026-07-05,LIN,Arvid Lindblad,Lindblad,RB F1 Team,#6692FF,6,0,6
+9,British Grand Prix,2026-07-05,BOR,Gabriel Bortoleto,Bortoleto,Audi,#8A1538,4,0,4
+9,British Grand Prix,2026-07-05,VER,Max Verstappen,Verstappen,Red Bull,#3671C6,0,3,3
+9,British Grand Prix,2026-07-05,COL,Franco Colapinto,Colapinto,Alpine F1 Team,#FF87BC,2,0,2
+9,British Grand Prix,2026-07-05,PIA,Oscar Piastri,Piastri,McLaren,#FF8000,0,2,2
+9,British Grand Prix,2026-07-05,GAS,Pierre Gasly,Gasly,Alpine F1 Team,#FF87BC,1,0,1
+9,British Grand Prix,2026-07-05,BEA,Oliver Bearman,Bearman,Haas F1 Team,#B6BABD,0,0,0
+9,British Grand Prix,2026-07-05,OCO,Esteban Ocon,Ocon,Haas F1 Team,#B6BABD,0,0,0
+9,British Grand Prix,2026-07-05,PER,Sergio Pérez,Pérez,Cadillac F1 Team,#D4AF37,0,0,0
+9,British Grand Prix,2026-07-05,BOT,Valtteri Bottas,Bottas,Cadillac F1 Team,#D4AF37,0,0,0
+9,British Grand Prix,2026-07-05,SAI,Carlos Sainz,Sainz,Williams,#64C4FF,0,0,0
+9,British Grand Prix,2026-07-05,ALO,Fernando Alonso,Alonso,Aston Martin,#229971,0,0,0
+9,British Grand Prix,2026-07-05,STR,Lance Stroll,Stroll,Aston Martin,#229971,0,0,0
+9,British Grand Prix,2026-07-05,ALB,Alexander Albon,Albon,Williams,#64C4FF,0,0,0
+9,British Grand Prix,2026-07-05,HUL,Nico Hülkenberg,Hülkenberg,Audi,#8A1538,0,0,0
+10,Belgian Grand Prix,2026-07-19,ANT,Andrea Kimi Antonelli,Antonelli,Mercedes,#27F4D2,25,0,25
+10,Belgian Grand Prix,2026-07-19,LEC,Charles Leclerc,Leclerc,Ferrari,#E8002D,18,0,18
+10,Belgian Grand Prix,2026-07-19,VER,Max Verstappen,Verstappen,Red Bull,#3671C6,15,0,15
+10,Belgian Grand Prix,2026-07-19,HAM,Lewis Hamilton,Hamilton,Ferrari,#E8002D,12,0,12
+10,Belgian Grand Prix,2026-07-19,PIA,Oscar Piastri,Piastri,McLaren,#FF8000,10,0,10
+10,Belgian Grand Prix,2026-07-19,HAD,Isack Hadjar,Hadjar,Red Bull,#3671C6,8,0,8
+10,Belgian Grand Prix,2026-07-19,NOR,Lando Norris,Norris,McLaren,#FF8000,6,0,6
+10,Belgian Grand Prix,2026-07-19,BOR,Gabriel Bortoleto,Bortoleto,Audi,#8A1538,4,0,4
+10,Belgian Grand Prix,2026-07-19,LIN,Arvid Lindblad,Lindblad,RB F1 Team,#6692FF,2,0,2
+10,Belgian Grand Prix,2026-07-19,COL,Franco Colapinto,Colapinto,Alpine F1 Team,#FF87BC,1,0,1
+10,Belgian Grand Prix,2026-07-19,GAS,Pierre Gasly,Gasly,Alpine F1 Team,#FF87BC,0,0,0
+10,Belgian Grand Prix,2026-07-19,LAW,Liam Lawson,Lawson,RB F1 Team,#6692FF,0,0,0
+10,Belgian Grand Prix,2026-07-19,HUL,Nico Hülkenberg,Hülkenberg,Audi,#8A1538,0,0,0
+10,Belgian Grand Prix,2026-07-19,BEA,Oliver Bearman,Bearman,Haas F1 Team,#B6BABD,0,0,0
+10,Belgian Grand Prix,2026-07-19,ALB,Alexander Albon,Albon,Williams,#64C4FF,0,0,0
+10,Belgian Grand Prix,2026-07-19,SAI,Carlos Sainz,Sainz,Williams,#64C4FF,0,0,0
+10,Belgian Grand Prix,2026-07-19,OCO,Esteban Ocon,Ocon,Haas F1 Team,#B6BABD,0,0,0
+10,Belgian Grand Prix,2026-07-19,BOT,Valtteri Bottas,Bottas,Cadillac F1 Team,#D4AF37,0,0,0
+10,Belgian Grand Prix,2026-07-19,ALO,Fernando Alonso,Alonso,Aston Martin,#229971,0,0,0
+10,Belgian Grand Prix,2026-07-19,STR,Lance Stroll,Stroll,Aston Martin,#229971,0,0,0
+10,Belgian Grand Prix,2026-07-19,PER,Sergio Pérez,Pérez,Cadillac F1 Team,#D4AF37,0,0,0
+10,Belgian Grand Prix,2026-07-19,RUS,George Russell,Russell,Mercedes,#27F4D2,0,0,0
+11,Hungarian Grand Prix,2026-07-26,NOR,Lando Norris,Norris,McLaren,#FF8000,25,0,25
+11,Hungarian Grand Prix,2026-07-26,VER,Max Verstappen,Verstappen,Red Bull,#3671C6,18,0,18
+11,Hungarian Grand Prix,2026-07-26,ANT,Andrea Kimi Antonelli,Antonelli,Mercedes,#27F4D2,15,0,15
+11,Hungarian Grand Prix,2026-07-26,LEC,Charles Leclerc,Leclerc,Ferrari,#E8002D,12,0,12
+11,Hungarian Grand Prix,2026-07-26,HAM,Lewis Hamilton,Hamilton,Ferrari,#E8002D,10,0,10
+11,Hungarian Grand Prix,2026-07-26,HAD,Isack Hadjar,Hadjar,Red Bull,#3671C6,8,0,8
+11,Hungarian Grand Prix,2026-07-26,RUS,George Russell,Russell,Mercedes,#27F4D2,6,0,6
+11,Hungarian Grand Prix,2026-07-26,LAW,Liam Lawson,Lawson,RB F1 Team,#6692FF,4,0,4
+11,Hungarian Grand Prix,2026-07-26,HUL,Nico Hülkenberg,Hülkenberg,Audi,#8A1538,2,0,2
+11,Hungarian Grand Prix,2026-07-26,LIN,Arvid Lindblad,Lindblad,RB F1 Team,#6692FF,1,0,1
+11,Hungarian Grand Prix,2026-07-26,BOR,Gabriel Bortoleto,Bortoleto,Audi,#8A1538,0,0,0
+11,Hungarian Grand Prix,2026-07-26,GAS,Pierre Gasly,Gasly,Alpine F1 Team,#FF87BC,0,0,0
+11,Hungarian Grand Prix,2026-07-26,STR,Lance Stroll,Stroll,Aston Martin,#229971,0,0,0
+11,Hungarian Grand Prix,2026-07-26,ALO,Fernando Alonso,Alonso,Aston Martin,#229971,0,0,0
+11,Hungarian Grand Prix,2026-07-26,COL,Franco Colapinto,Colapinto,Alpine F1 Team,#FF87BC,0,0,0
+11,Hungarian Grand Prix,2026-07-26,OCO,Esteban Ocon,Ocon,Haas F1 Team,#B6BABD,0,0,0
+11,Hungarian Grand Prix,2026-07-26,ALB,Alexander Albon,Albon,Williams,#64C4FF,0,0,0
+11,Hungarian Grand Prix,2026-07-26,SAI,Carlos Sainz,Sainz,Williams,#64C4FF,0,0,0
+11,Hungarian Grand Prix,2026-07-26,BEA,Oliver Bearman,Bearman,Haas F1 Team,#B6BABD,0,0,0
+11,Hungarian Grand Prix,2026-07-26,PIA,Oscar Piastri,Piastri,McLaren,#FF8000,0,0,0
+11,Hungarian Grand Prix,2026-07-26,PER,Sergio Pérez,Pérez,Cadillac F1 Team,#D4AF37,0,0,0
+11,Hungarian Grand Prix,2026-07-26,BOT,Valtteri Bottas,Bottas,Cadillac F1 Team,#D4AF37,0,0,0
+12,Dutch Grand Prix,2026-08-23,NOR,Lando Norris,Norris,McLaren,#FF8000,25,6,31
+12,Dutch Grand Prix,2026-08-23,ANT,Andrea Kimi Antonelli,Antonelli,Mercedes,#27F4D2,18,5,23
+12,Dutch Grand Prix,2026-08-23,RUS,George Russell,Russell,Mercedes,#27F4D2,15,8,23
+12,Dutch Grand Prix,2026-08-23,LEC,Charles Leclerc,Leclerc,Ferrari,#E8002D,10,7,17
+12,Dutch Grand Prix,2026-08-23,HAM,Lewis Hamilton,Hamilton,Ferrari,#E8002D,12,2,14
+12,Dutch Grand Prix,2026-08-23,PIA,Oscar Piastri,Piastri,McLaren,#FF8000,8,4,12
+12,Dutch Grand Prix,2026-08-23,LAW,Liam Lawson,Lawson,Red Bull,#3671C6,6,0,6
+12,Dutch Grand Prix,2026-08-23,HUL,Nico Hülkenberg,Hülkenberg,Audi,#8A1538,4,0,4
+12,Dutch Grand Prix,2026-08-23,VER,Max Verstappen,Verstappen,Red Bull,#3671C6,0,3,3
+12,Dutch Grand Prix,2026-08-23,ALO,Fernando Alonso,Alonso,Aston Martin,#229971,2,0,2
+12,Dutch Grand Prix,2026-08-23,GAS,Pierre Gasly,Gasly,Alpine F1 Team,#FF87BC,1,1,2
+12,Dutch Grand Prix,2026-08-23,TSU,Yuki Tsunoda,Tsunoda,RB F1 Team,#6692FF,0,0,0
+12,Dutch Grand Prix,2026-08-23,LIN,Arvid Lindblad,Lindblad,RB F1 Team,#6692FF,0,0,0
+12,Dutch Grand Prix,2026-08-23,BOR,Gabriel Bortoleto,Bortoleto,Audi,#8A1538,0,0,0
+12,Dutch Grand Prix,2026-08-23,COL,Franco Colapinto,Colapinto,Alpine F1 Team,#FF87BC,0,0,0
+12,Dutch Grand Prix,2026-08-23,PER,Sergio Pérez,Pérez,Cadillac F1 Team,#D4AF37,0,0,0
+12,Dutch Grand Prix,2026-08-23,SAI,Carlos Sainz,Sainz,Williams,#64C4FF,0,0,0
+12,Dutch Grand Prix,2026-08-23,ALB,Alexander Albon,Albon,Williams,#64C4FF,0,0,0
+12,Dutch Grand Prix,2026-08-23,BOT,Valtteri Bottas,Bottas,Cadillac F1 Team,#D4AF37,0,0,0
+12,Dutch Grand Prix,2026-08-23,OCO,Esteban Ocon,Ocon,Haas F1 Team,#B6BABD,0,0,0
+12,Dutch Grand Prix,2026-08-23,STR,Lance Stroll,Stroll,Aston Martin,#229971,0,0,0
+12,Dutch Grand Prix,2026-08-23,BEA,Oliver Bearman,Bearman,Haas F1 Team,#B6BABD,0,0,0
+13,Italian Grand Prix,2026-09-06,ANT,Andrea Kimi Antonelli,Antonelli,Mercedes,#27F4D2,25,0,25
+13,Italian Grand Prix,2026-09-06,RUS,George Russell,Russell,Mercedes,#27F4D2,18,0,18
+13,Italian Grand Prix,2026-09-06,VER,Max Verstappen,Verstappen,Red Bull,#3671C6,15,0,15
+13,Italian Grand Prix,2026-09-06,NOR,Lando Norris,Norris,McLaren,#FF8000,12,0,12
+13,Italian Grand Prix,2026-09-06,PIA,Oscar Piastri,Piastri,McLaren,#FF8000,10,0,10
+13,Italian Grand Prix,2026-09-06,HAM,Lewis Hamilton,Hamilton,Ferrari,#E8002D,8,0,8
+13,Italian Grand Prix,2026-09-06,GAS,Pierre Gasly,Gasly,Alpine F1 Team,#FF87BC,6,0,6
+13,Italian Grand Prix,2026-09-06,LIN,Arvid Lindblad,Lindblad,RB F1 Team,#6692FF,4,0,4
+13,Italian Grand Prix,2026-09-06,COL,Franco Colapinto,Colapinto,Alpine F1 Team,#FF87BC,2,0,2
+13,Italian Grand Prix,2026-09-06,TSU,Yuki Tsunoda,Tsunoda,RB F1 Team,#6692FF,1,0,1
+13,Italian Grand Prix,2026-09-06,BOR,Gabriel Bortoleto,Bortoleto,Audi,#8A1538,0,0,0
+13,Italian Grand Prix,2026-09-06,HUL,Nico Hülkenberg,Hülkenberg,Audi,#8A1538,0,0,0
+13,Italian Grand Prix,2026-09-06,SAI,Carlos Sainz,Sainz,Williams,#64C4FF,0,0,0
+13,Italian Grand Prix,2026-09-06,LAW,Liam Lawson,Lawson,Red Bull,#3671C6,0,0,0
+13,Italian Grand Prix,2026-09-06,BEA,Oliver Bearman,Bearman,Haas F1 Team,#B6BABD,0,0,0
+13,Italian Grand Prix,2026-09-06,OCO,Esteban Ocon,Ocon,Haas F1 Team,#B6BABD,0,0,0
+13,Italian Grand Prix,2026-09-06,ALB,Alexander Albon,Albon,Williams,#64C4FF,0,0,0
+13,Italian Grand Prix,2026-09-06,PER,Sergio Pérez,Pérez,Cadillac F1 Team,#D4AF37,0,0,0
+13,Italian Grand Prix,2026-09-06,BOT,Valtteri Bottas,Bottas,Cadillac F1 Team,#D4AF37,0,0,0
+13,Italian Grand Prix,2026-09-06,STR,Lance Stroll,Stroll,Aston Martin,#229971,0,0,0
+13,Italian Grand Prix,2026-09-06,ALO,Fernando Alonso,Alonso,Aston Martin,#229971,0,0,0
+13,Italian Grand Prix,2026-09-06,LEC,Charles Leclerc,Leclerc,Ferrari,#E8002D,0,0,0
+14,Spanish Grand Prix,2026-09-13,ANT,Andrea Kimi Antonelli,Antonelli,Mercedes,#27F4D2,25,0,25
+14,Spanish Grand Prix,2026-09-13,VER,Max Verstappen,Verstappen,Red Bull,#3671C6,18,0,18
+14,Spanish Grand Prix,2026-09-13,NOR,Lando Norris,Norris,McLaren,#FF8000,15,0,15
+14,Spanish Grand Prix,2026-09-13,LEC,Charles Leclerc,Leclerc,Ferrari,#E8002D,12,0,12
+14,Spanish Grand Prix,2026-09-13,RUS,George Russell,Russell,Mercedes,#27F4D2,10,0,10
+14,Spanish Grand Prix,2026-09-13,LAW,Liam Lawson,Lawson,Red Bull,#3671C6,8,0,8
+14,Spanish Grand Prix,2026-09-13,COL,Franco Colapinto,Colapinto,Alpine F1 Team,#FF87BC,6,0,6
+14,Spanish Grand Prix,2026-09-13,PIA,Oscar Piastri,Piastri,McLaren,#FF8000,4,0,4
+14,Spanish Grand Prix,2026-09-13,LIN,Arvid Lindblad,Lindblad,RB F1 Team,#6692FF,2,0,2
+14,Spanish Grand Prix,2026-09-13,HUL,Nico Hülkenberg,Hülkenberg,Audi,#8A1538,1,0,1
+14,Spanish Grand Prix,2026-09-13,OCO,Esteban Ocon,Ocon,Haas F1 Team,#B6BABD,0,0,0
+14,Spanish Grand Prix,2026-09-13,GAS,Pierre Gasly,Gasly,Alpine F1 Team,#FF87BC,0,0,0
+14,Spanish Grand Prix,2026-09-13,BOR,Gabriel Bortoleto,Bortoleto,Audi,#8A1538,0,0,0
+14,Spanish Grand Prix,2026-09-13,TSU,Yuki Tsunoda,Tsunoda,RB F1 Team,#6692FF,0,0,0
+14,Spanish Grand Prix,2026-09-13,ALB,Alexander Albon,Albon,Williams,#64C4FF,0,0,0
+14,Spanish Grand Prix,2026-09-13,BEA,Oliver Bearman,Bearman,Haas F1 Team,#B6BABD,0,0,0
+14,Spanish Grand Prix,2026-09-13,ALO,Fernando Alonso,Alonso,Aston Martin,#229971,0,0,0
+14,Spanish Grand Prix,2026-09-13,BOT,Valtteri Bottas,Bottas,Cadillac F1 Team,#D4AF37,0,0,0
+14,Spanish Grand Prix,2026-09-13,SAI,Carlos Sainz,Sainz,Williams,#64C4FF,0,0,0
+14,Spanish Grand Prix,2026-09-13,PER,Sergio Pérez,Pérez,Cadillac F1 Team,#D4AF37,0,0,0
+14,Spanish Grand Prix,2026-09-13,STR,Lance Stroll,Stroll,Aston Martin,#229971,0,0,0
+14,Spanish Grand Prix,2026-09-13,HAM,Lewis Hamilton,Hamilton,Ferrari,#E8002D,0,0,0
+15,Azerbaijan Grand Prix,2026-09-26,RUS,George Russell,Russell,Mercedes,#27F4D2,25,0,25
+15,Azerbaijan Grand Prix,2026-09-26,VER,Max Verstappen,Verstappen,Red Bull,#3671C6,18,0,18
+15,Azerbaijan Grand Prix,2026-09-26,HAD,Isack Hadjar,Hadjar,Red Bull,#3671C6,15,0,15
+15,Azerbaijan Grand Prix,2026-09-26,LEC,Charles Leclerc,Leclerc,Ferrari,#E8002D,12,0,12
+15,Azerbaijan Grand Prix,2026-09-26,ANT,Andrea Kimi Antonelli,Antonelli,Mercedes,#27F4D2,10,0,10
+15,Azerbaijan Grand Prix,2026-09-26,HAM,Lewis Hamilton,Hamilton,Ferrari,#E8002D,8,0,8
+15,Azerbaijan Grand Prix,2026-09-26,LIN,Arvid Lindblad,Lindblad,RB F1 Team,#6692FF,6,0,6
+15,Azerbaijan Grand Prix,2026-09-26,OCO,Esteban Ocon,Ocon,Haas F1 Team,#B6BABD,4,0,4
+15,Azerbaijan Grand Prix,2026-09-26,BEA,Oliver Bearman,Bearman,Haas F1 Team,#B6BABD,2,0,2
+15,Azerbaijan Grand Prix,2026-09-26,SAI,Carlos Sainz,Sainz,Williams,#64C4FF,1,0,1
+15,Azerbaijan Grand Prix,2026-09-26,HUL,Nico Hülkenberg,Hülkenberg,Audi,#8A1538,0,0,0
+15,Azerbaijan Grand Prix,2026-09-26,LAW,Liam Lawson,Lawson,RB F1 Team,#6692FF,0,0,0
+15,Azerbaijan Grand Prix,2026-09-26,PIA,Oscar Piastri,Piastri,McLaren,#FF8000,0,0,0
+15,Azerbaijan Grand Prix,2026-09-26,PER,Sergio Pérez,Pérez,Cadillac F1 Team,#D4AF37,0,0,0
+15,Azerbaijan Grand Prix,2026-09-26,BOR,Gabriel Bortoleto,Bortoleto,Audi,#8A1538,0,0,0
+15,Azerbaijan Grand Prix,2026-09-26,BOT,Valtteri Bottas,Bottas,Cadillac F1 Team,#D4AF37,0,0,0
+15,Azerbaijan Grand Prix,2026-09-26,COL,Franco Colapinto,Colapinto,Alpine F1 Team,#FF87BC,0,0,0
+15,Azerbaijan Grand Prix,2026-09-26,GAS,Pierre Gasly,Gasly,Alpine F1 Team,#FF87BC,0,0,0
+15,Azerbaijan Grand Prix,2026-09-26,NOR,Lando Norris,Norris,McLaren,#FF8000,0,0,0
+15,Azerbaijan Grand Prix,2026-09-26,ALB,Alexander Albon,Albon,Williams,#64C4FF,0,0,0
+15,Azerbaijan Grand Prix,2026-09-26,ALO,Fernando Alonso,Alonso,Aston Martin,#229971,0,0,0
+15,Azerbaijan Grand Prix,2026-09-26,STR,Lance Stroll,Stroll,Aston Martin,#229971,0,0,0
+16,Bahrain Grand Prix in Malaysia,2026-10-04,VER,Max Verstappen,Verstappen,Red Bull,#3671C6,25,0,25
+16,Bahrain Grand Prix in Malaysia,2026-10-04,ANT,Andrea Kimi Antonelli,Antonelli,Mercedes,#27F4D2,18,0,18
+16,Bahrain Grand Prix in Malaysia,2026-10-04,HAM,Lewis Hamilton,Hamilton,Ferrari,#E8002D,15,0,15
+16,Bahrain Grand Prix in Malaysia,2026-10-04,LEC,Charles Leclerc,Leclerc,Ferrari,#E8002D,12,0,12
+16,Bahrain Grand Prix in Malaysia,2026-10-04,HAD,Isack Hadjar,Hadjar,Red Bull,#3671C6,10,0,10
+16,Bahrain Grand Prix in Malaysia,2026-10-04,PIA,Oscar Piastri,Piastri,McLaren,#FF8000,8,0,8
+16,Bahrain Grand Prix in Malaysia,2026-10-04,LAW,Liam Lawson,Lawson,RB F1 Team,#6692FF,6,0,6
+16,Bahrain Grand Prix in Malaysia,2026-10-04,ALO,Fernando Alonso,Alonso,Aston Martin,#229971,4,0,4
+16,Bahrain Grand Prix in Malaysia,2026-10-04,NOR,Lando Norris,Norris,McLaren,#FF8000,2,0,2
+16,Bahrain Grand Prix in Malaysia,2026-10-04,LIN,Arvid Lindblad,Lindblad,RB F1 Team,#6692FF,1,0,1
+16,Bahrain Grand Prix in Malaysia,2026-10-04,HUL,Nico Hülkenberg,Hülkenberg,Audi,#8A1538,0,0,0
+16,Bahrain Grand Prix in Malaysia,2026-10-04,STR,Lance Stroll,Stroll,Aston Martin,#229971,0,0,0
+16,Bahrain Grand Prix in Malaysia,2026-10-04,COL,Franco Colapinto,Colapinto,Alpine F1 Team,#FF87BC,0,0,0
+16,Bahrain Grand Prix in Malaysia,2026-10-04,BEA,Oliver Bearman,Bearman,Haas F1 Team,#B6BABD,0,0,0
+16,Bahrain Grand Prix in Malaysia,2026-10-04,OCO,Esteban Ocon,Ocon,Haas F1 Team,#B6BABD,0,0,0
+16,Bahrain Grand Prix in Malaysia,2026-10-04,GAS,Pierre Gasly,Gasly,Alpine F1 Team,#FF87BC,0,0,0
+16,Bahrain Grand Prix in Malaysia,2026-10-04,SAI,Carlos Sainz,Sainz,Williams,#64C4FF,0,0,0
+16,Bahrain Grand Prix in Malaysia,2026-10-04,BOR,Gabriel Bortoleto,Bortoleto,Audi,#8A1538,0,0,0
+16,Bahrain Grand Prix in Malaysia,2026-10-04,PER,Sergio Pérez,Pérez,Cadillac F1 Team,#D4AF37,0,0,0
+16,Bahrain Grand Prix in Malaysia,2026-10-04,RUS,George Russell,Russell,Mercedes,#27F4D2,0,0,0
+16,Bahrain Grand Prix in Malaysia,2026-10-04,ALB,Alexander Albon,Albon,Williams,#64C4FF,0,0,0
+16,Bahrain Grand Prix in Malaysia,2026-10-04,BOT,Valtteri Bottas,Bottas,Cadillac F1 Team,#D4AF37,0,0,0
+17,Singapore Grand Prix,2026-10-11,VER,Max Verstappen,Verstappen,Red Bull,#3671C6,25,8,33
+17,Singapore Grand Prix,2026-10-11,LEC,Charles Leclerc,Leclerc,Ferrari,#E8002D,18,6,24
+17,Singapore Grand Prix,2026-10-11,ANT,Andrea Kimi Antonelli,Antonelli,Mercedes,#27F4D2,15,5,20
+17,Singapore Grand Prix,2026-10-11,HAM,Lewis Hamilton,Hamilton,Ferrari,#E8002D,8,7,15
+17,Singapore Grand Prix,2026-10-11,NOR,Lando Norris,Norris,McLaren,#FF8000,12,1,13
+17,Singapore Grand Prix,2026-10-11,PIA,Oscar Piastri,Piastri,McLaren,#FF8000,10,0,10
+17,Singapore Grand Prix,2026-10-11,LAW,Liam Lawson,Lawson,RB F1 Team,#6692FF,6,4,10
+17,Singapore Grand Prix,2026-10-11,HUL,Nico Hülkenberg,Hülkenberg,Audi,#8A1538,4,2,6
+17,Singapore Grand Prix,2026-10-11,BEA,Oliver Bearman,Bearman,Haas F1 Team,#B6BABD,0,3,3
+17,Singapore Grand Prix,2026-10-11,RUS,George Russell,Russell,Mercedes,#27F4D2,2,0,2
+17,Singapore Grand Prix,2026-10-11,HAD,Isack Hadjar,Hadjar,Red Bull,#3671C6,1,0,1
+17,Singapore Grand Prix,2026-10-11,GAS,Pierre Gasly,Gasly,Alpine F1 Team,#FF87BC,0,0,0
+17,Singapore Grand Prix,2026-10-11,OCO,Esteban Ocon,Ocon,Haas F1 Team,#B6BABD,0,0,0
+17,Singapore Grand Prix,2026-10-11,SAI,Carlos Sainz,Sainz,Williams,#64C4FF,0,0,0
+17,Singapore Grand Prix,2026-10-11,LIN,Arvid Lindblad,Lindblad,RB F1 Team,#6692FF,0,0,0
+17,Singapore Grand Prix,2026-10-11,ALO,Fernando Alonso,Alonso,Aston Martin,#229971,0,0,0
+17,Singapore Grand Prix,2026-10-11,PER,Sergio Pérez,Pérez,Cadillac F1 Team,#D4AF37,0,0,0
+17,Singapore Grand Prix,2026-10-11,ALB,Alexander Albon,Albon,Williams,#64C4FF,0,0,0
+17,Singapore Grand Prix,2026-10-11,BOT,Valtteri Bottas,Bottas,Cadillac F1 Team,#D4AF37,0,0,0
+17,Singapore Grand Prix,2026-10-11,STR,Lance Stroll,Stroll,Aston Martin,#229971,0,0,0
+17,Singapore Grand Prix,2026-10-11,COL,Franco Colapinto,Colapinto,Alpine F1 Team,#FF87BC,0,0,0
+17,Singapore Grand Prix,2026-10-11,BOR,Gabriel Bortoleto,Bortoleto,Audi,#8A1538,0,0,0
+18,United States Grand Prix,2026-10-25,ANT,Andrea Kimi Antonelli,Antonelli,Mercedes,#27F4D2,25,0,25
+18,United States Grand Prix,2026-10-25,LEC,Charles Leclerc,Leclerc,Ferrari,#E8002D,18,0,18
+18,United States Grand Prix,2026-10-25,VER,Max Verstappen,Verstappen,Red Bull,#3671C6,15,0,15
+18,United States Grand Prix,2026-10-25,HAM,Lewis Hamilton,Hamilton,Ferrari,#E8002D,12,0,12
+18,United States Grand Prix,2026-10-25,NOR,Lando Norris,Norris,McLaren,#FF8000,10,0,10
+18,United States Grand Prix,2026-10-25,HAD,Isack Hadjar,Hadjar,Red Bull,#3671C6,8,0,8
+18,United States Grand Prix,2026-10-25,PIA,Oscar Piastri,Piastri,McLaren,#FF8000,6,0,6
+18,United States Grand Prix,2026-10-25,RUS,George Russell,Russell,Mercedes,#27F4D2,4,0,4
+18,United States Grand Prix,2026-10-25,LAW,Liam Lawson,Lawson,RB F1 Team,#6692FF,2,0,2
+18,United States Grand Prix,2026-10-25,GAS,Pierre Gasly,Gasly,Alpine F1 Team,#FF87BC,1,0,1
+18,United States Grand Prix,2026-10-25,HUL,Nico Hülkenberg,Hülkenberg,Audi,#8A1538,0,0,0
+18,United States Grand Prix,2026-10-25,LIN,Arvid Lindblad,Lindblad,RB F1 Team,#6692FF,0,0,0
+18,United States Grand Prix,2026-10-25,BOR,Gabriel Bortoleto,Bortoleto,Audi,#8A1538,0,0,0
+18,United States Grand Prix,2026-10-25,OCO,Esteban Ocon,Ocon,Haas F1 Team,#B6BABD,0,0,0
+18,United States Grand Prix,2026-10-25,STR,Lance Stroll,Stroll,Aston Martin,#229971,0,0,0
+18,United States Grand Prix,2026-10-25,ALO,Fernando Alonso,Alonso,Aston Martin,#229971,0,0,0
+18,United States Grand Prix,2026-10-25,ALB,Alexander Albon,Albon,Williams,#64C4FF,0,0,0
+18,United States Grand Prix,2026-10-25,SAI,Carlos Sainz,Sainz,Williams,#64C4FF,0,0,0
+18,United States Grand Prix,2026-10-25,PER,Sergio Pérez,Pérez,Cadillac F1 Team,#D4AF37,0,0,0
+18,United States Grand Prix,2026-10-25,BOT,Valtteri Bottas,Bottas,Cadillac F1 Team,#D4AF37,0,0,0
+18,United States Grand Prix,2026-10-25,COL,Franco Colapinto,Colapinto,Alpine F1 Team,#FF87BC,0,0,0
+18,United States Grand Prix,2026-10-25,BEA,Oliver Bearman,Bearman,Haas F1 Team,#B6BABD,0,0,0
+19,Mexico City Grand Prix,2026-11-01,VER,Max Verstappen,Verstappen,Red Bull,#3671C6,25,0,25
+19,Mexico City Grand Prix,2026-11-01,HAM,Lewis Hamilton,Hamilton,Ferrari,#E8002D,18,0,18
+19,Mexico City Grand Prix,2026-11-01,ANT,Andrea Kimi Antonelli,Antonelli,Mercedes,#27F4D2,15,0,15
+19,Mexico City Grand Prix,2026-11-01,LEC,Charles Leclerc,Leclerc,Ferrari,#E8002D,12,0,12
+19,Mexico City Grand Prix,2026-11-01,NOR,Lando Norris,Norris,McLaren,#FF8000,10,0,10
+19,Mexico City Grand Prix,2026-11-01,RUS,George Russell,Russell,Mercedes,#27F4D2,8,0,8
+19,Mexico City Grand Prix,2026-11-01,LAW,Liam Lawson,Lawson,RB F1 Team,#6692FF,6,0,6
+19,Mexico City Grand Prix,2026-11-01,BOR,Gabriel Bortoleto,Bortoleto,Audi,#8A1538,4,0,4
+19,Mexico City Grand Prix,2026-11-01,HAD,Isack Hadjar,Hadjar,Red Bull,#3671C6,2,0,2
+19,Mexico City Grand Prix,2026-11-01,HIR,Ryo Hirakawa,Hirakawa,Haas F1 Team,#B6BABD,1,0,1
+19,Mexico City Grand Prix,2026-11-01,ALB,Alexander Albon,Albon,Williams,#64C4FF,0,0,0
+19,Mexico City Grand Prix,2026-11-01,SAI,Carlos Sainz,Sainz,Williams,#64C4FF,0,0,0
+19,Mexico City Grand Prix,2026-11-01,PIA,Oscar Piastri,Piastri,McLaren,#FF8000,0,0,0
+19,Mexico City Grand Prix,2026-11-01,HUL,Nico Hülkenberg,Hülkenberg,Audi,#8A1538,0,0,0
+19,Mexico City Grand Prix,2026-11-01,COL,Franco Colapinto,Colapinto,Alpine F1 Team,#FF87BC,0,0,0
+19,Mexico City Grand Prix,2026-11-01,PER,Sergio Pérez,Pérez,Cadillac F1 Team,#D4AF37,0,0,0
+19,Mexico City Grand Prix,2026-11-01,GAS,Pierre Gasly,Gasly,Alpine F1 Team,#FF87BC,0,0,0
+19,Mexico City Grand Prix,2026-11-01,LIN,Arvid Lindblad,Lindblad,RB F1 Team,#6692FF,0,0,0
+19,Mexico City Grand Prix,2026-11-01,BEA,Oliver Bearman,Bearman,Haas F1 Team,#B6BABD,0,0,0
+19,Mexico City Grand Prix,2026-11-01,BOT,Valtteri Bottas,Bottas,Cadillac F1 Team,#D4AF37,0,0,0
+19,Mexico City Grand Prix,2026-11-01,STR,Lance Stroll,Stroll,Aston Martin,#229971,0,0,0
+19,Mexico City Grand Prix,2026-11-01,ALO,Fernando Alonso,Alonso,Aston Martin,#229971,0,0,0
+20,Brazilian Grand Prix,2026-11-08,NOR,Lando Norris,Norris,McLaren,#FF8000,25,0,25
+20,Brazilian Grand Prix,2026-11-08,VER,Max Verstappen,Verstappen,Red Bull,#3671C6,18,0,18
+20,Brazilian Grand Prix,2026-11-08,HAD,Isack Hadjar,Hadjar,Red Bull,#3671C6,15,0,15
+20,Brazilian Grand Prix,2026-11-08,RUS,George Russell,Russell,Mercedes,#27F4D2,12,0,12
+20,Brazilian Grand Prix,2026-11-08,ANT,Andrea Kimi Antonelli,Antonelli,Mercedes,#27F4D2,10,0,10
+20,Brazilian Grand Prix,2026-11-08,PIA,Oscar Piastri,Piastri,McLaren,#FF8000,8,0,8
+20,Brazilian Grand Prix,2026-11-08,LAW,Liam Lawson,Lawson,RB F1 Team,#6692FF,6,0,6
+20,Brazilian Grand Prix,2026-11-08,LEC,Charles Leclerc,Leclerc,Ferrari,#E8002D,4,0,4
+20,Brazilian Grand Prix,2026-11-08,HAM,Lewis Hamilton,Hamilton,Ferrari,#E8002D,2,0,2
+20,Brazilian Grand Prix,2026-11-08,HUL,Nico Hülkenberg,Hülkenberg,Audi,#8A1538,1,0,1
+20,Brazilian Grand Prix,2026-11-08,LIN,Arvid Lindblad,Lindblad,RB F1 Team,#6692FF,0,0,0
+20,Brazilian Grand Prix,2026-11-08,ALO,Fernando Alonso,Alonso,Aston Martin,#229971,0,0,0
+20,Brazilian Grand Prix,2026-11-08,COL,Franco Colapinto,Colapinto,Alpine F1 Team,#FF87BC,0,0,0
+20,Brazilian Grand Prix,2026-11-08,GAS,Pierre Gasly,Gasly,Alpine F1 Team,#FF87BC,0,0,0
+20,Brazilian Grand Prix,2026-11-08,ALB,Alexander Albon,Albon,Williams,#64C4FF,0,0,0
+20,Brazilian Grand Prix,2026-11-08,BOR,Gabriel Bortoleto,Bortoleto,Audi,#8A1538,0,0,0
+20,Brazilian Grand Prix,2026-11-08,BEA,Oliver Bearman,Bearman,Haas F1 Team,#B6BABD,0,0,0
+20,Brazilian Grand Prix,2026-11-08,PER,Sergio Pérez,Pérez,Cadillac F1 Team,#D4AF37,0,0,0
+20,Brazilian Grand Prix,2026-11-08,SAI,Carlos Sainz,Sainz,Williams,#64C4FF,0,0,0
+20,Brazilian Grand Prix,2026-11-08,CAM,Rafael Camara,Camara,Haas F1 Team,#B6BABD,0,0,0
+20,Brazilian Grand Prix,2026-11-08,STR,Lance Stroll,Stroll,Aston Martin,#229971,0,0,0
+20,Brazilian Grand Prix,2026-11-08,BOT,Valtteri Bottas,Bottas,Cadillac F1 Team,#D4AF37,0,0,0

@@ -8,7 +8,7 @@ import {
   parseDashTheme,
   parseLayout,
   parseWidgets,
-  WIDGET_ACCENTS,
+  widgetAccentColor,
 } from "@/lib/biDashboards";
 import type { Json } from "@/integrations/supabase/types";
 import { cn } from "@/lib/utils";
@@ -155,7 +155,7 @@ export function BiThumbnail({
     const totalRows = Math.max(1, ...layout.map((l) => l.y + l.h));
     const tiles = layout.map((l) => {
       const w = byId.get(l.i);
-      const accent = w?.theme?.accent ? WIDGET_ACCENTS[w.theme.accent]?.color : "";
+      const accent = widgetAccentColor(w?.theme?.accent);
       const type = w?.kind === "text" ? "text" : (w?.chart?.type ?? "bar");
       return { l, accent: accent || "", type };
     });

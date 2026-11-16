@@ -1,0 +1,24 @@
+round,race,circuit,locality,country,race_date,sprint,status
+1,Australian Grand Prix,Albert Park Grand Prix Circuit,Melbourne,Australia,2026-03-08,no,completed
+2,Chinese Grand Prix,Shanghai International Circuit,Shanghai,China,2026-03-15,yes,completed
+3,Japanese Grand Prix,Suzuka Circuit,Suzuka,Japan,2026-03-29,no,completed
+4,Miami Grand Prix,Miami International Autodrome,Miami,USA,2026-05-03,yes,completed
+5,Canadian Grand Prix,Circuit Gilles Villeneuve,Montreal,Canada,2026-05-24,yes,completed
+6,Monaco Grand Prix,Circuit de Monaco,Monte Carlo,Monaco,2026-06-07,no,completed
+7,Barcelona Grand Prix,Circuit de Barcelona-Catalunya,Barcelona,Spain,2026-06-14,no,completed
+8,Austrian Grand Prix,Red Bull Ring,Spielberg,Austria,2026-06-28,no,completed
+9,British Grand Prix,Silverstone Circuit,Silverstone,UK,2026-07-05,yes,completed
+10,Belgian Grand Prix,Circuit de Spa-Francorchamps,Spa,Belgium,2026-07-19,no,completed
+11,Hungarian Grand Prix,Hungaroring,Budapest,Hungary,2026-07-26,no,completed
+12,Dutch Grand Prix,Circuit Park Zandvoort,Zandvoort,Netherlands,2026-08-23,yes,completed
+13,Italian Grand Prix,Autodromo Nazionale di Monza,Monza,Italy,2026-09-06,no,completed
+14,Spanish Grand Prix,Madring,Madrid,Spain,2026-09-13,no,completed
+15,Azerbaijan Grand Prix,Baku City Circuit,Baku,Azerbaijan,2026-09-26,no,completed
+16,Bahrain Grand Prix in Malaysia,Sepang International Circuit,Kuala Lumpur,Malaysia,2026-10-04,no,completed
+17,Singapore Grand Prix,Marina Bay Street Circuit,Marina Bay,Singapore,2026-10-11,yes,completed
+18,United States Grand Prix,Circuit of the Americas,Austin,USA,2026-10-25,no,completed
+19,Mexico City Grand Prix,Autódromo Hermanos Rodríguez,Mexico City,Mexico,2026-11-01,no,completed
+20,Brazilian Grand Prix,Autódromo José Carlos Pace,São Paulo,Brazil,2026-11-08,no,completed
+21,Las Vegas Grand Prix,Las Vegas Strip Street Circuit,Las Vegas,USA,2026-11-22,no,upcoming
+22,Qatar Grand Prix,Lusail International Circuit,Lusail,Qatar,2026-11-29,no,upcoming
+23,Abu Dhabi Grand Prix,Yas Marina Circuit,Abu Dhabi,UAE,2026-12-06,no,upcoming

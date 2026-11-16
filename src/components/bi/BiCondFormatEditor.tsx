@@ -64,7 +64,7 @@ export function BiCondFormatEditor({
         Conditional formatting
       </Label>
       <Select value={matFmtMode} onValueChange={setMatFmtMode}>
-        <SelectTrigger className="h-8 text-xs">
+        <SelectTrigger className="h-8 text-xs" aria-label="Colouring">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -109,7 +109,10 @@ export function BiCondFormatEditor({
                   )
                 }
               >
-                <SelectTrigger className="h-7 w-24 text-[11px]">
+                <SelectTrigger
+                  className="h-7 w-24 text-[11px]"
+                  aria-label={`Rule ${i + 1} condition`}
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
