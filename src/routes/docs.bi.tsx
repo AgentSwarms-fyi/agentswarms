@@ -284,7 +284,7 @@ function BiPage() {
           },
           {
             title: "Add a visual",
-            body: "The right-hand builder pane takes your source (table, prepared table, or a governed metric), the fields to plot, the chart type and a title. Until the visual can be added, the line under Add to dashboard says what is still missing: a query to run, the columns to chart, or the title.",
+            body: "The right-hand builder pane takes your source (table, prepared table, or a governed metric). Click fields to group and add up — it writes the query, picks the chart and names it (see Build a visual from fields below) — or switch to SQL and write the query yourself. Until the visual can be added, the line under Add to dashboard says what is still missing: a query to run, the columns to chart, or the title.",
           },
           {
             title: "Or describe it",
@@ -335,6 +335,249 @@ function BiPage() {
         would let an ungoverned chart hide among certified ones on a dashboard whose whole claim is
         that its numbers are defined. Questions the semantic model cannot express are simply not
         asked.
+      </Callout>
+
+      <H2 id="fields">Build a visual from fields</H2>
+      <P>
+        The builder opens in <strong>Fields</strong> mode. Pick a table and click the fields you
+        want; it writes the query for you — the grouping, the aggregation, the date period, the sort
+        and the limit — runs it over the <strong>whole table</strong> as you click, picks the chart
+        that reads best and names it. The query it wrote is always one click away, and{" "}
+        <strong>Edit as SQL</strong> carries it into the SQL editor when you need something fields
+        cannot say. <strong>SQL</strong> mode, beside Fields at the top of the pane, is the
+        hand-written path it has always been.
+      </P>
+      <Steps
+        items={[
+          {
+            title: "Pick a table",
+            body: "The field list shows each column with its kind: a number, a date or text. Kinds come from the column's declared type and a 50-row sample, so a text column of dates such as 11/9/2024 is a date, and a numeric id such as Customer ID, order_id or zip_code is text — it labels rows, it is not something to add up, even where the table stores it as a number. The table picker searches as you type, on any part of the name, and shows each table's column count; Search fields narrows a long field list.",
+          },
+          {
+            title: "Click fields",
+            body: "Clicking a field puts it where it usually belongs: text and dates go to Group by (dates by month), numbers go to Values as a Sum. The small Group and Value buttons on each row put it in the other place. Number of rows, at the top of the list, counts the rows in each group.",
+          },
+          {
+            title: "Adjust each chip",
+            body: "A value's menu sets its aggregation — Sum, Average, Min, Max, Count or Count distinct; a number starts as Sum, and text and dates, which can only be counted, start as Count distinct. A date's menu sets its period — Year, Quarter, Month, Week or Day. × removes the chip.",
+          },
+          {
+            title: "Filter, sort, keep the top",
+            body: "A filter is a field, a condition and a value. Sort orders the groups by their first value, largest first, or by their label. Show top keeps the first N groups after sorting. A grouped date runs in time order instead, and Show top becomes Show latest: 12 means the latest 12 periods, still drawn oldest first.",
+          },
+          {
+            title: "Check it and add it",
+            body: "The preview, the chart and the title follow every click. Change the chart type or the title and your choice sticks. Add to dashboard saves the visual with its fields, so editing it later opens Fields mode with the same picks.",
+          },
+        ]}
+      />
+      <Table
+        headers={["Your fields", "The chart it starts as"]}
+        rows={[
+          ["Values only, nothing grouped", "KPI — one number"],
+          ["A date grouped by a period, with values", "Line"],
+          ["One text field, with values", "Bar"],
+          ["Two text fields and one value", "Stacked column — the second field is the series"],
+          ["Groups only, no values", "Table"],
+        ]}
+      />
+      <P>
+        Picking another type keeps the fields and reassigns them: the bar&apos;s category becomes
+        the pie&apos;s slices, a KPI takes the grouped date as its period, a narrative ranks by the
+        first value, a combo draws the second value as its line. On bar, line, area and radar
+        charts, every further value becomes its own series (see{" "}
+        <a href="#fields-more">More values</a>).
+      </P>
+      <Callout kind="why" title="Why not just pick a table and chart its rows?">
+        Picking a table used to write <C>SELECT * … LIMIT 50</C> and leave the grouping to you. A
+        chart over that sums fifty arbitrary rows: Sales by Region drew the first fifty orders, not
+        each region&apos;s total, and nothing on the chart said so. Fields write the aggregation
+        into the query, so the engine adds up every row and the chart receives one row per group.
+      </Callout>
+
+      <H3 id="fields-filters">Filter conditions</H3>
+      <Table
+        headers={["Condition", "Value", "Example"]}
+        rows={[
+          [
+            "is one of / is not one of",
+            "One or more values, comma-separated",
+            "Region · is one of · EMEA, AMER",
+          ],
+          ["= ≠ > ≥ < ≤", "One value", "Discount · > · 0"],
+          [
+            "between",
+            "Two values, comma-separated; both ends included",
+            "Sales · between · 10, 500",
+          ],
+          [
+            "contains",
+            "Text found anywhere in the value, ignoring case",
+            "Customer · contains · energy",
+          ],
+          ["is not empty", "None — drops NULLs, and empty text too", "Industry · is not empty"],
+        ]}
+      />
+      <P>
+        A number field takes numbers only. A date field takes an ISO date (<C>2025-01-31</C>, with
+        an optional time) or a date written the way the column writes it (<C>1/31/2025</C> for a
+        column of <C>m/d/yyyy</C> text), and compares dates as dates — so 11/30/2024 is before
+        1/2/2025 even though, as text, it sorts after it.
+      </P>
+
+      <H3 id="fields-calc">Calculated fields</H3>
+      <P>
+        <strong>Calculated field</strong>, above the field list, adds a field of your own: a name
+        and an expression over the table&apos;s columns, in the source&apos;s own SQL. Quote column
+        names that have spaces. Leave <em>It aggregates by itself</em> ticked when the expression
+        contains its own <C>SUM</C>, <C>AVG</C> or <C>COUNT</C> — it is then used as a value exactly
+        as written, and cannot be grouped by. Untick it for a per-row expression, such as{" "}
+        <C>{`"Sales" - "Profit"`}</C>, which then behaves like any other column: summed and averaged
+        if it is a number, grouped by if it is text. A calculated field lives with the visual; it
+        runs inside the same read-only query, and an expression containing <C>;</C> is refused.
+      </P>
+
+      <H3 id="fields-more">More values, column titles and totals</H3>
+      <FieldList
+        items={[
+          {
+            name: "More values (each its own series)",
+            body: "Bar, line, area and radar charts without a Series field draw each further value as its own series — Sales and Profit by month as two lines. Fields mode fills it from Values; in SQL mode you pick the extra number columns here. On a radar each value is a spoke and each category a polygon, and each spoke is on its own scale: its largest value reaches the rim, so sales in millions and quantity in units share one chart, and the tooltip gives the actual figures. A negative value sits at the centre. Stacked columns and bars stack a Series field instead, because values that overlap — profit is part of sales — would stack into a total that means nothing.",
+          },
+          {
+            name: "Column title",
+            body: "Each table column's style button in Column formats sets the heading the table shows, so distinct_customer can read Customers. The column keeps its name in the query, in filters and in exports of the data.",
+          },
+          {
+            name: "Totals row",
+            body: "On by default. Turn it off where adding the column up means nothing, such as distinct counts. Columns formatted as Percent, and columns whose names mark them as averages, rates or margins (avg_profit, margin, conversion_rate), are never totalled either way.",
+          },
+        ]}
+      />
+
+      <H3 id="fields-narratives">Suggested narratives</H3>
+      <P>
+        Under the preview, <strong>Suggested narratives</strong> lists the sentences the
+        visual&apos;s rows support, already computed: with a date, the change since the period
+        before, the next period&apos;s forecast (8 or more periods) and the latest anomaly (5 or
+        more); with a category, the top and the bottom members. A sentence the data cannot carry is
+        not offered. <strong>Add</strong> puts it on the dashboard as its own{" "}
+        <a href="#ch-narrative">narrative</a> visual over the same query, so it follows filters and
+        refreshes like the chart beside it.
+      </P>
+
+      <H3 id="fields-examples">Worked examples</H3>
+      <P>
+        Each example uses the sample table <C>saas_sales</C> — 9,994 orders of a software company
+        from 99 customers, with Order Date, Region, Customer, Industry, Segment, Product, Sales,
+        Quantity, Discount and Profit. The SQL shown is exactly what Fields mode writes for a local
+        dataset.
+      </P>
+      <P>
+        <strong>1. Sales by region.</strong> Click <strong>Region</strong>, then{" "}
+        <strong>Sales</strong>. It becomes a bar chart titled <em>Sales by Region</em>, largest
+        first.
+      </P>
+      <Code lang="sql">{`SELECT "Region" AS "region",
+       SUM("Sales") AS "sales"
+FROM "saas_sales"
+GROUP BY "Region"
+ORDER BY "sales" DESC
+LIMIT 1000`}</Code>
+      <P>
+        <strong>2. Sales and profit by month.</strong> Click <strong>Order Date</strong> (grouped by
+        month), <strong>Sales</strong> and <strong>Profit</strong>. It becomes a line chart with two
+        lines, <em>Sales and Profit by month</em>. The sample stores its dates as text such as
+        11/9/2024, so the query reads them in that format before bucketing; the months come back as{" "}
+        <C>2024-11</C>, <C>2024-12</C> and so on, the labels KPIs and narratives read as periods.
+        Set the chip to <strong>Quarter</strong> and they become <C>2024-Q4</C>; to{" "}
+        <strong>Week</strong>, <C>2024-W45</C>.
+      </P>
+      <Code lang="sql">{`SELECT STRFTIME(TRY_STRPTIME(CAST("Order Date" AS VARCHAR), '%m/%d/%Y'), '%Y-%m') AS "order_date_month",
+       SUM("Sales") AS "sales",
+       SUM("Profit") AS "profit"
+FROM "saas_sales"
+GROUP BY STRFTIME(TRY_STRPTIME(CAST("Order Date" AS VARCHAR), '%m/%d/%Y'), '%Y-%m')
+ORDER BY "order_date_month" ASC
+LIMIT 1000`}</Code>
+      <P>
+        <strong>3. This month against last month.</strong> Build example 2 with Sales alone and pick{" "}
+        <strong>KPI</strong>. The grouped month becomes the KPI&apos;s date: the tile shows the
+        latest month, its change against the month before and a trend line of the months behind it
+        (see <a href="#kpi-periods">KPIs that compare periods</a>). Set{" "}
+        <strong>Compare with</strong> to the same period last year for a year-on-year tile, and tick{" "}
+        <strong>Lower is better</strong> for a cost.
+      </P>
+      <P>
+        <strong>4. Top 10 customers in EMEA by profit.</strong> Click <strong>Customer</strong> and{" "}
+        <strong>Profit</strong>, add the filter <em>Region · is one of · EMEA</em>, and set{" "}
+        <strong>Show top</strong> to 10.
+      </P>
+      <Code lang="sql">{`SELECT "Customer" AS "customer",
+       SUM("Profit") AS "profit"
+FROM "saas_sales"
+WHERE "Region" IN ('EMEA')
+GROUP BY "Customer"
+ORDER BY "profit" DESC
+LIMIT 10`}</Code>
+      <P>
+        <strong>5. Margin by industry.</strong> Add the calculated field <C>Margin %</C> with the
+        expression <C>{`100 * SUM("Profit") / SUM("Sales")`}</C>, leaving{" "}
+        <em>It aggregates by itself</em> ticked. Click <strong>Industry</strong> and{" "}
+        <strong>Margin %</strong>, then set the value format to <strong>Percent</strong>, which adds
+        the % sign — the expression already multiplies by 100. Each industry&apos;s margin is its
+        total profit over its total sales, not an average of each order&apos;s margin, which would
+        weigh a $5 order the same as a $5,000 one.
+      </P>
+      <Code lang="sql">{`SELECT "Industry" AS "industry",
+       (100 * SUM("Profit") / SUM("Sales")) AS "margin"
+FROM "saas_sales"
+GROUP BY "Industry"
+ORDER BY "margin" DESC
+LIMIT 1000`}</Code>
+      <P>
+        <strong>6. A product table.</strong> Click <strong>Product</strong>, <strong>Sales</strong>,
+        then <strong>Customer</strong> as a value — text is counted distinct — and{" "}
+        <strong>Number of rows</strong>; pick <strong>Table</strong>. In Column formats, title the
+        columns <em>Sales</em>, <em>Customers</em> and <em>Orders</em> (they arrive as Sales (Sum),
+        Customer (Count distinct) and Number of rows), and turn <strong>Totals row</strong> off: a
+        customer who bought several products is counted under each, so the Customers column adds up
+        to 1,260 while the table has 99 customers.
+      </P>
+      <Code lang="sql">{`SELECT "Product" AS "product",
+       SUM("Sales") AS "sales",
+       COUNT(DISTINCT "Customer") AS "distinct_customer",
+       COUNT(*) AS "rows"
+FROM "saas_sales"
+GROUP BY "Product"
+ORDER BY "sales" DESC
+LIMIT 1000`}</Code>
+      <P>
+        <strong>7. A headline sentence.</strong> With example 2 built,{" "}
+        <strong>Suggested narratives</strong> offers the change in the latest month, the next
+        month&apos;s forecast and the latest anomaly, each already written from the data. On the
+        sample the change reads{" "}
+        <em>Sales for Dec 2025 decreased by 19.5% (−21.9k) from 112.3k to 90.5k.</em> and the
+        anomaly{" "}
+        <em>
+          The most recent anomaly was Nov 2025: sales was 112.3k, higher than the typical 39.8k.
+        </em>{" "}
+        Add one and it is recomputed whenever the dashboard&apos;s filters change its rows.
+      </P>
+      <Callout kind="warn" title="Refused, not guessed">
+        Fields mode writes a query only when it can say what it means. Summing a text field (
+        <em>Region is not a number — count it instead</em>), grouping by a calculated field that
+        aggregates, a number field filtered by something that is not a number, a date filter that is
+        not a date, and a filter or field the table no longer has are each refused with that reason
+        under the fields, and nothing runs until it is fixed.
+      </Callout>
+      <Callout kind="info" title="Warehouses write their own SQL">
+        On a warehouse the same picks write that warehouse&apos;s SQL — its identifier quoting
+        (backticks on BigQuery, MySQL and Databricks), its string escapes and its own date
+        truncation, so a month is the month&apos;s first day rather than a <C>2026-07</C> label.
+        Local datasets run on DuckDB, in the browser for the preview and on the server for scheduled
+        refreshes. A server set to <C>LOCAL_ENGINE=alasql</C> cannot run DuckDB&apos;s date
+        functions; build those visuals in SQL mode.
       </Callout>
 
       <H2 id="data-mode">How a widget gets its data</H2>
@@ -450,12 +693,17 @@ GROUP BY region`}</Code>
           [
             <C key="a">bar</C>,
             "xField, yField",
-            "seriesField, stacked",
+            "seriesField, stacked, extraMeasures",
             "Vertical columns; ranking and comparison",
           ],
           [<C key="b">hbar</C>, "xField, yField", "—", "Horizontal bars; long category names"],
-          [<C key="c">line</C>, "xField, yField", "seriesField", "Change over time"],
-          [<C key="d">area</C>, "xField, yField", "seriesField", "Trend with volume emphasis"],
+          [<C key="c">line</C>, "xField, yField", "seriesField, extraMeasures", "Change over time"],
+          [
+            <C key="d">area</C>,
+            "xField, yField",
+            "seriesField, extraMeasures",
+            "Trend with volume emphasis",
+          ],
           [<C key="e">scolumn</C>, "xField, yField, seriesField", "—", "Stacked vertical columns"],
           [<C key="f">shbar</C>, "xField, yField, seriesField", "—", "Stacked horizontal bars"],
           [
@@ -611,8 +859,8 @@ GROUP BY region`}</Code>
           [
             <C key="d">radar</C>,
             "xField, yField",
-            "seriesField",
-            "Several measures compared across entities",
+            "seriesField, extraMeasures",
+            "Several measures compared across entities: with extraMeasures each measure is a spoke and each xField value a polygon",
           ],
         ]}
       />
@@ -624,8 +872,8 @@ GROUP BY region`}</Code>
           [
             <C key="a">table</C>,
             "—",
-            "columnFormats",
-            "Exact figures read row by row; cells can be data bars, pictures, links, coloured and given icons",
+            "columnFormats, totals",
+            "Exact figures read row by row; cells can be data bars, pictures, links, coloured and given icons; columns can be retitled and the totals row turned off",
           ],
           [
             <C key="b">matrix</C>,

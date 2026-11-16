@@ -5,6 +5,11 @@
 The **BI Workspace** (`/bi`) turns connected data into shareable dashboards
 and reports. An editable dashboard is called a **BI project**:
 
+- **Build visuals from fields** — pick a table and click fields into
+  **Group by** and **Values**; the builder writes the aggregating query
+  (sums, averages, distinct counts, date periods, filters, top N or latest
+  N, calculated fields), runs it over the whole table, picks the chart and
+  names it. See [Building a visual from fields](#building-a-visual-from-fields).
 - **Build visuals by hand** — a right-hand builder pane: pick a source (your
   Data & SQL datasets or any connected warehouse), tick one or **more tables
   to join** (a JOIN skeleton is written for you with auto-detected join
@@ -885,6 +890,202 @@ than fixed: 60 s upstream for a chat model, 150 s for a reasoning one, plus
 time proportional to the completion budget, capped at 300 s — with the client
 always given 30 s more than the upstream deadline so the server gives up
 first.
+
+## Building a visual from fields
+
+The builder opens in **Fields** mode (R499). Pick a table and click the
+fields you want; it writes the query — the grouping, the aggregation, the
+date period, the sort and the limit — runs it over the **whole table** as you
+click, picks the chart that reads best and names it. The query it wrote is
+under **The query these fields write**, and **Edit as SQL** carries it into
+the SQL editor when you need something fields cannot say. **SQL** mode,
+beside Fields, is the hand-written path.
+
+Before R499, picking a table wrote `SELECT * … LIMIT 50` and left the
+grouping to you, so a chart over it summed fifty arbitrary rows: Sales by
+Region drew the first fifty orders, not each region's total. Fields write the
+aggregation into the query; the engine adds up every row.
+
+1. **Pick a table.** The picker searches as you type, on any part of the
+   name, and shows each table's column count. Each column shows its kind —
+   number, date or text — read from the declared type and a 50-row sample. A
+   text column of dates such as `11/9/2024` is a date; a numeric id such as
+   `Customer ID`, `order_id` or `zip_code` is text even when stored as a
+   number, because it labels rows.
+2. **Click fields.** Text and dates go to **Group by** (dates by month);
+   numbers go to **Values** as a Sum. Each row's small Group and Value
+   buttons put a field in the other place. **Number of rows** counts the
+   rows in each group.
+3. **Adjust each chip.** A value: Sum, Average, Min, Max, Count or Count
+   distinct (a number starts as Sum; text and dates can only be counted and
+   start as Count distinct). A date: Year, Quarter, Month, Week or Day.
+4. **Filter, sort, keep the top.** Sort orders the groups by their first
+   value (largest first) or by their label; **Show top** keeps the first N.
+   A grouped date runs in time order and **Show top** becomes **Show
+   latest**: 12 means the latest 12 periods, still drawn oldest first.
+5. **Add it.** The chart type and title follow the fields until you change
+   them. The visual is saved with its fields, so editing it reopens Fields
+   mode with the same picks. A visual sent to SQL with Edit as SQL stays SQL.
+
+| Your fields | The chart it starts as |
+| --- | --- |
+| Values only, nothing grouped | KPI |
+| A date grouped by a period, with values | Line |
+| One text field, with values | Bar |
+| Two text fields and one value | Stacked column (the second field is the series) |
+| Groups only, no values | Table |
+
+Picking another type reassigns the same fields: the category becomes the
+pie's slices, a KPI takes the grouped date as its period, a narrative ranks
+by the first value, a combo draws the second value as its line.
+
+**Filters.**
+
+| Condition | Value | Example |
+| --- | --- | --- |
+| is one of / is not one of | One or more, comma-separated | Region · is one of · `EMEA, AMER` |
+| = ≠ > ≥ < ≤ | One value | Discount · > · `0` |
+| between | Two values, comma-separated, both ends included | Sales · between · `10, 500` |
+| contains | Text anywhere in the value, ignoring case | Customer · contains · `energy` |
+| is not empty | None; drops NULLs, and empty text too | Industry · is not empty |
+
+A number field takes numbers only. A date field takes ISO (`2025-01-31`,
+optionally with a time) or a date written the way the column writes it
+(`1/31/2025` for `m/d/yyyy` text), and compares dates as dates.
+
+**Calculated fields.** A name and an expression over the table's columns, in
+the source's SQL (quote names with spaces). With *It aggregates by itself*
+ticked — `100 * SUM("Profit") / SUM("Sales")` — it is a value used as
+written and cannot be grouped by. Unticked — `"Sales" - "Profit"` — it
+behaves like a column: summed or averaged if a number, grouped if text. It
+runs inside the same read-only query; an expression containing `;` is
+refused.
+
+**More values.** Bar, line, area and radar charts without a Series field draw
+each further value as its own series: Sales and Profit by month as two lines.
+On a radar each value is a spoke and each category a polygon; each spoke is on
+its own scale (its largest value reaches the rim) and the tooltip gives the
+actual figures, so sales in millions and quantity in units share one chart.
+Stacked columns and bars
+stack a Series field instead — overlapping values (profit is part of sales)
+would stack into a meaningless total. In SQL mode the extra values are picked
+under **More values**.
+
+**Column titles and totals.** A table column's style button sets the heading
+shown (`distinct_customer` → Customers). **Totals row** in Column formats is on
+by default; turn it off where a sum means nothing. Percent-formatted columns
+and columns whose names mark them as averages, rates or margins are never
+totalled.
+
+**Suggested narratives.** Under the preview, the sentences the rows support,
+already computed: with a date, the change since the period before, the next
+period's forecast (8+ periods) and the latest anomaly (5+); with a category,
+the top and bottom members. **Add** puts one on the dashboard as its own
+narrative visual over the same query.
+
+**Refused, not guessed.** Summing a text field ("Region is not a number —
+count it instead"), grouping by a calculated field that aggregates, a
+non-number filter on a number field, a non-date filter on a date field, and a
+field the table no longer has are each refused with that reason; nothing runs
+until it is fixed.
+
+**Engines.** On a warehouse the same picks write that warehouse's SQL: its
+identifier quoting (backticks on BigQuery, MySQL and Databricks), its string
+escapes and its own date truncation, so a month is its first day rather than a
+`2026-07` label. Local datasets run on DuckDB — in the browser for the preview,
+on the server for scheduled refreshes. A server set to `LOCAL_ENGINE=alasql`
+cannot run DuckDB's date functions; build those visuals in SQL mode.
+
+### Worked examples (sample table `saas_sales`)
+
+`saas_sales` holds 9,994 orders from 99 customers: Order Date (as `m/d/yyyy`
+text), Region, Customer, Industry, Segment, Product, Sales, Quantity,
+Discount, Profit. The SQL is exactly what Fields mode writes for it.
+
+**1. Sales by region** — click Region, then Sales → bar chart *Sales by
+Region*.
+
+```sql
+SELECT "Region" AS "region",
+       SUM("Sales") AS "sales"
+FROM "saas_sales"
+GROUP BY "Region"
+ORDER BY "sales" DESC
+LIMIT 1000
+```
+
+**2. Sales and profit by month** — click Order Date, Sales and Profit → line
+chart with two lines, *Sales and Profit by month*. The text dates are parsed
+in their own format before bucketing; months come back as `2024-11`,
+`2024-12`…, quarters as `2024-Q4`, weeks as `2024-W45`.
+
+```sql
+SELECT STRFTIME(TRY_STRPTIME(CAST("Order Date" AS VARCHAR), '%m/%d/%Y'), '%Y-%m') AS "order_date_month",
+       SUM("Sales") AS "sales",
+       SUM("Profit") AS "profit"
+FROM "saas_sales"
+GROUP BY STRFTIME(TRY_STRPTIME(CAST("Order Date" AS VARCHAR), '%m/%d/%Y'), '%Y-%m')
+ORDER BY "order_date_month" ASC
+LIMIT 1000
+```
+
+With **Show latest** set to 12, the same picks keep the latest 12 months:
+
+```sql
+SELECT *
+FROM (
+  SELECT STRFTIME(TRY_STRPTIME(CAST("Order Date" AS VARCHAR), '%m/%d/%Y'), '%Y-%m') AS "order_date_month",
+         SUM("Sales") AS "sales"
+  FROM "saas_sales"
+  GROUP BY STRFTIME(TRY_STRPTIME(CAST("Order Date" AS VARCHAR), '%m/%d/%Y'), '%Y-%m')
+  ORDER BY "order_date_month" DESC
+  LIMIT 12
+) latest
+ORDER BY "order_date_month" ASC
+```
+
+**3. This month against last month** — example 2 with Sales alone, then pick
+**KPI**: the latest month, its change against the month before and a trend
+line. **Compare with** → same period last year gives a year-on-year tile.
+
+**4. Top 10 customers in EMEA by profit** — Customer, Profit; filter *Region
+· is one of · EMEA*; Show top 10.
+
+```sql
+SELECT "Customer" AS "customer",
+       SUM("Profit") AS "profit"
+FROM "saas_sales"
+WHERE "Region" IN ('EMEA')
+GROUP BY "Customer"
+ORDER BY "profit" DESC
+LIMIT 10
+```
+
+**5. Margin by industry** — calculated field `Margin %` =
+`100 * SUM("Profit") / SUM("Sales")` (aggregates by itself); Industry and
+Margin %; value format Percent (it adds the sign; the expression already
+multiplies by 100). Each industry's margin is total profit over total sales,
+not an average of order margins.
+
+```sql
+SELECT "Industry" AS "industry",
+       (100 * SUM("Profit") / SUM("Sales")) AS "margin"
+FROM "saas_sales"
+GROUP BY "Industry"
+ORDER BY "margin" DESC
+LIMIT 1000
+```
+
+**6. A product table** — Product, Sales, Customer (text is counted distinct), Number of
+rows; pick Table; title the columns Sales, Customers and Orders; turn the
+totals row off. A customer who bought several products counts under each, so
+the Customers column adds up to 1,260 while there are 99 customers.
+
+**7. A headline sentence** — with example 2 built, Suggested narratives offers,
+computed from the sample: *Sales for Dec 2025 decreased by 19.5% (−21.9k) from
+112.3k to 90.5k.* and *The most recent anomaly was Nov 2025: sales was 112.3k,
+higher than the typical 39.8k.* Added, each is recomputed when filters change
+its rows.
 
 ## KPIs that compare periods
 

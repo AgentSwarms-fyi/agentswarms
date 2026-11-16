@@ -224,6 +224,75 @@ export function pivotSeries(
   return { data: xOrder.map((x) => byX.get(x)!), series };
 }
 
+/**
+ * Several measures over one category, each drawn as its own series (R499):
+ * "Sales and Profit by month" as two lines, the way a visual takes two
+ * fields in its Value slot. The rows are already wide, so the measures are
+ * the series; duplicate categories are summed like every other chart here.
+ * Measures the rows do not carry are left out rather than drawn as zeros.
+ */
+export function measureSeries(
+  rows: Record<string, unknown>[],
+  xField: string,
+  measures: string[],
+): { data: Record<string, unknown>[]; series: string[] } {
+  const present = measures.filter(
+    (m, i) => measures.indexOf(m) === i && rows.some((r) => r && m in r),
+  );
+  return { data: aggregateByField(rows, xField, present), series: present.slice(0, MAX_SERIES) };
+}
+
+/**
+ * Measures as the SPOKES of a radar, one polygon per category (R499): seven
+ * skill ratings around the wheel, a polygon per player. Wide rows become long
+ * ones and go through the ordinary pivot, so the radar draws them as series.
+ */
+export function measuresAsSpokes(
+  rows: Record<string, unknown>[],
+  categoryField: string,
+  measures: string[],
+  spokeLabel: (m: string) => string = (m) => m,
+): { data: Record<string, unknown>[]; series: string[]; spokeKey: string } {
+  const spokeKey = "__spoke";
+  const long: Record<string, unknown>[] = [];
+  for (const m of measures) {
+    for (const r of rows) {
+      if (!r || !(m in r)) continue;
+      long.push({ [spokeKey]: spokeLabel(m), __series: r[categoryField], __value: r[m] });
+    }
+  }
+  const p = pivotSeries(long, spokeKey, "__value", "__series");
+  return { ...p, spokeKey };
+}
+
+/**
+ * Each spoke on its own scale (R499): a spoke's values as a percentage of its
+ * largest, the actual value kept under `__raw:<series>` for the tooltip.
+ *
+ * FOUND IN R499's UI test: on one scale, average sales (~230) next to average
+ * profit (~28) and quantity (~4) drew every segment as the same thin sliver
+ * along the sales spoke. Measures as spokes are different units by nature, so
+ * each is read against its own maximum: the largest category reaches the rim.
+ */
+export function scaleSpokes(
+  data: Record<string, unknown>[],
+  series: string[],
+): Record<string, unknown>[] {
+  return data.map((row) => {
+    const vals = series.map((s) => toBiNumber(row[s]));
+    const max = Math.max(0, ...vals.map((v) => v ?? 0));
+    const out: Record<string, unknown> = { ...row };
+    series.forEach((s, i) => {
+      const v = vals[i];
+      out[`__raw:${s}`] = v;
+      // A radar has no negative side: a loss sits at the centre, and the
+      // tooltip still says what it was.
+      out[s] = v === null ? null : max > 0 && v > 0 ? (v / max) * 100 : 0;
+    });
+    return out;
+  });
+}
+
 /** Longest label we will print before truncating with an ellipsis. */
 const MAX_TICK_CHARS = 18;
 

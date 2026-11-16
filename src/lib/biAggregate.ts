@@ -129,6 +129,15 @@ export function aggregationPlan(
     addDim((c as { xField?: string }).xField);
     addDim((c as { seriesField?: string }).seriesField);
     measures.push({ field: (c as { yField: string }).yField, agg });
+    // More measures drawn beside it (R499) must survive the GROUP BY, or the
+    // wrapped query drops their columns and the chart loses its series.
+    if (!(c as { seriesField?: string }).seriesField) {
+      for (const f of chart.extraMeasures ?? []) {
+        if (typeof f === "string" && f && !measures.some((m) => m.field === f)) {
+          measures.push({ field: f, agg });
+        }
+      }
+    }
   }
 
   // The drill hierarchy swaps which field is the category, so every level has

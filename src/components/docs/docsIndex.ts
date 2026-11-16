@@ -397,12 +397,23 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "$1.0M",
       "$837.9k",
       "$837k",
+      "1/31/2025",
       "2.6×",
+      "2024-11",
+      "2024-12",
+      "2024-Q4",
+      "2024-W45",
+      "2025-01-31",
+      "2026-07",
       "2026-Q3",
       "2026-W05",
       "410,379.26",
+      "AVG",
+      "COUNT",
       "LIMIT",
+      "LOCAL_ENGINE=alasql",
       "PUBLIC_BI_SNAPSHOT_ROWS_CAP",
+      "SUM",
       "VITE_BI_SNAPSHOT_ROWS_CAP",
       "answer",
       "area",
@@ -441,6 +452,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "line",
       "lt",
       "lte",
+      "m/d/yyyy",
       "mailto:",
       "map",
       "matrix",
@@ -458,6 +470,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "revenue",
       "rules",
       "running",
+      "saas_sales",
       "sankey",
       "scale",
       "scatter",
@@ -531,6 +544,36 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "generate-governed",
         "text": "Generate a dashboard from a governed model",
+        "level": 3
+      },
+      {
+        "id": "fields",
+        "text": "Build a visual from fields",
+        "level": 2
+      },
+      {
+        "id": "fields-filters",
+        "text": "Filter conditions",
+        "level": 3
+      },
+      {
+        "id": "fields-calc",
+        "text": "Calculated fields",
+        "level": 3
+      },
+      {
+        "id": "fields-more",
+        "text": "More values, column titles and totals",
+        "level": 3
+      },
+      {
+        "id": "fields-narratives",
+        "text": "Suggested narratives",
+        "level": 3
+      },
+      {
+        "id": "fields-examples",
+        "text": "Worked examples",
         "level": 3
       },
       {

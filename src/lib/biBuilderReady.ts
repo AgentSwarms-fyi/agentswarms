@@ -17,10 +17,16 @@ export function chartBlocker(s: {
   /** The chart's columns are chosen (a chart spec exists). */
   chart: boolean;
   title: string;
+  /** Built from fields (R499): the query is written and run for you. */
+  fields?: boolean;
 }): string | null {
   if (!s.ontology) {
-    if (!s.sql.trim()) return "Write a query or pick tables, then Run it.";
-    if (!s.ran) return "Run the query to see its rows.";
+    if (!s.sql.trim()) {
+      return s.fields
+        ? "Pick a table, then click the fields to group by and add up."
+        : "Write a query or pick tables, then Run it.";
+    }
+    if (!s.ran) return s.fields ? "Running the query…" : "Run the query to see its rows.";
   }
   if (!s.chart) return s.ontology ? "Build the map to add it." : "Choose the columns to chart.";
   if (!s.title.trim()) return "Give the widget a title.";

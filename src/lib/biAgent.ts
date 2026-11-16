@@ -111,6 +111,13 @@ export type BiChartAnalytics = {
    */
   forecast?: ForecastSetting;
   refLine?: BiRefLine;
+  /**
+   * More measures, each drawn as its own series beside `yField` (R499):
+   * bar, column, line and area draw one series per measure; a radar makes
+   * each measure a spoke and draws one polygon per `xField` value. Ignored
+   * when a `seriesField` splits the chart instead.
+   */
+  extraMeasures?: string[];
 };
 
 /** Per-column display format for table widgets. */
@@ -129,6 +136,8 @@ export type BiColumnFormat = {
   cond?: BiCondFormat;
   /** A matching rule tints the whole row, not just this cell (R498). */
   rowHighlight?: boolean;
+  /** The column's header as readers see it ("Sales (Sum)"), R499. */
+  label?: string;
 };
 
 /** What a KPI's latest period is compared with (R498). */
@@ -152,7 +161,11 @@ export type ChartSpec = {
   columnFormats?: Record<string, BiColumnFormat>;
 } & BiChartAnalytics &
   (
-    | { type: "table" }
+    | {
+        type: "table";
+        /** false hides the totals row (R499); a total is shown by default. */
+        totals?: boolean;
+      }
     | {
         type: "kpi";
         valueField: string;

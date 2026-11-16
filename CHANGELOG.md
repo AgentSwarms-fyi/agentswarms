@@ -156,6 +156,19 @@ development branch and may be ahead of the latest tag.
   period KPIs and narratives, shaped from the columns each query returned;
   the e-mailed digest, the change log and the PowerPoint export read a period
   KPI's latest value.
+- **BI: build a visual from fields** (R499). The builder opens in **Fields**
+  mode: pick a table, click fields into Group by and Values, and it writes the
+  aggregating query — sums, averages, distinct counts, date periods (text
+  dates such as 11/9/2024 included), filters, top N or the latest N periods,
+  calculated fields — runs it over the whole table, picks the chart and names
+  it. Picking a table used to write `SELECT * … LIMIT 50`, so a chart summed
+  fifty arbitrary rows. **Edit as SQL** carries the written query into SQL
+  mode. Bar, line, area and radar charts draw several values at once, named
+  in words in the legend; a radar takes them as spokes, each on its own scale
+  so sales in millions and quantity in units read on one chart. The table to
+  build from is searched, not scrolled for. Table columns can be retitled and
+  the totals row turned off; the preview suggests the narratives its rows
+  support.
 
 ### Added
 
@@ -187,6 +200,12 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **A quote in a governed filter matched the wrong rows on Databricks** (R499).
+  The semantic layer escaped a quote by doubling it on every engine. Spark
+  reads `'O''Brien'` as two literals and joins them, so a filter on O'Brien
+  silently matched "OBrien"; BigQuery rejected the query. Both now get `\'`,
+  the escape their SQL references document, in filters, `contains` patterns
+  and string parameters. The new field builder uses the same escaping.
 - **A grantee could read their grant's column mask** (R492), the one R491 left
   open. A mask is a list of column names, and the policy on
   `iam_resource_grants` served grantees their grant rows whole, so

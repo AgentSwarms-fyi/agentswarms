@@ -58,6 +58,7 @@ import { BiInsightBody } from "@/components/bi/BiInsight";
 import { BiKpiTile } from "@/components/bi/BiKpiTile";
 import { OntologyGraph } from "@/components/bi/OntologyGraph";
 import { unshownRows } from "@/lib/biChartFields";
+import { measureDisplayName } from "@/lib/biFieldQuery";
 import { isOntologySpec } from "@/lib/biOntology";
 import type { BiNumberFormat, BiRefLine, ChartSpec } from "@/lib/biAgent";
 import {
@@ -80,7 +81,10 @@ import {
   PIE_COLORS,
   categoryAxis,
   fmtBiValue,
+  measureSeries,
+  measuresAsSpokes,
   pivotSeries,
+  scaleSpokes,
   aggregateByField,
   toBiNumber,
 } from "./biChartData";
@@ -269,6 +273,15 @@ function BiChartRenderInner({
   const fmt = (v: unknown) => fmtBiValue(v, chart);
   const tooltipFmt = (v: unknown) => fmt(v);
   const clickable = Boolean(onElementClick);
+  // More measures as their own series (R499); only names, de-duplicated.
+  const extra = (Array.isArray(chart.extraMeasures) ? chart.extraMeasures : []).filter(
+    (m): m is string =>
+      typeof m === "string" && m.length > 0 && m !== ("yField" in chart ? chart.yField : ""),
+  );
+  // Several measures drawn as series are named in words ("Average profit"),
+  // not by column key; a series split by a column keeps that column's values.
+  const bySeriesField = "seriesField" in chart && Boolean(chart.seriesField);
+  const seriesName = (s: string) => (!bySeriesField && extra.length ? measureDisplayName(s) : s);
 
   if (chart.type === "ontology") {
     // Renders from the stored spec — rows are irrelevant for this visual.
@@ -376,7 +389,11 @@ function BiChartRenderInner({
   if (chart.type === "bar" || chart.type === "scolumn") {
     const seriesField = "seriesField" in chart ? chart.seriesField : undefined;
     const stacked = chart.type === "scolumn" ? true : chart.stacked;
-    const pivoted = seriesField ? pivotSeries(rows, chart.xField, chart.yField, seriesField) : null;
+    const pivoted = seriesField
+      ? pivotSeries(rows, chart.xField, chart.yField, seriesField)
+      : extra.length
+        ? measureSeries(rows, chart.xField, [chart.yField, ...extra])
+        : null;
     const barData = pivoted ? pivoted.data : aggregateByField(rows, chart.xField, [chart.yField]);
     const barCat = catAxis(barData, chart.xField);
     const handleClick = onElementClick
@@ -451,6 +468,7 @@ function BiChartRenderInner({
                     <Bar
                       key={s}
                       dataKey={s}
+                      name={seriesName(s)}
                       fill={color}
                       stackId={stacked ? "stack" : undefined}
                       radius={
@@ -566,7 +584,9 @@ function BiChartRenderInner({
   if (chart.type === "line") {
     const pivoted = chart.seriesField
       ? pivotSeries(rows, chart.xField, chart.yField, chart.seriesField)
-      : null;
+      : extra.length
+        ? measureSeries(rows, chart.xField, [chart.yField, ...extra])
+        : null;
     // Analytics overlays apply to single-series lines only.
     let data = pivoted ? pivoted.data : aggregateByField(rows, chart.xField, [chart.yField]);
     let hasForecast = false;
@@ -725,6 +745,7 @@ function BiChartRenderInner({
                     key={s}
                     type="monotone"
                     dataKey={s}
+                    name={seriesName(s)}
                     stroke={PIE_COLORS[i % PIE_COLORS.length]}
                     strokeWidth={2.25}
                     dot={false}
@@ -751,7 +772,9 @@ function BiChartRenderInner({
   if (chart.type === "area") {
     const pivoted = chart.seriesField
       ? pivotSeries(rows, chart.xField, chart.yField, chart.seriesField)
-      : null;
+      : extra.length
+        ? measureSeries(rows, chart.xField, [chart.yField, ...extra])
+        : null;
     // Analytics overlays apply to single-series areas only (mirrors the line
     // chart) — running total and the prior-period/-year comparison.
     let data = pivoted ? pivoted.data : aggregateByField(rows, chart.xField, [chart.yField]);
@@ -852,6 +875,7 @@ function BiChartRenderInner({
                     key={s}
                     type="monotone"
                     dataKey={s}
+                    name={seriesName(s)}
                     stackId="stack"
                     stroke={PIE_COLORS[i % PIE_COLORS.length]}
                     strokeWidth={1.75}
@@ -1294,12 +1318,31 @@ function BiChartRenderInner({
   }
 
   if (chart.type === "radar") {
-    const pivoted = chart.seriesField
-      ? pivotSeries(rows, chart.xField, chart.yField, chart.seriesField)
-      : null;
+    // Several measures make the spokes, one polygon per category (R499).
+    const spokes =
+      !chart.seriesField && extra.length
+        ? measuresAsSpokes(rows, chart.xField, [chart.yField, ...extra], measureDisplayName)
+        : null;
+    const pivoted = spokes
+      ? spokes
+      : chart.seriesField
+        ? pivotSeries(rows, chart.xField, chart.yField, chart.seriesField)
+        : null;
+    const angleKey = spokes ? spokes.spokeKey : chart.xField;
+    // Measures as spokes are different units, so each spoke is on its own
+    // scale (the rim is that spoke's largest value) and the tooltip shows the
+    // actual figure; the radius axis then has no single scale to label.
     const data = (
-      pivoted ? pivoted.data : aggregateByField(rows, chart.xField, [chart.yField])
+      spokes
+        ? scaleSpokes(spokes.data, spokes.series)
+        : pivoted
+          ? pivoted.data
+          : aggregateByField(rows, chart.xField, [chart.yField])
     ).slice(0, 12);
+    const radarTooltip = spokes
+      ? (v: unknown, name: unknown, item: { payload?: Record<string, unknown> }) =>
+          fmt(item?.payload?.[`__raw:${String(name)}`] ?? v)
+      : tooltipFmt;
     return (
       <div className={`${heightClass} w-full`}>
         <ResponsiveContainer width="100%" height="100%">
@@ -1309,20 +1352,19 @@ function BiChartRenderInner({
             margin={{ top: 8, right: 8, left: 8, bottom: 8 }}
           >
             <PolarGrid stroke={gridStroke} />
-            <PolarAngleAxis
-              dataKey={chart.xField}
-              tick={{ fontSize: tickSize, fill: axisStroke }}
-            />
+            <PolarAngleAxis dataKey={angleKey} tick={{ fontSize: tickSize, fill: axisStroke }} />
             <PolarRadiusAxis
-              tick={{ fontSize: 9, fill: axisStroke }}
+              tick={spokes ? false : { fontSize: 9, fill: axisStroke }}
               tickFormatter={fmtBiNumber}
               angle={90}
+              domain={spokes ? [0, 100] : undefined}
+              axisLine={!spokes}
             />
             <Tooltip
               contentStyle={tooltipStyle}
               labelStyle={labelStyle}
               itemStyle={labelStyle}
-              formatter={tooltipFmt}
+              formatter={radarTooltip}
             />
             {pivoted ? (
               [

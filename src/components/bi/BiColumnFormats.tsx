@@ -2,6 +2,7 @@
 // out of BiBuilderPane, whose size ceiling the cell styles would have broken).
 // Like the builder's other children it owns no state: values and a setter in.
 import type React from "react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -18,16 +19,27 @@ export function BiColumnFormats({
   columns,
   colFormats,
   setColFormats,
+  totals,
+  setTotals,
 }: {
   columns: string[];
   colFormats: Record<string, BiColumnFormat>;
   setColFormats: React.Dispatch<React.SetStateAction<Record<string, BiColumnFormat>>>;
+  /** Show the totals row (R499). */
+  totals: boolean;
+  setTotals: (v: boolean) => void;
 }) {
   return (
     <div className="space-y-1">
-      <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        Column formats
-      </Label>
+      <div className="flex items-center justify-between">
+        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Column formats
+        </Label>
+        <Label className="flex cursor-pointer items-center gap-1.5 text-[11px] font-normal">
+          <Checkbox checked={totals} onCheckedChange={(v) => setTotals(Boolean(v))} />
+          Totals row
+        </Label>
+      </div>
       <div className="space-y-1">
         {columns.map((c) => {
           const cf = colFormats[c] ?? {};

@@ -54,7 +54,22 @@ import { BiTablePicker } from "@/components/bi/BiTablePicker";
 import { BiSqlEditor } from "@/components/bi/BiSqlEditor";
 import { BiCondFormatEditor } from "@/components/bi/BiCondFormatEditor";
 import { BiColumnFormats } from "@/components/bi/BiColumnFormats";
-import { CURRENCY_CODES } from "@/lib/biCurrencies";
+import { BiValueFormat } from "@/components/bi/BiValueFormat";
+import { BiFieldsBuilder, BiQueryModeSwitch } from "@/components/bi/BiFieldsBuilder";
+import { useFieldSources } from "@/components/bi/useFieldSources";
+import { BiBuildPreview } from "@/components/bi/BiBuildPreview";
+import { BiExtraMeasures } from "@/components/bi/BiExtraMeasures";
+import { BiSuggestedNarratives } from "@/components/bi/BiSuggestedNarratives";
+import {
+  EMPTY_FIELD_QUERY,
+  assignChartFields,
+  autoChartType,
+  autoTitle,
+  MULTI_MEASURE_TYPES,
+  type FieldInfo,
+  type FieldQuery,
+  type FieldSql,
+} from "@/lib/biFieldQuery";
 import { BiInsightOptions, BiKpiOptions } from "@/components/bi/BiKpiInsightOptions";
 import {
   INSIGHT_OPTS_DEFAULT,
@@ -68,7 +83,6 @@ import {
   type InsightOpts,
   type KpiOpts,
 } from "@/lib/biKpiInsightOpts";
-import { WidgetDataTable } from "@/components/bi/BiWidgetCard";
 import { dateLikeColumns } from "@/lib/biPeriods";
 import {
   BiDrillHierarchy,
@@ -210,6 +224,13 @@ export function BiBuilderPane({
   const [colFormats, setColFormats] = useState<Record<string, BiColumnFormat>>({});
   // KPI period comparison and the narrative widget (R498).
   const [kpiOpts, setKpiOpts] = useState<KpiOpts>(KPI_OPTS_DEFAULT);
+  // Fields mode (R499): the query is written from picked fields, not typed.
+  const [queryMode, setQueryMode] = useState<"fields" | "sql">("fields");
+  const [fieldQuery, setFieldQuery] = useState<FieldQuery>(EMPTY_FIELD_QUERY);
+  const [extraMeasures, setExtraMeasures] = useState<string[]>([]);
+  const [tableTotals, setTableTotals] = useState(true);
+  const chartTouched = useRef(false);
+  const lastBuild = useRef<{ built: FieldSql; q: FieldQuery; fields: FieldInfo[] } | null>(null);
   const [insOpts, setInsOpts] = useState<InsightOpts>(INSIGHT_OPTS_DEFAULT);
   // Chart analytics (drill / time intelligence / reference line)
   const [drillList, setDrillList] = useState<string[]>([]);
@@ -371,6 +392,11 @@ export function BiBuilderPane({
       setColFormats(c.columnFormats ?? {});
       setKpiOpts(kpiOptsFrom(c));
       setInsOpts(insightOptsFrom(c));
+      setQueryMode(initial.field_query ? "fields" : "sql");
+      setFieldQuery(initial.field_query ?? EMPTY_FIELD_QUERY);
+      setExtraMeasures(c.extraMeasures ?? []);
+      setTableTotals(c.type === "table" ? c.totals !== false : true);
+      chartTouched.current = true;
       setOntoSpec(c.type === "ontology" ? c.spec : null);
       setDrillList(c.drillFields ?? []);
       setGrainSel(c.dateGrain ?? "auto");
@@ -425,6 +451,12 @@ export function BiBuilderPane({
       setColFormats({});
       setKpiOpts(KPI_OPTS_DEFAULT);
       setInsOpts(INSIGHT_OPTS_DEFAULT);
+      setQueryMode("fields");
+      setFieldQuery(EMPTY_FIELD_QUERY);
+      setExtraMeasures([]);
+      setTableTotals(true);
+      chartTouched.current = false;
+      lastBuild.current = null;
       setOntoSpec(null);
       setDrillList([]);
       setGrainSel("auto");
@@ -533,6 +565,66 @@ export function BiBuilderPane({
     void runPreview(q);
   }
 
+  // ── Fields mode (R499) ─────────────────────────────────────────────
+  const fieldSrc = useFieldSources(ctx, sourceKey);
+
+  /** Fill the chart's own fields from the written query's output columns. */
+  function applyFields(
+    b: { built: FieldSql; q: FieldQuery; fields: FieldInfo[] },
+    forType?: ChartType,
+  ) {
+    const type = forType ?? (chartTouched.current ? chartType : autoChartType(b.q, b.fields));
+    if (!forType && !chartTouched.current) setChartType(type);
+    const kinds = b.q.dims.map((d) => b.fields.find((f) => f.name === d.field)?.kind ?? "text");
+    const a = assignChartFields(type, b.built, kinds);
+    const setters: [keyof typeof a, (v: string) => void][] = [
+      ["xField", setXField],
+      ["yField", setYField],
+      ["seriesField", setSeriesField],
+      ["nameField", setNameField],
+      ["valueField", setValueField],
+      ["lineField", setLineField],
+      ["sizeField", setSizeField],
+      ["rowField", setRowField],
+      ["colField", setColField],
+      ["rowSubField", setRowSubField],
+      ["locationField", setLocationField],
+      ["targetField", setTargetField],
+      ["timeField", setTimeField],
+    ];
+    for (const [k, set] of setters) set((a[k] as string | undefined) ?? "");
+    setExtraMeasures(a.extraMeasures ?? []);
+    if (type === "kpi") setKpiOpts((o) => ({ ...o, dateField: a.dateField ?? "" }));
+    if (type === "insight") {
+      setInsOpts((o) => ({
+        ...o,
+        dateField: a.dateField ?? "",
+        categoryField: a.categoryField ?? "",
+      }));
+    }
+    // Readers see "Sales (Sum)", not the output column's name.
+    setColFormats((prev) => {
+      const next = { ...prev };
+      for (const [k, v] of Object.entries(b.built.labels)) next[k] = { label: v, ...next[k] };
+      return next;
+    });
+    // The updater runs later, so it must compare with the PREVIOUS auto title
+    // captured now; reading the ref inside it saw the new one and kept "Sales".
+    const next = autoTitle(b.q, b.fields);
+    const prevAuto = autoTitleRef.current;
+    autoTitleRef.current = next;
+    setTitle((t) => (!t.trim() || t === prevAuto ? next : t));
+  }
+  const autoTitleRef = useRef("");
+
+  function onFieldsBuilt(built: FieldSql | null, q: FieldQuery, fields: FieldInfo[]) {
+    lastBuild.current = built ? { built, q, fields } : null;
+    if (!built) return;
+    setSql(built.sql);
+    lastSeeded.current = built.sql;
+    void runPreview(built.sql);
+  }
+
   async function runPreview(overrideSql?: string) {
     const q = (overrideSql ?? sql).trim();
     if (!q) return;
@@ -563,6 +655,8 @@ export function BiBuilderPane({
         setColField(stringCols.find((c) => c !== firstString) ?? firstString);
       }
       if (res.row_count === 1 && res.columns.length === 1 && !initial) setChartType("kpi");
+      if (queryMode === "fields" && lastBuild.current?.built.sql === q)
+        applyFields(lastBuild.current);
     } catch (e) {
       setPreview(null);
       setRunError((e as Error).message);
@@ -939,6 +1033,11 @@ export function BiBuilderPane({
     if (spec.type === "table" && Object.keys(colFormats).length > 0) {
       analytics.columnFormats = colFormats;
     }
+    if (spec.type === "table" && !tableTotals) (spec as { totals?: boolean }).totals = false;
+    // More values as their own series (R499), unless a field splits the chart.
+    if (extraMeasures.length > 0 && !seriesField && MULTI_MEASURE_TYPES.has(spec.type)) {
+      analytics.extraMeasures = extraMeasures;
+    }
     // Safe: spec is a valid member and analytics only adds wrapper fields.
     return { ...spec, format, ...analytics } as ChartSpec;
   }, [
@@ -965,6 +1064,8 @@ export function BiBuilderPane({
     colFormats,
     kpiOpts,
     insOpts,
+    extraMeasures,
+    tableTotals,
     ontoSpec,
     drillList,
     grainSel,
@@ -1028,6 +1129,7 @@ export function BiBuilderPane({
     ran: Boolean(preview),
     chart: Boolean(chartSpec),
     title,
+    fields: queryMode === "fields",
   });
   const canSubmit = blocker === null;
 
@@ -1084,6 +1186,8 @@ export function BiBuilderPane({
       // again. Found by editing a widget and watching a refresh fail to
       // withdraw a note it should have withdrawn.
       reconcile_note: initial?.reconcile_note,
+      // Fields mode keeps its picks so editing returns to them (R499).
+      field_query: queryMode === "fields" ? fieldQuery : undefined,
     };
     // The owner may have just changed the SQL, so the note is re-checked here
     // for the same reason a refresh re-checks it: the result underneath it has
@@ -1357,66 +1461,14 @@ export function BiBuilderPane({
   );
 
   const formatSelect = (
-    <div
-      className="space-y-1"
-      title="How numeric values are displayed on axes, tooltips, KPI and gauge figures"
-    >
-      <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        Value format
-      </Label>
-      <Select value={numFormat} onValueChange={(v) => setNumFormat(v as typeof numFormat)}>
-        <SelectTrigger className="h-8 text-xs">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="auto" className="text-xs">
-            Auto — 1234 → 1.2k
-          </SelectItem>
-          <SelectItem value="currency" className="text-xs">
-            Currency — 1234 → $1.2k
-          </SelectItem>
-          <SelectItem value="percent" className="text-xs">
-            Percent — 12.3 → 12.3%
-          </SelectItem>
-        </SelectContent>
-      </Select>
-      {(numFormat === "currency" || numFormat === "percent") && (
-        <div className="flex gap-1.5">
-          {numFormat === "currency" && (
-            <Select value={currencyCode} onValueChange={setCurrencyCode}>
-              <SelectTrigger className="h-7 flex-1 text-[11px]" title="Currency (ISO 4217)">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {CURRENCY_CODES.map((c) => (
-                  <SelectItem key={c} value={c} className="text-xs">
-                    {c}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-          <Select value={decimalsSel} onValueChange={setDecimalsSel}>
-            <SelectTrigger className="h-7 flex-1 text-[11px]" title="Fixed decimal places">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="auto" className="text-xs">
-                Auto decimals
-              </SelectItem>
-              {["0", "1", "2", "3"].map((d) => (
-                <SelectItem key={d} value={d} className="text-xs">
-                  {d} decimals
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      )}
-      <p className="text-[10px] text-muted-foreground">
-        Formats follow each viewer's locale (separators & symbols).
-      </p>
-    </div>
+    <BiValueFormat
+      numFormat={numFormat}
+      setNumFormat={setNumFormat}
+      currencyCode={currencyCode}
+      setCurrencyCode={setCurrencyCode}
+      decimalsSel={decimalsSel}
+      setDecimalsSel={setDecimalsSel}
+    />
   );
 
   // Table widgets: per-column number format and cell style (BiColumnFormats).
@@ -1426,6 +1478,8 @@ export function BiBuilderPane({
         columns={preview?.columns ?? []}
         colFormats={colFormats}
         setColFormats={setColFormats}
+        totals={tableTotals}
+        setTotals={setTableTotals}
       />
     ) : null;
 
@@ -1510,7 +1564,14 @@ export function BiBuilderPane({
               </Badge>
             )}
 
-            <BiVizPicker value={chartType} onChange={setChartType} />
+            <BiVizPicker
+              value={chartType}
+              onChange={(t) => {
+                chartTouched.current = true;
+                setChartType(t);
+                if (queryMode === "fields" && lastBuild.current) applyFields(lastBuild.current, t);
+              }}
+            />
 
             {chartType === "ontology" ? (
               <BiOntologyTab
@@ -1565,27 +1626,45 @@ export function BiBuilderPane({
                   />
                 ) : (
                   <>
-                    {/* Tables — above the SQL, multi-select for joins */}
-                    <BiTablePicker
-                      sourceTables={sourceTables}
-                      selectedTables={selectedTables}
-                      schemaLoading={schemaLoading}
-                      preparedTables={ctx.preparedTables}
-                      toggleTable={toggleTable}
-                    />
+                    <BiQueryModeSwitch value={queryMode} onChange={setQueryMode} />
+                    {queryMode === "fields" ? (
+                      <BiFieldsBuilder
+                        tables={fieldSrc.tables}
+                        dialect={fieldSrc.dialect}
+                        query={fieldQuery}
+                        onQueryChange={setFieldQuery}
+                        runSql={fieldSrc.runSql}
+                        onBuilt={onFieldsBuilt}
+                        onEditSql={(q) => {
+                          setQueryMode("sql");
+                          setSql(q);
+                        }}
+                      />
+                    ) : (
+                      <>
+                        {/* Tables — above the SQL, multi-select for joins */}
+                        <BiTablePicker
+                          sourceTables={sourceTables}
+                          selectedTables={selectedTables}
+                          schemaLoading={schemaLoading}
+                          preparedTables={ctx.preparedTables}
+                          toggleTable={toggleTable}
+                        />
 
-                    {/* SQL */}
-                    <BiSqlEditor
-                      sql={sql}
-                      setSql={setSql}
-                      sourceKey={sourceKey}
-                      metrics={ctx.metrics}
-                      insertMetric={insertMetric}
-                      runPreview={() => void runPreview()}
-                      running={running}
-                      preview={preview}
-                      runError={runError}
-                    />
+                        {/* SQL */}
+                        <BiSqlEditor
+                          sql={sql}
+                          setSql={setSql}
+                          sourceKey={sourceKey}
+                          metrics={ctx.metrics}
+                          insertMetric={insertMetric}
+                          runPreview={() => void runPreview()}
+                          running={running}
+                          preview={preview}
+                          runError={runError}
+                        />
+                      </>
+                    )}
 
                     {preview && (
                       <>
@@ -1727,6 +1806,16 @@ export function BiBuilderPane({
                             </>
                           )}
 
+                          {MULTI_MEASURE_TYPES.has(chartType) && !seriesField && (
+                            <BiExtraMeasures
+                              columns={preview.columns.filter(
+                                (c) => typeof preview.rows[0]?.[c] === "number",
+                              )}
+                              exclude={yField}
+                              value={extraMeasures}
+                              onChange={setExtraMeasures}
+                            />
+                          )}
                           {/* Drill hierarchy (bar/hbar/pie/treemap) */}
                           {(chartType === "bar" ||
                             chartType === "hbar" ||
@@ -1850,53 +1939,26 @@ export function BiBuilderPane({
                         )}
 
                         {/* Preview */}
-                        <div className="rounded-lg border border-border/60 bg-card p-2">
-                          {chartSpec && chartSpec.type !== "table" ? (
-                            <BiChartRender chart={chartSpec} rows={preview.rows} />
-                          ) : chartType === "table" ? (
-                            // The real table, so cell styles show as they will
-                            // on the dashboard (R498).
-                            <div className="h-56">
-                              <WidgetDataTable
-                                columns={preview.columns}
-                                rows={preview.rows}
-                                columnFormats={colFormats}
-                              />
-                            </div>
-                          ) : (
-                            <div className="max-h-48 overflow-auto rounded border border-border/50">
-                              <table className="w-full text-left">
-                                <thead>
-                                  <tr>
-                                    {preview.columns.map((c) => (
-                                      <th
-                                        key={c}
-                                        className="sticky top-0 bg-muted px-2 py-1 text-[9px] font-medium uppercase tracking-wider text-muted-foreground"
-                                      >
-                                        {c}
-                                      </th>
-                                    ))}
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {preview.rows.slice(0, 20).map((row, i) => (
-                                    <tr key={i} className="border-t border-border/40">
-                                      {preview.columns.map((c) => (
-                                        <td key={c} className="px-2 py-1 font-mono text-[10px]">
-                                          {row[c] === null || row[c] === undefined
-                                            ? "null"
-                                            : typeof row[c] === "number"
-                                              ? fmtBiValue(row[c], colFormats[c])
-                                              : String(row[c])}
-                                        </td>
-                                      ))}
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-                        </div>
+                        <BiBuildPreview
+                          chartSpec={chartSpec}
+                          chartType={chartType}
+                          preview={preview}
+                          colFormats={colFormats}
+                        />
+                        {chartType !== "insight" && (
+                          <BiSuggestedNarratives
+                            columns={preview.columns}
+                            rows={preview.rows}
+                            format={chartSpec ?? undefined}
+                            base={{
+                              source: sourceFromKey(sourceKey, ctx.warehouses),
+                              sql: sql.trim(),
+                              truncated: preview.capped,
+                              field_query: queryMode === "fields" ? fieldQuery : undefined,
+                            }}
+                            onAdd={onInsertAi}
+                          />
+                        )}
 
                         <div className="space-y-1.5">
                           <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">

@@ -21,10 +21,12 @@
 import { forecastValues } from "@/lib/mlForecast";
 import { MIN_FORECAST_POINTS, readSeries, MIN_SERIES_POINTS } from "@/lib/analystSeries";
 import { nextBucketLabel, type DateGrain } from "@/lib/biChartMath";
-import type { BiInsightKind } from "@/lib/biAgent";
+import type { BiInsightKind, ChartSpec } from "@/lib/biAgent";
+import { numericColumns } from "@/lib/biChartFields";
 import {
   comparePeriods,
   comparisonLabel,
+  dateLikeColumns,
   grainNoun,
   inferGrain,
   parsePeriodValue,
@@ -661,4 +663,80 @@ function movers(
           : `${shown[0].change < 0 ? "−" : "+"}${pctText(shown[0].pct)}`,
     },
   };
+}
+
+// ── Suggestions for the visual being built (R499) ─────────────────────────
+
+type InsightChart = Extract<ChartSpec, { type: "insight" }>;
+
+export type NarrativeSuggestion = { spec: InsightChart; title: string; text: string };
+
+/** The narratives these rows support, best first, at most `max`. */
+export function suggestNarratives(
+  columns: string[],
+  rows: Record<string, unknown>[],
+  value: (n: number) => string,
+  format: Pick<ChartSpec, "format" | "currency" | "decimals"> = {},
+  max = 3,
+): NarrativeSuggestion[] {
+  if (!rows.length) return [];
+  const dates = dateLikeColumns(columns, rows);
+  const nums = [...numericColumns(columns, rows)].filter((c) => !dates.includes(c));
+  const cats = columns.filter((c) => !dates.includes(c) && !nums.includes(c));
+  const m = nums[0];
+  if (!m) return [];
+  const plan: { kind: BiInsightKind; title: string; categoryField?: string; dateField?: string }[] =
+    [];
+  const name = humanizeField(m);
+  if (dates[0]) {
+    plan.push({ kind: "change", title: `${name} against the last period`, dateField: dates[0] });
+    plan.push({ kind: "forecast", title: `${name} next period`, dateField: dates[0] });
+    plan.push({ kind: "anomaly", title: `Unusual ${name.toLowerCase()}`, dateField: dates[0] });
+    if (cats[0]) {
+      plan.push({
+        kind: "movers",
+        title: `Biggest movers in ${name.toLowerCase()}`,
+        dateField: dates[0],
+        categoryField: cats[0],
+      });
+    }
+  }
+  if (cats[0]) {
+    plan.push({
+      kind: "top",
+      title: `Top ${pluralize(humanizeField(cats[0]).toLowerCase())}`,
+      categoryField: cats[0],
+    });
+    plan.push({
+      kind: "bottom",
+      title: `Bottom ${pluralize(humanizeField(cats[0]).toLowerCase())}`,
+      categoryField: cats[0],
+    });
+  }
+  // Only the number format is taken from the visual. FOUND IN R499's UI test:
+  // the builder passed its whole chart spec here, the spread copied its
+  // `type: "kpi"` over "insight", and an added narrative drew as a KPI tile.
+  const fmt: Pick<ChartSpec, "format" | "currency" | "decimals"> = {};
+  if (format.format) fmt.format = format.format;
+  if (format.currency) fmt.currency = format.currency;
+  if (format.decimals !== undefined) fmt.decimals = format.decimals;
+  const out: NarrativeSuggestion[] = [];
+  for (const p of plan) {
+    const spec: InsightChart = {
+      type: "insight",
+      kind: p.kind,
+      valueField: m,
+      categoryField: p.categoryField,
+      dateField: p.dateField,
+      ...fmt,
+    };
+    const r = computeInsight(spec, rows, { value, percentMeasure: format.format === "percent" });
+    if (!r.ok) continue;
+    const text = [r.lead, ...(r.items ?? [])]
+      .map((parts) => parts.map((x) => x.text).join(""))
+      .join(" ");
+    out.push({ spec, title: p.title, text });
+    if (out.length >= max) break;
+  }
+  return out;
 }

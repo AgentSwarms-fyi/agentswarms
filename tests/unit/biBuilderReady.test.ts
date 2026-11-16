@@ -24,6 +24,11 @@ describe("chartBlocker", () => {
     const empty = { ontology: false, sql: "", ran: false, chart: false, title: "" };
     expect(chartBlocker(empty)).toBe("Write a query or pick tables, then Run it.");
     expect(chartBlocker({ ...empty, sql: "SELECT 1" })).toBe("Run the query to see its rows.");
+    // Built from fields (R499) there is no Run button to press.
+    expect(chartBlocker({ ...empty, fields: true })).toBe(
+      "Pick a table, then click the fields to group by and add up.",
+    );
+    expect(chartBlocker({ ...empty, sql: "SELECT 1", fields: true })).toBe("Running the query…");
     expect(chartBlocker({ ...empty, sql: "SELECT 1", ran: true })).toBe(
       "Choose the columns to chart.",
     );

@@ -5,6 +5,7 @@ import type React from "react";
 import { Paintbrush } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -18,9 +19,9 @@ import { BiCondFormatEditor } from "@/components/bi/BiCondFormatEditor";
 import type { BiColumnFormat, BiCondRule } from "@/lib/biAgent";
 import { cn } from "@/lib/utils";
 
-/** True when the column has any style beyond its number format. */
+/** True when the column has any style (or its own title) beyond its number format. */
 function hasColumnStyle(f: BiColumnFormat | undefined): boolean {
-  return Boolean(f?.display || f?.cond || f?.rowHighlight);
+  return Boolean(f?.display || f?.cond || f?.rowHighlight || f?.label);
 }
 
 export function BiColumnStyle({
@@ -76,6 +77,18 @@ export function BiColumnStyle({
         <p className="truncate text-xs font-semibold" title={column}>
           {column}
         </p>
+        <div className="space-y-1">
+          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Column title
+          </Label>
+          <Input
+            value={value.label ?? ""}
+            onChange={(e) => onChange({ ...value, label: e.target.value || undefined })}
+            placeholder={column}
+            aria-label={`Title of the ${column} column`}
+            className="h-8 text-xs"
+          />
+        </div>
         <div className="space-y-1">
           <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             Show as

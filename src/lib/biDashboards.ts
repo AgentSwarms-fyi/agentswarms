@@ -120,6 +120,12 @@ export type BiWidget = {
    */
   agg_pushdown?: boolean;
   /**
+   * The fields the widget was built from in the builder's Fields mode (R499),
+   * so editing returns to them. Never on a public payload: the allow-list in
+   * sanitizePublicWidgets leaves it out, as it leaves out `sql`.
+   */
+  field_query?: import("@/lib/biFieldQuery").FieldQuery;
+  /**
    * Incremental refresh: re-query only rows whose `column` value falls inside
    * the last `days`, and keep the prior snapshot's rows outside that window.
    *

@@ -163,11 +163,14 @@ export function WidgetDataTable({
   columns,
   rows,
   columnFormats,
+  totals: showTotals = true,
 }: {
   columns: string[];
   rows: Record<string, unknown>[];
   /** Per-column display formats configured in the builder. */
   columnFormats?: Record<string, BiColumnFormat>;
+  /** false hides the totals row (R499). */
+  totals?: boolean;
 }) {
   const [sort, setSort] = useState<{ col: string; dir: 1 | -1 } | null>(null);
   const [page, setPage] = useState(0);
@@ -261,7 +264,7 @@ export function WidgetDataTable({
                     )
                   }
                 >
-                  {c}
+                  {columnFormats?.[c]?.label || c}
                   {sort?.col === c &&
                     (sort.dir === 1 ? (
                       <ArrowUp className="ml-0.5 inline h-2.5 w-2.5" />
@@ -291,7 +294,7 @@ export function WidgetDataTable({
               </tr>
             ))}
           </tbody>
-          {numeric.size > 0 && rows.length > 1 && (
+          {showTotals && numeric.size > 0 && rows.length > 1 && (
             <tfoot>
               <tr className="border-t border-border/60 bg-muted/40 font-medium">
                 {columns.map((c, i) => (
@@ -507,7 +510,12 @@ export function BiWidgetCard({
             No data snapshot — run or refresh this widget to load data.
           </div>
         ) : chart.type === "table" ? (
-          <WidgetDataTable columns={columns} rows={rows} columnFormats={chart.columnFormats} />
+          <WidgetDataTable
+            columns={columns}
+            rows={rows}
+            columnFormats={chart.columnFormats}
+            totals={chart.type === "table" ? chart.totals !== false : true}
+          />
         ) : (
           <BiChartRender
             chart={chart}

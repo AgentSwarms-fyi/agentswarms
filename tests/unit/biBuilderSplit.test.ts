@@ -40,6 +40,10 @@ const CHILDREN = {
   "BiKpiInsightOptions.tsx": readFileSync("src/components/bi/BiKpiInsightOptions.tsx", "utf8"),
   "BiColumnFormats.tsx": readFileSync("src/components/bi/BiColumnFormats.tsx", "utf8"),
   "BiColumnStyle.tsx": readFileSync("src/components/bi/BiColumnStyle.tsx", "utf8"),
+  // R499: blocks moved out to make room for the Fields mode.
+  "BiValueFormat.tsx": readFileSync("src/components/bi/BiValueFormat.tsx", "utf8"),
+  "BiBuildPreview.tsx": readFileSync("src/components/bi/BiBuildPreview.tsx", "utf8"),
+  "BiExtraMeasures.tsx": readFileSync("src/components/bi/BiExtraMeasures.tsx", "utf8"),
 };
 
 describe("no hook moved out of the parent", () => {
@@ -87,7 +91,12 @@ describe("the extracted regions are gone from the parent", () => {
     // BiMetricSource (this ceiling is what flagged the inlined draft at
     // 2,138). Re-baselined with the same ~135-line headroom as the original:
     // ordinary edits do not fail this, but re-inlining a child would.
-    expect(parent.split("\n").length).toBeLessThan(2050);
+    // R499 added the Fields mode's parent-side share (its state, assigning the
+    // written query's columns to the chart, the mode switch, the extra-measures
+    // wiring) with its UI in BiFieldsBuilder, BiBuildPreview, BiExtraMeasures,
+    // BiSuggestedNarratives and BiValueFormat. 2,078 after; re-baselined to the
+    // same ~135-line headroom.
+    expect(parent.split("\n").length).toBeLessThan(2215);
   });
 });
 

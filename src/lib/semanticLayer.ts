@@ -485,11 +485,29 @@ const BACKSLASH_ESCAPE_DIALECTS = new Set<SqlDialect>([
   "redshift",
 ]);
 
+// Dialects where `''` is NOT an escaped quote, so the quote itself must be
+// written `\'`. Spark/Databricks coalesces adjacent string literals: 'O''Brien'
+// is 'O' followed by 'Brien' and silently becomes "OBrien", so a filter
+// matches the wrong rows. BigQuery concatenates adjacent literals only with
+// whitespace between them, so the same text is a syntax error. Both document
+// `\'` as the escape (Spark SQL literals reference; BigQuery lexical
+// structure, "Escape sequences").
+const QUOTE_BY_BACKSLASH_DIALECTS = new Set<SqlDialect>(["databricks", "bigquery"]);
+
 /** Escape string CONTENT for a single-quoted literal in `dialect`. */
 function escapeString(v: string, dialect: SqlDialect): string {
+  if (QUOTE_BY_BACKSLASH_DIALECTS.has(dialect)) {
+    // Backslashes first, so the `\` added before each quote stays single.
+    return v.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  }
   let s = v.replace(/'/g, "''");
   if (BACKSLASH_ESCAPE_DIALECTS.has(dialect)) s = s.replace(/\\/g, "\\\\");
   return s;
+}
+
+/** A single-quoted string literal for `dialect`, safe for any value. */
+export function sqlStringLiteral(v: string, dialect: SqlDialect): string {
+  return `'${escapeString(v, dialect)}'`;
 }
 
 /**
