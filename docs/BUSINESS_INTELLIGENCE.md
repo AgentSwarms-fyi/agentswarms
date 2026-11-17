@@ -1246,6 +1246,44 @@ R505 adds four options, under the visual's options in the builder.
   - Without a measure, a `#rrggbb` column (**Colour from column**) colours
     each tile.
 
+## Combos, US state maps and pivots with several measures
+
+R506 finishes the chart types that took one measure or one kind of place.
+
+- **A combo with several measures** (`extraMeasures`, `extraLines`,
+  `stackBars`, `lineAxis`).
+  - **More values** adds measures. Each is drawn as bars until **Draw each
+    value as** makes it a line.
+  - **Stack the bars** stacks them. **Lines use the bars' axis** puts the
+    lines on the left-hand axis, for measures in the same units, and drops
+    the right-hand one.
+  - In Fields mode the first value is the bars, the second the line, and each
+    further value joins the bars.
+- **A map of US states** (`region`) on a filled map or a bubble map.
+  - A state can be a name (`New York`), a postal code (`NY`), an ISO code
+    (`US-NY`) or a FIPS code (`36`). The 50 states and DC are drawn, with
+    Alaska and Hawaii inset. A territory has no shape and is counted as not
+    matched.
+  - **Map of** picks countries or states. Left automatic, the map draws states
+    when at least 80% of the distinct values are states and more of them are
+    states than countries, or, on a tie, when the column's name contains
+    "state".
+  - Postal codes are also country codes. In the claims sample, 7 of the 12
+    state codes are countries, so on the world map its claims landed in
+    Azerbaijan, Gabon and Israel, and 62 of its 150 claims matched nothing.
+  - The shapes are the US Census Bureau's (us-atlas), bundled and loaded on
+    first use; no tile server.
+- **A pivot with several measures** (`extraMeasures`, `columnFormats`).
+  - Each column heading spans one column per measure, named in a second
+    header row, and Total does the same.
+  - **Value formats** gives each measure a title, a number format, colours and
+    icons. A measure without colours of its own takes the pivot's
+    conditional formatting, scaled over its own cells.
+  - Totals: sums and counts add; `min_` and `max_` measures total as the
+    lowest and highest; averages, rates, percentages and distinct counts get
+    no total (an empty cell that says why). This applies to one-measure
+    pivots too, which used to add up averages.
+
 ## Building a visual from fields
 
 The builder opens in **Fields** mode (R499). Pick a table and click the

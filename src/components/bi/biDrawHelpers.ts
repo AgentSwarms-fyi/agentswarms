@@ -1,6 +1,6 @@
 // Pure helpers behind R500's visuals, kept out of the component files so that
 // those export only components (fast refresh) and so tests need no renderer.
-import { toBiNumber } from "@/components/bi/biChartData";
+import { PIE_COLORS, toBiNumber } from "@/components/bi/biChartData";
 import type { BiAnnotation, BiLegendPlacement, ChartSpec } from "@/lib/biAgent";
 import { MAX_NOTES, NOTE_CHARS } from "@/lib/biVisualOpts";
 
@@ -571,4 +571,44 @@ export function measureTileColor(
   }
   const t = (v - range.min) / (range.max - range.min || 1);
   return `color-mix(in oklab, var(--primary) ${Math.round(12 + t * 88)}%, var(--muted))`;
+}
+
+/** The amber a combo's first line has always been drawn in. */
+export const COMBO_LINE = "#F28E2B";
+
+/**
+ * A combo's measures as bars and lines (R506). The bar and line fields come
+ * first; each extra measure is a line when `extraLines` names it and bars
+ * otherwise. A name already drawn, or one no row carries, is skipped: the
+ * same column twice reads as a comparison, and a missing one as a zero.
+ */
+export function comboSeries(
+  chart: { barField: string; lineField: string; extraMeasures?: unknown; extraLines?: unknown },
+  rows: Record<string, unknown>[],
+): { bars: string[]; lines: string[] } {
+  const lineSet = new Set(Array.isArray(chart.extraLines) ? chart.extraLines : []);
+  const seen = new Set([chart.barField, chart.lineField]);
+  const bars = [chart.barField];
+  const lines = [chart.lineField];
+  for (const m of Array.isArray(chart.extraMeasures) ? chart.extraMeasures : []) {
+    if (typeof m !== "string" || !m || seen.has(m)) continue;
+    if (rows.length > 0 && !rows.some((r) => m in r)) continue;
+    seen.add(m);
+    (lineSet.has(m) ? lines : bars).push(m);
+  }
+  return { bars, lines };
+}
+
+/**
+ * The colour of a combo's i-th bar or line. The first bar keeps the theme
+ * colour and the first line amber, as a one-measure combo always drew; the
+ * rest take the palette in order, without amber, bars before lines, so no
+ * two series share a colour until the palette runs out.
+ */
+export function comboColor(kind: "bar" | "line", i: number, bars: number): string {
+  if (i === 0) return kind === "bar" ? "var(--primary)" : COMBO_LINE;
+  const rest = PIE_COLORS.filter((c) => c !== COMBO_LINE);
+  // rest[0] is a blue that sits too close to most themes' primary.
+  const at = kind === "bar" ? i : bars - 1 + i;
+  return rest[1 + ((at - 1) % (rest.length - 1))];
 }

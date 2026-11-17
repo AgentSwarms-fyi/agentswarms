@@ -1,13 +1,18 @@
 // Hand-rendered BI visuals that recharts has no primitive for: gauge,
-// heatmap, box-and-whisker plot, and the matrix (pivot) table. All pure
+// heatmap, box-and-whisker plot, and the matrix (pivot) table, which since
+// R506 nests several measures under each column. All pure
 // SVG/HTML on design tokens, so they follow light/dark themes.
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Pause, Play } from "lucide-react";
 import { type BiFormatOptions } from "@/components/bi/biChartData";
 import { fmtBiNumber, fmtBiValue, toBiNumber } from "@/components/bi/biChartData";
-import { condFill } from "@/lib/biChartMath";
+import { condColorHex, condFill, firstMatchingRule, ruleFill } from "@/lib/biChartMath";
 import { useRacePlayback } from "@/lib/racePlayback";
-import type { BiCondFormat, BiNumberFormat } from "@/lib/biAgent";
+import type { BiColumnFormat, BiCondFormat, BiNumberFormat } from "@/lib/biAgent";
+import { buildPivot, type PivotValue } from "@/lib/biPivot";
+import { measureDisplayName } from "@/lib/biFieldQuery";
+import { COND_ICONS } from "@/components/bi/biCondIcons";
+import { cn } from "@/lib/utils";
 
 // Categorical palette shared by the hand-rendered visuals below (kept local to
 // avoid deepening the BiChartRender ↔ BiChartParts import cycle).
@@ -421,7 +426,9 @@ export function MatrixTable({
   colField,
   valueField,
   rowSubField,
+  extraMeasures,
   condFormat,
+  columnFormats,
   format,
 }: {
   rows: Record<string, unknown>[];
@@ -430,99 +437,40 @@ export function MatrixTable({
   valueField: string;
   /** Optional second row level — rows become expandable groups with subtotals. */
   rowSubField?: string;
-  /** Conditional cell colouring (scale or first-match rules). */
+  /** More measures, each a column under every column value (R506). */
+  extraMeasures?: string[];
+  /** Conditional cell colouring (scale or first-match rules), for every
+   *  measure that has none of its own; a scale runs per measure. */
   condFormat?: BiCondFormat;
+  /** Each measure's header, number format, colours and icons (R506). */
+  columnFormats?: Record<string, BiColumnFormat>;
   format?: BiNumberFormat | BiFormatOptions;
 }) {
   const subField = rowSubField && rowSubField !== rowField ? rowSubField : undefined;
   // Expanded groups (hierarchy mode). Stale keys after data changes are harmless.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const chartFormat = typeof format === "string" ? format : format?.format;
 
-  const {
-    rowKeys,
-    colKeys,
-    sums,
-    leafSums,
-    children,
-    leafTotals,
-    rowTotals,
-    colTotals,
-    grand,
-    min,
-    max,
-  } = useMemo(() => {
-    const rowKeys: string[] = [];
-    const colKeys: string[] = [];
-    const sums = new Map<string, number>(); // group×col (subtotals in hierarchy mode)
-    const leafSums = new Map<string, number>(); // group×sub×col
-    const children = new Map<string, string[]>();
-    const leafTotals = new Map<string, number>(); // group×sub row totals
-    for (const row of rows) {
-      const r = String(row[rowField] ?? "—");
-      const c = String(row[colField] ?? "—");
-      const v = Number(row[valueField]);
-      if (!Number.isFinite(v)) continue;
-      if (!rowKeys.includes(r) && rowKeys.length < 200) rowKeys.push(r);
-      if (!colKeys.includes(c) && colKeys.length < 30) colKeys.push(c);
-      const k = `${r}\u0000${c}`;
-      sums.set(k, (sums.get(k) ?? 0) + v);
-      if (subField) {
-        const sv = String(row[subField] ?? "—");
-        const kids = children.get(r) ?? [];
-        if (!kids.includes(sv) && kids.length < 100) {
-          kids.push(sv);
-          children.set(r, kids);
-        }
-        const lk = `${r}\u0000${sv}\u0000${c}`;
-        leafSums.set(lk, (leafSums.get(lk) ?? 0) + v);
-        const tk = `${r}\u0000${sv}`;
-        leafTotals.set(tk, (leafTotals.get(tk) ?? 0) + v);
-      }
-    }
-    const rowTotals = new Map<string, number>();
-    const colTotals = new Map<string, number>();
-    let grand = 0;
-    for (const r of rowKeys) {
-      for (const c of colKeys) {
-        const v = sums.get(`${r}\u0000${c}`);
-        if (v === undefined) continue;
-        rowTotals.set(r, (rowTotals.get(r) ?? 0) + v);
-        colTotals.set(c, (colTotals.get(c) ?? 0) + v);
-        grand += v;
-      }
-    }
-    // Colour-scale extent from the finest data cells (totals excluded).
-    let min = Infinity;
-    let max = -Infinity;
-    for (const v of (subField ? leafSums : sums).values()) {
-      if (v < min) min = v;
-      if (v > max) max = v;
-    }
-    if (!Number.isFinite(min)) {
-      min = 0;
-      max = 0;
-    }
-    return {
-      rowKeys,
-      colKeys,
-      sums,
-      leafSums,
-      children,
-      leafTotals,
-      rowTotals,
-      colTotals,
-      grand,
-      min,
-      max,
-    };
-  }, [rows, rowField, colField, valueField, subField]);
+  const pv = useMemo(
+    () =>
+      buildPivot(rows, {
+        rowField,
+        colField,
+        valueField,
+        rowSubField: subField,
+        extraMeasures,
+        formatOf: (m) => columnFormats?.[m]?.format ?? chartFormat,
+      }),
+    [rows, rowField, colField, valueField, subField, extraMeasures, columnFormats, chartFormat],
+  );
+  const { rowKeys, colKeys, measures, children } = pv;
+  const multi = measures.length > 1;
+  const header = (m: string) => columnFormats?.[m]?.label || (multi ? measureDisplayName(m) : m);
 
-  const fmt = (v: number) => fmtBiValue(v, format);
-  const cellStyle = (v: number | undefined): React.CSSProperties | undefined => {
-    if (v === undefined) return undefined;
-    const fill = condFill(v, condFormat, min, max);
-    if (!fill) return undefined;
-    return { background: fill.bg, ...(fill.fg ? { color: fill.fg, fontWeight: 500 } : {}) };
+  const fmtIn = (m: string, v: number) => {
+    const cf = columnFormats?.[m];
+    const base = cf?.format ? cf : format;
+    return `${cf?.prefix ?? ""}${fmtBiValue(v, base as BiFormatOptions)}${cf?.suffix ?? ""}`;
   };
 
   const toggle = (g: string) =>
@@ -534,51 +482,143 @@ export function MatrixTable({
     });
   const allExpanded = subField ? rowKeys.every((r) => expanded.has(r)) : false;
 
-  const th =
-    "sticky top-0 z-10 border-b border-border/60 bg-card px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground";
+  const thText =
+    "border-b border-border/60 bg-card px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground";
+  // One measure keeps the header row it always had, each cell sticky; with
+  // several the whole two-row header is.
+  const th = multi ? thText : `sticky top-0 z-10 ${thText}`;
   const numCell = "px-2.5 py-1.5 text-right text-xs tabular-nums";
+  const groupEdge = "border-l border-border/40";
 
-  const valueCells = (key: (c: string) => string, source: Map<string, number>, colour: boolean) =>
-    colKeys.map((c) => {
-      const v = source.get(key(c));
+  /** One value cell: its number, and its colours and icon when asked for. */
+  const valueCell = (
+    key: string,
+    m: string,
+    i: number,
+    v: PivotValue,
+    colour: boolean,
+    strong?: string,
+  ) => {
+    const edge = multi && i === 0 ? groupEdge : "";
+    if (v === undefined || v === null) {
       return (
-        <td key={c} className={numCell} style={colour ? cellStyle(v) : undefined}>
-          {v === undefined ? <span className="text-muted-foreground/50">—</span> : fmt(v)}
+        <td
+          key={key}
+          className={cn(numCell, edge, strong)}
+          title={
+            v === null ? "Not totalled: averages, rates and percentages do not add up" : undefined
+          }
+        >
+          {v === undefined && <span className="text-muted-foreground/50">—</span>}
         </td>
       );
-    });
+    }
+    const cf = colour ? (columnFormats?.[m]?.cond ?? condFormat) : undefined;
+    const rule = firstMatchingRule(v, cf);
+    const ext = pv.extent(m);
+    const fill = rule
+      ? ruleFill(rule)
+      : cf?.mode === "scale"
+        ? condFill(v, cf, ext.min, ext.max)
+        : null;
+    const icon = rule?.icon ? COND_ICONS[rule.icon] : undefined;
+    const iconColor = rule ? condColorHex(rule.color) : undefined;
+    return (
+      <td
+        key={key}
+        className={cn(numCell, edge, strong)}
+        style={
+          fill
+            ? { background: fill.bg, ...(fill.fg ? { color: fill.fg, fontWeight: 500 } : {}) }
+            : undefined
+        }
+      >
+        {icon ? (
+          <span className="inline-flex items-center justify-end gap-1">
+            <icon.Icon
+              className={cn("h-3 w-3 shrink-0", rule?.icon === "dot" && "fill-current")}
+              style={iconColor ? { color: iconColor } : undefined}
+              aria-label={icon.label}
+            />
+            {fmtIn(m, v)}
+          </span>
+        ) : (
+          fmtIn(m, v)
+        )}
+      </td>
+    );
+  };
+
+  const cellsFor = (get: (c: string, m: string) => PivotValue, colour: boolean, strong?: string) =>
+    colKeys.flatMap((c) =>
+      measures.map((m, i) => valueCell(`${c}\u0000${m}`, m, i, get(c, m), colour, strong)),
+    );
+  const totalsFor = (get: (m: string) => PivotValue, strong: string) =>
+    measures.map((m, i) => valueCell(`\u0000total\u0000${m}`, m, i, get(m), false, strong));
+
+  const rowHeader = (
+    <span className="flex items-center gap-1.5">
+      {columnFormats?.[rowField]?.label || rowField}
+      {subField && (
+        <>
+          <span className="font-normal normal-case text-muted-foreground/60">
+            › {columnFormats?.[subField]?.label || subField}
+          </span>
+          <button
+            type="button"
+            className="rounded px-1 font-normal normal-case tracking-normal text-primary hover:bg-muted"
+            onClick={() => setExpanded(allExpanded ? new Set() : new Set(rowKeys))}
+          >
+            {allExpanded ? "Collapse all" : "Expand all"}
+          </button>
+        </>
+      )}
+    </span>
+  );
 
   return (
     <div className="h-full overflow-auto">
       <table className="w-full text-left">
-        <thead>
+        <thead className={multi ? "sticky top-0 z-10 bg-card" : undefined}>
           <tr>
-            <th className={th}>
-              <span className="flex items-center gap-1.5">
-                {rowField}
-                {subField && (
-                  <>
-                    <span className="font-normal normal-case text-muted-foreground/60">
-                      › {subField}
-                    </span>
-                    <button
-                      type="button"
-                      className="rounded px-1 font-normal normal-case tracking-normal text-primary hover:bg-muted"
-                      onClick={() => setExpanded(allExpanded ? new Set() : new Set(rowKeys))}
-                    >
-                      {allExpanded ? "Collapse all" : "Expand all"}
-                    </button>
-                  </>
-                )}
-              </span>
+            <th className={th} rowSpan={multi ? 2 : undefined}>
+              {rowHeader}
             </th>
             {colKeys.map((c) => (
-              <th key={c} className={`${th} text-right`}>
+              <th
+                key={c}
+                colSpan={multi ? measures.length : undefined}
+                className={cn(th, multi ? `${groupEdge} text-center` : "text-right")}
+              >
                 {c}
               </th>
             ))}
-            <th className={`${th} text-right`}>Total</th>
+            <th
+              colSpan={multi ? measures.length : undefined}
+              className={cn(th, multi ? `${groupEdge} text-center` : "text-right")}
+            >
+              Total
+            </th>
           </tr>
+          {multi && (
+            <tr>
+              {[...colKeys, "\u0000total"].flatMap((c) =>
+                measures.map((m, i) => (
+                  <th
+                    key={`${c}\u0000${m}`}
+                    className={cn(
+                      th,
+                      "text-right normal-case tracking-normal",
+                      i === 0 && groupEdge,
+                    )}
+                    title={m}
+                  >
+                    {header(m)}
+                  </th>
+                )),
+              )}
+            </tr>
+          )}
         </thead>
         <tbody>
           {rowKeys.map((r) => {
@@ -608,8 +648,8 @@ export function MatrixTable({
                       )}
                     </span>
                   </td>
-                  {valueCells((c) => `${r}\u0000${c}`, sums, !subField)}
-                  <td className={`${numCell} font-semibold`}>{fmt(rowTotals.get(r) ?? 0)}</td>
+                  {cellsFor((c, m) => pv.cell(r, c, m), !subField)}
+                  {totalsFor((m) => pv.rowTotal(r, m), "font-semibold")}
                 </tr>
                 {subField &&
                   open &&
@@ -619,8 +659,8 @@ export function MatrixTable({
                       className="border-b border-border/20 transition-colors hover:bg-muted/40"
                     >
                       <td className="py-1.5 pl-8 pr-2.5 text-xs text-muted-foreground">{sv}</td>
-                      {valueCells((c) => `${r}\u0000${sv}\u0000${c}`, leafSums, true)}
-                      <td className={numCell}>{fmt(leafTotals.get(`${r}\u0000${sv}`) ?? 0)}</td>
+                      {cellsFor((c, m) => pv.leaf(r, sv, c, m), true)}
+                      {totalsFor((m) => pv.leafTotal(r, sv, m), "")}
                     </tr>
                   ))}
               </FragmentRows>
@@ -628,12 +668,8 @@ export function MatrixTable({
           })}
           <tr className="border-t-2 border-border/60">
             <td className="px-2.5 py-1.5 text-xs font-semibold">Total</td>
-            {colKeys.map((c) => (
-              <td key={c} className={`${numCell} font-semibold`}>
-                {fmt(colTotals.get(c) ?? 0)}
-              </td>
-            ))}
-            <td className={`${numCell} font-bold`}>{fmt(grand)}</td>
+            {cellsFor((c, m) => pv.colTotal(c, m), false, "font-semibold")}
+            {totalsFor((m) => pv.grand(m), "font-bold")}
           </tr>
         </tbody>
       </table>

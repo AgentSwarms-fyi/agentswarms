@@ -66,6 +66,8 @@ import { BiControlsVisual } from "@/components/bi/BiParamControls";
 import { BiPointMap } from "@/components/bi/BiPointMap";
 import { BiChartNotes } from "@/components/bi/BiChartNotes";
 import {
+  comboColor,
+  comboSeries,
   lastPoints,
   legendPlacement,
   measureTileColor,
@@ -537,7 +539,9 @@ function BiChartRenderInner({
         colField={chart.colField}
         valueField={chart.valueField}
         rowSubField={chart.rowSubField}
+        extraMeasures={chart.extraMeasures}
         condFormat={chart.condFormat}
+        columnFormats={chart.columnFormats}
         format={chart}
       />
     );
@@ -550,6 +554,7 @@ function BiChartRenderInner({
         locationField={chart.locationField}
         valueField={chart.valueField}
         mode={chart.type === "map" ? "fill" : "bubble"}
+        region={chart.region === "us" || chart.region === "world" ? chart.region : undefined}
         onElementClick={
           onElementClick ? (value) => onElementClick(chart.locationField, value) : undefined
         }
@@ -1318,10 +1323,14 @@ function BiChartRenderInner({
   }
 
   if (chart.type === "combo") {
-    // Hoisted so the axis can size itself from the SAME rows the bars use —
-    // computing it twice would let the labels and the bars disagree.
-    const comboData = aggregateByField(rows, chart.xField, [chart.barField, chart.lineField]);
+    // R506: several bars and several lines. Hoisted so the axis can size
+    // itself from the SAME rows the bars use — computing it twice would let
+    // the labels and the bars disagree.
+    const { bars: comboBars, lines: comboLines } = comboSeries(chart, rows);
+    const comboData = aggregateByField(rows, chart.xField, [...comboBars, ...comboLines]);
     const comboCat = catAxis(comboData, chart.xField);
+    const linesLeft = chart.lineAxis === "left";
+    const lineKeys = new Set(comboLines);
     const comboClick = onElementClick
       ? (state: { activeLabel?: string | number } | null) => {
           if (state && state.activeLabel !== undefined && state.activeLabel !== null) {
@@ -1356,40 +1365,55 @@ function BiChartRenderInner({
               tickFormatter={fmt}
               width={48}
             />
-            <YAxis
-              yAxisId="right"
-              orientation="right"
-              tick={tick}
-              axisLine={false}
-              tickLine={false}
-              tickFormatter={fmtBiNumber}
-              width={44}
-            />
+            {!linesLeft && (
+              <YAxis
+                yAxisId="right"
+                orientation="right"
+                tick={tick}
+                axisLine={false}
+                tickLine={false}
+                tickFormatter={fmtBiNumber}
+                width={44}
+              />
+            )}
             <Tooltip
               contentStyle={tooltipStyle}
               labelStyle={labelStyle}
               itemStyle={labelStyle}
-              formatter={(v: unknown, name: unknown) =>
-                name === chart.barField ? fmt(v) : fmtBiNumber(v)
+              // Lines on their own axis are another unit (a count beside
+              // revenue), so they are not given the bars' currency.
+              formatter={(v: unknown, _n: unknown, item: { dataKey?: unknown }) =>
+                !linesLeft && lineKeys.has(String(item?.dataKey)) ? fmtBiNumber(v) : fmt(v)
               }
             />
-            {legendEl()}
-            <Bar
-              yAxisId="left"
-              dataKey={chart.barField}
-              fill={primaryStroke}
-              radius={[5, 5, 0, 0]}
-              maxBarSize={36}
-            />
-            <Line
-              yAxisId="right"
-              type="monotone"
-              dataKey={chart.lineField}
-              stroke="#F28E2B"
-              strokeWidth={2.5}
-              dot={false}
-              activeDot={{ r: 4, strokeWidth: 0 }}
-            />
+            {[
+              legendEl(undefined, comboBars.length + comboLines.length),
+              ...comboBars.map((m, i) => (
+                <Bar
+                  key={`bar:${m}`}
+                  yAxisId="left"
+                  dataKey={m}
+                  name={measureDisplayName(m)}
+                  fill={comboColor("bar", i, comboBars.length)}
+                  stackId={chart.stackBars ? "bars" : undefined}
+                  radius={chart.stackBars && i < comboBars.length - 1 ? [0, 0, 0, 0] : [5, 5, 0, 0]}
+                  maxBarSize={chart.stackBars ? 36 : Math.max(14, 36 - 6 * (comboBars.length - 1))}
+                />
+              )),
+              ...comboLines.map((m, i) => (
+                <Line
+                  key={`line:${m}`}
+                  yAxisId={linesLeft ? "left" : "right"}
+                  type="monotone"
+                  dataKey={m}
+                  name={measureDisplayName(m)}
+                  stroke={comboColor("line", i, comboBars.length)}
+                  strokeWidth={2.5}
+                  dot={false}
+                  activeDot={{ r: 4, strokeWidth: 0 }}
+                />
+              )),
+            ]}
           </ComposedChart>
         </ResponsiveContainer>
       </div>

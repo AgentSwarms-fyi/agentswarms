@@ -3,7 +3,8 @@
 // of a range, a colour column for lines, rank charts and radial bars, end
 // labels and shaded bands, the heatmap's diverging scale, striped tables;
 // since R505 a 100% stack, where the legend sits, notes pinned to points and
-// a treemap coloured by a second measure.
+// a treemap coloured by a second measure; since R506 a combo's measures as
+// bars or lines, and a map of countries or US states.
 // Templates take their {{column}} values from a menu, as other templates do.
 // Owns no state.
 import type { ReactNode } from "react";
@@ -83,6 +84,7 @@ export function BiVisualOptions({
   columns,
   params = [],
   stacks = false,
+  extras = [],
 }: {
   type: string;
   opts: VisualOpts;
@@ -92,6 +94,8 @@ export function BiVisualOptions({
   params?: BiParamConfig[];
   /** This chart's parts stack, so they can show as shares of 100% (R505). */
   stacks?: boolean;
+  /** The chart's extra measures: a combo draws each as bars or a line (R506). */
+  extras?: string[];
 }) {
   const set = (patch: Partial<VisualOpts>) => setOpts({ ...opts, ...patch });
   const tokens: TemplateToken[] = columns.flatMap((c) => [
@@ -673,6 +677,96 @@ export function BiVisualOptions({
             </SelectItem>
             <SelectItem value="diverging" className="text-xs">
               Green below zero, red above
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </div>,
+    );
+  }
+
+  // R506: each extra measure of a combo as bars or a line, and its axes.
+  if (type === "combo") {
+    const lineSet = new Set(opts.comboLines);
+    const bars = 1 + extras.filter((m) => !lineSet.has(m)).length;
+    parts.push(
+      <div key="combo" className="col-span-2 space-y-1.5">
+        {extras.length > 0 && <Label className={small}>Draw each value as</Label>}
+        {extras.map((m) => (
+          <div key={m} className="flex items-center gap-2">
+            <span className="min-w-0 flex-1 truncate text-[11px]" title={m}>
+              {m}
+            </span>
+            {(["Bars", "Line"] as const).map((kind) => {
+              const on = (kind === "Line") === lineSet.has(m);
+              return (
+                <button
+                  key={kind}
+                  type="button"
+                  aria-pressed={on}
+                  aria-label={`Draw ${m} as ${kind === "Bars" ? "bars" : "a line"}`}
+                  onClick={() =>
+                    set({
+                      comboLines:
+                        kind === "Line"
+                          ? [...opts.comboLines.filter((x) => x !== m), m]
+                          : opts.comboLines.filter((x) => x !== m),
+                    })
+                  }
+                  className={cn(
+                    "rounded-full border px-2 py-0.5 text-[11px]",
+                    on
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {kind}
+                </button>
+              );
+            })}
+          </div>
+        ))}
+        <div className="flex flex-wrap gap-x-4 gap-y-1">
+          {bars > 1 && (
+            <Label className="flex cursor-pointer items-center gap-2 text-xs font-normal">
+              <Checkbox
+                checked={opts.stackBars}
+                onCheckedChange={(v) => set({ stackBars: v === true })}
+              />
+              Stack the bars
+            </Label>
+          )}
+          <Label className="flex cursor-pointer items-center gap-2 text-xs font-normal">
+            <Checkbox
+              checked={opts.linesLeft}
+              onCheckedChange={(v) => set({ linesLeft: v === true })}
+            />
+            Lines use the bars&apos; axis (same units)
+          </Label>
+        </div>
+      </div>,
+    );
+  }
+
+  if (type === "map" || type === "bubblemap") {
+    parts.push(
+      <div key="region" className="space-y-1">
+        <Label className={small}>Map of</Label>
+        <Select
+          value={opts.region}
+          onValueChange={(v) => set({ region: v as VisualOpts["region"] })}
+        >
+          <SelectTrigger className="h-8 text-xs" aria-label="Map of">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="auto" className="text-xs">
+              Chosen from the values
+            </SelectItem>
+            <SelectItem value="world" className="text-xs">
+              Countries
+            </SelectItem>
+            <SelectItem value="us" className="text-xs">
+              US states
             </SelectItem>
           </SelectContent>
         </Select>

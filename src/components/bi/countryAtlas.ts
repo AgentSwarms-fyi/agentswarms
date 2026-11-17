@@ -11,13 +11,18 @@ import { normalizeName } from "@/lib/countryMatch";
 export const VIEW_W = 960;
 export const VIEW_H = 500;
 
-export type CountryShape = {
+/** One drawable place on a map: a country, or a US state (R506). */
+export type GeoShape = {
   name: string;
+  /** The place's key in its atlas: a normalised country name, or a state's FIPS code. */
   key: string;
-  /** ISO 3166-1 numeric, from the atlas's own feature id; null for the few without one. */
-  num: string | null;
   d: string;
   centroid: [number, number];
+};
+
+export type CountryShape = GeoShape & {
+  /** ISO 3166-1 numeric, from the atlas's own feature id; null for the few without one. */
+  num: string | null;
 };
 
 // Parsed once at module load; ~170 country paths.

@@ -62,6 +62,12 @@ export type VisualOpts = {
   notes: VisualNote[];
   colorMeasure: string;
   lowerIsBetter: boolean;
+  // R506: a combo's extra measures drawn as lines, stacked bars, lines on the
+  // bars' axis; which map a location column is drawn on.
+  comboLines: string[];
+  stackBars: boolean;
+  linesLeft: boolean;
+  region: "auto" | "world" | "us";
 };
 
 export const VISUAL_OPTS_DEFAULT: VisualOpts = {
@@ -105,6 +111,10 @@ export const VISUAL_OPTS_DEFAULT: VisualOpts = {
   notes: [],
   colorMeasure: "",
   lowerIsBetter: false,
+  comboLines: [],
+  stackBars: false,
+  linesLeft: false,
+  region: "auto",
 };
 
 /** Visual types whose fields live in these options rather than the pane's. */
@@ -154,7 +164,13 @@ export function stacksParts(
 
 /** The options a saved chart was built with. */
 export function visualOptsFrom(c: ChartSpec): VisualOpts {
-  const o: VisualOpts = { ...VISUAL_OPTS_DEFAULT, bands: [], params: [], notes: [] };
+  const o: VisualOpts = {
+    ...VISUAL_OPTS_DEFAULT,
+    bands: [],
+    params: [],
+    notes: [],
+    comboLines: [],
+  };
   if (c.type === "cards") {
     o.cardsLayout = c.layout ?? "tiles";
     o.imageField = c.imageField ?? "";
@@ -215,6 +231,14 @@ export function visualOptsFrom(c: ChartSpec): VisualOpts {
     o.colorMeasure = c.colorMeasure ?? "";
     o.heatScale = c.scale ?? "sequential";
     o.lowerIsBetter = c.lowerIsBetter === true;
+  }
+  if (c.type === "combo") {
+    o.comboLines = Array.isArray(c.extraLines) ? [...c.extraLines] : [];
+    o.stackBars = c.stackBars === true;
+    o.linesLeft = c.lineAxis === "left";
+  }
+  if (c.type === "map" || c.type === "bubblemap") {
+    o.region = c.region === "us" || c.region === "world" ? c.region : "auto";
   }
   o.percentStack = c.percentStack === true;
   o.legend = c.legend ?? "bottom";
@@ -352,6 +376,28 @@ export function treemapColor(o: VisualOpts): {
     scale: o.heatScale === "diverging" ? "diverging" : undefined,
     lowerIsBetter: o.heatScale === "diverging" && o.lowerIsBetter ? true : undefined,
   };
+}
+
+/**
+ * A combo's extra measures drawn as lines, stacked bars and the lines' axis
+ * (R506). `extras` is the combo's extra measures: a line choice for a measure
+ * no longer among them is dropped, not saved.
+ */
+export function comboShape(
+  o: VisualOpts,
+  extras: string[],
+): { extraLines?: string[]; stackBars?: boolean; lineAxis?: "left" } {
+  const lines = o.comboLines.filter((m) => extras.includes(m));
+  return {
+    extraLines: lines.length ? lines : undefined,
+    stackBars: o.stackBars || undefined,
+    lineAxis: o.linesLeft ? "left" : undefined,
+  };
+}
+
+/** Which map a location column is drawn on (R506); unset chooses from the values. */
+export function mapRegion(o: VisualOpts): { region?: "world" | "us" } {
+  return o.region === "auto" ? {} : { region: o.region };
 }
 
 /**

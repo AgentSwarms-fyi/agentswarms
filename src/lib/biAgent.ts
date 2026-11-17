@@ -115,7 +115,8 @@ export type BiChartAnalytics = {
    * More measures, each drawn as its own series beside `yField` (R499):
    * bar, column, line and area draw one series per measure; a radar makes
    * each measure a spoke and draws one polygon per `xField` value. Ignored
-   * when a `seriesField` splits the chart instead.
+   * when a `seriesField` splits the chart instead. A combo draws each as
+   * bars or a line, and a pivot nests them under each column (R506).
    */
   extraMeasures?: string[];
   /**
@@ -206,7 +207,7 @@ export type ChartSpec = {
   currency?: string;
   /** Fixed fraction digits (0-4); undefined = auto/compact. */
   decimals?: number;
-  /** Table widgets only: per-column formats keyed by column name. */
+  /** Tables, and a pivot's measures (R506): per-column formats keyed by column name. */
   columnFormats?: Record<string, BiColumnFormat>;
 } & BiChartAnalytics &
   (
@@ -415,7 +416,22 @@ export type ChartSpec = {
     // Radar / spider — one spoke per xField category, radius=yField, optional multi-series.
     | { type: "radar"; xField: string; yField: string; seriesField?: string }
     | { type: "pie"; nameField: string; valueField: string }
-    | { type: "combo"; xField: string; barField: string; lineField: string }
+    | {
+        /**
+         * Bars and lines over one x axis. More measures (R506) come from
+         * `extraMeasures`: each is drawn as bars unless `extraLines` names
+         * it. Lines read the right-hand axis unless `lineAxis` is "left",
+         * for measures in the bars' units (a target beside sales).
+         */
+        type: "combo";
+        xField: string;
+        barField: string;
+        lineField: string;
+        extraLines?: string[];
+        /** The bars stack instead of standing side by side. */
+        stackBars?: boolean;
+        lineAxis?: "left" | "right";
+      }
     | { type: "scatter"; xField: string; yField: string; sizeField?: string }
     | { type: "funnel"; nameField: string; valueField: string }
     | { type: "waterfall"; xField: string; yField: string }
@@ -453,6 +469,13 @@ export type ChartSpec = {
     | { type: "wordcloud"; textField: string; valueField?: string }
     | { type: "boxplot"; xField: string; yField: string }
     | {
+        /**
+         * A pivot. With `extraMeasures` (R506) every column value heads one
+         * column per measure, and `columnFormats` gives each measure its
+         * header, number format, colours and icons. A measure that is an
+         * average, a rate or a percentage gets no total: adding them up
+         * means nothing.
+         */
         type: "matrix";
         rowField: string;
         colField: string;
@@ -461,8 +484,19 @@ export type ChartSpec = {
         rowSubField?: string;
         condFormat?: BiCondFormat;
       }
-    | { type: "map"; locationField: string; valueField: string }
-    | { type: "bubblemap"; locationField: string; valueField: string }
+    | {
+        /**
+         * A filled map of countries or (R506) US states. `region` unset
+         * chooses from the values: states when nearly all of them are states
+         * and more are states than countries (postal codes are also country
+         * codes: CO is Colombia), or when the column is named for states.
+         */
+        type: "map";
+        locationField: string;
+        valueField: string;
+        region?: "world" | "us";
+      }
+    | { type: "bubblemap"; locationField: string; valueField: string; region?: "world" | "us" }
     | { type: "ontology"; spec: OntologySpec }
   );
 
@@ -1217,7 +1251,9 @@ export async function suggestChart(args: {
       "measure per period, { valueField, dateField, sparkline: true } to show the latest " +
       "period against the one before\n" +
       "- 'scatter': { xField, yField } — two numeric columns, correlation questions\n" +
-      "- 'combo': { xField, barField, lineField } — two measures on different scales over one dimension\n" +
+      "- 'combo': { xField, barField, lineField, extraMeasures?, extraLines? } — measures on " +
+      "different scales over one dimension; extraMeasures adds more measures as bars, and " +
+      "extraLines names those of them drawn as lines\n" +
       "- 'funnel': { nameField, valueField } — sequential pipeline stages with decreasing values\n" +
       "- 'waterfall': { xField, yField } — additive positive/negative contributions to a total\n" +
       "- 'treemap': { nameField, valueField } — hierarchical/part-of-whole with many categories\n" +

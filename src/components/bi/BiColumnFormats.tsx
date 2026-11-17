@@ -1,5 +1,6 @@
 // Table widgets: each column's number format and cell style (R498 moved this
 // out of BiBuilderPane, whose size ceiling the cell styles would have broken).
+// A pivot's measures use it too (R506), without the table-only parts.
 // Like the builder's other children it owns no state: values and a setter in.
 import type React from "react";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -26,19 +27,23 @@ export function BiColumnFormats({
   colFormats: Record<string, BiColumnFormat>;
   setColFormats: React.Dispatch<React.SetStateAction<Record<string, BiColumnFormat>>>;
   /** Show the totals row (R499). */
-  totals: boolean;
+  /** Unset for a pivot, whose measures take formats, colours and icons only. */
+  totals?: boolean;
   setTotals: (v: boolean) => void;
 }) {
+  const pivot = totals === undefined;
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between">
         <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Column formats
+          {pivot ? "Value formats" : "Column formats"}
         </Label>
-        <Label className="flex cursor-pointer items-center gap-1.5 text-[11px] font-normal">
-          <Checkbox checked={totals} onCheckedChange={(v) => setTotals(Boolean(v))} />
-          Totals row
-        </Label>
+        {!pivot && (
+          <Label className="flex cursor-pointer items-center gap-1.5 text-[11px] font-normal">
+            <Checkbox checked={totals} onCheckedChange={(v) => setTotals(Boolean(v))} />
+            Totals row
+          </Label>
+        )}
       </div>
       <div className="space-y-1">
         {columns.map((c) => {
@@ -106,6 +111,7 @@ export function BiColumnFormats({
               )}
               <BiColumnStyle
                 column={c}
+                pivot={pivot}
                 value={cf}
                 onChange={(next) =>
                   setColFormats((prev) => {

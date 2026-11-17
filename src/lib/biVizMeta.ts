@@ -1,5 +1,5 @@
 // What each visual needs to be built, for hover help on the widget picker
-// (QuickSight-style "Requires one dimension in group by") and to steer the AI.
+// ("Requires one dimension in group by") and to steer the AI.
 //
 // `requires` is the short field requirement; `how` is a one-line "how to build
 // / when to use". Keyed by the ChartSpec `type` plus the non-chart widget kinds
@@ -37,8 +37,9 @@ export const VIZ_REQUIREMENTS: Record<string, VizReq> = {
     how: "Show a trend with volume/magnitude emphasis.",
   },
   combo: {
-    requires: "1 dimension (X axis) + 2 measures (one bars, one line).",
-    how: "Compare two measures on different scales over one dimension.",
+    requires:
+      "1 dimension (X axis) + 2 measures (one bars, one line). Optional: more measures, each bars or a line.",
+    how: "Compare measures on different scales over one dimension.",
   },
   scatter: {
     requires: "2 measures (X and Y). Optional: a measure for bubble size.",
@@ -93,15 +94,16 @@ export const VIZ_REQUIREMENTS: Record<string, VizReq> = {
     how: "Show a value against a target/range.",
   },
   matrix: {
-    requires: "1 row dimension + 1 column dimension + 1 measure (cell value).",
-    how: "A pivot table with row/column groups and subtotals.",
+    requires:
+      "1 row dimension + 1 column dimension + 1 measure (cell value). Optional: more measures.",
+    how: "A pivot table with row/column groups and subtotals; several measures sit under each column.",
   },
   map: {
-    requires: "1 location field (country/region) + 1 measure (value).",
+    requires: "1 location field (country or US state) + 1 measure (value).",
     how: "Shade a map by a measure per location.",
   },
   bubblemap: {
-    requires: "1 location field + 1 measure (bubble size).",
+    requires: "1 location field (country or US state) + 1 measure (bubble size).",
     how: "Plot sized bubbles by a measure per location.",
   },
   table: {

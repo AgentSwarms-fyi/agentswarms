@@ -411,14 +411,17 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "2026-Q3",
       "2026-W05",
       "34",
+      "36",
       "410,379.26",
       "AVG",
       "COUNT",
       "Heatwave",
       "LIMIT",
       "LOCAL_ENGINE=alasql",
+      "NY",
       "PUBLIC_BI_SNAPSHOT_ROWS_CAP",
       "SUM",
+      "US-NY",
       "VITE_BI_SNAPSHOT_ROWS_CAP",
       "VITE_MAP_TILES_ATTRIBUTION",
       "VITE_MAP_TILES_URL",
@@ -475,7 +478,9 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "map",
       "matrix",
       "max",
+      "max_",
       "min",
+      "min_",
       "movingAverage",
       "neq",
       "nightingale",
@@ -504,6 +509,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "seriesField",
       "shbar",
       "smallmultiples",
+      "state",
       "sum",
       "sum(amount)",
       "table",
@@ -644,6 +650,21 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "treemap-colour",
         "text": "A treemap coloured by a second measure",
+        "level": 3
+      },
+      {
+        "id": "combo-measures",
+        "text": "Combos with several measures",
+        "level": 3
+      },
+      {
+        "id": "us-state-maps",
+        "text": "Maps of US states",
+        "level": 3
+      },
+      {
+        "id": "pivot-measures",
+        "text": "Pivots with several measures",
         "level": 3
       },
       {

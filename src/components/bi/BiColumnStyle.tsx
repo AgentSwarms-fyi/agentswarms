@@ -26,10 +26,14 @@ function hasColumnStyle(f: BiColumnFormat | undefined): boolean {
 
 export function BiColumnStyle({
   column,
+  pivot = false,
   value,
   onChange,
 }: {
   column: string;
+  /** A pivot's measure (R506): a number in each cell, so no picture, link,
+   *  data bar, text rule or whole-row colour. */
+  pivot?: boolean;
   value: BiColumnFormat;
   onChange: (next: BiColumnFormat) => void;
 }) {
@@ -79,7 +83,7 @@ export function BiColumnStyle({
         </p>
         <div className="space-y-1">
           <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Column title
+            {pivot ? "Title" : "Column title"}
           </Label>
           <Input
             value={value.label ?? ""}
@@ -115,7 +119,7 @@ export function BiColumnStyle({
             />
           </div>
         </div>
-        <div className="space-y-1">
+        <div className={cn("space-y-1", pivot && "hidden")}>
           <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             Show as
           </Label>
@@ -162,10 +166,10 @@ export function BiColumnStyle({
           matRules={rules}
           setMatRules={setRules}
           withIcons
-          allowText
+          allowText={!pivot}
           totalsNote={false}
         />
-        {mode === "rules" && (
+        {mode === "rules" && !pivot && (
           <Label className="flex cursor-pointer items-center gap-2 text-xs font-normal">
             <Checkbox
               checked={Boolean(value.rowHighlight)}

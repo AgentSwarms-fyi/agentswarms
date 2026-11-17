@@ -214,6 +214,16 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **BI: combos and pivots with several measures, maps of US states** (R506).
+  - A **combo** takes more values: each is drawn as bars or a line, the bars
+    can stack, and the lines can share the bars' axis.
+  - A **pivot** takes more values: every column heading spans one column per
+    value, and **Value formats** gives each its title, number format, colours
+    and icons.
+  - A filled map or bubble map draws **US states**, matched by name, postal,
+    ISO or FIPS code, with Alaska and Hawaii inset. **Map of** picks countries
+    or states, or leaves the map to choose from the values.
+
 - **BI: 100% stacks, legend placement, notes on charts, treemaps coloured by a
   measure** (R505).
   - **Show as 100%** makes every column, bar or stacked area reach the top,
@@ -303,6 +313,15 @@ development branch and may be ahead of the latest tag.
   difference, two of them open emulator issues (aws/aws-emulator#46, #56).
 
 ### Fixed
+
+- **A map of US state codes drew countries** (R506). Postal codes are also
+  country codes, so a map of claims by state shaded Azerbaijan, Colombia,
+  Gabon and Israel and left Florida, New York, Ohio, Texas and Washington
+  unmatched. A map now draws states when its values are states.
+- **A pivot no longer adds up averages** (R506). Its totals summed every
+  column, so a pivot of average ride length totalled the averages. Averages,
+  rates, percentages and distinct counts now get no total, and lowest and
+  highest values total as the lowest and highest.
 
 - **Category labels printed over each other in a narrow card** (R505). A
   column or combo chart decided whether its labels fit flat as if every card

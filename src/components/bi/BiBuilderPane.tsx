@@ -65,7 +65,8 @@ import {
   assignChartFields,
   autoChartType,
   autoTitle,
-  MULTI_MEASURE_TYPES,
+  mainMeasures,
+  takesExtraMeasures,
   type FieldInfo,
   type FieldQuery,
   type FieldSql,
@@ -74,6 +75,8 @@ import { BiInsightOptions, BiKpiOptions } from "@/components/bi/BiKpiInsightOpti
 import { BiVisualOptions } from "@/components/bi/BiVisualOptions";
 import {
   VISUAL_OPTS_DEFAULT,
+  comboShape,
+  mapRegion,
   stacksParts,
   treemapColor,
   visualAnalytics,
@@ -914,7 +917,13 @@ export function BiBuilderPane({
             : null;
         case "combo":
           return xField && yField && lineField
-            ? { type: "combo", xField, barField: yField, lineField }
+            ? {
+                type: "combo",
+                xField,
+                barField: yField,
+                lineField,
+                ...comboShape(vizOpts, extraMeasures),
+              }
             : null;
         case "scatter":
           return xField && yField
@@ -968,7 +977,7 @@ export function BiBuilderPane({
         case "map":
         case "bubblemap":
           return locationField && valueField
-            ? { type: chartType, locationField, valueField }
+            ? { type: chartType, locationField, valueField, ...mapRegion(vizOpts) }
             : null;
         case "bar":
           return xField && yField
@@ -1072,7 +1081,7 @@ export function BiBuilderPane({
     if (decimalsSel !== "auto" && Number.isFinite(Number(decimalsSel))) {
       analytics.decimals = Number(decimalsSel);
     }
-    if (spec.type === "table" && Object.keys(colFormats).length > 0) {
+    if ((spec.type === "table" || spec.type === "matrix") && Object.keys(colFormats).length > 0) {
       analytics.columnFormats = colFormats;
     }
     if (spec.type === "table" && !tableTotals) (spec as { totals?: boolean }).totals = false;
@@ -1086,7 +1095,7 @@ export function BiBuilderPane({
       ),
     );
     // More values as their own series (R499), unless a field splits the chart.
-    if (extraMeasures.length > 0 && !seriesField && MULTI_MEASURE_TYPES.has(spec.type)) {
+    if (extraMeasures.length > 0 && takesExtraMeasures(spec.type, seriesField)) {
       analytics.extraMeasures = extraMeasures;
     }
     // Safe: spec is a valid member and analytics only adds wrapper fields.
@@ -1536,13 +1545,18 @@ export function BiBuilderPane({
   );
 
   // Table widgets: per-column number format and cell style (BiColumnFormats).
+  // R506: a pivot's measures take the table's formats, colours and icons.
   const columnFormatEditor =
-    chartType === "table" && (preview?.columns ?? []).length > 0 ? (
+    (chartType === "table" || chartType === "matrix") && (preview?.columns ?? []).length > 0 ? (
       <BiColumnFormats
-        columns={preview?.columns ?? []}
+        columns={
+          chartType === "table"
+            ? (preview?.columns ?? [])
+            : [valueField, ...extraMeasures].filter((c) => preview?.columns.includes(c))
+        }
         colFormats={colFormats}
         setColFormats={setColFormats}
-        totals={tableTotals}
+        totals={chartType === "table" ? tableTotals : undefined}
         setTotals={setTableTotals}
       />
     ) : null;
@@ -1895,17 +1909,22 @@ export function BiBuilderPane({
                           )}
                           {(chartType === "map" || chartType === "bubblemap") && (
                             <>
-                              {fieldSelect("Location (country)", locationField, setLocationField)}
+                              {fieldSelect(
+                                "Location (country or US state)",
+                                locationField,
+                                setLocationField,
+                              )}
                               {fieldSelect("Value (numeric)", valueField, setValueField)}
                             </>
                           )}
 
-                          {MULTI_MEASURE_TYPES.has(chartType) && !seriesField && (
+                          {takesExtraMeasures(chartType, seriesField) && (
                             <BiExtraMeasures
+                              type={chartType}
                               columns={preview.columns.filter(
                                 (c) => typeof preview.rows[0]?.[c] === "number",
                               )}
-                              exclude={yField}
+                              exclude={mainMeasures(chartType, { yField, lineField, valueField })}
                               value={extraMeasures}
                               onChange={setExtraMeasures}
                             />
@@ -1978,6 +1997,7 @@ export function BiBuilderPane({
                               stacked,
                               extraMeasures,
                             })}
+                            extras={extraMeasures}
                           />
                           {chartType === "insight" && (
                             <>
@@ -2038,8 +2058,8 @@ export function BiBuilderPane({
                         </div>
                         {(chartType === "map" || chartType === "bubblemap") && (
                           <p className="text-[10px] text-muted-foreground">
-                            Locations are matched to countries by name or common shorthand (USA,
-                            UK…). Unmatched rows are counted on the map.
+                            Locations are matched to countries by name or code, or to US states by
+                            name, postal or FIPS code. Unmatched rows are counted on the map.
                           </p>
                         )}
 

@@ -538,6 +538,26 @@ export type ChartFieldAssignment = Partial<{
  */
 export const MULTI_MEASURE_TYPES: ReadonlySet<string> = new Set(["bar", "line", "area", "radar"]);
 
+/**
+ * Whether a chart takes extra measures (R506): the series charts above when
+ * no field splits them, and always a combo (each drawn as bars or a line) and
+ * a pivot (each nested under every column), which no series field splits.
+ */
+export function takesExtraMeasures(type: string, seriesField = ""): boolean {
+  if (type === "combo" || type === "matrix") return true;
+  return MULTI_MEASURE_TYPES.has(type) && !seriesField;
+}
+
+/** The measures a chart always draws, which its extra measures cannot repeat. */
+export function mainMeasures(
+  type: string,
+  f: { yField: string; lineField: string; valueField: string },
+): string[] {
+  if (type === "combo") return [f.yField, f.lineField];
+  if (type === "matrix") return [f.valueField];
+  return [f.yField];
+}
+
 export function assignChartFields(
   type: string,
   out: Pick<FieldSql, "dims" | "measures" | "labels">,
@@ -579,6 +599,8 @@ export function assignChartFields(
       a.xField = d0;
       a.yField = m0;
       a.lineField = m1;
+      // R506: the third value on are bars too, until the options make one a line.
+      if (out.measures.length > 2) a.extraMeasures = out.measures.slice(2);
       break;
     case "scatter":
       a.xField = m0;
@@ -596,6 +618,8 @@ export function assignChartFields(
       a.colField = d1;
       a.valueField = m0;
       a.rowSubField = d2;
+      // R506: every value is a column under each column heading.
+      if (rest.length) a.extraMeasures = rest;
       break;
     case "map":
     case "bubblemap":

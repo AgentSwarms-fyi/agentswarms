@@ -4,13 +4,9 @@
 // shared view, and the public published page.
 import { useContext, useMemo, useState } from "react";
 import {
-  AlertTriangle,
   ArrowDown,
   ArrowUp,
   BarChart3,
-  CheckCircle2,
-  Circle,
-  Flag,
   Image as ImageIcon,
   Lightbulb,
   Loader2,
@@ -18,12 +14,11 @@ import {
   SlidersHorizontal,
   Table2,
   Type,
-  type LucideIcon,
 } from "lucide-react";
 import { BiChartRender } from "@/components/bi/BiChartRender";
 import { fmtBiValue, toBiNumber } from "@/components/bi/biChartData";
 import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
-import type { BiColumnFormat, BiCondIcon } from "@/lib/biAgent";
+import type { BiColumnFormat } from "@/lib/biAgent";
 import {
   condColorHex,
   condFill,
@@ -38,22 +33,13 @@ import { PAGE_LINK_PREFIX, fillTextTokens, type TextTokenState } from "@/lib/biI
 import { describeFreshness } from "@/lib/biFreshness";
 import { safeImageSrc, safeLinkHref } from "@/lib/safeUrl";
 import { isPreAggregated } from "@/lib/biColumnKinds";
+import { COND_ICONS } from "@/components/bi/biCondIcons";
 import { cn } from "@/lib/utils";
 
 const TABLE_PAGE = 50;
 
 /** Outside a dashboard view (an export, a thumbnail): no picks, nothing clicked. */
 const NO_VIEW: TextTokenState = { params: [], values: {}, selected: null };
-
-/** Icons a conditional-format rule can put before a table cell's value (R498). */
-const COND_ICONS: Record<BiCondIcon, { label: string; Icon: LucideIcon }> = {
-  up: { label: "Arrow up", Icon: ArrowUp },
-  down: { label: "Arrow down", Icon: ArrowDown },
-  dot: { label: "Dot", Icon: Circle },
-  flag: { label: "Flag", Icon: Flag },
-  check: { label: "Check", Icon: CheckCircle2 },
-  alert: { label: "Warning", Icon: AlertTriangle },
-};
 
 type ColumnStats = { min: number; max: number; maxAbs: number };
 

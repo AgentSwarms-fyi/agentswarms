@@ -1,34 +1,48 @@
-// Country-level geo visuals for BI widgets: filled (choropleth) and bubble
-// maps. Entirely offline — d3-geo projects a bundled Natural Earth 110m
-// topology (world-atlas), so no tile servers or external requests.
+// Geo visuals for BI widgets: filled (choropleth) and bubble maps of
+// countries or, since R506, of US states. Entirely offline — d3-geo draws a
+// bundled Natural Earth 110m topology (world-atlas) or the Census Bureau's
+// state shapes (us-atlas), so no tile servers or external requests.
 //
 // Location values are matched to countries by NAME (case/diacritic
 // insensitive, with common aliases like "USA" or "UK") and by ISO 3166-1
-// CODE: alpha-2 ("DE") and the three-digit numeric form ("276"). That rule
-// lives in src/lib/countryMatch.ts, atlas-free and directly testable; this
-// file supplies the shapes it chooses between. Unmatched rows are counted
-// and surfaced, never silently dropped.
+// CODE: alpha-2 ("DE") and the three-digit numeric form ("276"); to states
+// by name, postal code ("NY"), ISO 3166-2 ("US-NY") or FIPS ("36"). Those
+// rules live in src/lib/countryMatch.ts and src/lib/usStateMatch.ts,
+// atlas-free and directly testable; this file supplies the shapes they choose
+// between. Unmatched rows are counted and surfaced, never silently dropped.
 import { useMemo, useRef, useState } from "react";
 import { fmtBiNumber } from "@/components/bi/biChartData";
-import { normalizeName, resolveCountry } from "@/lib/countryMatch";
-import {
-  COUNTRY_INDEX,
-  COUNTRY_SHAPES,
-  SHAPE_BY_KEY,
-  VIEW_H,
-  VIEW_W,
-  type CountryShape,
-} from "./countryAtlas";
+import { resolveCountry } from "@/lib/countryMatch";
+import { chooseMapRegion, resolveUsState, type MapRegion } from "@/lib/usStateMatch";
+import { COUNTRY_INDEX, COUNTRY_SHAPES, VIEW_H, VIEW_W, type GeoShape } from "./countryAtlas";
+import { US_VIEW_H, US_VIEW_W, useUsAtlas } from "./usAtlas";
 
-function lookupCountry(raw: unknown): CountryShape | null {
-  return resolveCountry(raw, COUNTRY_INDEX);
-}
+/** One atlas as the map draws it: its shapes, its canvas, and its matcher. */
+type AtlasView = {
+  shapes: GeoShape[];
+  byKey: ReadonlyMap<string, GeoShape>;
+  width: number;
+  height: number;
+  lookup: (raw: unknown) => GeoShape | null;
+  /** What an unmatched row failed to match: "country" or "US state". */
+  noun: string;
+};
+
+const WORLD: AtlasView = {
+  shapes: COUNTRY_SHAPES,
+  byKey: COUNTRY_INDEX.byKey,
+  width: VIEW_W,
+  height: VIEW_H,
+  lookup: (raw) => resolveCountry(raw, COUNTRY_INDEX),
+  noun: "country",
+};
 
 export function BiGeoMap({
   rows,
   locationField,
   valueField,
   mode,
+  region,
   onElementClick,
   selectedValue,
 }: {
@@ -36,10 +50,12 @@ export function BiGeoMap({
   locationField: string;
   valueField: string;
   mode: "fill" | "bubble";
+  /** Countries or US states; unset chooses from the values (R506). */
+  region?: MapRegion;
   /** Cross-filtering: called with the ROW's raw location value (not the atlas name). */
   onElementClick?: (value: string) => void;
   /** The currently cross-filtered location (raw value) — highlighted so it's
-   *  obvious which country the click selected. */
+   *  obvious which place the click selected. */
   selectedValue?: string | null;
 }) {
   // Styled hover tooltip (native SVG <title> is delayed and easy to miss —
@@ -48,6 +64,34 @@ export function BiGeoMap({
   const [hover, setHover] = useState<{ name: string; value: number; x: number; y: number } | null>(
     null,
   );
+
+  const chosen = useMemo<MapRegion>(
+    () =>
+      region ??
+      chooseMapRegion(
+        rows.map((r) => r[locationField]),
+        COUNTRY_INDEX,
+        locationField,
+      ),
+    [region, rows, locationField],
+  );
+  const us = useUsAtlas(chosen === "us");
+  const atlas = useMemo<AtlasView | "loading" | "error">(() => {
+    if (chosen === "world") return WORLD;
+    if (us === "error") return "error";
+    if (!us) return "loading";
+    return {
+      shapes: us.shapes,
+      byKey: us.byFips,
+      width: US_VIEW_W,
+      height: US_VIEW_H,
+      lookup: (raw) => {
+        const s = resolveUsState(raw);
+        return s ? (us.byFips.get(s.fips) ?? null) : null;
+      },
+      noun: "US state",
+    };
+  }, [chosen, us]);
 
   function showTip(e: React.PointerEvent, name: string, value: number) {
     const rect = wrapRef.current?.getBoundingClientRect();
@@ -61,10 +105,11 @@ export function BiGeoMap({
   }
 
   const { values, unmatched, max } = useMemo(() => {
-    const values = new Map<string, { shape: CountryShape; value: number; raw: string }>();
+    const values = new Map<string, { shape: GeoShape; value: number; raw: string }>();
     let unmatched = 0;
+    if (typeof atlas === "string") return { values, unmatched, max: 0 };
     for (const row of rows) {
-      const shape = lookupCountry(row[locationField]);
+      const shape = atlas.lookup(row[locationField]);
       const v = Number(row[valueField]);
       if (!shape || !Number.isFinite(v)) {
         unmatched++;
@@ -79,25 +124,42 @@ export function BiGeoMap({
     }
     const max = Math.max(...[...values.values()].map((e) => e.value), 0);
     return { values, unmatched, max };
-  }, [rows, locationField, valueField]);
+  }, [atlas, rows, locationField, valueField]);
 
-  // Atlas key of the cross-filtered country (if any), so we can outline it.
+  // Atlas key of the cross-filtered place (if any), so we can outline it.
   const selectedKey = useMemo(
-    () => (selectedValue != null ? (lookupCountry(selectedValue)?.key ?? null) : null),
-    [selectedValue],
+    () =>
+      selectedValue != null && typeof atlas !== "string"
+        ? (atlas.lookup(selectedValue)?.key ?? null)
+        : null,
+    [selectedValue, atlas],
   );
-  const selectedShape = selectedKey ? SHAPE_BY_KEY.get(selectedKey) : undefined;
+
+  if (typeof atlas === "string") {
+    return (
+      <p className="flex h-full items-center justify-center text-xs text-muted-foreground">
+        {atlas === "loading"
+          ? "Loading the US map…"
+          : "The US map could not load. Reload the page."}
+      </p>
+    );
+  }
+  const selectedShape = selectedKey ? atlas.byKey.get(selectedKey) : undefined;
   const selectedEntry = selectedKey ? values.get(selectedKey) : undefined;
+  // Bubbles are sized against the canvas, so the US map's larger states do
+  // not get the same pixel radius as a world map's countries.
+  const rMax = atlas === WORLD ? 22 : 30;
 
   return (
     <div ref={wrapRef} className="relative h-full w-full">
       <svg
-        viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
+        viewBox={`0 0 ${atlas.width} ${atlas.height}`}
         className="h-full w-full"
         preserveAspectRatio="xMidYMid meet"
         role="img"
+        aria-label={chosen === "us" ? "Map of US states" : "World map"}
       >
-        {COUNTRY_SHAPES.map((s) => {
+        {atlas.shapes.map((s) => {
           const entry = values.get(s.key);
           const t = entry && max > 0 ? entry.value / max : 0;
           const active = hover?.name === s.name;
@@ -111,7 +173,7 @@ export function BiGeoMap({
                 entry && mode === "fill" ? (active || selected ? 1 : 0.15 + 0.85 * t) : 1
               }
               stroke="var(--card)"
-              strokeWidth={0.6}
+              strokeWidth={chosen === "us" ? 1 : 0.6}
               onPointerMove={
                 entry && mode === "fill" ? (e) => showTip(e, s.name, entry.value) : undefined
               }
@@ -121,7 +183,7 @@ export function BiGeoMap({
             />
           );
         })}
-        {/* Selected-country outline, drawn last so it sits above neighbouring
+        {/* Selected-place outline, drawn last so it sits above neighbouring
             borders and clearly marks the active cross-filter. */}
         {mode === "fill" && selectedShape && (
           <path
@@ -137,7 +199,7 @@ export function BiGeoMap({
           [...values.values()]
             .sort((a, b) => b.value - a.value)
             .map(({ shape, value, raw }) => {
-              const r = 4 + 22 * Math.sqrt(max > 0 ? value / max : 0);
+              const r = 4 + rMax * Math.sqrt(max > 0 ? value / max : 0);
               const active = hover?.name === shape.name;
               const selected = selectedKey === shape.key;
               return (
@@ -162,7 +224,7 @@ export function BiGeoMap({
           <circle
             cx={selectedShape.centroid[0]}
             cy={selectedShape.centroid[1]}
-            r={4 + 22 * Math.sqrt(max > 0 ? selectedEntry.value / max : 0) + 3}
+            r={4 + rMax * Math.sqrt(max > 0 ? selectedEntry.value / max : 0) + 3}
             fill="none"
             stroke="var(--foreground)"
             strokeWidth={1.75}
@@ -190,7 +252,7 @@ export function BiGeoMap({
         )}
         {unmatched > 0 && (
           <span>
-            {unmatched} row{unmatched === 1 ? "" : "s"} not matched to a country
+            {unmatched} row{unmatched === 1 ? "" : "s"} not matched to a {atlas.noun}
           </span>
         )}
       </div>

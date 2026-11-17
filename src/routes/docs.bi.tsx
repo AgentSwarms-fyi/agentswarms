@@ -384,9 +384,9 @@ function BiPage() {
       <P>
         Picking another type keeps the fields and reassigns them: the bar&apos;s category becomes
         the pie&apos;s slices, a KPI takes the grouped date as its period, a narrative ranks by the
-        first value, a combo draws the second value as its line. On bar, line, area and radar
-        charts, every further value becomes its own series (see{" "}
-        <a href="#fields-more">More values</a>).
+        first value, a combo draws the second value as its line and each further value as bars, and
+        a pivot nests every value under each column. On bar, line, area and radar charts, every
+        further value becomes its own series (see <a href="#fields-more">More values</a>).
       </P>
       <Callout kind="why" title="Why not just pick a table and chart its rows?">
         Picking a table used to write <C>SELECT * … LIMIT 50</C> and leave the grouping to you. A
@@ -442,7 +442,7 @@ function BiPage() {
         items={[
           {
             name: "More values (each its own series)",
-            body: "Bar, line, area and radar charts without a Series field draw each further value as its own series — Sales and Profit by month as two lines. Fields mode fills it from Values; in SQL mode you pick the extra number columns here. On a radar each value is a spoke and each category a polygon, and each spoke is on its own scale: its largest value reaches the rim, so sales in millions and quantity in units share one chart, and the tooltip gives the actual figures. A negative value sits at the centre. Stacked columns and bars stack a Series field instead, because values that overlap — profit is part of sales — would stack into a total that means nothing.",
+            body: "Bar, line, area and radar charts without a Series field draw each further value as its own series — Sales and Profit by month as two lines. A combo draws each as bars or a line (see Combos with several measures), and a pivot gives each its own column under every column heading (see Pivots with several measures). Fields mode fills it from Values; in SQL mode you pick the extra number columns here. On a radar each value is a spoke and each category a polygon, and each spoke is on its own scale: its largest value reaches the rim, so sales in millions and quantity in units share one chart, and the tooltip gives the actual figures. A negative value sits at the centre. Stacked columns and bars stack a Series field instead, because values that overlap — profit is part of sales — would stack into a total that means nothing.",
           },
           {
             name: "Column title",
@@ -721,8 +721,8 @@ GROUP BY region`}</Code>
           [
             <C key="g">combo</C>,
             "xField, barField, lineField",
-            "—",
-            "Two measures at different scales (volume + rate)",
+            "extraMeasures, extraLines, stackBars, lineAxis",
+            "Measures at different scales: bars for volumes, lines for rates, each line on its own axis or the bars'",
           ],
           [
             <C key="h">waterfall</C>,
@@ -767,6 +767,59 @@ GROUP BY region`}</Code>
         are each added up, as on every other chart. Without a colour measure, a{" "}
         <strong>Colour from column</strong> holding <C>#rrggbb</C> gives each tile its own colour,
         such as a team&apos;s.
+      </P>
+
+      <H3 id="combo-measures">Combos with several measures</H3>
+      <P>
+        A combo draws bars and lines over one x axis. <strong>More values</strong> adds measures:
+        each is drawn as bars, and <strong>Draw each value as</strong> in the options turns any of
+        them into a line, so sales and cost can stand side by side with margin and a target drawn as
+        lines. <strong>Stack the bars</strong> stacks them instead, for parts of a whole. Lines read
+        the right-hand axis, which suits a rate beside an amount; tick{" "}
+        <strong>Lines use the bars&apos; axis</strong> when they are in the same units, such as a
+        target beside sales, and the right-hand axis goes. The first bar keeps the theme colour and
+        the first line amber, as a combo always drew them, and each further measure takes its own
+        colour. In Fields mode the first value is the bars, the second the line, and each further
+        value joins the bars.
+      </P>
+
+      <H3 id="us-state-maps">Maps of US states</H3>
+      <P>
+        A filled map or a bubble map draws countries or US states. A state can be written as its
+        name (<C>New York</C>), its postal code (<C>NY</C>), its ISO code (<C>US-NY</C>) or its FIPS
+        code (<C>36</C>). The 50 states and Washington DC are on the map, with Alaska and Hawaii
+        inset; a territory such as Puerto Rico has no shape, so its rows are counted as not matched.{" "}
+        <strong>Map of</strong> picks <strong>Countries</strong> or <strong>US states</strong>. Left
+        on <strong>Chosen from the values</strong>, the map draws states when at least four in five
+        of the values are states and more of them are states than countries; when as many are both,
+        a column whose name contains <em>state</em> is drawn as states, and anything else as
+        countries, as maps were drawn before. The state shapes are the US Census Bureau&apos;s,
+        bundled with the app, so like the world map it needs no tile server.
+      </P>
+      <Callout kind="why" title="Why the map is chosen from all the values">
+        Postal codes are also country codes. The claims sample&apos;s <C>state</C> column holds 12
+        of them, and 7 — AZ, CA, CO, GA, IL, MA and NC — are countries too. On the world map its
+        claims landed in Azerbaijan, Gabon and Israel, and Florida, New York, Ohio, Texas and
+        Washington — 62 of its 150 claims — were not matched at all. Looking at one value cannot
+        tell the two apart; looking at all twelve can.
+      </Callout>
+
+      <H3 id="pivot-measures">Pivots with several measures</H3>
+      <P>
+        Give a pivot more values and every column heading spans one column per value, with the
+        values&apos; names in a second header row: rides, average minutes and e-bike share under
+        each rider type, and again under <strong>Total</strong>. <strong>Value formats</strong> sets
+        each value&apos;s title, number format, colours and icons with the same brush as a table
+        column, so one value can be a colour scale while another carries ▲ and ▼. A value with no
+        colours of its own takes the pivot&apos;s conditional formatting, and a colour scale runs
+        across that value&apos;s own cells, never across all of them.
+      </P>
+      <P>
+        Sums and counts are totalled. Lowest and highest values (<C>min_</C> and <C>max_</C> in
+        Fields mode) total as the lowest and the highest. Averages, rates, percentages and distinct
+        counts are not totalled at all, because adding them up gives a number that means nothing:
+        the cell is left empty and says why when you point at it. The same goes for a group&apos;s
+        row when its children are averages. A pivot with one value follows the same rule.
       </P>
 
       <H3 id="ch-single">Single value</H3>
@@ -919,11 +972,21 @@ GROUP BY region`}</Code>
           [
             <C key="b">matrix</C>,
             "rowField, colField, valueField",
-            "rowSubField, condFormat",
-            "Pivot. rowSubField makes rows expandable groups with subtotals; condFormat colours cells.",
+            "rowSubField, extraMeasures, columnFormats, condFormat",
+            "Pivot. rowSubField makes rows expandable groups with subtotals; extraMeasures puts several values under each column, each formatted, coloured and given icons through columnFormats; condFormat colours the rest.",
           ],
-          [<C key="c">map</C>, "locationField, valueField", "—", "Choropleth by region"],
-          [<C key="d">bubblemap</C>, "locationField, valueField", "—", "Magnitude at points"],
+          [
+            <C key="c">map</C>,
+            "locationField, valueField",
+            "region",
+            "Countries or US states shaded by value; region is chosen from the values when unset",
+          ],
+          [
+            <C key="d">bubblemap</C>,
+            "locationField, valueField",
+            "region",
+            "A circle sized by value on each country or US state",
+          ],
         ]}
       />
 
@@ -1467,14 +1530,15 @@ ORDER BY r.round, total_points DESC`}</Code>
       />
       <P>
         A <strong>table</strong> column takes the same two modes from the brush button beside it in{" "}
-        <strong>Column formats</strong>, plus three things the pivot has no room for: text rules (
-        <C>is</C> and <C>contains</C>, ignoring case, so a sentiment column can read NEGATIVE in
-        red), an <strong>icon</strong> per rule (▲ ▼ ● ⚑ ✓ ⚠), and{" "}
-        <strong>Colour the whole row</strong> — a results table can paint first place gold and a
-        did-not-finish row grey. The same button draws a column as a <strong>data bar</strong> sized
-        against its largest value, a <strong>picture</strong> or a <strong>link</strong>. Pictures
-        and links are drawn only from absolute <C>https://</C> and <C>http://</C> addresses (and
-        image data or <C>mailto:</C>); anything else shows as text.
+        <strong>Column formats</strong> (a pivot&apos;s values from <strong>Value formats</strong>,
+        with icons; see <a href="#pivot-measures">pivots with several measures</a>), plus three
+        things only a table has room for: text rules (<C>is</C> and <C>contains</C>, ignoring case,
+        so a sentiment column can read NEGATIVE in red), an <strong>icon</strong> per rule (▲ ▼ ● ⚑
+        ✓ ⚠), and <strong>Colour the whole row</strong> — a results table can paint first place gold
+        and a did-not-finish row grey. The same button draws a column as a <strong>data bar</strong>{" "}
+        sized against its largest value, a <strong>picture</strong> or a <strong>link</strong>.
+        Pictures and links are drawn only from absolute <C>https://</C> and <C>http://</C> addresses
+        (and image data or <C>mailto:</C>); anything else shows as text.
       </P>
 
       <H3 id="refline">Reference lines</H3>
