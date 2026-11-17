@@ -25,6 +25,12 @@ export const BiParamContext = createContext<BiParamState | null>(null);
 export type BiViewState = TextTokenState & {
   /** Opens the page a #page= link names; false when there is no such page. */
   openPage: (href: string) => boolean;
+  /**
+   * The reader owns this dashboard, so a visual may say how to set it up: a
+   * point map with no street tiles says how to add them (R504). Absent on
+   * shared links and embeds, whose readers can do nothing about it.
+   */
+  canEdit?: boolean;
 };
 
 export const BiViewContext = createContext<BiViewState | null>(null);

@@ -1002,7 +1002,7 @@ export const SETTINGS_REFERENCE: SettingsTier[] = [
             "body": [
               {
                 "kind": "text",
-                "text": "Street tiles under BI point maps (optional). Unset (default): a point map draws its points on a plain background, and no viewer's browser asks a third party for anything. Set a tile server's URL template, with {z}, {x} and {y}, to draw streets under the points: every viewer's browser then fetches tiles from that server, so it learns which areas they look at. Pick one whose terms allow your use — the OpenStreetMap Foundation's own tile servers do not allow use by an application; run your own or use a tile provider. The attribution is the credit that server requires, shown in the map's corner."
+                "text": "Street tiles under BI point maps (optional). Unset (default): a point map draws its points on a plain background, no viewer's browser asks a third party for anything, and the dashboard's owner sees how to add streets. Set a tile server's URL template, with {z}, {x} and {y}, to draw streets under the points: every viewer's browser then fetches tiles from that server, so it learns which areas they look at (and the site's address, never the page's). Pick one whose terms allow your use. The OpenStreetMap Foundation's (https://tile.openstreetmap.org/{z}/{x}/{y}.png) suits light use with its credit shown and blocks heavy use without notice; with many viewers, run your own or use a tile provider. The attribution is the credit that server requires, shown in the map's corner."
               },
               {
                 "kind": "code",

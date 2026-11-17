@@ -1564,6 +1564,8 @@ function BiProjectPage() {
       switchPage(all[i].id);
       return true;
     },
+    // The owner is told how to set up what a visual lacks, such as streets.
+    canEdit: !readOnly,
   };
   // A title as people see it, tokens filled, for labels, toasts, dialogs and
   // file names. What is saved keeps its tokens.

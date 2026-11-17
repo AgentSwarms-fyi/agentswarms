@@ -1075,9 +1075,14 @@ narrow, so the date has to go into the query before it groups.
   - Streets are drawn only when the deployment names a tile server with
     `PUBLIC_MAP_TILES_URL` (a `{z}/{x}/{y}` template) and
     `PUBLIC_MAP_TILES_ATTRIBUTION`.
-  - Otherwise the browser asks no third party for anything. Each tile request
-    tells the tile server which area a viewer looks at, and the OpenStreetMap
-    Foundation's own servers do not allow use by an application.
+  - Otherwise the browser asks no third party for anything, and the
+    dashboard's owner sees _No street map: how to add one_ in the map's corner
+    (R504; shared links and embeds show nothing). Each tile request tells the
+    tile server which area a viewer looks at, and the site's address as its
+    Referer, never the page's path.
+  - The OpenStreetMap Foundation's server suits light use with its credit
+    shown, and blocks heavy use without notice. With many viewers, run your own
+    or use a tile provider.
 - **Pins on a road** (`journey`): one pin per row along a winding road, in the
   query's row order, each pin holding its value.
 - **Controls** (`controls`): the dashboard's parameters on the canvas, under a

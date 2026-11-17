@@ -6,19 +6,24 @@
 // (PUBLIC_MAP_TILES_URL). Without one the map draws its points on a plain
 // ground and asks no third party for anything, as the country maps do: every
 // tile request tells the tile server which part of the world a viewer looks at.
-import { useEffect, useMemo, useRef, useState } from "react";
+// The dashboard's owner is told how to add streets (R504). Tiles send the
+// site's origin as Referer, never the page's path (a dashboard id, a share
+// slug): tile servers' terms expect a Referer from a browser.
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Maximize2, Minus, Plus } from "lucide-react";
 
 import { PIE_COLORS, fmtBiValue, toBiNumber } from "@/components/bi/biChartData";
 import {
   categoryColors,
   fitView,
+  pointMapCorner,
   project,
   tileUrl,
   toScreen,
   visibleTiles,
   type MapView,
 } from "@/components/bi/biDrawHelpers";
+import { BiViewContext } from "@/components/bi/biParamContext";
 import type { ChartSpec } from "@/lib/biAgent";
 import { publicConfig } from "@/lib/publicConfig";
 
@@ -60,6 +65,7 @@ export function BiPointMap({
   const clickField = chart.labelField || chart.colorField || null;
   const cfg = publicConfig();
   const tiles = cfg.mapTilesUrl;
+  const corner = pointMapCorner(cfg, useContext(BiViewContext)?.canEdit === true);
 
   const empty = rows.length === 0;
   useEffect(() => {
@@ -205,7 +211,7 @@ export function BiPointMap({
               src={tileUrl(tiles, t)}
               alt=""
               draggable={false}
-              referrerPolicy="no-referrer"
+              referrerPolicy="strict-origin"
               loading="lazy"
               className="absolute max-w-none"
               style={{ left: t.left, top: t.top, width: t.size + 0.5, height: t.size + 0.5 }}
@@ -295,10 +301,24 @@ export function BiPointMap({
           <Maximize2 className="h-3.5 w-3.5" />
         </button>
       </div>
-      {tiles && cfg.mapTilesAttribution && (
+      {corner?.kind === "credit" && (
         <div className="pointer-events-none absolute bottom-0 left-0 rounded-tr bg-background/75 px-1.5 py-0.5 text-[9px] text-muted-foreground">
-          {cfg.mapTilesAttribution}
+          {corner.text}
         </div>
+      )}
+      {corner?.kind === "setup" && (
+        // Its own press: the map captures the pointer to pan, which would
+        // send the click to the map instead of the link.
+        <a
+          href={corner.href}
+          target="_blank"
+          rel="noopener"
+          onPointerDown={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
+          className="absolute bottom-0 left-0 rounded-tr bg-background/75 px-1.5 py-0.5 text-[10px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          {corner.text}
+        </a>
       )}
     </div>
   );

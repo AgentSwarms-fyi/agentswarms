@@ -186,6 +186,30 @@ export function tileUrl(template: string, t: { z: number; x: number; y: number }
     .replace("{y}", String(t.y));
 }
 
+/** Where the docs say how to put streets under a point map. */
+export const MAP_TILES_DOCS = "/docs/bi#pointmap-tiles";
+
+/**
+ * What a point map's lower-left corner says (R504). With street tiles, the
+ * credit their server requires. Without, how to add them, but only to the
+ * dashboard's owner: an author who saw dots on a blank grid took the map for
+ * broken, while a shared link's reader can do nothing about it.
+ */
+export type MapCorner =
+  { kind: "credit"; text: string } | { kind: "setup"; text: string; href: string } | null;
+
+export function pointMapCorner(
+  cfg: { mapTilesUrl?: string; mapTilesAttribution?: string },
+  canEdit: boolean,
+): MapCorner {
+  if (cfg.mapTilesUrl) {
+    return cfg.mapTilesAttribution ? { kind: "credit", text: cfg.mapTilesAttribution } : null;
+  }
+  return canEdit
+    ? { kind: "setup", text: "No street map: how to add one", href: MAP_TILES_DOCS }
+    : null;
+}
+
 /**
  * A colour per category: the values' own when every one is a #rrggbb colour,
  * otherwise the palette, most frequent category first.

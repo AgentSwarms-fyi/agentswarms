@@ -50,6 +50,18 @@ development branch and may be ahead of the latest tag.
 
 ### Changed
 
+- **A point map without streets tells its owner how to add them** (R504).
+  With no tile server set, a point map draws its points on a plain grid, and
+  an owner who saw only dots took the map for broken. The dashboard's owner
+  now sees _No street map: how to add one_ in the map's corner, linking to the
+  BI docs; readers of a shared link or an embed see nothing new. The install
+  guide's troubleshooting covers it too.
+- **Map tiles send the site's address as their Referer** (R504). Tiles were
+  requested with no Referer, which tile servers' terms expect from a browser
+  (OpenStreetMap's do). They now send the site's origin only, never the page's
+  path, so no dashboard id or share link reaches the tile server. The docs no
+  longer say OpenStreetMap's servers refuse applications: they allow light use
+  with their credit shown, and block heavy use.
 - **Key fields are a list of your secrets, not a box to paste into** (R493).
   Wherever the server already resolves `{{secret:NAME}}`, the field is now a
   searchable list of the secrets you may use there, with **New secret…** to

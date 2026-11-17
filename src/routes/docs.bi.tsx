@@ -1557,17 +1557,28 @@ LIMIT {{top_n}}`}</Code>
 
       <H3 id="pointmap-tiles">Streets under a point map</H3>
       <P>
-        By default a point map draws its points on a plain ground and no viewer&apos;s browser asks
-        anyone for anything, like the country maps. To draw streets, name a tile server — a URL
-        template with <C>{"{z}"}</C>, <C>{"{x}"}</C> and <C>{"{y}"}</C> — and the credit it
-        requires:
+        By default a point map draws its points on a plain grid and no viewer&apos;s browser asks
+        anyone for anything, like the country maps. The dashboard&apos;s owner sees{" "}
+        <em>No street map: how to add one</em> in the map&apos;s corner, linking here; readers of a
+        shared link or an embed see nothing. To draw streets, name a tile server — a URL template
+        with <C>{"{z}"}</C>, <C>{"{x}"}</C> and <C>{"{y}"}</C> — and the credit it requires, in the
+        server&apos;s <C>.env</C>:
       </P>
       <Code lang="bash">{`PUBLIC_MAP_TILES_URL="https://tiles.example.com/{z}/{x}/{y}.png"
 PUBLIC_MAP_TILES_ATTRIBUTION="© OpenStreetMap contributors"`}</Code>
+      <P>
+        The server reads them when it starts, so restart it; nothing is rebuilt. With Docker
+        Compose: <C>docker compose up -d agentswarms</C>. Under <C>npm run dev</C>, use the{" "}
+        <C>VITE_MAP_TILES_URL</C> and <C>VITE_MAP_TILES_ATTRIBUTION</C> names and restart it. The
+        credit then takes the note&apos;s place.
+      </P>
       <Callout kind="warn" title="Every tile is a request from the viewer's browser">
-        The tile server learns which part of the map each viewer looks at. Use one whose terms allow
-        your use: the OpenStreetMap Foundation&apos;s own tile servers do not allow use by an
-        application — run your own, or use a tile provider.
+        The tile server learns which part of the map each viewer looks at, and the site the map is
+        on: tiles send the site&apos;s address as their Referer, never the page&apos;s path, so no
+        dashboard or share link is named. Use a server whose terms allow your use. The OpenStreetMap
+        Foundation&apos;s own (<C>{"https://tile.openstreetmap.org/{z}/{x}/{y}.png"}</C>) is for
+        light use with its credit shown, and blocks heavy use without notice. With many viewers, run
+        your own or use a tile provider.
       </Callout>
 
       <H3 id="bike-share">Walkthrough: bike share rides from the lakehouse</H3>

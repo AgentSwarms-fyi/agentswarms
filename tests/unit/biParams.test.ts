@@ -8,7 +8,9 @@ import { describe, expect, it } from "vitest";
 import {
   categoryColors,
   fitView,
+  MAP_TILES_DOCS,
   pinPath,
+  pointMapCorner,
   project,
   roadPoints,
   stopsAlong,
@@ -213,6 +215,23 @@ describe("the point map's geometry", () => {
     ]);
     expect(categoryColors(["#27F4D2", "#E8002D"], pal).get("#E8002D")).toBe("#E8002D");
   });
+
+  // R504: an owner who saw dots on a blank grid took the map for broken.
+  it("tells the owner how to add streets, and credits the tile server once there are", () => {
+    const tiles = { mapTilesUrl: "https://t/{z}/{x}/{y}.png" };
+    expect(pointMapCorner({}, true)).toEqual({
+      kind: "setup",
+      text: "No street map: how to add one",
+      href: MAP_TILES_DOCS,
+    });
+    // A shared link's or an embed's reader can do nothing about it.
+    expect(pointMapCorner({}, false)).toBeNull();
+    expect(pointMapCorner({ ...tiles, mapTilesAttribution: "© OSM" }, false)).toEqual({
+      kind: "credit",
+      text: "© OSM",
+    });
+    expect(pointMapCorner(tiles, true)).toBeNull();
+  });
 });
 
 describe("the road of pins", () => {
@@ -244,6 +263,23 @@ describe("settings and wiring", () => {
   });
 
   const read = (p: string) => readFileSync(path.join(__dirname, "../..", p), "utf8");
+
+  it("sends tile servers the site's origin, never the page's path", () => {
+    const map = read("src/components/bi/BiPointMap.tsx");
+    expect(map).toContain('referrerPolicy="strict-origin"');
+    expect(map).not.toMatch(
+      /referrerPolicy="(no-referrer|unsafe-url|origin-when|no-referrer-when)/,
+    );
+  });
+
+  it("marks only the owner's editor as able to set up a point map", () => {
+    expect(read("src/routes/_authenticated/bi_.$dashboardId.tsx")).toMatch(/canEdit: !readOnly,/);
+    for (const p of ["src/routes/share.bi.$slug.tsx", "src/routes/embed.bi.$key.tsx"]) {
+      expect(read(p)).not.toMatch(/canEdit/);
+    }
+    // The docs anchor the note links to exists.
+    expect(read("src/routes/docs.bi.tsx")).toContain(`id="${MAP_TILES_DOCS.split("#")[1]}"`);
+  });
 
   it("runs a live widget with the dashboard's own definitions, on any page", () => {
     const route = read("src/routes/api/bi.direct-query.ts");

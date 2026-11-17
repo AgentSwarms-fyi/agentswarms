@@ -728,3 +728,23 @@ it updates the trigger and repairs already-created agents.
 **Changes to `.env` not taking effect.** Vite bakes `VITE_*` values into
 the bundle when the dev server starts. Stop it (Ctrl+C), run
 `npm run dev` again, and hard-refresh the browser (Ctrl+Shift+R).
+
+**A BI point map shows its dots but no streets.** That is the default, not a
+fault: streets come from a tile server, and each tile request tells that
+server which area the viewer looks at, so none is set until you choose one.
+The dashboard's owner sees _No street map: how to add one_ in the map's
+corner. Name a `{z}/{x}/{y}` tile server and the credit it requires in `.env`:
+
+```bash
+PUBLIC_MAP_TILES_URL="https://tiles.example.com/{z}/{x}/{y}.png"
+PUBLIC_MAP_TILES_ATTRIBUTION="© OpenStreetMap contributors"
+```
+
+Then restart the app; nothing is rebuilt. With Docker Compose run
+`docker compose up -d agentswarms`. Under `npm run dev` use the
+`VITE_MAP_TILES_URL` and `VITE_MAP_TILES_ATTRIBUTION` names and restart it.
+The OpenStreetMap Foundation's server
+(`https://tile.openstreetmap.org/{z}/{x}/{y}.png`) suits light use with its
+credit shown, and blocks heavy use without notice. With many viewers, run your
+own or use a tile provider. Details: `docs/BUSINESS_INTELLIGENCE.md` and the
+in-app BI docs, "Streets under a point map".
