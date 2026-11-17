@@ -1,13 +1,14 @@
 // A dashboard's parameters as controls (R501): a radio list, a dropdown, a
-// date. Shown in the filter bar, or on the canvas by a Controls visual. The
+// date — and a number box or a slider (R503). Shown in the filter bar, or on the canvas by a Controls visual. The
 // editor provides the values through BiParamContext; where nothing provides
 // them (a public link, an export) the controls show the defaults, disabled.
-import { useContext } from "react";
+import { useContext, useState } from "react";
 
 import { BiTextBlock } from "@/components/bi/BiTextBlock";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Slider } from "@/components/ui/slider";
 import {
   Select,
   SelectContent,
@@ -17,8 +18,95 @@ import {
 } from "@/components/ui/select";
 import type { ChartSpec } from "@/lib/biAgent";
 import { BiParamContext } from "@/components/bi/biParamContext";
-import type { BiParamConfig } from "@/lib/biParams";
+import { isValidParamValue, type BiParamConfig } from "@/lib/biParams";
 import { cn } from "@/lib/utils";
+
+type ControlProps = {
+  param: BiParamConfig;
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+};
+
+/**
+ * A number typed in. It applies on Enter or when the box is left, not on each
+ * keystroke — typing 15 would otherwise run every widget for 1 first — and a
+ * number outside the range or off its steps goes back to the last good one.
+ */
+function NumberParam({ param, value, onChange, disabled }: ControlProps) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const id = `param-${param.id}`;
+  const commit = () => {
+    if (draft === null) return;
+    const v = draft.trim();
+    setDraft(null);
+    if (v !== value && isValidParamValue(param, v)) onChange(v);
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      <Label htmlFor={id} className="shrink-0 text-xs">
+        {param.label}
+      </Label>
+      <Input
+        id={id}
+        type="number"
+        inputMode="decimal"
+        min={param.min}
+        max={param.max}
+        step={param.step}
+        value={draft ?? value}
+        disabled={disabled}
+        aria-label={param.label}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit();
+          if (e.key === "Escape") setDraft(null);
+        }}
+        className="h-7 w-24 text-xs tabular-nums"
+      />
+      <span className="text-[10px] text-muted-foreground">
+        {param.min}–{param.max}
+      </span>
+    </div>
+  );
+}
+
+/** A slider: the value follows the thumb, and applies when it is let go. */
+function SliderParam({ param, value, onChange, disabled }: ControlProps) {
+  const [draft, setDraft] = useState<number | null>(null);
+  const shown = draft ?? Number(value);
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-baseline justify-between gap-2 text-xs">
+        <span className="font-medium">{param.label}</span>
+        {/* No live region: the slider itself announces its value. */}
+        <span className="tabular-nums" aria-hidden="true">
+          {shown}
+        </span>
+      </div>
+      <Slider
+        min={param.min}
+        max={param.max}
+        step={param.step}
+        value={[shown]}
+        disabled={disabled}
+        aria-label={param.label}
+        onValueChange={([n]) => setDraft(n)}
+        onValueCommit={([n]) => {
+          setDraft(null);
+          const v = String(n);
+          if (v !== value && isValidParamValue(param, v)) onChange(v);
+        }}
+        className="py-1"
+      />
+      <div className="flex justify-between text-[10px] tabular-nums text-muted-foreground">
+        <span>{param.min}</span>
+        <span>{param.max}</span>
+      </div>
+    </div>
+  );
+}
 
 export function BiParamControl({
   param,
@@ -34,6 +122,12 @@ export function BiParamControl({
   compact?: boolean;
 }) {
   const id = `param-${param.id}`;
+  if (param.control === "number") {
+    return <NumberParam param={param} value={value} onChange={onChange} disabled={disabled} />;
+  }
+  if (param.control === "slider") {
+    return <SliderParam param={param} value={value} onChange={onChange} disabled={disabled} />;
+  }
   if (param.control === "date") {
     return (
       // Wraps under its label in a narrow column instead of scrolling it sideways.

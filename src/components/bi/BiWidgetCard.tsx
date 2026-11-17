@@ -2,7 +2,7 @@
 // that appear on hover) and a body that renders the chart snapshot, a data
 // table, or markdown text. Used by the BI project editor, the read-only
 // shared view, and the public published page.
-import { useMemo, useState } from "react";
+import { useContext, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ArrowDown,
@@ -13,6 +13,7 @@ import {
   Flag,
   Image as ImageIcon,
   Lightbulb,
+  Loader2,
   Network,
   SlidersHorizontal,
   Table2,
@@ -32,12 +33,17 @@ import {
 } from "@/lib/biChartMath";
 import { hexColor, widgetAccentColor, type BiImage, type BiWidget } from "@/lib/biDashboards";
 import { BiTextBlock } from "@/components/bi/BiTextBlock";
+import { BiViewContext } from "@/components/bi/biParamContext";
+import { PAGE_LINK_PREFIX, fillTextTokens, type TextTokenState } from "@/lib/biInteract";
 import { describeFreshness } from "@/lib/biFreshness";
 import { safeImageSrc, safeLinkHref } from "@/lib/safeUrl";
 import { isPreAggregated } from "@/lib/biColumnKinds";
 import { cn } from "@/lib/utils";
 
 const TABLE_PAGE = 50;
+
+/** Outside a dashboard view (an export, a thumbnail): no picks, nothing clicked. */
+const NO_VIEW: TextTokenState = { params: [], values: {}, selected: null };
 
 /** Icons a conditional-format rule can put before a table cell's value (R498). */
 const COND_ICONS: Record<BiCondIcon, { label: string; Icon: LucideIcon }> = {
@@ -62,11 +68,15 @@ function TableCell({
   format,
   stats,
   numeric,
+  onActivate,
 }: {
   value: unknown;
   format?: BiColumnFormat;
   stats?: ColumnStats;
   numeric: boolean;
+  /** What choosing this cell does (R503): filter by it, or its click action.
+   *  The cell's text becomes a button, so a keyboard reaches it too. */
+  onActivate?: () => void;
 }) {
   if (value === null || value === undefined) {
     return (
@@ -153,18 +163,32 @@ function TableCell({
           : undefined
       }
     >
-      {icon ? (
-        <span className={cn("inline-flex items-center gap-1", numeric && "justify-end")}>
-          <icon.Icon
-            className={cn("h-3 w-3 shrink-0", rule?.icon === "dot" && "fill-current")}
-            style={iconColor ? { color: iconColor } : undefined}
-            aria-label={icon.label}
-          />
-          {body}
-        </span>
-      ) : (
-        body
-      )}
+      {(() => {
+        const shown = icon ? (
+          <span className={cn("inline-flex items-center gap-1", numeric && "justify-end")}>
+            <icon.Icon
+              className={cn("h-3 w-3 shrink-0", rule?.icon === "dot" && "fill-current")}
+              style={iconColor ? { color: iconColor } : undefined}
+              aria-label={icon.label}
+            />
+            {body}
+          </span>
+        ) : (
+          body
+        );
+        // A link cell already is a control; a button around it would nest two.
+        return onActivate && format?.display !== "link" ? (
+          <button
+            type="button"
+            onClick={onActivate}
+            className="block w-full cursor-pointer rounded-sm text-left underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            {shown}
+          </button>
+        ) : (
+          shown
+        );
+      })()}
     </td>
   );
 }
@@ -175,6 +199,7 @@ export function WidgetDataTable({
   columnFormats,
   totals: showTotals = true,
   striped = false,
+  onCellClick,
 }: {
   columns: string[];
   rows: Record<string, unknown>[];
@@ -184,6 +209,11 @@ export function WidgetDataTable({
   totals?: boolean;
   /** Shade alternate rows (R500). */
   striped?: boolean;
+  /**
+   * A click on a text cell, as (column, value) (R503): a table of stations can
+   * filter the page, or open a station's own page, like a bar can.
+   */
+  onCellClick?: (column: string, value: string) => void;
 }) {
   const [sort, setSort] = useState<{ col: string; dir: 1 | -1 } | null>(null);
   const [page, setPage] = useState(0);
@@ -305,6 +335,12 @@ export function WidgetDataTable({
                     format={columnFormats?.[c]}
                     stats={stats.get(c)}
                     numeric={numeric.has(c)}
+                    // Text cells name something; a number is a measure.
+                    onActivate={
+                      onCellClick && !numeric.has(c) && row[c] !== null && row[c] !== undefined
+                        ? () => onCellClick(c, String(row[c]))
+                        : undefined
+                    }
                   />
                 ))}
               </tr>
@@ -379,7 +415,11 @@ function ImageWidgetBody({ image }: { image?: BiImage }) {
     />
   );
   return image?.href ? (
-    <a href={image.href} target="_blank" rel="noopener noreferrer" className="block h-full w-full">
+    <a
+      href={image.href}
+      {...(image.href.startsWith("#") ? {} : { target: "_blank", rel: "noopener noreferrer" })}
+      className="block h-full w-full"
+    >
       {img}
     </a>
   ) : (
@@ -393,6 +433,7 @@ export function BiWidgetCard({
   onElementClick,
   onDrillChange,
   selectedValue,
+  busy,
 }: {
   widget: BiWidget;
   /** Extra header controls (edit/remove menu) injected by the editor. */
@@ -404,9 +445,26 @@ export function BiWidgetCard({
   /** This widget's active cross-filter value (when it is the filter source) —
    *  forwarded so the map can outline the selected country. */
   selectedValue?: string | null;
+  /** A query for what this widget should now show is running (R503): what is
+   *  drawn is from before it, so it is dimmed and says so. */
+  busy?: boolean;
 }) {
   const isText = widget.kind === "text";
   const isImage = widget.kind === "image";
+  // R503: {{rider}} and {{selected}} in the title and text say what is picked.
+  const view = useContext(BiViewContext);
+  const title = fillTextTokens(widget.title, view ?? NO_VIEW);
+  const text = isText ? fillTextTokens(widget.text ?? "", view ?? NO_VIEW, { markdown: true }) : "";
+  // A #page= link in text or on an image goes to that page of the dashboard.
+  // Caught before the anchor acts, so it neither opens a tab nor scrolls.
+  const followPageLink = (e: React.MouseEvent) => {
+    const a = (e.target as Element | null)?.closest?.("a");
+    const href = a?.getAttribute("href");
+    if (!href || !href.startsWith(PAGE_LINK_PREFIX)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    view?.openPage(href);
+  };
   const chart = widget.chart ?? { type: "table" as const };
   const rows = widget.rows ?? [];
   const columns = widget.columns ?? [];
@@ -489,9 +547,9 @@ export function BiWidgetCard({
                       : "text-[13px]",
               )}
               style={titleColor ? { color: titleColor } : undefined}
-              title={widget.narrative ? `${widget.title}\n\n${widget.narrative}` : widget.title}
+              title={widget.narrative ? `${title}\n\n${widget.narrative}` : title}
             >
-              {widget.title}
+              {title}
             </span>
           </>
         )}
@@ -526,6 +584,12 @@ export function BiWidgetCard({
             or embedded dashboard, which always renders a stored snapshot —
             had no way to tell last night's numbers from last quarter's.
             With the title hidden (R500) it shows only once the data is stale. */}
+        {busy && (
+          <span className="flex shrink-0 items-center gap-1 text-[9px] text-muted-foreground">
+            <Loader2 className="h-2.5 w-2.5 animate-spin" aria-hidden="true" />
+            Updating…
+          </span>
+        )}
         {freshness && (!hideTitle || freshness.stale) && (
           <span
             className={cn(
@@ -543,15 +607,23 @@ export function BiWidgetCard({
           {actions}
         </div>
       </div>
-      <div className={cn("min-h-0 flex-1 px-2 pb-2", hideTitle && "pt-2")}>
+      <div
+        className={cn(
+          "min-h-0 flex-1 px-2 pb-2 transition-opacity",
+          hideTitle && "pt-2",
+          busy && "opacity-40",
+        )}
+        aria-busy={busy || undefined}
+        onClickCapture={isText || isImage ? followPageLink : undefined}
+      >
         {isImage ? (
           <ImageWidgetBody image={widget.image} />
         ) : isText ? (
           <div className="h-full overflow-y-auto px-2 text-sm">
             {widget.textStyle ? (
-              <BiTextBlock text={widget.text ?? ""} style={widget.textStyle} />
+              <BiTextBlock text={text} style={widget.textStyle} />
             ) : (
-              <MarkdownMessage content={widget.text ?? ""} />
+              <MarkdownMessage content={text} />
             )}
           </div>
         ) : isOntology ? (
@@ -575,6 +647,7 @@ export function BiWidgetCard({
             columnFormats={chart.columnFormats}
             totals={chart.type === "table" ? chart.totals !== false : true}
             striped={chart.type === "table" && chart.striped === true}
+            onCellClick={onElementClick}
           />
         ) : (
           <BiChartRender

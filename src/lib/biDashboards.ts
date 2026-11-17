@@ -166,6 +166,12 @@ export type BiWidget = {
   textStyle?: BiTextStyle;
   // image widgets
   image?: BiImage;
+  /**
+   * What clicking a mark does (R503): open another page filtered to the
+   * clicked value, or open a link built from it. Absent: the click filters
+   * this page, as it always has. Set from the card's menu.
+   */
+  clickAction?: import("@/lib/biInteract").BiClickAction;
 };
 
 /**
@@ -177,10 +183,11 @@ export type BiWidget = {
  */
 export function editorCarried(
   initial: BiWidget | null | undefined,
-): Pick<BiWidget, "theme" | "query_mode"> {
-  const out: Pick<BiWidget, "theme" | "query_mode"> = {};
+): Pick<BiWidget, "theme" | "query_mode" | "clickAction"> {
+  const out: Pick<BiWidget, "theme" | "query_mode" | "clickAction"> = {};
   if (initial?.theme) out.theme = initial.theme;
   if (initial?.query_mode) out.query_mode = initial.query_mode;
+  if (initial?.clickAction) out.clickAction = initial.clickAction;
   return out;
 }
 
@@ -207,6 +214,9 @@ const PUBLIC_WIDGET_FIELDS = [
   "text",
   "textStyle",
   "image",
+  // Where a click goes (R503): a page of the same dashboard or a link the
+  // owner wrote. Readers of a shared dashboard follow it too.
+  "clickAction",
 ] as const;
 
 export function sanitizePublicWidgets(widgets: unknown): Record<string, unknown>[] {

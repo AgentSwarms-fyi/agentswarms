@@ -225,11 +225,15 @@ for (const file of FILES) {
   // hypothetical paths on purpose), so strip them for those passes but keep
   // them for env vars, where a fence is exactly where a variable is set.
   const prose = src.replace(/```[\s\S]*?```/g, "");
+  // A link written in inline code is an example of one, not a link: markdown
+  // renders `[Back](#page=Overview)` as text (R503). Only the two link passes
+  // drop inline code; the path and script passes below read backticks.
+  const links = prose.replace(/`[^`\n]+`/g, "");
 
   // 1. Relative markdown links resolve, including their anchors. A link to
   // another site's .md file (a project's TERMS.md on GitHub) is not a file in
   // this repository: it was resolved against docs/ and reported dead (R500).
-  for (const m of prose.matchAll(/\]\(([^)\s#]+\.md)(#[^)\s]+)?\)/g)) {
+  for (const m of links.matchAll(/\]\(([^)\s#]+\.md)(#[^)\s]+)?\)/g)) {
     if (/^[a-z][a-z0-9+.-]*:/i.test(m[1])) continue;
     const target = path.resolve(dir, m[1]);
     if (!fs.existsSync(target)) {
@@ -243,7 +247,7 @@ for (const file of FILES) {
   }
 
   // 2. Same-file anchors.
-  for (const m of prose.matchAll(/\]\(#([^)\s]+)\)/g)) {
+  for (const m of links.matchAll(/\]\(#([^)\s]+)\)/g)) {
     const set = anchorsOf.get(path.resolve(file));
     if (set && !set.has(m[1])) fail("dead same-file anchor", `${name}: #${m[1]}`);
   }

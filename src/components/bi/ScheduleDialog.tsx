@@ -1,7 +1,7 @@
 // Schedule & alerts dialog for a BI dashboard (owner-only). The schedule
 // and alert rules are plain rows under owner RLS; the server-side processor
 // (see utils/bi/refresh.server.ts) picks them up with the service role.
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { CalendarClock, Loader2, Plus, Trash2, Mail } from "lucide-react";
@@ -26,7 +26,9 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { supabase } from "@/integrations/supabase/client";
+import { BiViewContext } from "@/components/bi/biParamContext";
 import type { BiWidget } from "@/lib/biDashboards";
+import { fillAtDefaults } from "@/lib/biInteract";
 
 type ScheduleRow = {
   id: string;
@@ -100,6 +102,7 @@ export function ScheduleDialog({
   userId: string;
   widgets: BiWidget[];
 }) {
+  const view = useContext(BiViewContext);
   const [loading, setLoading] = useState(false);
   const [schedule, setSchedule] = useState<ScheduleRow | null>(null);
   const [alerts, setAlerts] = useState<AlertRow[]>([]);
@@ -430,7 +433,8 @@ export function ScheduleDialog({
                   <SelectContent>
                     {chartWidgets.map((w) => (
                       <SelectItem key={w.id} value={w.id} className="text-xs">
-                        {w.title}
+                        {/* An alert checks the widget at the parameters' defaults. */}
+                        {fillAtDefaults(w.title, view?.params ?? [])}
                       </SelectItem>
                     ))}
                   </SelectContent>

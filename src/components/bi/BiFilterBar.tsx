@@ -232,7 +232,13 @@ export function BiFilterBar({
       {cross && (
         <Badge variant="secondary" className="gap-1 text-[10px]">
           {cross.column}: {cross.value}
-          <button type="button" onClick={onClearCross} title="Clear cross-filter">
+          <button
+            type="button"
+            onClick={onClearCross}
+            title="Clear this filter"
+            aria-label={`Clear the filter ${cross.column}: ${cross.value}`}
+            className="-my-1 -mr-1.5 rounded-sm p-1 hover:bg-foreground/10"
+          >
             <X className="h-2.5 w-2.5" />
           </button>
         </Badge>

@@ -202,6 +202,23 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **BI: clicks that open a page, titles that say what is picked, Top N**
+  (R503).
+  - **Click action…** in a widget's menu: a click can open another page
+    filtered to the clicked value (a station's own page) or open a link built
+    from it, as well as filter the page it is on. Pareto bars, points on a
+    point map and text cells in a table now take clicks too; a table's text
+    cells are buttons, so Tab and Enter work as well.
+  - Titles and text widgets fill in `{{rider}}` (a parameter's picked value)
+    and `{{selected|every station}}` (what a click picked).
+  - `[Back](#page=Overview)` in a text widget or an image's link goes to that
+    page.
+  - Parameters can be a **number box** or a **slider**, with a lowest and
+    highest value and a step, so `LIMIT {{top_n}}` makes a Top N chart.
+
+  Shared links and embeds follow click actions and page links as well. Links
+  open only for `https://` and `http://` addresses.
+
 - **BI: Pareto, calendar, small multiples and pictogram** (R502), bringing the
   visuals to 38.
   - **Pareto** sorts bars largest first under the running share of the total
@@ -263,6 +280,29 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **A live line chart came back with its days shuffled** (R503). A
+  Direct-query widget, or one that adds up in SQL, runs as
+  `SELECT … FROM (<its SQL>)` with the filters around it, and the wrapper
+  dropped the query's own `ORDER BY`. Grouped rows came back in any order, so
+  a station's daily rides drew a scribble and a moving average over them was
+  noise. The wrapper now repeats the order when it names returned columns or
+  positions (`ORDER BY 1`, `ORDER BY rides DESC`).
+- **A live widget showed the last answer while it fetched the next** (R503).
+  On a page opened by a click, the chart drew every station's rows, or the
+  station clicked before, under a title naming the new one for as long as the
+  query ran. It now dims and says "Updating…", and before its first answer it
+  shows its snapshot narrowed to the click, as an Import widget does.
+- **Sliders had no name for screen readers** (R503). The label was put on the
+  slider's frame, not on the handle that has the slider role, and the zoom
+  bar's handles were read out as "Min value: undefined". Both now say what
+  they set. The button that clears a click's filter was a 10-pixel target named
+  only by a tooltip; it is larger and says which filter it clears.
+- **A link to a place on the page opened a new tab** (R503). Every link in a
+  text widget or a chat answer opened in a new tab, `#…` links included; those
+  now stay in the tab.
+- **A title with `{{…}}` showed as written outside its widget** (R503). The
+  widget menu's label, error messages, exported file names, the alert's widget
+  list, Explore and a report's copy of the widget now show the title filled in.
 - **A live widget on a dashboard's second page was "not found"** (R501). The
   direct-query route looked for widgets only in the first page's list, so a
   Direct-query widget on any other page fell back to its stored snapshot.

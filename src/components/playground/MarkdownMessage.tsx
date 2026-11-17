@@ -95,8 +95,9 @@ function MarkdownChunk({ content }: { content: string }) {
           a: ({ children, href }) => (
             <a
               href={href}
-              target="_blank"
-              rel="noreferrer noopener"
+              // A link within the page (#…, such as a dashboard's #page=)
+              // stays in this tab; any other opens a new one.
+              {...(href?.startsWith("#") ? {} : { target: "_blank", rel: "noreferrer noopener" })}
               className="text-primary underline underline-offset-2 hover:text-primary/80"
             >
               {children}

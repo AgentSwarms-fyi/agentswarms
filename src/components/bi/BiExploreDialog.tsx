@@ -9,7 +9,7 @@
 //
 // Editor-only: viewers of shared/public dashboards see snapshots, so the
 // row-level-security filters that apply to them never reach this path.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { Download, Loader2, SearchCode } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -36,7 +36,9 @@ import {
   unresolvablePredicates,
 } from "@/lib/biDrillThrough";
 import type { DrillEntry } from "@/lib/biChartMath";
+import { BiViewContext } from "@/components/bi/biParamContext";
 import type { BiCrossFilter, BiWidget } from "@/lib/biDashboards";
+import { fillTextTokens } from "@/lib/biInteract";
 import { extractBaseTable } from "./exploreSql";
 
 export function BiExploreDialog({
@@ -55,6 +57,8 @@ export function BiExploreDialog({
 }) {
   const { session } = useAuth();
   const { tokenRef } = useTokenRef(session?.access_token);
+  const view = useContext(BiViewContext);
+  const shownTitle = view ? fillTextTokens(widget?.title ?? "", view) : (widget?.title ?? "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [columns, setColumns] = useState<string[]>([]);
@@ -198,8 +202,8 @@ export function BiExploreDialog({
           </DialogTitle>
           <DialogDescription>
             {mode === "raw"
-              ? `Live rows beneath “${widget?.title}”, with the widget's own filters applied.`
-              : `Live rows from “${widget?.title}” — its query combines results, so these are the ` +
+              ? `Live rows beneath “${shownTitle}”, with the widget's own filters applied.`
+              : `Live rows from “${shownTitle}” — its query combines results, so these are the ` +
                 `widget's own rows rather than the rows underneath them.`}
           </DialogDescription>
         </DialogHeader>

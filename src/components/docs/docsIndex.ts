@@ -744,6 +744,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 2
       },
       {
+        "id": "top-n",
+        "text": "Top N with a slider",
+        "level": 3
+      },
+      {
         "id": "pointmap-tiles",
         "text": "Streets under a point map",
         "level": 3
@@ -752,6 +757,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "bike-share",
         "text": "Walkthrough: bike share rides from the lakehouse",
         "level": 3
+      },
+      {
+        "id": "click-actions",
+        "text": "Clicks that open a page, and titles that say what is picked",
+        "level": 2
       },
       {
         "id": "insights",

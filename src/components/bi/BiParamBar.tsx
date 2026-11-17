@@ -1,6 +1,7 @@
 // Parameters in the filter bar (R501): a chip per parameter that opens its
 // control, and for the owner the dialog that defines one — its {{name}}, how
-// it is picked (radio list, dropdown, date), its options and default, and
+// it is picked (radio list, dropdown, date; a number box or a slider since
+// R503), its options or range and its default, and
 // whether it shows here or only in a Controls visual on the canvas.
 import { useState } from "react";
 import { toast } from "sonner";
@@ -28,7 +29,9 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  NUMBER_CONTROLS,
   PARAM_NAME,
+  numberRange,
   paramValueLabel,
   parseOptionLines,
   parseParams,
@@ -59,6 +62,10 @@ function ParamDialog({
   const [optionsText, setOptionsText] = useState("");
   const [def, setDef] = useState("");
   const [placement, setPlacement] = useState<"bar" | "canvas">("bar");
+  // A number box or a slider (R503): its range and step.
+  const [min, setMin] = useState("1");
+  const [max, setMax] = useState("25");
+  const [step, setStep] = useState("1");
   const [seen, setSeen] = useState(false);
   if (open && !seen) {
     setSeen(true);
@@ -68,19 +75,34 @@ function ParamDialog({
     setOptionsText((initial?.options ?? []).map((o) => `${o.value} | ${o.label}`).join("\n"));
     setDef(initial?.default ?? "");
     setPlacement(initial?.placement ?? "bar");
+    setMin(String(initial?.min ?? 1));
+    setMax(String(initial?.max ?? 25));
+    setStep(String(initial?.step ?? 1));
   } else if (!open && seen) {
     setSeen(false);
   }
 
   const options = parseOptionLines(optionsText);
+  const numeric = NUMBER_CONTROLS.includes(control);
+  const choice = control === "radio" || control === "dropdown";
   function save() {
     const n = name.trim();
     if (!PARAM_NAME.test(n)) {
       return toast.error("Name: lowercase letters, digits and _, starting with a letter");
     }
+    // {{selected}} in titles and text is the value a click picks (R503).
+    if (n === "selected") {
+      return toast.error('"selected" names what a click picks: choose another name');
+    }
     if (taken.includes(n)) return toast.error(`A parameter named "${n}" already exists`);
-    if (control !== "date" && options.length === 0) {
+    if (choice && options.length === 0) {
       return toast.error("List at least one option, one per line");
+    }
+    const range = numeric ? numberRange(min, max, step) : null;
+    if (numeric && !range) {
+      return toast.error(
+        "The lowest value must be below the highest, and the step above 0 and no wider than the range",
+      );
     }
     // The same check a saved dashboard gets when it loads.
     const [p] = parseParams([
@@ -90,14 +112,19 @@ function ParamDialog({
         name: n,
         label: label.trim() || n,
         control,
-        options: control === "date" ? undefined : options,
+        options: choice ? options : undefined,
+        ...(range ?? {}),
         default: def,
         placement,
       },
     ]);
     if (!p) return toast.error("That parameter is not complete");
     if (p.default !== def && def) {
-      toast.info(`The default is now "${p.default}": "${def}" is not one of the choices`);
+      toast.info(
+        numeric
+          ? `The default is now ${p.default}: ${def} is outside ${p.min}–${p.max} or off its steps`
+          : `The default is now "${p.default}": "${def}" is not one of the choices`,
+      );
     }
     onSave(p);
     onOpenChange(false);
@@ -142,7 +169,14 @@ function ParamDialog({
           </div>
           <div className="space-y-1">
             <Label className={small}>Picked from</Label>
-            <Select value={control} onValueChange={(v) => setControl(v as Control)}>
+            <Select
+              value={control}
+              onValueChange={(v) => {
+                setControl(v as Control);
+                // A default for another kind of control means nothing here.
+                if (v !== control) setDef("");
+              }}
+            >
               <SelectTrigger className="h-8 text-xs" aria-label="Picked from">
                 <SelectValue />
               </SelectTrigger>
@@ -155,6 +189,12 @@ function ParamDialog({
                 </SelectItem>
                 <SelectItem value="date" className="text-xs">
                   A date
+                </SelectItem>
+                <SelectItem value="number" className="text-xs">
+                  A number box
+                </SelectItem>
+                <SelectItem value="slider" className="text-xs">
+                  A slider
                 </SelectItem>
               </SelectContent>
             </Select>
@@ -175,7 +215,34 @@ function ParamDialog({
               </SelectContent>
             </Select>
           </div>
-          {control !== "date" && (
+          {numeric && (
+            <div className="col-span-2 grid grid-cols-3 gap-2">
+              {(
+                [
+                  ["Lowest", min, setMin],
+                  ["Highest", max, setMax],
+                  ["Step", step, setStep],
+                ] as const
+              ).map(([lbl, val, set]) => (
+                <div key={lbl} className="space-y-1">
+                  <Label className={small}>{lbl}</Label>
+                  <Input
+                    type="number"
+                    aria-label={`${lbl} value`}
+                    value={val}
+                    onChange={(e) => set(e.target.value)}
+                    className="h-8 text-xs tabular-nums"
+                  />
+                </div>
+              ))}
+              <p className="col-span-3 text-[10px] text-muted-foreground">
+                Goes into SQL as a bare number, so{" "}
+                <code className="rounded bg-muted px-1">{`LIMIT {{${name.trim() || "top_n"}}}`}</code>{" "}
+                shows the top N.
+              </p>
+            </div>
+          )}
+          {choice && (
             <div className="col-span-2 space-y-1">
               <Label className={small}>Choices — value | label, one per line</Label>
               <Textarea
@@ -197,6 +264,15 @@ function ParamDialog({
                 value={def}
                 onChange={(e) => setDef(e.target.value)}
                 className="h-8 w-44 text-xs"
+              />
+            ) : numeric ? (
+              <Input
+                type="number"
+                aria-label="Default value"
+                value={def}
+                placeholder={min}
+                onChange={(e) => setDef(e.target.value)}
+                className="h-8 w-32 text-xs tabular-nums"
               />
             ) : (
               <Select value={def || undefined} onValueChange={setDef}>

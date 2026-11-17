@@ -36,7 +36,16 @@ const tick = { fontSize: 10, fill: "var(--muted-foreground)" };
 type ParetoChart = Extract<ChartSpec, { type: "pareto" }>;
 const MAX_PARETO_BARS = 40;
 
-export function BiPareto({ chart, rows }: { chart: ParetoChart; rows: Record<string, unknown>[] }) {
+export function BiPareto({
+  chart,
+  rows,
+  onElementClick,
+}: {
+  chart: ParetoChart;
+  rows: Record<string, unknown>[];
+  /** A bar's category, as a click (R503): filter the page or open another. */
+  onElementClick?: (column: string, value: string) => void;
+}) {
   const all = useMemo(
     () => paretoRows(rows, chart.categoryField, chart.valueField),
     [rows, chart.categoryField, chart.valueField],
@@ -96,7 +105,23 @@ export function BiPareto({ chart, rows }: { chart: ParetoChart; rows: Record<str
                   : [fmtBiValue(v, chart), chart.valueField]
               }
             />
-            <Bar yAxisId="v" dataKey="value" fill="var(--primary)" radius={[3, 3, 0, 0]} />
+            <Bar
+              yAxisId="v"
+              dataKey="value"
+              fill="var(--primary)"
+              radius={[3, 3, 0, 0]}
+              cursor={onElementClick ? "pointer" : undefined}
+              onClick={
+                onElementClick
+                  ? (d: { payload?: { category?: unknown } }) => {
+                      const c = d?.payload?.category;
+                      if (c !== undefined && c !== null) {
+                        onElementClick(chart.categoryField, String(c));
+                      }
+                    }
+                  : undefined
+              }
+            />
             <Line
               yAxisId="pct"
               dataKey="cumPct"

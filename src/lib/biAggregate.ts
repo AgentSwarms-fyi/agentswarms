@@ -51,7 +51,7 @@ const IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 const BACKTICK_DIALECTS = new Set<SqlDialect>(["alasql", "bigquery", "mysql", "databricks"]);
 
 /** Quote an identifier that has ALREADY been validated against IDENT_RE. */
-function quoteIdent(name: string, dialect: SqlDialect): string {
+export function quoteIdent(name: string, dialect: SqlDialect): string {
   return BACKTICK_DIALECTS.has(dialect) ? `\`${name}\`` : `"${name}"`;
 }
 

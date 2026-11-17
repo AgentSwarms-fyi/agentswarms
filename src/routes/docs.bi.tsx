@@ -1459,7 +1459,15 @@ ORDER BY r.round, total_points DESC`}</Code>
           },
           {
             name: "Parameters",
-            body: "Values people pick — a radio list, a dropdown, a date — that widget SQL reads as {{name}}, so the query itself changes: see Parameters below.",
+            body: "Values people pick — a radio list, a dropdown, a date, a number box or a slider — that widget SQL reads as {{name}}, so the query itself changes: see Parameters below.",
+          },
+          {
+            name: "Click actions",
+            body: "What clicking a mark does: filter the page it is on (the default), open another page filtered to what was clicked — a station's own page — or open a link built from it. See Clicks that open a page below.",
+          },
+          {
+            name: "Titles that follow the picks",
+            body: "{{rider}} in a title or text widget shows the parameter's picked value, and {{selected|every station}} what the page is filtered to by a click.",
           },
           {
             name: "Cross-filtering",
@@ -1500,11 +1508,11 @@ GROUP BY s.station_name, s.latitude, s.longitude, s.area`}</Code>
         items={[
           {
             title: "Add the parameter",
-            body: "Add parameter in the filter bar: its name in SQL, a label, how it is picked (a radio list, a dropdown or a date), its choices as value | label lines, and its default. Shown says whether it sits in the filter bar or only in a Controls visual on the canvas.",
+            body: "Add parameter in the filter bar: its name in SQL, a label, how it is picked (a radio list, a dropdown, a date, a number box or a slider), its choices as value | label lines or its lowest and highest values and step, and its default. Shown says whether it sits in the filter bar or only in a Controls visual on the canvas.",
           },
           {
             title: "Write {{name}} in the query",
-            body: "Bare, not quoted: a choice goes in as a quoted literal ('member') and a date as DATE '2026-03-01'. The builder's Run uses the defaults, so the preview is what a viewer first sees.",
+            body: "Bare, not quoted: a choice goes in as a quoted literal ('member'), a date as DATE '2026-03-01' and a number as a number (10, or (-5) in brackets when negative). The builder's Run uses the defaults, so the preview is what a viewer first sees.",
           },
           {
             title: "Put the controls where people look",
@@ -1516,7 +1524,7 @@ GROUP BY s.station_name, s.latitude, s.longitude, s.area`}</Code>
         items={[
           {
             name: "What a value can be",
-            body: "Only one of the owner's choices, or a real calendar date. Anything else — a value typed into a request, a 30 February — is replaced by the default before the query is built, so a parameter cannot carry SQL.",
+            body: "Only one of the owner's choices, a real calendar date, or a number between the parameter's lowest and highest values on its steps, written as plain digits. Anything else — a value typed into a request, a 30 February, 1e3, 7 on a slider stepping by 5 — is replaced by the default before the query is built, so a parameter cannot carry SQL.",
           },
           {
             name: "Refreshes and alerts",
@@ -1528,6 +1536,24 @@ GROUP BY s.station_name, s.latitude, s.longitude, s.area`}</Code>
           },
         ]}
       />
+
+      <H3 id="top-n">Top N with a slider</H3>
+      <P>
+        A number box or a slider puts a number into the query, so a chart can show as many rows as
+        the reader asks for. A number box applies on Enter or when the reader leaves it; a slider
+        applies when it is let go, so dragging it does not run every widget at each step.
+      </P>
+      <Code lang="sql">{`-- top_n: a slider from 5 to 50 in steps of 5, default 10
+SELECT s.station_name, SUM(d.started_electric + d.started_classic) AS rides
+FROM bikeshare.bike_station_days d
+JOIN bikeshare.bike_stations s ON s.station_id = d.station_id
+GROUP BY s.station_name
+ORDER BY rides DESC
+LIMIT {{top_n}}`}</Code>
+      <P>
+        Title the widget <C>{"Top {{top_n}} stations by rides"}</C> and the title follows the
+        slider.
+      </P>
 
       <H3 id="pointmap-tiles">Streets under a point map</H3>
       <P>
@@ -1581,6 +1607,84 @@ ORDER BY dayofweek(ride_date)`}</Code>
         With every rider and the whole year the sentence reads &ldquo;About 25,207,936 rides were
         taken on the shared bikes in this period: 16,105,496 of them on electric bikes and 9,102,440
         on classic bikes&rdquo;; picking Member makes it 19,915,795.
+      </P>
+
+      <H2 id="click-actions">Clicks that open a page, and titles that say what is picked</H2>
+      <P>
+        A click on a bar, a slice, a point on a map or a text cell in a table filters the page it is
+        on. <strong>Click action…</strong> in a widget&apos;s menu changes what that widget&apos;s
+        clicks do:
+      </P>
+      <Table
+        headers={["Action", "What a click does"]}
+        rows={[
+          [
+            "Filter this page",
+            "The default. The other widgets narrow to the clicked value; a second click clears it.",
+          ],
+          [
+            "Open another page, filtered to it",
+            "Shows the page you pick, its widgets narrowed to the clicked value: a station's own page from a chart of every station. The filter shows in the filter bar and clears from there.",
+          ],
+          [
+            "Open a link",
+            <>
+              Opens a link in a new tab, with <C>{"{{value}}"}</C> replaced by the clicked value,
+              URL-encoded. Only an <C>https://</C> or <C>http://</C> address is opened.
+            </>,
+          ],
+        ]}
+      />
+      <Steps
+        items={[
+          {
+            title: "Add the detail page",
+            body: "A page called Station detail, say, with widgets whose rows have the clicked column — station_name for a chart of stations.",
+          },
+          {
+            title: "Point a chart at it",
+            body: "On the overview, Click action… in the chart's menu → Open another page, filtered to it → Station detail.",
+          },
+          {
+            title: "Title it from the click",
+            body: "A title or text widget reading Rides at {{selected|every station}} names the clicked station, and says every station when the page is opened from its tab.",
+          },
+          {
+            title: "Link back",
+            body: "A text widget with [Back to the overview](#page=Overview) goes to that page. #page= takes a page's name (%20 for a space) or its number counting from 1; it works on an image's link too.",
+          },
+        ]}
+      />
+      <Callout kind="warn" title="Use Direct query on a detail page">
+        A widget&apos;s saved snapshot holds at most 500 rows by default (
+        <C>PUBLIC_BI_SNAPSHOT_ROWS_CAP</C>), and an Import widget narrows that snapshot in the
+        browser. A row per station per day is far more than 500 rows, so the station you click may
+        not be in it. A Direct-query widget is narrowed in the query, before the cap, and always has
+        the whole of the clicked station. It keeps its query&apos;s order when the <C>ORDER BY</C>{" "}
+        names columns the query returns or their positions (<C>ORDER BY ride_date</C>,{" "}
+        <C>ORDER BY 1</C>); an order on an expression, such as <C>ORDER BY dayofweek(ride_date)</C>,
+        can be lost, so return the expression as a column and order by that.
+      </Callout>
+      <Table
+        headers={["In a title or text", "Shows"]}
+        rows={[
+          [<C key="a">{"{{rider}}"}</C>, "The parameter's picked value, as its label."],
+          [
+            <C key="b">{"{{selected}}"}</C>,
+            "What the page is filtered to by a click; nothing when it is not.",
+          ],
+          [
+            <C key="c">{"{{selected|every station}}"}</C>,
+            "The same, or these words when nothing is clicked.",
+          ],
+        ]}
+      />
+      <P>
+        A name that is neither stays as written, and a value filled into a text widget is escaped,
+        so a station called <C>*Main St*</C> is not set in italics and a value cannot add a link. A
+        slide deck takes the titles as they read on screen; scheduled e-mails, the &ldquo;what
+        changed&rdquo; note and alerts read them at the parameters&apos; defaults. Shared links and
+        embeds follow click actions and page links too, with the parameters at their defaults.
       </P>
 
       <H2 id="insights">AI insights</H2>

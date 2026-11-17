@@ -11,6 +11,9 @@ import { Button } from "@/components/ui/button";
 import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
 import { BiFilterBar } from "@/components/bi/BiFilterBar";
 import { BiWidgetCard } from "@/components/bi/BiWidgetCard";
+import { BiViewContext, type BiViewState } from "@/components/bi/biParamContext";
+import { pageIndexFor, resolveClick } from "@/lib/biInteract";
+import { parseParams } from "@/lib/biParams";
 import { DashboardGrid } from "@/components/bi/DashboardGrid";
 import {
   dashSurfaceClass,
@@ -132,6 +135,40 @@ function EmbedBiPage() {
     ]),
   );
 
+  // R503: a click may open another page filtered to what was clicked, or a
+  // link; titles and text fill in the parameters (at their defaults here)
+  // and what is clicked; a #page= link switches page.
+  const onWidgetClick = (id: string) => (column: string, value: string) => {
+    const out = resolveClick(widgetById.get(id)?.clickAction, value, pages, activePage.id);
+    if (out.kind === "none") return;
+    if (out.kind === "url") {
+      window.open(out.href, "_blank", "noopener,noreferrer");
+      return;
+    }
+    if (out.kind === "page") {
+      setActivePageIndex(out.index);
+      setCross({ widgetId: id, column, value });
+      return;
+    }
+    setCross((prev) =>
+      prev && prev.column === column && prev.value === value
+        ? null
+        : { widgetId: id, column, value },
+    );
+  };
+  const viewCtx: BiViewState = {
+    params: parseParams(cfg.filters as Json),
+    values: {},
+    selected: cross?.value ?? null,
+    openPage: (href) => {
+      const i = pageIndexFor(pages, href);
+      if (i < 0) return false;
+      setActivePageIndex(i);
+      setCross(null);
+      return true;
+    },
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <main className={cn("p-3", dashSurfaceClass(theme))} style={dashSurfaceStyle(theme)}>
@@ -173,30 +210,21 @@ function EmbedBiPage() {
           cross={cross}
           onClearCross={() => setCross(null)}
         />
-        <DashboardGrid
-          layout={layout}
-          editable={false}
-          emptyState={
-            <p className="py-20 text-center text-sm text-muted-foreground">
-              This dashboard has no widgets yet.
-            </p>
-          }
-          renderItem={(id) => {
-            const w = widgetById.get(id);
-            return w ? (
-              <BiWidgetCard
-                widget={w}
-                onElementClick={(column, value) =>
-                  setCross((prev) =>
-                    prev && prev.column === column && prev.value === value
-                      ? null
-                      : { widgetId: id, column, value },
-                  )
-                }
-              />
-            ) : null;
-          }}
-        />
+        <BiViewContext.Provider value={viewCtx}>
+          <DashboardGrid
+            layout={layout}
+            editable={false}
+            emptyState={
+              <p className="py-20 text-center text-sm text-muted-foreground">
+                This dashboard has no widgets yet.
+              </p>
+            }
+            renderItem={(id) => {
+              const w = widgetById.get(id);
+              return w ? <BiWidgetCard widget={w} onElementClick={onWidgetClick(id)} /> : null;
+            }}
+          />
+        </BiViewContext.Provider>
       </main>
 
       {cfg.allowAi && (

@@ -1115,6 +1115,64 @@ Picking Member makes it 19,915,795.
 **Also fixed:** a Direct-query widget on any page but the first answered
 "Widget not found". The server looked only at the first page's list of widgets.
 
+## Clicks that open a page, and titles that follow the picks
+
+R503 lets a dashboard move with its reader.
+
+**Click actions.** A click on a bar, a slice, a point on a map or a text cell
+in a table filters the page it is on. **Click action…** in a widget's menu
+changes that:
+
+- **Open another page, filtered to it.** The page you pick opens with its
+  widgets narrowed to the clicked value, for example a station's own page from
+  a Pareto of every station. The filter shows in the filter bar and clears
+  there. If that page is later deleted, the click filters its own page again.
+- **Open a link.** `{{value}}` in the link becomes the clicked value,
+  URL-encoded, and the link opens in a new tab. Only an `https://` or `http://`
+  address is opened, so a template cannot run script.
+
+A detail page narrows each widget's rows by the clicked column. An Import
+widget does that in the browser, on its saved snapshot of at most 500 rows
+(`PUBLIC_BI_SNAPSHOT_ROWS_CAP`). A widget with a row per station per day has far
+more, so set it to **Direct query**: the server then narrows the query itself,
+before the cap. While that query runs, the widget is dimmed and says
+"Updating…". Until its first answer arrives, it shows its snapshot narrowed in
+the browser.
+
+The server runs a Direct-query widget as `SELECT … FROM (<its SQL>)` with the
+filters around it. It repeats the widget's `ORDER BY` on the outside when that
+names returned columns or their positions (`ORDER BY ride_date`,
+`ORDER BY 2 DESC`). Before R503 it did not, and a station's daily line on a
+detail page came back with its days in hash order. An order on an expression,
+such as `ORDER BY dayofweek(ride_date)`, cannot be repeated and can be lost, so
+return the expression as a column and order by that.
+
+**Titles and text that follow the picks.** In a widget title or a text widget:
+
+- `{{rider}}` shows the parameter's picked value, as its label.
+- `{{selected}}` shows what the page is filtered to by a click.
+- `{{selected|every station}}` shows these words when nothing is.
+
+A name that is neither stays as written. A value filled into a text widget is
+escaped, so it cannot set formatting or add a link. A slide deck takes titles as
+they read on screen. E-mailed digests, the "what changed" note and alerts read
+them at the parameters' defaults; the saved titles keep their `{{…}}`.
+
+**Page links.** `[Back to the overview](#page=Overview)` in a text widget, or
+`#page=Overview` as an image's link, goes to that page. It takes a page's name
+(`%20` for a space) or its number, counting from 1.
+
+**Number parameters.** A parameter can be a **number box** or a **slider**,
+with a lowest and highest value and a step. It goes into SQL as a bare number,
+so `ORDER BY rides DESC LIMIT {{top_n}}` makes a Top N chart. A value must be
+written as plain digits and sit on the steps; anything else becomes the
+default. A negative number goes in brackets, `(-5)`, because after a minus
+sign a bare `-5` would make `--`, which starts a SQL comment. A number box
+applies on Enter or when the reader leaves it, and a slider when it is let go.
+
+Shared links and embeds follow click actions and page links too, with the
+parameters at their defaults.
+
 ## Pareto, calendars, small multiples and pictograms
 
 R502 adds four visuals (38 in all) and three options for lines and columns.

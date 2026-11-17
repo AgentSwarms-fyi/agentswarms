@@ -19,7 +19,9 @@
 // filters (the same saved list, as kind "param"), so they travel with every
 // copy, version and promotion of the dashboard.
 
-export type BiParamControl = "radio" | "dropdown" | "date";
+export type BiParamControl = "radio" | "dropdown" | "date" | "number" | "slider";
+/** Controls that pick a number between a lowest and a highest value (R503). */
+export const NUMBER_CONTROLS: readonly BiParamControl[] = ["number", "slider"];
 export type BiParamOption = { value: string; label: string };
 
 export type BiParamConfig = {
@@ -31,6 +33,13 @@ export type BiParamConfig = {
   control: BiParamControl;
   /** radio / dropdown: the values that may be picked. */
   options?: BiParamOption[];
+  /**
+   * number / slider (R503): the lowest and highest values and the step between
+   * them. A number goes into SQL bare, so `LIMIT {{top_n}}` reads it.
+   */
+  min?: number;
+  max?: number;
+  step?: number;
   /** The value used until a viewer picks one, and by every refresh. */
   default: string;
   /** "bar" (default): in the filter bar. "canvas": only in a Controls visual. */
@@ -44,6 +53,18 @@ export const PARAM_NAME = /^[a-z][a-z0-9_]{0,40}$/;
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_OPTIONS = 50;
 const MAX_VALUE = 200;
+/** A plain decimal: digits, an optional minus and fraction. No exponent, no spaces. */
+const PLAIN_NUMBER = /^-?\d{1,15}(\.\d{1,10})?$/;
+
+function isNumberControl(c: BiParamControl): boolean {
+  return NUMBER_CONTROLS.includes(c);
+}
+
+/** Whether n sits on the parameter's steps, counting from its lowest value. */
+function onStep(n: number, min: number, step: number): boolean {
+  const k = (n - min) / step;
+  return Math.abs(k - Math.round(k)) < 1e-9;
+}
 
 function isIsoDay(v: string): boolean {
   if (!ISO_DAY.test(v)) return false;
@@ -55,6 +76,13 @@ function isIsoDay(v: string): boolean {
 export function isValidParamValue(p: BiParamConfig, v: unknown): v is string {
   if (typeof v !== "string") return false;
   if (p.control === "date") return isIsoDay(v);
+  if (isNumberControl(p.control)) {
+    if (!PLAIN_NUMBER.test(v)) return false;
+    const n = Number(v);
+    const min = p.min ?? 0;
+    const max = p.max ?? 100;
+    return n >= min && n <= max && onStep(n, min, p.step ?? 1);
+  }
   return (p.options ?? []).some((o) => o.value === v);
 }
 
@@ -70,24 +98,29 @@ export function parseParams(v: unknown): BiParamConfig[] {
     const name = typeof r.name === "string" ? r.name : "";
     if (!PARAM_NAME.test(name) || names.has(name)) continue;
     const control: BiParamControl =
-      r.control === "radio" || r.control === "date" ? r.control : "dropdown";
-    const options =
-      control === "date"
-        ? undefined
-        : (Array.isArray(r.options) ? r.options : [])
-            .filter(
-              (o): o is { value: string; label?: unknown } =>
-                !!o &&
-                typeof o === "object" &&
-                typeof (o as { value?: unknown }).value === "string" &&
-                (o as { value: string }).value.length <= MAX_VALUE,
-            )
-            .slice(0, MAX_OPTIONS)
-            .map((o) => ({
-              value: o.value,
-              label: typeof o.label === "string" && o.label.trim() ? o.label : o.value,
-            }));
-    if (control !== "date" && (!options || options.length === 0)) continue;
+      r.control === "radio" ||
+      r.control === "date" ||
+      r.control === "number" ||
+      r.control === "slider"
+        ? r.control
+        : "dropdown";
+    const choice = control === "radio" || control === "dropdown";
+    const options = !choice
+      ? undefined
+      : (Array.isArray(r.options) ? r.options : [])
+          .filter(
+            (o): o is { value: string; label?: unknown } =>
+              !!o &&
+              typeof o === "object" &&
+              typeof (o as { value?: unknown }).value === "string" &&
+              (o as { value: string }).value.length <= MAX_VALUE,
+          )
+          .slice(0, MAX_OPTIONS)
+          .map((o) => ({
+            value: o.value,
+            label: typeof o.label === "string" && o.label.trim() ? o.label : o.value,
+          }));
+    if (choice && (!options || options.length === 0)) continue;
     const p: BiParamConfig = {
       id: r.id,
       kind: "param",
@@ -98,15 +131,42 @@ export function parseParams(v: unknown): BiParamConfig[] {
       default: "",
       placement: r.placement === "canvas" ? "canvas" : "bar",
     };
+    if (isNumberControl(control)) {
+      const range = numberRange(r.min, r.max, r.step);
+      if (!range) continue;
+      Object.assign(p, range);
+    }
     p.default = isValidParamValue(p, r.default)
       ? (r.default as string)
       : control === "date"
         ? new Date().toISOString().slice(0, 10)
-        : options![0].value;
+        : isNumberControl(control)
+          ? String(p.min)
+          : options![0].value;
     names.add(name);
     out.push(p);
   }
   return out;
+}
+
+/**
+ * A number parameter's lowest and highest values and step, or null when they
+ * do not make a range: the lowest must be below the highest, the step above
+ * zero and no wider than the range, and every one a plain finite number.
+ */
+export function numberRange(
+  min: unknown,
+  max: unknown,
+  step: unknown,
+): { min: number; max: number; step: number } | null {
+  const num = (v: unknown, dflt: number) =>
+    v === undefined || v === null || v === "" ? dflt : typeof v === "number" ? v : Number(v);
+  const lo = num(min, 0);
+  const hi = num(max, 100);
+  const st = num(step, 1);
+  if (![lo, hi, st].every((n) => Number.isFinite(n) && PLAIN_NUMBER.test(String(n)))) return null;
+  if (!(lo < hi) || !(st > 0) || st > hi - lo) return null;
+  return { min: lo, max: hi, step: st };
 }
 
 /** Every parameter at its default. */
@@ -128,10 +188,21 @@ export function resolveParamValues(params: BiParamConfig[], picked: unknown): Bi
   return out;
 }
 
-/** A value as a SQL literal: DATE '2026-03-01', or a quoted string. */
+/**
+ * A value as a SQL literal: DATE '2026-03-01', a bare number (10, 2.5), or a
+ * quoted string. A number is written from the parsed value, never the text as
+ * typed, so only digits, a minus and a point can reach the query.
+ */
 export function paramLiteral(p: BiParamConfig, v: string): string {
   const safe = isValidParamValue(p, v) ? v : p.default;
-  return p.control === "date" ? `DATE '${safe}'` : `'${safe.replace(/'/g, "''")}'`;
+  if (p.control === "date") return `DATE '${safe}'`;
+  if (isNumberControl(p.control)) {
+    const n = Number(safe);
+    // In brackets when negative: written after a minus (`x -{{n}}`), a bare
+    // -5 would make `x --5`, and `--` comments out the rest of the line.
+    return n < 0 ? `(${n})` : String(n);
+  }
+  return `'${safe.replace(/'/g, "''")}'`;
 }
 
 const PLACEHOLDER = /'?\{\{\s*([a-z][a-z0-9_]*)\s*\}\}'?/gi;
@@ -208,8 +279,8 @@ export function parseOptionLines(text: string): BiParamOption[] {
     .filter((o) => o.value);
 }
 
-/** A value as a viewer reads it: the option's label, or the date. */
+/** A value as a viewer reads it: the option's label, or the date or number. */
 export function paramValueLabel(p: BiParamConfig, v: string): string {
-  if (p.control === "date") return v;
+  if (p.control === "date" || isNumberControl(p.control)) return v;
   return p.options?.find((o) => o.value === v)?.label ?? v;
 }

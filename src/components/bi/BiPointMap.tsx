@@ -39,15 +39,25 @@ const LEGEND_MAX = 8;
 export function BiPointMap({
   chart,
   rows,
+  onElementClick,
 }: {
   chart: PointMapChart;
   rows: Record<string, unknown>[];
+  /**
+   * A point's name — its label field, else its colour field — as a click
+   * (R503): filter the page, or open a station's own page.
+   */
+  onElementClick?: (column: string, value: string) => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [view, setView] = useState<MapView | null>(null);
   const [hover, setHover] = useState<Pt | null>(null);
   const drag = useRef<{ x: number; y: number; v: MapView } | null>(null);
+  // Where a press started and on which point: the map captures the pointer to
+  // pan, so a click on a point is a press that ends where it began.
+  const press = useRef<{ x: number; y: number; key: string | null } | null>(null);
+  const clickField = chart.labelField || chart.colorField || null;
   const cfg = publicConfig();
   const tiles = cfg.mapTilesUrl;
 
@@ -157,6 +167,11 @@ export function BiPointMap({
             }
       }
       onPointerDown={(e) => {
+        press.current = {
+          x: e.clientX,
+          y: e.clientY,
+          key: (e.target as Element).getAttribute?.("data-point") ?? null,
+        };
         if (!v) return;
         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
         drag.current = { x: e.clientX, y: e.clientY, v };
@@ -167,8 +182,15 @@ export function BiPointMap({
         const k = 2 ** d.v.zoom;
         setView({ ...d.v, cx: d.v.cx - (e.clientX - d.x) / k, cy: d.v.cy - (e.clientY - d.y) / k });
       }}
-      onPointerUp={() => {
+      onPointerUp={(e) => {
         drag.current = null;
+        const p = press.current;
+        press.current = null;
+        if (!p?.key || !onElementClick || !clickField) return;
+        if (Math.hypot(e.clientX - p.x, e.clientY - p.y) > 4) return;
+        const pt = points.find((q) => String(q.key) === p.key);
+        const value = pt ? (chart.labelField ? pt.label : pt.cat) : "";
+        if (value) onElementClick(clickField, value);
       }}
       onDoubleClick={(e) => {
         const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -208,6 +230,8 @@ export function BiPointMap({
                 stroke="white"
                 strokeOpacity={0.7}
                 strokeWidth={0.6}
+                data-point={pt.key}
+                cursor={onElementClick && clickField ? "pointer" : undefined}
                 onPointerEnter={() => setHover(pt)}
                 onPointerLeave={() => setHover((h) => (h?.key === pt.key ? null : h))}
               />

@@ -9,6 +9,9 @@ import { BarChart3, Clock } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BiFilterBar } from "@/components/bi/BiFilterBar";
 import { BiWidgetCard } from "@/components/bi/BiWidgetCard";
+import { BiViewContext, type BiViewState } from "@/components/bi/biParamContext";
+import { pageIndexFor, resolveClick } from "@/lib/biInteract";
+import { parseParams } from "@/lib/biParams";
 import { DashboardGrid } from "@/components/bi/DashboardGrid";
 import {
   dashSurfaceClass,
@@ -104,6 +107,40 @@ function PublicBiDashboardPage() {
     ]),
   );
 
+  // R503: a click may open another page filtered to what was clicked, or a
+  // link; titles and text fill in the parameters (at their defaults here)
+  // and what is clicked; a #page= link switches page.
+  const onWidgetClick = (id: string) => (column: string, value: string) => {
+    const out = resolveClick(widgetById.get(id)?.clickAction, value, pages, activePage.id);
+    if (out.kind === "none") return;
+    if (out.kind === "url") {
+      window.open(out.href, "_blank", "noopener,noreferrer");
+      return;
+    }
+    if (out.kind === "page") {
+      setActivePageIndex(out.index);
+      setCross({ widgetId: id, column, value });
+      return;
+    }
+    setCross((prev) =>
+      prev && prev.column === column && prev.value === value
+        ? null
+        : { widgetId: id, column, value },
+    );
+  };
+  const viewCtx: BiViewState = {
+    params: parseParams(dashboard.filters),
+    values: {},
+    selected: cross?.value ?? null,
+    openPage: (href) => {
+      const i = pageIndexFor(pages, href);
+      if (i < 0) return false;
+      setActivePageIndex(i);
+      setCross(null);
+      return true;
+    },
+  };
+
   // Freshness is computed from EVERY widget on the dashboard, not just the
   // active page — a viewer switching pages shouldn't see the claim change.
   const freshness = dashboardFreshness(pages.flatMap((p) => p.widgets));
@@ -187,30 +224,21 @@ function PublicBiDashboardPage() {
           cross={cross}
           onClearCross={() => setCross(null)}
         />
-        <DashboardGrid
-          layout={layout}
-          editable={false}
-          emptyState={
-            <p className="py-20 text-center text-sm text-muted-foreground">
-              This dashboard has no widgets yet.
-            </p>
-          }
-          renderItem={(id) => {
-            const w = widgetById.get(id);
-            return w ? (
-              <BiWidgetCard
-                widget={w}
-                onElementClick={(column, value) =>
-                  setCross((prev) =>
-                    prev && prev.column === column && prev.value === value
-                      ? null
-                      : { widgetId: id, column, value },
-                  )
-                }
-              />
-            ) : null;
-          }}
-        />
+        <BiViewContext.Provider value={viewCtx}>
+          <DashboardGrid
+            layout={layout}
+            editable={false}
+            emptyState={
+              <p className="py-20 text-center text-sm text-muted-foreground">
+                This dashboard has no widgets yet.
+              </p>
+            }
+            renderItem={(id) => {
+              const w = widgetById.get(id);
+              return w ? <BiWidgetCard widget={w} onElementClick={onWidgetClick(id)} /> : null;
+            }}
+          />
+        </BiViewContext.Provider>
       </main>
 
       {!isEmbed && (

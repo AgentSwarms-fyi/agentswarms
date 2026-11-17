@@ -362,7 +362,7 @@ function BiChartRenderInner({
   if (chart.type === "pareto") {
     return (
       <div className={`${heightClass} w-full`}>
-        <BiPareto chart={chart} rows={rows} />
+        <BiPareto chart={chart} rows={rows} onElementClick={onElementClick} />
       </div>
     );
   }
@@ -391,7 +391,7 @@ function BiChartRenderInner({
   if (chart.type === "pointmap") {
     return (
       <div className={`${heightClass} w-full`}>
-        <BiPointMap chart={chart} rows={rows} />
+        <BiPointMap chart={chart} rows={rows} onElementClick={onElementClick} />
       </div>
     );
   }
@@ -552,6 +552,9 @@ function BiChartRenderInner({
                 stroke="var(--primary)"
                 travellerWidth={8}
                 tickFormatter={() => ""}
+                // Its handles are sliders; without this they are read out as
+                // "Min value: undefined", since the rows have no `name`.
+                ariaLabel={`Shown range of ${chart.xField}`}
               />
             )}
             <Tooltip
@@ -827,6 +830,9 @@ function BiChartRenderInner({
                 stroke="var(--primary)"
                 travellerWidth={8}
                 tickFormatter={() => ""}
+                // Its handles are sliders; without this they are read out as
+                // "Min value: undefined", since the rows have no `name`.
+                ariaLabel={`Shown range of ${chart.xField}`}
               />
             )}
             <Tooltip

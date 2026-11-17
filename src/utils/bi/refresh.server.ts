@@ -42,6 +42,7 @@ import {
   widgetRowCap,
 } from "@/lib/biDashboards";
 import { defaultParamValues, parseParams, substituteParams } from "@/lib/biParams";
+import { fillAtDefaults, withTokensFilled } from "@/lib/biInteract";
 import { fetchWidgetResultsAdmin, upsertWidgetResultsAdmin } from "@/utils/bi/results.server";
 import { sendMail } from "@/lib/email/mailer.server";
 import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.server";
@@ -473,6 +474,8 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
   userId: string;
   name: string;
   widgets: WidgetJson[];
+  /** The same widgets with {{name}} titles filled at the defaults (R503), for messages. */
+  shown: WidgetJson[];
   failures: string[];
   /** Human-readable "what changed vs the previous snapshots" lines. */
   changes: string[];
@@ -630,12 +633,18 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
     );
   }
 
+  // Messages name widgets as a reader first sees them (R503): {{rider}} in a
+  // title at its default. Only copies are filled; the saved titles keep them.
+  const atDefaults = { params, values: {}, selected: null };
+  const shown = withTokensFilled(widgets, atDefaults);
   return {
     userId: dash.user_id,
     name: dash.name,
     widgets,
+    /** The widgets with their titles filled in, for the e-mailed digest. */
+    shown,
     failures,
-    changes: computeSnapshotChanges(before, widgets),
+    changes: computeSnapshotChanges(withTokensFilled(before, atDefaults), shown),
   };
 }
 
@@ -1110,13 +1119,17 @@ export async function evaluateAlerts(
   // A widget's SQL with {{parameters}} (R501) re-runs at their defaults, as the
   // refresh does; the definitions are read only if some widget needs them.
   let paramDefs: Promise<ReturnType<typeof parseParams>> | null = null;
+  // Its title too (R503), so an alert names the widget as a reader sees it.
   const withParamDefaults = async (w: WidgetJson): Promise<WidgetJson> => {
-    if (!w.sql?.includes("{{")) return w;
+    if (!w.sql?.includes("{{") && !w.title?.includes("{{")) return w;
     paramDefs ??= Promise.resolve(
       supabaseAdmin.from("bi_dashboards").select("filters").eq("id", dashboardId).maybeSingle(),
     ).then((r) => parseParams(r.data?.filters));
     const ps = await paramDefs;
-    return ps.length ? { ...w, sql: substituteParams(w.sql, ps, defaultParamValues(ps)) } : w;
+    const out = { ...w };
+    if (w.title) out.title = fillAtDefaults(w.title, ps);
+    if (w.sql && ps.length) out.sql = substituteParams(w.sql, ps, defaultParamValues(ps));
+    return out;
   };
   for (const a of alerts ?? []) {
     const found = widgets.find((w) => w.id === a.widget_id);
@@ -1280,7 +1293,7 @@ export async function processDueSchedules(force = false): Promise<number> {
         if (s.email_report) {
           const to = await ownerEmail(res.userId);
           if (to) {
-            const digest = buildReportDigest(res.name, res.widgets, res.changes);
+            const digest = buildReportDigest(res.name, res.shown, res.changes);
             void sendMail({
               to,
               subject: `📊 ${res.name} — scheduled report`,

@@ -35,6 +35,8 @@ import {
   type BiDashboardRow,
   type BiWidget,
 } from "@/lib/biDashboards";
+import { fillAtDefaults } from "@/lib/biInteract";
+import { parseParams } from "@/lib/biParams";
 import { newBlockId, type ReportBlock } from "@/lib/biReports";
 
 type Candidate = { widget: BiWidget; page: string };
@@ -78,12 +80,15 @@ export function AddFromDashboardDialog({
           parseLayout(row.layout, parseWidgets(row.widgets)),
         );
         const found: Candidate[] = [];
+        // The saved rows are the answer at the parameters' defaults, so a
+        // title that reads one ("Top {{top_n}} stations") is filled with them.
+        const params = parseParams(row.filters);
         for (const p of pages) {
           for (const w of p.widgets) {
             // Text and image tiles have nothing a page can flow; a chart
             // widget with no saved snapshot would print an empty box.
             if (w.kind !== "chart" || !(w.rows ?? []).length) continue;
-            found.push({ widget: w, page: p.name });
+            found.push({ widget: { ...w, title: fillAtDefaults(w.title, params) }, page: p.name });
           }
         }
         setCandidates(found);
