@@ -141,7 +141,27 @@ export type BiChartAnalytics = {
   logScale?: boolean;
   /** A range slider under the x axis to zoom into part of a long series (R502). */
   zoomBar?: boolean;
+  /**
+   * The parts of each column, bar or stacked area as shares of 100% (R505),
+   * so the mix compares across categories of different sizes. Applies where
+   * the parts stack; the tooltip still gives each part's value.
+   */
+  percentStack?: boolean;
+  /** Where the legend sits (R505). Unset puts it under the chart. */
+  legend?: BiLegendPlacement;
+  /**
+   * Notes pinned to the chart (R505), each at an x value as the chart shows
+   * it: "Heatwave" over 2026-07-14. A note sits above the highest mark at its
+   * x; a note whose x the chart does not show is not drawn.
+   */
+  annotations?: BiAnnotation[];
 };
+
+/** Where a chart's legend sits (R505); "none" leaves it out. */
+export type BiLegendPlacement = "bottom" | "top" | "right" | "none";
+
+/** A note pinned to a chart at one x value (R505). */
+export type BiAnnotation = { x: string | number; text: string };
 
 /** The pictures a pictogram counts in (R502). */
 export type BiPictogramIcon = "person" | "bike" | "car" | "house" | "coin" | "box";
@@ -400,7 +420,23 @@ export type ChartSpec = {
     | { type: "funnel"; nameField: string; valueField: string }
     | { type: "waterfall"; xField: string; yField: string }
     | { type: "gauge"; valueField: string; label?: string; targetField?: string; max?: number }
-    | { type: "treemap"; nameField: string; valueField: string }
+    | {
+        type: "treemap";
+        nameField: string;
+        valueField: string;
+        /**
+         * A second measure that colours each tile (R505): sized by sales,
+         * coloured by margin. Without it the tiles take the palette.
+         */
+        colorMeasure?: string;
+        /**
+         * How `colorMeasure` is coloured: "sequential" from pale to deep
+         * across its range; "diverging" splits at zero, green above and red
+         * below (the other way round with `lowerIsBetter`).
+         */
+        scale?: "sequential" | "diverging";
+        lowerIsBetter?: boolean;
+      }
     | {
         type: "heatmap";
         xField: string;

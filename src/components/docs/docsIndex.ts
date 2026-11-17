@@ -410,9 +410,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "2026-07",
       "2026-Q3",
       "2026-W05",
+      "34",
       "410,379.26",
       "AVG",
       "COUNT",
+      "Heatwave",
       "LIMIT",
       "LOCAL_ENGINE=alasql",
       "PUBLIC_BI_SNAPSHOT_ROWS_CAP",
@@ -420,6 +422,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "VITE_BI_SNAPSHOT_ROWS_CAP",
       "VITE_MAP_TILES_ATTRIBUTION",
       "VITE_MAP_TILES_URL",
+      "annotations",
       "answer",
       "area",
       "avg",
@@ -462,6 +465,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "is",
       "journey",
       "kpi",
+      "legend",
       "line",
       "logScale",
       "lt",
@@ -478,6 +482,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "ontology",
       "order_id",
       "pareto",
+      "percentStack",
       "pictogram",
       "pie",
       "pointmap",
@@ -637,6 +642,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 3
       },
       {
+        "id": "treemap-colour",
+        "text": "A treemap coloured by a second measure",
+        "level": 3
+      },
+      {
         "id": "ch-single",
         "text": "Single value",
         "level": 3
@@ -734,6 +744,21 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "refline",
         "text": "Reference lines",
+        "level": 3
+      },
+      {
+        "id": "percent-stack",
+        "text": "Parts as shares of 100%",
+        "level": 3
+      },
+      {
+        "id": "legend-placement",
+        "text": "Moving or hiding the legend",
+        "level": 3
+      },
+      {
+        "id": "chart-notes",
+        "text": "Notes pinned to a point",
         "level": 3
       },
       {

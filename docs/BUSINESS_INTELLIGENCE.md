@@ -1218,6 +1218,34 @@ R502 adds four visuals (38 in all) and three options for lines and columns.
 - **Zoom bar** puts a slider under the chart. Dragging its ends shows part of
   the range; the data is not fetched again.
 
+## 100% stacks, legends, notes and coloured treemaps
+
+R505 adds four options, under the visual's options in the builder.
+
+- **Show as 100%** (`percentStack`) on a stacked column or bar, a column chart
+  split by a series and stacked, or an area with more than one part.
+  - Every column reaches the top, and each part is its share of that column.
+  - The axis reads 0% to 100%. The tooltip gives the share and the value, such
+    as `62% (4,180)`.
+  - A part below zero is not drawn; a column with nothing in it is empty.
+- **Legend** (`legend`): below the chart (the default), above it, to the
+  right, or hidden. On the right it takes at most a third of the width and
+  scrolls past that. Column, bar, line, area, pie, combo and radar charts take
+  it.
+- **Notes on the chart** (`annotations`): up to ten, each an x value and up to
+  80 characters of text, on column, line and area charts.
+  - A note sits above the highest mark at its x, or the top of the stack.
+  - Notes side by side take separate rows; a note near an edge reads inwards.
+  - The x is typed as the axis shows it (`2026-07` on a monthly line). A note
+    whose x is not on the chart is not drawn.
+- **Colour tiles by** (`colorMeasure`) on a treemap: a second measure colours
+  each tile.
+  - **Low to high** runs from pale to deep; **Split at zero** is green on one
+    side and red on the other, with **Below zero is good** for a delay.
+  - A key under the treemap gives the measure's lowest and highest values.
+  - Without a measure, a `#rrggbb` column (**Colour from column**) colours
+    each tile.
+
 ## Building a visual from fields
 
 The builder opens in **Fields** mode (R499). Pick a table and click the

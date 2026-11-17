@@ -214,6 +214,18 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **BI: 100% stacks, legend placement, notes on charts, treemaps coloured by a
+  measure** (R505).
+  - **Show as 100%** makes every column, bar or stacked area reach the top,
+    each part its share; the tooltip gives the share and the value.
+  - **Legend** sits below, above or to the right of a chart, or is hidden.
+  - **Notes on the chart** pin up to ten lines of text to x values on column,
+    line and area charts, above the highest mark there; notes side by side
+    take separate rows.
+  - **Colour tiles by** colours a treemap by a second measure, low to high or
+    split at zero, with a key under it. A `#rrggbb` column can colour the
+    tiles instead.
+
 - **BI: clicks that open a page, titles that say what is picked, Top N**
   (R503).
   - **Click action…** in a widget's menu: a click can open another page
@@ -292,6 +304,18 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **Category labels printed over each other in a narrow card** (R505). A
+  column or combo chart decided whether its labels fit flat as if every card
+  were 640 pixels wide, so five area names in a third-width card overlapped.
+  It now measures its own width, less a legend at its side, and angles the
+  labels when they do not fit.
+- **A treemap's tooltip did not name the tile** (R505). It read `: 452.0k`;
+  it now gives the name, and the colour measure when there is one.
+- **A missing colour column no longer turns a chart into a table** (R505).
+  When a query stopped returning the column a line, rank chart, radial bars or
+  treemap took its colours from, the chart was shown as a table or the colours
+  were read from another text column. The colour column is now dropped and the
+  palette colours the chart, as when none was set.
 - **A live line chart came back with its days shuffled** (R503). A
   Direct-query widget, or one that adds up in SQL, runs as
   `SELECT … FROM (<its SQL>)` with the filters around it, and the wrapper

@@ -1,7 +1,9 @@
 // Builder controls for the visuals and styles added in R500 (see
 // lib/biVisualOpts): card templates with their pictures, the start and end
 // of a range, a colour column for lines, rank charts and radial bars, end
-// labels and shaded bands, the heatmap's diverging scale, striped tables.
+// labels and shaded bands, the heatmap's diverging scale, striped tables;
+// since R505 a 100% stack, where the legend sits, notes pinned to points and
+// a treemap coloured by a second measure.
 // Templates take their {{column}} values from a menu, as other templates do.
 // Owns no state.
 import type { ReactNode } from "react";
@@ -21,7 +23,14 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { TemplateText, type TemplateToken } from "@/components/templates/TemplateInsert";
 import type { BiParamConfig } from "@/lib/biParams";
-import { COLOR_FIELD_VISUALS, type VisualOpts } from "@/lib/biVisualOpts";
+import {
+  COLOR_FIELD_VISUALS,
+  LEGEND_VISUALS,
+  MAX_NOTES,
+  NOTE_CHARS,
+  NOTE_VISUALS,
+  type VisualOpts,
+} from "@/lib/biVisualOpts";
 import { cn } from "@/lib/utils";
 
 const small = "text-[10px] font-semibold uppercase tracking-wider text-muted-foreground";
@@ -73,6 +82,7 @@ export function BiVisualOptions({
   setOpts,
   columns,
   params = [],
+  stacks = false,
 }: {
   type: string;
   opts: VisualOpts;
@@ -80,6 +90,8 @@ export function BiVisualOptions({
   columns: string[];
   /** The dashboard's parameters, for a Controls visual (R501). */
   params?: BiParamConfig[];
+  /** This chart's parts stack, so they can show as shares of 100% (R505). */
+  stacks?: boolean;
 }) {
   const set = (patch: Partial<VisualOpts>) => setOpts({ ...opts, ...patch });
   const tokens: TemplateToken[] = columns.flatMap((c) => [
@@ -521,7 +533,58 @@ export function BiVisualOptions({
     );
   }
 
-  if (COLOR_FIELD_VISUALS.has(type)) {
+  // R505: a treemap's tiles coloured by a second measure.
+  if (type === "treemap") {
+    parts.push(
+      <ColumnSelect
+        key="colorMeasure"
+        label="Colour tiles by"
+        value={opts.colorMeasure}
+        onChange={(v) => set({ colorMeasure: v })}
+        columns={columns}
+        optional
+      />,
+    );
+    if (opts.colorMeasure) {
+      parts.push(
+        <div key="tileScale" className="space-y-1">
+          <Label className={small}>Colours</Label>
+          <Select
+            value={opts.heatScale}
+            onValueChange={(v) => set({ heatScale: v as VisualOpts["heatScale"] })}
+          >
+            <SelectTrigger className="h-8 text-xs" aria-label="Tile colours">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="sequential" className="text-xs">
+                Low to high
+              </SelectItem>
+              <SelectItem value="diverging" className="text-xs">
+                Split at zero
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>,
+      );
+      if (opts.heatScale === "diverging") {
+        parts.push(
+          <Label
+            key="tileLower"
+            className="col-span-2 flex cursor-pointer items-center gap-2 text-xs font-normal"
+          >
+            <Checkbox
+              checked={opts.lowerIsBetter}
+              onCheckedChange={(v) => set({ lowerIsBetter: v === true })}
+            />
+            Below zero is good (green), above it red
+          </Label>,
+        );
+      }
+    }
+  }
+
+  if (COLOR_FIELD_VISUALS.has(type) && !(type === "treemap" && opts.colorMeasure)) {
     parts.push(
       <ColumnSelect
         key="color"
@@ -613,6 +676,114 @@ export function BiVisualOptions({
             </SelectItem>
           </SelectContent>
         </Select>
+      </div>,
+    );
+  }
+
+  // R505: the parts of each column as shares of 100%.
+  if (stacks && ["scolumn", "shbar", "bar", "area"].includes(type)) {
+    parts.push(
+      <Label
+        key="percentStack"
+        className="flex cursor-pointer items-center gap-2 self-end pb-2 text-xs font-normal"
+      >
+        <Checkbox
+          checked={opts.percentStack}
+          onCheckedChange={(v) => set({ percentStack: v === true })}
+        />
+        Show as 100%
+      </Label>,
+    );
+  }
+
+  // R505: where the legend sits, or none.
+  if (LEGEND_VISUALS.has(type)) {
+    parts.push(
+      <div key="legend" className="space-y-1">
+        <Label className={small}>Legend</Label>
+        <Select
+          value={opts.legend}
+          onValueChange={(v) => set({ legend: v as VisualOpts["legend"] })}
+        >
+          <SelectTrigger className="h-8 text-xs" aria-label="Legend">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="bottom" className="text-xs">
+              Below the chart
+            </SelectItem>
+            <SelectItem value="top" className="text-xs">
+              Above the chart
+            </SelectItem>
+            <SelectItem value="right" className="text-xs">
+              To the right
+            </SelectItem>
+            <SelectItem value="none" className="text-xs">
+              Hidden
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </div>,
+    );
+  }
+
+  // R505: notes pinned to an x value, as the chart shows it.
+  if (NOTE_VISUALS.has(type)) {
+    parts.push(
+      <div key="notes" className="col-span-2 space-y-1">
+        <div className="flex items-center justify-between">
+          <Label className={small}>Notes on the chart</Label>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 gap-1 px-1.5 text-[11px]"
+            disabled={opts.notes.length >= MAX_NOTES}
+            onClick={() => set({ notes: [...opts.notes, { x: "", text: "" }] })}
+          >
+            <Plus className="h-3 w-3" /> Add note
+          </Button>
+        </div>
+        {opts.notes.map((n, i) => (
+          <div key={i} className="flex items-center gap-1">
+            <Input
+              value={n.x}
+              onChange={(e) =>
+                set({
+                  notes: opts.notes.map((x, j) => (j === i ? { ...x, x: e.target.value } : x)),
+                })
+              }
+              placeholder="At (x value)"
+              aria-label={`Note ${i + 1} at`}
+              className="h-7 w-28 text-xs"
+            />
+            <Input
+              value={n.text}
+              maxLength={NOTE_CHARS}
+              onChange={(e) =>
+                set({
+                  notes: opts.notes.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)),
+                })
+              }
+              placeholder="Note"
+              aria-label={`Note ${i + 1} text`}
+              className="h-7 flex-1 text-xs"
+            />
+            <button
+              type="button"
+              aria-label={`Remove note ${i + 1}`}
+              className="text-muted-foreground hover:text-destructive"
+              onClick={() => set({ notes: opts.notes.filter((_, j) => j !== i) })}
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        ))}
+        {opts.notes.length > 0 && (
+          <p className="text-[10px] text-muted-foreground">
+            Type the x value as the chart shows it, such as 2026-07 or Mon. A note whose value is
+            not on the chart is not drawn.
+          </p>
+        )}
       </div>,
     );
   }

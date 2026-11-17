@@ -753,6 +753,22 @@ GROUP BY region`}</Code>
         ]}
       />
 
+      <H3 id="treemap-colour">A treemap coloured by a second measure</H3>
+      <P>
+        A treemap sizes each tile by its value. <strong>Colour tiles by</strong> adds a second
+        measure for the colour, so one picture answers two questions: stations sized by rides and
+        coloured by the average ride&apos;s length, or products sized by sales and coloured by
+        margin. <strong>Low to high</strong> runs from pale to deep across the values there are;{" "}
+        <strong>Split at zero</strong> colours one side green and the other red, deeper further from
+        zero, which suits a margin or a change. Tick <strong>Below zero is good</strong> when lower
+        is better, as with a delay. A key under the treemap names the measure and gives its lowest
+        and highest values, and the tooltip gives a tile&apos;s colour value beside its size. The
+        query should return one row per name: when a name repeats, its sizes and its colour values
+        are each added up, as on every other chart. Without a colour measure, a{" "}
+        <strong>Colour from column</strong> holding <C>#rrggbb</C> gives each tile its own colour,
+        such as a team&apos;s.
+      </P>
+
       <H3 id="ch-single">Single value</H3>
       <Table
         headers={["Type", "Required fields", "Optional", "Use for"]}
@@ -1399,6 +1415,24 @@ ORDER BY r.round, total_points DESC`}</Code>
             "line, bar",
             "A slider under the chart; drag its ends to look at part of the range. The data is not refetched.",
           ],
+          [
+            <C key="j">percentStack</C>,
+            "boolean",
+            "stacked column and bar, column split and stacked, stacked area",
+            "Each column, bar or x value is 100%, split into its parts' shares. See below.",
+          ],
+          [
+            <C key="k">legend</C>,
+            "bottom | top | right | none",
+            "column, bar, line, area, pie, combo, radar",
+            "Where the legend sits; none hides it. Unset is under the chart.",
+          ],
+          [
+            <C key="l">annotations</C>,
+            "up to 10 of { x, text }",
+            "column, line, area",
+            "Notes pinned to x values, drawn above the highest mark there. See below.",
+          ],
         ]}
       />
       <Callout kind="warn" title="A projection is not a plan">
@@ -1448,6 +1482,40 @@ ORDER BY r.round, total_points DESC`}</Code>
         A horizontal reference line on cartesian charts, in one of two modes: <C>avg</C> draws the
         series average, or <C>value</C> draws a fixed number you supply. Both take an optional label
         — use it, because an unlabelled line invites the reader to guess what it means.
+      </P>
+
+      <H3 id="percent-stack">Parts as shares of 100%</H3>
+      <P>
+        Tick <strong>Show as 100%</strong> on a stacked column or bar, a column chart split by a
+        series with <strong>Stacked bars</strong> ticked, or an area with more than one part. Every
+        column then reaches the top, and each part is its share of that column, so the mix compares
+        across months or stations of very different sizes. The axis reads 0% to 100%, and the
+        tooltip gives each part&apos;s share with its value beside it, such as <C>62% (4,180)</C>. A
+        part below zero has no share of a whole and is not drawn; a column with nothing in it is
+        left empty. The box is offered only where the parts stack, so a column chart that is not
+        stacked never shows it.
+      </P>
+
+      <H3 id="legend-placement">Moving or hiding the legend</H3>
+      <P>
+        Charts that draw a legend (column, bar and their stacked forms, line, area, pie, combo and
+        radar) take a <strong>Legend</strong> setting: below the chart, which is the default, above
+        it, to the right, or hidden. To the right suits a long list of series beside a wide chart;
+        the list takes at most a third of the width and scrolls past that. Hide it only when the
+        title or the colours already say what each series is, such as a chart whose title names the
+        one series it shows.
+      </P>
+
+      <H3 id="chart-notes">Notes pinned to a point</H3>
+      <P>
+        Column, line and area charts take up to ten <strong>Notes on the chart</strong>. Each is an
+        x value and a line of text of up to 80 characters: <C>34</C> and <C>Safety car</C> on a lap
+        chart, <C>2026-07</C> and <C>Heatwave</C> on a monthly one. The note is drawn above the
+        highest mark at that x (the top of the stack where the series stack) with a dot and a short
+        stem, and notes side by side take separate rows rather than printing over each other. Type
+        the x value as the chart shows it on its axis: a line bucketed by month shows <C>2026-07</C>
+        , not a date inside July. A note whose value is not on the chart, because a filter left it
+        out or the value was mistyped, is not drawn rather than drawn somewhere else.
       </P>
 
       <H2 id="interactive">Making it interactive</H2>

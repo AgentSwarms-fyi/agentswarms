@@ -74,6 +74,8 @@ import { BiInsightOptions, BiKpiOptions } from "@/components/bi/BiKpiInsightOpti
 import { BiVisualOptions } from "@/components/bi/BiVisualOptions";
 import {
   VISUAL_OPTS_DEFAULT,
+  stacksParts,
+  treemapColor,
   visualAnalytics,
   visualOptsFrom,
   visualSpec,
@@ -898,9 +900,13 @@ export function BiBuilderPane({
         }
         case "pie":
         case "funnel":
-        case "treemap":
         case "nightingale":
           return nameField && valueField ? { type: chartType, nameField, valueField } : null;
+        case "treemap":
+          // R505: a second measure can colour the tiles.
+          return nameField && valueField
+            ? { type: "treemap", nameField, valueField, ...treemapColor(vizOpts) }
+            : null;
         case "wordcloud":
           // textField reuses the dimension picker (nameField); the measure is optional.
           return nameField
@@ -1071,7 +1077,14 @@ export function BiBuilderPane({
     }
     if (spec.type === "table" && !tableTotals) (spec as { totals?: boolean }).totals = false;
     if (spec.type === "table" && vizOpts.striped) (spec as { striped?: boolean }).striped = true;
-    Object.assign(analytics, visualAnalytics(spec.type, vizOpts));
+    Object.assign(
+      analytics,
+      visualAnalytics(
+        spec.type,
+        vizOpts,
+        stacksParts(spec.type, { seriesField, stacked, extraMeasures }),
+      ),
+    );
     // More values as their own series (R499), unless a field splits the chart.
     if (extraMeasures.length > 0 && !seriesField && MULTI_MEASURE_TYPES.has(spec.type)) {
       analytics.extraMeasures = extraMeasures;
@@ -1960,6 +1973,11 @@ export function BiBuilderPane({
                             opts={vizOpts}
                             setOpts={setVizOpts}
                             columns={preview?.columns ?? []}
+                            stacks={stacksParts(chartType, {
+                              seriesField,
+                              stacked,
+                              extraMeasures,
+                            })}
                           />
                           {chartType === "insight" && (
                             <>

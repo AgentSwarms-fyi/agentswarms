@@ -10,7 +10,7 @@
 // is clickable for dashboard cross-filtering, and bar/hbar/pie/treemap
 // support drill hierarchies.
 import { forecastPeriods } from "@/lib/mlForecast";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   Area,
   AreaChart,
@@ -64,7 +64,16 @@ import { BiEndLabels } from "@/components/bi/BiEndLabels";
 import { BiJourney } from "@/components/bi/BiJourney";
 import { BiControlsVisual } from "@/components/bi/BiParamControls";
 import { BiPointMap } from "@/components/bi/BiPointMap";
-import { lastPoints, movingAverage } from "@/components/bi/biDrawHelpers";
+import { BiChartNotes } from "@/components/bi/BiChartNotes";
+import {
+  lastPoints,
+  legendPlacement,
+  measureTileColor,
+  movingAverage,
+  percentShares,
+  placeNotes,
+  type PlacedNote,
+} from "@/components/bi/biDrawHelpers";
 import {
   BiCalendar,
   BiPareto,
@@ -258,15 +267,28 @@ function BiChartRenderInner({
   selectedValue?: string | null;
 }) {
   const gradientId = useId();
+  // The chart's measured width (R505), so category labels are judged against
+  // the card they are in rather than a typical one.
+  const [boxW, setBoxW] = useState(0);
+  const onBoxResize = (w: number) => setBoxW(Math.round(w / 8) * 8);
   const heightClass = fill ? "h-full" : large ? "h-[60vh]" : "h-56";
   const tickSize = large ? 12 : 11;
   /** Category-axis props for this chart's own labels — see categoryAxis. */
   const catAxis = (rows: Record<string, unknown>[], key: string) => {
     // leftMargin is for the CHART, not the axis — spreading it onto XAxis would
     // put an unknown attribute on an SVG element.
+    // The plot is the card less the value axis and margins, and less the
+    // legend when it sits to the right.
+    const plotWidth =
+      boxW > 0
+        ? boxW -
+          60 -
+          (legendPlacement(chart.legend)?.layout === "vertical" ? Math.min(boxW * 0.34, 110) : 0)
+        : undefined;
     const { leftMargin, ...axis } = categoryAxis(
       rows.map((r) => r?.[key]),
       tickSize,
+      plotWidth,
     );
     return { axis, leftMargin };
   };
@@ -299,6 +321,57 @@ function BiChartRenderInner({
   // not by column key; a series split by a column keeps that column's values.
   const bySeriesField = "seriesField" in chart && Boolean(chart.seriesField);
   const seriesName = (s: string) => (!bySeriesField && extra.length ? measureDisplayName(s) : s);
+  // R505: where the legend sits, or none at all.
+  const legendAt = legendPlacement(chart.legend);
+  const legendEl = (style?: CSSProperties, entries = 0) =>
+    legendAt ? (
+      <Legend
+        key="__legend"
+        iconType="circle"
+        iconSize={8}
+        {...legendAt}
+        wrapperStyle={{
+          fontSize: labelSize,
+          // Beside the chart, a long list scrolls rather than running off the
+          // card. Only a long one: a short list scrolled by a pixel of rounding.
+          ...(legendAt.layout === "vertical"
+            ? {
+                maxWidth: "34%",
+                paddingLeft: 8,
+                lineHeight: "16px",
+                ...(entries > 8 ? { maxHeight: "100%", overflowY: "auto" as const } : {}),
+              }
+            : {}),
+          // Above the chart it hugs the top edge, leaving the band under it to
+          // the notes (FOUND IN R505's UI test: the two shared one line).
+          ...(legendAt.verticalAlign === "top" ? { top: 0 } : {}),
+          ...style,
+        }}
+      />
+    ) : null;
+  // R505: notes pinned to points, with room above the chart for two rows.
+  const notesTop = (notes: PlacedNote[], base: number) =>
+    notes.length ? Math.max(base, 36) : base;
+  const notesLayer = (notes: PlacedNote[]) =>
+    notes.length ? (
+      <Customized
+        key="__notes"
+        component={
+          <BiChartNotes notes={notes} floor={legendAt?.verticalAlign === "top" ? 30 : 10} />
+        }
+      />
+    ) : null;
+  // R505: a 100% stack's tooltip gives each part's share and its value.
+  const shareFmt = (
+    v: unknown,
+    name: unknown,
+    item: { payload?: Record<string, unknown>; dataKey?: unknown },
+  ) => {
+    const share = toBiNumber(v);
+    const raw = item?.payload?.[`__raw:${String(item?.dataKey ?? name)}`];
+    return share === null ? "—" : `${share.toFixed(share < 10 ? 1 : 0)}% (${fmt(raw)})`;
+  };
+  const pctTick = (v: unknown) => `${toBiNumber(v) ?? 0}%`;
 
   if (chart.type === "ontology") {
     // Renders from the stored spec — rows are irrelevant for this visual.
@@ -493,19 +566,30 @@ function BiChartRenderInner({
       : extra.length
         ? measureSeries(rows, chart.xField, [chart.yField, ...extra])
         : null;
-    const barRaw = pivoted ? pivoted.data : aggregateByField(rows, chart.xField, [chart.yField]);
+    const barAgg = pivoted ? pivoted.data : aggregateByField(rows, chart.xField, [chart.yField]);
+    // R505: a 100% stack draws each part as its share of the column.
+    const barPct = Boolean(chart.percentStack && stacked && pivoted);
+    const barRaw = barPct && pivoted ? percentShares(barAgg, pivoted.series) : barAgg;
     // A log axis has no place for zero or less (R502): those bars are left out.
-    const barData = chart.logScale
-      ? barRaw.map((d) => {
-          const out = { ...d };
-          for (const k of pivoted ? pivoted.series : [chart.yField]) {
-            const v = toBiNumber(out[k]);
-            if (v !== null && v <= 0) out[k] = null;
-          }
-          return out;
-        })
-      : barRaw;
+    const barData =
+      chart.logScale && !barPct
+        ? barRaw.map((d) => {
+            const out = { ...d };
+            for (const k of pivoted ? pivoted.series : [chart.yField]) {
+              const v = toBiNumber(out[k]);
+              if (v !== null && v <= 0) out[k] = null;
+            }
+            return out;
+          })
+        : barRaw;
     const barCat = catAxis(barData, chart.xField);
+    const barNotes = placeNotes(
+      barData,
+      chart.xField,
+      pivoted ? pivoted.series : [chart.yField],
+      chart.annotations,
+      Boolean(stacked && pivoted),
+    );
     const handleClick = onElementClick
       ? (data: { payload?: Record<string, unknown> } | Record<string, unknown>) => {
           const payload =
@@ -517,10 +601,15 @@ function BiChartRenderInner({
       : undefined;
     return (
       <div className={`${heightClass} w-full`}>
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer width="100%" height="100%" onResize={onBoxResize}>
           <BarChart
             data={barData}
-            margin={{ top: 12, right: 12, left: barCat.leftMargin, bottom: 4 }}
+            margin={{
+              top: notesTop(barNotes, 12),
+              right: 12,
+              left: barCat.leftMargin,
+              bottom: 4,
+            }}
           >
             <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
             {/* Every bar is a discrete category, so every bar needs its label —
@@ -533,18 +622,30 @@ function BiChartRenderInner({
               tickLine={false}
               {...barCat.axis}
             />
-            <YAxis
-              tick={tick}
-              axisLine={false}
-              tickLine={false}
-              tickFormatter={fmt}
-              width={48}
-              // R502: a log axis for values spanning orders of magnitude; a bar
-              // cannot start at zero on one, so it starts at the axis' floor.
-              scale={chart.logScale ? "log" : "auto"}
-              domain={chart.logScale ? ["auto", "auto"] : undefined}
-              allowDataOverflow={chart.logScale || undefined}
-            />
+            {barPct ? (
+              <YAxis
+                tick={tick}
+                axisLine={false}
+                tickLine={false}
+                tickFormatter={pctTick}
+                width={48}
+                domain={[0, 100]}
+                ticks={[0, 25, 50, 75, 100]}
+              />
+            ) : (
+              <YAxis
+                tick={tick}
+                axisLine={false}
+                tickLine={false}
+                tickFormatter={fmt}
+                width={48}
+                // R502: a log axis for values spanning orders of magnitude; a bar
+                // cannot start at zero on one, so it starts at the axis' floor.
+                scale={chart.logScale ? "log" : "auto"}
+                domain={chart.logScale ? ["auto", "auto"] : undefined}
+                allowDataOverflow={chart.logScale || undefined}
+              />
+            )}
             {chart.zoomBar && (
               <Brush
                 dataKey={chart.xField}
@@ -561,7 +662,7 @@ function BiChartRenderInner({
               contentStyle={tooltipStyle}
               labelStyle={labelStyle}
               itemStyle={labelStyle}
-              formatter={tooltipFmt}
+              formatter={barPct ? shareFmt : tooltipFmt}
               cursor={{ fill: "var(--accent)", opacity: 0.35 }}
             />
             {(() => {
@@ -589,12 +690,7 @@ function BiChartRenderInner({
                 so multi-series children must be emitted as a keyed array. */}
             {pivoted ? (
               [
-                <Legend
-                  key="__legend"
-                  iconType="circle"
-                  iconSize={8}
-                  wrapperStyle={{ fontSize: labelSize }}
-                />,
+                legendEl(undefined, pivoted.series.length),
                 ...pivoted.series.map((s, i) => {
                   const color = PIE_COLORS[i % PIE_COLORS.length];
                   return (
@@ -646,6 +742,8 @@ function BiChartRenderInner({
                   ))}
               </Bar>
             )}
+            {/* After the bars, so the notes sit on top of them. */}
+            {notesLayer(barNotes)}
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -772,6 +870,13 @@ function BiChartRenderInner({
       });
     }
     const refY = refLineY(chart.refLine, data, pivoted ? pivoted.series : [chart.yField]);
+    const lineNotes = placeNotes(
+      data,
+      chart.xField,
+      pivoted ? pivoted.series : [chart.yField],
+      chart.annotations,
+      false,
+    );
     const lineColors =
       chart.seriesField && chart.colorField
         ? seriesColors(rows, chart.seriesField, chart.colorField)
@@ -801,7 +906,7 @@ function BiChartRenderInner({
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart
             data={data}
-            margin={{ top: 12, right: lineRight, left: 0, bottom: 4 }}
+            margin={{ top: notesTop(lineNotes, 12), right: lineRight, left: 0, bottom: 4 }}
             onClick={lineClick}
           >
             <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
@@ -970,12 +1075,7 @@ function BiChartRenderInner({
               ]}
             {pivoted ? (
               [
-                <Legend
-                  key="__legend"
-                  iconType="circle"
-                  iconSize={8}
-                  wrapperStyle={{ fontSize: labelSize }}
-                />,
+                legendEl(undefined, pivoted.series.length),
                 ...pivoted.series.map((s, i) => (
                   <Line
                     key={s}
@@ -1015,6 +1115,7 @@ function BiChartRenderInner({
                 activeDot={{ r: 4, strokeWidth: 0 }}
               />
             )}
+            {notesLayer(lineNotes)}
           </ComposedChart>
         </ResponsiveContainer>
       </div>
@@ -1038,7 +1139,17 @@ function BiChartRenderInner({
         data = priorYearOverlay(data, chart.xField, chart.yField, "__prior");
       }
     }
+    // R505: stacked areas as shares of 100%, each x's parts filling the height.
+    const areaPct = Boolean(chart.percentStack && pivoted);
+    if (areaPct && pivoted) data = percentShares(data, pivoted.series);
     const refY = refLineY(chart.refLine, data, pivoted ? pivoted.series : [chart.yField]);
+    const areaNotes = placeNotes(
+      data,
+      chart.xField,
+      pivoted ? pivoted.series : [chart.yField],
+      chart.annotations,
+      Boolean(pivoted),
+    );
     const areaClick = onElementClick
       ? (state: { activeLabel?: string | number } | null) => {
           if (state && state.activeLabel !== undefined && state.activeLabel !== null) {
@@ -1054,7 +1165,7 @@ function BiChartRenderInner({
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart
             data={data}
-            margin={{ top: 12, right: 12, left: 0, bottom: 4 }}
+            margin={{ top: notesTop(areaNotes, 12), right: 12, left: 0, bottom: 4 }}
             onClick={areaClick}
           >
             <defs>
@@ -1065,12 +1176,24 @@ function BiChartRenderInner({
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
             <XAxis dataKey={chart.xField} tick={tick} axisLine={false} tickLine={false} />
-            <YAxis tick={tick} axisLine={false} tickLine={false} tickFormatter={fmt} width={48} />
+            {areaPct ? (
+              <YAxis
+                tick={tick}
+                axisLine={false}
+                tickLine={false}
+                tickFormatter={pctTick}
+                width={48}
+                domain={[0, 100]}
+                ticks={[0, 25, 50, 75, 100]}
+              />
+            ) : (
+              <YAxis tick={tick} axisLine={false} tickLine={false} tickFormatter={fmt} width={48} />
+            )}
             <Tooltip
               contentStyle={tooltipStyle}
               labelStyle={labelStyle}
               itemStyle={labelStyle}
-              formatter={tooltipFmt}
+              formatter={areaPct ? shareFmt : tooltipFmt}
             />
             {refY !== null && (
               <ReferenceLine
@@ -1116,12 +1239,7 @@ function BiChartRenderInner({
             {/* Arrays, not fragments: recharts ignores fragment children. */}
             {pivoted ? (
               [
-                <Legend
-                  key="__legend"
-                  iconType="circle"
-                  iconSize={8}
-                  wrapperStyle={{ fontSize: labelSize }}
-                />,
+                legendEl(undefined, pivoted.series.length),
                 ...pivoted.series.map((s, i) => (
                   <Area
                     key={s}
@@ -1145,6 +1263,7 @@ function BiChartRenderInner({
                 fill={`url(#${gradientId})`}
               />
             )}
+            {notesLayer(areaNotes)}
           </AreaChart>
         </ResponsiveContainer>
       </div>
@@ -1191,11 +1310,7 @@ function BiChartRenderInner({
               itemStyle={labelStyle}
               formatter={tooltipFmt}
             />
-            <Legend
-              iconType="circle"
-              iconSize={8}
-              wrapperStyle={{ fontSize: labelSize, color: axisStroke }}
-            />
+            {legendEl({ color: axisStroke }, pieData.length)}
           </PieChart>
         </ResponsiveContainer>
       </div>
@@ -1219,7 +1334,7 @@ function BiChartRenderInner({
         className={`${heightClass} w-full`}
         style={onElementClick ? { cursor: "pointer" } : undefined}
       >
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer width="100%" height="100%" onResize={onBoxResize}>
           <ComposedChart
             data={comboData}
             margin={{ top: 12, right: 8, left: comboCat.leftMargin, bottom: 4 }}
@@ -1258,7 +1373,7 @@ function BiChartRenderInner({
                 name === chart.barField ? fmt(v) : fmtBiNumber(v)
               }
             />
-            <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: labelSize }} />
+            {legendEl()}
             <Bar
               yAxisId="left"
               dataKey={chart.barField}
@@ -1456,44 +1571,94 @@ function BiChartRenderInner({
   }
 
   if (chart.type === "treemap") {
-    const data = aggregateByField(rows, chart.nameField, [chart.valueField])
+    // R505: a second measure colours each tile; a #rrggbb column, its own.
+    const tileMeasure = chart.colorMeasure || "";
+    const tileHex =
+      chart.colorField && !tileMeasure
+        ? seriesColors(rows, chart.nameField, chart.colorField)
+        : new Map<string, string>();
+    const sized = aggregateByField(
+      rows,
+      chart.nameField,
+      tileMeasure ? [chart.valueField, tileMeasure] : [chart.valueField],
+    )
       .map((r) => ({
         name: String(r[chart.nameField] ?? "—"),
         size: Number(r[chart.valueField]) || 0,
+        colorValue: tileMeasure ? toBiNumber(r[tileMeasure]) : null,
       }))
       .filter((d) => d.size > 0);
+    const shades = sized.map((d) => d.colorValue).filter((v): v is number => v !== null);
+    const tileRange = { min: Math.min(...shades, 0), max: Math.max(...shades, 0) };
+    if (chart.scale !== "diverging" && shades.length) {
+      // Low to high runs across the values there are, not from zero.
+      tileRange.min = Math.min(...shades);
+      tileRange.max = Math.max(...shades);
+    }
+    // A colour measure the rows do not carry leaves the palette, not grey tiles.
+    const data = sized.map((d) => ({
+      ...d,
+      tileColor:
+        tileMeasure && shades.length
+          ? measureTileColor(d.colorValue, tileRange, chart.scale, chart.lowerIsBetter === true)
+          : tileHex.get(d.name),
+    }));
     return (
-      <div className={`${heightClass} w-full`}>
-        <ResponsiveContainer width="100%" height="100%">
-          <Treemap
-            data={data}
-            dataKey="size"
-            nameKey="name"
-            stroke="var(--card)"
-            isAnimationActive={false}
-            content={
-              <TreemapCell
-                selectedName={selectedValue}
-                onCellClick={
-                  onElementClick ? (name) => onElementClick(chart.nameField, name) : undefined
-                }
+      <div className={`${heightClass} flex w-full flex-col`}>
+        <div className="min-h-0 flex-1">
+          <ResponsiveContainer width="100%" height="100%">
+            <Treemap
+              data={data}
+              dataKey="size"
+              nameKey="name"
+              stroke="var(--card)"
+              isAnimationActive={false}
+              content={
+                <TreemapCell
+                  selectedName={selectedValue}
+                  onCellClick={
+                    onElementClick ? (name) => onElementClick(chart.nameField, name) : undefined
+                  }
+                />
+              }
+            >
+              <Tooltip
+                contentStyle={tooltipStyle}
+                labelStyle={labelStyle}
+                itemStyle={labelStyle}
+                formatter={(
+                  v: number,
+                  _n: unknown,
+                  item: { payload?: { colorValue?: unknown; name?: unknown } },
+                ) => [
+                  tileMeasure && item?.payload?.colorValue != null
+                    ? `${fmt(v)} · ${measureDisplayName(tileMeasure)} ${fmtBiNumber(item.payload.colorValue)}`
+                    : fmt(v),
+                  // The tile's name: the tooltip said only ": 452.0k" (R505's UI test).
+                  typeof item?.payload?.name === "string" ? item.payload.name : "",
+                ]}
               />
-            }
-          >
-            <Tooltip
-              contentStyle={tooltipStyle}
-              labelStyle={labelStyle}
-              itemStyle={labelStyle}
-              formatter={(v: number) => [fmt(v), ""]}
-            />
-          </Treemap>
-        </ResponsiveContainer>
+            </Treemap>
+          </ResponsiveContainer>
+        </div>
+        {tileMeasure && shades.length > 0 && (
+          <TileScaleKey
+            label={measureDisplayName(tileMeasure)}
+            range={tileRange}
+            scale={chart.scale}
+            lowerIsBetter={chart.lowerIsBetter === true}
+            fmt={fmtBiNumber}
+          />
+        )}
       </div>
     );
   }
 
   if (chart.type === "shbar") {
     const pivoted = pivotSeries(rows, chart.xField, chart.yField, chart.seriesField);
+    // R505: each bar as 100%, split into its parts' shares.
+    const shPct = chart.percentStack === true;
+    const shData = shPct ? percentShares(pivoted.data, pivoted.series) : pivoted.data;
     const handleClick = onElementClick
       ? (data: { payload?: Record<string, unknown> }) => {
           const v = data?.payload?.[chart.xField];
@@ -1504,7 +1669,7 @@ function BiChartRenderInner({
       <div className={`${heightClass} w-full`}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
-            data={pivoted.data}
+            data={shData}
             layout="vertical"
             margin={{ top: 8, right: 16, left: 8, bottom: 4 }}
           >
@@ -1514,7 +1679,9 @@ function BiChartRenderInner({
               tick={tick}
               axisLine={false}
               tickLine={false}
-              tickFormatter={fmt}
+              tickFormatter={shPct ? pctTick : fmt}
+              domain={shPct ? [0, 100] : undefined}
+              ticks={shPct ? [0, 25, 50, 75, 100] : undefined}
             />
             <YAxis
               type="category"
@@ -1528,16 +1695,11 @@ function BiChartRenderInner({
               contentStyle={tooltipStyle}
               labelStyle={labelStyle}
               itemStyle={labelStyle}
-              formatter={tooltipFmt}
+              formatter={shPct ? shareFmt : tooltipFmt}
               cursor={{ fill: "var(--accent)", opacity: 0.35 }}
             />
             {[
-              <Legend
-                key="__legend"
-                iconType="circle"
-                iconSize={8}
-                wrapperStyle={{ fontSize: labelSize }}
-              />,
+              legendEl(undefined, pivoted.series.length),
               ...pivoted.series.map((s, i) => {
                 const color = PIE_COLORS[i % PIE_COLORS.length];
                 return (
@@ -1552,7 +1714,7 @@ function BiChartRenderInner({
                     cursor={clickable ? "pointer" : undefined}
                   >
                     {selectedValue != null &&
-                      pivoted.data.map((d, idx) => (
+                      shData.map((d, idx) => (
                         <Cell
                           key={idx}
                           fill={color}
@@ -1620,12 +1782,7 @@ function BiChartRenderInner({
             />
             {pivoted ? (
               [
-                <Legend
-                  key="__legend"
-                  iconType="circle"
-                  iconSize={8}
-                  wrapperStyle={{ fontSize: labelSize }}
-                />,
+                legendEl(undefined, pivoted.series.length),
                 ...pivoted.series.map((s, i) => (
                   <Radar
                     key={s}
@@ -1849,6 +2006,8 @@ function TreemapCell(props: {
   /** Currently cross-filtered cell name — outlined so the pick is obvious. */
   selectedName?: string | null;
   onCellClick?: (name: string) => void;
+  /** The tile's own colour (R505): from a second measure or a colour column. */
+  tileColor?: string;
 }) {
   const { x = 0, y = 0, width = 0, height = 0, index = 0, name = "", onCellClick } = props;
   if (width <= 0 || height <= 0) return null;
@@ -1878,7 +2037,7 @@ function TreemapCell(props: {
         width={width}
         height={height}
         rx={3}
-        fill={PIE_COLORS[index % PIE_COLORS.length]}
+        fill={props.tileColor || PIE_COLORS[index % PIE_COLORS.length]}
         fillOpacity={selected ? 1 : dimmed ? 0.4 : 0.92}
         stroke={selected ? "var(--foreground)" : "var(--card)"}
         strokeWidth={selected ? 2.5 : 2}
@@ -1908,6 +2067,39 @@ function TreemapCell(props: {
         </text>
       )}
     </g>
+  );
+}
+
+/** The scale under a treemap coloured by a measure (R505): what the colours mean. */
+function TileScaleKey({
+  label,
+  range,
+  scale,
+  lowerIsBetter,
+  fmt,
+}: {
+  label: string;
+  range: { min: number; max: number };
+  scale?: "sequential" | "diverging";
+  lowerIsBetter: boolean;
+  fmt: (v: unknown) => string;
+}) {
+  const stops =
+    scale === "diverging"
+      ? [range.min, range.min / 2, 0, range.max / 2, range.max]
+      : [0, 0.25, 0.5, 0.75, 1].map((t) => range.min + t * (range.max - range.min));
+  const colors = stops.map((v) => measureTileColor(v, range, scale, lowerIsBetter));
+  return (
+    <div className="flex shrink-0 items-center gap-2 pt-1.5 text-[10px] text-muted-foreground">
+      <span className="truncate">Colour: {label}</span>
+      <span className="tabular-nums">{fmt(range.min)}</span>
+      <span
+        aria-hidden
+        className="h-2 w-24 shrink-0 rounded-full"
+        style={{ background: `linear-gradient(to right, ${colors.join(", ")})` }}
+      />
+      <span className="tabular-nums">{fmt(range.max)}</span>
+    </div>
   );
 }
 

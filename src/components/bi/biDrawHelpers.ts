@@ -1,7 +1,8 @@
 // Pure helpers behind R500's visuals, kept out of the component files so that
 // those export only components (fast refresh) and so tests need no renderer.
 import { toBiNumber } from "@/components/bi/biChartData";
-import type { ChartSpec } from "@/lib/biAgent";
+import type { BiAnnotation, BiLegendPlacement, ChartSpec } from "@/lib/biAgent";
+import { MAX_NOTES, NOTE_CHARS } from "@/lib/biVisualOpts";
 
 /**
  * Ranks held between the points a series has (R500), in x order: a rank
@@ -440,4 +441,134 @@ export function visualFields(chart: ChartSpec | undefined): {
     measure: pick(["yField", "valueField", "barField", "sizeField"]),
     category: pick(["seriesField", "nameField", "categoryField", "xField"]),
   };
+}
+
+// ── R505: 100% stacks, legend placement, notes, tiles coloured by a measure ──
+
+/**
+ * Each part as its share of its row's whole (R505), for a 100% stack: the
+ * series values become percentages, and the values themselves are kept under
+ * `__raw:<series>` for the tooltip. A part below zero has no share of a whole
+ * and is not drawn; a row with nothing in it draws nothing.
+ */
+export function percentShares(
+  data: Record<string, unknown>[],
+  series: string[],
+): Record<string, unknown>[] {
+  return data.map((d) => {
+    const out: Record<string, unknown> = { ...d };
+    let total = 0;
+    for (const s of series) {
+      const v = toBiNumber(d[s]);
+      if (v !== null && v > 0) total += v;
+    }
+    for (const s of series) {
+      const v = toBiNumber(d[s]);
+      out[`__raw:${s}`] = v;
+      out[s] = total > 0 && v !== null && v >= 0 ? (v / total) * 100 : null;
+    }
+    return out;
+  });
+}
+
+/** Where recharts puts a legend (R505); null leaves it out. */
+export function legendPlacement(p: BiLegendPlacement | undefined): {
+  layout: "horizontal" | "vertical";
+  align: "center" | "right";
+  verticalAlign: "top" | "middle" | "bottom";
+} | null {
+  switch (p) {
+    case "none":
+      return null;
+    case "top":
+      return { layout: "horizontal", align: "center", verticalAlign: "top" };
+    case "right":
+      return { layout: "vertical", align: "right", verticalAlign: "middle" };
+    default:
+      return { layout: "horizontal", align: "center", verticalAlign: "bottom" };
+  }
+}
+
+/** A note with the point it is pinned to, in the chart's own values. */
+export type PlacedNote = { x: string | number; y: number; text: string };
+
+function sameX(a: unknown, b: unknown): boolean {
+  if (String(a) === String(b)) return true;
+  const na = toBiNumber(a);
+  const nb = toBiNumber(b);
+  return na !== null && nb !== null && na === nb;
+}
+
+/**
+ * Where each note goes (R505): at the row whose x matches the note, above the
+ * highest mark there, or the top of the stack where the series stack. A note
+ * whose x the chart does not show is left out rather than put somewhere else.
+ */
+export function placeNotes(
+  data: Record<string, unknown>[],
+  xField: string,
+  series: string[],
+  notes: BiAnnotation[] | undefined,
+  stacked: boolean,
+): PlacedNote[] {
+  const out: PlacedNote[] = [];
+  for (const n of (notes ?? []).slice(0, MAX_NOTES)) {
+    const text = String(n.text ?? "")
+      .trim()
+      .slice(0, NOTE_CHARS);
+    if (!text) continue;
+    const row = data.find((d) => sameX(d[xField], n.x));
+    if (!row) continue;
+    const values = series.map((s) => toBiNumber(row[s])).filter((v): v is number => v !== null);
+    if (!values.length) continue;
+    const y = stacked
+      ? values.filter((v) => v > 0).reduce((a, b) => a + b, 0)
+      : Math.max(...values);
+    out.push({ x: row[xField] as string | number, y, text });
+  }
+  return out;
+}
+
+/**
+ * A row for each note so that notes side by side do not print over each
+ * other (R505): each takes the lowest row where its span is clear. Spans are
+ * [left, right] in pixels, in any order.
+ */
+export function noteRows(spans: [number, number][], gap = 6): number[] {
+  const taken: [number, number][][] = [];
+  const order = spans.map((s, i) => i).sort((a, b) => spans[a][0] - spans[b][0]);
+  const rows = new Array<number>(spans.length).fill(0);
+  for (const i of order) {
+    const [l, r] = spans[i];
+    let row = 0;
+    while ((taken[row] ?? []).some(([tl, tr]) => l < tr + gap && r + gap > tl)) row++;
+    (taken[row] ??= []).push([l, r]);
+    rows[i] = row;
+  }
+  return rows;
+}
+
+/**
+ * A tile's colour from a second measure (R505). "sequential" runs from pale
+ * to the full accent across the measure's range; "diverging" splits at zero,
+ * green for the good side and red for the bad, deeper further from zero.
+ * A tile with no value is muted. Mixed into the pale ground the heatmap uses:
+ * mixed into mid-grey, the ends of a range looked alike (R505's UI test).
+ */
+export function measureTileColor(
+  v: number | null,
+  range: { min: number; max: number },
+  scale: "sequential" | "diverging" | undefined,
+  lowerIsBetter = false,
+): string {
+  if (v === null) return "var(--muted)";
+  if (scale === "diverging") {
+    const maxAbs = Math.max(Math.abs(range.min), Math.abs(range.max), 1e-9);
+    const good = lowerIsBetter ? v < 0 : v > 0;
+    const pct = Math.round(15 + Math.min(1, Math.abs(v) / maxAbs) * 85);
+    if (v === 0) return "var(--muted)";
+    return `color-mix(in oklab, ${good ? "#16a34a" : "#dc2626"} ${pct}%, var(--muted))`;
+  }
+  const t = (v - range.min) / (range.max - range.min || 1);
+  return `color-mix(in oklab, var(--primary) ${Math.round(12 + t * 88)}%, var(--muted))`;
 }

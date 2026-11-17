@@ -19,6 +19,12 @@ import type { BiNumberFormat } from "@/lib/biAgent";
 export function categoryAxis(
   values: unknown[],
   tickSize: number,
+  /**
+   * The plot's width in px, when the chart has measured it (R505). Without
+   * it, 640px — a typical widget. A third-width card is about 300px, and
+   * judged at 640 its five labels were left flat and printed over each other.
+   */
+  plotWidth = 640,
 ): {
   interval: 0;
   angle?: number;
@@ -45,8 +51,9 @@ export function categoryAxis(
   const approxCharPx = tickSize * 0.62;
   // Recharts gives each category an equal slice; a label fits flat when it is
   // narrower than its slice. 640px is the typical widget width — deliberately
-  // pessimistic, because guessing "it fits" is what produced the bug.
-  const sliceWidth = 640 / Math.max(1, labels.length);
+  // pessimistic, because guessing "it fits" is what produced the bug — unless
+  // the chart has measured its own.
+  const sliceWidth = Math.max(40, plotWidth) / Math.max(1, labels.length);
   const fitsFlat = longest * approxCharPx <= sliceWidth;
 
   const truncate =

@@ -61,7 +61,10 @@ const MEASURE_FIELDS: Record<string, readonly string[]> = {
 
 /** Fields a chart still draws without: decorations, not the drawing itself. */
 // dateField and categoryField (R498) decorate a KPI and drive a narrative; a
-// narrative missing one says which in its own body, which beats a table.
+// narrative missing one says which in its own body, which beats a table. A
+// colour column (R500, a treemap's tiles since R505) only colours: without it
+// the palette does, so it is dropped rather than re-pointed or turned into a
+// table.
 const ALWAYS_OPTIONAL = new Set([
   "seriesField",
   "sizeField",
@@ -69,6 +72,7 @@ const ALWAYS_OPTIONAL = new Set([
   "rowSubField",
   "dateField",
   "categoryField",
+  "colorField",
 ]);
 
 /** Keys that belong to every spec and survive a fall back to a table. */
