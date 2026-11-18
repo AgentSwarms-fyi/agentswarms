@@ -498,6 +498,80 @@ Fields, pictures and barcodes have fixed heights (`blockHeight`) that both the
 preview's `paginateBlocks` and the PDF reserve, and a test pins their page
 counts together.
 
+### Scheduled delivery
+
+R509 sends a report by itself. **Schedule** in the designer opens the
+report's schedules (`bi_report_schedules`, migration `20261118000000`). Each
+schedule names when it runs, who gets it and the parameter values it runs
+with. The server runs the report and mails the PDF as an attachment.
+
+- **When.** Daily, on weekdays, weekly on a weekday, or monthly on day 1-28
+  or the last day, at an hour in an IANA time zone. `nextReportRun`
+  (`src/lib/biReportSchedule.ts`) works the next run out in that zone every
+  time, so the local hour survives a clock change. An hour that does not
+  exist on the morning the clocks go forward runs at the first hour that does.
+- **Values.** A date parameter can hold a relative date (`@prev_month_start`,
+  `@prev_week_end`, `@today` and so on, `RELATIVE_DATES`), resolved on the day
+  it runs in the schedule's zone by `scheduledValues`. A stored value the
+  report no longer accepts runs at the parameter's default, and the delivery
+  record names it.
+- **The run's clock.** `runClock` gives the day and time in the schedule's
+  zone (`2026-11-18`, `08:00`). The subject's `{{date}}`, the attachment's
+  file name and the PDF's `{{date}}` and `{{time}}` all print it
+  (`buildReportPdfBytes` takes it as `clock`). The server's own locale and
+  zone never reach the page: a 06:00 Tokyo run is still the day before in
+  UTC.
+- **One path.** The tick, **Send now**, **Send to me** and **Preview PDF** all
+  call `runReport` (`src/utils/bi/reportSchedule.server.ts`). It re-runs every
+  query block as the report's owner (`localSqlRunnerForUser`; warehouse
+  connections loaded by the owner's id) and lays the PDF out with
+  `buildReportPdfBytes`. A block whose query fails prints as empty and is named
+  in the email and the delivery record. It never prints the rows from its last
+  run.
+- **Charts without a browser.** `renderVisualMarkup`
+  (`src/utils/bi/reportCharts.server.tsx`) renders the same `BiChartRender`
+  with `react-dom/server`. The BI charts take their `ResponsiveContainer` from
+  `src/components/bi/biChartBox.tsx`, which starts at a fixed size under
+  `FixedChartSize` and otherwise measures as before.
+  - `src/lib/svgPdf.ts` draws the SVG into the PDF as vectors: paths, shapes,
+    text, transforms, opacity, gradients as their mean colour, and theme
+    tokens resolved to the light palette (`PRINT_TOKENS`, which a test holds
+    to `src/styles.css`).
+  - Path data has its whitespace collapsed before pdf-lib reads it. pdf-lib
+    splits only on spaces and commas, so a line break inside Recharts' sector
+    arcs read as an extra `0` and drew pies as huge wedges off the chart.
+  - With nothing to measure text with, Recharts keeps every axis tick on the
+    server. `crowdedTicks` thins them as the browser would: the first and
+    last label stay, and a label in between stays when it clears the last
+    one kept, measured with the PDF font.
+  - Legends are HTML in the markup. They are read out (`readLegend`), the
+    chart is rendered again at the size left once a strip is reserved for
+    them, and the legend is drawn in the strip.
+  - `SCHEDULED_DRAW` lists what is drawn. 24 types draw as SVG, KPIs come
+    from `kpiFigures` (the tile reads the same function), the heatmap and the
+    pivot are drawn as grids, and narratives as text. The rest print a note
+    where they would be, and the dialog names them before anyone schedules.
+  - `tests/unit/biReportServerPdf.test.ts` renders every catalogue visual on
+    the server and holds `SCHEDULED_DRAW` to what came back.
+- **Who receives it.** Recipients must be accounts on the install
+  (`report_recipient_accounts`, service role only) or in a domain listed in
+  `REPORT_EMAIL_DOMAINS` (`client.com`, `.client.com` with subdomains, `*`
+  for any). This is checked on save and again on every send. The table has an
+  owner `SELECT` policy and no write policy: every write goes through
+  `biReportSchedules.functions.ts`, because RLS cannot see an environment
+  policy. Changes to recipients, timing and values are audited
+  (`audit_row_change('bi_report_schedule')`).
+- **Sending.** One message per recipient, with Reply-To set to the owner.
+  The mailer (`src/lib/email/mailer.server.ts`) gained attachments and
+  Reply-To for both SMTP and Resend. The subject is one line, with control
+  characters removed. A PDF over 10 MB is not sent.
+- **Clock.** `processDueReportSchedules` runs in the scheduler pass
+  (`report-schedules` step, at most 5 a pass). It claims each schedule by
+  moving `next_run_at` only if nobody moved it first, so overlapping passes
+  cannot send twice, and a failed run still advances. Every run writes an
+  insert-only row to `bi_report_deliveries` (sent, partial, skipped or
+  failed). These rows are purged after a year.
+
 ### Access
 
 A report is **owner-only**. `bi_reports` carries RLS on `auth.uid() = user_id`

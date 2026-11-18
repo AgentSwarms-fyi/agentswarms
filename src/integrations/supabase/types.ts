@@ -687,6 +687,124 @@ export type Database = {
           },
         ];
       };
+      // 20261118000000 (R509): what each scheduled report delivery did. Written
+      // by the server only; owners read their own.
+      bi_report_deliveries: {
+        Row: {
+          bytes: number | null;
+          detail: string | null;
+          id: string;
+          pages: number | null;
+          ran_at: string;
+          recipients: number;
+          report_id: string;
+          schedule_id: string | null;
+          status: string;
+          trigger: string;
+          user_id: string;
+        };
+        Insert: {
+          bytes?: number | null;
+          detail?: string | null;
+          id?: string;
+          pages?: number | null;
+          ran_at?: string;
+          recipients?: number;
+          report_id: string;
+          schedule_id?: string | null;
+          status: string;
+          trigger: string;
+          user_id: string;
+        };
+        Update: {
+          bytes?: number | null;
+          detail?: string | null;
+          id?: string;
+          pages?: number | null;
+          ran_at?: string;
+          recipients?: number;
+          report_id?: string;
+          schedule_id?: string | null;
+          status?: string;
+          trigger?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      // 20261118000000 (R509): a report sent as a PDF on a schedule. Written
+      // through server functions only (the recipient policy is the server's).
+      bi_report_schedules: {
+        Row: {
+          at_hour: number;
+          cadence: string;
+          created_at: string;
+          enabled: boolean;
+          id: string;
+          last_error: string | null;
+          last_run_at: string | null;
+          last_status: string | null;
+          message: string;
+          month_day: number;
+          name: string;
+          next_run_at: string;
+          param_values: Json;
+          recipients: string[];
+          report_id: string;
+          skip_empty: boolean;
+          subject: string;
+          timezone: string;
+          updated_at: string;
+          user_id: string;
+          weekday: number;
+        };
+        Insert: {
+          at_hour?: number;
+          cadence?: string;
+          created_at?: string;
+          enabled?: boolean;
+          id?: string;
+          last_error?: string | null;
+          last_run_at?: string | null;
+          last_status?: string | null;
+          message?: string;
+          month_day?: number;
+          name: string;
+          next_run_at: string;
+          param_values?: Json;
+          recipients: string[];
+          report_id: string;
+          skip_empty?: boolean;
+          subject?: string;
+          timezone?: string;
+          updated_at?: string;
+          user_id: string;
+          weekday?: number;
+        };
+        Update: {
+          at_hour?: number;
+          cadence?: string;
+          created_at?: string;
+          enabled?: boolean;
+          id?: string;
+          last_error?: string | null;
+          last_run_at?: string | null;
+          last_status?: string | null;
+          message?: string;
+          month_day?: number;
+          name?: string;
+          next_run_at?: string;
+          param_values?: Json;
+          recipients?: string[];
+          report_id?: string;
+          skip_empty?: boolean;
+          subject?: string;
+          timezone?: string;
+          updated_at?: string;
+          user_id?: string;
+          weekday?: number;
+        };
+        Relationships: [];
+      };
       bi_reports: {
         Row: {
           blocks: Json;
@@ -9003,6 +9121,8 @@ export type Database = {
         Args: { p_session: string; p_hash: string; p_window_minutes?: number };
         Returns: Json;
       };
+      // 20261118000000 (R509): which addresses are accounts here. Service role only.
+      report_recipient_accounts: { Args: { _emails: string[] }; Returns: string[] };
       seed_bi_sample_dashboards: { Args: { _uid: string }; Returns: undefined };
       seed_bi_sample_extras: { Args: { _uid: string }; Returns: undefined };
       shared_dataset_rows: { Args: { _table_id: string }; Returns: Json[] };

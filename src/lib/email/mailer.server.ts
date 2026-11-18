@@ -21,6 +21,25 @@ export interface MailArgs {
   text?: string;
   /** Extra SMTP headers, e.g. List-Unsubscribe. */
   headers?: Record<string, string>;
+  /** Where a reply goes: a scheduled report's owner (R509). */
+  replyTo?: string;
+  /** Files sent with the message: a scheduled report's PDF (R509). */
+  attachments?: MailAttachment[];
+}
+
+export interface MailAttachment {
+  filename: string;
+  content: Uint8Array;
+  contentType: string;
+}
+
+/** A header value on one line: a reply-to can carry no extra header. */
+function oneLine(s: string): string {
+  return s.replace(/[\r\n]+/g, " ").trim();
+}
+
+function toBase64(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString("base64");
 }
 
 export interface MailResult {
@@ -51,6 +70,16 @@ async function sendViaResend(args: MailArgs): Promise<MailResult> {
       html: args.html,
       text: args.text,
       headers: args.headers,
+      ...(args.replyTo ? { reply_to: oneLine(args.replyTo) } : {}),
+      ...(args.attachments?.length
+        ? {
+            attachments: args.attachments.map((a) => ({
+              filename: oneLine(a.filename),
+              content: toBase64(a.content),
+              content_type: a.contentType,
+            })),
+          }
+        : {}),
     }),
   });
   if (!res.ok) {
@@ -104,6 +133,16 @@ async function sendViaSmtp(args: MailArgs): Promise<MailResult> {
       html: args.html,
       text: args.text,
       headers: args.headers,
+      ...(args.replyTo ? { replyTo: oneLine(args.replyTo) } : {}),
+      ...(args.attachments?.length
+        ? {
+            attachments: args.attachments.map((a) => ({
+              filename: oneLine(a.filename),
+              content: Buffer.from(a.content),
+              contentType: a.contentType,
+            })),
+          }
+        : {}),
     });
     return { sent: true };
   } catch (e) {

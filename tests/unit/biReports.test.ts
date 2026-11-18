@@ -438,8 +438,9 @@ describe("a report block whose widget holds only part of the data", () => {
     // test of a pure string can see whether anything drew it.
     const pdf = readFileSync("src/lib/biReportPdf.ts", "utf8");
     expect(pdf).toContain("drawCaveat(partialRowsCaveat(block.widget));");
-    // Twice: once in the chart case, once in the table case.
-    expect(pdf.split("drawCaveat(partialRowsCaveat(block.widget));").length - 1).toBe(2);
+    // Three times: a chart drawn from the browser's bitmap, a chart drawn on
+    // the server for a scheduled report (R509), and a table.
+    expect(pdf.split("drawCaveat(partialRowsCaveat(block.widget));").length - 1).toBe(3);
   });
 
   it("is shown in the preview too, so the designer sees what will export", () => {

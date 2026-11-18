@@ -12,6 +12,7 @@ import {
   ArrowDown,
   ArrowUp,
   Barcode,
+  CalendarClock,
   Download,
   FileText,
   Image as ImageIcon,
@@ -44,6 +45,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { AddFromDashboardDialog } from "@/components/bi/AddFromDashboardDialog";
 import { GenerateReportDialog } from "@/components/bi/GenerateReportDialog";
+import { ReportScheduleDialog } from "@/components/bi/ReportScheduleDialog";
 import { ReportPagePreview } from "@/components/bi/ReportPagePreview";
 import type { BiDataContext } from "@/components/bi/biDataContext";
 import { useAuth } from "@/hooks/use-auth";
@@ -134,6 +136,7 @@ function ReportDesigner() {
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [generateOpen, setGenerateOpen] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
 
@@ -607,6 +610,9 @@ function ReportDesigner() {
             )}
             Export PDF
           </Button>
+          <Button size="sm" variant="outline" onClick={() => setScheduleOpen(true)}>
+            <CalendarClock className="mr-1 h-3.5 w-3.5" /> Schedule
+          </Button>
           {unsaved && (
             <span
               className="text-xs text-amber-600 dark:text-amber-400"
@@ -921,6 +927,16 @@ function ReportDesigner() {
         }}
       />
 
+      <ReportScheduleDialog
+        open={scheduleOpen}
+        onOpenChange={setScheduleOpen}
+        token={token}
+        reportId={reportId}
+        reportName={report.name}
+        params={params}
+        blocks={report.blocks}
+        unsaved={unsaved}
+      />
       <GenerateReportDialog
         open={generateOpen}
         onOpenChange={setGenerateOpen}

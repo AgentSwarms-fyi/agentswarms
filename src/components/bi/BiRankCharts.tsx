@@ -12,11 +12,11 @@ import {
   RadialBar,
   RadialBarChart,
   ReferenceArea,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
+import { ResponsiveContainer } from "@/components/bi/biChartBox";
 
 import {
   PIE_COLORS,

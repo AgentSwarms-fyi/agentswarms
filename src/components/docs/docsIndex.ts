@@ -399,6 +399,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "$837.9k",
       "$837k",
       "**bold**",
+      ".client.com",
       ".env",
       "1/31/2025",
       "2.6×",
@@ -417,10 +418,14 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "COUNT",
       "EMEA-2025-100111",
       "Heatwave",
+      "LANG",
       "LIMIT",
       "LOCAL_ENGINE=alasql",
       "NY",
       "PUBLIC_BI_SNAPSHOT_ROWS_CAP",
+      "REPORT_EMAIL_DOMAINS",
+      "RESEND_API_KEY",
+      "SMTP_HOST",
       "SUM",
       "US-NY",
       "VITE_BI_SNAPSHOT_ROWS_CAP",
@@ -440,6 +445,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "calendar",
       "cards",
       "caveats",
+      "client.com",
       "columnFormats",
       "combo",
       "compare",
@@ -934,6 +940,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "report-export",
         "text": "Export",
+        "level": 3
+      },
+      {
+        "id": "report-schedule",
+        "text": "Sending a report on a schedule",
         "level": 3
       },
       {
@@ -4970,6 +4981,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "QDRANT_REPLICATION",
       "QDRANT_SHARDS",
       "QDRANT_URL",
+      "REPORT_EMAIL_DOMAINS",
       "RESEND_API_KEY",
       "SCHEDULER_LEASE_TTL_MS",
       "SCIM_RATE_LIMIT_PER_MIN",

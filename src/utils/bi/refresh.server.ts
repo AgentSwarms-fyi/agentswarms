@@ -864,7 +864,13 @@ export function emailShell(
   <p style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#6b7280;margin:0 0 4px">AgentSwarms BI</p>
   <h2 style="margin:0 0 12px;font-size:19px">${title}</h2>
   ${bodyHtml}
-  <p style="margin:20px 0 0"><a href="${link}" style="background:#4f46e5;color:#fff;text-decoration:none;padding:9px 16px;border-radius:8px;font-size:14px">${linkLabel}</a></p>
+  ${
+    // No button when there is nowhere for the reader to go: a scheduled
+    // report's recipients cannot open the owner's report (R509).
+    link
+      ? `<p style="margin:20px 0 0"><a href="${link}" style="background:#4f46e5;color:#fff;text-decoration:none;padding:9px 16px;border-radius:8px;font-size:14px">${linkLabel}</a></p>`
+      : ""
+  }
 </div>`;
 }
 
@@ -1544,6 +1550,8 @@ export type CronPassResult = {
   prep_flows: number;
   /** Saved analyses whose pinned SQL was re-run this pass. */
   analyses: number;
+  /** Scheduled report PDFs sent (or skipped, or failed) this pass (R509). */
+  report_deliveries: number;
   /** Datasets whose quality tests were re-evaluated this pass. */
   quality_checks: number;
   catalog_crawls: number;
@@ -1588,6 +1596,7 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
     processed: 0,
     prep_flows: 0,
     analyses: 0,
+    report_deliveries: 0,
     quality_checks: 0,
     catalog_crawls: 0,
     etl_runs: 0,
@@ -1624,6 +1633,18 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
     const analyses = await step(
       "analyst-schedule",
       () => import("@/utils/analyst/schedule.server").then((m) => m.processDueAnalyses(force)),
+      0,
+    );
+    // Scheduled reports (R509): each due schedule runs its report as the
+    // owner, lays the PDF out and mails it. Deliveries over a year old go.
+    const report_deliveries = await step(
+      "report-schedules",
+      () =>
+        import("@/utils/bi/reportSchedule.server").then(async (m) => {
+          const n = await m.processDueReportSchedules(force);
+          await m.purgeOldReportDeliveries();
+          return n;
+        }),
       0,
     );
     // Freshness SLAs only mean something if they fire when nothing happens —
@@ -1839,6 +1860,7 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
       workflow_runs,
       workflow_steps,
       analyses,
+      report_deliveries,
       swarm_schedules,
       kernels_reaped,
       ml_evaluations,

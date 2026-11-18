@@ -12,11 +12,11 @@ import {
   Line,
   LineChart,
   ReferenceLine,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
+import { ResponsiveContainer } from "@/components/bi/biChartBox";
 
 import { PIE_COLORS, aggregateByField, fmtBiValue, toBiNumber } from "@/components/bi/biChartData";
 import { calendarCells, paretoRows, pictogramUnit, splitRows } from "@/components/bi/biDrawHelpers";

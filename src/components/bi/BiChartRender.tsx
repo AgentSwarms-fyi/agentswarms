@@ -38,7 +38,6 @@ import {
   Rectangle,
   ReferenceArea,
   ReferenceLine,
-  ResponsiveContainer,
   Sankey,
   Scatter,
   ScatterChart,
@@ -48,6 +47,7 @@ import {
   YAxis,
   ZAxis,
 } from "recharts";
+import { ResponsiveContainer } from "@/components/bi/biChartBox";
 import {
   BarRace,
   BoxPlot,

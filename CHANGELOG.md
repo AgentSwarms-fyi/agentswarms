@@ -214,6 +214,17 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Reports sent on a schedule** (R509). A paginated report can be emailed as
+  a PDF attachment every day, on weekdays, weekly or monthly, at a local hour
+  in a time zone. The server runs every block's query as the report's owner.
+  It draws the charts as vectors from the same chart component the app uses,
+  with their legends, KPIs, pivots and narratives. A date parameter can be
+  relative ("first day of last month"), worked out on the day it runs.
+  **Preview PDF**, **Send to me** and **Send now** use the same path as the
+  schedule, and every send is recorded. Recipients are accounts on the
+  install, or addresses in the domains an administrator lists in the new
+  `REPORT_EMAIL_DOMAINS` setting. Needs migration `20261118000000`.
+
 - **Reports that run with parameters, with fields, pictures and barcodes**
   (R508). A report takes parameters (text, date, number or a list), chosen in
   a bar above its pages, and its blocks read them as `{{name}}` in their SQL,

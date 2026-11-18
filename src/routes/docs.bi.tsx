@@ -2173,7 +2173,9 @@ ORDER BY dayofweek(ride_date)`}</Code>
           along with the assumption it commits you to.
         </li>
         <li>
-          <strong>Scheduled reports</strong> — email a digest of the dashboard on a schedule.
+          <strong>Scheduled reports</strong> — email a digest of the dashboard on a schedule. To
+          send a paginated report as a PDF, see{" "}
+          <DocLink to="/docs/bi#report-schedule">sending a report on a schedule</DocLink>.
         </li>
       </UL>
       <Callout kind="why" title="Aggregate in SQL — complete totals on any table size">
@@ -2491,10 +2493,66 @@ ORDER BY dayofweek(ride_date)`}</Code>
         the same places.
       </P>
 
+      <H3 id="report-schedule">Sending a report on a schedule</H3>
+      <P>
+        <strong>Schedule</strong>, beside Export PDF, sends the saved report as a PDF attachment:
+        every day, on weekdays, weekly on a day, or monthly on a day from 1 to 28 or on the
+        month&apos;s last day, at an hour in a time zone. The hour is local, so 08:00 in
+        Europe/London stays 08:00 when the clocks change. Each recipient gets an email of their own,
+        and a reply comes to you.
+      </P>
+      <P>
+        A scheduled run is you running the report. Every block&apos;s query runs again on the server
+        with your access, so recipients get the numbers you can see. A date parameter can hold a
+        relative date, worked out on the day it runs in the schedule&apos;s time zone: the day it
+        runs or the day before, Monday or Sunday of last week, or the first or last day of this or
+        last month, quarter or year. A saved value the report no longer accepts runs at its default,
+        and the delivery says so. In the subject, <C>{"{{date}}"}</C> is the day it runs and a
+        parameter&apos;s <C>{"{{name}}"}</C> prints the value it ran with. The PDF&apos;s header and
+        footer print <C>{"{{date}}"}</C> and <C>{"{{time}}"}</C> as the schedule&apos;s time zone
+        reads them, such as 2026-11-18 and 08:00, so the subject, the file name and the page agree
+        on the day. Numbers in the PDF are grouped the way the server&apos;s locale groups them (its{" "}
+        <C>LANG</C>), since a scheduled run has no viewer: Export PDF in the designer uses yours.
+      </P>
+      <UL>
+        <li>
+          <strong>Preview PDF</strong> renders on the server exactly what a run would send, and
+          downloads it without sending anything.
+        </li>
+        <li>
+          <strong>Send to me</strong> sends one copy to your own address. <strong>Send now</strong>{" "}
+          sends to every recipient.
+        </li>
+        <li>
+          <strong>Skip when every query is empty</strong> sends nothing on a day when every block
+          that runs a query came back empty.
+        </li>
+        <li>
+          <strong>Recent deliveries</strong> lists each send as sent, partial, skipped or failed,
+          with its pages, its size and the reason. A scheduled send that fails also notifies you.
+        </li>
+      </UL>
+      <P>
+        There is no browser on the server, so charts are drawn as vectors from the same chart
+        component the app uses: 24 visual types as charts with their legends, KPIs from the same
+        figures as the card, heatmaps and pivots as grids, and narratives as text. Small multiples,
+        pictograms, the point map, the word cloud, range, cards and the bar race are drawn in the
+        app only. The PDF prints a note where they would be, and the Schedule dialog names them
+        before you schedule anything.
+      </P>
+      <Callout kind="info" title="Who a report can be sent to">
+        People with an account on this install, always. An administrator allows other addresses with{" "}
+        <C>REPORT_EMAIL_DOMAINS</C>: <C>client.com</C> allows that domain, <C>.client.com</C> also
+        its subdomains, and <C>*</C> any address. The list is checked when a schedule is saved and
+        again every time it sends. Sending needs a mail transport (<C>SMTP_HOST</C> or{" "}
+        <C>RESEND_API_KEY</C>). A report has at most 10 schedules, each with up to 25 recipients,
+        and a PDF over 10 MB is not sent.
+      </Callout>
+
       <Callout kind="info" title="Reports are owner-only">
         A report belongs to the account that created it. Unlike dashboards, there is no group share,
-        public link or embed key — send the exported PDF. Name and page setup changes are written to
-        the audit log.
+        public link or embed key: send the exported PDF, or schedule it. Name and page setup
+        changes, and every change to who a schedule sends to, are written to the audit log.
       </Callout>
 
       <H2 id="lifecycle">Versioning and promotion</H2>

@@ -1094,11 +1094,21 @@ export const SETTINGS_REFERENCE: SettingsTier[] = [
             ]
           },
           {
-            "settings": [],
+            "settings": [
+              {
+                "name": "REPORT_EMAIL_DOMAINS",
+                "line": "REPORT_EMAIL_DOMAINS=\"\"",
+                "note": ""
+              }
+            ],
             "body": [
               {
                 "kind": "text",
                 "text": "(SITE_URL is declared once, in section 2 — email links use it too.)"
+              },
+              {
+                "kind": "text",
+                "text": "Who a scheduled report (BI → Reports → Schedule) may be sent to. Always: people with an account on this install. Add domains, comma-separated, to allow addresses there too: \"example.com\" is that domain only, \".example.com\" also its subdomains, and \"*\" allows any address. Empty keeps reports inside the install — a report carries the data its owner can read, so sending it outside is a decision for the operator, not each author."
               }
             ]
           }

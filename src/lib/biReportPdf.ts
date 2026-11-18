@@ -15,6 +15,7 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf
 
 import { encLine, wrapText } from "@/lib/biPdf";
 import { barcodeShapes } from "@/lib/biBarcode";
+import { drawServerVisual, type RenderVisual } from "@/lib/biReportCharts";
 import type { BiParamValues } from "@/lib/biParams";
 import {
   BAND_H,
@@ -47,6 +48,9 @@ const FAINT = rgb(0.62, 0.64, 0.68);
 const HAIRLINE = rgb(0.87, 0.885, 0.9);
 const ZEBRA = rgb(0.968, 0.973, 0.98);
 
+/** Text the standard fonts can draw, a typographic minus kept as a sign. */
+const printable = (s: string) => encLine(s.replace(/−/g, "-"));
+
 /** Type sizes, in points, for each thing a report draws. */
 const SIZE = { h1: 16, h2: 12.5, h3: 10.5, body: 9.5, table: 8.5, band: 7.5 } as const;
 // Shared with the designer's preview, so the two cannot disagree about where
@@ -66,8 +70,10 @@ export type ReportImageBytes = { bytes: Uint8Array; type: "png" | "jpeg" };
 /**
  * Lay the report out and return the PDF bytes.
  *
- * Charts arrive pre-rasterised because only the browser can draw them; this
- * function is otherwise pure layout and is what the tests exercise.
+ * In the browser, charts arrive as bitmaps of what the page drew; on the
+ * server (a scheduled run) `renderVisual` supplies them as markup to draw as
+ * vectors. This function is otherwise pure layout and is what the tests
+ * exercise.
  */
 export async function buildReportPdfBytes(args: {
   report: BiReport;
@@ -78,6 +84,17 @@ export async function buildReportPdfBytes(args: {
   values?: BiParamValues;
   /** Fixed at call time so every page of one export agrees. */
   now?: Date;
+  /**
+   * What {{date}} and {{time}} print. Unset: `now` in the viewer's own locale
+   * and zone, which is right in a browser. A server has neither, so a
+   * scheduled run passes the schedule zone's day and time (R509 runClock).
+   */
+  clock?: { date: string; time: string };
+  /**
+   * The server's chart renderer (R509), used where no bitmap was given: the
+   * chart component rendered to markup at a size, drawn here as vectors.
+   */
+  renderVisual?: (block: Extract<ReportBlock, { kind: "chart" }>) => RenderVisual | null;
 }): Promise<Uint8Array> {
   const { report } = args;
   const geo = pageGeometry(report.page);
@@ -171,6 +188,37 @@ export async function buildReportPdfBytes(args: {
       case "chart": {
         const bmp = args.charts?.get(block.id);
         const boxH = block.height ?? 200;
+        // On the server (R509) the chart is drawn as vectors from the same
+        // component, in the same box the preview reserves for it.
+        const render =
+          !bmp && args.renderVisual && (block.widget.rows ?? []).length && block.widget.chart
+            ? args.renderVisual(block)
+            : null;
+        if (render && block.widget.chart) {
+          ensure(boxH + 18);
+          if (block.widget.title) {
+            draw(block.widget.title, { font: bold, size: SIZE.h3 });
+            y -= SIZE.h3 + 5;
+            ensure(boxH);
+          }
+          await drawServerVisual(
+            {
+              page,
+              regular,
+              bold,
+              encode: printable,
+              ink: INK,
+              muted: MUTED,
+            },
+            block.widget.chart.type,
+            { x: margin, top: y, w: geo.contentW, h: boxH },
+            render,
+            (text, size, width) => wrapText(text, regular, size, width),
+          );
+          y -= boxH + 12;
+          drawCaveat(partialRowsCaveat(block.widget));
+          break;
+        }
         if (!bmp) {
           // Say what is missing rather than leaving a gap the reader has to
           // interpret. A silent hole reads as "no data", which is a different
@@ -399,7 +447,7 @@ export async function buildReportPdfBytes(args: {
     }
   }
 
-  stampBands({ pdf, report, geo, regular, now, fill });
+  stampBands({ pdf, report, geo, regular, now, clock: args.clock, fill });
   return pdf.save();
 }
 
@@ -428,14 +476,16 @@ function stampBands(args: {
   geo: ReturnType<typeof pageGeometry>;
   regular: PDFFont;
   now: Date;
+  clock?: { date: string; time: string };
   /** Fills the report's {{parameter}} tokens before the export's own. */
   fill: (s: string) => string;
 }): void {
   const { pdf, report, geo, regular, now, fill } = args;
   const pages = pdf.getPages();
   const margin = (geo.w - geo.contentW) / 2;
-  const date = now.toLocaleDateString();
-  const time = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const date = args.clock?.date ?? now.toLocaleDateString();
+  const time =
+    args.clock?.time ?? now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
   pages.forEach((p, i) => {
     const ctx: TokenContext = {

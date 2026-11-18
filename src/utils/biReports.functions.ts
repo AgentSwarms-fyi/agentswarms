@@ -56,7 +56,7 @@ export type BiReportRow = {
 };
 
 /** A stored row as the app's own types, with every default filled in. */
-function toReport(row: Record<string, unknown>): BiReportRow {
+export function toReport(row: Record<string, unknown>): BiReportRow {
   const page = (row.page ?? {}) as Partial<ReportPageSetup>;
   const setup: ReportPageSetup = {
     size: page.size ?? DEFAULT_PAGE.size,
