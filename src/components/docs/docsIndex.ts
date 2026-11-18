@@ -415,6 +415,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "410,379.26",
       "AVG",
       "COUNT",
+      "EMEA-2025-100111",
       "Heatwave",
       "LIMIT",
       "LOCAL_ENGINE=alasql",
@@ -447,6 +448,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "count",
       "count_distinct",
       "currency",
+      "date",
       "dateGrain",
       "decimals",
       "drillFields",
@@ -486,6 +488,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "nightingale",
       "ontology",
       "order_id",
+      "page",
       "pareto",
       "percentStack",
       "pictogram",
@@ -508,6 +511,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "score",
       "seriesField",
       "shbar",
+      "ship_mode",
       "smallmultiples",
       "state",
       "sum",
@@ -890,6 +894,26 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "report-reuse",
         "text": "Reusing a dashboard&apos;s widgets",
+        "level": 3
+      },
+      {
+        "id": "report-params",
+        "text": "Parameters: one report, any order or month",
+        "level": 3
+      },
+      {
+        "id": "report-queries",
+        "text": "A block&apos;s own query",
+        "level": 3
+      },
+      {
+        "id": "report-fields",
+        "text": "Fields from one record",
+        "level": 3
+      },
+      {
+        "id": "report-pictures",
+        "text": "Pictures and barcodes",
         "level": 3
       },
       {

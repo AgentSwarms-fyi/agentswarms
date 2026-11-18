@@ -449,6 +449,55 @@ by `html2canvas-pro` from the very nodes the preview is showing (tagged
 chart with no rows prints a visible `[chart unavailable]` marker rather than a
 silent gap.
 
+### Parameters, fields, pictures and barcodes
+
+R508 makes a report a document that runs for one order, one month or one
+region at a time.
+
+- **Parameters**, defined under Parameters in the designer, are stored with
+  the page settings (`page.params`), so no schema change was needed.
+  - Each is the dashboard parameter model (`BiParamConfig`) plus a
+    report-only **Text** kind, up to 200 characters with no control
+    characters. Dashboards, which viewers drive, never accept text:
+    `parseParams` drops it unless called with `allowText`.
+  - A value reaches SQL through `substituteParams` as a literal: text quoted
+    with quotes doubled, a date as `DATE '…'`, a number as written.
+  - `{{name}}` also fills text, headings, the bands and barcodes
+    (`fillParamTokens`). In text a List parameter prints its label; a barcode
+    encodes the value itself (`{ raw: true }`), since that is what is scanned.
+  - Names the report fills itself (`page`, `pages`, `title`, `date`, `time`)
+    are refused.
+- **A block's own query.** Fields and Table blocks added in the designer carry
+  a widget with its own SQL and source (local datasets or a warehouse), and
+  every query block shows its SQL in the editor with a Run button.
+  - **Run report** runs every query block with the chosen values. Each block
+    records the values its rows came from (`ranWith`, saved with it), and the
+    bar asks for a run while a block that reads a parameter has rows for other
+    values (`blockNeedsRun`). A parameter no block reads never asks.
+  - Export runs the report first when one does, so a PDF never prints one
+    order's lines under another's number.
+  - A table a value leaves empty prints `[no rows: name]` in the preview and
+    the PDF alike, at the height the paginator gave it.
+- **Fields** print the first row of a query as label and value pairs, one to
+  three across.
+  - Labels are the column names tidied, unless the author writes their own.
+  - Several rows print the first with "The first of N rows"; no row says so.
+- **Pictures** are a PNG or JPEG kept in the report as a data URL (up to about
+  1 MB), or an https address fetched at export. One the browser cannot fetch
+  prints `[picture unavailable]`.
+- **Barcodes** are drawn as shapes (`src/lib/biBarcode.ts`, `barcodeShapes`),
+  the same rectangles in the SVG preview and the PDF.
+  - Code 128 is encoded in-house: set B, with set C for digit runs of four or
+    more. Its pattern table is checked by tests (11 modules each, an even bar
+    width) and its bars decode back to the symbols.
+  - QR uses `qrcode-generator` (MIT), with UTF-8 bytes and error correction
+    M.
+  - A value the format cannot hold prints the reason.
+
+Fields, pictures and barcodes have fixed heights (`blockHeight`) that both the
+preview's `paginateBlocks` and the PDF reserve, and a test pins their page
+counts together.
+
 ### Access
 
 A report is **owner-only**. `bi_reports` carries RLS on `auth.uid() = user_id`

@@ -11,8 +11,11 @@ import {
   ArrowLeft,
   ArrowDown,
   ArrowUp,
+  Barcode,
   Download,
   FileText,
+  Image as ImageIcon,
+  ListTree,
   LayoutDashboard,
   Loader2,
   Minus,
@@ -57,7 +60,23 @@ import {
   type DatasetMeta,
   type QueryResult,
 } from "@/lib/sqlEngine";
-import { widgetRowCap, type BiWidgetSource } from "@/lib/biDashboards";
+import { widgetRowCap, type BiWidget, type BiWidgetSource } from "@/lib/biDashboards";
+import { reconcileChartFields } from "@/lib/biChartFields";
+import {
+  isValidParamValue,
+  substituteParams,
+  type BiParamConfig,
+  type BiParamValues,
+} from "@/lib/biParams";
+import {
+  BarcodeBlockEditor,
+  FieldsBlockEditor,
+  ImageBlockEditor,
+  ReportParamsEditor,
+  ReportQueryEditor,
+  ReportRunBar,
+} from "@/components/bi/ReportDesignerParts";
+import { blockNeedsRun, newQueryWidget, paramTokens, valuesRead } from "@/lib/biReportDesign";
 import { fetchWarehouseSchema, runWarehouseQuery } from "@/lib/warehouseClient";
 import { listWarehouseConnections } from "@/utils/warehouse.functions";
 import type { WarehouseConnectionSummary, WarehouseTable } from "@/utils/warehouse/types";
@@ -65,7 +84,9 @@ import {
   BLOCK_LABEL,
   PAGE_SIZES,
   REPORT_TOKENS,
+  fillParamTokens,
   newBlockId,
+  reportParams,
   validateReport,
   type BiReport,
   type ReportBand,
@@ -277,6 +298,108 @@ function ReportDesigner() {
     setReport((r) => (r ? { ...r, blocks: fn(r.blocks) } : r));
   }, []);
 
+  // ── Parameters and running (R508) ────────────────────────────────────────
+  const params = useMemo(() => (report ? reportParams(report.page) : []), [report]);
+  const [values, setValues] = useState<BiParamValues>({});
+  const effectiveValues = useMemo(() => {
+    const out: BiParamValues = {};
+    for (const p of params) {
+      const v = values[p.name];
+      out[p.name] = v !== undefined && isValidParamValue(p, v) ? v : p.default;
+    }
+    return out;
+  }, [params, values]);
+  // A block records the values its rows were fetched with. One that reads a
+  // parameter and has not run with the chosen values shows numbers for other
+  // values, so the run bar says so and export runs the report first.
+  const needRun = (report?.blocks ?? []).filter((b) => blockNeedsRun(b, params, effectiveValues));
+  const staleValues = needRun.length > 0;
+  const staleChanged = needRun.some((b) => "ranWith" in b && b.ranWith);
+  const [runningIds, setRunningIds] = useState<Set<string>>(new Set());
+
+  /** One block's query, with the values filled; the block's new widget, or null. */
+  const runWidget = useCallback(
+    async (widget: BiWidget, vals: BiParamValues): Promise<BiWidget> => {
+      const sql = substituteParams(widget.sql ?? "", params, vals);
+      const res = await runSql(widget.source ?? { kind: "local" }, sql);
+      const next: BiWidget = {
+        ...widget,
+        columns: res.columns,
+        rows: res.rows,
+        truncated: Boolean(res.capped),
+        refreshed_at: new Date().toISOString(),
+      };
+      // A chart keeps drawing when the query's columns move under it.
+      if (next.chart && next.chart.type !== "table") {
+        const fields = reconcileChartFields({
+          chart: next.chart,
+          columns: res.columns,
+          rows: res.rows,
+        });
+        if (fields.verdict !== "ok") next.chart = fields.chart;
+      }
+      return next;
+    },
+    [params, runSql],
+  );
+
+  const runBlock = useCallback(
+    async (id: string) => {
+      const block = report?.blocks.find((b) => b.id === id);
+      if (!block || !("widget" in block) || !block.widget.sql?.trim()) return;
+      setRunningIds((s) => new Set(s).add(id));
+      try {
+        const widget = await runWidget(block.widget, effectiveValues);
+        const ranWith = valuesRead(widget.sql, params, effectiveValues);
+        setBlocks((bl) =>
+          bl.map((b) =>
+            b.id === id && "widget" in b ? ({ ...b, widget, ranWith } as ReportBlock) : b,
+          ),
+        );
+      } catch (e) {
+        toast.error(`${block.widget.title || BLOCK_LABEL[block.kind]}: ${(e as Error).message}`);
+      } finally {
+        setRunningIds((s) => {
+          const next = new Set(s);
+          next.delete(id);
+          return next;
+        });
+      }
+    },
+    [report, runWidget, effectiveValues, setBlocks, params],
+  );
+
+  /**
+   * Every block that has a query, run with the chosen values. Returns the
+   * blocks as they now are, so an export can print them without waiting for
+   * the state to settle.
+   */
+  const runAll = useCallback(async (): Promise<ReportBlock[] | null> => {
+    if (!report) return null;
+    const ids = report.blocks.filter((b) => "widget" in b && b.widget.sql?.trim()).map((b) => b.id);
+    setRunningIds(new Set(ids));
+    const failed: string[] = [];
+    const next: ReportBlock[] = [];
+    for (const b of report.blocks) {
+      if (!("widget" in b) || !b.widget.sql?.trim()) {
+        next.push(b);
+        continue;
+      }
+      try {
+        const widget = await runWidget(b.widget, effectiveValues);
+        const ranWith = valuesRead(widget.sql, params, effectiveValues);
+        next.push({ ...b, widget, ranWith } as ReportBlock);
+      } catch (e) {
+        failed.push(`${b.widget.title || BLOCK_LABEL[b.kind]}: ${(e as Error).message}`);
+        next.push(b);
+      }
+    }
+    setBlocks(() => next);
+    setRunningIds(new Set());
+    if (failed.length) toast.error(failed.join("\n"));
+    return next;
+  }, [report, runWidget, effectiveValues, setBlocks, params]);
+
   async function save(overwrite = false) {
     if (!report) return;
     const invalid = validateReport(report);
@@ -323,14 +446,24 @@ function ReportDesigner() {
     if (!report) return;
     setExporting(true);
     try {
-      const [{ buildReportPdfBytes }, html2canvas] = await Promise.all([
+      // A report whose values changed since its queries ran would print the
+      // numbers for the old values under the new ones. Run it first, then let
+      // the preview draw the new rows before its charts are copied.
+      let blocks = report.blocks;
+      if (staleValues) {
+        const ran = await runAll();
+        if (ran) blocks = ran;
+        await new Promise((r) => setTimeout(r, 900));
+      }
+      const [{ buildReportPdfBytes }, html2canvas, { resolveReportImages }] = await Promise.all([
         import("@/lib/biReportPdf"),
         import("html2canvas-pro").then((m) => m.default),
+        import("@/lib/biReportImages"),
       ]);
       // Charts are the only bitmap: rasterise each from the live preview so
       // what prints is what the designer showed.
       const charts = new Map<string, { dataUrl: string; wPx: number; hPx: number }>();
-      for (const block of report.blocks) {
+      for (const block of blocks) {
         if (block.kind !== "chart") continue;
         const el = document.querySelector<HTMLElement>(`[data-chart-block="${block.id}"]`);
         if (!el) continue;
@@ -347,7 +480,13 @@ function ReportDesigner() {
           hPx: rect.height,
         });
       }
-      const bytes = await buildReportPdfBytes({ report, charts });
+      const images = await resolveReportImages(blocks);
+      const bytes = await buildReportPdfBytes({
+        report: { ...report, blocks },
+        charts,
+        images,
+        values: effectiveValues,
+      });
       const blob = new Blob([bytes as BlobPart], { type: "application/pdf" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -529,6 +668,59 @@ function ReportDesigner() {
               >
                 <Plus className="mr-1 h-3 w-3" /> Page break
               </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-[11px]"
+                onClick={() =>
+                  add({
+                    id: newBlockId(),
+                    kind: "fields",
+                    widget: newQueryWidget("Details"),
+                    perRow: 2,
+                  })
+                }
+              >
+                <ListTree className="mr-1 h-3 w-3" /> Fields
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-[11px]"
+                onClick={() =>
+                  add({ id: newBlockId(), kind: "table", widget: newQueryWidget(""), zebra: true })
+                }
+              >
+                <Table2 className="mr-1 h-3 w-3" /> Table
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-[11px]"
+                onClick={() =>
+                  add({ id: newBlockId(), kind: "image", src: "", height: 48, align: "left" })
+                }
+              >
+                <ImageIcon className="mr-1 h-3 w-3" /> Picture
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-[11px]"
+                onClick={() =>
+                  add({
+                    id: newBlockId(),
+                    kind: "barcode",
+                    format: "code128",
+                    value: params[0] ? `{{${params[0].name}}}` : "",
+                    height: 40,
+                    showText: true,
+                    align: "left",
+                  })
+                }
+              >
+                <Barcode className="mr-1 h-3 w-3" /> Barcode
+              </Button>
             </div>
             <Button
               size="sm"
@@ -539,8 +731,9 @@ function ReportDesigner() {
               <LayoutDashboard className="mr-1 h-3 w-3" /> Add from a dashboard
             </Button>
             <p className="text-[11px] leading-relaxed text-muted-foreground">
-              A chart or table block carries a dashboard widget, so it arrives either from a
-              dashboard you already built or from <strong>Generate with AI</strong>.
+              A chart arrives from a dashboard you already built or from{" "}
+              <strong>Generate with AI</strong>. Fields and tables can also run a query of their
+              own, which may read the report&apos;s parameters.
             </p>
 
             <div className="space-y-1 border-t pt-2">
@@ -562,6 +755,8 @@ function ReportDesigner() {
                     {BLOCK_LABEL[b.kind]}
                     {"text" in b && b.text ? ` · ${b.text.slice(0, 22)}` : ""}
                     {"widget" in b && b.widget.title ? ` · ${b.widget.title.slice(0, 22)}` : ""}
+                    {b.kind === "barcode" && b.value ? ` · ${b.value.slice(0, 22)}` : ""}
+                    {b.kind === "image" && b.alt ? ` · ${b.alt.slice(0, 22)}` : ""}
                   </button>
                   <button
                     title="Move up"
@@ -603,15 +798,34 @@ function ReportDesigner() {
             </div>
 
             {selected ? (
-              <BlockEditor blocks={report.blocks} id={selected} onChange={setBlocks} />
+              <BlockEditor
+                blocks={report.blocks}
+                id={selected}
+                onChange={setBlocks}
+                params={params}
+                values={effectiveValues}
+                warehouses={warehouses}
+                running={runningIds.has(selected)}
+                onRun={() => void runBlock(selected)}
+              />
             ) : null}
           </CardContent>
         </Card>
 
         {/* The pages, as they will print. */}
-        <div className="min-h-0 overflow-y-auto rounded-lg border bg-muted/40 p-4">
+        <div className="min-h-0 space-y-3 overflow-y-auto rounded-lg border bg-muted/40 p-4">
+          <ReportRunBar
+            params={params}
+            values={effectiveValues}
+            onValue={(name, v) => setValues((cur) => ({ ...cur, [name]: v }))}
+            onRun={() => void runAll()}
+            running={runningIds.size > 0}
+            stale={staleValues}
+            ranOnce={staleChanged}
+          />
           <ReportPagePreview
             report={report}
+            values={effectiveValues}
             selectedBlockId={selected}
             onSelectBlock={setSelected}
           />
@@ -677,17 +891,23 @@ function ReportDesigner() {
             <BandEditor
               label="Header"
               band={report.header}
+              params={params}
               onChange={(header) => patch({ header })}
             />
             <BandEditor
               label="Footer"
               band={report.footer}
+              params={params}
               onChange={(footer) => patch({ footer })}
             />
             <p className="text-[11px] leading-relaxed text-muted-foreground">
               <strong>Token</strong> puts a value filled in at export into the text, such as{" "}
               <code>{"Page {{page}} of {{pages}}"}</code>.
             </p>
+            <ReportParamsEditor
+              params={(report.page.params ?? []) as BiParamConfig[]}
+              onChange={(next) => patch({ page: { ...report.page, params: next } })}
+            />
           </CardContent>
         </Card>
       </div>
@@ -743,11 +963,13 @@ function BandSlot({
   band,
   bandLabel,
   slot,
+  params,
   onChange,
 }: {
   band: ReportBand;
   bandLabel: string;
   slot: "left" | "center" | "right";
+  params: BiParamConfig[];
   onChange: (b: ReportBand) => void;
 }) {
   const value = band[slot] ?? "";
@@ -767,7 +989,10 @@ function BandSlot({
       />
       <TemplateInsertMenu
         className="h-7 shrink-0"
-        tokens={BAND_TOKENS}
+        tokens={[
+          ...BAND_TOKENS,
+          ...paramTokens(params).map((t) => ({ ...t, group: "Parameters" })),
+        ]}
         onPick={insert}
         label="Token"
         fieldLabel={label}
@@ -779,17 +1004,26 @@ function BandSlot({
 function BandEditor({
   label,
   band,
+  params,
   onChange,
 }: {
   label: string;
   band: ReportBand;
+  params: BiParamConfig[];
   onChange: (b: ReportBand) => void;
 }) {
   return (
     <div className="space-y-1 border-t pt-2">
       <Label className="text-[11px]">{label}</Label>
       {(["left", "center", "right"] as const).map((slot) => (
-        <BandSlot key={slot} band={band} bandLabel={label} slot={slot} onChange={onChange} />
+        <BandSlot
+          key={slot}
+          band={band}
+          bandLabel={label}
+          slot={slot}
+          params={params}
+          onChange={onChange}
+        />
       ))}
     </div>
   );
@@ -800,15 +1034,26 @@ function BlockEditor({
   blocks,
   id,
   onChange,
+  params,
+  values,
+  warehouses,
+  running,
+  onRun,
 }: {
   blocks: ReportBlock[];
   id: string;
   onChange: (fn: (b: ReportBlock[]) => ReportBlock[]) => void;
+  params: BiParamConfig[];
+  values: BiParamValues;
+  warehouses: WarehouseConnectionSummary[];
+  running: boolean;
+  onRun: () => void;
 }) {
   const block = blocks.find((b) => b.id === id);
   if (!block) return null;
   const update = (next: Partial<ReportBlock>) =>
     onChange((bl) => bl.map((b) => (b.id === id ? ({ ...b, ...next } as ReportBlock) : b)));
+  const replace = (next: ReportBlock) => onChange((bl) => bl.map((b) => (b.id === id ? next : b)));
 
   return (
     <div className="space-y-2 border-t pt-2">
@@ -838,11 +1083,10 @@ function BlockEditor({
         </>
       ) : null}
       {block.kind === "text" ? (
-        <Textarea
-          rows={4}
-          className="text-xs"
+        <TextWithParams
           value={block.text}
-          onChange={(e) => update({ text: e.target.value } as Partial<ReportBlock>)}
+          params={params}
+          onChange={(text) => update({ text } as Partial<ReportBlock>)}
         />
       ) : null}
       {block.kind === "spacer" ? (
@@ -884,6 +1128,60 @@ function BlockEditor({
             continues across pages, with its header on each.
           </p>
         </div>
+      ) : null}
+      {block.kind === "fields" ? <FieldsBlockEditor block={block} onChange={replace} /> : null}
+      {block.kind === "image" ? <ImageBlockEditor block={block} onChange={replace} /> : null}
+      {block.kind === "barcode" ? (
+        <BarcodeBlockEditor
+          block={block}
+          params={params}
+          filledValue={fillParamTokens(block.value, params, values, { raw: true })}
+          onChange={replace}
+        />
+      ) : null}
+      {"widget" in block && (block.kind !== "chart" || block.widget.sql) ? (
+        <ReportQueryEditor
+          widget={block.widget}
+          warehouses={warehouses}
+          params={params}
+          running={running}
+          onChange={(widget) => replace({ ...block, widget } as ReportBlock)}
+          onRun={onRun}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/** A text block's text, with a parameter put at the cursor. */
+function TextWithParams({
+  value,
+  params,
+  onChange,
+}: {
+  value: string;
+  params: BiParamConfig[];
+  onChange: (v: string) => void;
+}) {
+  const { ref, insert } = useInsertAtCaret<HTMLTextAreaElement>(value, onChange);
+  return (
+    <div className="space-y-1">
+      <Textarea
+        ref={ref}
+        rows={4}
+        className="text-xs"
+        aria-label="Text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {params.length ? (
+        <TemplateInsertMenu
+          className="h-7"
+          tokens={paramTokens(params)}
+          onPick={insert}
+          label="Parameter"
+          fieldLabel="Text"
+        />
       ) : null}
     </div>
   );

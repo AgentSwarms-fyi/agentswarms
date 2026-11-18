@@ -122,6 +122,24 @@ export function BiParamControl({
   compact?: boolean;
 }) {
   const id = `param-${param.id}`;
+  if (param.control === "text") {
+    return (
+      <div className={cn("flex flex-wrap items-center gap-x-2 gap-y-1", compact && "gap-x-1.5")}>
+        <Label htmlFor={id} className="shrink-0 text-xs">
+          {param.label}
+        </Label>
+        <Input
+          id={id}
+          value={value}
+          maxLength={200}
+          disabled={disabled}
+          aria-label={param.label}
+          onChange={(e) => onChange(e.target.value)}
+          className="h-7 min-w-[8rem] max-w-[14rem] flex-1 text-xs"
+        />
+      </div>
+    );
+  }
   if (param.control === "number") {
     return <NumberParam param={param} value={value} onChange={onChange} disabled={disabled} />;
   }

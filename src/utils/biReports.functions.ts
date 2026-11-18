@@ -13,8 +13,10 @@ import {
   DEFAULT_HEADER,
   DEFAULT_PAGE,
   MAX_BLOCKS,
+  MAX_REPORT_PARAMS,
   REPORT_NAME_MAX,
   clampMargin,
+  reportParams,
   validateReport,
   type BiReport,
   type ReportBand,
@@ -61,6 +63,10 @@ function toReport(row: Record<string, unknown>): BiReportRow {
     orientation: page.orientation === "landscape" ? "landscape" : "portrait",
     margin: clampMargin(Number(page.margin ?? DEFAULT_PAGE.margin), 595),
   };
+  // Parameters (R508) are read as a report reads them: malformed ones and
+  // ones named like the report's own tokens are left out.
+  const params = reportParams(page as ReportPageSetup);
+  if (params.length) setup.params = params;
   return {
     id: String(row.id),
     user_id: String(row.user_id),
@@ -135,6 +141,9 @@ export const biReportSave = createServerFn({ method: "POST" })
           size: z.enum(["a4", "letter", "legal", "a3"]),
           orientation: z.enum(["portrait", "landscape"]),
           margin: z.number(),
+          // R508. Re-read by reportParams below: the client's copy is never
+          // stored as sent.
+          params: z.array(z.record(z.string(), z.unknown())).max(MAX_REPORT_PARAMS).optional(),
         }),
         header: BAND,
         footer: BAND,
@@ -156,14 +165,25 @@ export const biReportSave = createServerFn({ method: "POST" })
         if (refused) return { ok: false, error: refused };
       }
       const blocks = data.blocks as unknown as ReportBlock[];
-      const invalid = validateReport({ name: data.name, page: data.page, blocks });
+      const page: ReportPageSetup = {
+        size: data.page.size,
+        orientation: data.page.orientation,
+        margin: clampMargin(data.page.margin, 595),
+      };
+      const params = reportParams({ ...page, params: data.page.params as never });
+      if (params.length) page.params = params;
+      const invalid = validateReport({
+        name: data.name,
+        page: { ...page, params: (data.page.params ?? []) as never },
+        blocks,
+      });
       if (invalid) return { ok: false, error: invalid };
 
       const patch = {
         user_id: userId,
         name: data.name,
         description: data.description ?? null,
-        page: { ...data.page, margin: clampMargin(data.page.margin, 595) } as unknown as Json,
+        page: page as unknown as Json,
         header: data.header as unknown as Json,
         footer: data.footer as unknown as Json,
         blocks: blocks as unknown as Json,

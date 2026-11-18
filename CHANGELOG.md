@@ -214,6 +214,15 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Reports that run with parameters, with fields, pictures and barcodes**
+  (R508). A report takes parameters (text, date, number or a list), chosen in
+  a bar above its pages, and its blocks read them as `{{name}}` in their SQL,
+  text, header and footer. Fields and Table blocks can run a query of their
+  own. A **Fields** block prints one record as label and value pairs, a
+  **Picture** block prints a logo, and a **Barcode** block prints Code 128 or
+  a QR code. The PDF draws them all as text and shapes, and breaks across
+  pages where the preview does.
+
 - **BI: the AI can choose every visual** (R507). Generate Entire Dashboard,
   the AI Analyst, Visual BI in chat and an embedded agent's chat now choose
   from every visual the builder offers except Controls and Ontology: pareto,
@@ -323,6 +332,10 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **A report table with no rows drew a header in the preview but a line in
+  the PDF** (R508), so the two could break pages differently. Both now print
+  `[no rows: …]` at the same height. A parameter that matches nothing makes
+  this common.
 - **AI charts drew empty frames for a column the query never returned**
   (R507). The AI Analyst's step charts, Visual BI in chat and embeds drew
   whatever columns the model named; only generated dashboards were checked.

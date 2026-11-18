@@ -2298,7 +2298,19 @@ ORDER BY dayofweek(ride_date)`}</Code>
           },
           {
             name: "Table",
-            body: "A widget's rows, printed. This is the block that continues onto the next page and redraws its header row when it does.",
+            body: "A widget's rows, printed, or the rows of a query of its own. This is the block that continues onto the next page and redraws its header row when it does.",
+          },
+          {
+            name: "Fields",
+            body: "Label and value pairs from the first row of a query: the order number, customer, date and total at the top of an order. One, two or three pairs across.",
+          },
+          {
+            name: "Picture",
+            body: "A PNG or JPEG you choose (kept in the report, up to about 1 MB) or an https address: a logo, a signature, a stamp. Set its height; the width follows.",
+          },
+          {
+            name: "Barcode",
+            body: "A Code 128 barcode or a QR code of a value, usually a parameter such as {{order_id}}. Drawn as shapes, so it prints as sharp as the text.",
           },
         ]}
       />
@@ -2320,13 +2332,94 @@ ORDER BY dayofweek(ride_date)`}</Code>
         the dashboard first.
       </P>
 
+      <H3 id="report-params">Parameters: one report, any order or month</H3>
+      <P>
+        A report can take <strong>parameters</strong>, values chosen when it runs: an order number,
+        a month, a region. Define them under <strong>Parameters</strong> in the right-hand column.
+        Each has a name (what the report writes as <C>{"{{name}}"}</C>), a label, a kind and a
+        default. A parameter is <strong>Text</strong> (anything typed, up to 200 characters),{" "}
+        <strong>Date</strong>, <strong>Number</strong> or a <strong>List</strong> of values you
+        type, one per line, as <C>value | Label</C>. A name cannot be one of the tokens the report
+        fills itself, such as <C>page</C> or <C>date</C>.
+      </P>
+      <P>
+        The values sit in a bar above the pages. <strong>Run report</strong> runs every block that
+        has a query with them. Each block remembers the values its rows came from, and saves them
+        with the report, so the bar asks for a run only while a block that reads a parameter shows
+        rows for other values; changing a parameter no block reads asks for nothing. Export runs the
+        report first when one does, so a PDF never prints one order&apos;s lines under
+        another&apos;s number. A parameter also fills text, headings, the header and footer (from
+        the <strong>Parameter</strong> part of the Token menu) and barcodes. In text, a List
+        parameter prints its label; a barcode always encodes the value itself, because that is what
+        gets scanned.
+      </P>
+      <Callout kind="info" title="How a value reaches SQL">
+        As a literal, never as SQL: text is quoted with its quotes doubled (<C>{"O'Brien"}</C>{" "}
+        becomes <C>{"'O''Brien'"}</C>), a date as <C>{"DATE '2026-03-01'"}</C>, a number as written.
+        So write <C>{"WHERE order_id = {{order_id}}"}</C>, without quotes of your own. Text
+        parameters are for reports only: a report is run by its owner, who can already query the
+        same tables. Dashboards, which viewers drive, take only values from a list, a date or a
+        number.
+      </Callout>
+
+      <H3 id="report-queries">A block&apos;s own query</H3>
+      <P>
+        <strong>Fields</strong> and <strong>Table</strong> blocks added in the designer carry a
+        query of their own. Select the block, choose where it runs (your local datasets or a
+        connected warehouse), write the SQL with any <C>{"{{parameter}}"}</C> from the{" "}
+        <strong>Parameter</strong> menu, and press <strong>Run</strong>. A chart or table brought
+        from a dashboard or built with AI shows its query the same way, so its SQL can read the
+        report&apos;s parameters too. A table the values leave empty prints <C>[no rows: Lines]</C>{" "}
+        (its title, or &ldquo;table&rdquo;) in the preview and the PDF alike, rather than a header
+        over nothing.
+      </P>
+      <P>
+        An order document, for example: a text parameter <C>order_id</C>; a Fields block over{" "}
+        <C>
+          SELECT &quot;Order ID&quot;, &quot;Customer&quot;, &quot;Contact Name&quot;,
+          &quot;City&quot;, MIN(&quot;Order Date&quot;) …
+        </C>{" "}
+        grouped by the order; a Table block of its lines; and a Barcode of <C>{"{{order_id}}"}</C>.
+        In the bundled <C>saas_sales</C> data, order <C>EMEA-2025-100111</C> has 14 lines, 52 units
+        and 7,359.918 in sales, for Irene Walsh in London.
+      </P>
+
+      <H3 id="report-fields">Fields from one record</H3>
+      <P>
+        A Fields block prints its query&apos;s <strong>first row</strong> as label and value pairs,
+        one, two or three across. Each label is the column name tidied (<C>ship_mode</C> reads
+        &ldquo;Ship mode&rdquo;) unless you write your own, and you can leave columns out. A query
+        that returns several rows still prints the first, and the block says &ldquo;The first of 12
+        rows&rdquo; under it, because a reader takes a set of fields for the only record there is.
+        With no row, it says so instead of printing empty labels.
+      </P>
+
+      <H3 id="report-pictures">Pictures and barcodes</H3>
+      <P>
+        A <strong>Picture</strong> you choose is kept in the report, so it prints wherever the
+        report is opened. One given by https address is fetched when you export, which works only
+        where that server allows it; when it does not, the PDF prints <C>[picture unavailable]</C>{" "}
+        rather than a gap.
+      </P>
+      <P>
+        A <strong>Barcode</strong> is a Code 128 barcode (letters, digits and ASCII punctuation, up
+        to 48 characters, printed under the bars unless you turn that off) or a QR code (any text up
+        to 600 characters, with 15% error correction). Code 128 is drawn one point per bar module,
+        about 0.35 mm, with a quiet margin each side, and narrowed when the page is too narrow; runs
+        of four or more digits are packed two to a symbol to keep an order number short. A value the
+        format cannot hold prints the reason in place of the code. QR codes are made with
+        qrcode-generator (MIT). &ldquo;QR Code&rdquo; is a registered trademark of DENSO WAVE.
+      </P>
+
       <H3 id="report-page">Page setup, header and footer</H3>
       <P>
         Choose A4, Letter, Legal or A3, portrait or landscape, and a uniform margin. The running{" "}
         <strong>header</strong> and <strong>footer</strong> each have a left, centre and right slot
         that accept tokens: <C>{"{{page}}"}</C>, <C>{"{{pages}}"}</C>, <C>{"{{title}}"}</C>,{" "}
-        <C>{"{{date}}"}</C> and <C>{"{{time}}"}</C>. Each slot&apos;s <strong>Token</strong> menu
-        lists them and puts the one you pick at the cursor. A new report opens with{" "}
+        <C>{"{{date}}"}</C> and <C>{"{{time}}"}</C>, and the report&apos;s{" "}
+        <DocLink to="/docs/bi#report-params">parameters</DocLink>. Each slot&apos;s{" "}
+        <strong>Token</strong> menu lists them and puts the one you pick at the cursor. A new report
+        opens with{" "}
         <C>
           Page {"{{page}}"} of {"{{pages}}"}
         </C>{" "}
@@ -2390,10 +2483,12 @@ ORDER BY dayofweek(ride_date)`}</Code>
       <H3 id="report-export">Export</H3>
       <P>
         <strong>Export PDF</strong> builds a real vector-text PDF: headings, paragraphs and table
-        cells are selectable text, not a screenshot. Only charts are images, rasterised from the
-        nodes the preview is already showing, so the exported chart is the chart you were looking
-        at. A chart with no rows prints a visible <C>[chart unavailable]</C> marker rather than a
-        silent gap.
+        cells are selectable text, not a screenshot. Only charts and pictures are images, charts
+        rasterised from the nodes the preview is already showing, so the exported chart is the chart
+        you were looking at. Fields are text and barcodes are filled shapes. A chart with no rows
+        prints a visible <C>[chart unavailable]</C> marker rather than a silent gap. The preview and
+        the PDF give fields, pictures and barcodes the same height, so they break across pages in
+        the same places.
       </P>
 
       <Callout kind="info" title="Reports are owner-only">

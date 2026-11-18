@@ -6,11 +6,19 @@
 // picture of a document nobody receives, which is worse than no preview.
 import { BiChartRender } from "@/components/bi/BiChartRender";
 import {
+  ReportBarcodeView,
+  ReportFieldsView,
+  ReportImageView,
+} from "@/components/bi/ReportBlockViews";
+import type { BiParamValues } from "@/lib/biParams";
+import {
   BAND_H,
   TABLE_HEADER_H,
   TABLE_ROW_H,
   blockHeight,
+  fillParamTokens,
   pageGeometry,
+  reportParams,
   paginateBlocks,
   reportCellText,
   reportColumnKinds,
@@ -32,8 +40,11 @@ export function ReportPagePreview({
   now = new Date(),
   selectedBlockId,
   onSelectBlock,
+  values = {},
 }: {
   report: BiReport;
+  /** The parameter values the report runs with (R508); unset = the defaults. */
+  values?: BiParamValues;
   /** 1 renders a point as a pixel — about 96 dpi on a normal screen. */
   scale?: number;
   now?: Date;
@@ -42,6 +53,8 @@ export function ReportPagePreview({
 }) {
   const geo = pageGeometry(report.page);
   const pages = paginateBlocks(report.blocks, geo, (b) => blockHeight(b, geo.contentW));
+  const params = reportParams(report.page);
+  const fill = (s: string, raw = false) => fillParamTokens(s, params, values, { raw });
   const margin = (geo.w - geo.contentW) / 2;
   const date = now.toLocaleDateString();
   const time = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -61,9 +74,9 @@ export function ReportPagePreview({
             className="flex items-center justify-between text-muted-foreground"
             style={{ fontSize: px(7.5, scale), height: px(BAND_H, scale) }}
           >
-            <span>{b.left ? substituteTokens(b.left, ctx) : ""}</span>
-            <span>{b.center ? substituteTokens(b.center, ctx) : ""}</span>
-            <span>{b.right ? substituteTokens(b.right, ctx) : ""}</span>
+            <span>{b.left ? substituteTokens(fill(b.left), ctx) : ""}</span>
+            <span>{b.center ? substituteTokens(fill(b.center), ctx) : ""}</span>
+            <span>{b.right ? substituteTokens(fill(b.right), ctx) : ""}</span>
           </div>
         );
         return (
@@ -86,6 +99,8 @@ export function ReportPagePreview({
                 <PreviewItem
                   key={`${item.block.id}-${j}`}
                   item={item}
+                  fill={fill}
+                  contentW={geo.contentW}
                   scale={scale}
                   selected={selectedBlockId === item.block.id}
                   onSelect={onSelectBlock}
@@ -113,11 +128,16 @@ export function ReportPagePreview({
 
 function PreviewItem({
   item,
+  fill,
+  contentW,
   scale,
   selected,
   onSelect,
 }: {
   item: PlacedItem;
+  /** Fills the report's {{parameter}} tokens. */
+  fill: (s: string, raw?: boolean) => string;
+  contentW: number;
   scale: number;
   selected: boolean;
   onSelect?: (id: string) => void;
@@ -156,13 +176,13 @@ function PreviewItem({
           className={cn("font-semibold", block.level !== 3 && "border-b border-black/10 pb-1")}
           style={{ fontSize: px(block.level === 1 ? 16 : block.level === 3 ? 10.5 : 12.5, scale) }}
         >
-          {block.text}
+          {fill(block.text)}
         </div>,
       );
     case "text":
       return wrap(
         <p className="whitespace-pre-wrap leading-snug" style={{ fontSize: px(9.5, scale) }}>
-          {block.text}
+          {fill(block.text)}
         </p>,
       );
     case "spacer":
@@ -207,6 +227,17 @@ function PreviewItem({
       const cols = tableColumns(block);
       const rows = tableRows(block);
       const kinds = reportColumnKinds(rows, cols);
+      // No rows: the line the PDF prints, at the height the paginator gave it.
+      if (!rows.length || !cols.length) {
+        return wrap(
+          <div
+            className="text-muted-foreground"
+            style={{ fontSize: px(9, scale), height: px(20, scale) }}
+          >
+            [no rows: {block.widget.title || "table"}]
+          </div>,
+        );
+      }
       const slice = item.slice ?? { from: 0, to: rows.length, continued: false };
       const tableCaveat = partialRowsCaveat(block.widget);
       return wrap(
@@ -260,5 +291,18 @@ function PreviewItem({
         </div>,
       );
     }
+    case "fields":
+      return wrap(<ReportFieldsView block={block} scale={scale} />);
+    case "image":
+      return wrap(<ReportImageView block={block} scale={scale} />);
+    case "barcode":
+      return wrap(
+        <ReportBarcodeView
+          block={block}
+          value={fill(block.value, true)}
+          scale={scale}
+          contentW={contentW}
+        />,
+      );
   }
 }

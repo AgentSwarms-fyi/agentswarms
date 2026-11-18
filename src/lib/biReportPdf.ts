@@ -14,8 +14,17 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 
 import { encLine, wrapText } from "@/lib/biPdf";
+import { barcodeShapes } from "@/lib/biBarcode";
+import type { BiParamValues } from "@/lib/biParams";
 import {
   BAND_H,
+  BLOCK_GAP,
+  FIELD_ROW_H,
+  blockHeight,
+  fieldPairs,
+  fieldsCaveat,
+  fillParamTokens,
+  reportParams,
   partialRowsCaveat,
   pageGeometry,
   sliceTable,
@@ -49,6 +58,12 @@ const HEADER_ROW_H = TABLE_HEADER_H;
 export type ChartBitmap = { dataUrl: string; wPx: number; hPx: number };
 
 /**
+ * A picture block's bytes, fetched by the caller (R508): a data URL decodes
+ * anywhere, an https address only where the browser may fetch it.
+ */
+export type ReportImageBytes = { bytes: Uint8Array; type: "png" | "jpeg" };
+
+/**
  * Lay the report out and return the PDF bytes.
  *
  * Charts arrive pre-rasterised because only the browser can draw them; this
@@ -57,12 +72,18 @@ export type ChartBitmap = { dataUrl: string; wPx: number; hPx: number };
 export async function buildReportPdfBytes(args: {
   report: BiReport;
   charts?: Map<string, ChartBitmap>;
+  /** Picture blocks' bytes, keyed by block id (R508). */
+  images?: Map<string, ReportImageBytes>;
+  /** The parameter values the report runs with (R508); unset = the defaults. */
+  values?: BiParamValues;
   /** Fixed at call time so every page of one export agrees. */
   now?: Date;
 }): Promise<Uint8Array> {
   const { report } = args;
   const geo = pageGeometry(report.page);
   const now = args.now ?? new Date();
+  const params = reportParams(report.page);
+  const fill = (s: string, raw = false) => fillParamTokens(s, params, args.values ?? {}, { raw });
 
   const pdf = await PDFDocument.create();
   pdf.setTitle(report.name);
@@ -128,7 +149,7 @@ export async function buildReportPdfBytes(args: {
       case "heading": {
         const size = block.level === 1 ? SIZE.h1 : block.level === 3 ? SIZE.h3 : SIZE.h2;
         ensure(size + 12);
-        draw(block.text, { font: bold, size });
+        draw(fill(block.text), { font: bold, size });
         y -= size + 6;
         if (block.level !== 3) {
           page.drawLine({
@@ -143,7 +164,7 @@ export async function buildReportPdfBytes(args: {
       }
 
       case "text":
-        flow(block.text);
+        flow(fill(block.text));
         y -= 6;
         break;
 
@@ -187,7 +208,7 @@ export async function buildReportPdfBytes(args: {
         const kinds = reportColumnKinds(rows, cols);
         if (!rows.length || !cols.length) {
           ensure(20);
-          draw(`[no rows: ${block.widget.title || "untitled"}]`, {
+          draw(`[no rows: ${block.widget.title || "table"}]`, {
             size: SIZE.body,
             color: MUTED,
           });
@@ -261,10 +282,124 @@ export async function buildReportPdfBytes(args: {
         drawCaveat(partialRowsCaveat(block.widget));
         break;
       }
+
+      case "fields": {
+        const pairs = fieldPairs(block);
+        // The same height the preview gives it, so the two break alike.
+        const h = blockHeight(block, geo.contentW) - BLOCK_GAP;
+        ensure(h + BLOCK_GAP);
+        const top = y;
+        if (!pairs.length) {
+          draw(`[no row: ${block.widget.title || "fields"}]`, { size: SIZE.body, color: MUTED });
+          y = top - h - BLOCK_GAP;
+          break;
+        }
+        if (block.widget.title) {
+          draw(block.widget.title, { font: bold, size: SIZE.h3 });
+          y -= 16;
+        }
+        const per = block.perRow ?? 2;
+        const cellW = geo.contentW / per;
+        pairs.forEach((p, i) => {
+          const col = i % per;
+          const row = Math.floor(i / per);
+          const x = margin + col * cellW;
+          const baseline = y - row * FIELD_ROW_H - SIZE.body - 2;
+          const label = fit(encLine(p.label), regular, SIZE.body, cellW * 0.45);
+          const labelW = regular.widthOfTextAtSize(label, SIZE.body);
+          page.drawText(label, { x, y: baseline, size: SIZE.body, font: regular, color: MUTED });
+          page.drawText(fit(encLine(p.value), bold, SIZE.body, Math.max(10, cellW - labelW - 14)), {
+            x: x + labelW + 6,
+            y: baseline,
+            size: SIZE.body,
+            font: bold,
+            color: INK,
+          });
+        });
+        y -= Math.ceil(pairs.length / per) * FIELD_ROW_H;
+        const caveat = fieldsCaveat(block);
+        if (caveat) {
+          draw(caveat, { size: SIZE.band, color: MUTED });
+          y -= 12;
+        }
+        y = top - h - BLOCK_GAP;
+        break;
+      }
+
+      case "image": {
+        const h = block.height;
+        ensure(h + BLOCK_GAP);
+        const img = args.images?.get(block.id);
+        if (!img) {
+          draw(`[picture unavailable${block.alt ? `: ${block.alt}` : ""}]`, {
+            size: SIZE.body,
+            color: MUTED,
+          });
+          y -= h + BLOCK_GAP;
+          break;
+        }
+        const embedded =
+          img.type === "png" ? await pdf.embedPng(img.bytes) : await pdf.embedJpg(img.bytes);
+        const w = Math.min(geo.contentW, (embedded.width / embedded.height) * h);
+        const ih = (w / embedded.width) * embedded.height;
+        const x =
+          block.align === "center"
+            ? margin + (geo.contentW - w) / 2
+            : block.align === "right"
+              ? margin + geo.contentW - w
+              : margin;
+        page.drawImage(embedded, { x, y: y - ih, width: w, height: ih });
+        y -= h + BLOCK_GAP;
+        break;
+      }
+
+      case "barcode": {
+        // The value itself, never an option's label: it is what gets scanned.
+        const value = fill(block.value, true);
+        const showText = block.format === "code128" && block.showText !== false;
+        const total = blockHeight(block, geo.contentW) - BLOCK_GAP;
+        ensure(total + BLOCK_GAP);
+        const shapes = barcodeShapes(block.format, value, block.height, geo.contentW);
+        if ("problem" in shapes) {
+          draw(`[barcode: ${shapes.problem}]`, { size: SIZE.body, color: MUTED });
+          y -= total + BLOCK_GAP;
+          break;
+        }
+        const x0 =
+          block.align === "center"
+            ? margin + (geo.contentW - shapes.width) / 2
+            : block.align === "right"
+              ? margin + geo.contentW - shapes.width
+              : margin;
+        // Bars as filled rectangles, never a picture: they print as sharp as
+        // the text beside them, which is what lets a scanner read them.
+        for (const r of shapes.rects) {
+          page.drawRectangle({
+            x: x0 + r.x,
+            y: y - r.y - r.h,
+            width: r.w,
+            height: r.h,
+            color: rgb(0, 0, 0),
+          });
+        }
+        if (showText) {
+          const t = encLine(value);
+          const tw = regular.widthOfTextAtSize(t, 8);
+          page.drawText(t, {
+            x: x0 + (shapes.width - tw) / 2,
+            y: y - shapes.height - 9,
+            size: 8,
+            font: regular,
+            color: INK,
+          });
+        }
+        y -= total + BLOCK_GAP;
+        break;
+      }
     }
   }
 
-  stampBands({ pdf, report, geo, regular, now });
+  stampBands({ pdf, report, geo, regular, now, fill });
   return pdf.save();
 }
 
@@ -293,8 +428,10 @@ function stampBands(args: {
   geo: ReturnType<typeof pageGeometry>;
   regular: PDFFont;
   now: Date;
+  /** Fills the report's {{parameter}} tokens before the export's own. */
+  fill: (s: string) => string;
 }): void {
-  const { pdf, report, geo, regular, now } = args;
+  const { pdf, report, geo, regular, now, fill } = args;
   const pages = pdf.getPages();
   const margin = (geo.w - geo.contentW) / 2;
   const date = now.toLocaleDateString();
@@ -317,7 +454,7 @@ function stampBands(args: {
       let drew = false;
       for (const [raw, align] of slots) {
         if (!raw?.trim()) continue;
-        const s = encLine(substituteTokens(raw, ctx));
+        const s = encLine(substituteTokens(fill(raw), ctx));
         if (!s) continue;
         const w = regular.widthOfTextAtSize(s, SIZE.band);
         const x =

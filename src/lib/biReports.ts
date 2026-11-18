@@ -17,6 +17,14 @@
 
 import type { BiWidget } from "@/lib/biDashboards";
 import { hasRawDateValues, parseDateValue } from "@/lib/biChartMath";
+import type { BarcodeFormat } from "@/lib/biBarcode";
+import {
+  paramValueLabel,
+  parseParams,
+  PARAM_NAME,
+  type BiParamConfig,
+  type BiParamValues,
+} from "@/lib/biParams";
 
 /** Page sizes in PDF points (72 per inch), portrait. */
 export const PAGE_SIZES = {
@@ -34,6 +42,13 @@ export type ReportPageSetup = {
   orientation: ReportOrientation;
   /** Uniform margin in points. 36pt = half an inch. */
   margin: number;
+  /**
+   * The report's parameters (R508): an order number, a month, a region. Kept
+   * with the page settings, the report's own settings object, so a report
+   * gains them without a schema change. Blocks read them as {{name}} in their
+   * SQL, text, header, footer and barcodes.
+   */
+  params?: BiParamConfig[];
 };
 
 export const DEFAULT_PAGE: ReportPageSetup = { size: "a4", orientation: "portrait", margin: 40 };
@@ -41,13 +56,15 @@ export const DEFAULT_PAGE: ReportPageSetup = { size: "a4", orientation: "portrai
 /** A running header or footer: three slots, each a token string. */
 export type ReportBand = { left?: string; center?: string; right?: string };
 
+export type ReportAlign = "left" | "center" | "right";
+
 export type ReportBlock =
   | { id: string; kind: "heading"; text: string; level?: 1 | 2 | 3 }
   | { id: string; kind: "text"; text: string }
   | { id: string; kind: "spacer"; height: number }
   | { id: string; kind: "pagebreak" }
   /** A chart, drawn from a dashboard widget's own spec and rows. */
-  | { id: string; kind: "chart"; widget: BiWidget; height?: number }
+  | { id: string; kind: "chart"; widget: BiWidget; height?: number; ranWith?: BiParamValues }
   /**
    * A table that FLOWS. Where a dashboard table is a scrolling box, this one
    * continues onto the next page and repeats its header row when it does.
@@ -62,6 +79,49 @@ export type ReportBlock =
       maxRows?: number;
       /** Tint alternate rows, the way a printed table usually is. */
       zebra?: boolean;
+      /** The parameter values its rows were fetched with (R508). */
+      ranWith?: BiParamValues;
+    }
+  /**
+   * Label and value pairs from the FIRST row of a query (R508): the order
+   * number, customer, date and total at the top of a purchase order.
+   */
+  | {
+      id: string;
+      kind: "fields";
+      widget: BiWidget;
+      /** Columns to show, in order. Empty = every column. */
+      columns?: string[];
+      /** A column's label as printed; unset prints the column name, tidied. */
+      labels?: Record<string, string>;
+      /** Pairs side by side across the page. */
+      perRow?: 1 | 2 | 3;
+      /** The parameter values its rows were fetched with. */
+      ranWith?: BiParamValues;
+    }
+  /** A picture: a logo, a signature, a stamp (R508). */
+  | {
+      id: string;
+      kind: "image";
+      /** A data:image/png or data:image/jpeg URL, or an https address. */
+      src: string;
+      /** Height in points; the width follows the picture's proportions. */
+      height: number;
+      align?: ReportAlign;
+      alt?: string;
+    }
+  /** A Code 128 or QR code of a value, usually a parameter (R508). */
+  | {
+      id: string;
+      kind: "barcode";
+      format: BarcodeFormat;
+      /** Text with {{tokens}}: "{{order_id}}". */
+      value: string;
+      /** Height of the bars, or of the QR square, in points. */
+      height: number;
+      /** Print the value under a Code 128 barcode. */
+      showText?: boolean;
+      align?: ReportAlign;
     };
 
 export type ReportBlockKind = ReportBlock["kind"];
@@ -314,6 +374,21 @@ export function blockHeight(block: ReportBlock, contentW: number): number {
       return block.height ?? 200;
     case "table":
       return 18 + tableRows(block).length * 16;
+    case "fields": {
+      const n = fieldColumns(block).length;
+      if (!(block.widget.rows ?? []).length || n === 0) return 20 + BLOCK_GAP;
+      const title = block.widget.title ? 16 : 0;
+      const caveat = fieldsCaveat(block) ? 12 : 0;
+      return title + Math.ceil(n / (block.perRow ?? 2)) * FIELD_ROW_H + caveat + BLOCK_GAP;
+    }
+    case "image":
+      return Math.max(1, block.height) + BLOCK_GAP;
+    case "barcode":
+      return (
+        Math.max(1, block.height) +
+        (block.format === "code128" && block.showText !== false ? BARCODE_TEXT_H : 0) +
+        BLOCK_GAP
+      );
   }
 }
 
@@ -324,6 +399,9 @@ export const BLOCK_LABEL: Record<ReportBlockKind, string> = {
   pagebreak: "Page break",
   chart: "Chart",
   table: "Table",
+  fields: "Fields",
+  image: "Picture",
+  barcode: "Barcode",
 };
 
 /** Why this report cannot be saved, or null. */
@@ -343,9 +421,36 @@ export function validateReport(r: {
     if (!b.id) return "Every block needs an id";
     if (seen.has(b.id)) return `Two blocks share the id ${b.id}`;
     seen.add(b.id);
-    if ((b.kind === "chart" || b.kind === "table") && !b.widget) {
+    if ((b.kind === "chart" || b.kind === "table" || b.kind === "fields") && !b.widget) {
       return `The ${BLOCK_LABEL[b.kind].toLowerCase()} block has no widget`;
     }
+    if (b.kind === "image") {
+      const why = imageSourceProblem(b.src);
+      if (why) return `Picture: ${why}`;
+      if (!(b.height >= 12 && b.height <= 600)) return "A picture is 12 to 600 points tall";
+    }
+    if (b.kind === "barcode") {
+      if (b.format !== "code128" && b.format !== "qr") return "A barcode is Code 128 or QR";
+      if (typeof b.value !== "string" || b.value.length > 600) {
+        return "A barcode's value is at most 600 characters";
+      }
+      if (!(b.height >= 16 && b.height <= 300)) return "A barcode is 16 to 300 points tall";
+    }
+  }
+  const params = r.page.params ?? [];
+  if (params.length > MAX_REPORT_PARAMS) {
+    return `A report takes at most ${MAX_REPORT_PARAMS} parameters`;
+  }
+  const names = new Set<string>();
+  for (const p of params) {
+    if (!PARAM_NAME.test(p.name)) {
+      return `"${p.name}" is not a parameter name: lower-case letters, digits and _ , starting with a letter`;
+    }
+    if (RESERVED_TOKEN_NAMES.includes(p.name)) {
+      return `{{${p.name}}} is filled by the report itself, so a parameter cannot use that name`;
+    }
+    if (names.has(p.name)) return `Two parameters are called ${p.name}`;
+    names.add(p.name);
   }
   return null;
 }
@@ -458,4 +563,107 @@ export function partialRowsCaveat(widget: BiWidget | undefined): string | null {
   if (!widget?.truncated) return null;
   const n = widget.rows?.length ?? 0;
   return `Partial: ${n.toLocaleString()} row${n === 1 ? "" : "s"} shown — the query returned more.`;
+}
+
+// ── Parameters, fields, pictures and barcodes (R508) ────────────────────────
+
+/** The tokens every report fills itself; a parameter may not take their names. */
+export const RESERVED_TOKEN_NAMES: readonly string[] = REPORT_TOKENS.map((t) => t.token);
+
+/** The most parameters one report takes. */
+export const MAX_REPORT_PARAMS = 12;
+
+/** The report's parameters, parsed as a report reads them (text allowed). */
+export function reportParams(page: ReportPageSetup): BiParamConfig[] {
+  return parseParams(page.params ?? [], { allowText: true }).filter(
+    (p) => !RESERVED_TOKEN_NAMES.includes(p.name),
+  );
+}
+
+const PARAM_TOKEN = /\{\{\s*([a-z][a-z0-9_]*)\s*\}\}/gi;
+
+/**
+ * Text with each {{name}} of a report parameter filled with the value it runs
+ * with, as a reader would say it (an option's label, a date as written).
+ * Other tokens are left for the export to fill ({{page}}) or as written.
+ *
+ * `raw` fills the value itself instead: what a barcode encodes. A scanner that
+ * reads "Irene Walsh, London" where the order number should be finds nothing.
+ */
+export function fillParamTokens(
+  s: string,
+  params: BiParamConfig[],
+  values: BiParamValues,
+  opts: { raw?: boolean } = {},
+): string {
+  if (!params.length || !s.includes("{{")) return s;
+  const byName = new Map(params.map((p) => [p.name, p]));
+  return s.replace(PARAM_TOKEN, (whole, name: string) => {
+    const p = byName.get(name.toLowerCase());
+    if (!p) return whole;
+    const v = values[p.name] ?? p.default;
+    return opts.raw ? v : paramValueLabel(p, v);
+  });
+}
+
+/** Height of one row of label and value pairs, in points. */
+export const FIELD_ROW_H = 18;
+/** Height of the value printed under a Code 128 barcode. */
+export const BARCODE_TEXT_H = 12;
+/** The gap under every block the renderer and the preview both leave. */
+export const BLOCK_GAP = 6;
+
+/** The columns a fields block prints: the ones it names, else the query's own. */
+export function fieldColumns(block: Extract<ReportBlock, { kind: "fields" }>): string[] {
+  if (block.columns?.length) return block.columns;
+  if (block.widget.columns?.length) return block.widget.columns;
+  const first = (block.widget.rows ?? [])[0];
+  return first ? Object.keys(first) : [];
+}
+
+/** A field's label: the one the author wrote, else the column name tidied. */
+export function fieldLabel(block: Extract<ReportBlock, { kind: "fields" }>, col: string): string {
+  const own = block.labels?.[col]?.trim();
+  if (own) return own;
+  const words = col.replace(/[_-]+/g, " ").trim();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : col;
+}
+
+/** The pairs a fields block prints, from its first row. */
+export function fieldPairs(
+  block: Extract<ReportBlock, { kind: "fields" }>,
+): { label: string; value: string }[] {
+  const rows = block.widget.rows ?? [];
+  if (!rows.length) return [];
+  const cols = fieldColumns(block);
+  const kinds = reportColumnKinds(rows.slice(0, 1), cols);
+  return cols.map((c) => ({
+    label: fieldLabel(block, c),
+    value: reportCellText(rows[0][c], kinds[c]),
+  }));
+}
+
+/**
+ * What a fields block says when its query did not return exactly one row: no
+ * row prints no values, and several print the first, which a reader takes for
+ * the only one unless told.
+ */
+export function fieldsCaveat(block: Extract<ReportBlock, { kind: "fields" }>): string | null {
+  const n = (block.widget.rows ?? []).length;
+  if (n <= 1) return null;
+  return `The first of ${n.toLocaleString()} rows: these fields show one record.`;
+}
+
+/** A picture source a report may keep and print. */
+export const IMAGE_DATA_URL = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/;
+/** About 1 MB of picture, as a data URL. */
+export const IMAGE_MAX_CHARS = 1_400_000;
+
+export function imageSourceProblem(src: string): string | null {
+  if (!src) return "Choose a picture or give an https address";
+  if (src.startsWith("data:")) {
+    if (src.length > IMAGE_MAX_CHARS) return "A picture is at most about 1 MB";
+    return IMAGE_DATA_URL.test(src) ? null : "A picture must be a PNG or a JPEG";
+  }
+  return /^https:\/\/[^\s]+$/i.test(src) ? null : "A picture address must start with https://";
 }

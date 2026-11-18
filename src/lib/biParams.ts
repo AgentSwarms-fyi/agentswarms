@@ -19,7 +19,7 @@
 // filters (the same saved list, as kind "param"), so they travel with every
 // copy, version and promotion of the dashboard.
 
-export type BiParamControl = "radio" | "dropdown" | "date" | "number" | "slider";
+export type BiParamControl = "radio" | "dropdown" | "date" | "number" | "slider" | "text";
 /** Controls that pick a number between a lowest and a highest value (R503). */
 export const NUMBER_CONTROLS: readonly BiParamControl[] = ["number", "slider"];
 export type BiParamOption = { value: string; label: string };
@@ -72,9 +72,26 @@ function isIsoDay(v: string): boolean {
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
 }
 
+/**
+ * Free text (R508), for a report's own parameters only: an order number, a
+ * customer's name. A report is run by its owner alone, so a typed value is no
+ * wider than what the owner can already query; dashboards, which viewers
+ * drive, never accept it (parseParams drops it unless asked). The value
+ * reaches SQL only as a quoted literal, quotes doubled, like an option.
+ */
+function isPlainText(v: string): boolean {
+  if (v.length > MAX_VALUE) return false;
+  for (let i = 0; i < v.length; i++) {
+    const c = v.charCodeAt(i);
+    if (c < 32 || c === 127) return false;
+  }
+  return true;
+}
+
 /** Whether a value may be used for this parameter. */
 export function isValidParamValue(p: BiParamConfig, v: unknown): v is string {
   if (typeof v !== "string") return false;
+  if (p.control === "text") return isPlainText(v);
   if (p.control === "date") return isIsoDay(v);
   if (isNumberControl(p.control)) {
     if (!PLAIN_NUMBER.test(v)) return false;
@@ -86,8 +103,12 @@ export function isValidParamValue(p: BiParamConfig, v: unknown): v is string {
   return (p.options ?? []).some((o) => o.value === v);
 }
 
-/** The parameters in a dashboard's saved filter list; anything malformed is left out. */
-export function parseParams(v: unknown): BiParamConfig[] {
+/**
+ * The parameters in a dashboard's saved filter list; anything malformed is
+ * left out. `allowText` admits the free-text control, which only a report's
+ * parameters may use (R508).
+ */
+export function parseParams(v: unknown, opts: { allowText?: boolean } = {}): BiParamConfig[] {
   if (!Array.isArray(v)) return [];
   const out: BiParamConfig[] = [];
   const names = new Set<string>();
@@ -103,7 +124,9 @@ export function parseParams(v: unknown): BiParamConfig[] {
       r.control === "number" ||
       r.control === "slider"
         ? r.control
-        : "dropdown";
+        : r.control === "text" && opts.allowText
+          ? "text"
+          : "dropdown";
     const choice = control === "radio" || control === "dropdown";
     const options = !choice
       ? undefined
@@ -138,11 +161,13 @@ export function parseParams(v: unknown): BiParamConfig[] {
     }
     p.default = isValidParamValue(p, r.default)
       ? (r.default as string)
-      : control === "date"
-        ? new Date().toISOString().slice(0, 10)
-        : isNumberControl(control)
-          ? String(p.min)
-          : options![0].value;
+      : control === "text"
+        ? ""
+        : control === "date"
+          ? new Date().toISOString().slice(0, 10)
+          : isNumberControl(control)
+            ? String(p.min)
+            : options![0].value;
     names.add(name);
     out.push(p);
   }
