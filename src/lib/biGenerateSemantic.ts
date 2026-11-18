@@ -29,15 +29,138 @@ import type { SemanticChartType } from "./biDashboards";
 export const ALLOWED_GRAINS = ["day", "week", "month", "quarter", "year"] as const;
 export type PlannerGrain = (typeof ALLOWED_GRAINS)[number];
 
+/**
+ * What each governed shape needs from the query: how many dimensions and
+ * metrics, whether a dimension has to be a time, and a line for the planner.
+ *
+ * Six shapes until R507. The rest of the visuals the builder offers were out
+ * of reach of a dashboard generated from a semantic model, although a query
+ * of metrics by dimensions fills most of them; lib/biSemanticCharts builds
+ * each one from the query.
+ */
+type GovernedShape = {
+  dims: [number, number];
+  metrics: [number, number];
+  /** "first": the first dimension must be a time; "one": a lone dimension must be. */
+  time?: "first" | "one";
+  /** Forced rollup on the time dimension (a calendar is a square per day). */
+  grain?: PlannerGrain;
+  plan: string;
+};
+
+export const GOVERNED_SHAPES: Record<SemanticChartType, GovernedShape> = {
+  kpi: {
+    dims: [0, 1],
+    metrics: [1, 1],
+    time: "one",
+    plan: "one metric, no dimension (a headline figure); or one TIME dimension, which shows the latest period against the one before with a trend line",
+  },
+  gauge: { dims: [0, 0], metrics: [1, 1], plan: "one metric, no dimension, against a maximum" },
+  insight: {
+    dims: [1, 1],
+    metrics: [1, 1],
+    plan: "1 dimension, one metric: a sentence computed from the data (who leads; or, over a time dimension, what changed)",
+  },
+  bar: {
+    dims: [1, 2],
+    metrics: [1, 4],
+    plan: "1-2 dimensions; with one dimension up to 4 metrics side by side",
+  },
+  hbar: { dims: [1, 1], metrics: [1, 4], plan: "1 dimension, ranked bars" },
+  line: {
+    dims: [1, 2],
+    metrics: [1, 4],
+    plan: "1-2 dimensions, best over a time dimension; with one dimension up to 4 metrics as lines",
+  },
+  area: {
+    dims: [1, 2],
+    metrics: [1, 1],
+    plan: "1-2 dimensions, one metric, over a time dimension",
+  },
+  scolumn: {
+    dims: [2, 2],
+    metrics: [1, 1],
+    plan: "exactly 2 dimensions: parts of a total per category",
+  },
+  shbar: {
+    dims: [2, 2],
+    metrics: [1, 1],
+    plan: "exactly 2 dimensions, as horizontal stacked bars",
+  },
+  combo: {
+    dims: [1, 1],
+    metrics: [2, 4],
+    plan: "1 dimension, 2-4 metrics on different scales (bars and a line)",
+  },
+  scatter: {
+    dims: [1, 1],
+    metrics: [2, 3],
+    plan: "1 dimension (the points), 2-3 metrics (x, y, size)",
+  },
+  pie: {
+    dims: [1, 1],
+    metrics: [1, 1],
+    plan: "exactly 1 dimension, one metric (shares of a whole)",
+  },
+  nightingale: { dims: [1, 1], metrics: [1, 1], plan: "1 dimension of 12 or fewer values" },
+  funnel: { dims: [1, 1], metrics: [1, 1], plan: "1 dimension of sequential stages" },
+  radialbar: { dims: [1, 1], metrics: [1, 1], plan: "1 dimension of 8 or fewer values" },
+  treemap: {
+    dims: [1, 1],
+    metrics: [1, 2],
+    plan: "1 dimension; a second metric colours the tiles",
+  },
+  pareto: {
+    dims: [1, 1],
+    metrics: [1, 1],
+    plan: "1 dimension: which few values make most of the total",
+  },
+  pictogram: {
+    dims: [1, 1],
+    metrics: [1, 1],
+    plan: "1 dimension of 6 or fewer values, counts of people or things",
+  },
+  waterfall: { dims: [1, 1], metrics: [1, 1], plan: "1 dimension of additive contributions" },
+  wordcloud: { dims: [1, 1], metrics: [1, 1], plan: "1 text dimension, sized by the metric" },
+  map: { dims: [1, 1], metrics: [1, 1], plan: "1 dimension of countries or US states" },
+  bubblemap: {
+    dims: [1, 1],
+    metrics: [1, 1],
+    plan: "1 dimension of countries or US states, as circles",
+  },
+  calendar: {
+    dims: [1, 1],
+    metrics: [1, 1],
+    time: "first",
+    grain: "day",
+    plan: "1 TIME dimension, one square per day",
+  },
+  radar: {
+    dims: [1, 2],
+    metrics: [1, 6],
+    plan: "1 dimension (spokes) and several metrics, or a second dimension as series",
+  },
+  heatmap: { dims: [2, 2], metrics: [1, 1], plan: "exactly 2 dimensions, one metric as colour" },
+  sankey: {
+    dims: [2, 2],
+    metrics: [1, 1],
+    plan: "exactly 2 dimensions: flows from the first to the second",
+  },
+  smallmultiples: {
+    dims: [2, 2],
+    metrics: [1, 1],
+    plan: "exactly 2 dimensions: the first on each panel's axis (often time), one panel per value of the second",
+  },
+  matrix: {
+    dims: [2, 3],
+    metrics: [1, 4],
+    plan: "2-3 dimensions (rows, columns, a nested row level) and 1-4 metrics: a pivot",
+  },
+  table: { dims: [0, 4], metrics: [1, 8], plan: "0-4 dimensions, one or more metrics" },
+};
+
 /** Chart shapes a governed widget can take. Mirrors SemanticChartType. */
-export const GOVERNED_CHART_TYPES: SemanticChartType[] = [
-  "kpi",
-  "bar",
-  "line",
-  "area",
-  "pie",
-  "table",
-];
+export const GOVERNED_CHART_TYPES = Object.keys(GOVERNED_SHAPES) as SemanticChartType[];
 
 /** What the planner is asked to return, per widget. */
 export type GovernedSuggestion = {
@@ -104,18 +227,13 @@ export function timeDimensions(model: MetricModelOption): string[] {
 /**
  * How many dimensions each chart shape can actually render.
  *
- * A KPI with a dimension is a category list pretending to be one number; a pie
- * with two is a chart nobody can read. Enforced rather than trusted, because a
- * planner asked for "variety" will reach for shapes that do not fit.
+ * A KPI grouped by a category is a category list pretending to be one number;
+ * a pie with two is a chart nobody can read. Enforced rather than trusted,
+ * because a planner asked for "variety" will reach for shapes that do not fit.
  */
-const DIMENSION_RULES: Record<SemanticChartType, { min: number; max: number }> = {
-  kpi: { min: 0, max: 0 },
-  pie: { min: 1, max: 1 },
-  bar: { min: 1, max: 2 },
-  line: { min: 1, max: 2 },
-  area: { min: 1, max: 2 },
-  table: { min: 0, max: 4 },
-};
+const DIMENSION_RULES = Object.fromEntries(
+  Object.entries(GOVERNED_SHAPES).map(([k, v]) => [k, { min: v.dims[0], max: v.dims[1] }]),
+) as Record<SemanticChartType, { min: number; max: number }>;
 
 function normalise(s: unknown): string {
   return typeof s === "string" ? s.trim() : "";
@@ -162,6 +280,8 @@ export function validateSuggestion(
   }
 
   const rule = DIMENSION_RULES[chartType];
+  const shape = GOVERNED_SHAPES[chartType];
+  const times = new Set(timeDimensions(model));
   if (dimensions.length < rule.min) {
     return reject(`A ${chartType} chart needs at least ${rule.min} dimension`);
   }
@@ -172,13 +292,41 @@ export function validateSuggestion(
         : `A ${chartType} chart cannot show more than ${rule.max} dimensions`,
     );
   }
+  // A KPI over a category shows one category's figure as the total; over a
+  // time it shows the latest period against the one before.
+  if (shape.time === "one" && dimensions.length === 1 && !times.has(dimensions[0])) {
+    return reject(
+      `A ${chartType} shows a single figure and cannot be grouped by a dimension that is not a time`,
+    );
+  }
+  if (shape.time === "first" && !times.has(dimensions[0])) {
+    return reject(`A ${chartType} needs a time dimension, and "${dimensions[0]}" is not one`);
+  }
+  if (metrics.length < shape.metrics[0]) {
+    return reject(`A ${chartType} chart needs at least ${shape.metrics[0]} metrics`);
+  }
+  if (metrics.length > shape.metrics[1]) {
+    return reject(
+      shape.metrics[1] === 1
+        ? `A ${chartType} chart shows one metric`
+        : `A ${chartType} chart cannot show more than ${shape.metrics[1]} metrics`,
+    );
+  }
+  // More than one metric beside a second dimension: the second dimension
+  // splits the chart, so the extra metrics would never be drawn.
+  if (
+    dimensions.length === 2 &&
+    metrics.length > 1 &&
+    (chartType === "bar" || chartType === "line" || chartType === "radar")
+  ) {
+    return reject(`A ${chartType} split by a second dimension shows one metric`);
+  }
 
   // Grains: only on a declared TIME dimension that this widget actually groups
   // by, and only a rollup the compiler knows. A grain on a non-time dimension
   // compiles to a date truncation over something that is not a date.
   let grains: Record<string, PlannerGrain> | undefined;
   if (raw?.grains && typeof raw.grains === "object") {
-    const times = new Set(timeDimensions(model));
     for (const [dim, g] of Object.entries(raw.grains)) {
       const grain = normalise(g).toLowerCase() as PlannerGrain;
       if (!dimensions.includes(dim)) continue; // a grain on an unused dimension is noise, not an error
@@ -190,6 +338,15 @@ export function validateSuggestion(
       }
       grains = { ...(grains ?? {}), [dim]: grain };
     }
+  }
+
+  // A calendar is a square per day, whatever rollup was asked for.
+  if (shape.grain && dimensions[0]) {
+    const asked = grains?.[dimensions[0]];
+    if (asked && asked !== shape.grain) {
+      return reject(`A ${chartType} draws one square per ${shape.grain}, not per ${asked}`);
+    }
+    grains = { ...(grains ?? {}), [dimensions[0]]: shape.grain };
   }
 
   return {
@@ -255,13 +412,31 @@ export function toSemanticQuery(
   metrics: string[];
   dimensions?: string[];
   grains?: Record<string, PlannerGrain>;
+  orderBy?: Array<{ field: string; dir?: "asc" | "desc" }>;
   limit?: number;
 } {
+  // A calendar is a square per day and shows the latest 400 of them, so it
+  // asks for those: newest first, under the widget's snapshot cap. Ascending
+  // with a limit would have drawn the oldest days in the model.
+  if (widget.chartType === "calendar" && widget.dimensions[0]) {
+    return {
+      model: modelName,
+      metrics: widget.metrics,
+      dimensions: widget.dimensions,
+      ...(widget.grains ? { grains: widget.grains } : {}),
+      orderBy: [{ field: widget.dimensions[0], dir: "desc" }],
+      limit: 400,
+    };
+  }
+  // A time axis oldest first: a governed query has no order of its own, and
+  // quarters reached a combo as 2024-10, 2024-04, 2022-04 (R507).
+  const time = widget.dimensions.find((d) => widget.grains?.[d]);
   return {
     model: modelName,
     metrics: widget.metrics,
     ...(widget.dimensions.length ? { dimensions: widget.dimensions } : {}),
     ...(widget.grains ? { grains: widget.grains } : {}),
+    ...(time ? { orderBy: [{ field: time, dir: "asc" as const }] } : {}),
     // A categorical breakdown with hundreds of members is unreadable as a
     // chart and slow to compile. KPIs return one row by construction.
     ...(widget.chartType === "kpi" ? {} : { limit: 200 }),
@@ -281,12 +456,9 @@ types. Start with one or two KPI widgets for the headline figures, then
 breakdowns and trends.
 
 Chart types and what they can show:
-  kpi   - exactly one metric, NO dimensions (a single headline figure)
-  bar   - 1-2 dimensions, one metric (categories)
-  line  - 1-2 dimensions, one metric (best over a time dimension)
-  area  - 1-2 dimensions, one metric
-  pie   - exactly 1 dimension, one metric (shares of a whole)
-  table - 0-4 dimensions, one or more metrics
+${Object.entries(GOVERNED_SHAPES)
+  .map(([k, v]) => `  ${k.padEnd(14)} - ${v.plan}`)
+  .join("\n")}
 
 Use "grains" only on a dimension typed as time, and only one of:
 day, week, month, quarter, year.
@@ -294,7 +466,7 @@ day, week, month, quarter, year.
 Return STRICT JSON: an array of
 {
   "title": "short widget title",
-  "chartType": "kpi|bar|line|area|pie|table",
+  "chartType": "${GOVERNED_CHART_TYPES.join("|")}",
   "metrics": ["declared metric name"],
   "dimensions": ["declared dimension name"],
   "grains": { "some_time_dimension": "month" },

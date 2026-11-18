@@ -408,6 +408,15 @@ const { turns, activeTurn, ask, isRunning, error } = useAgentAnalyst({
         chart alongside the text. Because the visitor has no data access, the chart is generated
         server-side using the owner's data with the owner enforced as the tenant boundary.
       </P>
+      <P>
+        The model writes the query first, and the chart is chosen once its rows are back, from{" "}
+        <DocLink to="/docs/bi#generate-every-visual">every visual the BI builder offers</DocLink>,
+        with the columns it names checked against those rows. A question about a table the agent
+        cannot read gets no chart, rather than a chart of another table under its title. When an
+        answer arrives without a chart, the server log says why in one line,{" "}
+        <C>[embed-bi] owner &lt;id&gt;: no chart: &lt;reason&gt;</C> (no tables, no SQL, a failed
+        query, no rows, or rows no chart suits). The line never contains the question or the data.
+      </P>
 
       <H2 id="analyst">Embedding the AI Analyst</H2>
       <P>

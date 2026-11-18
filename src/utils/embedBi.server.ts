@@ -11,7 +11,9 @@ import { resolveOpenAICompatTransport } from "@/utils/providers/credentials.serv
 import type { ProviderId } from "@/utils/providers/types";
 import { describeUserTables, runSqlQuery } from "@/utils/tools/sql.server";
 import type { AgentToolContext } from "@/utils/tools/registry.server";
-import type { ChartSpec } from "@/lib/biAgent";
+import { suggestChart, type ChartSpec, type LlmJsonFn } from "@/lib/biAgent";
+import { numericColumns, reconcileChartFields } from "@/lib/biChartFields";
+import { chartTypeFromWord, plannerTypeList } from "@/lib/biChartCatalog";
 
 export type EmbedWidget = {
   id: string;
@@ -36,6 +38,8 @@ async function llmJsonServer(
   model: string,
   system: string,
   user: string,
+  /** Which call this is, as Traces names it. */
+  surface = "Embed BI: Plan",
 ): Promise<Record<string, unknown> | null> {
   // FOUND FROM THE SURVEY (R97). An anonymous viewer's question is answered
   // with the dashboard OWNER's model on the owner's credentials, so it is the
@@ -74,7 +78,10 @@ async function llmJsonServer(
         stream: false,
       }),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.warn(`[embed-bi] owner ${ownerId}: ${surface} answered HTTP ${res.status}`);
+      return null;
+    }
     const data = (await res.json()) as {
       choices?: { message?: { content?: string } }[];
     };
@@ -92,7 +99,7 @@ async function llmJsonServer(
     const usage = extractUsage(data);
     await recordGatewayCall({
       userId: ownerId,
-      surface: "Embed BI: Plan",
+      surface,
       provider,
       model,
       tokensIn: usage?.tokensIn,
@@ -104,9 +111,13 @@ async function llmJsonServer(
       status: content ? "success" : "error",
     });
 
-    if (!content) return null;
+    if (!content) {
+      console.warn(`[embed-bi] owner ${ownerId}: ${surface} returned no content`);
+      return null;
+    }
     return JSON.parse(stripFences(content)) as Record<string, unknown>;
-  } catch {
+  } catch (e) {
+    console.warn(`[embed-bi] owner ${ownerId}: ${surface} failed: ${(e as Error).message}`);
     return null;
   } finally {
     clearTimeout(timer);
@@ -140,6 +151,14 @@ export async function generateEmbedWidget(opts: {
    */
   sqlTableNames?: string[] | null;
 }): Promise<EmbedWidget | null> {
+  // Why no chart came back, in the server log. Every exit below used to be a
+  // bare `return null`, so a visitor saw a text answer and the owner had no
+  // way to tell a missing table from a model that answered nothing (R507).
+  // Reasons only: never the visitor's question, the SQL or a row.
+  const skip = (reason: string): null => {
+    console.warn(`[embed-bi] owner ${opts.ownerId}: no chart: ${reason}`);
+    return null;
+  };
   try {
     // Service-role client, strictly scoped to the owner (tenant guard).
     const ctx = {
@@ -152,38 +171,85 @@ export async function generateEmbedWidget(opts: {
     const allowSet = allowed.length > 0 ? new Set(allowed) : null;
 
     const schema = await describeUserTables(ctx, allowSet);
-    if (!schema || /no data tables|no tables/i.test(schema)) return null;
+    if (!schema || /no data tables|no tables/i.test(schema)) {
+      return skip("the agent can read no data tables");
+    }
 
+    // The SQL first, with the visual it is meant for. Until R507 the plan
+    // returned the chart too, from a list of six types written into this
+    // prompt, before the query had run: an embed could never draw a pareto, a
+    // pivot or a US state map, and a chart naming a column the SELECT did not
+    // return drew an empty frame on the owner's public page.
     const plan = await llmJsonServer(
       opts.ownerId,
       opts.provider,
       opts.model,
-      "You turn a question into ONE read-only SQL SELECT over the given tables plus a chart spec to visualize the result. " +
-        "SQL is PostgreSQL dialect; quote identifiers with double quotes when they contain spaces. Aggregate for big tables. " +
-        'Output ONLY JSON: { "sql": string, "chart": { "type": "bar"|"line"|"area"|"pie"|"scatter"|"kpi", "xField"?: string, "yField"?: string, "nameField"?: string, "valueField"?: string, "seriesField"?: string } }. ' +
-        "Choose fields that exactly match the SELECT output column names.",
+      "You turn a question into ONE read-only SQL SELECT over the given tables, and name the " +
+        "chart that will show the result. SQL is PostgreSQL dialect; quote identifiers with " +
+        "double quotes when they contain spaces. Aggregate for big tables. " +
+        `Chart types: ${plannerTypeList()}. ` +
+        'Output ONLY JSON: { "sql": string, "chartType": string }. When the question names a ' +
+        "table or a column that is not among the given tables, answer it from nothing else: " +
+        'return { "sql": null }. A chart of another table under the title of the question is ' +
+        "a wrong answer.",
       `TABLES:\n${schema}\n\nQUESTION: ${opts.question}`,
     );
     const sql = typeof plan?.sql === "string" ? plan.sql : null;
-    const chart = plan?.chart as ChartSpec | undefined;
-    if (!sql || !chart || !chart.type || chart.type === "table") return null;
+    if (!sql) return skip("the model wrote no SQL");
 
     const raw = JSON.parse(await runSqlQuery(ctx, { sql }, allowSet)) as {
       error?: string;
       columns?: string[];
       rows?: Record<string, unknown>[];
     };
-    if (raw.error || !Array.isArray(raw.rows) || raw.rows.length === 0) return null;
+    if (raw.error) return skip(`the query failed: ${raw.error.slice(0, 200)}`);
+    if (!Array.isArray(raw.rows) || raw.rows.length === 0)
+      return skip("the query returned no rows");
+    const columns = raw.columns ?? Object.keys(raw.rows[0] ?? {});
+
+    // Then the chart, from the rows that came back, by the same chart step the
+    // app uses: every visual it can choose, the same reading of what a model
+    // returns, and the same check of the columns it names.
+    const llm: LlmJsonFn = async <T>(o: { systemPrompt: string; userPrompt: string }) => {
+      const out = await llmJsonServer(
+        opts.ownerId,
+        opts.provider,
+        opts.model,
+        o.systemPrompt,
+        o.userPrompt,
+        "Embed BI: Chart",
+      );
+      if (!out) throw new Error("no chart");
+      return out as T;
+    };
+    const suggested = await suggestChart({
+      question: opts.question,
+      result: { columns, rows: raw.rows, row_count: raw.rows.length } as never,
+      plan: { intent: opts.question, tables: [], metrics: [], breakdowns: [] } as never,
+      preferChart: chartTypeFromWord(plan?.chartType),
+      llm,
+    });
+    const fields = reconcileChartFields({ chart: suggested, columns, rows: raw.rows });
+    const chart: ChartSpec = fields.verdict === "ok" ? suggested : fields.chart;
+    if (chart.type === "table") {
+      // Column names and kinds only: enough to tell "the model chose a
+      // table" from "the measure came back as text".
+      const numeric = [...numericColumns(columns, raw.rows)];
+      return skip(
+        `the rows suit no chart (chart step: ${suggested.type}, check: ${fields.verdict}, ` +
+          `columns: ${columns.join(", ")}, numeric: ${numeric.join(", ") || "none"})`,
+      );
+    }
 
     return {
       id: crypto.randomUUID(),
       kind: "chart",
       title: opts.question.slice(0, 120),
       chart,
-      columns: raw.columns ?? Object.keys(raw.rows[0] ?? {}),
+      columns,
       rows: raw.rows,
     };
-  } catch {
-    return null;
+  } catch (e) {
+    return skip((e as Error).message);
   }
 }

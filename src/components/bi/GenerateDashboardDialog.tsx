@@ -19,29 +19,14 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
-  AreaChart,
   BarChart3,
-  BarChartHorizontal,
   Check,
   Database,
-  FastForward,
-  Flower2,
-  Gauge,
-  Grid3x3,
-  Layers,
-  LayoutList,
-  Lightbulb,
-  LineChart,
   Loader2,
-  PieChart,
-  Radar,
-  Rows3,
-  ScatterChart,
   ShieldCheck,
   Sparkles,
   Table2,
   Wand2,
-  Workflow,
   X as XIcon,
 } from "lucide-react";
 
@@ -65,9 +50,17 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { BiModelSelect } from "@/components/bi/BiModelSelect";
+import { VIZ_TYPES } from "@/components/bi/vizTypes";
 import type { BiDataContext } from "@/components/bi/biDataContext";
 import { llmJson, runBiTurn, suggestDashboardWidgets, type WidgetSuggestion } from "@/lib/biAgent";
-import { widgetFromBiTurn, widgetFromSemantic, type BiWidget } from "@/lib/biDashboards";
+import {
+  widgetFromBiTurn,
+  widgetFromSemantic,
+  widgetRowCap,
+  type BiWidget,
+} from "@/lib/biDashboards";
+import { aggregateCappedWidget } from "@/lib/biGeneratedTotals";
+import type { SqlDialect } from "@/lib/semanticLayer";
 import type { MetricModelOption } from "@/components/bi/biDataContext";
 import {
   LOCAL_SOURCE_KEY,
@@ -84,50 +77,19 @@ import {
   type ValidGovernedWidget,
 } from "@/lib/biGenerateSemantic";
 
-/** Icon per proposed chart type, so the checklist reads at a glance. */
+/**
+ * Icon per proposed chart type, so the checklist reads at a glance. Read from
+ * the visual picker's own list (R507): a hand-kept switch here had stopped at
+ * R499, so a planned pareto or calendar showed a plain bar-chart icon.
+ */
 function ChartTypeIcon({ type }: { type: string }) {
-  const cls = "h-3.5 w-3.5 text-primary";
-  switch (type) {
-    case "kpi":
-      return <Gauge className={cls} />;
-    case "gauge":
-      return <Gauge className={cls} />;
-    case "line":
-    case "combo":
-      return <LineChart className={cls} />;
-    case "area":
-      return <AreaChart className={cls} />;
-    case "hbar":
-      return <BarChartHorizontal className={cls} />;
-    case "shbar":
-      return <Rows3 className={cls} />;
-    case "scolumn":
-      return <Layers className={cls} />;
-    case "barrace":
-      return <FastForward className={cls} />;
-    case "radar":
-      return <Radar className={cls} />;
-    case "nightingale":
-      return <Flower2 className={cls} />;
-    case "sankey":
-      return <Workflow className={cls} />;
-    case "pie":
-    case "treemap":
-    case "funnel":
-      return <PieChart className={cls} />;
-    case "scatter":
-    case "boxplot":
-      return <ScatterChart className={cls} />;
-    case "heatmap":
-    case "matrix":
-      return <Grid3x3 className={cls} />;
-    case "table":
-      return <LayoutList className={cls} />;
-    case "insight":
-      return <Lightbulb className={cls} />;
-    default:
-      return <BarChart3 className={cls} />;
-  }
+  const Icon = VIZ_TYPES.find((v) => v.value === type)?.icon ?? BarChart3;
+  return <Icon className="h-3.5 w-3.5 text-primary" />;
+}
+
+/** The planned visual as the picker names it ("Pareto", "Small multiples"). */
+function chartTypeLabel(type: string): string {
+  return VIZ_TYPES.find((v) => v.value === type)?.label ?? (type || "Auto");
 }
 
 type GenStep = {
@@ -350,7 +312,8 @@ export function GenerateDashboardDialog({
           // ── Governed: the compiler writes the SQL, we never do ──
           const gov = governed.get(picks[i].id);
           if (gov && selectedModel && ctx.runMetric) {
-            const res = await ctx.runMetric(toSemanticQuery(gov, selectedModel.name));
+            const query = toSemanticQuery(gov, selectedModel.name);
+            const res = await ctx.runMetric(query);
             if (res.rows.length === 0) {
               reason = "The governed query returned no rows";
             } else {
@@ -362,6 +325,7 @@ export function GenerateDashboardDialog({
                   metrics: gov.metrics,
                   dimensions: gov.dimensions,
                   grains: gov.grains,
+                  orderBy: query.orderBy,
                   chartType: gov.chartType,
                   columns: res.columns,
                   rows: res.rows,
@@ -446,6 +410,17 @@ export function GenerateDashboardDialog({
           const claim = parseTitleClaim(picks[i].title) ?? parseTitleClaim(picks[i].question);
           if (widget?.chart && claim && widget.chart.type === "barrace") {
             widget.chart = { ...widget.chart, topN: claim.n };
+          }
+          // Rows of orders under a monthly chart fill the snapshot cap with
+          // the first few months. Aggregated in SQL now, as the next refresh
+          // would, so the dashboard starts with complete totals (R507).
+          if (widget && turn.status === "done") {
+            await aggregateCappedWidget({
+              widget,
+              dialect: gen.warehouse ? (gen.warehouse.provider as SqlDialect) : "duckdb",
+              cap: widgetRowCap(),
+              run: (q) => ctx.runSql(gen.source, q),
+            });
           }
           ok = Boolean(widget && turn.status === "done" && (turn.result?.row_count ?? 0) > 0);
           if (ok && widget) {
@@ -843,7 +818,7 @@ export function GenerateDashboardDialog({
                         )}
                       </div>
                       <Badge variant="outline" className="shrink-0 text-[9px] font-normal">
-                        {s.chartType || "auto"}
+                        {chartTypeLabel(s.chartType)}
                       </Badge>
                     </label>
                   );

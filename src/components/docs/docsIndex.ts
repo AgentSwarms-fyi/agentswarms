@@ -578,6 +578,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 2
       },
       {
+        "id": "generate-every-visual",
+        "text": "Which visuals the AI can choose",
+        "level": 3
+      },
+      {
         "id": "generate-governed",
         "text": "Generate a dashboard from a governed model",
         "level": 3

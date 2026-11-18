@@ -82,6 +82,14 @@ const AGGREGATABLE = new Set([
   "waterfall",
   "treemap",
   "combo",
+  // R502 visuals whose renderers add up duplicate keys (paretoRows,
+  // calendarCells, the pictogram's sums, each small multiple's panel since
+  // R507), added in R507 so their totals are complete under the snapshot cap.
+  // Radial bars and pins on a road draw row by row and stay out.
+  "pareto",
+  "calendar",
+  "pictogram",
+  "smallmultiples",
 ]);
 
 export function isAggregatableChart(chart: ChartSpec | null | undefined): boolean {
@@ -113,17 +121,39 @@ export function aggregationPlan(
     if (typeof v === "string" && v && !dims.includes(v)) dims.push(v);
   };
 
+  const addMeasure = (f: unknown) => {
+    if (typeof f === "string" && f && !measures.some((m) => m.field === f)) {
+      measures.push({ field: f, agg });
+    }
+  };
+
   if (chart.type === "combo") {
     addDim(chart.xField);
-    // Two independent measures share one category axis.
-    for (const f of [chart.barField, chart.lineField]) {
-      if (typeof f === "string" && f && !measures.some((m) => m.field === f)) {
-        measures.push({ field: f, agg });
-      }
+    // Independent measures share one category axis. The ones beyond the
+    // first bar and line (R506) were left out of the GROUP BY until R507, so
+    // a refresh dropped their columns and the combo lost those series.
+    for (const f of [chart.barField, chart.lineField, ...(chart.extraMeasures ?? [])]) {
+      addMeasure(f);
     }
-  } else if (chart.type === "pie" || chart.type === "funnel" || chart.type === "treemap") {
+  } else if (chart.type === "pie" || chart.type === "funnel") {
     addDim(chart.nameField);
-    measures.push({ field: chart.valueField, agg });
+    addMeasure(chart.valueField);
+  } else if (chart.type === "treemap") {
+    addDim(chart.nameField);
+    addMeasure(chart.valueField);
+    // The tile colour (R505) is summed per tile by the renderer too; without
+    // it in the GROUP BY a refresh dropped the column and the colour with it.
+    addMeasure(chart.colorMeasure);
+  } else if (chart.type === "pareto" || chart.type === "pictogram") {
+    addDim(chart.categoryField);
+    addMeasure(chart.valueField);
+  } else if (chart.type === "calendar") {
+    addDim(chart.dateField);
+    addMeasure(chart.valueField);
+  } else if (chart.type === "smallmultiples") {
+    addDim(chart.xField);
+    addDim(chart.splitField);
+    addMeasure(chart.yField);
   } else {
     // bar / scolumn / hbar / line / area / shbar / radar
     addDim((c as { xField?: string }).xField);

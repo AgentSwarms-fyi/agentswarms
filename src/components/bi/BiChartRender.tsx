@@ -2204,12 +2204,15 @@ export function BiChartRender({
           ? ({ ...chart, nameField: f } as ChartSpec)
           : ({ ...chart, xField: f } as ChartSpec);
     }
-    if (isTime && xKey && showGrainToggle && grain !== "auto") {
+    const regroups = isTime && xKey && showGrainToggle && grain !== "auto";
+    if (regroups) {
       r = bucketRowsX(r, xKey, grain as DateGrain);
-    } else if (xKey && grain === "auto") {
+    } else if (xKey && (grain === "auto" || !isTime)) {
       // Auto: make the axis readable without changing what it reports. This
       // runs for every chart type, not just the two that offer the toggle —
-      // a column chart over a timestamp has no toggle to rescue it.
+      // a column chart over a timestamp has no toggle to rescue it. A grain
+      // stored on a chart that cannot regroup by one (a combo, small
+      // multiples) is not a reason to leave its timestamps raw (R507).
       const auto = autoDateGrain(r, xKey);
       if (auto) r = labelRowsX(r, xKey, auto);
     }

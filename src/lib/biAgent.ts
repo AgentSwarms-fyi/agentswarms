@@ -33,6 +33,14 @@ import { computeInsightFacts, formatInsightFacts, queryRowLimit } from "@/lib/bi
 import { unsupportedFigures, valuesStatedIn, verifyClaims } from "@/lib/biNumericClaims";
 import { parseCompare, parseInsightKind } from "@/lib/biGeneratedShape";
 import { isPreAggregated } from "@/lib/biColumnKinds";
+import {
+  SHARED_OPTION_LINE,
+  chartTypeFromWord,
+  chartStepTypeLines,
+  normalizeChartSpec,
+  plannerTypeGuide,
+  plannerTypeList,
+} from "@/lib/biChartCatalog";
 
 export type ColumnMeta = {
   description?: string;
@@ -1096,8 +1104,12 @@ export function buildSqlPrompt(args: {
       "caps what is displayed and DISCLOSES the true row count, but it can only do that " +
       "when the query returns the real result — a LIMIT hides the truncation from " +
       "everyone downstream. When a complete answer would be tall (many rows), prefer a " +
-      "shape whose complete answer is small instead: aggregate, bucket, or pivot the " +
-      "long dimension into columns. " +
+      "shape whose complete answer is small instead: aggregate it, or bucket it into " +
+      "coarser groups (weeks or months instead of days, the leading categories with the " +
+      "rest together). Keep the result LONG — one row per group, each measure in its own " +
+      "column — and never spread one dimension across columns (one column per day, month " +
+      "or region): every chart is drawn from long rows, and a spread-out result can only " +
+      "be shown as a table. " +
       // These three lines exist because the NL-to-SQL eval measured what was
       // actually going wrong: roughly half the failures were the right
       // analysis returned in the wrong SHAPE — extra columns nobody asked for,
@@ -1172,8 +1184,10 @@ export function buildSqlPrompt(args: {
           `and only the first ${args.reshape.cap} can be kept — the analysis would run on a ` +
           "truncated result. Rewrite it so the COMPLETE answer fits in " +
           `${args.reshape.cap} rows or fewer while still answering the same goal: aggregate, ` +
-          "bucket, or pivot the long dimension into columns. Do NOT simply add a LIMIT — " +
-          "that reproduces the truncation instead of fixing it."
+          "or bucket into coarser groups (weeks or months instead of days). Keep it LONG, one " +
+          "row per group: spreading a dimension across columns leaves a result no chart can " +
+          "draw. Do NOT simply add a LIMIT — that reproduces the truncation instead of " +
+          "fixing it."
         : ""),
     userPrompt:
       `${args.schema}\n\nPLAN: ${JSON.stringify(args.plan)}\nQUESTION: ${args.question}\n` +
@@ -1238,39 +1252,26 @@ export async function suggestChart(args: {
     ? `\n\nThe dashboard planner proposed a '${args.preferChart}' chart for this question — ` +
       "use it when the returned columns support it; otherwise pick the best fit."
     : "";
-  const out = await (args.llm ?? llmJson)<ChartSpec>({
+  // The types, their fields and when each fits come from one catalogue
+  // (lib/biChartCatalog, R507), so a visual the builder gains is a visual the
+  // dashboard generator, the AI Analyst and Visual BI in chat can choose.
+  const out = await (args.llm ?? llmJson)<unknown>({
     model: args.model,
     systemPrompt:
       "You pick the best chart for a SQL result. Output JSON only. " +
-      "Allowed types and their required fields:\n" +
-      "- 'bar','line','area': { xField, yField, seriesField? } — bar for categorical comparison, " +
-      "line/area for time series; set seriesField to a second categorical column when the data " +
-      "should be split into multiple series (e.g. revenue by month per region)\n" +
-      "- 'pie': { nameField, valueField } — part-of-whole, ≤8 rows\n" +
-      "- 'kpi': { valueField, label? } — single-value results; or, when the rows are the " +
-      "measure per period, { valueField, dateField, sparkline: true } to show the latest " +
-      "period against the one before\n" +
-      "- 'scatter': { xField, yField } — two numeric columns, correlation questions\n" +
-      "- 'combo': { xField, barField, lineField, extraMeasures?, extraLines? } — measures on " +
-      "different scales over one dimension; extraMeasures adds more measures as bars, and " +
-      "extraLines names those of them drawn as lines\n" +
-      "- 'funnel': { nameField, valueField } — sequential pipeline stages with decreasing values\n" +
-      "- 'waterfall': { xField, yField } — additive positive/negative contributions to a total\n" +
-      "- 'treemap': { nameField, valueField } — hierarchical/part-of-whole with many categories\n" +
-      "- 'heatmap': { xField, yField, valueField } — intensity across two categorical dimensions\n" +
-      "- 'scolumn': { xField, yField, seriesField } — stacked vertical columns; parts summing to a total per category\n" +
-      "- 'shbar': { xField, yField, seriesField } — stacked horizontal bars; same as scolumn but ranked horizontally\n" +
-      "- 'barrace': { xField, yField, timeField } — animated ranking of xField by yField across timeField frames\n" +
-      "- 'sankey': { xField, yField, valueField } — flows FROM xField (source) TO yField (target) sized by valueField\n" +
-      "- 'nightingale': { nameField, valueField } — polar-area rose; part-of-whole where magnitude varies a lot (≤12 rows)\n" +
-      "- 'radar': { xField, yField, seriesField? } — compare 3-10 metrics (xField spokes) across one or a few series\n" +
-      "- 'wordcloud': { textField, valueField? } — words sized by frequency of a text/category column; " +
-      "set valueField to weight each distinct value by a measure instead of counting\n" +
-      "- 'table': {} — fallback\n" +
-      "All field values MUST be exact column names from the data.",
+      "Allowed types, their fields and when each fits:\n" +
+      chartStepTypeLines() +
+      "\n" +
+      SHARED_OPTION_LINE +
+      "\nAll field values MUST be exact column names from the data. Leave an optional field " +
+      "or setting out unless the data or the question calls for it. When the QUESTION asks " +
+      "for a particular chart, use it if the columns support it.",
     userPrompt: `QUESTION: ${args.question}\nINTENT: ${args.plan.intent}\nCOLUMNS: ${args.result.columns.join(", ")}\nSAMPLE ROWS: ${JSON.stringify(sample)}\nROW COUNT: ${args.result.row_count}${preferLine}\n\nReturn JSON like { "type": "bar", "xField": "...", "yField": "..." }`,
   });
-  return out;
+  // A model's word for a visual ("donut", "small_multiples") and the option
+  // values it invents are read here; the columns it names are checked by
+  // reconcileChartFields, which can say what it repaired.
+  return normalizeChartSpec(out, args.result);
 }
 
 /**
@@ -1929,8 +1930,28 @@ export type WidgetSuggestion = {
   insightKind?: BiInsightKind;
 };
 
-const SUGGESTABLE_CHARTS =
-  "kpi, insight, bar, hbar, scolumn, shbar, barrace, line, area, pie, nightingale, radar, combo, scatter, funnel, waterfall, gauge, sankey, treemap, heatmap, wordcloud, boxplot, matrix, table";
+// Every visual a model may choose (lib/biChartCatalog). Until R507 this was a
+// list of its own that had stopped at the word cloud.
+const SUGGESTABLE_CHARTS = plannerTypeList();
+
+/**
+ * How the planner has to phrase a question for the visuals that need a
+ * particular shape of result. The chart step can only draw what the query
+ * returned: a calendar asked "Revenue by month" has twelve squares to fill.
+ */
+export const PLANNER_SHAPE_RULES =
+  "Phrase each question so ONE query returns the shape its chart needs: 'calendar' asks " +
+  "for the measure PER DAY over the last 12 months at most ('Daily rides over the last 12 " +
+  "months'), one row per day; 'smallmultiples' asks for the measure over a " +
+  "date or category FOR EACH value of a second category ('Monthly sales for each region', " +
+  "3-12 regions); 'combo' names two or more measures ('Revenue and margin by month'); a " +
+  "'matrix' may name several measures ('Sales and profit by region and category'); 'bump' " +
+  "asks for each item's RANK per period; 'range' asks for a start and an end value per item " +
+  "('First and last month's sales per store'); 'pareto', 'pictogram' and 'radialbar' ask " +
+  "for a measure by ONE category; 'pointmap' ONLY when the table has latitude and longitude " +
+  "columns; 'map'/'bubblemap' ONLY when a column holds countries or US states (names, ISO, " +
+  "postal or FIPS codes); 'cards' for the top few named items ('Top 3 products by " +
+  "revenue'). ";
 
 /**
  * Analyze a table's structure + semantics and propose a set of dashboard
@@ -1978,16 +1999,8 @@ export async function suggestDashboardWidgets(args: {
       "and set \"insightKind\": 'top' or 'bottom' (question: the measure by a category, e.g. " +
       "'Revenue by region'), 'change', 'forecast', 'anomaly' or 'growth' (question: the " +
       "measure by month), or 'movers' (question: the measure by month and by a category). " +
-      "'line'/'area' for measures over a date; " +
-      "'bar'/'hbar' for rankings and category comparisons; 'pie'/'treemap' for part-of-whole; " +
-      "'heatmap'/'matrix' for a measure across two dimensions; 'scatter' for two-measure " +
-      "correlation; 'boxplot' for distribution across groups; 'funnel'/'waterfall' where the " +
-      "data is sequential/additive; 'scolumn'/'shbar' for stacked parts-of-a-total across a " +
-      "category and a second dimension; 'barrace' for a ranking that changes over a date/time " +
-      "column; 'radar' to compare a handful of metrics across a few entities; 'nightingale' for " +
-      "a rose of ≤12 categories with widely varying magnitudes; 'sankey' for flows between two " +
-      "linked columns (source→target) with a value; 'wordcloud' for a free-text or comment column " +
-      "to surface frequent terms; 'map'/'bubblemap' ONLY if a real geography column exists. " +
+      `Then: ${plannerTypeGuide()}. ` +
+      PLANNER_SHAPE_RULES +
       "Chart widgets (kind 'chart', the default) need a concrete analyst question answerable with " +
       "ONE SQL query on this schema, using ONLY columns that exist. You MAY also add non-data " +
       "widgets: a 'text' widget (set kind:'text' and content: markdown, e.g. a section header or " +
@@ -2011,7 +2024,9 @@ export async function suggestDashboardWidgets(args: {
         id: crypto.randomUUID(),
         kind,
         title: (w.title ?? w.question ?? "").trim().slice(0, 80),
-        chartType: (w.chartType ?? "").trim().toLowerCase(),
+        // The planner's word for a visual, as a type the renderer draws; a
+        // word for nothing it draws leaves the choice to the chart step.
+        chartType: chartTypeFromWord(w.chartType) ?? "",
         question: (w.question ?? "").trim(),
         rationale: (w.rationale ?? "").trim().slice(0, 160),
         content: typeof w.content === "string" ? w.content.trim() : undefined,

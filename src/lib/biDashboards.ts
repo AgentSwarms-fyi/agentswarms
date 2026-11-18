@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import type { BiTurn, ChartSpec } from "@/lib/biAgent";
 import { isAggregatableChart } from "@/lib/biAggregate";
+import { semanticChartSpec } from "@/lib/biSemanticCharts";
 import { restateWidgetNarrative } from "@/lib/biNumericClaims";
 import { restateWidgetNote } from "@/lib/biTitleClaims";
 import type { ComparePeriod, SemanticFilter, TimeGrain } from "@/lib/semanticLayer";
@@ -78,7 +79,29 @@ export type BiWidgetSource =
        * Absent/empty = the declared defaults, exactly as before.
        */
       params?: Record<string, string | number>;
+      /**
+       * The order the rows come back in (R507). A governed query has no
+       * order of its own, so quarters reached a combo as 2024-10, 2024-04,
+       * 2022-04. Stored for the same reason as `compare`: refresh recompiles
+       * from this source.
+       */
+      orderBy?: SemanticOrder;
     };
+
+/** How a governed query orders its rows. */
+export type SemanticOrder = Array<{ field: string; dir?: "asc" | "desc" }>;
+
+/**
+ * Oldest first on the first dimension rolled up by a time grain, which is the
+ * order every time axis is read in; nothing when no dimension is a time.
+ */
+export function semanticTimeOrder(
+  dimensions: string[],
+  grains?: Record<string, string>,
+): SemanticOrder | undefined {
+  const time = dimensions.find((d) => grains?.[d]);
+  return time ? [{ field: time, dir: "asc" }] : undefined;
+}
 
 /** Content of an image widget: an uploaded data-URI OR an external URL. */
 export type BiImage = {
@@ -1050,21 +1073,51 @@ export function widgetFromAnalystStep(
   };
 }
 
-export type SemanticChartType = "table" | "bar" | "line" | "area" | "kpi" | "pie";
-
 /**
  * The chart shapes a governed (semantic-source) widget can take. The BI
  * builder's visual picker offers more; its governed-metric source coerces
  * anything outside this set to "table" and says so before inserting.
+ *
+ * R507 widened it from six to every shape a query of metrics by dimensions
+ * can fill (lib/biSemanticCharts). Left out, because a governed query cannot
+ * carry them: a box plot (needs the rows behind each total), a bar race,
+ * rank over time and start-to-finish (need columns the compiler does not
+ * produce), point maps (latitude and longitude are not metrics), pins on a
+ * road, cards, controls and the ontology.
  */
-export const SEMANTIC_CHART_KINDS: readonly SemanticChartType[] = [
+export const SEMANTIC_CHART_KINDS = [
   "table",
   "bar",
   "line",
   "area",
   "kpi",
   "pie",
-];
+  "hbar",
+  "scolumn",
+  "shbar",
+  "combo",
+  "scatter",
+  "gauge",
+  "insight",
+  "nightingale",
+  "funnel",
+  "radialbar",
+  "treemap",
+  "pareto",
+  "pictogram",
+  "waterfall",
+  "wordcloud",
+  "map",
+  "bubblemap",
+  "calendar",
+  "radar",
+  "heatmap",
+  "sankey",
+  "smallmultiples",
+  "matrix",
+] as const;
+
+export type SemanticChartType = (typeof SEMANTIC_CHART_KINDS)[number];
 
 /** The chart shape a governed widget takes for a picker chart type. */
 export function coerceSemanticChart(chartType: string): SemanticChartType {
@@ -1084,6 +1137,8 @@ export function widgetFromSemantic(args: {
   compare?: ComparePeriod;
   /** Parameter overrides the query ran with — pinned onto the widget. */
   params?: Record<string, string | number>;
+  /** The order the query ran with — kept so a refresh returns the same order. */
+  orderBy?: SemanticOrder;
   chartType: SemanticChartType;
   columns: string[];
   rows: Record<string, unknown>[];
@@ -1097,9 +1152,6 @@ export function widgetFromSemantic(args: {
   format?: "number" | "currency" | "percent";
   currency?: string;
 }): BiWidget {
-  const dim0 = args.dimensions[0] ?? args.columns[0];
-  const dim1 = args.dimensions[1];
-  const met0 = args.metrics[0] ?? args.columns[args.dimensions.length] ?? args.columns[0];
   // Chart specs render "number" as the default; only the two real display
   // formats travel.
   const fmt: Pick<ChartSpec, "format" | "currency"> =
@@ -1109,28 +1161,17 @@ export function widgetFromSemantic(args: {
           ...(args.format === "currency" && args.currency ? { currency: args.currency } : {}),
         }
       : {};
-  let chart: ChartSpec;
-  switch (args.chartType) {
-    case "kpi":
-      chart = { type: "kpi", valueField: met0, ...fmt };
-      break;
-    case "pie":
-      chart = { type: "pie", nameField: dim0, valueField: met0, ...fmt };
-      break;
-    case "bar":
-    case "line":
-    case "area":
-      chart = {
-        type: args.chartType,
-        xField: dim0,
-        yField: met0,
-        ...(dim1 ? { seriesField: dim1 } : {}),
-        ...fmt,
-      };
-      break;
-    default:
-      chart = { type: "table" };
-  }
+  const shape = semanticChartSpec({
+    chartType: args.chartType,
+    metrics: args.metrics,
+    dimensions: args.dimensions,
+    columns: args.columns,
+    rows: args.rows,
+    grains: args.grains,
+  });
+  // A table formats per column, and always has: the lead metric's format is
+  // for the charts.
+  const chart: ChartSpec = shape.type === "table" ? shape : ({ ...shape, ...fmt } as ChartSpec);
   return {
     id: crypto.randomUUID(),
     kind: "chart",
@@ -1144,6 +1185,7 @@ export function widgetFromSemantic(args: {
       grains: args.grains,
       compare: args.compare,
       ...(args.params && Object.keys(args.params).length > 0 ? { params: args.params } : {}),
+      ...(args.orderBy && args.orderBy.length > 0 ? { orderBy: args.orderBy } : {}),
     },
     sql: args.sql,
     chart,

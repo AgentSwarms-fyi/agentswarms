@@ -140,6 +140,7 @@ import {
 import type { BiColumnFormat, SavedMetric } from "@/lib/biAgent";
 import {
   coerceSemanticChart,
+  semanticTimeOrder,
   editorCarried,
   snapshotRows,
   widgetFromBiTurn,
@@ -1292,6 +1293,7 @@ export function BiBuilderPane({
       metrics: mmMetrics,
       dimensions: mmDims,
       ...(Object.keys(grains).length > 0 ? { grains } : {}),
+      ...(semanticTimeOrder(mmDims, grains) ? { orderBy: semanticTimeOrder(mmDims, grains) } : {}),
       limit: 100,
     };
   }
@@ -1334,6 +1336,7 @@ export function BiBuilderPane({
         metrics: q.metrics,
         dimensions: q.dimensions ?? [],
         ...(q.grains ? { grains: q.grains } : {}),
+        orderBy: q.orderBy,
         chartType: mmChart,
         columns: mmPreview.columns,
         rows: mmPreview.rows,

@@ -317,10 +317,43 @@ export function autoDateGrain(rows: Record<string, unknown>[], field: string): D
   }
   if (times.length === 0) return null;
   const spanDays = (Math.max(...times) - Math.min(...times)) / 86_400_000;
+  let byspan: DateGrain = "year";
   for (const [grain, days] of GRAIN_DAYS) {
-    if (spanDays / days <= MAX_AUTO_BUCKETS) return grain;
+    if (spanDays / days <= MAX_AUTO_BUCKETS) {
+      byspan = grain;
+      break;
+    }
   }
-  return "year";
+  // The values' own grain is a floor (R507). Twelve months span 334 days,
+  // which fits 60 weekly labels, so a monthly series was labelled by the week
+  // each month starts in: "2025-W44, 2025-W49, 2026-W01".
+  const aligned = alignedGrain(times);
+  const rank = (g: DateGrain) => GRAIN_DAYS.findIndex(([x]) => x === g);
+  return aligned && rank(aligned) > rank(byspan) ? aligned : byspan;
+}
+
+/**
+ * The grain every value sits on the start of, when that is a month or
+ * coarser: each the first of a month at midnight is monthly; each also the
+ * first month of a quarter, quarterly; each 1 January, yearly. Two values at
+ * least for a month, three for a quarter or a year, so one date is not read
+ * as a pattern.
+ */
+function alignedGrain(times: number[]): DateGrain | null {
+  const distinct = [...new Set(times)];
+  if (distinct.length < 2) return null;
+  const dates = distinct.map((t) => new Date(t));
+  const monthStarts = dates.every(
+    (d) =>
+      d.getUTCDate() === 1 &&
+      d.getUTCHours() === 0 &&
+      d.getUTCMinutes() === 0 &&
+      d.getUTCSeconds() === 0,
+  );
+  if (!monthStarts) return null;
+  if (distinct.length >= 3 && dates.every((d) => d.getUTCMonth() === 0)) return "year";
+  if (distinct.length >= 3 && dates.every((d) => d.getUTCMonth() % 3 === 0)) return "quarter";
+  return "month";
 }
 
 /**

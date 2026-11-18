@@ -18,7 +18,7 @@ import {
   YAxis,
 } from "recharts";
 
-import { PIE_COLORS, fmtBiValue, toBiNumber } from "@/components/bi/biChartData";
+import { PIE_COLORS, aggregateByField, fmtBiValue, toBiNumber } from "@/components/bi/biChartData";
 import { calendarCells, paretoRows, pictogramUnit, splitRows } from "@/components/bi/biDrawHelpers";
 import type { BiPictogramIcon, ChartSpec } from "@/lib/biAgent";
 
@@ -260,14 +260,24 @@ export function BiSmallMultiples({
   chart: SmallMultiplesChart;
   rows: Record<string, unknown>[];
 }) {
+  // Each panel adds up rows that share an x value, as a line or a column
+  // chart does (R507). It plotted them one by one, so rows of orders drew a
+  // spike per order instead of each month's total; and a query that already
+  // groups by x is unchanged by it, which is what lets the panels aggregate
+  // in SQL.
   const groups = useMemo(
-    () => splitRows(rows, chart.splitField, 12, chart.yField),
-    [rows, chart.splitField, chart.yField],
+    () =>
+      splitRows(rows, chart.splitField, 12, chart.yField).map((g) => ({
+        ...g,
+        rows: aggregateByField(g.rows, chart.xField, [chart.yField]),
+      })),
+    [rows, chart.splitField, chart.xField, chart.yField],
   );
   // One scale for every panel: comparing panels is the point.
   const max = useMemo(
-    () => Math.max(0, ...rows.map((r) => toBiNumber(r[chart.yField]) ?? 0)),
-    [rows, chart.yField],
+    () =>
+      Math.max(0, ...groups.flatMap((g) => g.rows.map((r) => toBiNumber(r[chart.yField]) ?? 0))),
+    [groups, chart.yField],
   );
   if (groups.length === 0) return <Empty text="No rows to split." />;
   const cols =

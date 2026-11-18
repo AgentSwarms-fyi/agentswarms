@@ -19,10 +19,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { fmtBiValue } from "@/components/bi/biChartData";
-import { coerceSemanticChart } from "@/lib/biDashboards";
+import { coerceSemanticChart, SEMANTIC_CHART_KINDS } from "@/lib/biDashboards";
+import { VIZ_TYPES } from "@/components/bi/vizTypes";
 import type { MetricModelOption } from "@/components/bi/biDataContext";
 import type { TimeGrain } from "@/lib/semanticLayer";
 import type { Dispatch, SetStateAction } from "react";
+
+/** The visuals a governed metric cannot draw, named as the picker names them. */
+const NOT_GOVERNED_LABELS = (() => {
+  const names = VIZ_TYPES.filter(
+    (v) => !(SEMANTIC_CHART_KINDS as readonly string[]).includes(v.value),
+  ).map((v) => v.label);
+  return names.length > 1
+    ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`
+    : names.join("");
+})();
 
 /** Time rollups offered per checked time dimension. */
 const MM_GRAINS: readonly TimeGrain[] = ["day", "week", "month", "quarter", "year"];
@@ -236,8 +247,9 @@ export function BiMetricSource({
 
           {coerceSemanticChart(chartType) !== chartType && (
             <p className="text-[10px] leading-relaxed text-muted-foreground">
-              The selected chart type is not available for governed metrics — this widget will
-              insert as a table. Governed widgets support table, bar, line, area, KPI and pie.
+              The selected chart type is not available for governed metrics, so this widget will
+              insert as a table. {NOT_GOVERNED_LABELS} need columns a governed query does not
+              return.
             </p>
           )}
 

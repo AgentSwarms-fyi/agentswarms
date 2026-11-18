@@ -133,7 +133,13 @@ function PlaygroundDoc() {
               more than one — &ldquo;show me 3 charts of sales&rdquo;, &ldquo;a couple of
               visuals&rdquo;, &ldquo;charts for revenue, cost and headcount&rdquo; — and the
               question is split into one analytical question per visual (up to 4). A plain request
-              still produces one chart and costs exactly what it did before.
+              still produces one chart and costs exactly what it did before. Each chart is chosen
+              from{" "}
+              <DocLink key="v" to="/docs/bi#generate-every-visual">
+                every visual the BI builder offers
+              </DocLink>{" "}
+              — a pareto, a calendar, a map of US states, a pivot with several measures — and you
+              can ask for one by name (&ldquo;daily rides as a calendar&rdquo;).
             </>,
           ],
           ["PPT / Word / Excel", "Generate a real, editable Office file from a prompt. See below."],

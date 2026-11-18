@@ -382,7 +382,11 @@ export function calendarCells(
     }
     cells.push({ date: key, week, weekday: d.getUTCDay(), value: byDay.get(key) ?? null });
   }
-  return { cells, weeks: (cells.at(-1)?.week ?? 0) + 1, months };
+  // A month that starts within two columns of the next one has no room for
+  // its name: a year from 31 December printed "Dec" over "Jan" (R507). The
+  // later month is the one that fills the columns, so it keeps the label.
+  const named = months.filter((m, i) => !months[i + 1] || months[i + 1].week - m.week >= 2);
+  return { cells, weeks: (cells.at(-1)?.week ?? 0) + 1, months: named };
 }
 
 /**

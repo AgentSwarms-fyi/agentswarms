@@ -214,6 +214,15 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **BI: the AI can choose every visual** (R507). Generate Entire Dashboard,
+  the AI Analyst, Visual BI in chat and an embedded agent's chat now choose
+  from every visual the builder offers except Controls and Ontology: pareto,
+  calendar, small multiples, pictogram, radial bars, start to finish, rank
+  over time, point and filled maps, pins on a road, cards, and combos and
+  pivots with several measures, with their options. The planner phrases each
+  question for the visual it plans, and a governed dashboard takes 29 shapes
+  instead of 6.
+
 - **BI: combos and pivots with several measures, maps of US states** (R506).
   - A **combo** takes more values: each is drawn as bars or a line, the bars
     can stack, and the lines can share the bars' axis.
@@ -313,6 +322,26 @@ development branch and may be ahead of the latest tag.
   difference, two of them open emulator issues (aws/aws-emulator#46, #56).
 
 ### Fixed
+
+- **AI charts drew empty frames for a column the query never returned**
+  (R507). The AI Analyst's step charts, Visual BI in chat and embeds drew
+  whatever columns the model named; only generated dashboards were checked.
+  All of them now are, and so is a field the chart left out entirely.
+- **An embedded agent's chart was chosen before its query ran** (R507), from
+  six types. It is now chosen from the rows that came back, by the same step
+  the app uses.
+- **BI: found generating dashboards, asking the analyst and chatting in the
+  browser** (R507).
+  - A combo's date axis read raw timestamps, and a monthly axis read in weeks.
+  - A generated calendar and small multiples showed the first 500 rows of
+    orders, not the totals: a generated widget that hits the snapshot cap is
+    now aggregated in SQL at once.
+  - A refresh dropped a combo's extra measures and a treemap's colour.
+  - The analyst pivoted a year of days into columns, which can only be shown
+    as a table.
+  - Governed time axes came back unordered, also on refresh.
+  - An embed charted a table it was not asked about.
+  - A calendar's first two month names could print on top of each other.
 
 - **A map of US state codes drew countries** (R506). Postal codes are also
   country codes, so a map of claims by state shaded Azerbaijan, Colombia,

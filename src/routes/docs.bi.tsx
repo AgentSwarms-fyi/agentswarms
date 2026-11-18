@@ -182,13 +182,16 @@ function BiPage() {
       <H3 id="analyst-charts">Charts, pinning and computed reasoning</H3>
       <P>
         <strong>Every step that has something to show gets its own chart</strong>, so a three-query
-        answer arrives as three visuals rather than one headline picture. Any step can be{" "}
-        <strong>pinned to a dashboard</strong> — the widget keeps that step&apos;s SQL and chart,
-        and re-runs it on refresh — or <strong>edited and re-run</strong> with your own SQL. When
-        you edit one, the findings above are marked <em>written before a step was re-run</em> until
-        you rewrite them, and the step drops the check verdict that judged the previous query: a
-        green &ldquo;Check passed&rdquo; must never vouch for SQL the analyst never saw. After each
-        answer it offers <strong>follow-up questions</strong>, and a brand-new analyst offers{" "}
+        answer arrives as three visuals rather than one headline picture, each chosen from{" "}
+        <DocLink to="/docs/bi#generate-every-visual">every visual the builder offers</DocLink>; ask
+        for one by name (&ldquo;as a pareto&rdquo;) and it is used when the columns support it. Any
+        step can be <strong>pinned to a dashboard</strong> — the widget keeps that step&apos;s SQL
+        and chart, and re-runs it on refresh — or <strong>edited and re-run</strong> with your own
+        SQL. When you edit one, the findings above are marked{" "}
+        <em>written before a step was re-run</em> until you rewrite them, and the step drops the
+        check verdict that judged the previous query: a green &ldquo;Check passed&rdquo; must never
+        vouch for SQL the analyst never saw. After each answer it offers{" "}
+        <strong>follow-up questions</strong>, and a brand-new analyst offers{" "}
         <strong>starter questions</strong> written from its own schema.
       </P>
       <P>
@@ -309,6 +312,47 @@ function BiPage() {
         chart the model picked rather than an empty frame.
       </P>
 
+      <H3 id="generate-every-visual">Which visuals the AI can choose</H3>
+      <P>
+        Four things ask a model for a chart: <strong>Generate Entire Dashboard</strong>, the{" "}
+        <DocLink to="/docs/bi#ai-analyst">AI Analyst</DocLink>,{" "}
+        <DocLink to="/docs/playground">Visual BI in chat</DocLink> and the chat of an embedded
+        agent. All four choose from the same list: every visual in the builder&apos;s picker except
+        Controls and Ontology, which draw the dashboard&apos;s parameters and the ontology rather
+        than a query&apos;s rows. That includes pareto, calendar, small multiples, pictogram, radial
+        bars, start → finish, rank over time, point maps, pins on a road, cards, maps of countries
+        and US states, combos and pivots with several measures, KPIs that compare periods and
+        narratives. The options come with them: parts as shares of 100%, a moving average, a zoom
+        bar, a log scale, names at line ends, a treemap coloured by a second measure and the
+        legend&apos;s place.
+      </P>
+      <P>
+        The dashboard planner names each visual before any SQL exists, so it is told the shape of
+        result each one needs and phrases the question to match: a calendar asks for the measure per
+        day over the last year at most, small multiples for the measure for each value of a second
+        category, a combo for two or more measures, rank over time for each item&apos;s rank. A
+        point map is proposed only when the table has latitude and longitude, and a map only when a
+        column holds countries or US states. The review list shows each planned visual under the
+        picker&apos;s own name and icon.
+      </P>
+      <P>
+        Every query is asked to return <strong>long</strong> rows, one per group with each measure
+        in its own column. A result too tall to keep is bucketed into coarser groups (weeks or
+        months instead of days), never spread across columns: a year of days once came back as 31
+        day columns per month, which no chart can draw. The AI Analyst keeps 50 rows per step, so
+        its calendars cover a few weeks and longer spans are asked by week or month.
+      </P>
+      <P>
+        What a model returns is read before anything is drawn. Its word for a visual is mapped onto
+        the one that draws it (&ldquo;donut&rdquo; is a pie, &ldquo;choropleth&rdquo; a map,
+        &ldquo;pivot table&rdquo; a matrix). A setting whose value the chart does not read is
+        dropped, and a type no chart draws becomes a line over a date or bars by a category. When
+        the chart step draws something other than the planned visual and the columns that came back
+        can carry the plan, the dashboard builds the planned one. And the columns every chart names
+        are checked against the rows, as described in{" "}
+        <DocLink to="/docs/bi#chart-fields">A chart names its columns</DocLink>.
+      </P>
+
       <H3 id="generate-governed">Generate a dashboard from a governed model</H3>
       <P>
         <strong>Generate dashboard with AI</strong> offers two sources: your <strong>tables</strong>
@@ -329,6 +373,20 @@ function BiPage() {
         second name. Each is <strong>refused with a reason naming the offending item</strong>, and
         the rejections are shown in the dialog rather than swallowed — a generate that proposed
         twelve and built nine has to say which three it lost.
+      </P>
+      <P>
+        A governed widget can be any visual that a query of metrics by dimensions fills: KPIs (a
+        lone time dimension makes one that compares periods), gauges, narratives, bars, lines,
+        areas, stacked bars, combos, scatters, pies, roses, funnels, radial bars, treemaps (a second
+        metric colours the tiles), paretos, pictograms, waterfalls, word clouds, maps, calendars
+        (always rolled up by the day), radars, heatmaps, sankeys, small multiples, pivots with up to
+        three dimensions and four metrics, and tables. Each is held to the dimensions and metrics it
+        draws, so a pie with two metrics or a calendar over a region is refused with the reason. A
+        time axis is asked for oldest first, and keeps that order when the widget refreshes (a
+        governed query has no order of its own); a calendar takes the latest 400 days. Box plots,
+        bar races, rank over time, start → finish, point maps, pins on a road and cards need columns
+        a governed query does not return. The builder&apos;s governed metric source takes the same
+        visuals.
       </P>
       <Callout kind="info" title="Metrics only, chosen once">
         The source is picked at the dialog, not per widget. Mixing governed and ungoverned visuals
@@ -649,6 +707,14 @@ GROUP BY region`}</Code>
         Supported aggregates are <C>sum</C> (the default), <C>avg</C>, <C>min</C>, <C>max</C>,{" "}
         <C>count</C> and <C>count_distinct</C>. Wrapping SQL that already aggregates is harmless —
         grouping rows whose key is already unique returns them unchanged.
+      </P>
+      <P>
+        It applies to the charts that add up rows sharing a key: columns, bars and their stacks,
+        lines, areas, radars, pies, funnels, waterfalls, treemaps (with the measure that colours
+        them), combos (with every measure they draw), paretos, calendars, pictograms and small
+        multiples, whose panels each add up the rows that share an x value. A generated widget whose
+        query hit the snapshot cap is aggregated this way before it is first shown, so a dashboard
+        built from rows of orders opens with complete totals rather than a Partial badge.
       </P>
       <Callout kind="why" title="Why it isn't just switched on everywhere">
         New widgets get it by default. Existing ones deliberately do <strong>not</strong>, because
@@ -1439,7 +1505,7 @@ ORDER BY r.round, total_points DESC`}</Code>
             <C key="b">dateGrain</C>,
             "auto | day | week | month | quarter | year",
             "line, area, period KPIs, narratives",
-            "Default bucketing; viewers can toggle it. Buckets are UTC, the zone the SQL engines run in: a timestamp written without an offset is read as UTC, so a viewer in any time zone sees the months and days the query returned.",
+            "Default bucketing; viewers can toggle it. Buckets are UTC, the zone the SQL engines run in: a timestamp written without an offset is read as UTC, so a viewer in any time zone sees the months and days the query returned. Left on auto, and on every other chart, raw timestamps on the axis are labelled at the finest grain that fits, but never finer than the values themselves: twelve first-of-month timestamps read 2025-11 to 2026-10, not by the week each month starts in.",
           ],
           [
             <C key="c">compare</C>,
@@ -1991,7 +2057,21 @@ ORDER BY dayofweek(ride_date)`}</Code>
           column is missing. The rows are real and the reader can see them; an empty frame tells
           them nothing.
         </li>
+        <li>
+          A field the chart <strong>left out entirely</strong> is treated the same way: a pareto
+          that names no category takes the one label column there is, and with two to choose from
+          the rows are shown and the title says the chart did not say which.
+        </li>
+        <li>
+          Measures named in a list rather than a field decorate the chart: extra measures, the lines
+          among a combo&apos;s measures and a treemap&apos;s colour measure. One the query did not
+          return, or one another field already draws, is dropped.
+        </li>
       </UL>
+      <P>
+        The same check runs wherever a model chooses a chart: generated dashboards and reports, each
+        step of the AI Analyst, Visual BI in chat and an embedded agent&apos;s chart.
+      </P>
       <P>
         Which field has to be a number depends on the chart, not on the field's name: a bar chart's{" "}
         <C>yField</C> is its measure, a sankey's is a node label, and a heatmap's axes are both

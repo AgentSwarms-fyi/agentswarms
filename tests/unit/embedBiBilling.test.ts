@@ -16,7 +16,11 @@ const FORM = readFileSync("src/components/agents/AgentForm.tsx", "utf8");
 describe("the planning call is billed to the owner", () => {
   it("records a gateway call", () => {
     expect(SRC).toContain("recordGatewayCall");
-    expect(SRC).toMatch(/surface: "Embed BI: Plan"/);
+    // Since R507 there are two calls, the SQL plan and the chart, each billed
+    // under its own surface: the plan by default, the chart by name.
+    expect(SRC).toMatch(/surface = "Embed BI: Plan"/);
+    expect(SRC).toMatch(/\n\s+surface,\n/);
+    expect(SRC).toContain('"Embed BI: Chart"');
   });
 
   it("bills the OWNER, not an anonymous visitor", () => {
@@ -45,7 +49,7 @@ describe("the planning call is billed to the owner", () => {
     // The CALL SITE, not the import on line 8 — indexOf("recordGatewayCall")
     // matches the import first and makes this comparison vacuously true.
     const recordAt = SRC.indexOf("await recordGatewayCall({");
-    const bailAt = SRC.indexOf("if (!content) return null;");
+    const bailAt = SRC.indexOf("if (!content) {");
     expect(recordAt, "no recordGatewayCall call site").toBeGreaterThan(-1);
     expect(bailAt, "the early return moved").toBeGreaterThan(-1);
     expect(recordAt, "an empty response returns before it is billed").toBeLessThan(bailAt);

@@ -3,6 +3,7 @@
 // playground to show visuals alongside an agent's natural-language answer.
 import { runBiTurn, loadSemantics, loadSavedMetrics, llmJson } from "@/lib/biAgent";
 import { hydrateFromSupabase } from "@/lib/sqlEngine";
+import { reconcileChartFields } from "@/lib/biChartFields";
 import { widgetFromBiTurn, widgetRowCap, type BiWidget } from "@/lib/biDashboards";
 import type { DocScope } from "@/lib/docGen/types";
 import { buildSources, sqlTableSources, type RawSource, type Source } from "@/utils/tools/sources";
@@ -307,6 +308,15 @@ export async function generateChatWidget(
       // Same builder the sql_query tool uses, so the caption reads identically
       // however the answer was reached.
       rawSources.push(...sqlTableSources(turn.sql, turn.result.row_count ?? null, "Visual BI"));
+      // The chart's columns, checked against the rows as the dashboard
+      // generator checks them (R507). Without it a chart naming a column the
+      // query did not return drew an empty frame in the conversation.
+      const fields = reconcileChartFields({
+        chart: turn.chart,
+        columns: turn.result.columns,
+        rows: turn.result.rows,
+      });
+      if (fields.verdict !== "ok") turn.chart = fields.chart;
       // A table-only "chart" adds little next to the text answer — skip the
       // visual but still keep the narrative so the answer is data-grounded.
       if (isRenderableTurn(turn)) {

@@ -15,6 +15,7 @@ import type { MetricModelOption } from "@/components/bi/biDataContext";
 import {
   ALLOWED_GRAINS,
   GOVERNED_CHART_TYPES,
+  GOVERNED_SHAPES,
   GOVERNED_PLANNER_SYSTEM,
   describeModelForPlanner,
   timeDimensions,
@@ -122,9 +123,11 @@ describe("a chart must be able to show what it was given", () => {
   });
 
   it("refuses a chart type the dashboard cannot build", () => {
+    // A box plot needs the rows behind each total, which a governed query
+    // never returns (R507 widened the set; this one stays out).
     const r = ok({
-      title: "Flow",
-      chartType: "sankey",
+      title: "Spread",
+      chartType: "boxplot",
       metrics: ["revenue"],
       dimensions: ["region"],
     });
@@ -132,11 +135,15 @@ describe("a chart must be able to show what it was given", () => {
   });
 
   it("covers every governed chart type it claims to support", () => {
+    // The smallest query each shape accepts, read from its own rule.
     for (const t of GOVERNED_CHART_TYPES) {
-      const dims = t === "kpi" ? [] : ["region"];
-      expect(ok({ title: t, chartType: t, metrics: ["revenue"], dimensions: dims }).ok, t).toBe(
-        true,
-      );
+      const shape = GOVERNED_SHAPES[t];
+      const dims = shape.time
+        ? ["order_date"]
+        : (["region", "channel", "order_date"].slice(0, shape.dims[0]) as string[]);
+      const metrics = ["revenue", "order_count"].slice(0, Math.max(1, shape.metrics[0]));
+      const r = ok({ title: t, chartType: t, metrics, dimensions: dims });
+      expect(r.ok, `${t}: ${!r.ok ? r.rejected.reason : ""}`).toBe(true);
     }
   });
 });
@@ -300,6 +307,8 @@ describe("the query handed to the compiler", () => {
       metrics: ["revenue"],
       dimensions: ["order_date"],
       grains: { order_date: "month" },
+      // Oldest first on the time axis (R507): a governed query has no order.
+      orderBy: [{ field: "order_date", dir: "asc" }],
       limit: 200,
     });
   });

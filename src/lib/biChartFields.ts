@@ -21,6 +21,7 @@
 // column can possibly be meant, and otherwise say plainly that the measure is
 // missing and show the rows instead of an empty frame.
 import type { ChartSpec } from "@/lib/biAgent";
+import { dateLikeColumns } from "@/lib/biPeriods";
 
 /**
  * Which declared fields have to name a NUMBER, per chart type.
@@ -57,6 +58,69 @@ const MEASURE_FIELDS: Record<string, readonly string[]> = {
   kpi: ["valueField", "targetField"],
   insight: ["valueField"],
   gauge: ["valueField", "targetField"],
+  // R500-R502 visuals, which generation can choose since R507.
+  pareto: ["valueField"],
+  calendar: ["valueField"],
+  smallmultiples: ["yField"],
+  pictogram: ["valueField"],
+  radialbar: ["valueField"],
+  range: ["startField", "endField"],
+  bump: ["yField"],
+  pointmap: ["latField", "lngField", "sizeField"],
+  journey: ["valueField"],
+};
+
+/**
+ * Fields a chart cannot draw without, per type (R507).
+ *
+ * The check above reads the fields a spec DECLARES, so a spec that left one
+ * out entirely passed: `{ type: "pareto" }` reached the renderer with no
+ * category and drew an empty frame. A required field that is absent is
+ * treated as one that names a missing column: filled when exactly one column
+ * can be meant, otherwise the rows are shown and the note says why.
+ *
+ * "label" is any column that is not a number (dates included), "date" one
+ * whose values read as dates, "number" a measure. A KPI's value may be a
+ * label: "Best month by revenue" shows the month. A series split is never
+ * required: without one the chart draws a single series, as it always has.
+ */
+export type RequiredFieldKind = "number" | "label" | "date" | "any";
+
+export const REQUIRED_FIELDS: Record<string, Record<string, RequiredFieldKind>> = {
+  kpi: { valueField: "any" },
+  gauge: { valueField: "number" },
+  insight: { valueField: "number" },
+  bar: { xField: "label", yField: "number" },
+  hbar: { xField: "label", yField: "number" },
+  scolumn: { xField: "label", yField: "number" },
+  shbar: { xField: "label", yField: "number" },
+  line: { xField: "label", yField: "number" },
+  area: { xField: "label", yField: "number" },
+  combo: { xField: "label", barField: "number", lineField: "number" },
+  scatter: { xField: "number", yField: "number" },
+  pie: { nameField: "label", valueField: "number" },
+  nightingale: { nameField: "label", valueField: "number" },
+  radialbar: { nameField: "label", valueField: "number" },
+  treemap: { nameField: "label", valueField: "number" },
+  pareto: { categoryField: "label", valueField: "number" },
+  funnel: { nameField: "label", valueField: "number" },
+  waterfall: { xField: "label", yField: "number" },
+  heatmap: { xField: "label", yField: "label", valueField: "number" },
+  matrix: { rowField: "label", colField: "label", valueField: "number" },
+  calendar: { dateField: "date", valueField: "number" },
+  smallmultiples: { xField: "label", yField: "number", splitField: "label" },
+  pictogram: { categoryField: "label", valueField: "number" },
+  range: { categoryField: "label", startField: "number", endField: "number" },
+  bump: { xField: "any", yField: "number" },
+  barrace: { xField: "label", yField: "number", timeField: "label" },
+  sankey: { xField: "label", yField: "label", valueField: "number" },
+  radar: { xField: "label", yField: "number" },
+  wordcloud: { textField: "label" },
+  boxplot: { xField: "label", yField: "number" },
+  map: { locationField: "label", valueField: "number" },
+  bubblemap: { locationField: "label", valueField: "number" },
+  pointmap: { latField: "number", lngField: "number" },
+  journey: { categoryField: "label", valueField: "number" },
 };
 
 /** Fields a chart still draws without: decorations, not the drawing itself. */
@@ -78,8 +142,11 @@ const ALWAYS_OPTIONAL = new Set([
 /** Keys that belong to every spec and survive a fall back to a table. */
 const SHARED_KEYS = ["format", "currency", "decimals", "columnFormats"] as const;
 
+// A field the type REQUIRES is never optional: a calendar without its date,
+// or a pareto without its category, has nothing to draw.
 const isOptional = (type: string, key: string) =>
-  ALWAYS_OPTIONAL.has(key) || (type === "wordcloud" && key === "valueField");
+  !(REQUIRED_FIELDS[type] && key in REQUIRED_FIELDS[type]) &&
+  (ALWAYS_OPTIONAL.has(key) || (type === "wordcloud" && key === "valueField"));
 
 /** Every `*Field` on a spec that actually names something. */
 function declaredFields(chart: ChartSpec): { key: string; column: string }[] {
@@ -115,6 +182,58 @@ export function numericColumns(columns: string[], rows: Record<string, unknown>[
   return out;
 }
 
+/**
+ * The spec without the list-named measures its result cannot draw, or null
+ * when every one is there. A measure already drawn by a field is dropped from
+ * the list too: the same column twice is one series drawn twice.
+ */
+function trimDecorations(
+  chart: ChartSpec,
+  have: Set<string>,
+  numeric: Set<string>,
+  declared: { key: string; column: string }[],
+): ChartSpec | null {
+  const src = chart as unknown as Record<string, unknown>;
+  const next: Record<string, unknown> = { ...src };
+  let changed = false;
+  const drawn = new Set(declared.map((d) => d.column));
+  if (Array.isArray(src.extraMeasures)) {
+    const keep = (src.extraMeasures as unknown[]).filter(
+      (m): m is string => typeof m === "string" && have.has(m) && numeric.has(m) && !drawn.has(m),
+    );
+    const unique = [...new Set(keep)];
+    if (unique.length !== (src.extraMeasures as unknown[]).length) changed = true;
+    if (unique.length) next.extraMeasures = unique;
+    else delete next.extraMeasures;
+  }
+  if (Array.isArray(src.extraLines)) {
+    const extras = new Set((next.extraMeasures as string[] | undefined) ?? []);
+    const keep = (src.extraLines as unknown[]).filter(
+      (m): m is string => typeof m === "string" && extras.has(m),
+    );
+    if (keep.length !== (src.extraLines as unknown[]).length) changed = true;
+    if (keep.length) next.extraLines = keep;
+    else delete next.extraLines;
+  }
+  if (typeof src.colorMeasure === "string") {
+    const ok = have.has(src.colorMeasure) && numeric.has(src.colorMeasure);
+    if (!ok) {
+      delete next.colorMeasure;
+      delete next.scale;
+      changed = true;
+    }
+  }
+  if (Array.isArray(src.iconFields)) {
+    const keep = (src.iconFields as unknown[]).filter(
+      (m): m is string => typeof m === "string" && have.has(m),
+    );
+    if (keep.length !== (src.iconFields as unknown[]).length) changed = true;
+    if (keep.length) next.iconFields = keep;
+    else delete next.iconFields;
+  }
+  return changed ? (next as ChartSpec) : null;
+}
+
 export type ChartFieldVerdict =
   /** Every field the chart names is a column the query returned. */
   | { verdict: "ok" }
@@ -144,21 +263,32 @@ export function reconcileChartFields(args: {
   const chart = args.chart;
   if (!chart) return { verdict: "ok" };
   const declared = declaredFields(chart);
-  if (!declared.length) return { verdict: "ok" };
-
   const have = new Set(args.columns);
-  const missing = declared.filter((d) => !have.has(d.column));
-  if (!missing.length) return { verdict: "ok" };
+  const numeric = numericColumns(args.columns, args.rows);
+  // Measures named in lists rather than fields (R507): more measures, the
+  // ones of them drawn as lines, a treemap's colour. They decorate (the chart
+  // draws without them), so one the result lacks is dropped, not repaired.
+  const decorated = trimDecorations(chart, have, numeric, declared);
+  const required = REQUIRED_FIELDS[chart.type] ?? {};
+  const absent = Object.keys(required)
+    .filter((k) => !declared.some((d) => d.key === k))
+    .map((k) => ({ key: k, column: "" }));
+  const missing = [...declared.filter((d) => !have.has(d.column)), ...absent];
+  if (!missing.length) {
+    return decorated ? { verdict: "repaired", chart: decorated } : { verdict: "ok" };
+  }
 
   const measures = new Set(MEASURE_FIELDS[chart.type] ?? []);
-  const numeric = numericColumns(args.columns, args.rows);
+  const dates = dateLikeColumns(args.columns, args.rows);
   // Columns the spec is already drawing. A repair may not use one: re-pointing
   // a field at a column another field already owns draws the same series twice
   // and calls it a comparison. This grows as repairs are made, which is why the
   // loop below re-reads it rather than working from a list computed up here.
   const taken = new Set(declared.filter((d) => have.has(d.column)).map((d) => d.column));
 
-  const next: Record<string, unknown> = { ...(chart as unknown as Record<string, unknown>) };
+  const next: Record<string, unknown> = {
+    ...((decorated ?? chart) as unknown as Record<string, unknown>),
+  };
   const repairs: string[] = [];
   const unfixable: string[] = [];
 
@@ -169,18 +299,29 @@ export function reconcileChartFields(args: {
       delete next[m.key];
       continue;
     }
-    const wantsNumber = measures.has(m.key);
+    const kind: RequiredFieldKind = required[m.key] ?? (measures.has(m.key) ? "number" : "label");
+    const wantsNumber = kind === "number" || measures.has(m.key);
     const candidates = args.columns.filter(
-      (c) => !taken.has(c) && (wantsNumber ? numeric.has(c) : !numeric.has(c)),
+      (c) =>
+        !taken.has(c) &&
+        (kind === "any"
+          ? true
+          : kind === "date"
+            ? dates.includes(c)
+            : wantsNumber
+              ? numeric.has(c)
+              : !numeric.has(c)),
     );
     if (candidates.length === 1) {
       next[m.key] = candidates[0];
       taken.add(candidates[0]);
-      repairs.push(`${m.column} → ${candidates[0]}`);
+      // A field the model left out is filled without a note: nothing it
+      // named was renamed, so there is nothing for a reader to reconcile.
+      if (m.column) repairs.push(`${m.column} → ${candidates[0]}`);
       continue;
     }
     // Two candidates is a guess, and a guess drawn as a chart is indefensible.
-    unfixable.push(m.column);
+    unfixable.push(m.column || `${m.key.replace(/Field$/, "")} (not chosen)`);
   }
 
   if (unfixable.length) {
@@ -190,13 +331,19 @@ export function reconcileChartFields(args: {
       if (v !== undefined) table[k] = v;
     }
     // Plain text: this lands in a widget TITLE, where markdown is not rendered.
-    const names = unfixable.join(", ");
-    const plural = unfixable.length === 1 ? "column" : "columns";
+    const named = unfixable.filter((u) => !u.endsWith("(not chosen)"));
+    const unnamed = unfixable
+      .filter((u) => u.endsWith("(not chosen)"))
+      .map((u) => u.replace(/ \(not chosen\)$/, ""));
+    const plural = named.length === 1 ? "column" : "columns";
+    const note = named.length
+      ? `This query returns no ${named.join(", ")} ${plural}, so the rows are shown instead.`
+      : `The chart did not say which column is its ${unnamed.join(" or ")}, so the rows are shown instead.`;
     return {
       verdict: "unplottable",
       chart: table as ChartSpec,
       missing: unfixable,
-      note: `This query returns no ${names} ${plural}, so the rows are shown instead.`,
+      note,
     };
   }
 

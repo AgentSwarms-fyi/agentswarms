@@ -1284,6 +1284,105 @@ R506 finishes the chart types that took one measure or one kind of place.
     no total (an empty cell that says why). This applies to one-measure
     pivots too, which used to add up averages.
 
+## Every visual for the AI
+
+R507 lets the AI choose any visual the builder offers. Four things ask a
+model for a chart, and all four now choose from one list
+(`src/lib/biChartCatalog.ts`):
+
+- **Generate Entire Dashboard**, from a table or a governed model;
+- the **AI Analyst**, one chart per step, including scheduled and embedded
+  analysts;
+- **Visual BI in chat**;
+- the chat of an **embedded agent** with Visual BI on.
+
+Until R507 the chart step's list stopped at the word cloud. So nothing
+generated could be a pareto, a calendar, small multiples, a pictogram, radial
+bars, start → finish, rank over time, a point map, pins on a road, cards or a
+map, and an embed could draw six types in all.
+
+- **The list.** Every visual in the picker except Controls and Ontology, with
+  the fields each takes and when it fits, and the options that go with them
+  (`percentStack`, `movingAverage`, `zoomBar`, `logScale`, `endLabels`,
+  `colorMeasure`, `legend`, `extraMeasures`, combo lines, KPI periods). A
+  test fails when the picker gains a visual that is in neither the list nor
+  the excluded set.
+- **The planner** is told the result each visual needs and phrases its
+  question to match.
+  - A calendar asks for the measure per day.
+  - Small multiples ask for the measure for each value of a second category.
+  - A combo names two or more measures.
+  - Rank over time asks for each item's rank.
+  - A point map is proposed only with latitude and longitude columns, and a
+    map only with countries or US states.
+- **What comes back is read before it is drawn.**
+  - A model's word for a visual maps onto the one that draws it: "donut" is a
+    pie, "choropleth" a map, "pivot table" a matrix.
+  - A setting with a value no chart reads is dropped.
+  - A type no chart draws becomes a line over a date or bars by a category.
+- **The planner's visual is kept.** When the chart step draws something else
+  and the returned columns can carry the plan, the dashboard builds the
+  planned visual.
+- **The columns are checked everywhere.**
+  - The check that re-points a chart's fields at the columns its query
+    returned (`reconcileChartFields`) used to run only on generated
+    dashboards and reports. It now also runs on analyst steps, Visual BI in
+    chat and embeds.
+  - It also catches a field the chart left out entirely, which used to draw an
+    empty frame.
+  - It drops extra measures, combo lines and a treemap's colour measure that
+    the query did not return.
+- **Governed widgets** take 29 shapes instead of 6.
+  - These are every visual a query of metrics by dimensions fills: a KPI over
+    one time dimension compares periods, a calendar is rolled up by the day, a
+    pivot takes up to three dimensions and four metrics, and a treemap's
+    second metric colours it.
+  - Each shape is held to the dimensions and metrics it draws, and refused
+    with the reason.
+  - Box plots, bar races, rank over time, start → finish, point maps, pins on
+    a road and cards are left out, because a governed query does not return
+    their columns. The builder's governed metric source takes the same set.
+
+Found by generating dashboards, asking the analyst and chatting in the
+browser, and fixed:
+
+- **A combo's date axis read raw timestamps.** The model set `dateGrain` on
+  the combo, and only line and area charts apply one, but a grain also
+  switched off the axis's automatic labelling. The grain is now kept only on
+  line and area charts. On other charts a stored one no longer stops the
+  axis labelling its dates.
+- **A monthly axis read in weeks.** Twelve months span 334 days, which fits
+  60 weekly labels, so the axis read "2025-W44, 2025-W49". Values that all
+  fall on the first of a month (or quarter, or year) are now labelled at
+  least at that grain (`autoDateGrain`).
+- **Generated calendars and small multiples showed a prefix of the data.**
+  The model's SQL returned one row per order, and the 500-row snapshot kept
+  the first 67 days.
+  - A generated widget that hits the cap is now aggregated in SQL before it
+    is first shown (`src/lib/biGeneratedTotals.ts`).
+  - Pareto, calendar, pictogram and small multiples now take **Aggregate in
+    SQL**; each small multiple's panel adds up rows that share an x value, as
+    a line chart does.
+  - The planner asks a calendar for a year of days at most.
+- **A refresh dropped a combo's extra measures and a treemap's colour.** The
+  GROUP BY kept only the first bar and line, and the tile size, so the
+  other columns vanished.
+- **The analyst pivoted a year of days into 31 columns.** Its 50-row trace
+  triggered a reshape whose prompt suggested pivoting, which can only be
+  shown as a table. SQL is now asked to stay long (one row per group) and to
+  bucket instead, and the analyst plans steps that fit 50 rows.
+- **Governed time axes came back unordered.** The query is now asked
+  oldest first, and the order is stored on the widget (`source.orderBy`) so
+  a refresh keeps it; a governed calendar asks for its latest 400 days. The
+  builder's governed metric source does the same.
+- **An embed charted a table the agent was not asked about.** It now
+  declines when the question names a table it cannot read. Every embed
+  answer that comes without a chart logs why on the server
+  (`[embed-bi] owner <id>: no chart: <reason>`).
+- **A calendar starting on the last day of a month** printed two month names
+  on top of each other. The month with no room for its name is now left
+  unnamed.
+
 ## Building a visual from fields
 
 The builder opens in **Fields** mode (R499). Pick a table and click the

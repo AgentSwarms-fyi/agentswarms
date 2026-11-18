@@ -658,15 +658,21 @@ describe("the builder's governed-metric source", () => {
     for (const k of ["table", "bar", "line", "area", "kpi", "pie"] as const) {
       expect(SEMANTIC_CHART_KINDS).toContain(k);
     }
+    // R507 widened the set to every shape a query of metrics by dimensions
+    // fills: ranked bars, combos, pivots, maps and calendars among them.
+    for (const k of ["hbar", "scatter", "combo", "matrix", "map", "calendar", "pareto"]) {
+      expect(SEMANTIC_CHART_KINDS as readonly string[]).toContain(k);
+    }
     // The picker offers these; a governed widget cannot take them.
-    expect(SEMANTIC_CHART_KINDS).not.toContain("hbar");
-    expect(SEMANTIC_CHART_KINDS).not.toContain("scatter");
-    expect(SEMANTIC_CHART_KINDS).not.toContain("ontology");
+    for (const k of ["boxplot", "barrace", "bump", "range", "pointmap", "cards", "ontology"]) {
+      expect(SEMANTIC_CHART_KINDS as readonly string[]).not.toContain(k);
+    }
     // The coercion is the REAL function both the pane's submit and the
     // metric section's notice go through, not a private copy in either.
     expect(coerceSemanticChart("bar")).toBe("bar");
     expect(coerceSemanticChart("pie")).toBe("pie");
-    expect(coerceSemanticChart("hbar")).toBe("table");
+    expect(coerceSemanticChart("hbar")).toBe("hbar");
+    expect(coerceSemanticChart("boxplot")).toBe("table");
     expect(coerceSemanticChart("ontology")).toBe("table");
     const { readFileSync } = await import("node:fs");
     const pane = readFileSync("src/components/bi/BiBuilderPane.tsx", "utf8");

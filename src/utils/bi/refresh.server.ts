@@ -109,6 +109,8 @@ type WidgetJson = {
     grains?: Record<string, import("@/lib/semanticLayer").TimeGrain>;
     compare?: import("@/lib/semanticLayer").ComparePeriod;
     params?: Record<string, string | number>;
+    /** The order a governed query was built with (R507), kept on refresh. */
+    orderBy?: Array<{ field: string; dir?: "asc" | "desc" }>;
   };
   columns?: string[];
   rows?: Record<string, unknown>[];
@@ -562,6 +564,9 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
             // reverts to the model's declared defaults.
             compare: w.source.compare,
             params: w.source.params,
+            // R507: the order it was built with, or a time axis comes back
+            // in whatever order the engine grouped it.
+            orderBy: w.source.orderBy,
           },
           maxRows: WIDGET_ROW_CAP,
         });

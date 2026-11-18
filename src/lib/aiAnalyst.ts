@@ -49,6 +49,7 @@ import {
   type DriverAnalysis,
 } from "@/lib/analystDrivers";
 import { describeSeries, forecastSeries, readSeries, seriesFrom } from "@/lib/analystSeries";
+import { reconcileChartFields } from "@/lib/biChartFields";
 import type { DatasetMeta, QueryResult } from "@/lib/sqlEngine";
 import type { SemanticFilter, SemanticQuery, TimeGrain } from "@/lib/semanticLayer";
 import type { MetricDelta, ScenarioChange, ScenarioParameter } from "@/lib/analystScenario";
@@ -837,7 +838,12 @@ export function buildAnalysisPlanPrompt(args: {
       '"total sales by region", not "explore the data". Prefer ONE step when one query ' +
       "answers the question; add steps only when the answer genuinely needs several angles " +
       "(a total plus a breakdown, a trend plus its outliers, a comparison of two segments). " +
-      "Only use tables and columns that exist in the schema. Do not write SQL here.\n\n" +
+      "Only use tables and columns that exist in the schema. Do not write SQL here. " +
+      // R507: a year of days asked as one step came back pivoted into
+      // columns to fit the trace, and could only be shown as a table.
+      `Each step keeps and draws its first ${ANALYST_ROW_CAP} rows, so give each step a goal ` +
+      "whose answer fits: by week or month rather than by day over a span longer than a few " +
+      "weeks.\n\n" +
       // A guess that runs is worse than a question that doesn't: a wrong
       // assumption comes back as confident numbers nobody can see the
       // assumption behind. Measured: "…this quarter" ran against a quarter
@@ -1664,7 +1670,7 @@ export async function chartEveryStep(args: {
       const res = args.results[i];
       if (!res || !isChartableShape(res)) return;
       try {
-        step.chart = await suggest({
+        const chart = await suggest({
           // The STEP's goal, not the whole question: the chart has to fit
           // what this query returned, and the overall question describes
           // something wider than any single step.
@@ -1674,6 +1680,11 @@ export async function chartEveryStep(args: {
           model: args.model,
           llm: args.llm,
         });
+        // The columns the chart names, checked against the step's rows
+        // (R507), as the dashboard generator checks them. A field the query
+        // never returned drew an empty frame under the finding.
+        const fields = reconcileChartFields({ chart, columns: res.columns, rows: res.rows });
+        step.chart = fields.verdict === "ok" ? chart : fields.chart;
       } catch {
         /* a chart is a nice-to-have; the result table still stands */
       }
@@ -2121,7 +2132,9 @@ export async function runAnalystTurn(args: {
         results[i] = res;
         // One reshape pass when the complete answer would not fit in the
         // trace: ask for the same analysis in a <= cap shape (aggregate /
-        // bucket / pivot) instead of silently analysing a truncated result.
+        // bucket, kept long so the step can still be charted — R507 found a
+        // year of days pivoted into 31 columns per month, drawable only as a
+        // table) instead of silently analysing a truncated result.
         // Best-effort — if the rewrite fails or is still too tall, the
         // original result stands and the "(showing N of M)" disclosure does
         // the honest work. Never more than one attempt.
