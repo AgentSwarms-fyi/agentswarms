@@ -440,6 +440,112 @@ const TYPE_ALIASES: Record<string, ChartTypeId> = {
   list: "table",
 };
 
+/**
+ * Aliases that are also everyday words ("the number of orders", "a list of",
+ * "the flow of"). They name a visual only after "as": "as a list" is a table,
+ * "the number of orders" is not a KPI.
+ */
+const EVERYDAY_WORDS = new Set([
+  "number",
+  "metric",
+  "card",
+  "text",
+  "list",
+  "grid",
+  "flow",
+  "race",
+  "heat",
+  "box",
+  "bubble",
+  "pins",
+  "road",
+  "radial",
+  "rose",
+  "sentence",
+  "column",
+  "columns",
+  "bridge",
+  "facet",
+  "facets",
+  "tiles",
+  "podium",
+  "spider",
+  "table",
+  "range",
+  "line",
+  "area",
+  "bar",
+  "map",
+  "cards",
+]);
+
+const GENERIC_NOUN =
+  /^(chart|charts|plot|plots|graph|graphs|diagram|diagrams|visual|visuals|visuali[sz]ation|visuali[sz]ations)$/;
+
+/**
+ * The visual a phrase names: "a stacked horizontal bars" → shbar, "pareto
+ * chart" → pareto, "nightingale rose" → nightingale. Tries the whole phrase,
+ * then without a closing "chart"/"plot", then without a plural s, then each
+ * word from the last.
+ */
+function typeOfPhrase(phrase: string, everyday: boolean): ChartTypeId | undefined {
+  const words = phrase
+    .toLowerCase()
+    .split(/[\s-]+/)
+    .filter((w) => w && !/^(an?|the)$/.test(w));
+  if (!words.length) return undefined;
+  const allowed = (word: string) => everyday || !EVERYDAY_WORDS.has(word);
+  const tries: string[] = [];
+  const whole = words.join("");
+  tries.push(whole);
+  const bare = words.filter((w, i) => !(i === words.length - 1 && GENERIC_NOUN.test(w)));
+  tries.push(bare.join(""));
+  tries.push(bare.join("").replace(/s$/, ""));
+  for (const t of tries) {
+    const type = t && allowed(t) ? chartTypeFromWord(t) : undefined;
+    if (type) return type;
+  }
+  for (let i = bare.length - 1; i >= 0; i--) {
+    const w = bare[i];
+    if (!allowed(w)) continue;
+    const type = chartTypeFromWord(w) ?? chartTypeFromWord(w.replace(/s$/, ""));
+    if (type) return type;
+  }
+  return undefined;
+}
+
+/**
+ * The visuals a request names, in the order it names them (R511): "sales by
+ * region as a bar chart, a heatmap of sales by quarter, and profit as a
+ * waterfall" → ["bar", "heatmap", "waterfall"].
+ *
+ * Asked for several visuals at once, chat splits the request into one
+ * question per visual and the analyst into steps, and both reworded the
+ * questions without the visual: a treemap, a funnel and a pivot all came back
+ * as bar charts, found in R511's UI test. This reads them from the request
+ * itself, so the split can hand each question its own.
+ */
+export function requestedChartTypes(text: string): ChartTypeId[] {
+  const found: { at: number; type: ChartTypeId }[] = [];
+  // "as a bar chart", "as radial bars", "as a pivot table".
+  const as =
+    /\bas\s+([a-z][a-z -]{0,40}?)(?=\s*(?:[,.;:!?)]|$|\s(?:and|with|for|by|of|from|in|over|per|showing|across|split|broken|against|versus|vs|compared|to|about|that|which|where|at|on|under|within|including|ordered|sorted|grouped|ranked|colou?red|sized|highlighting)\b))/gi;
+  for (const m of text.matchAll(as)) {
+    const type = typeOfPhrase(m[1], true);
+    if (type) found.push({ at: m.index ?? 0, type });
+  }
+  // "a heatmap of sales by region", "a sankey showing …".
+  const named =
+    /\b(?:an?|the)\s+([a-z][a-z -]{0,30}?)\s+(?:of|showing|for|across|about|comparing|ranking)\b/gi;
+  for (const m of text.matchAll(named)) {
+    const at = m.index ?? 0;
+    if (found.some((f) => Math.abs(f.at - at) < 4)) continue;
+    const type = typeOfPhrase(m[1], false);
+    if (type) found.push({ at, type });
+  }
+  return found.sort((a, b) => a.at - b.at).map((f) => f.type);
+}
+
 /** The type a model's word for a visual means, or undefined. */
 export function chartTypeFromWord(word: unknown): ChartTypeId | undefined {
   if (typeof word !== "string") return undefined;

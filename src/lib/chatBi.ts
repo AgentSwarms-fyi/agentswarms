@@ -3,6 +3,7 @@
 // playground to show visuals alongside an agent's natural-language answer.
 import { runBiTurn, loadSemantics, loadSavedMetrics, llmJson } from "@/lib/biAgent";
 import { hydrateFromSupabase } from "@/lib/sqlEngine";
+import { requestedChartTypes } from "@/lib/biChartCatalog";
 import { reconcileChartFields } from "@/lib/biChartFields";
 import { widgetFromBiTurn, widgetRowCap, type BiWidget } from "@/lib/biDashboards";
 import type { DocScope } from "@/lib/docGen/types";
@@ -85,7 +86,8 @@ async function splitQuestion(question: string, model?: string): Promise<string[]
         `- Each must stand alone (repeat the subject; never write "and the same by month").\n` +
         `- Each must yield ONE small grouped result: a category or time dimension plus one or more measures.\n` +
         `- Cover genuinely different angles — a different dimension, measure or time frame each time. Never restate one question twice.\n` +
-        `- Keep the user's own wording and subject matter. Do not invent tables or columns.`,
+        `- Keep the user's own wording and subject matter. Do not invent tables or columns.\n` +
+        `- KEEP the visual the user asked for with the question it belongs to ("sales by industry as a treemap" stays "... as a treemap").`,
       userPrompt: question,
       model,
       temperature: 0.2,
@@ -269,6 +271,18 @@ export async function generateChatWidget(
     const questions = wantsMultipleVisuals(resolved)
       ? await splitQuestion(resolved, opts.model)
       : [resolved];
+    // The visual each question asked for (R511). The split reworded them and
+    // dropped "as a treemap": four named visuals came back as four bar charts.
+    // Read in order from the request; a question that still names its own
+    // visual keeps that one.
+    const asked = requestedChartTypes(resolved);
+    const preferFor = (q: string, i: number): string | undefined =>
+      requestedChartTypes(q)[0] ??
+      (asked.length === questions.length
+        ? asked[i]
+        : questions.length === 1
+          ? asked[0]
+          : undefined);
 
     const cap = scopeRowCap(opts.scope ?? "sample");
     const widgets: BiWidget[] = [];
@@ -277,13 +291,14 @@ export async function generateChatWidget(
 
     // Sequential: each run is a plan → SQL → execute round trip, and firing
     // four at once at one provider is the reliable way to get rate-limited.
-    for (const q of questions) {
+    for (const [i, q] of questions.entries()) {
       const turn = await runBiTurn({
         question: q,
         datasets,
         semantics,
         metrics,
         model: opts.model,
+        preferChart: preferFor(q, i),
         onUpdate: () => {},
       });
       // Skip this angle rather than the whole answer — one unanswerable

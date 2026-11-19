@@ -200,9 +200,17 @@ export function verifyClaims(
     // Percentages are also legitimately stated as a plain change or rate that
     // happens to equal a row value, so fall back to the value pool rather than
     // flagging a figure the data does contain.
+    // A rate is also returned as a ratio: a margin of 0.1247 is "12%" (R511,
+    // where the gauge read the ratio as a percentage and the sentence beside
+    // it was flagged for saying so). Only a fraction counts, so one order or a
+    // count of 1 never stands for "100%".
+    const asRatio = (p: Ground) =>
+      !Number.isInteger(p.v) && Math.abs(p.v) <= 10 && Math.abs(p.v * 100 - c.value) <= c.tolerance;
     const hit =
       pool.find((p) => Math.abs(p.v - c.value) <= c.tolerance) ??
-      (c.isPercent ? values.find((p) => Math.abs(p.v - c.value) <= c.tolerance) : undefined);
+      (c.isPercent
+        ? (values.find((p) => Math.abs(p.v - c.value) <= c.tolerance) ?? values.find(asRatio))
+        : undefined);
     return { ...c, matched: hit ? { kind: hit.kind, label: hit.label } : null };
   });
 }

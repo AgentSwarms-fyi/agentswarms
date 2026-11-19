@@ -49,6 +49,7 @@ import {
   type DriverAnalysis,
 } from "@/lib/analystDrivers";
 import { describeSeries, forecastSeries, readSeries, seriesFrom } from "@/lib/analystSeries";
+import { requestedChartTypes } from "@/lib/biChartCatalog";
 import { reconcileChartFields } from "@/lib/biChartFields";
 import type { DatasetMeta, QueryResult } from "@/lib/sqlEngine";
 import type { SemanticFilter, SemanticQuery, TimeGrain } from "@/lib/semanticLayer";
@@ -1662,9 +1663,16 @@ export async function chartEveryStep(args: {
     plan: BiPlan;
     model?: string;
     llm?: LlmJsonFn;
+    preferChart?: string;
   }) => Promise<ChartSpec>;
 }): Promise<void> {
   const suggest = args.suggest ?? suggestChart;
+  // The visuals the question named, in order (R511). A step's goal is the
+  // planner's rewording and drops them: "sales by industry as a treemap"
+  // became the step "total sales by industry" and a bar chart. Matched to the
+  // steps when there is one per step; a step that names its own keeps it.
+  const asked = requestedChartTypes(args.question);
+  const steps = args.turn.steps.length;
   await Promise.all(
     args.turn.steps.map(async (step, i) => {
       const res = args.results[i];
@@ -1679,6 +1687,9 @@ export async function chartEveryStep(args: {
           plan: { intent: step.goal, tables: [], metrics: [], breakdowns: [] },
           model: args.model,
           llm: args.llm,
+          preferChart:
+            requestedChartTypes(step.goal)[0] ??
+            (asked.length === steps ? asked[i] : steps === 1 ? asked[0] : undefined),
         });
         // The columns the chart names, checked against the step's rows
         // (R507), as the dashboard generator checks them. A field the query

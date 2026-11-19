@@ -137,10 +137,11 @@ describe("a chart drawn for paper", () => {
   }, 120_000);
 });
 
-/** Not drawn although the markup would allow it, and why. */
-const LEFT_OUT_ON_PURPOSE: Record<string, string> = {
-  barrace: "an animation: its first frame is not the chart",
-};
+/**
+ * Not drawn although the markup would allow it, and why. None since R511: the
+ * bar race, left out as an animation, prints its last frame.
+ */
+const LEFT_OUT_ON_PURPOSE: Record<string, string> = {};
 
 const size = { width: 640, height: 300 };
 
@@ -264,8 +265,8 @@ describe("a report laid out on the server", () => {
       expect(text).toContain("Total");
       // The narrative's sentence.
       expect(text).toMatch(/top 3 regions by sales/i);
-      // Small multiples are not drawn, and the page says so where they would be.
-      expect(text).toContain("drawn in the app only");
+      // Small multiples are drawn too (R511): nothing is left to the app.
+      expect(text).not.toContain("drawn in the app only");
     },
   );
 });
@@ -324,6 +325,96 @@ describe("a dashboard laid out on the server (R510)", () => {
       expect(Number(more![1]) + shown).toBe(40);
       // The total is the table's last line, after the count of hidden rows.
       expect(text).toMatch(/more rows not shown Total 4\.8k/);
+    },
+  );
+
+  it(
+    "never cuts a number short in a narrow table; a name takes an ellipsis (R511)",
+    { timeout: 400_000 },
+    async () => {
+      // The Grand Prix lap heatmap printed "1." for 1.5 and "-1.0" for -1.09:
+      // the table cut each cell's text to fit its column.
+      const { buildDashboardPdfBytes } = await import("@/lib/biDashboardPdf");
+      const laps = Array.from({ length: 24 }, (_, i) => 1 + i * 3);
+      const drivers = ["Norris", "Verstappen", "Hadjar"];
+      const data = drivers.flatMap((driver) =>
+        laps.map((lap, i) => ({
+          driver,
+          lap,
+          delta: i % 3 === 0 ? 1.5 : i % 3 === 1 ? -1.09 : -0.12,
+        })),
+      );
+      const heat = {
+        type: "heatmap",
+        xField: "lap",
+        yField: "driver",
+        valueField: "delta",
+        heatScale: "diverging",
+      };
+      const bytes = await buildDashboardPdfBytes({
+        name: "Laps",
+        clock: { date: "2026-11-19", time: "08:00" },
+        pages: [
+          {
+            name: "Race",
+            widgets: [
+              {
+                id: "h",
+                kind: "chart",
+                title: "Lap times",
+                chart: heat,
+                rows: data,
+                columns: ["driver", "lap", "delta"],
+              } as never,
+            ],
+            layout: [{ i: "h", x: 0, y: 0, w: 5, h: 4 }],
+          },
+        ],
+        renderVisual: (w) => (s) => renderVisualMarkup(w.chart!, w.rows ?? [], s, w.columns),
+      });
+      const tokens = (await pdfText(bytes)).join(" ").split(" ");
+      // Every number printed is one the data holds, whole.
+      // (Plain numbers: the footer's date and time are not cells.)
+      const numbers = tokens.filter((t) => /^[-−]?[\d.]+$/.test(t) && !laps.includes(Number(t)));
+      expect(numbers.length).toBeGreaterThan(0);
+      for (const n of numbers) {
+        expect(["1.5", "-1.09", "−1.09", "-0.12", "−0.12"], n).toContain(n);
+      }
+      // A driver's name is whole or ends in an ellipsis (WinAnsi 0x85).
+      for (const t of tokens.filter((x) => x.startsWith("Verst"))) {
+        expect(t === "Verstappen" || t.endsWith("\x85"), t).toBe(true);
+      }
+      // A number that fits is printed, at every card width. On 8080 the
+      // heatmap's columns were a little narrower than "-1.09" with its usual
+      // padding but wide enough with the narrow one, and it was left blank.
+      for (const w of [7, 8, 12]) {
+        const out = await buildDashboardPdfBytes({
+          name: "Laps",
+          clock: { date: "2026-11-19", time: "08:00" },
+          pages: [
+            {
+              name: "Race",
+              widgets: [
+                {
+                  id: "h",
+                  kind: "chart",
+                  title: "Lap times",
+                  chart: heat,
+                  rows: data,
+                  columns: ["driver", "lap", "delta"],
+                } as never,
+              ],
+              layout: [{ i: "h", x: 0, y: 0, w, h: 4 }],
+            },
+          ],
+          renderVisual: (wd) => (s) => renderVisualMarkup(wd.chart!, wd.rows ?? [], s, wd.columns),
+        });
+        const printed = (await pdfText(out)).join(" ").split(" ");
+        for (const v of ["1.5", "1.09", "0.12"]) {
+          const count = printed.filter((t) => t.replace(/^[-−]/, "") === v).length;
+          expect(count, `${v} at width ${w}`).toBe(data.length / 3);
+        }
+      }
     },
   );
 });

@@ -230,6 +230,13 @@ development branch and may be ahead of the latest tag.
   paper: a colour chosen for a dark canvas that would not read on white
   prints in ink. Needs migration `20261119000000`.
 
+- **Every visual in scheduled PDFs** (R511). Cards, range, word cloud,
+  pictogram, small multiples, bar race and point map used to print "drawn in
+  the app only". They are now laid out for paper from the same rows: a card's
+  photos and badges are printed, a bar race prints its last frame, and a point
+  map has street tiles under it when the install names a tile server. Only the
+  ontology map is left to the app.
+
 - **SVG pictures in PDFs** (R510). A picture kept as an SVG, in a report or on
   a dashboard, prints as sharp lines and text instead of "shown in the app
   only", and a report's picture can now be an SVG you choose. A scheduled
@@ -370,6 +377,21 @@ development branch and may be ahead of the latest tag.
   never ran. Catalog lineage, the check shown before deleting a dataset or a
   semantic model, and a metric's usage read the same copy, so something used
   only on page 2 looked unused. All of them now read every page.
+- **Visuals asked for by name in one message came back as bar charts**
+  (R511). Asking chat for "sales by industry as a treemap, sales by product as
+  a pareto chart" split the request into one question per visual, and the
+  split dropped the visual each named; the AI Analyst's steps did the same.
+  Each part now keeps its visual. A bar chart whose category and measure were
+  the wrong way round is swapped back, and a single figure is captioned by its
+  measure ("Total sales") rather than the planner's instruction. A gauge of
+  a ratio against a percentage target (a 0.12 margin against 15) reads 12%
+  against 15%, where it read "target 15 · 1%". The answer's own "12%" for
+  that margin is no longer marked "Not checked against the data".
+- **A narrow table in a PDF printed numbers cut short** (R510, fixed in
+  R511). A cell too narrow for its text lost characters from the end, so a
+  lap heatmap printed "1." for 1.5 and "-1.0" for -1.09. Numbers are now set
+  smaller to fit, one size for the whole table, with less padding first, and
+  are never cut; a name that does not fit ends in "…".
 - **The schedule dialog closed a schedule being written when the session
   refreshed** (R509, fixed in R510). Its list reloaded on every new sign-in
   token, about hourly, and the reload shut the form. A delete, on/off switch

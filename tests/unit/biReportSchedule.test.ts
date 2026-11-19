@@ -498,12 +498,12 @@ describe("svg markup", () => {
 });
 
 describe("what a scheduled PDF draws", () => {
-  it("names the visuals it cannot draw, and draws the rest", () => {
-    for (const t of ["bar", "line", "pie", "kpi", "insight", "matrix", "heatmap", "map", "table"]) {
-      expect(scheduledDrawProblem(t), t).toBeNull();
-    }
-    for (const t of ["smallmultiples", "pictogram", "pointmap", "wordcloud", "cards", "barrace"]) {
-      expect(scheduledDrawProblem(t), t).not.toBeNull();
-    }
+  it("draws every visual a query can make, and names the one it cannot", async () => {
+    // R511 laid out the last seven for paper: cards, range, word cloud,
+    // pictogram, small multiples, bar race and point map.
+    const { CHART_CATALOG } = await import("@/lib/biChartCatalog");
+    for (const { type } of CHART_CATALOG) expect(scheduledDrawProblem(type), type).toBeNull();
+    // The ontology map is drawn from a graph, not rows; it stays in the app.
+    expect(scheduledDrawProblem("ontology")).not.toBeNull();
   });
 });

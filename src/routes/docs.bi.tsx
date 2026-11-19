@@ -2574,10 +2574,14 @@ ORDER BY dayofweek(ride_date)`}</Code>
       <P>
         There is no browser on the server, so charts are drawn as vectors from the same chart
         component the app uses: 24 visual types as charts with their legends, KPIs from the same
-        figures as the card, heatmaps and pivots as grids, and narratives as text. Small multiples,
-        pictograms, the point map, the word cloud, range, cards and the bar race are drawn in the
-        app only. The PDF prints a note where they would be, and the Schedule dialog names them
-        before you schedule anything.
+        figures as the card, heatmaps and pivots as grids, and narratives as text. The seven the
+        browser lays out itself (cards, range, word cloud, pictogram, small multiples, bar race and
+        point map) are laid out again for paper from the same rows. A card&apos;s pictures are
+        fetched and printed, a bar race prints its last frame and says so, and a point map has
+        street tiles under it when the install names a tile server. Every visual a query can make is
+        in the PDF; only the ontology map is drawn in the app only, with a note where it would be.
+        In a narrow grid, numbers are set smaller rather than cut short, so a printed figure is
+        always the whole figure; a name that does not fit ends in &ldquo;…&rdquo;.
       </P>
       <Callout kind="info" title="Who a report can be sent to">
         People with an account on this install, always. An administrator allows other addresses with{" "}

@@ -225,12 +225,13 @@ describe("which pages a schedule sends", () => {
     expect(
       notDrawnTitles([
         { kind: "chart", title: "Stations", chart: { type: "pointmap" } },
+        { kind: "chart", title: "Concepts", chart: { type: "ontology" } },
         { kind: "chart", title: "Pick a rider", chart: { type: "controls" } },
         { kind: "chart", title: "Sales", chart: { type: "bar" } },
         { kind: "chart", title: "Rows", chart: { type: "table" } },
         { kind: "text", title: "Notes" },
       ]),
-    ).toEqual(["Stations"]);
+    ).toEqual(["Concepts"]);
   });
 });
 
@@ -284,7 +285,7 @@ describe("a dashboard PDF", () => {
             w({
               id: "m",
               title: "Stations",
-              chart: { type: "pointmap" } as never,
+              chart: { type: "ontology" } as never,
               rows: [{ a: 1 }],
             }),
             w({ id: "e", title: "Empty", chart: { type: "bar" } as never, rows: [] }),
@@ -314,7 +315,7 @@ describe("a dashboard PDF", () => {
       "What moved",
       // The bullet is WinAnsi 0x95, which latin1 reads back as a control code.
       "EMEA up 4%",
-      "This visual is drawn in the app only (pointmap).",
+      "This visual is drawn in the app only (ontology).",
       "No data",
     ]) {
       expect(text, s).toContain(s);

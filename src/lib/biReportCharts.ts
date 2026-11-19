@@ -33,7 +33,9 @@ import {
   toPdfColor,
   type MElement,
   type SvgDrawContext,
+  type SvgPicture,
 } from "@/lib/svgPdf";
+import { dataUrlBytes, sniffImageType, svgPicture } from "@/lib/biReportImages";
 import { SCHEDULED_DRAW } from "@/lib/biReportSchedule";
 
 export { SCHEDULED_DRAW, scheduledDrawProblem, type ScheduledDraw } from "@/lib/biReportSchedule";
@@ -228,7 +230,8 @@ export async function drawServerVisual(
     placeholder(ctx, box, "This visual could not be drawn here.");
     return;
   }
-  drawSvg(ctx, svg, chartBox);
+  const pictures = await embedPictures(ctx, svg);
+  drawSvg(pictures.size ? { ...ctx, pictures } : ctx, svg, chartBox);
   if (legend && strip) drawLegend(ctx, legend, strip);
   let y = box.top - (box.h - capH) - 3;
   for (const line of capLines) {
@@ -241,6 +244,39 @@ export async function drawServerVisual(
     });
     y -= capSize + 3;
   }
+}
+
+/**
+ * The pictures a drawing's <image> elements show (R511: a card's photo and
+ * logos, a map's street tiles), embedded in the PDF once each. Only data URLs:
+ * the server fetched any address before laying the drawing out. A picture
+ * that is not a PNG, a JPEG or an SVG with a size is left out.
+ */
+async function embedPictures(
+  ctx: ChartDrawContext,
+  svg: MElement,
+): Promise<Map<string, SvgPicture>> {
+  const out = new Map<string, SvgPicture>();
+  for (const el of findAll(svg, (e) => e.tag === "image")) {
+    const href = el.attrs.href ?? el.attrs["xlink:href"];
+    if (!href || out.has(href) || !href.startsWith("data:")) continue;
+    const bytes = dataUrlBytes(href);
+    const type = bytes ? sniffImageType(bytes) : null;
+    if (!bytes || !type) continue;
+    try {
+      if (type === "svg") {
+        const pic = svgPicture(bytes);
+        if (pic) out.set(href, { kind: "svg", svg: pic.svg, w: pic.w, h: pic.h });
+      } else {
+        const image =
+          type === "png" ? await ctx.page.doc.embedPng(bytes) : await ctx.page.doc.embedJpg(bytes);
+        out.set(href, { kind: "raster", image, w: image.width, h: image.height });
+      }
+    } catch {
+      // A picture that will not decode is left out, like one that would not load.
+    }
+  }
+  return out;
 }
 
 function drawWrapped(
@@ -430,6 +466,10 @@ function cellsOf(tr: MElement, foot = false): Cell[] {
 }
 
 const NUMBERISH = /^[\s(+\-−$€£¥]*[\d.,]+\s*[%kKmMbB)]*$/;
+/** The smallest a table's numbers are set before a cell is left to its colour. */
+const MIN_NUMBER_SIZE = 4.5;
+/** Side padding of a number set smaller to fit. */
+const NUMBER_PAD = 1;
 
 /**
  * An HTML table (the heatmap, the pivot, a data table) as a grid that fits
@@ -482,6 +522,35 @@ export function drawHtmlTable(
   const total = natural.reduce((a, b) => a + b, 0);
   const k = total > box.w ? box.w / total : 1;
   const widths = natural.map((w) => w * k);
+  // A number is never cut short (R511): cut to fit, a lap heatmap printed
+  // "1." for 1.5 and "-1.0" for -1.09, other values than the cells held.
+  // Numbers that do not fit are set smaller instead, one size for the whole
+  // table, down to MIN_NUMBER_SIZE; one that still does not fit is left to its
+  // cell's colour, as a dense heatmap is on screen. Words take an ellipsis.
+  // The narrower padding comes first: on 8080 "-1.09" fitted a heatmap cell at
+  // full size once the padding was 1, and was left blank while it was 3.
+  let numberSize = size;
+  let tight = false;
+  for (const r of rows) {
+    let col = 0;
+    for (const c of r) {
+      const w = widths.slice(col, col + c.span).reduce((a, b) => a + b, 0);
+      if (NUMBERISH.test(c.text)) {
+        const font = c.head ? ctx.bold : ctx.regular;
+        const perPoint = font.widthOfTextAtSize(ctx.encode(c.text), 1);
+        if (perPoint * size > w - pad * 2) {
+          tight = true;
+          numberSize = Math.min(
+            numberSize,
+            Math.max(MIN_NUMBER_SIZE, (w - NUMBER_PAD * 2) / perPoint),
+          );
+        }
+      }
+      col += c.span;
+    }
+  }
+  const numberPad = tight ? NUMBER_PAD : pad;
+  const ellipsis = ctx.encode("…");
   const fit = Math.max(1, Math.floor(box.h / rowH));
   const totalBody = Math.max(bodyRows.length, opts.bodyRows ?? 0);
   let shown: Cell[][];
@@ -515,18 +584,33 @@ export function drawHtmlTable(
         });
       }
       const font = c.head ? ctx.bold : ctx.regular;
+      const numeric = NUMBERISH.test(c.text);
+      const sz = numeric ? numberSize : size;
+      const p = numeric ? numberPad : pad;
+      const room = w - p * 2;
       let s = ctx.encode(c.text);
-      while (s.length > 1 && font.widthOfTextAtSize(s, size) > w - pad * 2) s = s.slice(0, -1);
-      const tw = font.widthOfTextAtSize(s, size);
+      if (font.widthOfTextAtSize(s, sz) > room) {
+        if (numeric || font.widthOfTextAtSize(ellipsis, sz) > room) {
+          s = "";
+        } else {
+          while (s.length > 0 && font.widthOfTextAtSize(`${s}${ellipsis}`, sz) > room) {
+            s = s.slice(0, -1);
+          }
+          s = s ? `${s.trimEnd()}${ellipsis}` : "";
+        }
+      }
+      const tw = font.widthOfTextAtSize(s, sz);
       // A total is bold but still a number, lined up with the column.
-      const right = (!c.head || c.foot) && NUMBERISH.test(c.text);
-      ctx.page.drawText(s, {
-        x: right ? x + w - pad - tw : x + pad,
-        y: top - rowH + (rowH - size) / 2 + 1,
-        size,
-        font,
-        color: ctx.ink,
-      });
+      const right = (!c.head || c.foot) && numeric;
+      if (s) {
+        ctx.page.drawText(s, {
+          x: right ? x + w - p - tw : x + p,
+          y: top - rowH + (rowH - sz) / 2 + 1,
+          size: sz,
+          font,
+          color: ctx.ink,
+        });
+      }
       x += w;
       col += c.span;
     }

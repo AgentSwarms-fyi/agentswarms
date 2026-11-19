@@ -25,7 +25,7 @@ import {
   seriesColors,
   toBiNumber,
 } from "@/components/bi/biChartData";
-import { fillRanks } from "@/components/bi/biDrawHelpers";
+import { fillRanks, rangeItems } from "@/components/bi/biDrawHelpers";
 import type { ChartSpec } from "@/lib/biAgent";
 
 const tooltipStyle = {
@@ -47,18 +47,7 @@ export function BiRangeBars({
   chart: RangeChart;
   rows: Record<string, unknown>[];
 }) {
-  const items = useMemo(
-    () =>
-      rows
-        .map((r) => ({
-          cat: String(r[chart.categoryField] ?? "—"),
-          s: toBiNumber(r[chart.startField]),
-          e: toBiNumber(r[chart.endField]),
-          label: chart.labelField ? String(r[chart.labelField] ?? "") : "",
-        }))
-        .slice(0, 40),
-    [rows, chart.categoryField, chart.startField, chart.endField, chart.labelField],
-  );
+  const items = useMemo(() => rangeItems(rows, chart), [rows, chart]);
   const nums = items.flatMap((i) => [i.s, i.e]).filter((v): v is number => v !== null);
   if (nums.length === 0) {
     return (

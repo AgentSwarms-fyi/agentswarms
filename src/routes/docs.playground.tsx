@@ -139,7 +139,9 @@ function PlaygroundDoc() {
                 every visual the BI builder offers
               </DocLink>{" "}
               — a pareto, a calendar, a map of US states, a pivot with several measures — and you
-              can ask for one by name (&ldquo;daily rides as a calendar&rdquo;).
+              can ask for one by name (&ldquo;daily rides as a calendar&rdquo;). Asking for several
+              by name in one message (&ldquo;sales by region as a nightingale rose, sales by
+              industry as a treemap&rdquo;) gives each question the visual named for it.
             </>,
           ],
           ["PPT / Word / Excel", "Generate a real, editable Office file from a prompt. See below."],

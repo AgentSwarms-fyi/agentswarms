@@ -17,12 +17,18 @@
 // legend is read out of the markup (readLegend) and drawn by the caller in a
 // strip it reserves beside the chart.
 import {
+  clip,
+  closePath,
   concatTransformationMatrix,
+  endPath,
+  lineTo,
+  moveTo,
   popGraphicsState,
   pushGraphicsState,
   rgb,
   type Color,
   type PDFFont,
+  type PDFImage,
   type PDFPage,
 } from "pdf-lib";
 
@@ -602,12 +608,25 @@ function inherit(parent: Paint, el: MElement): Paint {
 
 // ── Drawing ────────────────────────────────────────────────────────────────
 
+/** A picture an <image> shows: embedded already, or an SVG drawn as vectors. */
+export type SvgPicture =
+  | { kind: "raster"; image: PDFImage; w: number; h: number }
+  | { kind: "svg"; svg: MElement; w: number; h: number };
+
 export type SvgDrawContext = {
   page: PDFPage;
   regular: PDFFont;
   bold: PDFFont;
   /** Makes text safe for the standard fonts (WinAnsi). */
   encode: (s: string) => string;
+  /**
+   * Pictures by their <image> href (R511). Embedding is asynchronous and
+   * drawing is not, so the caller resolves them first; an href not here is
+   * not drawn.
+   */
+  pictures?: Map<string, SvgPicture>;
+  /** clipPath ids and their rectangles, for a drawing that clips (R511). */
+  clips?: Map<string, MElement>;
 };
 
 type Gradients = Map<string, Rgba>;
@@ -698,8 +717,82 @@ export function drawSvg(
   }
   const current = parseCssColor(ROOT_PAINT.color) ?? NAMED.black;
   const grads = collectGradients(svg, current);
-  walk(ctx, svg, base, inherit(ROOT_PAINT, svg), grads);
+  // Clip paths are honoured only in a drawing laid out for paper (data-print,
+  // components/bi/biPrintVisuals): a chart library's own clips were never
+  // drawn, and a printed chart is not changed by starting to.
+  const dctx: SvgDrawContext = {
+    ...ctx,
+    clips: svg.attrs["data-print"] === "1" ? rectClips(svg) : undefined,
+  };
+  walk(dctx, svg, base, inherit(ROOT_PAINT, svg), grads);
   return { w: drawnW, h: drawnH };
+}
+
+/** Every clipPath that is one rectangle, by id. */
+function rectClips(svg: MElement): Map<string, MElement> {
+  const out = new Map<string, MElement>();
+  for (const c of findAll(svg, (e) => e.tag === "clippath")) {
+    const kids = c.children.filter(isElement);
+    if (c.attrs.id && kids.length === 1 && kids[0].tag === "rect") out.set(c.attrs.id, kids[0]);
+  }
+  return out;
+}
+
+/** Clip what follows to a rectangle in user space, until the state is popped. */
+function pushRectClip(ctx: SvgDrawContext, r: MElement, m: Mat) {
+  const x = num(r.attrs.x);
+  const y = num(r.attrs.y);
+  const w = num(r.attrs.width);
+  const h = num(r.attrs.height);
+  const corners = [apply(m, x, y), apply(m, x + w, y), apply(m, x + w, y + h), apply(m, x, y + h)];
+  ctx.page.pushOperators(
+    pushGraphicsState(),
+    moveTo(corners[0][0], corners[0][1]),
+    lineTo(corners[1][0], corners[1][1]),
+    lineTo(corners[2][0], corners[2][1]),
+    lineTo(corners[3][0], corners[3][1]),
+    closePath(),
+    clip(),
+    endPath(),
+  );
+}
+
+/**
+ * An <image>: its picture fitted inside its box and centred, as SVG's default
+ * preserveAspectRatio does. Boxes are taken as unrotated.
+ */
+function drawImage(ctx: SvgDrawContext, el: MElement, m: Mat, p: Paint) {
+  const href = el.attrs.href ?? el.attrs["xlink:href"];
+  const pic = href ? ctx.pictures?.get(href) : undefined;
+  if (!pic || !(pic.w > 0 && pic.h > 0)) return;
+  const w = num(el.attrs.width);
+  const h = num(el.attrs.height);
+  if (!(w > 0 && h > 0)) return;
+  const x = num(el.attrs.x);
+  const y = num(el.attrs.y);
+  const [ax, ay] = apply(m, x, y);
+  const [bx, by] = apply(m, x + w, y + h);
+  const left = Math.min(ax, bx);
+  const bottom = Math.min(ay, by);
+  const bw = Math.abs(bx - ax);
+  const bh = Math.abs(by - ay);
+  const k = Math.min(bw / pic.w, bh / pic.h);
+  const dw = pic.w * k;
+  const dh = pic.h * k;
+  const dx = left + (bw - dw) / 2;
+  const dy = bottom + (bh - dh) / 2;
+  if (pic.kind === "raster") {
+    ctx.page.drawImage(pic.image, {
+      x: dx,
+      y: dy,
+      width: dw,
+      height: dh,
+      opacity: p.opacity < 1 ? p.opacity : undefined,
+    });
+  } else {
+    const { page, regular, bold, encode } = ctx;
+    drawSvg({ page, regular, bold, encode }, pic.svg, { x: dx, top: dy + dh, w: dw, h: dh });
+  }
 }
 
 const FLIP: Mat = [1, 0, 0, -1, 0, 0];
@@ -717,25 +810,37 @@ function walk(
     const p = inherit(paint, child);
     if (p.hidden) continue;
     const cm = mul(m, parseTransform(child.attrs.transform));
-    if (child.tag === "text") {
-      drawText(ctx, child, cm, p);
-      continue;
-    }
-    if (child.tag === "svg") {
-      // A nested svg: positioned by x/y, drawn in its own user space.
-      walk(ctx, child, mul(cm, [1, 0, 0, 1, num(child.attrs.x), num(child.attrs.y)]), p, grads);
-      continue;
-    }
-    const d = shapePath(child);
-    if (d) drawPath(ctx, d, cm, p, grads, child.tag === "line" || child.tag === "polyline");
-    if (child.children.length && child.tag !== "path") {
-      const crowded = hasClass(child, "recharts-cartesian-axis-ticks")
-        ? crowdedTicks(child, p, (text, size, bold) =>
-            (bold ? ctx.bold : ctx.regular).widthOfTextAtSize(ctx.encode(text), size),
-          )
-        : undefined;
-      walk(ctx, child, cm, p, grads, crowded);
-    }
+    const clipId = ctx.clips && /^url\(\s*#([^)\s]+)\s*\)/.exec(child.attrs["clip-path"] ?? "");
+    const clipRect = clipId ? ctx.clips!.get(clipId[1]) : undefined;
+    if (clipRect) pushRectClip(ctx, clipRect, cm);
+    drawElement(ctx, child, cm, p, grads);
+    if (clipRect) ctx.page.pushOperators(popGraphicsState());
+  }
+}
+
+function drawElement(ctx: SvgDrawContext, child: MElement, cm: Mat, p: Paint, grads: Gradients) {
+  if (child.tag === "text") {
+    drawText(ctx, child, cm, p);
+    return;
+  }
+  if (child.tag === "image") {
+    drawImage(ctx, child, cm, p);
+    return;
+  }
+  if (child.tag === "svg") {
+    // A nested svg: positioned by x/y, drawn in its own user space.
+    walk(ctx, child, mul(cm, [1, 0, 0, 1, num(child.attrs.x), num(child.attrs.y)]), p, grads);
+    return;
+  }
+  const d = shapePath(child);
+  if (d) drawPath(ctx, d, cm, p, grads, child.tag === "line" || child.tag === "polyline");
+  if (child.children.length && child.tag !== "path") {
+    const crowded = hasClass(child, "recharts-cartesian-axis-ticks")
+      ? crowdedTicks(child, p, (text, size, bold) =>
+          (bold ? ctx.bold : ctx.regular).widthOfTextAtSize(ctx.encode(text), size),
+        )
+      : undefined;
+    walk(ctx, child, cm, p, grads, crowded);
   }
 }
 

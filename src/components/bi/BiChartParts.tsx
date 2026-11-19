@@ -12,31 +12,8 @@ import type { BiColumnFormat, BiCondFormat, BiNumberFormat } from "@/lib/biAgent
 import { buildPivot, type PivotValue } from "@/lib/biPivot";
 import { measureDisplayName } from "@/lib/biFieldQuery";
 import { COND_ICONS } from "@/components/bi/biCondIcons";
+import { colorForKey, gaugeReading, PART_COLORS, raceFrames } from "@/components/bi/biDrawHelpers";
 import { cn } from "@/lib/utils";
-
-// Categorical palette shared by the hand-rendered visuals below (kept local to
-// avoid deepening the BiChartRender ↔ BiChartParts import cycle).
-const PART_COLORS = [
-  "#4E79A7",
-  "#F28E2B",
-  "#59A14F",
-  "#E15759",
-  "#76B7B2",
-  "#EDC948",
-  "#B07AA1",
-  "#FF9DA7",
-  "#9C755F",
-  "#BAB0AC",
-  "#86BCB6",
-  "#D37295",
-];
-
-/** Stable colour for a category name (so a bar keeps its colour across frames). */
-function colorForKey(key: string): string {
-  let h = 0;
-  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
-  return PART_COLORS[h % PART_COLORS.length];
-}
 
 function NoNumericData() {
   return (
@@ -64,6 +41,8 @@ export function GaugeChart({
   /** Shown under the dial when the query returned more rows than it draws. */
   caveat?: string;
 }) {
+  // A ratio read against a percentage target, on one scale (R511).
+  ({ value, target, max, format } = gaugeReading({ value, target, max, format }));
   const resolvedMax = Math.max(
     max ?? (target !== undefined ? target * 1.25 : value * 1.33),
     value,
@@ -687,15 +666,6 @@ function FragmentRows({ children }: { children: React.ReactNode }) {
 // frames of a time column. Pure DOM with CSS transitions on position/width, so
 // bars slide smoothly and the whole thing exports/prints as a static snapshot.
 
-type RaceFrame = { frame: string; entries: [string, number][] };
-
-function compareFrames(a: string, b: string): number {
-  const na = Number(a);
-  const nb = Number(b);
-  if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
-  return a.localeCompare(b); // ISO dates sort correctly as strings
-}
-
 export function BarRace({
   rows,
   xField,
@@ -715,27 +685,10 @@ export function BarRace({
   topN?: number;
   frameMs?: number;
 }) {
-  const frames = useMemo<RaceFrame[]>(() => {
-    const byFrame = new Map<string, Map<string, number>>();
-    const order: string[] = [];
-    for (const r of rows) {
-      const f = String(r[timeField] ?? "");
-      const c = String(r[xField] ?? "—");
-      const v = toBiNumber(r[yField]);
-      if (v === null) continue;
-      if (!byFrame.has(f)) {
-        byFrame.set(f, new Map());
-        order.push(f);
-      }
-      const m = byFrame.get(f)!;
-      m.set(c, (m.get(c) ?? 0) + v);
-    }
-    order.sort(compareFrames);
-    return order.slice(0, 400).map((f) => ({
-      frame: f,
-      entries: [...byFrame.get(f)!.entries()].sort((a, b) => b[1] - a[1]).slice(0, topN),
-    }));
-  }, [rows, xField, yField, timeField, topN]);
+  const frames = useMemo(
+    () => raceFrames(rows, xField, yField, timeField, topN),
+    [rows, xField, yField, timeField, topN],
+  );
 
   const { idx, playing, setIdx, setPlaying } = useRacePlayback(frames, frameMs);
 

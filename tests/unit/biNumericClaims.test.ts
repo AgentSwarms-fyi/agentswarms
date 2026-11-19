@@ -186,6 +186,41 @@ describe("percentages are checked against shares, not row values", () => {
     const v = verifyClaims("AMER runs at 18.2% margin.", facts, rows);
     expect(unsupportedFigures(v)).toEqual([]);
   });
+
+  it("accepts a rate the data returned as a ratio (R511)", () => {
+    // Chat drew the margin's gauge at 12.47% and its sentence said "12%",
+    // then disclosed "(Not checked against the data: 12%.)".
+    const rows = [{ profit_margin: 0.1247 }];
+    const facts = computeInsightFacts(["profit_margin"], rows);
+    expect(unsupportedFigures(verifyClaims("The profit margin is 12%.", facts, rows))).toEqual([]);
+    expect(unsupportedFigures(verifyClaims("The profit margin is 12.47%.", facts, rows))).toEqual(
+      [],
+    );
+    // Still a check: 12.47% rounds to 12.5% but not to 15%, nor to 12.3%.
+    expect(unsupportedFigures(verifyClaims("The profit margin is 12.5%.", facts, rows))).toEqual(
+      [],
+    );
+    expect(unsupportedFigures(verifyClaims("The profit margin is 15%.", facts, rows))).toEqual([
+      "15%",
+    ]);
+    expect(unsupportedFigures(verifyClaims("The profit margin is 12.3%.", facts, rows))).toEqual([
+      "12.3%",
+    ]);
+    // A whole number is a count, not a ratio: one order is not "100%".
+    const counts = [
+      { region: "A", orders: 1 },
+      { region: "B", orders: 3 },
+    ];
+    expect(
+      unsupportedFigures(
+        verifyClaims(
+          "Orders grew 100%.",
+          computeInsightFacts(["region", "orders"], counts),
+          counts,
+        ),
+      ),
+    ).toEqual(["100%"]);
+  });
 });
 
 describe("figures the writer was handed", () => {

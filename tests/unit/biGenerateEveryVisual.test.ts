@@ -772,8 +772,12 @@ describe("found generating a dashboard in the browser", () => {
   });
 
   it("adds up each small multiple's rows by x, as a line chart does", () => {
-    const src = read("src/components/bi/BiBreadthCharts.tsx");
+    // In the helpers since R511, which the card and the PDF both use.
+    const src = read("src/components/bi/biDrawHelpers.ts");
     expect(src).toContain("rows: aggregateByField(g.rows, chart.xField, [chart.yField])");
+    expect(read("src/components/bi/BiBreadthCharts.tsx")).toContain(
+      "smallMultipleGroups(rows, chart)",
+    );
   });
 
   it("keeps a date grain only on the charts that regroup by one", () => {

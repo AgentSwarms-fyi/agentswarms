@@ -607,6 +607,15 @@ export const SCHEDULED_DRAW: Partial<Record<string, ScheduledDraw>> = {
   map: "svg",
   bubblemap: "svg",
   journey: "svg",
+  // Laid out for paper by components/bi/biPrintVisuals (R511): on screen
+  // these are HTML, or animated, and had no one chart drawing to print.
+  cards: "svg",
+  range: "svg",
+  wordcloud: "svg",
+  pictogram: "svg",
+  smallmultiples: "svg",
+  barrace: "svg",
+  pointmap: "svg",
 };
 
 /**

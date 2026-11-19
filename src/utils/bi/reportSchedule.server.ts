@@ -94,7 +94,13 @@ const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 /** A picture's bytes from the web, through the SSRF guard, size-capped. */
 export async function fetchPicture(url: string): Promise<Response> {
   const { safeFetch } = await import("@/utils/ssrfGuard.server");
-  const res = await safeFetch(url, { signal: AbortSignal.timeout(10_000), blockPrivate: true });
+  const res = await safeFetch(url, {
+    signal: AbortSignal.timeout(10_000),
+    blockPrivate: true,
+    // Picture and tile servers ask a program to say what it is (R511: a
+    // point map's street tiles are fetched by the server for its PDF).
+    headers: { "User-Agent": "AgentSwarms scheduled reports" },
+  });
   const len = Number(res.headers.get("content-length") ?? 0);
   if (len > IMAGE_MAX_BYTES) throw new Error("picture too large");
   const buf = new Uint8Array(await res.arrayBuffer());

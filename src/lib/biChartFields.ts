@@ -250,6 +250,35 @@ export type ChartFieldVerdict =
   | { verdict: "unplottable"; chart: ChartSpec; note: string; missing: string[] };
 
 /**
+ * A chart of one category and one measure named the wrong way round: numbers
+ * as the category and labels as the measure (R511). Asked for "the top 10
+ * customers as horizontal bars", a model put the sales on the bar axis and
+ * the names in the value, reading "horizontal" as "the value runs across";
+ * the chart labelled its rows 43893.0424 and drew no bars. A measure that is
+ * not a number cannot be drawn, so the only reading is the swap.
+ */
+function swapCategoryAndMeasure(
+  chart: ChartSpec,
+  have: Set<string>,
+  numeric: Set<string>,
+): ChartSpec | null {
+  const req = REQUIRED_FIELDS[chart.type];
+  if (!req) return null;
+  const keys = Object.keys(req);
+  if (keys.length !== 2) return null;
+  const labelKey = keys.find((k) => req[k] === "label");
+  const numberKey = keys.find((k) => req[k] === "number");
+  if (!labelKey || !numberKey) return null;
+  const spec = chart as unknown as Record<string, unknown>;
+  const category = spec[labelKey];
+  const measure = spec[numberKey];
+  if (typeof category !== "string" || typeof measure !== "string") return null;
+  if (!have.has(category) || !have.has(measure)) return null;
+  if (!numeric.has(category) || numeric.has(measure)) return null;
+  return { ...spec, [labelKey]: measure, [numberKey]: category } as unknown as ChartSpec;
+}
+
+/**
  * Check a chart's declared fields against the columns its query returned.
  *
  * `rows` is used only to tell numbers from labels; no value is read into the
@@ -260,11 +289,13 @@ export function reconcileChartFields(args: {
   columns: string[];
   rows: Record<string, unknown>[];
 }): ChartFieldVerdict {
-  const chart = args.chart;
-  if (!chart) return { verdict: "ok" };
-  const declared = declaredFields(chart);
+  const given = args.chart;
+  if (!given) return { verdict: "ok" };
   const have = new Set(args.columns);
   const numeric = numericColumns(args.columns, args.rows);
+  const swapped = swapCategoryAndMeasure(given, have, numeric);
+  const chart = swapped ?? given;
+  const declared = declaredFields(chart);
   // Measures named in lists rather than fields (R507): more measures, the
   // ones of them drawn as lines, a treemap's colour. They decorate (the chart
   // draws without them), so one the result lacks is dropped, not repaired.
@@ -275,7 +306,8 @@ export function reconcileChartFields(args: {
     .map((k) => ({ key: k, column: "" }));
   const missing = [...declared.filter((d) => !have.has(d.column)), ...absent];
   if (!missing.length) {
-    return decorated ? { verdict: "repaired", chart: decorated } : { verdict: "ok" };
+    if (decorated) return { verdict: "repaired", chart: decorated };
+    return swapped ? { verdict: "repaired", chart: swapped } : { verdict: "ok" };
   }
 
   const measures = new Set(MEASURE_FIELDS[chart.type] ?? []);

@@ -74,8 +74,11 @@ import {
   movingAverage,
   percentShares,
   placeNotes,
+  wordCloudSize,
+  wordCloudTerms,
   type PlacedNote,
 } from "@/components/bi/biDrawHelpers";
+import { humanizeField } from "@/lib/biInsights";
 import {
   BiCalendar,
   BiPareto,
@@ -148,13 +151,6 @@ function selFillOpacity(rawValue: unknown, selected: string | null | undefined):
 
 const REF_COLOR = "#e15759";
 
-const WORDCLOUD_STOPWORDS = new Set(
-  (
-    "a an and are as at be by for from has have in is it its of on or that the to was were will with " +
-    "this these those i you he she they we not but if then so than too very can just"
-  ).split(" "),
-);
-
 /**
  * Word cloud. With no valueField, tokenizes the text-column values into words
  * and sizes by frequency (good for free text). With a valueField, treats each
@@ -173,41 +169,10 @@ function WordCloud({
   fill?: boolean;
   onElementClick?: (column: string, value: string) => void;
 }) {
-  const words = useMemo(() => {
-    const weights = new Map<string, number>();
-    const label = new Map<string, string>(); // lowercase key → display term
-    if (valueField) {
-      for (const r of rows) {
-        const term = String(r[textField] ?? "").trim();
-        if (!term) continue;
-        const v = Number(r[valueField]);
-        if (!Number.isFinite(v) || v <= 0) continue;
-        const key = term.toLowerCase();
-        weights.set(key, (weights.get(key) ?? 0) + v);
-        if (!label.has(key)) label.set(key, term);
-      }
-    } else {
-      for (const r of rows) {
-        const raw = String(r[textField] ?? "");
-        for (const tok of raw.split(/[^\p{L}\p{N}]+/u)) {
-          const key = tok.toLowerCase();
-          if (key.length < 3 || WORDCLOUD_STOPWORDS.has(key)) continue;
-          weights.set(key, (weights.get(key) ?? 0) + 1);
-          if (!label.has(key)) label.set(key, tok);
-        }
-      }
-    }
-    const arr = [...weights.entries()]
-      .map(([key, weight]) => ({ key, weight, term: label.get(key) ?? key }))
-      .sort((a, b) => b.weight - a.weight)
-      .slice(0, 60);
-    // Deterministic shuffle so the layout is stable across renders.
-    const shuffled = arr
-      .map((w, i) => ({ w, r: ((i * 2654435761) % 100) / 100 }))
-      .sort((a, b) => a.r - b.r)
-      .map((x) => x.w);
-    return shuffled;
-  }, [rows, textField, valueField]);
+  const words = useMemo(
+    () => wordCloudTerms(rows, textField, valueField),
+    [rows, textField, valueField],
+  );
 
   if (words.length === 0) {
     return (
@@ -219,12 +184,8 @@ function WordCloud({
 
   const max = Math.max(...words.map((w) => w.weight));
   const min = Math.min(...words.map((w) => w.weight));
-  const sizeFor = (weight: number) => {
-    // sqrt scale, mapped to 12–46px so a few common words don't dominate.
-    const t =
-      max === min ? 0.5 : (Math.sqrt(weight) - Math.sqrt(min)) / (Math.sqrt(max) - Math.sqrt(min));
-    return Math.round(12 + t * 34);
-  };
+  // A square-root scale from 12 to 46px, so a few common words do not dominate.
+  const sizeFor = (weight: number) => wordCloudSize(weight, min, max);
 
   return (
     <div
@@ -495,7 +456,7 @@ function BiChartRenderInner({
         value={Number.isFinite(v) ? v : 0}
         target={target !== undefined && Number.isFinite(target) ? target : undefined}
         max={chart.max}
-        label={chart.label || chart.valueField}
+        label={chart.label || humanizeField(chart.valueField)}
         format={chart}
         caveat={gaugeOf !== null ? `1 of ${gaugeOf} rows` : undefined}
       />

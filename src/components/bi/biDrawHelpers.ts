@@ -1,7 +1,18 @@
 // Pure helpers behind R500's visuals, kept out of the component files so that
 // those export only components (fast refresh) and so tests need no renderer.
-import { PIE_COLORS, toBiNumber } from "@/components/bi/biChartData";
-import type { BiAnnotation, BiLegendPlacement, ChartSpec } from "@/lib/biAgent";
+import {
+  PIE_COLORS,
+  aggregateByField,
+  toBiNumber,
+  type BiFormatOptions,
+} from "@/components/bi/biChartData";
+import type {
+  BiAnnotation,
+  BiLegendPlacement,
+  BiNumberFormat,
+  BiPictogramIcon,
+  ChartSpec,
+} from "@/lib/biAgent";
 import { MAX_NOTES, NOTE_CHARS } from "@/lib/biVisualOpts";
 
 /**
@@ -615,4 +626,304 @@ export function comboColor(kind: "bar" | "line", i: number, bars: number): strin
   // rest[0] is a blue that sits too close to most themes' primary.
   const at = kind === "bar" ? i : bars - 1 + i;
   return rest[1 + ((at - 1) % (rest.length - 1))];
+}
+
+// ── What a visual draws, for the card and the PDF alike (R511) ──────────────
+//
+// A scheduled PDF draws these visuals itself (components/bi/biPrintVisuals),
+// from the same rows the card draws: the terms, frames, groups and points come
+// from here, so the paper and the screen cannot disagree about what is shown.
+
+/** Simple outline pictures for the pictogram, drawn in a 24-unit box. */
+export const PICTOGRAM_ICONS: Record<BiPictogramIcon, string> = {
+  person: "M12 4a3 3 0 1 1 0 6a3 3 0 1 1 0-6z M6 21v-4a6 6 0 0 1 12 0v4z",
+  bike: "M6 17a3.5 3.5 0 1 0 0.01 0z M18 17a3.5 3.5 0 1 0 0.01 0z M6 17l4-7h5l3 7 M10 10l3 7 M9 7h3",
+  car: "M3 16v-4l2-5h14l2 5v4z M7 19a1.6 1.6 0 1 0 0.01 0z M17 19a1.6 1.6 0 1 0 0.01 0z",
+  house: "M3 11l9-7 9 7 M5 10v10h14V10 M10 20v-6h4v6",
+  coin: "M12 3a9 9 0 1 0 0.01 0z M12 7v10 M9 9.5h4.5a2 2 0 0 1 0 4H10a2 2 0 0 0 0 4H15",
+  box: "M3 7l9-4 9 4v10l-9 4-9-4z M3 7l9 4 9-4 M12 11v10",
+};
+
+/** A pictogram's categories and their totals, in row order, at most 12. */
+export function pictogramData(
+  rows: Record<string, unknown>[],
+  categoryField: string,
+  valueField: string,
+): [string, number][] {
+  const sums = new Map<string, number>();
+  for (const r of rows) {
+    const v = toBiNumber(r[valueField]);
+    if (v === null) continue;
+    const k = String(r[categoryField] ?? "(blank)");
+    sums.set(k, (sums.get(k) ?? 0) + v);
+  }
+  return [...sums.entries()].slice(0, 12);
+}
+
+/**
+ * Small multiples' panels, at most 12, each adding up the rows that share an
+ * x value (R507), and the one maximum every panel is drawn against.
+ */
+export function smallMultipleGroups(
+  rows: Record<string, unknown>[],
+  chart: { splitField: string; xField: string; yField: string },
+): { groups: { key: string; rows: Record<string, unknown>[] }[]; max: number } {
+  const groups = splitRows(rows, chart.splitField, 12, chart.yField).map((g) => ({
+    ...g,
+    rows: aggregateByField(g.rows, chart.xField, [chart.yField]),
+  }));
+  const max = Math.max(
+    0,
+    ...groups.flatMap((g) => g.rows.map((r) => toBiNumber(r[chart.yField]) ?? 0)),
+  );
+  return { groups, max };
+}
+
+/** How many columns of panels a set of small multiples is laid out in. */
+export function smallMultipleColumns(n: number): number {
+  return n <= 2 ? n : n <= 4 ? 2 : n <= 9 ? 3 : 4;
+}
+
+export type RangeItem = { cat: string; s: number | null; e: number | null; label: string };
+
+/** A range visual's rows: where each started and finished, at most 40. */
+export function rangeItems(
+  rows: Record<string, unknown>[],
+  chart: { categoryField: string; startField: string; endField: string; labelField?: string },
+): RangeItem[] {
+  return rows
+    .map((r) => ({
+      cat: String(r[chart.categoryField] ?? "—"),
+      s: toBiNumber(r[chart.startField]),
+      e: toBiNumber(r[chart.endField]),
+      label: chart.labelField ? String(r[chart.labelField] ?? "") : "",
+    }))
+    .slice(0, 40);
+}
+
+export const WORDCLOUD_STOPWORDS = new Set(
+  (
+    "a an and are as at be by for from has have in is it its of on or that the to was were will with " +
+    "this these those i you he she they we not but if then so than too very can just"
+  ).split(" "),
+);
+
+export type CloudTerm = { key: string; weight: number; term: string };
+
+/**
+ * A word cloud's terms, at most 60, in a stable shuffled order. With no
+ * value field the text is split into words, counted; with one, each distinct
+ * value is a term weighted by the summed measure.
+ */
+export function wordCloudTerms(
+  rows: Record<string, unknown>[],
+  textField: string,
+  valueField?: string,
+): CloudTerm[] {
+  const weights = new Map<string, number>();
+  const label = new Map<string, string>(); // lowercase key → display term
+  if (valueField) {
+    for (const r of rows) {
+      const term = String(r[textField] ?? "").trim();
+      if (!term) continue;
+      const v = Number(r[valueField]);
+      if (!Number.isFinite(v) || v <= 0) continue;
+      const key = term.toLowerCase();
+      weights.set(key, (weights.get(key) ?? 0) + v);
+      if (!label.has(key)) label.set(key, term);
+    }
+  } else {
+    for (const r of rows) {
+      const raw = String(r[textField] ?? "");
+      for (const tok of raw.split(/[^\p{L}\p{N}]+/u)) {
+        const key = tok.toLowerCase();
+        if (key.length < 3 || WORDCLOUD_STOPWORDS.has(key)) continue;
+        weights.set(key, (weights.get(key) ?? 0) + 1);
+        if (!label.has(key)) label.set(key, tok);
+      }
+    }
+  }
+  const arr = [...weights.entries()]
+    .map(([key, weight]) => ({ key, weight, term: label.get(key) ?? key }))
+    .sort((a, b) => b.weight - a.weight)
+    .slice(0, 60);
+  // Deterministic shuffle so the layout is stable across renders.
+  return arr
+    .map((w, i) => ({ w, r: ((i * 2654435761) % 100) / 100 }))
+    .sort((a, b) => a.r - b.r)
+    .map((x) => x.w);
+}
+
+/** A term's size in px: the square root of its weight, from 12 to 46. */
+export function wordCloudSize(weight: number, min: number, max: number): number {
+  const t =
+    max === min ? 0.5 : (Math.sqrt(weight) - Math.sqrt(min)) / (Math.sqrt(max) - Math.sqrt(min));
+  return Math.round(12 + t * 34);
+}
+
+export type RaceFrame = { frame: string; entries: [string, number][] };
+
+/** Frames in time order: numbers as numbers, ISO dates as text. */
+export function compareFrames(a: string, b: string): number {
+  const na = Number(a);
+  const nb = Number(b);
+  if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
+  return a.localeCompare(b);
+}
+
+/** A bar race's frames, each with its largest `topN` categories, at most 400. */
+export function raceFrames(
+  rows: Record<string, unknown>[],
+  xField: string,
+  yField: string,
+  timeField: string,
+  topN: number,
+): RaceFrame[] {
+  const byFrame = new Map<string, Map<string, number>>();
+  const order: string[] = [];
+  for (const r of rows) {
+    const f = String(r[timeField] ?? "");
+    const c = String(r[xField] ?? "—");
+    const v = toBiNumber(r[yField]);
+    if (v === null) continue;
+    if (!byFrame.has(f)) {
+      byFrame.set(f, new Map());
+      order.push(f);
+    }
+    const m = byFrame.get(f)!;
+    m.set(c, (m.get(c) ?? 0) + v);
+  }
+  order.sort(compareFrames);
+  return order.slice(0, 400).map((f) => ({
+    frame: f,
+    entries: [...byFrame.get(f)!.entries()].sort((a, b) => b[1] - a[1]).slice(0, topN),
+  }));
+}
+
+/** The palette of the hand-drawn visuals: a bar race, a matrix. */
+export const PART_COLORS = [
+  "#4E79A7",
+  "#F28E2B",
+  "#59A14F",
+  "#E15759",
+  "#76B7B2",
+  "#EDC948",
+  "#B07AA1",
+  "#FF9DA7",
+  "#9C755F",
+  "#BAB0AC",
+  "#86BCB6",
+  "#D37295",
+];
+
+/** A stable colour for a category name, so a bar keeps it from frame to frame. */
+export function colorForKey(key: string): string {
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return PART_COLORS[h % PART_COLORS.length];
+}
+
+export type MapPoint = {
+  key: number;
+  /** The point at zoom 0, in Web Mercator pixels. */
+  p: [number, number];
+  label: string;
+  cat: string;
+  size: number | null;
+  r: number;
+  color: string;
+};
+
+/**
+ * A point map's points, biggest first so small ones are never hidden under
+ * them, and the colour of each category.
+ */
+export function mapPoints(
+  rows: Record<string, unknown>[],
+  chart: {
+    latField: string;
+    lngField: string;
+    colorField?: string;
+    sizeField?: string;
+    labelField?: string;
+  },
+): { points: MapPoint[]; colors: Map<string, string> } {
+  const valid = rows.filter(
+    (r) => toBiNumber(r[chart.latField]) !== null && toBiNumber(r[chart.lngField]) !== null,
+  );
+  const colors = chart.colorField
+    ? categoryColors(
+        valid.map((r) => r[chart.colorField!]),
+        PIE_COLORS,
+      )
+    : new Map<string, string>();
+  const sizes = chart.sizeField ? valid.map((r) => toBiNumber(r[chart.sizeField!]) ?? 0) : [];
+  const max = Math.max(...sizes, 0);
+  const points: MapPoint[] = valid.map((r, i) => {
+    const cat = chart.colorField ? String(r[chart.colorField] ?? "") : "";
+    const s = chart.sizeField ? (toBiNumber(r[chart.sizeField]) ?? 0) : null;
+    return {
+      key: i,
+      p: project(toBiNumber(r[chart.lngField])!, toBiNumber(r[chart.latField])!),
+      label: chart.labelField ? String(r[chart.labelField] ?? "") : "",
+      cat,
+      size: s,
+      r: s !== null && max > 0 ? 2.5 + 9 * Math.sqrt(Math.max(0, s) / max) : 4,
+      color: colors.get(cat) ?? "var(--primary)",
+    };
+  });
+  points.sort((a, b) => b.r - a.r);
+  return { points, colors };
+}
+
+// ── A gauge's scale (R511) ──────────────────────────────────────────────────
+
+export type GaugeReading = {
+  value: number;
+  target?: number;
+  max?: number;
+  format?: BiNumberFormat | BiFormatOptions;
+  /** True when the value was a ratio read against a percentage. */
+  rescaled: boolean;
+};
+
+/**
+ * A gauge's value, target and maximum on one scale.
+ *
+ * A margin comes back from SQL as a ratio (0.12) and its target is written as
+ * a percentage (15): the dial read "0.12 · target 15 · 1%" in R511's UI test,
+ * a margin of 12% shown as one percent of its target. When the value is a
+ * fraction that, as a percentage, sits within ten times of the target while
+ * the raw value is further off than that, the value is the ratio and is read
+ * as a percentage. A maximum of exactly 100 says the same without a target.
+ * A whole number is never rescaled: one deal against a target of ten is a
+ * count, not a ratio.
+ */
+export function gaugeReading(args: {
+  value: number;
+  target?: number;
+  max?: number;
+  format?: BiNumberFormat | BiFormatOptions;
+}): GaugeReading {
+  const { value, target, max, format } = args;
+  const fmt: BiFormatOptions = typeof format === "string" ? { format } : (format ?? {});
+  const fraction = Math.abs(value) < 1 && !Number.isInteger(value);
+  const near = (a: number, b: number) => b > 0 && a >= b / 10 && a <= b * 10;
+  const againstTarget =
+    target !== undefined &&
+    target > 1 &&
+    target <= 100 &&
+    near(value * 100, target) &&
+    !near(value, target);
+  const outOfHundred = target === undefined && max === 100;
+  if (fraction && fmt.format !== "currency" && (againstTarget || outOfHundred)) {
+    return {
+      value: value * 100,
+      target,
+      max,
+      format: { ...fmt, format: "percent" },
+      rescaled: true,
+    };
+  }
+  return { value, target, max, format, rescaled: false };
 }

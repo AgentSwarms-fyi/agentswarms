@@ -33,6 +33,7 @@ import { computeInsightFacts, formatInsightFacts, queryRowLimit } from "@/lib/bi
 import { unsupportedFigures, valuesStatedIn, verifyClaims } from "@/lib/biNumericClaims";
 import { parseCompare, parseInsightKind } from "@/lib/biGeneratedShape";
 import { isPreAggregated } from "@/lib/biColumnKinds";
+import { humanizeField } from "@/lib/biInsights";
 import {
   SHARED_OPTION_LINE,
   chartTypeFromWord,
@@ -1217,6 +1218,20 @@ export function buildSqlPrompt(args: {
  * legitimate combo or a small table, and guessing which would be worse
  * than asking.
  */
+/**
+ * A KPI's caption when its row has no label: the planner's intent when it is a
+ * short name ("Revenue this year"), the measure's own name when the intent is
+ * an instruction. "CALCULATE THE TOTAL SALES AMOUNT FROM THE SAAS SALES
+ * DATASET" headed a chat KPI in R511's UI test; "Total sales" says it.
+ */
+export function kpiCaption(column: string, intent: string): string {
+  const t = intent.trim();
+  const instruction =
+    /^(calculate|compute|count|find|get|show|list|determine|return|retrieve|sum|select|identify|measure|give|display|fetch|work out|what|how|which)\b/i;
+  if (t && t.length <= 40 && !instruction.test(t)) return t;
+  return humanizeField(column);
+}
+
 export function singleValueKpi(result: QueryResult, intent: string): ChartSpec | null {
   if (result.row_count !== 1 || result.rows.length !== 1) return null;
   const row = result.rows[0];
@@ -1230,7 +1245,7 @@ export function singleValueKpi(result: QueryResult, intent: string): ChartSpec |
   // At most one label reads as a caption ("EMEA"); several ("EMEA", "SMB",
   // "2026-01") describe a slice the caption cannot carry, so keep the
   // step's intent instead of picking one arbitrarily.
-  const label = labels.length === 1 ? String(row[labels[0]]) : intent;
+  const label = labels.length === 1 ? String(row[labels[0]]) : kpiCaption(numeric[0], intent);
   return { type: "kpi", valueField: numeric[0], label };
 }
 
@@ -1249,7 +1264,7 @@ export async function suggestChart(args: {
   if (single && args.preferChart !== "gauge") return single;
   const sample = args.result.rows.slice(0, 5);
   const preferLine = args.preferChart
-    ? `\n\nThe dashboard planner proposed a '${args.preferChart}' chart for this question — ` +
+    ? `\n\nA '${args.preferChart}' chart was asked for this question — ` +
       "use it when the returned columns support it; otherwise pick the best fit."
     : "";
   // The types, their fields and when each fits come from one catalogue

@@ -552,8 +552,35 @@ with. The server runs the report and mails the PDF as an attachment.
     them, and the legend is drawn in the strip.
   - `SCHEDULED_DRAW` lists what is drawn. 24 types draw as SVG, KPIs come
     from `kpiFigures` (the tile reads the same function), the heatmap and the
-    pivot are drawn as grids, and narratives as text. The rest print a note
-    where they would be, and the dialog names them before anyone schedules.
+    pivot are drawn as grids, and narratives as text. Anything not listed (now
+    only the ontology map) prints a note where it would be, and the dialog
+    names it before anyone schedules.
+  - **Laid out for paper (R511).** Cards, range, word cloud, pictogram, small
+    multiples, bar race and point map are HTML or animated on screen, so their
+    server render had no one chart SVG to draw. `renderVisualMarkup` sends
+    them to `components/bi/biPrintVisuals.ts`, which lays each out as one
+    SVG (`data-print="1"`) from the same data helpers the cards use (moved
+    into `biDrawHelpers`: `wordCloudTerms`, `raceFrames`, `rangeItems`,
+    `pictogramData`, `smallMultipleGroups`, `mapPoints`), with text
+    measured in the PDF's Helvetica. The word cloud is set in centred lines
+    and shrunk together until it fits; a bar race prints its last frame with a
+    caption; the pictogram's part picture is clipped, and so is a point map's
+    ground: tiles overhang the map, which a browser hides at the svg's edge
+    and a PDF does not.
+  - A grid (the heatmap, the pivot, a data table) never cuts a number to fit
+    its column (R511): "1.5" cut to "1." prints another value. Numbers that
+    do not fit are set smaller, one size for the whole table, down to 4.5pt;
+    one that still does not fit is left to its cell's colour, as a dense
+    heatmap is on screen. Words end in "…".
+  - `svgPdf` gained `<image>` (pictures are resolved and embedded by
+    `drawServerVisual` first, since drawing is synchronous; an SVG picture is
+    drawn as vectors) and one-rectangle `clip-path`, honoured only in a
+    `data-print` drawing so the chart library's own clips stay undrawn.
+  - Card pictures and a point map's street tiles are fetched by the server
+    through `fetchPicture` (SSRF guard, 1 MB cap, a User-Agent naming the
+    app), at most 24 per visual, tiles one at a time, and inlined as data
+    URLs. Tiles are asked for only when `PUBLIC_MAP_TILES_URL` is set, and the
+    credit is printed; a picture that will not load is left out.
   - `tests/unit/biReportServerPdf.test.ts` renders every catalogue visual on
     the server and holds `SCHEDULED_DRAW` to what came back.
 - **Who receives it.** Recipients must be accounts on the install
@@ -1493,6 +1520,36 @@ map, and an embed could draw six types in all.
 - **The planner's visual is kept.** When the chart step draws something else
   and the returned columns can carry the plan, the dashboard builds the
   planned visual.
+- **The user's visual is kept (R511).** A chat request for several visuals is
+  split into one question per visual, and an analyst question into steps;
+  both rewordings dropped the visual each part named, so "as a treemap", "as a
+  funnel" and "as a pivot table" all came back as bar charts.
+  `requestedChartTypes` (`biChartCatalog`) reads the visuals a request
+  names, in order ("as a …", or "a heatmap of …"; words such as "number" or
+  "list" count only after "as"). Each chat question and each analyst step is
+  given its own as the chart step's `preferChart` when there is one per part,
+  and the chat splitter is told to keep the wording.
+- **A category and a measure the wrong way round are swapped back (R511).**
+  For a chart of one category and one measure, numbers in the category and
+  labels in the measure cannot be drawn: "the top 10 customers as horizontal
+  bars" put the sales on the axis and drew no bars. `reconcileChartFields`
+  swaps them.
+- **A KPI is captioned by its measure (R511).** With no label column a single
+  value took the planner's intent as its caption, and an intent like
+  "Calculate the total sales amount from the SaaS sales dataset" headed the
+  number. An instruction, or anything over 40 characters, gives way to the
+  measure's name (`kpiCaption`): "Total sales".
+- **A gauge reads a ratio against a percentage on one scale (R511).** A
+  margin is a ratio in SQL (0.12) and its target is written as a percentage
+  (15), and the dial read "target 15 · 1%". `gaugeReading` (`biDrawHelpers`)
+  treats a fractional value as the ratio when, as a percentage, it sits within
+  ten times of the target and the raw value does not (or the maximum is
+  exactly 100), and shows both as percentages. A whole number is a count and
+  is never rescaled; money never is. The dial is captioned by the measure's
+  name rather than its column. The figure check that marks an answer's
+  numbers "Not checked against the data" (`verifyClaims`) accepts a
+  percentage that a fractional value rounds to, so "12%" for 0.1247 passes
+  and "15%" does not.
 - **The columns are checked everywhere.**
   - The check that re-points a chart's fields at the columns its query
     returned (`reconcileChartFields`) used to run only on generated

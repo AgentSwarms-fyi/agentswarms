@@ -18,9 +18,17 @@ import {
 } from "recharts";
 import { ResponsiveContainer } from "@/components/bi/biChartBox";
 
-import { PIE_COLORS, aggregateByField, fmtBiValue, toBiNumber } from "@/components/bi/biChartData";
-import { calendarCells, paretoRows, pictogramUnit, splitRows } from "@/components/bi/biDrawHelpers";
-import type { BiPictogramIcon, ChartSpec } from "@/lib/biAgent";
+import { PIE_COLORS, fmtBiValue } from "@/components/bi/biChartData";
+import {
+  calendarCells,
+  paretoRows,
+  PICTOGRAM_ICONS,
+  pictogramData,
+  pictogramUnit,
+  smallMultipleColumns,
+  smallMultipleGroups,
+} from "@/components/bi/biDrawHelpers";
+import type { ChartSpec } from "@/lib/biAgent";
 
 const tooltipStyle = {
   background: "var(--popover)",
@@ -265,23 +273,10 @@ export function BiSmallMultiples({
   // spike per order instead of each month's total; and a query that already
   // groups by x is unchanged by it, which is what lets the panels aggregate
   // in SQL.
-  const groups = useMemo(
-    () =>
-      splitRows(rows, chart.splitField, 12, chart.yField).map((g) => ({
-        ...g,
-        rows: aggregateByField(g.rows, chart.xField, [chart.yField]),
-      })),
-    [rows, chart.splitField, chart.xField, chart.yField],
-  );
   // One scale for every panel: comparing panels is the point.
-  const max = useMemo(
-    () =>
-      Math.max(0, ...groups.flatMap((g) => g.rows.map((r) => toBiNumber(r[chart.yField]) ?? 0))),
-    [groups, chart.yField],
-  );
+  const { groups, max } = useMemo(() => smallMultipleGroups(rows, chart), [rows, chart]);
   if (groups.length === 0) return <Empty text="No rows to split." />;
-  const cols =
-    groups.length <= 2 ? groups.length : groups.length <= 4 ? 2 : groups.length <= 9 ? 3 : 4;
+  const cols = smallMultipleColumns(groups.length);
   return (
     <div
       className="grid h-full gap-2"
@@ -334,16 +329,6 @@ export function BiSmallMultiples({
 
 type PictogramChart = Extract<ChartSpec, { type: "pictogram" }>;
 
-/** Simple outline pictures, drawn here in a 24-unit box. */
-const ICONS: Record<BiPictogramIcon, string> = {
-  person: "M12 4a3 3 0 1 1 0 6a3 3 0 1 1 0-6z M6 21v-4a6 6 0 0 1 12 0v4z",
-  bike: "M6 17a3.5 3.5 0 1 0 0.01 0z M18 17a3.5 3.5 0 1 0 0.01 0z M6 17l4-7h5l3 7 M10 10l3 7 M9 7h3",
-  car: "M3 16v-4l2-5h14l2 5v4z M7 19a1.6 1.6 0 1 0 0.01 0z M17 19a1.6 1.6 0 1 0 0.01 0z",
-  house: "M3 11l9-7 9 7 M5 10v10h14V10 M10 20v-6h4v6",
-  coin: "M12 3a9 9 0 1 0 0.01 0z M12 7v10 M9 9.5h4.5a2 2 0 0 1 0 4H10a2 2 0 0 0 0 4H15",
-  box: "M3 7l9-4 9 4v10l-9 4-9-4z M3 7l9 4 9-4 M12 11v10",
-};
-
 export function BiPictogram({
   chart,
   rows,
@@ -351,20 +336,14 @@ export function BiPictogram({
   chart: PictogramChart;
   rows: Record<string, unknown>[];
 }) {
-  const data = useMemo(() => {
-    const sums = new Map<string, number>();
-    for (const r of rows) {
-      const v = toBiNumber(r[chart.valueField]);
-      if (v === null) continue;
-      const k = String(r[chart.categoryField] ?? "(blank)");
-      sums.set(k, (sums.get(k) ?? 0) + v);
-    }
-    return [...sums.entries()].slice(0, 12);
-  }, [rows, chart.categoryField, chart.valueField]);
+  const data = useMemo(
+    () => pictogramData(rows, chart.categoryField, chart.valueField),
+    [rows, chart.categoryField, chart.valueField],
+  );
   if (data.length === 0) return <Empty text="No values to draw." />;
   const max = Math.max(...data.map(([, v]) => v));
   const unit = chart.unit && chart.unit > 0 ? chart.unit : pictogramUnit(max);
-  const path = ICONS[chart.icon ?? "person"];
+  const path = PICTOGRAM_ICONS[chart.icon ?? "person"];
   return (
     <div className="flex h-full flex-col gap-2 overflow-y-auto px-1">
       <p className="text-[10px] text-muted-foreground">

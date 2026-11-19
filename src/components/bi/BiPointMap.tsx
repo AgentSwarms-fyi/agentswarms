@@ -12,15 +12,15 @@
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Maximize2, Minus, Plus } from "lucide-react";
 
-import { PIE_COLORS, fmtBiValue, toBiNumber } from "@/components/bi/biChartData";
+import { fmtBiValue } from "@/components/bi/biChartData";
 import {
-  categoryColors,
   fitView,
+  mapPoints,
   pointMapCorner,
-  project,
   tileUrl,
   toScreen,
   visibleTiles,
+  type MapPoint,
   type MapView,
 } from "@/components/bi/biDrawHelpers";
 import { BiViewContext } from "@/components/bi/biParamContext";
@@ -29,15 +29,7 @@ import { publicConfig } from "@/lib/publicConfig";
 
 type PointMapChart = Extract<ChartSpec, { type: "pointmap" }>;
 
-type Pt = {
-  key: number;
-  p: [number, number];
-  label: string;
-  cat: string;
-  size: number | null;
-  r: number;
-  color: string;
-};
+type Pt = MapPoint;
 
 const LEGEND_MAX = 8;
 
@@ -90,35 +82,7 @@ export function BiPointMap({
     };
   }, [empty]);
 
-  const { points, colors } = useMemo(() => {
-    const valid = rows.filter(
-      (r) => toBiNumber(r[chart.latField]) !== null && toBiNumber(r[chart.lngField]) !== null,
-    );
-    const colors = chart.colorField
-      ? categoryColors(
-          valid.map((r) => r[chart.colorField!]),
-          PIE_COLORS,
-        )
-      : new Map<string, string>();
-    const sizes = chart.sizeField ? valid.map((r) => toBiNumber(r[chart.sizeField!]) ?? 0) : [];
-    const max = Math.max(...sizes, 0);
-    const pts: Pt[] = valid.map((r, i) => {
-      const cat = chart.colorField ? String(r[chart.colorField] ?? "") : "";
-      const s = chart.sizeField ? (toBiNumber(r[chart.sizeField]) ?? 0) : null;
-      return {
-        key: i,
-        p: project(toBiNumber(r[chart.lngField])!, toBiNumber(r[chart.latField])!),
-        label: chart.labelField ? String(r[chart.labelField] ?? "") : "",
-        cat,
-        size: s,
-        r: s !== null && max > 0 ? 2.5 + 9 * Math.sqrt(Math.max(0, s) / max) : 4,
-        color: colors.get(cat) ?? "var(--primary)",
-      };
-    });
-    // Big circles first, so small ones are never hidden under them.
-    pts.sort((a, b) => b.r - a.r);
-    return { points: pts, colors };
-  }, [rows, chart.latField, chart.lngField, chart.colorField, chart.sizeField, chart.labelField]);
+  const { points, colors } = useMemo(() => mapPoints(rows, chart), [rows, chart]);
 
   const fitted = useMemo(
     () =>
