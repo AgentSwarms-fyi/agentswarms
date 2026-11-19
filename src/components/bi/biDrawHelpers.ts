@@ -921,7 +921,8 @@ export function gaugeReading(args: {
       value: value * 100,
       target,
       max,
-      format: { ...fmt, format: "percent" },
+      // Already ×100: a format read as ratios (R512) must not scale it again.
+      format: { ...fmt, format: "percent", percentOf: "percent" },
       rescaled: true,
     };
   }

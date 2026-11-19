@@ -1009,6 +1009,8 @@ describe("an embed answer without a chart", () => {
 
   it("asks every query to stay long, and the analyst to plan steps that fit", () => {
     expect(read("src/lib/biAgent.ts")).toContain("Keep the result LONG");
-    expect(read("src/lib/aiAnalyst.ts")).toContain("Each step keeps and draws its first");
+    // R512: a step drawn as a chart keeps more rows than one shown as a table.
+    expect(read("src/lib/aiAnalyst.ts")).toContain("Each step keeps its first");
+    expect(read("src/lib/aiAnalyst.ts")).toContain("when drawn ");
   });
 });

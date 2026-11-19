@@ -25,7 +25,12 @@
 //
 // Nothing here trusts anything from the visitor except the question text.
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { runAnalystTurn, type AnalystSource, type AnalystTurn } from "@/lib/aiAnalyst";
+import {
+  ANALYST_FACT_ROW_CAP,
+  runAnalystTurn,
+  type AnalystSource,
+  type AnalystTurn,
+} from "@/lib/aiAnalyst";
 import type { LlmJsonOpts } from "@/lib/biAgent";
 import { parseModelChoice } from "@/utils/providers/modelChoice";
 import { llmJsonServer } from "@/utils/bi/llmJson.server";
@@ -39,8 +44,8 @@ import {
 import type { DatasetMeta, QueryResult } from "@/lib/sqlEngine";
 import type { SemanticQuery } from "@/lib/semanticLayer";
 
-/** Same cap the scheduled refresh uses — a trace, not a data export. */
-const ROW_CAP = 5000;
+/** The rows a step is computed from (ANALYST_FACT_ROW_CAP) — a trace, not a data export. */
+const ROW_CAP = ANALYST_FACT_ROW_CAP;
 
 export type AnalystRunOutcome =
   { ok: true; turn: AnalystTurn } | { ok: false; status: number; error: string };
@@ -107,12 +112,14 @@ async function executorFor(
     return {
       execute: async (sql: string) => {
         const res = await runLocalSqlForUser(ownerId, sql);
+        // The same cap as a warehouse step's, with the true count (R512).
+        const rows = res.rows.slice(0, ROW_CAP);
         return {
           columns: res.columns,
-          rows: res.rows,
-          row_count: res.rows.length,
+          rows,
+          row_count: rows.length,
           total_matched: res.rows.length,
-          capped: false,
+          capped: res.rows.length > ROW_CAP,
           duration_ms: 0,
         };
       },

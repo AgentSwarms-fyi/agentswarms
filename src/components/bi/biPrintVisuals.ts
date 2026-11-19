@@ -30,6 +30,7 @@ import {
 } from "@/components/bi/biDrawHelpers";
 import { toBiNumber } from "@/components/bi/biChartData";
 import type { ChartSpec } from "@/lib/biAgent";
+import { resolvePercentOf } from "@/lib/biChartFields";
 import { cardLine, cardLines, type CardSegment } from "@/lib/biCardTemplate";
 import { safeImageSrc } from "@/lib/safeUrl";
 
@@ -75,22 +76,24 @@ export type PrintInput = {
 export function printVisualSvg(input: PrintInput): string {
   const w = Math.max(40, Math.round(input.width));
   const h = Math.max(30, Math.round(input.height));
-  const p = { ...input, width: w, height: h };
-  switch (input.chart.type) {
+  // A percent format's scale, read from the rows as on screen (R512).
+  const chart = resolvePercentOf(input.chart, input.rows);
+  const p = { ...input, chart, width: w, height: h };
+  switch (chart.type) {
     case "cards":
-      return printCards(p, input.chart);
+      return printCards(p, chart);
     case "range":
-      return printRange(p, input.chart);
+      return printRange(p, chart);
     case "wordcloud":
-      return printWordCloud(p, input.chart);
+      return printWordCloud(p, chart);
     case "pictogram":
-      return printPictogram(p, input.chart);
+      return printPictogram(p, chart);
     case "smallmultiples":
-      return printSmallMultiples(p, input.chart);
+      return printSmallMultiples(p, chart);
     case "barrace":
-      return printBarRace(p, input.chart);
+      return printBarRace(p, chart);
     case "pointmap":
-      return printPointMap(p, input.chart);
+      return printPointMap(p, chart);
     default:
       return message(w, h, "This visual is drawn in the app only.");
   }

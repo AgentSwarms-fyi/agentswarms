@@ -21,7 +21,8 @@
 import { forecastValues } from "@/lib/mlForecast";
 import { MIN_FORECAST_POINTS, readSeries, MIN_SERIES_POINTS } from "@/lib/analystSeries";
 import { nextBucketLabel, type DateGrain } from "@/lib/biChartMath";
-import type { BiInsightKind, ChartSpec } from "@/lib/biAgent";
+import type { BiInsightKind, BiMeasureIs, ChartSpec } from "@/lib/biAgent";
+import { isPreAggregated, isRunningTotal } from "@/lib/biColumnKinds";
 import { numericColumns } from "@/lib/biChartFields";
 import {
   comparePeriods,
@@ -45,6 +46,8 @@ export type InsightSpec = {
   template?: string;
   lowerIsBetter?: boolean;
   dateGrain?: "auto" | DateGrain;
+  /** top / bottom: what the measure is (R512); unset reads the column's name. */
+  measureIs?: BiMeasureIs;
 };
 
 /** A run of sentence text. Tones: a number to read, and good or bad news. */
@@ -172,21 +175,43 @@ function toNumber(v: unknown): number | null {
   return null;
 }
 
-/** Sum of the measure per category, first-seen order kept for ties. */
+/**
+ * What a ranked narrative's measure is (R512): the spec's word, else its
+ * column's name — a running total, an average or rate, or something to add up.
+ * The Grand Prix points race ranked drivers by the SUM of their running points
+ * over twenty rounds; a column of averages was summed the same way.
+ */
+export function measureKindFor(spec: InsightSpec, f: InsightFormat): BiMeasureIs {
+  if (spec.measureIs) return spec.measureIs;
+  if (isRunningTotal(spec.valueField)) return "running";
+  if (isPreAggregated(spec.valueField) || f.percentMeasure) return "average";
+  return "sum";
+}
+
+/**
+ * The measure per category, first-seen order kept for ties: added up, the
+ * latest row's value of a running total (rows in their query's order), or the
+ * average of an average.
+ */
 function totalsByCategory(
   rows: Record<string, unknown>[],
   categoryField: string,
   valueField: string,
+  kind: BiMeasureIs = "sum",
 ): { label: string; value: number }[] {
-  const sums = new Map<string, number>();
+  const acc = new Map<string, { value: number; count: number }>();
   for (const r of rows) {
     const v = toNumber(r?.[valueField]);
     if (v === null) continue;
     const raw = r?.[categoryField];
     const label = raw === null || raw === undefined || raw === "" ? "(blank)" : String(raw);
-    sums.set(label, (sums.get(label) ?? 0) + v);
+    const cur = acc.get(label) ?? { value: 0, count: 0 };
+    acc.set(label, { value: kind === "running" ? v : cur.value + v, count: cur.count + 1 });
   }
-  return [...sums.entries()].map(([label, value]) => ({ label, value }));
+  return [...acc.entries()].map(([label, a]) => ({
+    label,
+    value: kind === "average" ? a.value / a.count : a.value,
+  }));
 }
 
 /** Fill {{tokens}} in an author's sentence; filled values read as numbers. */
@@ -346,7 +371,8 @@ function ranked(
   measure: string,
 ): Internal {
   if (!spec.categoryField) return { ok: false, reason: "Pick the column to rank." };
-  const members = totalsByCategory(rows, spec.categoryField, spec.valueField);
+  const kind = measureKindFor(spec, f);
+  const members = totalsByCategory(rows, spec.categoryField, spec.valueField, kind);
   if (members.length === 0) {
     return { ok: false, reason: `No ${spec.categoryField} has a number to rank.` };
   }
@@ -355,9 +381,12 @@ function ranked(
     spec.kind === "bottom" ? a.value - b.value : b.value - a.value,
   );
   const shown = sorted.slice(0, n);
-  const total = members.reduce((a, m) => a + m.value, 0);
-  // A share of a total that nets losses against profits is not a share.
-  const shares = members.every((m) => m.value >= 0) && total > 0;
+  const sum = members.reduce((a, m) => a + m.value, 0);
+  // Across every item: the sum, or for an average the average (R512).
+  const total = kind === "average" ? sum / members.length : sum;
+  // A share of a total that nets losses against profits is not a share, and
+  // an average has no share of anything.
+  const shares = kind !== "average" && members.every((m) => m.value >= 0) && total > 0;
   const singular = humanizeField(spec.categoryField).toLowerCase();
   const category = pluralize(singular);
   const word = spec.kind === "bottom" ? "bottom" : "top";

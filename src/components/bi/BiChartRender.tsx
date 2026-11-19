@@ -87,7 +87,7 @@ import {
 } from "@/components/bi/BiBreadthCharts";
 import { BiBumpChart, BiRadialBars, BiRangeBars } from "@/components/bi/BiRankCharts";
 import { OntologyGraph } from "@/components/bi/OntologyGraph";
-import { unshownRows } from "@/lib/biChartFields";
+import { resolvePercentOf, unshownRows } from "@/lib/biChartFields";
 import { measureDisplayName } from "@/lib/biFieldQuery";
 import { isOntologySpec } from "@/lib/biOntology";
 import type { BiNumberFormat, BiRefLine, ChartSpec } from "@/lib/biAgent";
@@ -2177,7 +2177,9 @@ export function BiChartRender({
       const auto = autoDateGrain(r, xKey);
       if (auto) r = labelRowsX(r, xKey, auto);
     }
-    return { effChart: c, effRows: r };
+    // A percent format's scale is read from every row (R512), so a drill
+    // into one region cannot flip 14% to 0.14%.
+    return { effChart: resolvePercentOf(c, rows), effRows: r };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chart, rows, drillable, drillPath, drillKey, isTime, xKey, showGrainToggle, grain]);
 

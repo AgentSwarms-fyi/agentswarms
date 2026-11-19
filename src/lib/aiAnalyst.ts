@@ -1,4 +1,4 @@
-// The dedicated AI Analyst (Spotter-style conversational analysis).
+// The dedicated AI Analyst (conversational analysis).
 //
 // An analyst is a pinned (reasoning model, data scope) pair. Each question
 // runs a TRANSPARENT loop — every stage of which is stored and shown:
@@ -51,6 +51,7 @@ import {
 import { describeSeries, forecastSeries, readSeries, seriesFrom } from "@/lib/analystSeries";
 import { requestedChartTypes } from "@/lib/biChartCatalog";
 import { reconcileChartFields } from "@/lib/biChartFields";
+import { readableDecimals } from "@/lib/readableNumbers";
 import type { DatasetMeta, QueryResult } from "@/lib/sqlEngine";
 import type { SemanticFilter, SemanticQuery, TimeGrain } from "@/lib/semanticLayer";
 import type { MetricDelta, ScenarioChange, ScenarioParameter } from "@/lib/analystScenario";
@@ -531,6 +532,37 @@ export const MAX_ANALYSIS_STEPS = 4;
 export const ANALYST_ROW_CAP = 50;
 
 /**
+ * Rows a step drawn as a chart keeps (R512). A calendar of 2025 needs its
+ * days: kept to ANALYST_ROW_CAP it drew January to March under "323 rows
+ * (showing 50)". A step with no chart keeps ANALYST_ROW_CAP; its table shows
+ * eight.
+ */
+export const ANALYST_CHART_ROW_CAP = 400;
+
+/**
+ * Rows the self-check and the write-up are computed from (R512), the
+ * server-side analyst's cap too. In the browser, local steps ran through the
+ * playground's 50-row runner, so a year of 323 days was summed as its first
+ * 50 and the findings gave "total: 70869.17" as the year's sales.
+ */
+export const ANALYST_FACT_ROW_CAP = 5000;
+
+/** A local step's query: up to ANALYST_FACT_ROW_CAP rows, with the true count. */
+export async function runLocalForAnalyst(sql: string): Promise<QueryResult> {
+  const { runQueryUnlimited } = await import("@/lib/sqlEngine");
+  const t0 = Date.now();
+  const r = await runQueryUnlimited(sql, ANALYST_FACT_ROW_CAP);
+  return {
+    columns: r.columns,
+    rows: r.rows,
+    row_count: r.rows.length,
+    total_matched: r.total,
+    capped: r.capped,
+    duration_ms: Date.now() - t0,
+  };
+}
+
+/**
  * Did this step's query return more rows than the trace keeps?
  *
  * Only answerable when the query returned its REAL result — a defensive
@@ -599,11 +631,13 @@ export function assertSelectOnly(sql: string): string {
  * ANALYST_ROW_CAP machinery exists to prevent.
  */
 export function trimStepForStorage(step: AnalystStep): AnalystStep {
-  if (!step.rows || step.rows.length <= ANALYST_ROW_CAP) return step;
+  // A step drawn as a chart keeps the rows its chart draws (R512).
+  const cap = step.chart && step.chart.type !== "table" ? ANALYST_CHART_ROW_CAP : ANALYST_ROW_CAP;
+  if (!step.rows || step.rows.length <= cap) return step;
   return {
     ...step,
     rowCount: step.rowCount ?? step.rows.length,
-    rows: step.rows.slice(0, ANALYST_ROW_CAP),
+    rows: step.rows.slice(0, cap),
   };
 }
 
@@ -842,9 +876,10 @@ export function buildAnalysisPlanPrompt(args: {
       "Only use tables and columns that exist in the schema. Do not write SQL here. " +
       // R507: a year of days asked as one step came back pivoted into
       // columns to fit the trace, and could only be shown as a table.
-      `Each step keeps and draws its first ${ANALYST_ROW_CAP} rows, so give each step a goal ` +
-      "whose answer fits: by week or month rather than by day over a span longer than a few " +
-      "weeks.\n\n" +
+      `Each step keeps its first ${ANALYST_ROW_CAP} rows (${ANALYST_CHART_ROW_CAP} when drawn ` +
+      "as a chart), so give each step a goal whose answer fits: by week or month rather than " +
+      "by day over a span longer than a few weeks, unless the question asks for a visual " +
+      "drawn by day, such as a calendar, over up to a year.\n\n" +
       // A guess that runs is worse than a question that doesn't: a wrong
       // assumption comes back as confident numbers nobody can see the
       // assumption behind. Measured: "…this quarter" ran against a quarter
@@ -1650,6 +1685,27 @@ export function leadChartStep(steps: AnalystStep[], headline: number): number | 
  * regression this guards, and it is invisible to a test of the pure
  * helpers alone.
  */
+/**
+ * The visual the question asked for at one step, if it named one (R511).
+ *
+ * A step's goal is the planner's rewording and drops the visual: "sales by
+ * industry as a treemap" became the step "total sales by industry" and a bar
+ * chart. The question's visuals are matched to the steps when there is one per
+ * step; a step whose goal names its own keeps it.
+ */
+export function askedChartForStep(
+  question: string,
+  goals: string[],
+  i: number,
+): string | undefined {
+  const asked = requestedChartTypes(question);
+  const steps = goals.length;
+  return (
+    requestedChartTypes(goals[i] ?? "")[0] ??
+    (asked.length === steps ? asked[i] : steps === 1 ? asked[0] : undefined)
+  );
+}
+
 export async function chartEveryStep(args: {
   turn: AnalystTurn;
   results: (QueryResult | null)[];
@@ -1667,12 +1723,7 @@ export async function chartEveryStep(args: {
   }) => Promise<ChartSpec>;
 }): Promise<void> {
   const suggest = args.suggest ?? suggestChart;
-  // The visuals the question named, in order (R511). A step's goal is the
-  // planner's rewording and drops them: "sales by industry as a treemap"
-  // became the step "total sales by industry" and a bar chart. Matched to the
-  // steps when there is one per step; a step that names its own keeps it.
-  const asked = requestedChartTypes(args.question);
-  const steps = args.turn.steps.length;
+  const goals = args.turn.steps.map((s) => s.goal);
   await Promise.all(
     args.turn.steps.map(async (step, i) => {
       const res = args.results[i];
@@ -1687,15 +1738,17 @@ export async function chartEveryStep(args: {
           plan: { intent: step.goal, tables: [], metrics: [], breakdowns: [] },
           model: args.model,
           llm: args.llm,
-          preferChart:
-            requestedChartTypes(step.goal)[0] ??
-            (asked.length === steps ? asked[i] : steps === 1 ? asked[0] : undefined),
+          preferChart: askedChartForStep(args.question, goals, i),
         });
         // The columns the chart names, checked against the step's rows
         // (R507), as the dashboard generator checks them. A field the query
         // never returned drew an empty frame under the finding.
         const fields = reconcileChartFields({ chart, columns: res.columns, rows: res.rows });
         step.chart = fields.verdict === "ok" ? chart : fields.chart;
+        // A chart draws the whole result, up to ANALYST_CHART_ROW_CAP (R512).
+        if (step.chart.type !== "table" && res.rows.length > (step.rows?.length ?? 0)) {
+          step.rows = res.rows.slice(0, ANALYST_CHART_ROW_CAP);
+        }
       } catch {
         /* a chart is a nice-to-have; the result table still stands */
       }
@@ -1785,9 +1838,7 @@ export async function runAnalystTurn(args: {
   const runSql = async (sql: string): Promise<QueryResult> => {
     const clean = assertSelectOnly(sql);
     return queryCache.run(resultCacheKey(sourceKey, clean), async () =>
-      args.execute
-        ? await args.execute(clean)
-        : await (await import("@/lib/sqlEngine")).runQuery(clean),
+      args.execute ? await args.execute(clean) : await runLocalForAnalyst(clean),
     );
   };
   const captureResult = (step: AnalystStep, res: QueryResult) => {
@@ -2149,7 +2200,17 @@ export async function runAnalystTurn(args: {
         // Best-effort — if the rewrite fails or is still too tall, the
         // original result stands and the "(showing N of M)" disclosure does
         // the honest work. Never more than one attempt.
-        if ((step.rowCount ?? 0) > ANALYST_ROW_CAP) {
+        // Not when the question asked for a visual at this step and the
+        // result fits it (R512): a calendar asked for "daily sales in 2025"
+        // needs the days, and a reshape into months would answer something
+        // else.
+        const keepsGrain =
+          askedChartForStep(
+            args.question,
+            turn.steps.map((s) => s.goal),
+            i,
+          ) !== undefined && (step.rowCount ?? 0) <= ANALYST_CHART_ROW_CAP;
+        if ((step.rowCount ?? 0) > ANALYST_ROW_CAP && !keepsGrain) {
           try {
             const reshaped = await generateSql({
               question: sqlGoal,
@@ -2370,7 +2431,7 @@ export async function runAnalystTurn(args: {
     ]);
     const parsed = parseSynthesisReply(synth);
     turn.answer =
-      parsed.answer ||
+      (parsed.answer && readableDecimals(parsed.answer)) ||
       "The analysis completed but produced no write-up — the step results above stand on their own.";
     if (parsed.followUps.length > 0) turn.followUps = parsed.followUps;
     turn.chartStep = leadChartStep(turn.steps, headline);
@@ -2403,14 +2464,16 @@ export async function rerunStep(args: {
   execute?: (sql: string) => Promise<QueryResult>;
 }): Promise<AnalystStep> {
   const clean = assertSelectOnly(args.sql);
-  const run = args.execute ?? (await import("@/lib/sqlEngine")).runQuery;
+  const run = args.execute ?? runLocalForAnalyst;
   const res = await run(clean);
   return {
     ...args.step,
     sql: clean,
     columns: res.columns,
     rows: res.rows.slice(0, ANALYST_ROW_CAP),
-    rowCount: res.rows.length,
+    // The engine's count, not the rows it handed back: a re-run of a 323-row
+    // query said "50 rows" when the runner capped at 50 (R512).
+    rowCount: res.total_matched ?? res.rows.length,
     edited: true,
     error: undefined,
     status: "done",
@@ -2486,7 +2549,7 @@ export async function resynthesizeTurn(args: {
       chartEveryStep({ turn, results, question: turn.question, model: args.model, llm: ask }),
     ]);
     const parsed = parseSynthesisReply(synth);
-    if (parsed.answer) turn.answer = parsed.answer;
+    if (parsed.answer) turn.answer = readableDecimals(parsed.answer);
     turn.followUps = parsed.followUps.length > 0 ? parsed.followUps : undefined;
     turn.chartStep = leadChartStep(turn.steps, turn.chartStep ?? 0);
     turn.answerStale = false;

@@ -18,6 +18,8 @@ export function BiValueFormat({
   setCurrencyCode,
   decimalsSel,
   setDecimalsSel,
+  percentOf,
+  setPercentOf,
 }: {
   numFormat: "auto" | "currency" | "percent";
   setNumFormat: (v: "auto" | "currency" | "percent") => void;
@@ -25,6 +27,9 @@ export function BiValueFormat({
   setCurrencyCode: (v: string) => void;
   decimalsSel: string;
   setDecimalsSel: (v: string) => void;
+  /** What a Percent format's numbers are (R512); unset leaves the picker out. */
+  percentOf?: "auto" | "ratio" | "percent";
+  setPercentOf?: (v: "auto" | "ratio" | "percent") => void;
 }) {
   return (
     <div
@@ -46,7 +51,7 @@ export function BiValueFormat({
             Currency — 1234 → $1.2k
           </SelectItem>
           <SelectItem value="percent" className="text-xs">
-            Percent — 12.3 → 12.3%
+            Percent — 12.3% from 12.3 or 0.123
           </SelectItem>
         </SelectContent>
       </Select>
@@ -64,6 +69,28 @@ export function BiValueFormat({
                   {c}
                 </SelectItem>
               ))}
+            </SelectContent>
+          </Select>
+        )}
+        {numFormat === "percent" && percentOf && setPercentOf && (
+          <Select value={percentOf} onValueChange={(v) => setPercentOf(v as typeof percentOf)}>
+            <SelectTrigger
+              className="h-7 flex-1 text-[11px]"
+              title="Whether the numbers are fractions (0.14) or already percentages (14)"
+              aria-label="Percent scale"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto" className="text-xs">
+                From the data
+              </SelectItem>
+              <SelectItem value="ratio" className="text-xs">
+                0.14 → 14%
+              </SelectItem>
+              <SelectItem value="percent" className="text-xs">
+                14 → 14%
+              </SelectItem>
             </SelectContent>
           </Select>
         )}

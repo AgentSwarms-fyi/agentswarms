@@ -659,8 +659,8 @@ PDF instead. Name, page setup and band changes are written to the audit log via
 ## AI Analyst — your analytical partner
 
 **AI Analyst** (`/ai-analyst`, under Data &amp; BI) is the dedicated
-conversational-analysis surface — the Spotter/conversational-BI equivalent,
-built on this stack's own discipline: every answer shows its work.
+conversational-analysis surface, built on this stack's own discipline: every
+answer shows its work.
 
 An **analyst** is three choices and nothing else: a **reasoning model**
 (picked from your connected providers — the dialog suggests reasoning
@@ -1219,8 +1219,9 @@ drawn shapes, not photographs or logos. The sample ships in migration
 and pictures, links and colours as the label, and use the visual's own measure
 and category first. Before, a standings table offered "the top 3 given names
 by position" with percentages of summed positions. A query that returns a
-running total still gets a sum of that total, because nothing marks a column
-as cumulative. Write the narrative from the per-round figures instead.
+running total such as the points race's `total_points` is ranked by each
+driver's latest total when the narrative's **The measure is** says it is a
+running total (R512); its name alone does not say so.
 
 ## Parameters, point maps and pins on a road
 
@@ -1610,6 +1611,49 @@ browser, and fixed:
   on top of each other. The month with no room for its name is now left
   unnamed.
 
+## Numbers read right
+
+R512 fixes numbers that were worked out from part of a result, or printed in
+a way nobody reads.
+
+- **The AI Analyst reads the whole result.** In the browser, a local step ran
+  through the workbench's 50-row runner, so the self-check and the findings
+  summed the first 50 rows of a larger result. Asked for "daily sales in 2025
+  as a calendar heatmap", a step returned 323 days and the findings gave
+  "total: 70869.17", the first 50 days' sales. Steps now run with up to 5,000
+  rows (`ANALYST_FACT_ROW_CAP`), the cap the server-side analyst already used
+  for warehouses; its local steps, which had none, take it too. A step re-run
+  by hand reports its query's own row count.
+- **A step drawn as a chart keeps what it draws.** A step stores 50 rows when
+  it is shown as a table and up to 400 (`ANALYST_CHART_ROW_CAP`) when it is
+  drawn as a chart, so the calendar covers the year rather than January to
+  March. When the question names a visual for a step and the result fits 400
+  rows, the step is not reshaped into fewer rows: a calendar needs its days.
+- **Findings and step tables print numbers as people read them.** The model
+  copies figures from the facts, so the findings printed "474150.4844" and
+  the step table "474150.48440000083". A number of 1 or more takes two
+  decimals and thousands separators, a smaller one four decimals; integers
+  (years, ids), dates and times stay as written (`readableNumbers`). The
+  analyst's PDF prints its tables the same way.
+- **A Percent format reads a ratio as a percentage.** The format treated
+  every value as a percentage already, so a margin returned as 0.14 printed
+  "0.14%". A chart reads the scale from its measures: values all between −1
+  and 1, with fractions among them, are ratios and print ×100
+  (`resolvePercentOf`). Table columns are read one by one, on screen and in
+  PDFs, and an Excel export gives a ratio column Excel's own percent format.
+  The value-format picker states the scale when the values cannot
+  (_0.14 → 14%_ or _14 → 14%_). A gauge against a percentage target keeps
+  R511's reading and is not scaled twice.
+- **A ranked narrative knows a running total.** Top and bottom added the
+  measure up per item, so a running total counted every earlier step again:
+  the Grand Prix points race ranked drivers by the sum of twenty rounds of
+  running points. A narrative now takes each item's latest value of a running
+  total and averages an average or rate, with no share of a total
+  (`measureKindFor`). See [Narratives computed from the data](#narratives-computed-from-the-data).
+
+Still open: PDFs format numbers in the server's locale, not each
+recipient's.
+
 ## Building a visual from fields
 
 The builder opens in **Fields** mode (R499). Pick a table and click the
@@ -1831,6 +1875,12 @@ data lacks; too little history gets the reason instead of a sentence. **Your
 own sentence** replaces the wording, with `{{period}}`, `{{change_pct}}`,
 `{{list}}` and the other values picked from a menu. AI insight remains the
 written reading of one snapshot.
+
+Top and bottom add their measure up per item. A running total is ranked by
+each item's latest value and an average or rate by its average, with no
+share of a total (R512). Both are read from the column's name (running,
+cumulative, ytd; avg, rate, margin), and **The measure is** in the
+narrative's options says which when the name does not.
 
 ## Table cell styles
 

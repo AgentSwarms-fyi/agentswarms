@@ -8,7 +8,7 @@ import { fmtBiValue, toBiNumber } from "@/components/bi/biChartData";
 import { COND_ICONS } from "@/components/bi/biCondIcons";
 import type { BiColumnFormat } from "@/lib/biAgent";
 import { condColorHex, condFill, firstMatchingRule, ruleFill } from "@/lib/biChartMath";
-import { isPreAggregated } from "@/lib/biColumnKinds";
+import { isPreAggregated, readsAsRatios } from "@/lib/biColumnKinds";
 import { safeImageSrc, safeLinkHref } from "@/lib/safeUrl";
 import { cn } from "@/lib/utils";
 
@@ -155,7 +155,7 @@ function TableCell({
 export function WidgetDataTable({
   columns,
   rows,
-  columnFormats,
+  columnFormats: statedFormats,
   totals: showTotals = true,
   striped = false,
   onCellClick,
@@ -176,6 +176,18 @@ export function WidgetDataTable({
 }) {
   const [sort, setSort] = useState<{ col: string; dir: 1 | -1 } | null>(null);
   const [page, setPage] = useState(0);
+  // A Percent column reads its scale from its values unless it states one
+  // (R512): a margin returned as 0.14 printed "0.14%".
+  const columnFormats = useMemo(() => {
+    if (!statedFormats) return statedFormats;
+    let out: Record<string, BiColumnFormat> | undefined;
+    for (const [c, f] of Object.entries(statedFormats)) {
+      if (f?.format === "percent" && !f.percentOf && readsAsRatios(rows, [c])) {
+        out = { ...(out ?? statedFormats), [c]: { ...f, percentOf: "ratio" } };
+      }
+    }
+    return out ?? statedFormats;
+  }, [statedFormats, rows]);
   const numeric = new Set(
     columns.filter((c) => toBiNumber(rows.find((r) => r[c] != null)?.[c]) !== null),
   );

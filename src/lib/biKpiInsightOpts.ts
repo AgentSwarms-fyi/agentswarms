@@ -1,7 +1,7 @@
 // Builder state for the R498 visuals and the spec fields it produces: a KPI's
 // period comparison and the narrative widget. Pure, so the builder's option
 // components export only components (and these can be tested on their own).
-import type { BiInsightKind, BiKpiCompare, ChartSpec } from "@/lib/biAgent";
+import type { BiInsightKind, BiKpiCompare, BiMeasureIs, ChartSpec } from "@/lib/biAgent";
 
 export type KpiOpts = {
   dateField: string;
@@ -25,6 +25,8 @@ export type InsightOpts = {
   periods: string;
   template: string;
   lowerIsBetter: boolean;
+  /** top / bottom: what the measure is, or "auto" to read its name (R512). */
+  measureIs: "auto" | BiMeasureIs;
   /** R501: the figures' colour (#rrggbb, empty for the standard look). */
   valueColor: string;
   hideIcon: boolean;
@@ -38,6 +40,7 @@ export const INSIGHT_OPTS_DEFAULT: InsightOpts = {
   periods: "",
   template: "",
   lowerIsBetter: false,
+  measureIs: "auto",
   valueColor: "",
   hideIcon: false,
 };
@@ -63,6 +66,7 @@ export function insightOptsFrom(c: ChartSpec | undefined): InsightOpts {
     periods: c.periods !== undefined ? String(c.periods) : "",
     template: c.template ?? "",
     lowerIsBetter: Boolean(c.lowerIsBetter),
+    measureIs: c.measureIs ?? "auto",
     valueColor: c.valueColor ?? "",
     hideIcon: Boolean(c.hideIcon),
   };
@@ -112,6 +116,8 @@ export function insightSpec(
     label: label.trim() || undefined,
     template: o.template.trim() || undefined,
     lowerIsBetter: o.lowerIsBetter || undefined,
+    measureIs:
+      (o.kind === "top" || o.kind === "bottom") && o.measureIs !== "auto" ? o.measureIs : undefined,
     valueColor: /^#[0-9a-f]{6}$/i.test(o.valueColor) ? o.valueColor : undefined,
     hideIcon: o.hideIcon || undefined,
   };

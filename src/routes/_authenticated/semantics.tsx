@@ -3919,10 +3919,9 @@ function FieldColumnHeader({ cols }: { cols: Array<{ label: string; className: s
 }
 
 /**
- * The two field classes wear the colors BI users already know — QuickSight
- * and ThoughtSpot both paint dimensions blue and measures green, so the
- * palette carries meaning here instead of decoration. TONES must stay in
- * sync with the picker chips in the Query tab.
+ * The two field classes wear the colors BI users already know — dimensions
+ * blue and measures green — so the palette carries meaning here instead of
+ * decoration. TONES must stay in sync with the picker chips in the Query tab.
  */
 const FIELD_TONES = {
   sky: {

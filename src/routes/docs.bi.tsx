@@ -339,8 +339,10 @@ function BiPage() {
         Every query is asked to return <strong>long</strong> rows, one per group with each measure
         in its own column. A result too tall to keep is bucketed into coarser groups (weeks or
         months instead of days), never spread across columns: a year of days once came back as 31
-        day columns per month, which no chart can draw. The AI Analyst keeps 50 rows per step, so
-        its calendars cover a few weeks and longer spans are asked by week or month.
+        day columns per month, which no chart can draw. The AI Analyst keeps 50 rows of a step shown
+        as a table and up to 400 of a step drawn as a chart, so a calendar it was asked for covers a
+        year of days. Its checks and findings are worked out from the whole result, up to 5,000
+        rows, and print figures as people read them (474,150.48 rather than 474150.4844).
       </P>
       <P>
         What a model returns is read before anything is drawn. Its word for a visual is mapped onto
@@ -527,8 +529,10 @@ function BiPage() {
         The sentences are about the visual&apos;s own measure and category when it has them — a
         points chart gets sentences about points. A rank, a round, a sequence number or an id is
         never summed as if it were an amount, and a column of pictures, links or colours never names
-        a row. A query that returns a running total still gets a sum of that total, since nothing
-        marks a column as cumulative: suggest from the per-period figures instead.
+        a row. A running total named as one (running, cumulative, ytd) is ranked by each item&apos;s
+        latest value, and an average or rate by its average. For a running total whose name does not
+        say so, such as <C>total_points</C>, set <strong>The measure is</strong> in the
+        narrative&apos;s options.
       </P>
 
       <H3 id="fields-examples">Worked examples</H3>
@@ -592,7 +596,9 @@ LIMIT 10`}</Code>
         <strong>Margin %</strong>, then set the value format to <strong>Percent</strong>, which adds
         the % sign — the expression already multiplies by 100. Each industry&apos;s margin is its
         total profit over its total sales, not an average of each order&apos;s margin, which would
-        weigh a $5 order the same as a $5,000 one.
+        weigh a $5 order the same as a $5,000 one. A margin returned as a ratio (0.14) prints as 14%
+        under Percent too: the format reads the scale from the values, and the picker beside it says
+        which (<em>0.14 → 14%</em> or <em>14 → 14%</em>) when the values cannot.
       </P>
       <Code lang="sql">{`SELECT "Industry" AS "industry",
        (100 * SUM("Profit") / SUM("Sales")) AS "margin"
@@ -991,6 +997,12 @@ GROUP BY region`}</Code>
         than 25.2M, set <strong>Value format</strong> to <em>Whole — 25,207,936</em>. A narrative
         can also set its figures in a colour of your choice (good and bad news keep their green and
         red) and leave out the lightbulb, when the sentence is part of a design.
+      </P>
+      <P>
+        <strong>Top</strong> and <strong>bottom</strong> add their measure up per item. A running
+        total is ranked by each item&apos;s latest value, and an average or rate by its average,
+        with no share of a total. Both are read from the column&apos;s name;{" "}
+        <strong>The measure is</strong> says which when the name does not.
       </P>
       <Callout kind="why" title="Narrative or AI insight?">
         <strong>AI insight</strong> writes a paragraph about one snapshot, the way a person would;

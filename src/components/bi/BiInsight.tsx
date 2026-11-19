@@ -57,6 +57,7 @@ export function BiInsightBody({
           template: chart.template,
           lowerIsBetter: chart.lowerIsBetter,
           dateGrain: chart.dateGrain,
+          measureIs: chart.measureIs,
         },
         rows,
         {

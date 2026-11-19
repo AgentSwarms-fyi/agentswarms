@@ -112,6 +112,10 @@ export async function renderVisualMarkup(
   opts: { fetchPicture?: PictureFetch } = {},
 ): Promise<ServerVisual> {
   try {
+    // A percent format's scale, read from the rows as on screen (R512): the
+    // KPI and table below are drawn without BiChartRender, which reads it.
+    const { resolvePercentOf } = await import("@/lib/biChartFields");
+    chart = resolvePercentOf(chart, rows);
     const { isPrintedVisual } = await import("@/components/bi/biPrintVisuals");
     if (isPrintedVisual(chart.type))
       return { kind: "markup", html: await printedMarkup(chart, rows, size, opts) };

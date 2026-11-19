@@ -524,6 +524,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "sum(amount)",
       "table",
       "text",
+      "total_points",
       "treemap",
       "trend",
       "value",

@@ -235,6 +235,8 @@ export function BiBuilderPane({
   const [numFormat, setNumFormat] = useState<"auto" | "currency" | "percent">("auto");
   const [currencyCode, setCurrencyCode] = useState("USD");
   const [decimalsSel, setDecimalsSel] = useState("auto");
+  // What a Percent format's numbers are (R512): read from the rows, or stated.
+  const [percentOfSel, setPercentOfSel] = useState<"auto" | "ratio" | "percent">("auto");
   // Table widgets: per-column display formats keyed by column name.
   const [colFormats, setColFormats] = useState<Record<string, BiColumnFormat>>({});
   // KPI period comparison and the narrative widget (R498).
@@ -405,6 +407,7 @@ export function BiBuilderPane({
       setNumFormat(c.format ?? "auto");
       setCurrencyCode(c.currency ?? "USD");
       setDecimalsSel(c.decimals !== undefined ? String(c.decimals) : "auto");
+      setPercentOfSel(c.percentOf ?? "auto");
       setColFormats(c.columnFormats ?? {});
       setKpiOpts(kpiOptsFrom(c));
       setInsOpts(insightOptsFrom(c));
@@ -465,6 +468,7 @@ export function BiBuilderPane({
       setNumFormat("auto");
       setCurrencyCode("USD");
       setDecimalsSel("auto");
+      setPercentOfSel("auto");
       setColFormats({});
       setKpiOpts(KPI_OPTS_DEFAULT);
       setInsOpts(INSIGHT_OPTS_DEFAULT);
@@ -1082,6 +1086,7 @@ export function BiBuilderPane({
     if (decimalsSel !== "auto" && Number.isFinite(Number(decimalsSel))) {
       analytics.decimals = Number(decimalsSel);
     }
+    if (format === "percent" && percentOfSel !== "auto") analytics.percentOf = percentOfSel;
     if ((spec.type === "table" || spec.type === "matrix") && Object.keys(colFormats).length > 0) {
       analytics.columnFormats = colFormats;
     }
@@ -1122,6 +1127,7 @@ export function BiBuilderPane({
     numFormat,
     currencyCode,
     decimalsSel,
+    percentOfSel,
     colFormats,
     kpiOpts,
     insOpts,
@@ -1544,6 +1550,8 @@ export function BiBuilderPane({
       setCurrencyCode={setCurrencyCode}
       decimalsSel={decimalsSel}
       setDecimalsSel={setDecimalsSel}
+      percentOf={percentOfSel}
+      setPercentOf={setPercentOfSel}
     />
   );
 

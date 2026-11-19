@@ -285,6 +285,33 @@ export function BiInsightOptions({
             />
           </div>
         )}
+        {(opts.kind === "top" || opts.kind === "bottom") && (
+          <div className="space-y-1">
+            <Label className={sectionLabel}>The measure is</Label>
+            <Select
+              value={opts.measureIs}
+              onValueChange={(v) => setOpts({ ...opts, measureIs: v as InsightOpts["measureIs"] })}
+            >
+              <SelectTrigger className="h-8 text-xs" aria-label="What the measure is">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto" className="text-xs">
+                  Read from its name
+                </SelectItem>
+                <SelectItem value="sum" className="text-xs">
+                  Added up
+                </SelectItem>
+                <SelectItem value="running" className="text-xs">
+                  A running total: each one's latest
+                </SelectItem>
+                <SelectItem value="average" className="text-xs">
+                  An average or rate: averaged
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         {opts.kind === "growth" && (
           <div className="space-y-1">
             <Label className={sectionLabel}>Over periods</Label>

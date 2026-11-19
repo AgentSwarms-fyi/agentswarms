@@ -1,4 +1,4 @@
-// AI Analyst — dedicated Spotter-style conversational analysis.
+// AI Analyst — dedicated conversational analysis.
 //
 // Create ANALYSTS: each is a pinned (reasoning model, data scope) pair —
 // nothing else to configure. Ask one a question and it plans, queries,
@@ -74,6 +74,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
 import { saveThread, threadById, threadsOf } from "@/lib/analystThreads";
 import { clickable } from "@/lib/clickable";
+import { readableCell } from "@/lib/readableNumbers";
 import {
   analystModelsAllowed,
   analystNameOnEdit,
@@ -2131,7 +2132,7 @@ function TurnView({
                         <tr key={ri} className="border-t border-border/40">
                           {s.columns!.map((c) => (
                             <td key={c} className="px-2 py-1 font-mono text-[10px]">
-                              {row[c] === null || row[c] === undefined ? "null" : String(row[c])}
+                              {readableCell(row[c])}
                             </td>
                           ))}
                         </tr>

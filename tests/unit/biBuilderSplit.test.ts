@@ -99,7 +99,9 @@ describe("the extracted regions are gone from the parent", () => {
     // wiring) with its UI in BiFieldsBuilder, BiBuildPreview, BiExtraMeasures,
     // BiSuggestedNarratives and BiValueFormat. 2,078 after; re-baselined to the
     // same ~135-line headroom.
-    expect(parent.split("\n").length).toBeLessThan(2215);
+    // R512's percent scale added its state, load, reset and save (8 lines; its
+    // picker is in BiValueFormat). 2,216 after; re-baselined the same way.
+    expect(parent.split("\n").length).toBeLessThan(2350);
   });
 });
 

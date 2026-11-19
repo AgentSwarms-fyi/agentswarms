@@ -371,6 +371,27 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **The AI Analyst worked out its findings from 50 rows of a larger result**
+  (fixed in R512). In the browser, steps over local datasets ran through the
+  workbench's 50-row runner, so a year of 323 days was summed as its first 50
+  ("total: 70869.17") and its calendar drew January to March. The check and
+  the findings now read the whole result, up to 5,000 rows; a step drawn as a
+  chart keeps up to 400 rows, so a calendar covers the year; and a step whose
+  visual the question named is no longer reshaped into fewer rows. A step
+  re-run by hand reports its query's own row count.
+- **Analyst findings printed raw decimals** (fixed in R512): "474150.4844" in
+  the findings and "474150.48440000083" in a step's table. They now read
+  474,150.48; small values keep four decimals, and years and ids are left as
+  they are. The analyst's PDF tables match.
+- **A Percent format printed a ratio as "0.14%"** (fixed in R512). A chart,
+  table, KPI or PDF now reads the scale from its values, so a margin of 0.14
+  prints 14%, and an Excel export gives the column Excel's own percent. The
+  value-format picker can state the scale (0.14 → 14%, or 14 → 14%).
+- **A top or bottom narrative added up a running total** (fixed in R512), so
+  the Grand Prix points race ranked drivers by twenty rounds of running points
+  summed. A running total is now ranked by each item's latest value and an
+  average or rate by its average, read from the column's name; the new
+  **The measure is** option says which when the name does not.
 - **A dashboard's scheduled refresh skipped every page after the first**
   (R510). It read the copy of page 1 that a dashboard keeps for older
   versions, so widgets on later pages were never refreshed and their alerts

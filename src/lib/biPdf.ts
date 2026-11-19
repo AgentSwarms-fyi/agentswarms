@@ -11,6 +11,7 @@ import { PDFDocument, type PDFFont, type PDFPage, StandardFonts, rgb } from "pdf
 import { AGENTSWARMS_LOGO_BASE64 } from "@/assets/agentswarms-logo-base64";
 import type { AnalystTurn } from "@/lib/aiAnalyst";
 import { describeVerification, verificationStatus } from "@/lib/analystVerification";
+import { readableCell } from "@/lib/readableNumbers";
 
 // Loaded on demand: rasterising is a browser-only concern, and keeping it
 // out of module scope lets Node tests import the vector PDF builder below.
@@ -472,7 +473,8 @@ export async function buildAnalysisPdfBytes(args: {
     const size = 7.5;
     const rowH = 14;
     const maxRows = Math.min(rows.length, 10);
-    const cell = (v: unknown) => (v === null || v === undefined ? "null" : String(v));
+    // Decimals as a reader reads them (R512): "474150.48440000083" printed raw.
+    const cell = readableCell;
     // A portrait page cannot hold an unbounded number of columns. Squeezing
     // them all in produces a row of ellipses that says nothing — measured on
     // a live 14-column segment breakdown, which rendered as

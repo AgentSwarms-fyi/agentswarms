@@ -21,7 +21,10 @@
 // column can possibly be meant, and otherwise say plainly that the measure is
 // missing and show the rows instead of an empty frame.
 import type { ChartSpec } from "@/lib/biAgent";
+import { readsAsRatios } from "@/lib/biColumnKinds";
 import { dateLikeColumns } from "@/lib/biPeriods";
+
+export { readsAsRatios };
 
 /**
  * Which declared fields have to name a NUMBER, per chart type.
@@ -140,7 +143,7 @@ const ALWAYS_OPTIONAL = new Set([
 ]);
 
 /** Keys that belong to every spec and survive a fall back to a table. */
-const SHARED_KEYS = ["format", "currency", "decimals", "columnFormats"] as const;
+const SHARED_KEYS = ["format", "percentOf", "currency", "decimals", "columnFormats"] as const;
 
 // A field the type REQUIRES is never optional: a calendar without its date,
 // or a pareto without its category, has nothing to draw.
@@ -180,6 +183,38 @@ export function numericColumns(columns: string[], rows: Record<string, unknown>[
     if (onlyNumbers && numbers > 0) out.add(c);
   }
   return out;
+}
+
+/**
+ * The chart with its percent formats' scale read from the rows (R512): the
+ * chart's own, from the columns its measure fields name, and each column
+ * format's, from its column. A scale the spec states is kept. A gauge or KPI
+ * whose target is a percentage (15) is not ratios, and its own reading
+ * (gaugeReading) puts the two on one scale.
+ */
+export function resolvePercentOf(chart: ChartSpec, rows: Record<string, unknown>[]): ChartSpec {
+  let next = chart;
+  const spec = chart as unknown as Record<string, unknown>;
+  if (chart.format === "percent" && !chart.percentOf) {
+    const columns = [
+      ...(MEASURE_FIELDS[chart.type] ?? []).map((k) => spec[k]),
+      ...(Array.isArray(spec.extraMeasures) ? (spec.extraMeasures as unknown[]) : []),
+    ].filter((c): c is string => typeof c === "string" && c !== "");
+    if (columns.length && readsAsRatios(rows, columns)) next = { ...next, percentOf: "ratio" };
+  }
+  const formats = chart.columnFormats;
+  if (formats) {
+    let changed = false;
+    const out = { ...formats };
+    for (const [column, f] of Object.entries(formats)) {
+      if (f?.format === "percent" && !f.percentOf && readsAsRatios(rows, [column])) {
+        out[column] = { ...f, percentOf: "ratio" };
+        changed = true;
+      }
+    }
+    if (changed) next = { ...next, columnFormats: out };
+  }
+  return next;
 }
 
 /**

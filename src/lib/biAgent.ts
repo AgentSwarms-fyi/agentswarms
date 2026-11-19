@@ -176,9 +176,14 @@ export type BiAnnotation = { x: string | number; text: string };
 /** The pictures a pictogram counts in (R502). */
 export type BiPictogramIcon = "person" | "bike" | "car" | "house" | "coin" | "box";
 
+/** What a percent format's numbers are: 0.14 ("ratio") or 14 ("percent") for 14%. */
+export type BiPercentOf = "ratio" | "percent";
+
 /** Per-column display format for table widgets. */
 export type BiColumnFormat = {
   format?: BiNumberFormat | "number";
+  /** See ChartSpec.percentOf; unset is read from the column's values (R512). */
+  percentOf?: BiPercentOf;
   currency?: string;
   decimals?: number;
   /**
@@ -199,6 +204,13 @@ export type BiColumnFormat = {
   suffix?: string;
 };
 
+/**
+ * What a ranked narrative's measure is (R512): added up per item ("sum"), a
+ * running total whose latest value is each item's ("running"), or an average
+ * or rate, averaged ("average"). Unset is read from the column's name.
+ */
+export type BiMeasureIs = "sum" | "running" | "average";
+
 /** What a KPI's latest period is compared with (R498). */
 export type BiKpiCompare = "previous" | "year" | "none";
 
@@ -212,6 +224,12 @@ export type BiInsightKind =
 
 export type ChartSpec = {
   format?: BiNumberFormat;
+  /**
+   * What a "percent" format's numbers are (R512): "ratio" reads 0.14 as 14%,
+   * "percent" reads 14 as 14%. Unset is read from the measures: all between
+   * -1 and 1, with fractions among them, are ratios.
+   */
+  percentOf?: BiPercentOf;
   /** ISO 4217 code used when format is "currency" (default USD). */
   currency?: string;
   /** Fixed fraction digits (0-4); undefined = auto/compact. */
@@ -392,6 +410,8 @@ export type ChartSpec = {
         /** The author's own sentence, with {{tokens}} filled from the data. */
         template?: string;
         lowerIsBetter?: boolean;
+        /** top / bottom: what the measure is (R512); unset reads the column's name. */
+        measureIs?: BiMeasureIs;
         /** The colour the sentence's figures are set in, #rrggbb (R501). */
         valueColor?: string;
         /** Leave out the lightbulb, for a sentence that is part of a design. */

@@ -6,6 +6,7 @@
 import type { Cell, SheetData } from "write-excel-file/browser";
 
 import type { BiColumnFormat } from "@/lib/biAgent";
+import { readsAsRatios } from "@/lib/biColumnKinds";
 
 /**
  * A value a spreadsheet would execute rather than display.
@@ -120,6 +121,8 @@ function excelNumberFormat(fmt?: BiColumnFormat): string | undefined {
     const q = sym ? `"${sym}"` : "";
     return `${q}#,##0${frac(".00")}`;
   }
+  // A ratio (0.14) takes Excel's own percent, which shows it ×100 (R512).
+  if (fmt.format === "percent" && fmt.percentOf === "ratio") return `0${frac(".0")}%`;
   if (fmt.format === "percent") return `#,##0${frac(".0")}"%"`;
   if (fmt.format === "number") return `#,##0${frac("")}`;
   return undefined;
@@ -155,8 +158,16 @@ export async function downloadXlsx(
     value: c,
     fontWeight: "bold",
   }));
+  // Percent columns read as ratios or percentages from their values, as on
+  // screen (R512).
+  const formats = columns.map((c) => {
+    const f = opts?.columnFormats?.[c];
+    return f?.format === "percent" && !f.percentOf && readsAsRatios(rows, [c])
+      ? { ...f, percentOf: "ratio" as const }
+      : f;
+  });
   const body: Cell[][] = rows.map((r) =>
-    columns.map((c) => toXlsxCell(r[c], excelNumberFormat(opts?.columnFormats?.[c]))),
+    columns.map((c, i) => toXlsxCell(r[c], excelNumberFormat(formats[i]))),
   );
   const data: SheetData = [header, ...body];
   await writeXlsxFile(data, { sheet: safeSheetName(opts?.sheet) }).toFile(

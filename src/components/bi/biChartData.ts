@@ -129,8 +129,10 @@ export function fmtBiNumber(v: unknown): string {
 /**
  * fmtBiNumber plus the chart's value format:
  *   currency → locale-aware with the widget's currency code ("€1.2M", "¥5万"…)
- *   percent  → "12.3%" (the value is treated as already being in percent
- *              units — 12.3 formats as 12.3%, not 0.12%)
+ *   percent  → "12.3%": 12.3 formats as 12.3%, and with percentOf "ratio"
+ *              (R512) 0.123 does too. BiChartRender resolves percentOf from
+ *              the rows when a chart does not say, so a margin returned as a
+ *              ratio no longer prints "0.12%".
  * `decimals` pins the fraction digits; otherwise large values use compact
  * notation and small ones show up to two trimmed decimals.
  */
@@ -153,10 +155,11 @@ export function fmtBiValue(v: unknown, opts?: BiNumberFormat | BiFormatOptions):
     });
   }
   if (o.format === "percent") {
+    const p = o.percentOf === "ratio" ? n * 100 : n;
     const body =
       decimals === undefined
-        ? fmtBiNumber(n)
-        : intlNumber(n, { maximumFractionDigits: decimals, minimumFractionDigits: decimals });
+        ? fmtBiNumber(p)
+        : intlNumber(p, { maximumFractionDigits: decimals, minimumFractionDigits: decimals });
     return `${body}%`;
   }
   if (decimals !== undefined) {
@@ -333,6 +336,8 @@ const MAX_SERIES = 12;
  * so call sites can pass the chart itself. */
 export type BiFormatOptions = {
   format?: BiNumberFormat | "number";
+  /** "ratio": a percent format reads 0.14 as 14% (R512). */
+  percentOf?: "ratio" | "percent";
   /** ISO 4217 code for currency (default USD). */
   currency?: string;
   /** Fixed fraction digits (0-4); undefined = auto/compact. */
