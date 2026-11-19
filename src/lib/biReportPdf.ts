@@ -16,7 +16,9 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf
 import { encLine, wrapText } from "@/lib/biPdf";
 import { barcodeShapes } from "@/lib/biBarcode";
 import { drawServerVisual, type RenderVisual } from "@/lib/biReportCharts";
+import { svgPicture } from "@/lib/biReportImages";
 import type { BiParamValues } from "@/lib/biParams";
+import { drawSvg } from "@/lib/svgPdf";
 import {
   BAND_H,
   BLOCK_GAP,
@@ -65,7 +67,8 @@ export type ChartBitmap = { dataUrl: string; wPx: number; hPx: number };
  * A picture block's bytes, fetched by the caller (R508): a data URL decodes
  * anywhere, an https address only where the browser may fetch it.
  */
-export type ReportImageBytes = { bytes: Uint8Array; type: "png" | "jpeg" };
+/** A picture for the PDF: PNG and JPEG embedded, SVG (its text) drawn as vectors. */
+export type ReportImageBytes = { bytes: Uint8Array; type: "png" | "jpeg" | "svg" };
 
 /**
  * Lay the report out and return the PDF bytes.
@@ -386,17 +389,36 @@ export async function buildReportPdfBytes(args: {
           y -= h + BLOCK_GAP;
           break;
         }
+        // An SVG is drawn as vectors; PNG and JPEG are embedded.
+        const vector = img.type === "svg" ? svgPicture(img.bytes) : null;
         const embedded =
-          img.type === "png" ? await pdf.embedPng(img.bytes) : await pdf.embedJpg(img.bytes);
-        const w = Math.min(geo.contentW, (embedded.width / embedded.height) * h);
-        const ih = (w / embedded.width) * embedded.height;
+          img.type === "svg"
+            ? null
+            : img.type === "png"
+              ? await pdf.embedPng(img.bytes)
+              : await pdf.embedJpg(img.bytes);
+        const nat = vector ?? (embedded ? { w: embedded.width, h: embedded.height } : null);
+        if (!nat) {
+          draw(`[picture unavailable${block.alt ? `: ${block.alt}` : ""}]`, {
+            size: SIZE.body,
+            color: MUTED,
+          });
+          y -= h + BLOCK_GAP;
+          break;
+        }
+        const w = Math.min(geo.contentW, (nat.w / nat.h) * h);
+        const ih = (w / nat.w) * nat.h;
         const x =
           block.align === "center"
             ? margin + (geo.contentW - w) / 2
             : block.align === "right"
               ? margin + geo.contentW - w
               : margin;
-        page.drawImage(embedded, { x, y: y - ih, width: w, height: ih });
+        if (vector) {
+          drawSvg({ page, regular, bold, encode: printable }, vector.svg, { x, top: y, w, h: ih });
+        } else {
+          page.drawImage(embedded!, { x, y: y - ih, width: w, height: ih });
+        }
         y -= h + BLOCK_GAP;
         break;
       }

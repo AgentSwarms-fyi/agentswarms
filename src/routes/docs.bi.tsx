@@ -2165,7 +2165,7 @@ ORDER BY dayofweek(ride_date)`}</Code>
         </li>
         <li>
           <strong>Scheduled refresh</strong> — rebuild imported data on a cadence so the dashboard
-          isn't stale.
+          isn't stale. It refreshes the widgets on every page, and checks their alerts.
         </li>
         <li>
           <strong>Incremental refresh</strong> — re-query only a recent window instead of the whole
@@ -2173,9 +2173,48 @@ ORDER BY dayofweek(ride_date)`}</Code>
           along with the assumption it commits you to.
         </li>
         <li>
-          <strong>Scheduled reports</strong> — email a digest of the dashboard on a schedule. To
-          send a paginated report as a PDF, see{" "}
+          <strong>Scheduled reports</strong> — email yourself a digest of the dashboard after each
+          scheduled refresh. To send the dashboard itself to other people as a PDF, see{" "}
+          <DocLink to="/docs/bi#dashboard-schedule">sending a dashboard on a schedule</DocLink>; for
+          a paginated report, see{" "}
           <DocLink to="/docs/bi#report-schedule">sending a report on a schedule</DocLink>.
+        </li>
+      </UL>
+      <H3 id="dashboard-schedule">Sending a dashboard on a schedule</H3>
+      <P>
+        <strong>Export</strong>, then <strong>Email on a schedule</strong>, sends the saved
+        dashboard as a PDF attachment to the people you name, with the same timing, recipient rules,
+        Preview PDF, Send to me, Send now and delivery log as{" "}
+        <DocLink to="/docs/bi#report-schedule">a report&apos;s schedule</DocLink>. Only the
+        dashboard&apos;s owner sees it.
+      </P>
+      <UL>
+        <li>
+          <strong>Pages.</strong> Send every page, or tick the ones to send. Each page prints on A4
+          landscape sheets with the cards where they are on the screen. A sheet breaks only between
+          cards, never through one, and a page longer than a sheet goes on as many sheets as it
+          needs. Rather than leave a sheet nearly blank, cards a little taller than a sheet are
+          shrunk onto it, by at most a fifth of their height; the charts are drawn again at that
+          size, not squashed.
+        </li>
+        <li>
+          <strong>Fresh numbers.</strong> Every widget&apos;s query runs again as you, at the
+          parameter values the schedule names. That run is the copy&apos;s alone: it does not change
+          what the dashboard shows anyone else.
+        </li>
+        <li>
+          <strong>What prints.</strong> Charts, KPIs and tables are drawn as on the card, text
+          widgets as their text, and pictures as themselves (an SVG picture as sharp lines and
+          text). A table shows the rows that fit, then how many more there are, then its total. A
+          Controls visual prints the values the copy ran with, and a zoom slider is left off: the
+          chart shows its whole range. A widget whose query failed says so in its card, and the
+          delivery names it.
+        </li>
+        <li>
+          <strong>White paper.</strong> The PDF is printed on white, whatever the dashboard&apos;s
+          background. A colour you chose for a dark canvas that would not read on white, such as
+          white text, prints in the standard ink; colours that do read, such as a red heading, are
+          kept. A styled text widget keeps its sizes, alignment and line breaks.
         </li>
       </UL>
       <Callout kind="why" title="Aggregate in SQL — complete totals on any table size">
@@ -2308,7 +2347,7 @@ ORDER BY dayofweek(ride_date)`}</Code>
           },
           {
             name: "Picture",
-            body: "A PNG or JPEG you choose (kept in the report, up to about 1 MB) or an https address: a logo, a signature, a stamp. Set its height; the width follows.",
+            body: "A PNG, JPEG or SVG you choose (kept in the report, up to about 1 MB) or an https address: a logo, a signature, a stamp. Set its height; the width follows. An SVG prints as sharp lines and text.",
           },
           {
             name: "Barcode",
@@ -2546,7 +2585,7 @@ ORDER BY dayofweek(ride_date)`}</Code>
         its subdomains, and <C>*</C> any address. The list is checked when a schedule is saved and
         again every time it sends. Sending needs a mail transport (<C>SMTP_HOST</C> or{" "}
         <C>RESEND_API_KEY</C>). A report has at most 10 schedules, each with up to 25 recipients,
-        and a PDF over 10 MB is not sent.
+        and a PDF over 10 MB is not sent. The same holds for a dashboard&apos;s schedules.
       </Callout>
 
       <Callout kind="info" title="Reports are owner-only">

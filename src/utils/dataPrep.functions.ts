@@ -200,12 +200,6 @@ export type DatasetDependents = {
   savedMetrics: number;
 };
 
-/** Word-boundary match so "orders" doesn't match "orders_archive". */
-function mentionsTable(sql: string, table: string): boolean {
-  const esc = table.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(^|[^A-Za-z0-9_])${esc}([^A-Za-z0-9_]|$)`, "i").test(sql);
-}
-
 /**
  * Everything that would break if this dataset were deleted.
  *
@@ -232,7 +226,8 @@ export const datasetDependents = createServerFn({ method: "POST" })
       await Promise.all([
         sb.from("user_prep_flows").select("id, name, config, output_table_id"),
         sb.from("semantic_models").select("id, name, source_table, source_kind"),
-        sb.from("bi_dashboards").select("id, name, widgets"),
+        // `pages` too: the top-level widgets only mirror page 1 (R510).
+        sb.from("bi_dashboards").select("id, name, widgets, pages"),
         sb
           .from("user_saved_metrics")
           .select("id", { head: true, count: "exact" })
@@ -261,14 +256,8 @@ export const datasetDependents = createServerFn({ method: "POST" })
       .filter((m) => m.source_kind === "data_table" && m.source_table === name)
       .map((m) => ({ id: m.id, name: m.name }));
 
-    const dashboardsUsing: { id: string; name: string }[] = [];
-    for (const d of dashboards ?? []) {
-      const widgets = Array.isArray(d.widgets) ? d.widgets : [];
-      const hit = (widgets as { sql?: string; source?: { kind?: string } }[]).some(
-        (w) => typeof w?.sql === "string" && mentionsTable(w.sql, name),
-      );
-      if (hit) dashboardsUsing.push({ id: d.id, name: d.name });
-    }
+    const { dashboardsUsingTable } = await import("@/lib/datasetDependents");
+    const dashboardsUsing = dashboardsUsingTable(dashboards ?? [], name);
 
     return {
       tableName: name,

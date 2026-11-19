@@ -47,6 +47,7 @@ import { AddFromDashboardDialog } from "@/components/bi/AddFromDashboardDialog";
 import { GenerateReportDialog } from "@/components/bi/GenerateReportDialog";
 import { ReportScheduleDialog } from "@/components/bi/ReportScheduleDialog";
 import { ReportPagePreview } from "@/components/bi/ReportPagePreview";
+import { notDrawnTitles } from "@/lib/biReportSchedule";
 import type { BiDataContext } from "@/components/bi/biDataContext";
 import { useAuth } from "@/hooks/use-auth";
 import { useTokenRef } from "@/hooks/use-token-ref";
@@ -931,10 +932,11 @@ function ReportDesigner() {
         open={scheduleOpen}
         onOpenChange={setScheduleOpen}
         token={token}
-        reportId={reportId}
-        reportName={report.name}
+        target={{ kind: "report", id: reportId, name: report.name }}
         params={params}
-        blocks={report.blocks}
+        notDrawn={notDrawnTitles(
+          report.blocks.flatMap((b) => (b.kind === "chart" ? [b.widget] : [])),
+        )}
         unsaved={unsaved}
       />
       <GenerateReportDialog

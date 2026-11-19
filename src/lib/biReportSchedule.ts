@@ -377,6 +377,38 @@ export function scheduledValues(
   return { values, fellBack };
 }
 
+// ── Dashboards (R510) ───────────────────────────────────────────────────────
+
+/** The named pages that exist, once each, in the dashboard's order. */
+export function cleanPageIds(wanted: string[], existing: string[]): string[] {
+  const want = new Set(wanted);
+  return existing.filter((id) => want.has(id)).slice(0, 50);
+}
+
+/**
+ * The pages a dashboard schedule sends: the ones it names, or every page. A
+ * page deleted since is not there to send, and the delivery says so; when
+ * none of the named pages is left, the whole dashboard goes rather than an
+ * empty PDF.
+ */
+export function pagesToSend<P extends { id: string }>(
+  pages: P[],
+  wanted: string[],
+): { pages: P[]; note: string | null } {
+  if (wanted.length === 0) return { pages, note: null };
+  const kept = pages.filter((p) => wanted.includes(p.id));
+  if (kept.length === 0) {
+    return {
+      pages,
+      note: "The pages this schedule names no longer exist, so every page was sent.",
+    };
+  }
+  return {
+    pages: kept,
+    note: kept.length < wanted.length ? "Some pages this schedule names no longer exist." : null,
+  };
+}
+
 /** "Region: Europe · From: 2025-10-01", for the email and the delivery log. */
 export function valuesSummary(params: BiParamConfig[], values: BiParamValues): string {
   return params
@@ -565,6 +597,8 @@ export const SCHEDULED_DRAW: Partial<Record<string, ScheduledDraw>> = {
   waterfall: "svg",
   heatmap: "table",
   matrix: "table",
+  // A dashboard's data table (R510); a report draws its own table blocks.
+  table: "table",
   calendar: "svg",
   bump: "svg",
   sankey: "svg",
@@ -576,6 +610,21 @@ export const SCHEDULED_DRAW: Partial<Record<string, ScheduledDraw>> = {
 };
 
 /**
+ * The titles of the visuals a scheduled PDF draws in the app only, for the
+ * Schedule dialog to name before anyone schedules. A Controls visual is not
+ * one: a dashboard's PDF prints the values it ran with in its place.
+ */
+export function notDrawnTitles(
+  widgets: Array<{ kind?: string; title?: string; chart?: { type?: string } }>,
+): string[] {
+  return widgets.flatMap((w) =>
+    w.kind === "chart" && w.chart?.type !== "controls" && scheduledDrawProblem(w.chart?.type)
+      ? [w.title || w.chart?.type || "Chart"]
+      : [],
+  );
+}
+
+/**
  * Why a visual is not in a scheduled PDF, or null when it is. Small
  * multiples and pictograms are many pictures sized by the card's CSS; the
  * point map is street tiles fetched by the viewer's browser; a bar race is
@@ -584,4 +633,12 @@ export const SCHEDULED_DRAW: Partial<Record<string, ScheduledDraw>> = {
 export function scheduledDrawProblem(type: string | undefined): string | null {
   if (!type || type === "table") return null;
   return SCHEDULED_DRAW[type] ? null : "drawn in the app only";
+}
+
+/** Where the owner fixes a schedule: its dashboard (R510), else its report. */
+export function scheduleTargetLink(s: {
+  report_id: string | null;
+  dashboard_id?: string | null;
+}): string {
+  return s.dashboard_id ? `/bi/${s.dashboard_id}` : `/bi/report/${s.report_id}`;
 }

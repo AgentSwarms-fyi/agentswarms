@@ -34,12 +34,13 @@ import { syncForecastVersions } from "@/utils/ml/forecast.server";
 import { aggregationPlan, isMeasureAgg, renderAggregateClauses } from "@/lib/biAggregate";
 import { buildDirectQuerySql } from "@/lib/biDirectQuery";
 import {
+  dashboardWidgetDoc,
   incrementalCutoffIso,
   mergeIncrementalRows,
-  mergeWidgetResults,
   parseFilters,
-  stripWidgetData,
+  refreshedDocument,
   widgetRowCap,
+  type WidgetResultRow,
 } from "@/lib/biDashboards";
 import { defaultParamValues, parseParams, substituteParams } from "@/lib/biParams";
 import { fillAtDefaults, withTokensFilled } from "@/lib/biInteract";
@@ -93,7 +94,7 @@ function loadAlasql(): any {
   return alasqlModule;
 }
 
-type WidgetJson = {
+export type WidgetJson = {
   id?: string;
   kind?: string;
   title?: string;
@@ -472,61 +473,40 @@ function applyResult(
 
 // ── Dashboard refresh ────────────────────────────────────────────────────
 
-export async function refreshDashboardServer(dashboardId: string): Promise<{
+/**
+ * Re-run every query-backed widget as the dashboard's owner, in place: a
+ * widget that ran gets its fresh rows, one that failed keeps what it had and
+ * is named in the returned list.
+ *
+ * One runner for the scheduled refresh and for a dashboard sent on a schedule
+ * (R510), so a PDF in someone's inbox comes from the same queries the
+ * dashboard runs. A refresh runs at the parameters' defaults and keeps the
+ * rows outside an incremental window; a delivery runs at the schedule's
+ * values, in full, and stores nothing.
+ */
+export async function runDashboardWidgets(args: {
   userId: string;
-  name: string;
   widgets: WidgetJson[];
-  /** The same widgets with {{name}} titles filled at the defaults (R503), for messages. */
-  shown: WidgetJson[];
-  failures: string[];
-  /** Human-readable "what changed vs the previous snapshots" lines. */
-  changes: string[];
-}> {
-  // `updated_at` is read as an optimistic-concurrency token: the editor
-  // autosaves the whole widgets array from browser state, so without a guard a
-  // refresh landing mid-edit would silently overwrite the user's work. A
-  // BEFORE UPDATE trigger maintains this column, so it changes on every save.
-  const { data: dash, error } = await supabaseAdmin
-    .from("bi_dashboards")
-    .select("id, user_id, name, widgets, filters, updated_at")
-    .eq("id", dashboardId)
-    .single();
-  if (error || !dash) throw new Error(error?.message ?? "Dashboard not found");
-  const readUpdatedAt = dash.updated_at;
-  // A refresh is a decision: the numbers it lands are what people will later
-  // ask "where did this come from?" about. Records which lakehouse snapshot was
-  // current, which is the one fact that cannot be reconstructed afterwards.
-  // Widget-level stamping follows once semantic queries write audit rows;
-  // until then the refresh's own decision row (and its snapshot) is the record.
-  beginDecision({ userId: dash.user_id, kind: "dashboard_refresh", rootRef: dash.id });
-
+  /** The dashboard's `filters` column: its filters and its parameters. */
+  filters: Json;
+  /** Parameter values by name; unset = every parameter at its default. */
+  values?: Record<string, string>;
+  incremental: boolean;
+  /** Told which widget failed and why, for a caller that shows it in place. */
+  onFailure?: (widget: WidgetJson, message: string) => void;
+}): Promise<string[]> {
+  const { userId, widgets } = args;
   // Columns aggregation must not collapse away: every dashboard filter narrows
   // widgets client-side by column name, and filterWidgetRows SKIPS a column it
   // cannot find — so grouping one away would silently stop that filter from
   // applying rather than raise anything.
-  const preserve = parseFilters(dash.filters).map((f) => f.column);
-  // Parameters (R501) run at their defaults: the snapshot is what a viewer
-  // sees before picking anything, and what the controls say on open.
-  const params = parseParams(dash.filters);
-  const paramDefaults = defaultParamValues(params);
+  const preserve = parseFilters(args.filters).map((f) => f.column);
+  // Parameters (R501): a refresh runs at their defaults, because the snapshot
+  // is what a viewer sees before picking anything.
+  const params = parseParams(args.filters);
+  const values = args.values ?? defaultParamValues(params);
   const withParams = <T extends { sql?: string }>(w: T): T =>
-    w.sql && params.length ? { ...w, sql: substituteParams(w.sql, params, paramDefaults) } : w;
-
-  const docWidgetsRaw = (Array.isArray(dash.widgets) ? dash.widgets : []) as WidgetJson[];
-  // Hydrate the prior snapshots from the results store: the document's own
-  // rows are stripped after the split, so without this (a) the "what changed"
-  // diff below would compare everything against empty, firing alerts on every
-  // tick, and (b) incremental refresh would have no prior rows to keep.
-  let widgets = docWidgetsRaw;
-  try {
-    const stored = await fetchWidgetResultsAdmin(dashboardId);
-    if (stored.length > 0) widgets = mergeWidgetResults(docWidgetsRaw, stored) as WidgetJson[];
-  } catch {
-    /* full refresh against whatever the document carries */
-  }
-  // Shallow copies keep the pre-refresh row arrays (the loop below REASSIGNS
-  // w.rows, never mutates it), so we can diff snapshots afterwards.
-  const before = widgets.map((w) => ({ ...w }));
+    w.sql && params.length ? { ...w, sql: substituteParams(w.sql, params, values) } : w;
   const failures: string[] = [];
 
   for (const w of widgets) {
@@ -537,7 +517,8 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
       // Incremental only applies to SQL-backed widgets: a semantic widget
       // re-runs its governed metric query in full, so a metric-definition
       // change is always reflected immediately.
-      const inc = w.source?.kind === "semantic" ? undefined : incrementalWindow(w);
+      const inc =
+        !args.incremental || w.source?.kind === "semantic" ? undefined : incrementalWindow(w);
       if (w.source?.kind === "semantic") {
         // Re-run the GOVERNED metric query so the widget reflects the CURRENT
         // metric definition (not a frozen SQL snapshot). Dynamic import breaks a
@@ -545,12 +526,12 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
         const { runSemanticQuery } = await import("@/utils/semantic/query.server");
         const { resolveGrantedResourceIds } = await import("@/utils/iam.server");
         const grantedModelIds = [
-          ...(await resolveGrantedResourceIds(supabaseAdmin, dash.user_id, "semantic_model")),
+          ...(await resolveGrantedResourceIds(supabaseAdmin, userId, "semantic_model")),
         ];
         const r = await runSemanticQuery({
           sb: supabaseAdmin,
-          userId: dash.user_id,
-          scopeUserId: dash.user_id,
+          userId,
+          scopeUserId: userId,
           grantedModelIds,
           query: {
             model: w.source.model ?? "",
@@ -577,7 +558,7 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
         const conn = await loadWarehouseConnectionForUser(
           supabaseAdmin,
           { connectionId: w.source.connection_id },
-          dash.user_id,
+          userId,
         );
         const sql = widgetQuerySql(
           withParams(w),
@@ -585,9 +566,7 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
           conn.config.provider as SqlDialect,
           inc,
         );
-        const res = await executeWarehouseQuery(conn.config, sql, WIDGET_ROW_CAP, {
-          userId: dash.user_id,
-        });
+        const res = await executeWarehouseQuery(conn.config, sql, WIDGET_ROW_CAP, { userId });
         result = { columns: res.columns.map((c) => c.name), rows: res.rows };
       } else {
         // The dialect MUST match the engine that will run it. Pushdown and
@@ -597,15 +576,73 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
         // moment LOCAL_ENGINE=duckdb was set.
         const localDialect = await localEngineName();
         result = await runLocalSqlForUser(
-          dash.user_id,
+          userId,
           widgetQuerySql(withParams(w), preserve, localDialect, inc),
         );
       }
       applyResult(w, result, inc);
     } catch (e) {
       failures.push(`"${w.title ?? w.id}": ${(e as Error).message}`);
+      args.onFailure?.(w, (e as Error).message);
     }
   }
+  return failures;
+}
+
+export async function refreshDashboardServer(dashboardId: string): Promise<{
+  userId: string;
+  name: string;
+  widgets: WidgetJson[];
+  /** The same widgets with {{name}} titles filled at the defaults (R503), for messages. */
+  shown: WidgetJson[];
+  failures: string[];
+  /** Human-readable "what changed vs the previous snapshots" lines. */
+  changes: string[];
+}> {
+  // `updated_at` is read as an optimistic-concurrency token: the editor
+  // autosaves the whole widgets array from browser state, so without a guard a
+  // refresh landing mid-edit would silently overwrite the user's work. A
+  // BEFORE UPDATE trigger maintains this column, so it changes on every save.
+  const { data: dash, error } = await supabaseAdmin
+    .from("bi_dashboards")
+    .select("id, user_id, name, widgets, pages, filters, updated_at")
+    .eq("id", dashboardId)
+    .single();
+  if (error || !dash) throw new Error(error?.message ?? "Dashboard not found");
+  const readUpdatedAt = dash.updated_at;
+  // A refresh is a decision: the numbers it lands are what people will later
+  // ask "where did this come from?" about. Records which lakehouse snapshot was
+  // current, which is the one fact that cannot be reconstructed afterwards.
+  // Widget-level stamping follows once semantic queries write audit rows;
+  // until then the refresh's own decision row (and its snapshot) is the record.
+  beginDecision({ userId: dash.user_id, kind: "dashboard_refresh", rootRef: dash.id });
+
+  // Parameters (R501): titles in the messages are filled at their defaults.
+  const params = parseParams(dash.filters);
+
+  // Every widget on EVERY page (R510), with the prior snapshots from the
+  // results store merged in. The document's own rows are stripped after the
+  // split, so without them (a) the "what changed" diff below would compare
+  // everything against empty, firing alerts on every tick, and (b) incremental
+  // refresh would have no prior rows to keep. Until R510 this read only the
+  // top-level mirror of page 1, so later pages were never refreshed.
+  let stored: WidgetResultRow[] = [];
+  try {
+    stored = await fetchWidgetResultsAdmin(dashboardId);
+  } catch {
+    /* full refresh against whatever the document carries */
+  }
+  const doc = dashboardWidgetDoc<WidgetJson>(dash.pages, dash.widgets, stored);
+  const widgets = doc.all;
+  // Shallow copies keep the pre-refresh row arrays (the runner REASSIGNS
+  // w.rows, never mutates it), so we can diff snapshots afterwards.
+  const before = widgets.map((w) => ({ ...w }));
+  const failures = await runDashboardWidgets({
+    userId: dash.user_id,
+    widgets,
+    filters: dash.filters,
+    incremental: true,
+  });
 
   // Data lands in the results store FIRST and unconditionally — per-widget
   // rows, so a concurrent edit cannot be clobbered by them, and hydration
@@ -622,11 +659,11 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
   // cycle is recoverable; losing a user's edits is not. Only definition
   // metadata (columns, refreshed_at, truncated) is written — the row snapshots
   // live in bi_widget_results, which keeps this document write small and the
-  // conflict window narrow.
-  const docWidgets = stripWidgetData(widgets);
+  // conflict window narrow. `pages` and its page-1 mirror are written
+  // together (see bi-dashboard pages invariant).
   const { data: written, error: upErr } = await supabaseAdmin
     .from("bi_dashboards")
-    .update({ widgets: docWidgets as never, updated_at: new Date().toISOString() })
+    .update({ ...refreshedDocument(doc), updated_at: new Date().toISOString() } as never)
     .eq("id", dashboardId)
     .eq("updated_at", readUpdatedAt)
     .select("id");

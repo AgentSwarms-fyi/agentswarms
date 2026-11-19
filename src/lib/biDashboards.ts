@@ -17,6 +17,13 @@ import { publicConfig } from "@/lib/publicConfig";
 import { isMissingFunction } from "@/lib/sharedDatasetList";
 
 export const GRID_COLS = 12;
+/**
+ * One grid row and the gap between cards, in CSS pixels. The editor's grid
+ * and the PDF of a dashboard sent on a schedule (R510) both read these, so a
+ * card has the same shape in the inbox as on the screen.
+ */
+export const GRID_ROW_PX = 56;
+export const GRID_GAP_PX = 12;
 
 /** Fallback when nothing is configured. */
 export const WIDGET_ROW_CAP_DEFAULT = 500;
@@ -773,6 +780,23 @@ export type BiTextStyle = {
   italic?: boolean;
 };
 
+/**
+ * A styled text widget's paragraph size in CSS px, by its size setting.
+ * Shared by the card (BiTextBlock) and the dashboard's PDF, so a title set
+ * large on screen is as large, for its card, on paper.
+ */
+export const TEXT_BASE_PX: Record<NonNullable<BiTextStyle["size"]>, number> = {
+  sm: 12,
+  md: 14,
+  lg: 17,
+  xl: 21,
+  "2xl": 26,
+  "3xl": 32,
+};
+
+/** A styled text widget's headings, as multiples of its paragraph size. */
+export const TEXT_HEADING_SCALE = { h1: 2, h2: 1.55, h3: 1.25 } as const;
+
 const HEX = /^#[0-9a-f]{6}$/i;
 /** A #rrggbb colour, or undefined for anything else — styles take only these. */
 export function hexColor(v: unknown): string | undefined {
@@ -1312,6 +1336,68 @@ export function mergePagesResults(pages: unknown, results: WidgetResultRow[]): u
   return (pages as Record<string, unknown>[]).map((p) =>
     p && typeof p === "object" ? { ...p, widgets: mergeWidgetResults(p.widgets, results) } : p,
   );
+}
+
+/** A page as the document stores it, its widgets as stored (R510). */
+export type DocPage<W> = Record<string, unknown> & { id?: unknown; name?: unknown; widgets: W[] };
+
+/**
+ * Every widget a dashboard holds, as the document stores them, with the stored
+ * results merged in (R510).
+ *
+ * `pages` is the content; the top-level `widgets` only mirrors page 1 (see
+ * BiDashboardRow). The scheduled refresh read the mirror alone, so a widget
+ * on any later page was never refreshed and its alerts never ran: on a
+ * four-page dashboard, three pages went stale while the schedule said "ok".
+ * Pages are walked here, and the mirror is page 1's own widget objects, so
+ * whatever is done to a widget shows on both. A dashboard from before pages
+ * has only the top level, and that is every widget it has.
+ */
+export function dashboardWidgetDoc<W>(
+  rawPages: unknown,
+  rawWidgets: unknown,
+  results: WidgetResultRow[],
+): { pages: DocPage<W>[] | null; mirror: W[]; all: W[] } {
+  if (Array.isArray(rawPages) && rawPages.length > 0) {
+    const merged = mergePagesResults(rawPages, results) as unknown[];
+    const pages: DocPage<W>[] = merged
+      .filter((p): p is Record<string, unknown> => !!p && typeof p === "object")
+      .map((p) => ({ ...p, widgets: (Array.isArray(p.widgets) ? p.widgets : []) as W[] }));
+    if (pages.length > 0) {
+      return { pages, mirror: pages[0].widgets, all: pages.flatMap((p) => p.widgets) };
+    }
+  }
+  const mirror = (
+    Array.isArray(rawWidgets) ? (mergeWidgetResults(rawWidgets, results) as unknown[]) : []
+  ) as W[];
+  return { pages: null, mirror, all: mirror };
+}
+
+/**
+ * Every widget on every page of a stored dashboard row, as stored (R510).
+ *
+ * For anything that asks "what does this dashboard use": lineage, the impact
+ * check before a dataset or a semantic model is deleted, a metric's usage.
+ * Those read the top-level `widgets`, which only mirrors page 1, so a dataset
+ * used on page 2 alone read as unused — and the impact check is what stands
+ * between a delete and a dashboard that silently breaks.
+ */
+export function allDashboardWidgets(row: { widgets?: unknown; pages?: unknown }): unknown[] {
+  return dashboardWidgetDoc<unknown>(row.pages, row.widgets, []).all;
+}
+
+/**
+ * The document write after a refresh: `pages` and the page-1 mirror together,
+ * without their rows (they live in bi_widget_results). Writing the mirror
+ * alone would leave `pages`, the content, as it was.
+ */
+export function refreshedDocument<W>(doc: { pages: DocPage<W>[] | null; mirror: W[] }): {
+  widgets: unknown;
+  pages?: unknown;
+} {
+  return doc.pages
+    ? { pages: stripPagesData(doc.pages), widgets: stripWidgetData(doc.mirror) }
+    : { widgets: stripWidgetData(doc.mirror) };
 }
 
 // ── Incremental refresh (pure) ──────────────────────────────────────────────

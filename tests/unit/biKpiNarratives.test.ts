@@ -555,7 +555,8 @@ describe("table totals", () => {
     expect(isPreAggregated("avg_order_value")).toBe(true);
     expect(isPreAggregated("sales")).toBe(false);
     const fs = await import("node:fs");
-    const card = fs.readFileSync("src/components/bi/BiWidgetCard.tsx", "utf8");
+    // The card's table moved to its own file in R510, shared with the PDF.
+    const card = fs.readFileSync("src/components/bi/BiDataTable.tsx", "utf8");
     expect(card).toContain(
       'if (isPreAggregated(c) || columnFormats?.[c]?.format === "percent") continue;',
     );

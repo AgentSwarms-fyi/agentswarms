@@ -1,4 +1,5 @@
-// A report's schedules: when it is sent, to whom, and with what values (R509).
+// The schedules of a report (R509) or a dashboard (R510): when it is sent,
+// to whom, with what values and, for a dashboard, which pages.
 //
 // Every change goes through a server function (biReportSchedules.functions):
 // who may receive a report is the install's policy, which only the server
@@ -30,11 +31,11 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import { paramValueLabel, type BiParamConfig } from "@/lib/biParams";
 
 import {
   cadenceLabel,
-  scheduledDrawProblem,
   hourLabel,
   isValidTimeZone,
   RELATIVE_DATES,
@@ -45,7 +46,7 @@ import {
   type ReportCadence,
   type ReportScheduleFields,
 } from "@/lib/biReportSchedule";
-import type { ReportBlock } from "@/lib/biReports";
+import { reportFailure } from "@/lib/silentFailureNet";
 import {
   biReportScheduleDelete,
   biReportScheduleSave,
@@ -147,22 +148,28 @@ export function ReportScheduleDialog({
   open,
   onOpenChange,
   token,
-  reportId,
-  reportName,
+  target,
   params,
-  blocks,
+  notDrawn,
+  pages = [],
   unsaved,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   token: string;
-  reportId: string;
-  reportName: string;
+  /** What the schedules send. */
+  target: { kind: "report" | "dashboard"; id: string; name: string };
   params: BiParamConfig[];
-  blocks: ReportBlock[];
+  /** Titles of the visuals a scheduled PDF draws in the app only. */
+  notDrawn: string[];
+  /** A dashboard's pages, to choose which to send. */
+  pages?: { id: string; name: string }[];
   /** The designer has changes a schedule would not send. */
   unsaved: boolean;
 }) {
+  const reportName = target.name;
+  const noun = target.kind;
+  const ref = useMemo(() => ({ kind: target.kind, id: target.id }), [target.kind, target.id]);
   const listFn = useServerFn(biReportSchedulesList);
   const saveFn = useServerFn(biReportScheduleSave);
   const deleteFn = useServerFn(biReportScheduleDelete);
@@ -176,7 +183,8 @@ export function ReportScheduleDialog({
   // null until the server says: a guessed default would state the wrong policy.
   const [policy, setPolicy] = useState<{ anyDomain: boolean; domains: string[] } | null>(null);
   const [ownerEmail, setOwnerEmail] = useState<string | null>(null);
-  const [needsMigration, setNeedsMigration] = useState(false);
+  // The server's sentence when the install lacks the tables this needs.
+  const [needsMigration, setNeedsMigration] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // The schedule being edited: null = the list; "new" or an id.
@@ -185,28 +193,26 @@ export function ReportScheduleDialog({
   const [recipientsText, setRecipientsText] = useState("");
   // A new schedule's name follows its timing until the author types one.
   const [nameTyped, setNameTyped] = useState(false);
+  // A dashboard schedule's pages; empty = every page.
+  const [pageIds, setPageIds] = useState<string[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   // A refused save or preview stays on the form until the next attempt: the
   // reason (often the recipient policy) is longer than a toast stays up.
   const [formError, setFormError] = useState<string | null>(null);
   const zones = useMemo(() => zoneList(), []);
 
-  const notDrawn = useMemo(
-    () =>
-      blocks.flatMap((b) =>
-        b.kind === "chart" && scheduledDrawProblem(b.widget.chart?.type)
-          ? [b.widget.title || b.widget.chart?.type || "Chart"]
-          : [],
-      ),
-    [blocks],
-  );
-
+  // Read through a ref and keyed on signed-in state (R125): a session refresh
+  // changes the token about hourly, and a load keyed on it re-ran the effect
+  // below, which closed the schedule being written. Found by the token sweep
+  // in R510; R509 shipped it.
+  const { tokenRef, signedIn } = useTokenRef(token);
   const load = useCallback(async () => {
-    if (!token) return;
+    const accessToken = tokenRef.current;
+    if (!signedIn || !accessToken) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await listFn({ data: { accessToken: token, reportId } });
+      const res = await listFn({ data: { accessToken, target: ref } });
       if (!res.ok) {
         setError(res.error);
         return;
@@ -216,13 +222,13 @@ export function ReportScheduleDialog({
       setMailer(res.mailer);
       setPolicy(res.policy);
       setOwnerEmail(res.ownerEmail);
-      setNeedsMigration(Boolean(res.needsMigration));
+      setNeedsMigration(res.needsMigration ?? null);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setLoading(false);
     }
-  }, [listFn, token, reportId]);
+  }, [listFn, signedIn, tokenRef, ref]);
 
   useEffect(() => {
     if (open) {
@@ -237,11 +243,13 @@ export function ReportScheduleDialog({
     setRecipientsText(ownerEmail ?? "");
     setFormError(null);
     setNameTyped(false);
+    setPageIds([]);
     setEditing("new");
   };
   const startEdit = (v: ReportScheduleView) => {
     setForm(fromView(v));
     setRecipientsText(v.recipients.join(", "));
+    setPageIds(v.pages ?? []);
     setFormError(null);
     // A saved name is the author's, whatever the timing becomes.
     setNameTyped(true);
@@ -275,9 +283,10 @@ export function ReportScheduleDialog({
       const res = await saveFn({
         data: {
           accessToken: token,
-          reportId,
+          target: ref,
           id: editing && editing !== "new" ? editing : null,
           fields: { ...form, recipients: recipientList(recipientsText) },
+          pages: pageIds,
         },
       });
       if (!res.ok) {
@@ -307,6 +316,8 @@ export function ReportScheduleDialog({
       if (!res.ok) toast.error(res.error);
       else toast.success("Schedule deleted");
       await load();
+    } catch (e) {
+      reportFailure("delete the schedule", e);
     } finally {
       setBusy(null);
     }
@@ -316,10 +327,18 @@ export function ReportScheduleDialog({
     setBusy(`toggle:${v.id}`);
     try {
       const res = await saveFn({
-        data: { accessToken: token, reportId, id: v.id, fields: { ...fromView(v), enabled } },
+        data: {
+          accessToken: token,
+          target: ref,
+          id: v.id,
+          fields: { ...fromView(v), enabled },
+          pages: v.pages,
+        },
       });
       if (!res.ok) toast.error(res.error);
       await load();
+    } catch (e) {
+      reportFailure(enabled ? "turn the schedule on" : "turn the schedule off", e);
     } finally {
       setBusy(null);
     }
@@ -346,6 +365,8 @@ export function ReportScheduleDialog({
         );
       }
       await load();
+    } catch (e) {
+      reportFailure(toMe ? "send it to you" : "send it now", e);
     } finally {
       setBusy(null);
     }
@@ -358,9 +379,10 @@ export function ReportScheduleDialog({
       const res = await previewFn({
         data: {
           accessToken: token,
-          reportId,
+          target: ref,
           param_values: form.param_values,
           timezone: form.timezone,
+          pages: pageIds,
         },
       });
       if (!res.ok) {
@@ -410,7 +432,7 @@ export function ReportScheduleDialog({
             <CalendarClock className="h-4 w-4" /> Schedule “{reportName}”
           </DialogTitle>
           <DialogDescription>
-            Sends the saved report as a PDF attachment. It runs as you, so recipients get the
+            Sends the saved {noun} as a PDF attachment. It runs as you, so recipients get the
             numbers you can see.
           </DialogDescription>
         </DialogHeader>
@@ -418,8 +440,7 @@ export function ReportScheduleDialog({
         <div className="space-y-2 text-xs">
           {needsMigration && (
             <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-amber-700 dark:text-amber-300">
-              Scheduling needs a database update this install has not applied yet (migration
-              20261118000000_bi_report_schedules). Ask an administrator to apply it.
+              {needsMigration}
             </p>
           )}
           {!mailer && (
@@ -430,7 +451,7 @@ export function ReportScheduleDialog({
           )}
           {unsaved && (
             <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-amber-700 dark:text-amber-300">
-              The report has unsaved changes. A schedule sends the saved report: save first to send
+              The {noun} has unsaved changes. A schedule sends the saved {noun}: save first to send
               what you see.
             </p>
           )}
@@ -451,7 +472,7 @@ export function ReportScheduleDialog({
               </div>
             ) : schedules.length === 0 ? (
               <p className="py-4 text-sm text-muted-foreground">
-                No schedules yet. Add one to send this report by email.
+                No schedules yet. Add one to send this {noun} by email.
               </p>
             ) : (
               <ul className="divide-y rounded-md border" data-testid="report-schedules">
@@ -520,6 +541,14 @@ export function ReportScheduleDialog({
                     <p className="text-xs text-muted-foreground">
                       {cadenceLabel(s)} · to {s.recipients.join(", ")}
                     </p>
+                    {noun === "dashboard" && s.pages.length > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        Pages:{" "}
+                        {s.pages
+                          .map((id) => pages.find((p) => p.id === id)?.name ?? "a deleted page")
+                          .join(", ")}
+                      </p>
+                    )}
                     {params.length > 0 && (
                       <p className="text-xs text-muted-foreground">
                         Runs for{" "}
@@ -542,7 +571,7 @@ export function ReportScheduleDialog({
               </ul>
             )}
             <div className="flex items-center gap-2">
-              <Button size="sm" onClick={startNew} disabled={needsMigration || loading}>
+              <Button size="sm" onClick={startNew} disabled={!!needsMigration || loading}>
                 <Plus className="mr-1 h-3.5 w-3.5" /> Add schedule
               </Button>
               <span className="text-xs text-muted-foreground">{policyText}</span>
@@ -715,7 +744,7 @@ export function ReportScheduleDialog({
                 onChange={(e) => set({ subject: e.target.value })}
               />
               <p className="text-[11px] text-muted-foreground">
-                Empty sends the report&apos;s name. {"{{date}}"} is the day it runs
+                Empty sends the {noun}&apos;s name. {"{{date}}"} is the day it runs
                 {params.length
                   ? `; ${params.map((p) => `{{${p.name}}}`).join(", ")} ${params.length === 1 ? "prints the value" : "print the values"} it ran with`
                   : ""}
@@ -732,6 +761,48 @@ export function ReportScheduleDialog({
                 onChange={(e) => set({ message: e.target.value })}
               />
             </div>
+
+            {noun === "dashboard" && pages.length > 1 && (
+              <fieldset
+                className="space-y-1.5 rounded-md border p-3"
+                data-testid="report-schedule-pages"
+              >
+                <legend className="px-1 text-xs font-medium">Pages</legend>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 accent-primary"
+                    checked={pageIds.length === 0}
+                    onChange={() => setPageIds([])}
+                  />
+                  Every page
+                </label>
+                {pages.map((p) => (
+                  <label key={p.id} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="h-3.5 w-3.5 accent-primary"
+                      checked={pageIds.includes(p.id)}
+                      onChange={(e) =>
+                        setPageIds((ids) => {
+                          const next = e.target.checked
+                            ? [...ids, p.id]
+                            : ids.filter((id) => id !== p.id);
+                          // Every page ticked one by one is "every page".
+                          return next.length === pages.length
+                            ? []
+                            : pages.map((q) => q.id).filter((id) => next.includes(id));
+                        })
+                      }
+                    />
+                    {p.name}
+                  </label>
+                ))}
+                <p className="text-[11px] text-muted-foreground">
+                  Each page prints on landscape sheets, cards where they are on the screen.
+                </p>
+              </fieldset>
+            )}
 
             {params.length > 0 && (
               <div className="space-y-2 rounded-md border p-3">

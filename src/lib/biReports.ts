@@ -654,8 +654,11 @@ export function fieldsCaveat(block: Extract<ReportBlock, { kind: "fields" }>): s
   return `The first of ${n.toLocaleString()} rows: these fields show one record.`;
 }
 
-/** A picture source a report may keep and print. */
-export const IMAGE_DATA_URL = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/;
+/**
+ * A picture source a report may keep and print: PNG and JPEG, and SVG (R510),
+ * which the PDF draws as shapes and text and never runs (lib/biReportImages).
+ */
+export const IMAGE_DATA_URL = /^data:image\/(png|jpeg|svg\+xml);base64,[A-Za-z0-9+/=]+$/;
 /** About 1 MB of picture, as a data URL. */
 export const IMAGE_MAX_CHARS = 1_400_000;
 
@@ -663,7 +666,7 @@ export function imageSourceProblem(src: string): string | null {
   if (!src) return "Choose a picture or give an https address";
   if (src.startsWith("data:")) {
     if (src.length > IMAGE_MAX_CHARS) return "A picture is at most about 1 MB";
-    return IMAGE_DATA_URL.test(src) ? null : "A picture must be a PNG or a JPEG";
+    return IMAGE_DATA_URL.test(src) ? null : "A picture must be a PNG, a JPEG or an SVG";
   }
   return /^https:\/\/[^\s]+$/i.test(src) ? null : "A picture address must start with https://";
 }

@@ -21,7 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { WidgetDataTable } from "@/components/bi/BiWidgetCard";
+import { WidgetDataTable } from "@/components/bi/BiDataTable";
 import { useAuth } from "@/hooks/use-auth";
 import { useTokenRef } from "@/hooks/use-token-ref";
 import { downloadCsv, downloadXlsx } from "@/lib/exportData";

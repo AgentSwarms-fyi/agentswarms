@@ -123,10 +123,23 @@ const SPECS: Record<string, Record<string, unknown>> = {
   table: { type: "table" },
 };
 
+describe("a chart drawn for paper", () => {
+  it("has no zoom slider: the slider is for a viewer, the page shows the whole range", async () => {
+    const zoomed = await renderVisualMarkup(
+      { type: "line", xField: "month", yField: "sales", zoomBar: true } as never,
+      rows,
+      { width: 640, height: 300 },
+    );
+    expect(zoomed.kind).toBe("markup");
+    if (zoomed.kind !== "markup") return;
+    expect(zoomed.html).toContain("recharts-line");
+    expect(zoomed.html).not.toContain("recharts-brush");
+  }, 120_000);
+});
+
 /** Not drawn although the markup would allow it, and why. */
 const LEFT_OUT_ON_PURPOSE: Record<string, string> = {
   barrace: "an animation: its first frame is not the chart",
-  table: "a table block prints its rows; a table visual has no picture",
 };
 
 const size = { width: 640, height: 300 };
@@ -253,6 +266,64 @@ describe("a report laid out on the server", () => {
       expect(text).toMatch(/top 3 regions by sales/i);
       // Small multiples are not drawn, and the page says so where they would be.
       expect(text).toContain("drawn in the app only");
+    },
+  );
+});
+
+describe("a dashboard laid out on the server (R510)", () => {
+  it(
+    "draws its cards with the real renderer, and a long table keeps header and total",
+    { timeout: 400_000 },
+    async () => {
+      const { buildDashboardPdfBytes } = await import("@/lib/biDashboardPdf");
+      const many = Array.from({ length: 40 }, (_, i) => ({
+        product: `Product ${String(i + 1).padStart(2, "0")}`,
+        sales: 100 + i,
+      }));
+      const card = (id: string, title: string, chart: Record<string, unknown>, data: object[]) =>
+        ({
+          id,
+          kind: "chart",
+          title,
+          chart,
+          rows: data,
+          columns: Object.keys(data[0] ?? {}),
+        }) as never;
+      const bytes = await buildDashboardPdfBytes({
+        name: "Server dashboard",
+        clock: { date: "2026-11-19", time: "08:00" },
+        pages: [
+          {
+            name: "Page 1",
+            widgets: [
+              card("b", "Sales by region", SPECS.bar, rows),
+              card("k", "Latest month", SPECS.kpi, rows),
+              card("t", "Every product", { type: "table" }, many),
+            ],
+            layout: [
+              { i: "b", x: 0, y: 0, w: 8, h: 5 },
+              { i: "k", x: 8, y: 0, w: 4, h: 3 },
+              { i: "t", x: 0, y: 5, w: 6, h: 5 },
+            ],
+          },
+        ],
+        renderVisual: (w) => (s) => renderVisualMarkup(w.chart!, w.rows ?? [], s, w.columns),
+      });
+      const text = (await pdfText(bytes)).join(" | ");
+      for (const s of ["Sales by region", "East", "West", "SALES", "Every product"]) {
+        expect(text, s).toContain(s);
+      }
+      // The table: its header, its first rows, the count of the rest and its
+      // total (40 rows of 100..139 add up to 4,780, which the table shows
+      // compactly as 4.8k, as on screen), all inside one card.
+      expect(text).toMatch(/PRODUCT|product/);
+      expect(text).toContain("Product 01");
+      const more = /(\d+) more rows not shown/.exec(text);
+      expect(more, "the table says how many rows it left out").not.toBeNull();
+      const shown = (text.match(/Product \d\d/g) ?? []).length;
+      expect(Number(more![1]) + shown).toBe(40);
+      // The total is the table's last line, after the count of hidden rows.
+      expect(text).toMatch(/more rows not shown Total 4\.8k/);
     },
   );
 });

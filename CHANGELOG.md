@@ -16,6 +16,11 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Apply migrations `20261118000000` and `20261119000000`** (R509, R510),
+  for example with `npx supabase db push --remote`, to send reports and
+  dashboards on a schedule. Until then the Schedule dialog says which
+  migration is missing and nothing else changes. Sending also needs a mail
+  transport (`SMTP_HOST` or `RESEND_API_KEY`).
 - **Point maps can draw streets** (R501, optional). Set
   `PUBLIC_MAP_TILES_URL` to a tile server's `{z}/{x}/{y}` template and
   `PUBLIC_MAP_TILES_ATTRIBUTION` to the credit it requires. Unset, point maps
@@ -214,6 +219,22 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Dashboards sent on a schedule** (R510). In a dashboard, **Export**, then
+  **Email on a schedule**, emails the dashboard as a PDF, with the same timing,
+  recipients, parameter values, Preview PDF and delivery log as a report's
+  schedule. Choose every page or some. Each page prints on landscape sheets
+  with its cards where they are on the screen; a sheet breaks only between
+  cards, and cards a little taller than a sheet are shrunk onto it rather
+  than leave it nearly blank. Every widget's query runs again as the owner
+  for the copy, and tables keep their header and total. The PDF is white
+  paper: a colour chosen for a dark canvas that would not read on white
+  prints in ink. Needs migration `20261119000000`.
+
+- **SVG pictures in PDFs** (R510). A picture kept as an SVG, in a report or on
+  a dashboard, prints as sharp lines and text instead of "shown in the app
+  only", and a report's picture can now be an SVG you choose. A scheduled
+  PDF leaves a chart's zoom slider out and shows its whole range.
+
 - **Reports sent on a schedule** (R509). A paginated report can be emailed as
   a PDF attachment every day, on weekdays, weekly or monthly, at a local hour
   in a time zone. The server runs every block's query as the report's owner.
@@ -343,6 +364,16 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **A dashboard's scheduled refresh skipped every page after the first**
+  (R510). It read the copy of page 1 that a dashboard keeps for older
+  versions, so widgets on later pages were never refreshed and their alerts
+  never ran. Catalog lineage, the check shown before deleting a dataset or a
+  semantic model, and a metric's usage read the same copy, so something used
+  only on page 2 looked unused. All of them now read every page.
+- **The schedule dialog closed a schedule being written when the session
+  refreshed** (R509, fixed in R510). Its list reloaded on every new sign-in
+  token, about hourly, and the reload shut the form. A delete, on/off switch
+  or send that failed outright also said nothing; each now says what failed.
 - **A report table with no rows drew a header in the preview but a line in
   the PDF** (R508), so the two could break pages differently. Both now print
   `[no rows: …]` at the same height. A parameter that matches nothing makes

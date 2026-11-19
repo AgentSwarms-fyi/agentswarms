@@ -464,10 +464,10 @@ export function ImageBlockEditor({
   const problem = block.src ? imageSourceProblem(block.src) : null;
   return (
     <div className="space-y-1 border-t pt-2">
-      <Label className="text-[11px]">Picture (PNG or JPEG, up to about 1 MB)</Label>
+      <Label className="text-[11px]">Picture (PNG, JPEG or SVG, up to about 1 MB)</Label>
       <Input
         type="file"
-        accept="image/png,image/jpeg"
+        accept="image/png,image/jpeg,image/svg+xml"
         className="h-8 text-[11px]"
         aria-label="Choose a picture"
         onChange={(e) => {

@@ -25,6 +25,7 @@ import {
   Pencil,
   Plus,
   CalendarClock,
+  Mail,
   Palette,
   Radar,
   RefreshCw,
@@ -76,6 +77,8 @@ import { BiWidgetCard } from "@/components/bi/BiWidgetCard";
 import { DashboardGrid } from "@/components/bi/DashboardGrid";
 import { PublishDialog } from "@/components/bi/PublishDialog";
 import { ScheduleDialog } from "@/components/bi/ScheduleDialog";
+import { ReportScheduleDialog } from "@/components/bi/ReportScheduleDialog";
+import { notDrawnTitles } from "@/lib/biReportSchedule";
 import { BiThemeDialog } from "@/components/bi/BiThemeDialog";
 import { GenerateDashboardDialog } from "@/components/bi/GenerateDashboardDialog";
 import { InsightSweepDialog } from "@/components/bi/InsightSweepDialog";
@@ -359,6 +362,8 @@ function BiProjectPage() {
   const [imageInitial, setImageInitial] = useState<BiWidget | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  // R510: emailing the dashboard as a PDF on a schedule (Export menu).
+  const [sendScheduleOpen, setSendScheduleOpen] = useState(false);
   const [generateOpen, setGenerateOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -1799,6 +1804,14 @@ function BiProjectPage() {
                     <FileType2 className="mr-2 h-3.5 w-3.5" />
                     <span className="flex-1">Export to PowerPoint</span>
                   </DropdownMenuItem>
+                  {/* R510: the PDF, by email, on a schedule. The owner's: it
+                  runs as them and sends to people they choose. */}
+                  {isOwner && (
+                    <DropdownMenuItem onClick={() => setSendScheduleOpen(true)}>
+                      <Mail className="mr-2 h-3.5 w-3.5" />
+                      <span className="flex-1">Email on a schedule…</span>
+                    </DropdownMenuItem>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
               {!readOnly && (
@@ -2174,6 +2187,22 @@ function BiProjectPage() {
             </>
           )}
 
+          {row && isOwner && token && (
+            <ReportScheduleDialog
+              open={sendScheduleOpen}
+              onOpenChange={setSendScheduleOpen}
+              token={token}
+              target={{ kind: "dashboard", id: dashboardId, name: row.name }}
+              params={paramConfigs}
+              notDrawn={notDrawnTitles(
+                pages.flatMap((p) => (p.id === activePageId ? widgets : p.widgets)),
+              )}
+              pages={pages.map((p) => ({ id: p.id, name: p.name }))}
+              // A schedule sends what is saved; the editor autosaves, so only
+              // a save in flight or one that failed leaves the two apart.
+              unsaved={saveState !== "saved"}
+            />
+          )}
           {row && (
             <BiDeckDialog
               open={deckOpen}

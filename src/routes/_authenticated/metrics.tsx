@@ -42,7 +42,7 @@ export const Route = createFileRoute("/_authenticated/metrics")({
   head: () => ({ meta: [{ title: "Metrics — AgentSwarms" }] }),
 });
 
-type DashboardRow = { id: string; name: string; widgets: unknown };
+type DashboardRow = { id: string; name: string; widgets: unknown; pages: unknown };
 type TableRow = { name: string; data_loaded_at: string | null };
 
 function MetricsPage() {
@@ -75,7 +75,8 @@ function MetricsPage() {
           supabase.from("semantic_models").select("*").order("name"),
         ),
         selectAllPages<DashboardRow>(() =>
-          supabase.from("bi_dashboards").select("id, name, widgets").order("id"),
+          // `pages` too: the top-level widgets only mirror page 1 (R510).
+          supabase.from("bi_dashboards").select("id, name, widgets, pages").order("id"),
         ),
         selectAllPages<TableRow>(() =>
           supabase.from("user_data_tables").select("name, data_loaded_at").order("name"),

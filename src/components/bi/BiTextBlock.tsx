@@ -7,22 +7,12 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { hardBreaks } from "@/components/bi/biDrawHelpers";
-import { hexColor, type BiTextStyle } from "@/lib/biDashboards";
+import { hexColor, TEXT_BASE_PX, TEXT_HEADING_SCALE, type BiTextStyle } from "@/lib/biDashboards";
 import { safeUrl } from "@/lib/safeUrl";
 import { cn } from "@/lib/utils";
 
-/** Base size of a paragraph in px; headings scale from it. */
-const BASE_PX: Record<NonNullable<BiTextStyle["size"]>, number> = {
-  sm: 12,
-  md: 14,
-  lg: 17,
-  xl: 21,
-  "2xl": 26,
-  "3xl": 32,
-};
-
 export function BiTextBlock({ text, style }: { text: string; style: BiTextStyle }) {
-  const base = BASE_PX[style.size ?? "md"] ?? 14;
+  const base = TEXT_BASE_PX[style.size ?? "md"] ?? 14;
   const color = hexColor(style.color);
   const heading = hexColor(style.headingColor) ?? color;
   const h = (scale: number) => ({
@@ -40,17 +30,17 @@ export function BiTextBlock({ text, style }: { text: string; style: BiTextStyle 
         urlTransform={safeUrl}
         components={{
           h1: ({ children }) => (
-            <h1 className="my-0.5 font-black tracking-tight" style={h(2)}>
+            <h1 className="my-0.5 font-black tracking-tight" style={h(TEXT_HEADING_SCALE.h1)}>
               {children}
             </h1>
           ),
           h2: ({ children }) => (
-            <h2 className="my-0.5 font-extrabold tracking-tight" style={h(1.55)}>
+            <h2 className="my-0.5 font-extrabold tracking-tight" style={h(TEXT_HEADING_SCALE.h2)}>
               {children}
             </h2>
           ),
           h3: ({ children }) => (
-            <h3 className="my-0.5 font-bold" style={h(1.25)}>
+            <h3 className="my-0.5 font-bold" style={h(TEXT_HEADING_SCALE.h3)}>
               {children}
             </h3>
           ),

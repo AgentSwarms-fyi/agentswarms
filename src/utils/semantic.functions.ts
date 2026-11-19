@@ -935,7 +935,8 @@ export const semanticModelDependents = createServerFn({ method: "GET" })
       await import("@/lib/semanticDependents");
 
     const [dashRes, agentRes, swarmRes] = await Promise.all([
-      sb.from("bi_dashboards").select("id, name, widgets"),
+      // `pages` too: the top-level widgets only mirror page 1 (R510).
+      sb.from("bi_dashboards").select("id, name, widgets, pages"),
       sb.from("agents").select("id, name, tools"),
       sb.from("swarms").select("id, name, nodes, published_nodes"),
     ]);

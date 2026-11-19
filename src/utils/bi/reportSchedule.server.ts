@@ -1,4 +1,6 @@
-// Scheduled report delivery: running, rendering and sending (R509).
+// Scheduled report delivery: running, rendering and sending (R509). A
+// schedule names a report or, since R510, a dashboard (dashboardSchedule.server);
+// everything after the run is the same for both.
 //
 // One path for all three callers: the scheduler's tick, the "Send now"
 // button, and "Preview the PDF" in the schedule dialog. A preview that took a
@@ -33,6 +35,7 @@ import {
   recipientVerdict,
   runClock,
   scheduledValues,
+  scheduleTargetLink,
   sizeLabel,
   valuesSummary,
   type ReportCadence,
@@ -43,7 +46,11 @@ import { fillParamTokens } from "@/lib/biReports";
 export type ReportScheduleRow = {
   id: string;
   user_id: string;
-  report_id: string;
+  /** Exactly one of report_id and dashboard_id is set (R510). */
+  report_id: string | null;
+  dashboard_id: string | null;
+  /** A dashboard schedule's page ids; empty = every page. */
+  pages: string[];
   name: string;
   enabled: boolean;
   cadence: ReportCadence;
@@ -78,12 +85,14 @@ export type ReportRun = {
   empty: boolean;
   /** How many blocks ran a query. */
   queried: number;
+  /** Anything else the delivery record should say (a dashboard page gone). */
+  notes?: string[];
 };
 
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
 /** A picture's bytes from the web, through the SSRF guard, size-capped. */
-async function fetchPicture(url: string): Promise<Response> {
+export async function fetchPicture(url: string): Promise<Response> {
   const { safeFetch } = await import("@/utils/ssrfGuard.server");
   const res = await safeFetch(url, { signal: AbortSignal.timeout(10_000), blockPrivate: true });
   const len = Number(res.headers.get("content-length") ?? 0);
@@ -275,6 +284,29 @@ function escapeHtml(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
+/** What a schedule sends, run now: its report, or its dashboard (R510). */
+export async function runScheduled(s: ReportScheduleRow, now: Date): Promise<ReportRun> {
+  if (s.dashboard_id) {
+    const { runDashboard } = await import("@/utils/bi/dashboardSchedule.server");
+    return runDashboard({
+      userId: s.user_id,
+      dashboardId: s.dashboard_id,
+      stored: s.param_values ?? {},
+      timezone: s.timezone,
+      pageIds: s.pages ?? [],
+      now,
+    });
+  }
+  if (!s.report_id) throw new Error("This schedule names nothing to send.");
+  return runReport({
+    userId: s.user_id,
+    reportId: s.report_id,
+    stored: s.param_values ?? {},
+    timezone: s.timezone,
+    now,
+  });
+}
+
 export type DeliveryOutcome = {
   status: "sent" | "skipped" | "partial" | "failed";
   detail: string | null;
@@ -308,6 +340,7 @@ export async function deliverSchedule(
   const { error } = await supabaseAdmin.from("bi_report_deliveries").insert({
     user_id: s.user_id,
     report_id: s.report_id,
+    dashboard_id: s.dashboard_id ?? null,
     schedule_id: s.id,
     trigger: opts.trigger,
     status: outcome.status,
@@ -343,14 +376,8 @@ async function deliverOnce(
     );
   }
 
-  const run = await runReport({
-    userId: s.user_id,
-    reportId: s.report_id,
-    stored: s.param_values ?? {},
-    timezone: s.timezone,
-    now,
-  });
-  const notes: string[] = [];
+  const run = await runScheduled(s, now);
+  const notes: string[] = [...(run.notes ?? [])];
   if (run.fellBack.length) {
     notes.push(
       `Run at the default for ${run.fellBack.join(", ")}: the saved value no longer fits.`,
@@ -502,7 +529,7 @@ export async function processDueReportSchedules(force = false): Promise<number> 
         await notifyUser(s.user_id, {
           title: `A scheduled report was not sent — "${s.name}"`,
           body: outcome.detail ?? "The run failed.",
-          link: `/bi/report/${s.report_id}`,
+          link: scheduleTargetLink(s),
           kind: "warning",
         });
       }

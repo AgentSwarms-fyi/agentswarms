@@ -23,6 +23,7 @@
 //   somebody's saved SQL can reference a metric without appearing here, so
 //   nothing in this module ever says "unused". Deprecating a metric because a
 //   page said "unused" is the failure this wording exists to prevent.
+import { allDashboardWidgets } from "@/lib/biDashboards";
 import type { SemanticMetric, SemanticStatus } from "@/lib/semanticLayer";
 
 /**
@@ -144,15 +145,15 @@ export type MetricUsage = {
  * metric-level question, which is the one a catalog row has to answer.
  */
 export function metricUsageInDashboards(
-  dashboards: Array<{ id: string; name: string; widgets: unknown }>,
+  dashboards: Array<{ id: string; name: string; widgets: unknown; pages?: unknown }>,
   model: string,
   metric: string,
 ): MetricUsage {
   const out: MetricUsage["dashboards"] = [];
   for (const d of dashboards ?? []) {
-    if (!Array.isArray(d.widgets)) continue;
     const hits: string[] = [];
-    for (const w of d.widgets as Array<Record<string, unknown>>) {
+    // Every page (R510): the top-level `widgets` only mirrors page 1.
+    for (const w of allDashboardWidgets(d) as Array<Record<string, unknown>>) {
       const source = w?.source as
         { kind?: unknown; model?: unknown; metrics?: unknown } | undefined;
       if (source?.kind !== "semantic" || source.model !== model) continue;

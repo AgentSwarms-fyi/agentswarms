@@ -368,6 +368,11 @@ export function ScheduleDialog({
                   Email me a report after each refresh (KPIs + refresh summary)
                 </Label>
               )}
+              {/* R510: the other email a dashboard can send, to other people. */}
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                To send this dashboard as a PDF to other people, use Export, then Email on a
+                schedule.
+              </p>
             </div>
 
             {/* Alerts */}

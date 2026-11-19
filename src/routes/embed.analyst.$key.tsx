@@ -23,7 +23,7 @@ import { BrainCircuit, Loader2, Send } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { BiChartRender } from "@/components/bi/BiChartRender";
-import { WidgetDataTable } from "@/components/bi/BiWidgetCard";
+import { WidgetDataTable } from "@/components/bi/BiDataTable";
 import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
 import type { AnalystStep, AnalystTurn } from "@/lib/aiAnalyst";
 import { EmbedErrorCard } from "@/routes/embed.agent.$key";

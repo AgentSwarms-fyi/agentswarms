@@ -692,12 +692,13 @@ export type Database = {
       bi_report_deliveries: {
         Row: {
           bytes: number | null;
+          dashboard_id: string | null;
           detail: string | null;
           id: string;
           pages: number | null;
           ran_at: string;
           recipients: number;
-          report_id: string;
+          report_id: string | null;
           schedule_id: string | null;
           status: string;
           trigger: string;
@@ -705,12 +706,13 @@ export type Database = {
         };
         Insert: {
           bytes?: number | null;
+          dashboard_id?: string | null;
           detail?: string | null;
           id?: string;
           pages?: number | null;
           ran_at?: string;
           recipients?: number;
-          report_id: string;
+          report_id?: string | null;
           schedule_id?: string | null;
           status: string;
           trigger: string;
@@ -718,12 +720,13 @@ export type Database = {
         };
         Update: {
           bytes?: number | null;
+          dashboard_id?: string | null;
           detail?: string | null;
           id?: string;
           pages?: number | null;
           ran_at?: string;
           recipients?: number;
-          report_id?: string;
+          report_id?: string | null;
           schedule_id?: string | null;
           status?: string;
           trigger?: string;
@@ -738,6 +741,7 @@ export type Database = {
           at_hour: number;
           cadence: string;
           created_at: string;
+          dashboard_id: string | null;
           enabled: boolean;
           id: string;
           last_error: string | null;
@@ -747,9 +751,10 @@ export type Database = {
           month_day: number;
           name: string;
           next_run_at: string;
+          pages: string[];
           param_values: Json;
           recipients: string[];
-          report_id: string;
+          report_id: string | null;
           skip_empty: boolean;
           subject: string;
           timezone: string;
@@ -761,6 +766,7 @@ export type Database = {
           at_hour?: number;
           cadence?: string;
           created_at?: string;
+          dashboard_id?: string | null;
           enabled?: boolean;
           id?: string;
           last_error?: string | null;
@@ -770,9 +776,10 @@ export type Database = {
           month_day?: number;
           name: string;
           next_run_at: string;
+          pages?: string[];
           param_values?: Json;
           recipients: string[];
-          report_id: string;
+          report_id?: string | null;
           skip_empty?: boolean;
           subject?: string;
           timezone?: string;
@@ -784,6 +791,7 @@ export type Database = {
           at_hour?: number;
           cadence?: string;
           created_at?: string;
+          dashboard_id?: string | null;
           enabled?: boolean;
           id?: string;
           last_error?: string | null;
@@ -793,9 +801,10 @@ export type Database = {
           month_day?: number;
           name?: string;
           next_run_at?: string;
+          pages?: string[];
           param_values?: Json;
           recipients?: string[];
-          report_id?: string;
+          report_id?: string | null;
           skip_empty?: boolean;
           subject?: string;
           timezone?: string;

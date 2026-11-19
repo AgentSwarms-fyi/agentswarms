@@ -482,9 +482,12 @@ region at a time.
   three across.
   - Labels are the column names tidied, unless the author writes their own.
   - Several rows print the first with "The first of N rows"; no row says so.
-- **Pictures** are a PNG or JPEG kept in the report as a data URL (up to about
-  1 MB), or an https address fetched at export. One the browser cannot fetch
-  prints `[picture unavailable]`.
+- **Pictures** are a PNG, JPEG or SVG kept in the report as a data URL (up to
+  about 1 MB), or an https address fetched at export. One the browser cannot
+  fetch prints `[picture unavailable]`. An SVG (R510) is drawn as vectors by
+  `svgPdf` (`svgPicture` in `src/lib/biReportImages.ts` reads its size from
+  width and height, else its viewBox); its scripts, links and embedded
+  pictures are never followed. One with no size to place it at is left out.
 - **Barcodes** are drawn as shapes (`src/lib/biBarcode.ts`, `barcodeShapes`),
   the same rectangles in the SVG preview and the PDF.
   - Code 128 is encoded in-house: set B, with set C for digit runs of four or
@@ -571,6 +574,50 @@ with. The server runs the report and mails the PDF as an attachment.
   cannot send twice, and a failed run still advances. Every run writes an
   insert-only row to `bi_report_deliveries` (sent, partial, skipped or
   failed). These rows are purged after a year.
+
+#### Dashboards on a schedule (R510)
+
+Migration `20261119000000` lets a schedule name a dashboard instead of a
+report (`dashboard_id`, exactly one of the two, and `pages`, the page ids to
+send; empty is every page). The dashboard editor opens the same dialog from
+Export, then Email on a schedule, for the owner only.
+
+- **Run.** `runDashboard` (`src/utils/bi/dashboardSchedule.server.ts`) runs
+  each chosen page's widgets through `runDashboardWidgets`, the scheduled
+  refresh's own runner (`src/utils/bi/refresh.server.ts`), as the owner, at
+  the schedule's parameter values, in full, on copies. Nothing is written
+  back: a copy run for one schedule's values is not the snapshot viewers see.
+  A widget whose query fails is printed as "Not refreshed" in its card.
+- **Layout.** `buildDashboardPdfBytes` (`src/lib/biDashboardPdf.ts`) prints
+  each page on A4 landscape sheets. The grid keeps its proportions
+  (`GRID_ROW_PX` and `GRID_GAP_PX`, shared with the editor's grid, on a
+  1,200 px canvas). `paginateGrid` breaks a sheet only at a row no card
+  crosses, and chooses the breaks for the fewest sheets, then the least
+  shrinking: a sheet may shrink its rows to `MIN_SHEET_SCALE` (80%) of their
+  height rather than leave a sheet nearly blank (found in the UI test: a page
+  of two picture rows over ten rows of charts printed as a strip and a sheet).
+  A band with no clean break within a sheet is shrunk onto one. Cards draw
+  through `drawServerVisual` like a report's charts, at the shrunk size. A
+  data table is the card's own `WidgetDataTable` (now
+  `src/components/bi/BiDataTable.tsx`), rendered on the server and drawn as a
+  grid that keeps its header and total. Text widgets are set from their
+  markdown (`markdownBlocks`); a styled one breaks lines where they were typed
+  and takes its sizes from the card's (`TEXT_BASE_PX`, `TEXT_HEADING_SCALE`),
+  centred down the card. Pictures are fetched through the SSRF guard, an SVG
+  drawn as vectors; a Controls visual prints the values the copy ran with; a
+  chart's zoom slider is left off (`renderVisualMarkup` turns `zoomBar` off).
+- **White paper.** The PDF is white whatever the dashboard's background. A
+  widget colour (text, heading or title) that would not read on white, under
+  3:1 contrast, prints in ink (`paperColour`): white text set for a dark
+  canvas vanished in the UI test.
+- **Every page, everywhere.** A dashboard's content is `pages`; the top-level
+  `widgets` only mirrors page 1. The scheduled refresh read the mirror alone,
+  so widgets on later pages were never refreshed and their alerts never ran.
+  It now walks every page (`dashboardWidgetDoc`) and writes `pages` with the
+  page-1 mirror (`refreshedDocument`). Catalog lineage, the impact checks
+  before a dataset or semantic model is deleted, and a metric's usage had the
+  same blind spot; they read every page through `allDashboardWidgets`
+  (`tests/unit/biDashboardEveryPage.test.ts`).
 
 ### Access
 

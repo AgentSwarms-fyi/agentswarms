@@ -6,20 +6,21 @@
 // These scanners are pure functions over the stored jsonb shapes; the server
 // fn feeds them real rows, tests feed them fixtures of the same shapes.
 import type { Json } from "@/integrations/supabase/types";
+import { allDashboardWidgets } from "@/lib/biDashboards";
 
 export type WidgetDependent = { dashboardId: string; dashboardName: string; widgets: string[] };
 export type NamedDependent = { id: string; name: string };
 
 /** Dashboards whose widgets run a governed query against `modelName`. */
 export function scanDashboardsForModel(
-  dashboards: Array<{ id: string; name: string; widgets: Json }>,
+  dashboards: Array<{ id: string; name: string; widgets: Json; pages?: Json }>,
   modelName: string,
 ): WidgetDependent[] {
   const out: WidgetDependent[] = [];
   for (const d of dashboards) {
-    if (!Array.isArray(d.widgets)) continue;
     const hits: string[] = [];
-    for (const w of d.widgets as Array<Record<string, unknown>>) {
+    // Every page (R510): the top-level `widgets` only mirrors page 1.
+    for (const w of allDashboardWidgets(d) as Array<Record<string, unknown>>) {
       const source = w?.source as { kind?: unknown; model?: unknown } | undefined;
       if (source?.kind === "semantic" && source.model === modelName) {
         hits.push(String(w.title ?? w.id ?? "untitled widget"));

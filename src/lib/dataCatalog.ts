@@ -1,6 +1,7 @@
 // Client-side Data Catalog reads + curation writes. Sources and assets
 // are owner-scoped by RLS, so plain supabase queries are safe here; only
 // credential handling and crawling live in server functions.
+import { allDashboardWidgets } from "@/lib/biDashboards";
 import { parseAssetMetadata, type AssetMetadata } from "@/lib/catalogAssetMetadata";
 import type { SchemaChanges } from "@/lib/catalogSchemaDiff";
 import { supabase } from "@/integrations/supabase/client";
@@ -392,18 +393,17 @@ function addRef(index: LineageIndex, key: string, ref: LineageRef): void {
   }
 }
 
-/** Build the lineage index from dashboards, prep flows and saved metrics. */
-export async function loadLineageIndex(): Promise<LineageIndex> {
-  const index: LineageIndex = new Map();
-  const [dashRes, flowRes, metricRes] = await Promise.all([
-    supabase.from("bi_dashboards").select("id, name, widgets"),
-    supabase.from("user_prep_flows").select("id, name, config, output_table_name"),
-    supabase.from("user_saved_metrics").select("id, name, table_id"),
-  ]);
-
-  for (const d of dashRes.data ?? []) {
-    const widgets = Array.isArray(d.widgets) ? d.widgets : [];
-    for (const w of widgets as {
+/**
+ * Index which tables each dashboard's widgets read, on every page (R510).
+ * The top-level `widgets` only mirrors page 1, so a table read on page 2 alone
+ * used to show no dashboard in its lineage.
+ */
+export function addDashboardLineage(
+  index: LineageIndex,
+  dashboards: Array<{ id: string; name: string; widgets: unknown; pages?: unknown }>,
+): void {
+  for (const d of dashboards) {
+    for (const w of allDashboardWidgets(d) as {
       kind?: string;
       title?: string;
       sql?: string;
@@ -422,6 +422,18 @@ export async function loadLineageIndex(): Promise<LineageIndex> {
       }
     }
   }
+}
+
+/** Build the lineage index from dashboards, prep flows and saved metrics. */
+export async function loadLineageIndex(): Promise<LineageIndex> {
+  const index: LineageIndex = new Map();
+  const [dashRes, flowRes, metricRes] = await Promise.all([
+    supabase.from("bi_dashboards").select("id, name, widgets, pages"),
+    supabase.from("user_prep_flows").select("id, name, config, output_table_name"),
+    supabase.from("user_saved_metrics").select("id, name, table_id"),
+  ]);
+
+  addDashboardLineage(index, dashRes.data ?? []);
 
   for (const f of flowRes.data ?? []) {
     const cfg = (f.config ?? {}) as { base?: string | null; joins?: { table?: string }[] };

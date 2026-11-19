@@ -8,7 +8,8 @@
 //   svg    — most visuals are one SVG; drawn as vectors by svgPdf, with the
 //            legend (HTML in the markup) drawn in a strip reserved for it and
 //            any caption under the chart printed below it.
-//   table  — the heatmap and the pivot are HTML tables; drawn as a grid.
+//   table  — the heatmap, the pivot and a data table (R510) are HTML
+//            tables; drawn as a grid, header and totals kept.
 //   text   — a narrative is a sentence; drawn as wrapped text.
 //   kpi    — the KPI tile's figures, from the same function the tile uses.
 //
@@ -61,7 +62,8 @@ export type KpiPrint = {
 };
 
 export type ServerVisual =
-  | { kind: "markup"; html: string }
+  /** `bodyRows`: how many data rows a table really has, when its markup shows one page. */
+  | { kind: "markup"; html: string; bodyRows?: number }
   | { kind: "kpi"; figures: KpiPrint }
   | { kind: "none"; reason: string };
 
@@ -185,7 +187,7 @@ export async function drawServerVisual(
       placeholder(ctx, box, "This table could not be drawn.");
       return;
     }
-    drawHtmlTable(ctx, table, box);
+    drawHtmlTable(ctx, table, box, { bodyRows: first.bodyRows });
     return;
   }
 
@@ -397,19 +399,30 @@ export function drawKpi(ctx: ChartDrawContext, f: KpiPrint, box: Box) {
   }
 }
 
-type Cell = { text: string; span: number; head: boolean; bg: ReturnType<typeof parseCssColor> };
+type Cell = {
+  text: string;
+  span: number;
+  head: boolean;
+  /** A totals row (tfoot): bold, numbers still right-aligned. */
+  foot: boolean;
+  bg: ReturnType<typeof parseCssColor>;
+};
 
-function cellsOf(tr: MElement): Cell[] {
+const BACKGROUND = /background(?:-color)?\s*:\s*([^;]+)/i;
+
+function cellsOf(tr: MElement, foot = false): Cell[] {
+  // A whole-row rule tints the <tr> (R498), not each cell.
+  const rowBg = BACKGROUND.exec(tr.attrs.style ?? "");
   return tr.children.filter(isElement).flatMap((c) => {
     if (c.tag !== "td" && c.tag !== "th") return [];
-    const style = c.attrs.style ?? "";
-    const bgm = /background(?:-color)?\s*:\s*([^;]+)/i.exec(style);
+    const bgm = BACKGROUND.exec(c.attrs.style ?? "") ?? rowBg;
     const cls = c.attrs.class ?? "";
     return [
       {
         text: textContent(c).replace(/\s+/g, " ").trim(),
         span: Math.max(1, Number(c.attrs.colspan ?? c.attrs.colSpan ?? 1) || 1),
-        head: c.tag === "th" || /font-(semibold|bold)/.test(cls),
+        head: foot || c.tag === "th" || /font-(semibold|bold)/.test(cls),
+        foot,
         bg: bgm ? parseCssColor(bgm[1]) : null,
       },
     ];
@@ -418,15 +431,38 @@ function cellsOf(tr: MElement): Cell[] {
 
 const NUMBERISH = /^[\s(+\-−$€£¥]*[\d.,]+\s*[%kKmMbB)]*$/;
 
-/** An HTML table (the heatmap, the pivot) as a grid that fits the box. */
-export function drawHtmlTable(ctx: ChartDrawContext, table: MElement, box: Box) {
-  const rows = findAll(table, (e) => e.tag === "tr")
-    .map(cellsOf)
-    .filter((r) => r.length > 0);
-  if (rows.length === 0) {
+/**
+ * An HTML table (the heatmap, the pivot, a data table) as a grid that fits
+ * the box. When rows have to go, the header and the totals row stay, and the
+ * line in between says how many were left out: of `bodyRows` when the caller
+ * knows the real count (a data table renders one page of 50 on screen).
+ */
+export function drawHtmlTable(
+  ctx: ChartDrawContext,
+  table: MElement,
+  box: Box,
+  opts: { bodyRows?: number } = {},
+) {
+  const footTrs = new Set(
+    findAll(table, (e) => e.tag === "tfoot").flatMap((f) => findAll(f, (e) => e.tag === "tr")),
+  );
+  const headTrs = new Set(
+    findAll(table, (e) => e.tag === "thead").flatMap((h) => findAll(h, (e) => e.tag === "tr")),
+  );
+  const parsed = findAll(table, (e) => e.tag === "tr")
+    .map((tr) => ({ tr, cells: cellsOf(tr, footTrs.has(tr)) }))
+    .filter((r) => r.cells.length > 0);
+  const all = parsed.map((r) => r.cells);
+  if (all.length === 0) {
     placeholder(ctx, box, "This table has no rows.");
     return;
   }
+  const headRows = parsed.filter((r) => headTrs.has(r.tr)).map((r) => r.cells);
+  const footRows = parsed.filter((r) => footTrs.has(r.tr)).map((r) => r.cells);
+  const bodyRows = parsed
+    .filter((r) => !headTrs.has(r.tr) && !footTrs.has(r.tr))
+    .map((r) => r.cells);
+  const rows = all;
   const size = 7;
   const rowH = 11;
   const pad = 3;
@@ -447,10 +483,23 @@ export function drawHtmlTable(ctx: ChartDrawContext, table: MElement, box: Box) 
   const k = total > box.w ? box.w / total : 1;
   const widths = natural.map((w) => w * k);
   const fit = Math.max(1, Math.floor(box.h / rowH));
-  const shown = rows.length > fit ? rows.slice(0, fit - 1) : rows;
+  const totalBody = Math.max(bodyRows.length, opts.bodyRows ?? 0);
+  let shown: Cell[][];
+  let more = 0;
+  let tail: Cell[][] = [];
+  if (rows.length <= fit && totalBody <= bodyRows.length) {
+    shown = rows;
+  } else {
+    // Header and totals stay; one line says what is missing.
+    const room = Math.max(0, fit - headRows.length - footRows.length - 1);
+    const keep = bodyRows.slice(0, room);
+    shown = [...headRows, ...keep];
+    more = totalBody - keep.length;
+    tail = footRows;
+  }
   const border = toPdfColor(parseCssColor(PRINT_TOKENS.border)!);
   let top = box.top;
-  for (const r of shown) {
+  const drawRow = (r: Cell[]) => {
     let x = box.x;
     let col = 0;
     for (const c of r) {
@@ -469,7 +518,8 @@ export function drawHtmlTable(ctx: ChartDrawContext, table: MElement, box: Box) 
       let s = ctx.encode(c.text);
       while (s.length > 1 && font.widthOfTextAtSize(s, size) > w - pad * 2) s = s.slice(0, -1);
       const tw = font.widthOfTextAtSize(s, size);
-      const right = !c.head && NUMBERISH.test(c.text);
+      // A total is bold but still a number, lined up with the column.
+      const right = (!c.head || c.foot) && NUMBERISH.test(c.text);
       ctx.page.drawText(s, {
         x: right ? x + w - pad - tw : x + pad,
         y: top - rowH + (rowH - size) / 2 + 1,
@@ -487,14 +537,17 @@ export function drawHtmlTable(ctx: ChartDrawContext, table: MElement, box: Box) 
       color: border,
     });
     top -= rowH;
-  }
-  if (shown.length < rows.length) {
-    ctx.page.drawText(ctx.encode(`… ${rows.length - shown.length} more rows not shown`), {
+  };
+  for (const r of shown) drawRow(r);
+  if (more > 0) {
+    ctx.page.drawText(ctx.encode(`… ${more} more ${more === 1 ? "row" : "rows"} not shown`), {
       x: box.x + pad,
       y: top - rowH + (rowH - size) / 2 + 1,
       size,
       font: ctx.regular,
       color: ctx.muted,
     });
+    top -= rowH;
   }
+  for (const r of tail) drawRow(r);
 }

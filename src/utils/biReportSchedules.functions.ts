@@ -1,16 +1,20 @@
-// Server functions behind a report's Schedule dialog (R509).
+// Server functions behind the Schedule dialog of a report (R509) and of a
+// dashboard (R510).
 //
 // Every write goes through here, never straight from the browser: the table
 // has no write policy, because who a report may be sent to is checked against
 // the instance's policy (accounts on this install, REPORT_EMAIL_DOMAINS),
 // which RLS cannot see. Each call resolves the caller and scopes by user_id;
-// a report is owner-only, and so are its schedules.
+// reports and dashboards are scheduled by their owner only.
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
+import { parseLayout, parsePages, parseWidgets } from "@/lib/biDashboards";
+import { parseParams, type BiParamConfig } from "@/lib/biParams";
 import {
+  cleanPageIds,
   cleanStoredValues,
   cleanSubjectLine,
   MAX_RECIPIENTS,
@@ -37,14 +41,27 @@ async function resolveCaller(accessToken: string): Promise<{ id: string; email: 
   return { id: data.user.id, email: data.user.email ?? null };
 }
 
-const MISSING_TABLE = /does not exist|schema cache|Could not find the table/i;
-const NEEDS_MIGRATION =
-  "Scheduling needs a database update this install has not applied yet " +
-  "(migration 20261118000000_bi_report_schedules). Ask an administrator to apply it.";
+const MISSING_TABLE = /does not exist|schema cache|Could not find the (table|.* column)/i;
+const needsMigration = (kind: ScheduleTarget["kind"]) =>
+  kind === "dashboard"
+    ? "Sending a dashboard needs a database update this install has not applied yet " +
+      "(migration 20261119000000_bi_dashboard_schedules). Ask an administrator to apply it."
+    : "Scheduling needs a database update this install has not applied yet " +
+      "(migration 20261118000000_bi_report_schedules). Ask an administrator to apply it.";
+
+/** What a schedule sends. */
+export type ScheduleTarget = { kind: "report" | "dashboard"; id: string };
+
+const TARGET = z.object({ kind: z.enum(["report", "dashboard"]), id: z.string().uuid() });
+
+const targetColumn = (t: ScheduleTarget) => (t.kind === "dashboard" ? "dashboard_id" : "report_id");
 
 export type ReportScheduleView = {
   id: string;
-  report_id: string;
+  report_id: string | null;
+  dashboard_id: string | null;
+  /** A dashboard schedule's page ids; empty = every page. */
+  pages: string[];
   name: string;
   enabled: boolean;
   cadence: ReportCadence;
@@ -78,7 +95,9 @@ export type ReportDeliveryView = {
 function toView(row: Record<string, unknown>): ReportScheduleView {
   return {
     id: String(row.id),
-    report_id: String(row.report_id),
+    report_id: (row.report_id as string | null) ?? null,
+    dashboard_id: (row.dashboard_id as string | null) ?? null,
+    pages: Array.isArray(row.pages) ? (row.pages as string[]) : [],
     name: String(row.name ?? ""),
     enabled: Boolean(row.enabled),
     cadence: String(row.cadence) as ReportCadence,
@@ -101,17 +120,36 @@ function toView(row: Record<string, unknown>): ReportScheduleView {
   };
 }
 
-/** The caller's report's parameters; throws when the report is not theirs. */
-async function ownedReportParams(userId: string, reportId: string) {
+/**
+ * The caller's report or dashboard: its parameters and, for a dashboard, its
+ * page ids. Throws when it is not theirs.
+ */
+async function ownedTarget(
+  userId: string,
+  t: ScheduleTarget,
+): Promise<{ params: BiParamConfig[]; pageIds: string[] }> {
+  if (t.kind === "report") {
+    const { data: row, error } = await supabaseAdmin
+      .from("bi_reports")
+      .select("id, page")
+      .eq("id", t.id)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error) throw new Error(`This report could not be read: ${error.message}`);
+    if (!row) throw new Error("Report not found");
+    return { params: reportParams((row.page ?? {}) as ReportPageSetup), pageIds: [] };
+  }
   const { data: row, error } = await supabaseAdmin
-    .from("bi_reports")
-    .select("id, page")
-    .eq("id", reportId)
+    .from("bi_dashboards")
+    .select("id, filters, widgets, layout, pages")
+    .eq("id", t.id)
     .eq("user_id", userId)
     .maybeSingle();
-  if (error) throw new Error(`This report could not be read: ${error.message}`);
-  if (!row) throw new Error("Report not found");
-  return reportParams((row.page ?? {}) as ReportPageSetup);
+  if (error) throw new Error(`This dashboard could not be read: ${error.message}`);
+  if (!row) throw new Error("Dashboard not found");
+  const top = parseWidgets(row.widgets);
+  const pages = parsePages(row.pages, top, parseLayout(row.layout, top));
+  return { params: parseParams(row.filters), pageIds: pages.map((p) => p.id) };
 }
 
 // Per process, like the run limits elsewhere: a button pressed in a loop
@@ -140,7 +178,7 @@ function policyNote(): { anyDomain: boolean; domains: string[] } {
 
 export const biReportSchedulesList = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
-    z.object({ accessToken: z.string().min(1), reportId: z.string().uuid() }).parse(input),
+    z.object({ accessToken: z.string().min(1), target: TARGET }).parse(input),
   )
   .handler(
     async ({
@@ -154,30 +192,37 @@ export const biReportSchedulesList = createServerFn({ method: "POST" })
           mailer: boolean;
           policy: { anyDomain: boolean; domains: string[] };
           ownerEmail: string | null;
-          needsMigration?: true;
+          needsMigration?: string;
         }
     > => {
       try {
         const me = await resolveCaller(data.accessToken);
-        await ownedReportParams(me.id, data.reportId);
+        await ownedTarget(me.id, data.target);
         const { isMailerConfigured } = await import("@/lib/email/mailer.server");
         const base = { mailer: isMailerConfigured(), policy: policyNote(), ownerEmail: me.email };
+        const col = targetColumn(data.target);
         const { data: rows, error } = await supabaseAdmin
           .from("bi_report_schedules")
           .select("*")
-          .eq("report_id", data.reportId)
+          .eq(col, data.target.id)
           .eq("user_id", me.id)
           .order("created_at");
         if (error) {
           if (MISSING_TABLE.test(error.message)) {
-            return { ok: true, schedules: [], deliveries: [], needsMigration: true, ...base };
+            return {
+              ok: true,
+              schedules: [],
+              deliveries: [],
+              needsMigration: needsMigration(data.target.kind),
+              ...base,
+            };
           }
           return { ok: false, error: error.message };
         }
         const { data: dels } = await supabaseAdmin
           .from("bi_report_deliveries")
           .select("id, schedule_id, ran_at, trigger, status, recipients, pages, bytes, detail")
-          .eq("report_id", data.reportId)
+          .eq(col, data.target.id)
           .eq("user_id", me.id)
           .order("ran_at", { ascending: false })
           .limit(30);
@@ -213,16 +258,18 @@ export const biReportScheduleSave = createServerFn({ method: "POST" })
     z
       .object({
         accessToken: z.string().min(1),
-        reportId: z.string().uuid(),
+        target: TARGET,
         id: z.string().uuid().nullable().optional(),
         fields: FIELDS,
+        /** A dashboard's pages to send; empty = every page. */
+        pages: z.array(z.string().max(100)).max(100).optional(),
       })
       .parse(input),
   )
   .handler(async ({ data }): Promise<Fail | { ok: true; schedule: ReportScheduleView }> => {
     try {
       const me = await resolveCaller(data.accessToken);
-      const params = await ownedReportParams(me.id, data.reportId);
+      const { params, pageIds } = await ownedTarget(me.id, data.target);
       const { valid, invalid } = parseRecipients(data.fields.recipients);
       if (invalid.length)
         return { ok: false, error: `Not an email address: ${invalid.join(", ")}` };
@@ -241,9 +288,15 @@ export const biReportScheduleSave = createServerFn({ method: "POST" })
       const { refused } = await recipientCheck(valid);
       if (refused.length) return { ok: false, error: refusedRecipientsMessage(refused) };
 
+      const col = targetColumn(data.target);
       const row = {
         user_id: me.id,
-        report_id: data.reportId,
+        [col]: data.target.id,
+        // Only a dashboard's row names the R510 columns, so report schedules
+        // keep saving on an install that has not applied that migration yet.
+        ...(data.target.kind === "dashboard"
+          ? { pages: cleanPageIds(data.pages ?? [], pageIds) }
+          : {}),
         name: fields.name,
         enabled: fields.enabled,
         cadence: fields.cadence,
@@ -262,38 +315,43 @@ export const biReportScheduleSave = createServerFn({ method: "POST" })
         next_run_at: nextReportRun(fields, new Date()).toISOString(),
         updated_at: new Date().toISOString(),
       };
+      const thing = data.target.kind === "dashboard" ? "dashboard" : "report";
       if (!data.id) {
         const { count, error: countErr } = await supabaseAdmin
           .from("bi_report_schedules")
           .select("id", { count: "exact", head: true })
-          .eq("report_id", data.reportId)
+          .eq(col, data.target.id)
           .eq("user_id", me.id);
         if (countErr) {
           return {
             ok: false,
-            error: MISSING_TABLE.test(countErr.message) ? NEEDS_MIGRATION : countErr.message,
+            error: MISSING_TABLE.test(countErr.message)
+              ? needsMigration(data.target.kind)
+              : countErr.message,
           };
         }
         if ((count ?? 0) >= MAX_SCHEDULES_PER_REPORT) {
           return {
             ok: false,
-            error: `A report has at most ${MAX_SCHEDULES_PER_REPORT} schedules. Change or delete one.`,
+            error: `A ${thing} has at most ${MAX_SCHEDULES_PER_REPORT} schedules. Change or delete one.`,
           };
         }
       }
       const q = data.id
         ? supabaseAdmin
             .from("bi_report_schedules")
-            .update(row)
+            .update(row as never)
             .eq("id", data.id)
             .eq("user_id", me.id)
-            .eq("report_id", data.reportId)
-        : supabaseAdmin.from("bi_report_schedules").insert(row);
+            .eq(col, data.target.id)
+        : supabaseAdmin.from("bi_report_schedules").insert(row as never);
       const { data: saved, error } = await q.select("*").maybeSingle();
       if (error) {
         return {
           ok: false,
-          error: MISSING_TABLE.test(error.message) ? NEEDS_MIGRATION : error.message,
+          error: MISSING_TABLE.test(error.message)
+            ? needsMigration(data.target.kind)
+            : error.message,
         };
       }
       if (!saved) return { ok: false, error: "Schedule not found" };
@@ -370,9 +428,10 @@ export const biReportSchedulePreview = createServerFn({ method: "POST" })
     z
       .object({
         accessToken: z.string().min(1),
-        reportId: z.string().uuid(),
+        target: TARGET,
         param_values: z.record(z.string(), z.string().max(500)),
         timezone: z.string().max(64),
+        pages: z.array(z.string().max(100)).max(100).optional(),
       })
       .parse(input),
   )
@@ -400,14 +459,27 @@ export const biReportSchedulePreview = createServerFn({ method: "POST" })
             error: "Too many previews in the last ten minutes. Try again shortly.",
           };
         }
-        const params = await ownedReportParams(me.id, data.reportId);
-        const { runReport } = await import("@/utils/bi/reportSchedule.server");
-        const run = await runReport({
-          userId: me.id,
-          reportId: data.reportId,
-          stored: cleanStoredValues(params, data.param_values),
-          timezone: data.timezone,
-        });
+        const { params, pageIds } = await ownedTarget(me.id, data.target);
+        const stored = cleanStoredValues(params, data.param_values);
+        const run =
+          data.target.kind === "dashboard"
+            ? await (
+                await import("@/utils/bi/dashboardSchedule.server")
+              ).runDashboard({
+                userId: me.id,
+                dashboardId: data.target.id,
+                stored,
+                timezone: data.timezone,
+                pageIds: cleanPageIds(data.pages ?? [], pageIds),
+              })
+            : await (
+                await import("@/utils/bi/reportSchedule.server")
+              ).runReport({
+                userId: me.id,
+                reportId: data.target.id,
+                stored,
+                timezone: data.timezone,
+              });
         return {
           ok: true,
           pdf: Buffer.from(run.bytes).toString("base64"),

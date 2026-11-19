@@ -873,6 +873,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 2
       },
       {
+        "id": "dashboard-schedule",
+        "text": "Sending a dashboard on a schedule",
+        "level": 3
+      },
+      {
         "id": "sharing",
         "text": "Sharing, export and embedding",
         "level": 2

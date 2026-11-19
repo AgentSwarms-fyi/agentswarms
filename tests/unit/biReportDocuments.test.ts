@@ -325,11 +325,13 @@ describe("fields from one record", () => {
 });
 
 describe("pictures", () => {
-  it("are kept as a PNG or JPEG data URL, or an https address", () => {
+  it("are kept as a PNG, JPEG or SVG data URL, or an https address", () => {
     expect(imageSourceProblem(PNG)).toBeNull();
     expect(imageSourceProblem("https://example.com/logo.png")).toBeNull();
     expect(imageSourceProblem("http://example.com/logo.png")).toMatch(/https/);
-    expect(imageSourceProblem("data:image/svg+xml;base64,PHN2Zz4=")).toMatch(/PNG or a JPEG/);
+    // SVG (R510): the PDF draws it as shapes and text.
+    expect(imageSourceProblem("data:image/svg+xml;base64,PHN2Zz4=")).toBeNull();
+    expect(imageSourceProblem("data:image/gif;base64,R0lGODlh")).toMatch(/PNG, a JPEG or an SVG/);
     expect(imageSourceProblem(`data:image/png;base64,${"A".repeat(1_400_001)}`)).toMatch(/1 MB/);
   });
 

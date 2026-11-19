@@ -5,10 +5,17 @@
 // Below STACK_BREAKPOINT the grid stacks into a single reading column
 // (ordered top-left → bottom-right) so dashboards work on phones.
 import { useEffect, useRef, useState } from "react";
-import { GRID_COLS, compactLayout, pushDown, type BiLayoutItem } from "@/lib/biDashboards";
+import {
+  GRID_COLS,
+  GRID_GAP_PX,
+  GRID_ROW_PX,
+  compactLayout,
+  pushDown,
+  type BiLayoutItem,
+} from "@/lib/biDashboards";
 
-const ROW_H = 56;
-const GAP = 12;
+const ROW_H = GRID_ROW_PX;
+const GAP = GRID_GAP_PX;
 const STACK_BREAKPOINT = 560;
 
 type DragState = {

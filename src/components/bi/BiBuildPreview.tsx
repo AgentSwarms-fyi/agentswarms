@@ -2,7 +2,7 @@
 // real table with its cell styles, or the raw rows while no chart is chosen.
 // Moved out of BiBuilderPane in R499 (it owns no state: values in).
 import { BiChartRender } from "@/components/bi/BiChartRender";
-import { WidgetDataTable } from "@/components/bi/BiWidgetCard";
+import { WidgetDataTable } from "@/components/bi/BiDataTable";
 import { fmtBiValue } from "@/components/bi/biChartData";
 import type { BiColumnFormat, ChartSpec } from "@/lib/biAgent";
 
