@@ -107,7 +107,7 @@ const comparisons = [
   },
   {
     them: "A framework + a BI tool + a gateway",
-    they: "LangGraph and CrewAI are powerful, well-tested libraries with far more control than any canvas; Metabase and Superset are mature BI products with years of polish. Composed yourself, this stack gives you the best tool for each job and no lock-in to our choices.",
+    they: "LangGraph and CrewAI are powerful, well-tested libraries with far more control than any canvas; the established open-source BI tools are mature products with years of polish. Composed yourself, this stack gives you the best tool for each job and no lock-in to our choices.",
     we: "We trade some of that depth for one system to deploy, secure and observe — agents, BI, model gateway, traces and IAM sharing one login and one permission model. When you outgrow the canvas, every swarm exports to LangGraph, CrewAI, Strands or the OpenAI Agents SDK, so this is a starting point rather than a destination.",
   },
 ];

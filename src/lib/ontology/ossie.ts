@@ -154,8 +154,8 @@ const MULTIPLICITY_OF: Partial<Record<Cardinality, "ManyToOne" | "OneToOne">> = 
  * Dialects an expression is read from, best first. OSSIE_SQL_2026 is the
  * portable form; ANSI is what most producers write; the engine-specific ones
  * are close enough to this app's SQL subset to be worth trying, and whatever
- * they contain still has to pass checkExpr. MDX, DAX, Tableau and the like are
- * not SQL at all and are never tried.
+ * they contain still has to pass checkExpr. MDX, DAX and the like are not SQL
+ * at all and are never tried.
  */
 const SQL_DIALECTS = [
   OSSIE_PORTABLE_DIALECT,

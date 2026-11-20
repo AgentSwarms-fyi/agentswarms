@@ -3,7 +3,7 @@
 //
 // The most useful thing a capacity feature ships is not the engine — it is
 // this: a page that says how much room is left and which datasets are using
-// it. QuickSight's SPICE bar is more valuable to most teams than SPICE.
+// it. Most teams get more from that bar than from the engine behind it.
 //
 // Every row states its EFFECTIVE mode and the reason, because `auto` deciding
 // something on your behalf is only acceptable if it will tell you what it

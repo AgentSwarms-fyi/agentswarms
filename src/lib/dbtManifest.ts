@@ -164,7 +164,7 @@ export function dbtRelation(node: Json): string | null {
   return `${database}.${schema}.${alias}`;
 }
 
-/** Lightdash-style `meta.metrics` — the shape a Lightdash user already has. */
+/** `meta.metrics` on a column or model — a common dbt YAML convention. */
 function metricsFromMeta(
   meta: Json | null,
   columnSql: string | undefined,
@@ -385,7 +385,7 @@ export function parseDbtManifest(raw: unknown, opts: { connectionId: string }): 
       metricsFromMeta(meta, colName, name, metrics, skipped);
     }
 
-    // Model-level metrics (Lightdash allows them outside a column).
+    // Model-level metrics (the convention allows them outside a column).
     metricsFromMeta(obj(node.meta), undefined, name, metrics, skipped);
 
     const modelMeta = obj(node.meta);

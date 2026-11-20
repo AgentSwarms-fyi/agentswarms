@@ -2,8 +2,8 @@
 //
 // WHY THIS EXISTS: prep used to run in the BROWSER and materialise at most
 // 5,000 output rows, so a 200k-row source silently became a 5k-row prepared
-// table — the sample WAS the output. Every comparable tool (Tableau Prep,
-// Power Query, Alteryx) previews on a sample and executes on the full data.
+// table — the sample WAS the output. A prep tool should preview on a sample
+// and execute on the full data.
 // This module is that execution path: it runs the same compiled SQL against
 // the owner's stored rows on the server, with caps high enough to be real and
 // reported honestly when they bite.

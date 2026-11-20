@@ -3,9 +3,8 @@
 //
 // A dataset can be queried two ways. IMPORT reads a columnar mirror — fast,
 // and bounded by disk. DIRECT reads the source every time — always current,
-// and bounded by the source. QuickSight calls these SPICE and Direct Query;
-// the trade is the same everywhere and there is no universally right answer,
-// which is exactly why it should be a choice rather than an accident of which
+// and bounded by the source. There is no universally right answer to that
+// trade, which is exactly why it should be a choice rather than an accident of which
 // code path a dataset happened to take.
 //
 // EVICTION MUST NEVER CHANGE AN ANSWER. This is the rule the whole module is

@@ -1,5 +1,5 @@
 // Delta Sharing (the open protocol clients such as the delta-sharing Python
-// package, Spark and Power BI speak), the part that needs no database: the
+// package and Spark speak), the part that needs no database: the
 // wire shapes, the path grammar, the schema translation and the token
 // format. Pure so the routes, the server module and the tests share one
 // reading of the protocol.

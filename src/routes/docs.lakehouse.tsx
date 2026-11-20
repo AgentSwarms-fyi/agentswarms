@@ -409,9 +409,10 @@ function LakehouseDocsPage() {
       <P>
         A grant shares a schema with someone who has an account here. <strong>Shares</strong> hand
         tables to people who do not, over the Delta Sharing protocol — the delta-sharing Python
-        package, Spark, Power BI. On the lakehouse page, <strong>Shares</strong>: create a share,
-        add the tables you own (each with an optional row filter and masked columns on top of the
-        table&apos;s own policy), mint a recipient token and give them the profile it shows once.
+        package, Spark or any other Delta Sharing client. On the lakehouse page,{" "}
+        <strong>Shares</strong>: create a share, add the tables you own (each with an optional row
+        filter and masked columns on top of the table&apos;s own policy), mint a recipient token and
+        give them the profile it shows once.
       </P>
       <Steps
         items={[

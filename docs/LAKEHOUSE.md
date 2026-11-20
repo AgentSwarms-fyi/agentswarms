@@ -646,7 +646,7 @@ at all. What it needs and what it does not cover:
 A grant shares a schema with someone who has an account here. **Shares** hand
 tables to people who do not — an auditor, a partner, a customer's data team —
 over the [Delta Sharing](https://delta.io/sharing/) protocol, which the
-`delta-sharing` Python package, Spark, Power BI and others speak. The
+`delta-sharing` Python package, Spark and other clients speak. The
 lakehouse page's **Shares** button:
 
 1. **Create a share** — a name that appears in the recipient's URL

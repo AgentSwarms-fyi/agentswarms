@@ -954,8 +954,8 @@ export function buildPrepSql(cfg: PrepFlowConfig, opts: BuildPrepSqlOpts = {}): 
 
 // ── Pushdown (query folding) eligibility ──────────────────────────────────
 //
-// "Folding" is Power Query's term for pushing pipeline work into the source
-// system; Tableau Prep calls it pushdown. The value is obvious — a summarize
+// "Folding" (or pushdown) means pushing pipeline work into the source
+// system. The value is obvious — a summarize
 // over 500M warehouse rows should return 200 rows, not drag 500M rows across
 // the network — but the risk is subtle: a step that compiles to SQL meaning
 // something SLIGHTLY different in the target dialect produces wrong numbers

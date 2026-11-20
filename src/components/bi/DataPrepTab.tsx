@@ -1,5 +1,5 @@
 // "Data preparation" tab of the BI Workspace — a step-based, self-serve data
-// pipeline in the spirit of Tableau Prep / Power Query:
+// pipeline:
 //
 //   1. Combine   — drag tables onto the canvas to build a join graph
 //   2. Shape     — pick/rename/retype columns (Columns), then apply an ordered,
@@ -280,7 +280,7 @@ export function DataPrepTab() {
   /**
    * Which step's output the preview shows. null = the final result. Clicking a
    * step inspects the data AS OF that step — the core debugging interaction in
-   * Tableau Prep / Power Query, and the only way to tell WHICH step dropped
+   * a step-based prep tool, and the only way to tell WHICH step dropped
    * the rows you expected.
    */
   const [previewStep, setPreviewStep] = useState<number | null>(null);
@@ -1719,7 +1719,7 @@ export function DataPrepTab() {
               />
             </CardHeader>
             <CardContent className="space-y-2 pt-0">
-              {/* Where the pipeline runs — Power Query calls this "folding".
+              {/* Where the pipeline runs ("folding", or pushdown).
                   Making it visible is the point: an unfolded flow drags the
                   whole table across the network, and silence about that is
                   how a prep job quietly becomes slow. */}

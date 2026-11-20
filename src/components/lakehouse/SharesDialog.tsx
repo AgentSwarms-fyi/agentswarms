@@ -189,9 +189,9 @@ export function SharesDialog({
           <DialogTitle>Shares</DialogTitle>
           <DialogDescription>
             Hand tables to people outside the platform over the Delta Sharing protocol — the
-            delta-sharing Python client, Spark, Power BI. Each recipient gets a token bound to one
-            share and reads a governed snapshot: the table&apos;s policy, plus any rule you set
-            here, with nothing that was deleted.
+            delta-sharing Python client, Spark or any other Delta Sharing client. Each recipient
+            gets a token bound to one share and reads a governed snapshot: the table&apos;s policy,
+            plus any rule you set here, with nothing that was deleted.
           </DialogDescription>
         </DialogHeader>
 

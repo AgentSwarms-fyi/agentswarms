@@ -1,8 +1,8 @@
 // POST /api/bi/direct-query — live "Direct query" execution for a BI widget.
 //
-// The Import (SPICE) path renders a cached snapshot; a Direct-query widget
+// The Import path renders a cached snapshot; a Direct-query widget
 // re-runs its SQL live against the warehouse at view time for the full, current
-// truth. Runs QuickSight-style AS THE DASHBOARD OWNER: a teammate with an IAM
+// truth. Runs AS THE DASHBOARD OWNER: a teammate with an IAM
 // grant to the dashboard gets live data executed with the OWNER's warehouse
 // credentials — they never need to own the connection themselves.
 //

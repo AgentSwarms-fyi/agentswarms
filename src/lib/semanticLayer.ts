@@ -1789,7 +1789,7 @@ function planChasm(args: {
   // Dimensions reading from a fanning join: allowed from exactly ONE such
   // join, and only with a declared primary key — the base branch keeps that
   // join and DEDUPLICATES by the key, so each source row counts once per
-  // distinct dimension combination it relates to (Tableau's related-table
+  // distinct dimension combination it relates to (related-table
   // attribution). Two fact-side dimension sources have no shared row
   // identity to deduplicate on, so they stay refused.
   const joinByQual = new Map((model.joins ?? []).map((j) => [joinQualifier(j), j]));

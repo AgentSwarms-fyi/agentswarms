@@ -109,7 +109,7 @@ What comes across:
 | Documented columns (`schema.yml`)       | Dimensions, with descriptions                                   |
 | `data_type` (needs `dbt docs generate`) | Field type — left **unset** when dbt has none                   |
 | MetricFlow `measures`                   | Metrics (`sum`, `avg`, `count`, `count_distinct`, `min`, `max`) |
-| Lightdash-style `meta.metrics`          | The same                                                        |
+| `meta.metrics` on a column or model     | The same                                                        |
 | `meta.primary_key`                      | The model's grain, which feeds fan-out refusal                  |
 
 **Everything else is listed, with a reason.** The dialog shows "N of M models"
@@ -198,8 +198,8 @@ reference — at the requested dimension grain, and the branch aggregates are
 stitched on a dimension **spine** with NULL-safe joins. The same query now
 returns 150, and `SUM(order_items.qty)` beside it returns the line-item
 truth, in one result. This is the classic **chasm** schema (orders → items,
-orders → shipments) handled the way Tableau's relationships handle it:
-per-fact aggregation, never a refusal — where the plan can be proven.
+orders → shipments) handled by per-fact aggregation, never a refusal —
+where the plan can be proven.
 
 The rules, per metric:
 
@@ -225,8 +225,8 @@ The rules, per metric:
   deduplication** when the model declares a primary key: the base branch
   reduces to one row per source row per distinct dimension combination
   (`SELECT DISTINCT` over dims + key + values), then aggregates — each order
-  counts once per line-item bucket it relates to, Tableau's related-table
-  attribution. The spine and base branch carry that one fanning join;
+  counts once per line-item bucket it relates to (related-table
+  attribution). The spine and base branch carry that one fanning join;
   filtered measures keep their filters as carried flags.
 - **An INNER fanning join resolves by EXISTS-scoping.** INNER does two things
   at once: it multiplies (each source row repeats per match) and it

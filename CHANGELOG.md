@@ -3835,7 +3835,7 @@ tests. Knobs:
   recipient — shown once as the profile file their client loads, revocable,
   optionally bound to an email and expiring. `/api/delta-sharing` serves the
   read side of the Delta Sharing 1.x protocol, which the `delta-sharing`
-  Python package, Spark and Power BI speak. What a recipient receives is a
+  Python package, Spark and other clients speak. What a recipient receives is a
   governed snapshot, never the lake's own Parquet: DuckLake keeps deleted rows
   in its data files, and a presigned URL bypasses every policy, so each read
   serves a SELECT through the same rewrite as any reader here, written by the

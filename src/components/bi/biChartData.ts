@@ -92,7 +92,7 @@ export function categoryAxis(
   };
 }
 
-/** Tableau-style categorical palette — calm, print-safe, colorblind-aware. */
+/** Categorical palette — calm, print-safe, colorblind-aware. */
 export const PIE_COLORS = [
   "#4E79A7",
   "#F28E2B",

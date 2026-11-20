@@ -44,7 +44,7 @@ import type {
   OntologySpec,
 } from "@/lib/biOntology";
 
-// Tableau-10 hexes — consistent with the chart palette, fixed across themes.
+// The chart palette's ten hexes — fixed across themes.
 const DOMAIN_COLORS = [
   "#4e79a7",
   "#f28e2b",
