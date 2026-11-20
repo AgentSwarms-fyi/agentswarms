@@ -526,13 +526,41 @@ function typeOfPhrase(phrase: string, everyday: boolean): ChartTypeId | undefine
  * itself, so the split can hand each question its own.
  */
 export function requestedChartTypes(text: string): ChartTypeId[] {
-  const found: { at: number; type: ChartTypeId }[] = [];
+  return requestedChartMentions(text).map((m) => m.type);
+}
+
+/** One visual a request names, and the words that say what it is OF. */
+export type ChartMention = {
+  type: ChartTypeId;
+  /** The words naming the visual, as written: "treemap", "pivot". */
+  phrase: string;
+  /**
+   * The part of the request that belongs to this visual: "sales by region and
+   * segment as a treemap", "a pivot of sales by region and segment". What the
+   * analyst matches its steps against, so a visual lands on the step that
+   * computes its numbers rather than on the step in the same position.
+   */
+  clause: string;
+};
+
+/** The words naming a visual, without the article: "a treemap" → "treemap". */
+const bareVisual = (words: string) => words.trim().replace(/^(?:an?|the)\s+/i, "");
+
+/**
+ * The visuals a request names with their clauses, in order. "As" forms name
+ * the subject BEFORE the visual ("sales by region as a treemap"); "a … of"
+ * forms name it after ("a pivot of sales by region"). A clause ends at the
+ * next visual or the end of its sentence.
+ */
+export function requestedChartMentions(text: string): ChartMention[] {
+  const found: { at: number; end: number; type: ChartTypeId; phrase: string; as: boolean }[] = [];
   // "as a bar chart", "as radial bars", "as a pivot table".
   const as =
     /\bas\s+([a-z][a-z -]{0,40}?)(?=\s*(?:[,.;:!?)]|$|\s(?:and|with|for|by|of|from|in|over|per|showing|across|split|broken|against|versus|vs|compared|to|about|that|which|where|at|on|under|within|including|ordered|sorted|grouped|ranked|colou?red|sized|highlighting)\b))/gi;
   for (const m of text.matchAll(as)) {
     const type = typeOfPhrase(m[1], true);
-    if (type) found.push({ at: m.index ?? 0, type });
+    const at = m.index ?? 0;
+    if (type) found.push({ at, end: at + m[0].length, type, phrase: bareVisual(m[1]), as: true });
   }
   // "a heatmap of sales by region", "a sankey showing …".
   const named =
@@ -541,9 +569,32 @@ export function requestedChartTypes(text: string): ChartTypeId[] {
     const at = m.index ?? 0;
     if (found.some((f) => Math.abs(f.at - at) < 4)) continue;
     const type = typeOfPhrase(m[1], false);
-    if (type) found.push({ at, type });
+    if (type) found.push({ at, end: at + m[0].length, type, phrase: bareVisual(m[1]), as: false });
   }
-  return found.sort((a, b) => a.at - b.at).map((f) => f.type);
+  found.sort((a, b) => a.at - b.at);
+  const sentenceEnd = (from: number) => {
+    const m = /[.;!?](\s|$)/.exec(text.slice(from));
+    return m ? from + m.index : text.length;
+  };
+  const sentenceStart = (before: number) => {
+    const head = text.slice(0, before);
+    const i = Math.max(head.lastIndexOf(". "), head.lastIndexOf("; "), head.lastIndexOf("? "));
+    return i < 0 ? 0 : i + 2;
+  };
+  let cursor = 0;
+  return found.map((f, i) => {
+    const next = found[i + 1]?.at ?? text.length;
+    let clause: string;
+    if (f.as) {
+      clause = text.slice(Math.max(cursor, sentenceStart(f.at)), f.end);
+      cursor = f.end;
+    } else {
+      const stop = Math.min(next, sentenceEnd(f.end));
+      clause = text.slice(f.at, stop);
+      cursor = stop;
+    }
+    return { type: f.type, phrase: f.phrase, clause: clause.replace(/^[\s,;:]+|[\s,;:]+$/g, "") };
+  });
 }
 
 /** The type a model's word for a visual means, or undefined. */

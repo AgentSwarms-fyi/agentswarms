@@ -145,6 +145,20 @@ describe("what the write-up is told", () => {
     expect(text).toContain("do not extrapolate");
   });
 
+  it("states the mean and calls the slope a slope", () => {
+    // R512 UI test: told only "Trend is flat at 6.77 per period", the
+    // self-check read 6.77 as the average of daily sales whose mean was
+    // 2,272.28 and flagged the step as suspect data.
+    const points = pts([2200, 2350, 2180, 2400, 2210, 2300, 2260, 2280]);
+    const reading = readSeries(points)!;
+    const text = describeSeries(reading, null);
+    expect(text).toContain(
+      `a mean of ${Number(reading.mean.toFixed(4)).toLocaleString("en-US")} a period`,
+    );
+    expect(text).toMatch(/Trend is (flat|rising|falling): the fitted line changes by /);
+    expect(text).toContain("that is a slope, not an average");
+  });
+
   it("names the outliers it found", () => {
     const points = pts([100, 102, 98, 101, 99, 100, 900, 101]);
     const text = describeSeries(readSeries(points)!, null);

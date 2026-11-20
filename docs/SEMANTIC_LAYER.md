@@ -326,6 +326,23 @@ final day inside the window, and are computed in **UTC** so the same dashboard
 answers identically wherever it is deployed. The runner shows the resolved
 dates beside the filter.
 
+### Filtering a time dimension to a period
+
+A **time** dimension filtered to a year, quarter or month (`2023`, `"2023"`,
+`"2023-Q2"`, `"2023-07"`) means every day in that period, whatever grain the
+query groups by:
+
+```json
+{ "field": "order_date", "op": "=", "value": "2023" }
+```
+
+It compiles to the same half-open range over the raw date as a relative
+window: `=` keeps the period, `!=` drops it, `>=` and `<` start from its
+first day, `>` and `<=` from the day after it ends, and `in` / `not_in`
+take a list of periods. A whole date (`"2023-04-15"`) compares as written.
+Under a **fiscal** grain the value is the fiscal year the query groups by,
+not a calendar period.
+
 ### Fiscal calendars
 
 A model can declare the month its **fiscal year starts**

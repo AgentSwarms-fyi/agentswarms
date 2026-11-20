@@ -1252,12 +1252,96 @@ export function metricExpression(m: SemanticMetric, allMetrics?: SemanticMetric[
   return resolveMetricExpr(m, byName);
 }
 
+const firstOfMonth = (y: number, m: number): string =>
+  `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-01`;
+
+/**
+ * A date written to the year, quarter or month — 2023, "2023", "2023-Q2",
+ * "2023-07" — as the half-open range of days it names. Null for anything
+ * else, a whole date included: that compares as it always has.
+ */
+export function partialDateRange(v: unknown): { start: string; end: string } | null {
+  const s =
+    typeof v === "number" && Number.isInteger(v)
+      ? String(v)
+      : typeof v === "string"
+        ? v.trim()
+        : "";
+  let m = /^(\d{4})$/.exec(s);
+  if (m) {
+    const y = Number(m[1]);
+    return { start: firstOfMonth(y, 1), end: firstOfMonth(y + 1, 1) };
+  }
+  m = /^(\d{4})-?Q([1-4])$/i.exec(s);
+  if (m) {
+    const y = Number(m[1]);
+    const first = (Number(m[2]) - 1) * 3 + 1;
+    return {
+      start: firstOfMonth(y, first),
+      end: first === 10 ? firstOfMonth(y + 1, 1) : firstOfMonth(y, first + 3),
+    };
+  }
+  m = /^(\d{4})-(\d{2})$/.exec(s);
+  if (m) {
+    const y = Number(m[1]);
+    const mo = Number(m[2]);
+    if (mo < 1 || mo > 12) return null;
+    return {
+      start: firstOfMonth(y, mo),
+      end: mo === 12 ? firstOfMonth(y + 1, 1) : firstOfMonth(y, mo + 1),
+    };
+  }
+  return null;
+}
+
+/**
+ * A time dimension filtered to a year, quarter or month, as a range over the
+ * RAW column (R512 UI test). "order_date = '2023'" was compared with the
+ * grained label, so a query grouped by day matched no day and returned 0 rows
+ * with no error; on the ungrained column DuckDB refused to read '2023' as a
+ * date. Null when the value is not a partial date, so the caller compiles the
+ * comparison as before.
+ */
+function partialDateFilter(f: SemanticFilter, sql: string, dialect: SqlDialect): string | null {
+  const from = (iso: string) => dateLiteral(iso, dialect);
+  const within = (r: { start: string; end: string }) =>
+    `(${sql} >= ${from(r.start)} AND ${sql} < ${from(r.end)})`;
+  if (f.op === "in" || f.op === "not_in") {
+    const values = Array.isArray(f.value) ? f.value : [f.value];
+    const ranges = values.map(partialDateRange);
+    if (ranges.length === 0 || ranges.some((r) => !r)) return null;
+    const any = `(${ranges.map((r) => within(r!)).join(" OR ")})`;
+    return f.op === "in" ? any : `NOT ${any}`;
+  }
+  if (Array.isArray(f.value)) return null;
+  const r = partialDateRange(f.value);
+  if (!r) return null;
+  switch (f.op) {
+    case "=":
+      return within(r);
+    case "!=":
+      return `NOT ${within(r)}`;
+    case ">=":
+      return `(${sql} >= ${from(r.start)})`;
+    case ">":
+      return `(${sql} >= ${from(r.end)})`;
+    case "<":
+      return `(${sql} < ${from(r.start)})`;
+    case "<=":
+      return `(${sql} < ${from(r.end)})`;
+    default:
+      return null;
+  }
+}
+
 function compileFilter(
   f: SemanticFilter,
   exprByField: Map<string, string>,
   dialect: SqlDialect,
   opts: {
     dim?: SemanticDimension;
+    /** The grain the query groups this dimension by, if any. */
+    grain?: TimeGrain;
     now?: Date;
     fiscalStartMonth?: number;
     calendar?: SemanticCalendar;
@@ -1265,6 +1349,13 @@ function compileFilter(
 ): string {
   const expr = exprByField.get(f.field);
   if (!expr) throw new Error(`Filter references unknown field "${f.field}"`);
+
+  // Not under a fiscal grain, where 2026 is the fiscal year the query groups
+  // by (the grained number) rather than the calendar year.
+  if (opts.dim?.type === "time" && !opts.grain?.startsWith("fiscal")) {
+    const ranged = partialDateFilter(f, opts.dim.sql, dialect);
+    if (ranged) return ranged;
+  }
 
   if (isRelativeDateOp(f.op)) {
     const dim = opts.dim;
@@ -2525,6 +2616,7 @@ export function compileSemanticQuery(
         whereParts.push(
           compileFilter(f, exprByField, dialect, {
             dim: dimFor(f.field),
+            grain: q.grains?.[f.field],
             now: opts?.now,
             fiscalStartMonth: model.fiscalYearStartMonth,
             calendar: model.calendar,

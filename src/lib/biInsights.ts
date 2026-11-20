@@ -774,7 +774,7 @@ export function suggestNarratives(
   columns: string[],
   rows: Record<string, unknown>[],
   value: (n: number) => string,
-  format: Pick<ChartSpec, "format" | "currency" | "decimals"> = {},
+  format: Pick<ChartSpec, "format" | "currency" | "decimals" | "percentOf"> = {},
   max = 3,
   /** The visual's own measure and category, used first when they qualify. */
   prefer: { measure?: string; category?: string } = {},
@@ -823,10 +823,11 @@ export function suggestNarratives(
   // Only the number format is taken from the visual. FOUND IN R499's UI test:
   // the builder passed its whole chart spec here, the spread copied its
   // `type: "kpi"` over "insight", and an added narrative drew as a KPI tile.
-  const fmt: Pick<ChartSpec, "format" | "currency" | "decimals"> = {};
+  const fmt: Pick<ChartSpec, "format" | "currency" | "decimals" | "percentOf"> = {};
   if (format.format) fmt.format = format.format;
   if (format.currency) fmt.currency = format.currency;
   if (format.decimals !== undefined) fmt.decimals = format.decimals;
+  if (format.percentOf) fmt.percentOf = format.percentOf;
   const out: NarrativeSuggestion[] = [];
   for (const p of plan) {
     const spec: InsightChart = {

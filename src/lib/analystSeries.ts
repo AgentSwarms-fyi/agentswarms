@@ -233,12 +233,16 @@ export function forecastSeries(points: SeriesPoint[], periods = 3): Forecast | n
 export function describeSeries(reading: SeriesReading, forecast: Forecast | null): string {
   const num = (n: number) => Number(n.toFixed(4)).toLocaleString("en-US");
   const pct = (n: number | null) => (n === null ? "n/a" : `${(n * 100).toFixed(1)}%`);
+  // The mean is stated, and the slope is called a slope. Given only "flat at
+  // 6.77 per period", the self-check read 6.77 as the average of a series
+  // whose mean was 2,272.28 and flagged the step's data as suspect (R512).
   const parts = [
     `SERIES: ${reading.points.length} periods, ${reading.first.label} (${num(
       reading.first.value,
-    )}) to ${reading.last.label} (${num(reading.last.value)}). ` +
-      `Trend is ${reading.direction} at ${num(reading.slopePerPeriod)} per period ` +
-      `(${pct(reading.slopePctPerPeriod)} of the mean).`,
+    )}) to ${reading.last.label} (${num(reading.last.value)}), a mean of ` +
+      `${num(reading.mean)} a period. Trend is ${reading.direction}: the fitted line ` +
+      `changes by ${num(reading.slopePerPeriod)} a period (${pct(reading.slopePctPerPeriod)} ` +
+      `of the mean); that is a slope, not an average.`,
     reading.anomalies.length > 0
       ? `OUTLIERS (median-based, 3+ deviations):\n` +
         reading.anomalies

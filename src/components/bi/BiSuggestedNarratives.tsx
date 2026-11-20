@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { fmtBiValue } from "@/components/bi/biChartData";
 import { visualFields } from "@/components/bi/biDrawHelpers";
 import type { ChartSpec } from "@/lib/biAgent";
+import { resolvePercentOf } from "@/lib/biChartFields";
 import { suggestNarratives } from "@/lib/biInsights";
 import { snapshotRows, type BiWidget } from "@/lib/biDashboards";
 import { toast } from "sonner";
@@ -32,12 +33,17 @@ export function BiSuggestedNarratives({
   onAdd: (w: BiWidget) => void;
 }) {
   const list = useMemo(() => {
-    const format: Pick<ChartSpec, "format" | "currency" | "decimals"> = chart ?? {};
+    const stated: Pick<ChartSpec, "format" | "currency" | "decimals" | "percentOf"> = chart ?? {};
+    // The sentence prints figures the way the preview above it does (R512):
+    // a Percent visual over ratios drew 27% on its axis while this read
+    // "APJ 0.27%". The added narrative keeps only the stated format and
+    // reads the scale from its own values when it draws.
+    const shown = chart ? resolvePercentOf(chart, rows) : {};
     return suggestNarratives(
       columns,
       rows,
-      (n) => fmtBiValue(n, format),
-      format,
+      (n) => fmtBiValue(n, shown),
+      stated,
       3,
       visualFields(chart),
     );

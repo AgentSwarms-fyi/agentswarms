@@ -5283,7 +5283,15 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "Semantic Layer",
     "description": "A metric defined once and reused everywhere. It exists so that two people asking the same question of the same data cannot get two different answers.",
     "terms": [
+      "!=",
+      "&gt;",
+      "&gt;=",
+      "&lt;",
+      "&lt;=",
       "0.25",
+      "2023",
+      "2023-07",
+      "2023-Q2",
       "2026",
       "20261",
       "COUNT(*)",
@@ -5325,6 +5333,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "fiscal_ytd",
       "format",
       "gross_revenue",
+      "in",
       "label",
       "last_fiscal_period",
       "last_fiscal_quarter",
@@ -5402,6 +5411,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "relative-dates",
         "text": "Relative date filters",
+        "level": 3
+      },
+      {
+        "id": "period-filters",
+        "text": "Filtering a time dimension to a period",
         "level": 3
       },
       {

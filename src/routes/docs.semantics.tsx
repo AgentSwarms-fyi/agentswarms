@@ -308,6 +308,17 @@ GROUP BY 1, 2`}</Code>
         dates each one resolves to.
       </P>
 
+      <H3 id="period-filters">Filtering a time dimension to a period</H3>
+      <P>
+        A <strong>time</strong> dimension filtered to a year, quarter or month (<C>2023</C>,{" "}
+        <C>2023-Q2</C>, <C>2023-07</C>) means every day in that period, whatever grain the query
+        groups by. It compiles to the same half-open range over the raw date: <C>=</C> keeps the
+        period, <C>!=</C> drops it, <C>&gt;=</C> and <C>&lt;</C> start from its first day,{" "}
+        <C>&gt;</C> and <C>&lt;=</C> from the day after it ends, and <C>in</C> takes a list of
+        periods. A whole date compares as written, and under a <strong>fiscal</strong> grain the
+        value is the fiscal year the query groups by.
+      </P>
+
       <H3 id="fiscal">Fiscal calendars</H3>
       <P>
         A model can declare the month its <strong>fiscal year starts</strong> (Source tab). That

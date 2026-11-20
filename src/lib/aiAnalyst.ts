@@ -35,6 +35,7 @@ import {
   ensureGovernedCatalog,
   generateSql,
   llmJson,
+  sqlForEngine,
   suggestChart,
   type LlmJsonFn,
   type BiPlan,
@@ -49,9 +50,10 @@ import {
   type DriverAnalysis,
 } from "@/lib/analystDrivers";
 import { describeSeries, forecastSeries, readSeries, seriesFrom } from "@/lib/analystSeries";
-import { requestedChartTypes } from "@/lib/biChartCatalog";
+import { describeDates, readDateSpans, todayIso, type DateSpan } from "@/lib/analystDates";
+import { askedVisualsForSteps } from "@/lib/analystVisuals";
 import { reconcileChartFields } from "@/lib/biChartFields";
-import { readableDecimals } from "@/lib/readableNumbers";
+import { readableCell, readableDecimals } from "@/lib/readableNumbers";
 import type { DatasetMeta, QueryResult } from "@/lib/sqlEngine";
 import type { SemanticFilter, SemanticQuery, TimeGrain } from "@/lib/semanticLayer";
 import type { MetricDelta, ScenarioChange, ScenarioParameter } from "@/lib/analystScenario";
@@ -819,6 +821,8 @@ export function buildAnalysisPlanPrompt(args: {
   catalog?: GovernedModelFields[];
   /** Trained models in scope; empty means no step can be scored. */
   models?: ScorableModel[];
+  /** Today and the data's date ranges (describeDates, forPlan). */
+  dates?: string;
 }): { systemPrompt: string; userPrompt: string } {
   const vocabulary = describeGovernedVocabulary(args.catalog ?? []);
   const scorable = describeScorableModels(args.models ?? []);
@@ -879,7 +883,13 @@ export function buildAnalysisPlanPrompt(args: {
       `Each step keeps its first ${ANALYST_ROW_CAP} rows (${ANALYST_CHART_ROW_CAP} when drawn ` +
       "as a chart), so give each step a goal whose answer fits: by week or month rather than " +
       "by day over a span longer than a few weeks, unless the question asks for a visual " +
-      "drawn by day, such as a calendar, over up to a year.\n\n" +
+      "drawn by day, such as a calendar, over up to a year. " +
+      // R512's UI test: a treemap and a pivot of the same breakdown became one
+      // step, drawn as the pivot; the treemap was never drawn.
+      'When the question asks for visuals ("as a treemap", "a pivot of …"), give EACH visual ' +
+      "its own step and keep the visual's words in that step's goal (\"sales by region and " +
+      'segment as a treemap"). Two visuals of the same numbers are two steps — an identical ' +
+      "query runs once.\n\n" +
       // A guess that runs is worse than a question that doesn't: a wrong
       // assumption comes back as confident numbers nobody can see the
       // assumption behind. Measured: "…this quarter" ran against a quarter
@@ -895,7 +905,7 @@ export function buildAnalysisPlanPrompt(args: {
       scoreRule +
       answeredRule,
     userPrompt:
-      `${args.schema}${vocabulary}${scorable}\n\n${args.prior}QUESTION: ${args.question}\n\n` +
+      `${args.schema}${args.dates ?? ""}${vocabulary}${scorable}\n\n${args.prior}QUESTION: ${args.question}\n\n` +
       `Return JSON: { "approach": "1-3 sentences on how you'll answer and why these steps", ` +
       `"steps": [ { "goal": "concrete, measurable step goal"${
         vocabulary ? ', "semantic": { ... } (optional)' : ""
@@ -911,6 +921,88 @@ export function buildAnalysisPlanPrompt(args: {
   };
 }
 
+/** The row LIMIT a query ends with, or null. */
+export function trailingLimit(sql: string): number | null {
+  const m = /\bLIMIT\s+(\d+)(?:\s+OFFSET\s+\d+)?\s*;?\s*$/i.exec(sql);
+  return m ? Number(m[1]) : null;
+}
+
+/**
+ * The step returned fewer rows than its LIMIT, so the LIMIT cut nothing. Not
+ * when the runner says the rows are a prefix: a governed query asks for one
+ * row more than its limit to detect exactly that, and returns the limit.
+ */
+export function limitCutNothing(
+  sql: string | undefined,
+  rowCount: number | undefined,
+  truncated?: boolean,
+): boolean {
+  const limit = sql ? trailingLimit(sql) : null;
+  return limit !== null && !truncated && typeof rowCount === "number" && rowCount < limit;
+}
+
+/**
+ * A self-check correction made for a LIMIT that cut nothing (R512 UI test).
+ * The governed yearly step returned 4 rows under LIMIT 101; the reviewer
+ * "corrected" the LIMIT anyway, the rewrite dropped the ORDER BY and the step
+ * lost its governed status — all for a concern the row count disproves. The
+ * correction is refused here, where the count is known, and the original
+ * result stands.
+ */
+export function needlessLimitCorrection(args: {
+  sql?: string;
+  rowCount?: number;
+  truncated?: boolean;
+  note?: string;
+}): boolean {
+  return (
+    /\blimit\b/i.test(args.note ?? "") && limitCutNothing(args.sql, args.rowCount, args.truncated)
+  );
+}
+
+/** How the note a governed step gets when the compiler cut its result begins. */
+export const GOVERNED_PARTIAL_NOTE_START = "Partial: the governed model returned the first ";
+
+/**
+ * The note a self-corrected step carries once the correction has re-run.
+ *
+ * The check's reason is about the FIRST run, and so is a note written before
+ * the check ("Partial: the governed model returned the first 100 groups…").
+ * Both used to be kept as written, so a daily step whose correction brought
+ * back all 323 rows still said "shows only 100 rows", and the write-up
+ * repeated it as a caveat (R512 UI test, fourth pass). So the note ends with
+ * what the corrected query returned, and a compiler cut the correction
+ * replaced is dropped — the outcome sentence says whether the new result is
+ * whole. Other earlier notes (a scoring that failed, a governed fallback) are
+ * facts about how the step was produced and stay.
+ */
+export function correctedStepNote(args: {
+  /** The step's note from before the check, if any. */
+  pre?: string;
+  /** The check's reason for the correction. */
+  reason?: string;
+  /** Rows the first run kept, and whether it was cut. */
+  before: { rows: number; capped: boolean };
+  /** Rows the corrected run kept, its pre-cap count when known, and whether it was cut. */
+  after: { rows: number; total?: number; capped: boolean };
+}): string {
+  const count = (n: number) => `${n.toLocaleString("en-US")} row${n === 1 ? "" : "s"}`;
+  const { before, after } = args;
+  const outcome = after.capped
+    ? after.total && after.total > after.rows
+      ? `The corrected query matched ${count(after.total)} and kept the first ` +
+        `${after.rows.toLocaleString("en-US")}, so totals from it may be incomplete.`
+      : `The corrected query was cut at ${count(after.rows)} too, so totals from it may be incomplete.`
+    : before.capped
+      ? `The first run stopped at ${count(before.rows)}; the corrected query returned all ` +
+        `${after.rows.toLocaleString("en-US")}.`
+      : `The corrected query returned ${count(after.rows)}.`;
+  const pre = args.pre?.trim();
+  const keep = pre && !pre.startsWith(GOVERNED_PARTIAL_NOTE_START) ? `${pre} ` : "";
+  const reason = args.reason?.trim() || "Corrected on self-review.";
+  return `${keep}${reason}${/[.!?)]$/.test(reason) ? "" : "."} ${outcome}`;
+}
+
 export function buildCheckPrompt(args: {
   question: string;
   steps: Array<{
@@ -918,6 +1010,10 @@ export function buildCheckPrompt(args: {
     sql?: string;
     facts: string;
     error?: string;
+    /** Rows the query returned before any trace cap — read against its LIMIT. */
+    rowCount?: number;
+    /** The runner said the rows are a prefix of a larger result. */
+    truncated?: boolean;
     /** A trained model scored this step's rows after the SQL ran; these are the columns it added. */
     scored?: { model: string; columns: string[]; ranked?: string | null };
     /** A forecast model's projection — there is no SQL to correct. */
@@ -930,6 +1026,8 @@ export function buildCheckPrompt(args: {
   }>;
   /** Governed models in scope — named so the reviewer cannot mistake one for a table. */
   catalog?: GovernedModelFields[];
+  /** Today and the data's date ranges (describeDates). */
+  dates?: string;
 }): { systemPrompt: string; userPrompt: string } {
   // A scored step's facts carry the model's columns beside the SQL's, and
   // nothing said which was which. Measured live: the reviewer "corrected"
@@ -972,6 +1070,10 @@ export function buildCheckPrompt(args: {
     .map(
       (s, i) =>
         `STEP ${i + 1}: ${s.goal}\nSQL: ${s.sql ?? "(none)"}\n` +
+        (limitCutNothing(s.sql, s.rowCount, s.truncated)
+          ? `COMPLETE: ${s.rowCount} row${s.rowCount === 1 ? "" : "s"}, fewer than its LIMIT of ` +
+            `${trailingLimit(s.sql ?? "")} — the LIMIT cut nothing.\n`
+          : "") +
         (s.scored
           ? `SCORED AFTER THE QUERY by the trained model "${s.scored.model}": the column(s) ` +
             `${s.scored.columns.join(", ")} are the model's estimates, added to the rows after ` +
@@ -996,15 +1098,22 @@ export function buildCheckPrompt(args: {
       "judge whether its result actually answers its goal: empty results for questions that " +
       "should have data, totals of the wrong magnitude, groupings split by case variants, a " +
       "LIMIT that cut a ranking short, nulls sorted to the top, the wrong column. " +
-      'Verdicts: "pass" (result answers the goal), "suspect" (present the result but flag ' +
-      'the concern in the note). If a step is WRONG and you can fix it, return "refined_sql" ' +
-      "with a corrected single SELECT statement — it will be re-executed and replace the " +
-      "result. Be specific in notes: name the number or shape that concerns you. Never " +
-      "invent data." +
+      // R512's UI test: a governed 4-row result carrying LIMIT 101 was
+      // "corrected" for a LIMIT that cut nothing, and the rewrite dropped the
+      // ORDER BY, so the yearly chart read 2024, 2023, 2022, 2025.
+      "A LIMIT cuts something short only when a step returned exactly as many rows as the " +
+      "LIMIT allows; a step marked COMPLETE returned every row, so never flag or correct its " +
+      'LIMIT. Verdicts: "pass" (result answers the goal), "suspect" (present the result but ' +
+      "flag the concern in the note). If a step is WRONG and you can fix it, return " +
+      '"refined_sql" with a corrected single SELECT statement — it will be re-executed and ' +
+      "replace the result. A correction keeps what the original got right — its ORDER BY, " +
+      "its filters, its grain — and changes only what your note names. Be specific in notes: " +
+      "name the number or shape that concerns you. Never invent data. Judge dates against " +
+      "TODAY and the data's own range below, never your own sense of the date." +
       modelsAreNotTables +
       scoredRule,
     userPrompt:
-      `QUESTION: ${args.question}\n\n${stepBlocks}\n\n` +
+      `${args.dates ? `${args.dates.trimStart()}\n\n` : ""}QUESTION: ${args.question}\n\n${stepBlocks}\n\n` +
       `Return JSON: { "checks": [ { "verdict": "pass|suspect", "note": "one sentence", ` +
       `"refined_sql": "SELECT ... (only when correcting)" } ], ` +
       `"headline": <index of the step whose result best answers the question, 0-based> }`,
@@ -1027,12 +1136,19 @@ export function buildSynthesisPrompt(args: {
     forecast?: boolean;
     /** What the tool said about the model's columns — class meanings, group profiles, warnings. */
     scoredNotes?: string[];
+    /** The visual the question asked this step to be drawn as. */
+    visual?: string;
   }>;
+  /** Today and the data's date ranges (describeDates). */
+  dates?: string;
+  /** Visuals the question asked for that no step is drawn as. */
+  undrawn?: string[];
 }): { systemPrompt: string; userPrompt: string } {
   const stepBlocks = args.steps
     .map(
       (s, i) =>
         `STEP ${i + 1}: ${s.goal}\n` +
+        (s.visual && !s.error ? `SHOWN AS: ${s.visual}, drawn beside the findings\n` : "") +
         (s.error
           ? `FAILED: ${s.error}`
           : `RESULT: ${s.facts}${
@@ -1072,9 +1188,25 @@ export function buildSynthesisPrompt(args: {
       " A step NOT marked SCORED BY or FORECAST BY holds observed values only — never call " +
       "its numbers a model's estimate or forecast. A CHECK note saying a proposed correction " +
       "failed or was refused means the step's own result above stands: the step did not fail, " +
-      "report its numbers.",
+      "report its numbers." +
+      // R512's UI test: the pivot WAS drawn, beside the step, and the
+      // write-up said "No pivot of sales by region and segment is provided".
+      " The platform draws each step's rows as a visual beside your write-up; a SHOWN AS line " +
+      "names the one asked for. Never say a chart, table or pivot is missing for a step — " +
+      "write about the numbers. Judge dates against TODAY and the data's own range, never " +
+      "your own sense of the date." +
+      // R512's fourth UI pass: a correction brought back all 323 days, and the
+      // write-up still warned "it shows only 100 rows" — the first run's flaw.
+      " A CHECK: refined note gives the reason a step was corrected, which was a flaw of its " +
+      "FIRST run; the step's rows and facts are the corrected result's, and the note's last " +
+      "sentence says what the correction returned. Never repeat a flaw a correction fixed as " +
+      "a caveat.",
     userPrompt:
-      `${args.prior}QUESTION: ${args.question}\nAPPROACH: ${args.approach}\n\n${stepBlocks}\n\n` +
+      `${args.dates ? `${args.dates.trimStart()}\n\n` : ""}${args.prior}QUESTION: ${args.question}\nAPPROACH: ${args.approach}\n\n${stepBlocks}\n\n` +
+      (args.undrawn?.length
+        ? `NOT DRAWN: the question also asked for visuals no step was drawn as ` +
+          `(${args.undrawn.join(", ")}) — say so in one short caveat.\n\n`
+        : "") +
       `Return JSON: { "answer": "markdown", "follow_ups": ` +
       `["up to ${MAX_FOLLOW_UPS} short questions THIS analysis makes worth asking next — ` +
       `each answerable from the same data, each a real next step rather than a restatement"] }`,
@@ -1401,11 +1533,13 @@ export function structuredToMarkdown(value: unknown, depth = 0): string {
     typeof v === "object" &&
     !Array.isArray(v) &&
     Object.values(v).every((x) => x === null || typeof x !== "object");
+  // A number as a reader reads it (R512): 733948.02 read 733948.02 here
+  // while the step tables above it read 733,948.02.
   const cell = (v: unknown): string =>
     v === null || v === undefined
       ? "—"
       : typeof v === "number"
-        ? String(Number(v.toFixed(4)))
+        ? readableCell(v)
         : typeof v === "object"
           ? JSON.stringify(v)
           : String(v).replace(/\|/g, "\\|");
@@ -1698,12 +1832,9 @@ export function askedChartForStep(
   goals: string[],
   i: number,
 ): string | undefined {
-  const asked = requestedChartTypes(question);
-  const steps = goals.length;
-  return (
-    requestedChartTypes(goals[i] ?? "")[0] ??
-    (asked.length === steps ? asked[i] : steps === 1 ? asked[0] : undefined)
-  );
+  // By subject since R512's UI test (see lib/analystVisuals): by position,
+  // the calendar landed on the KPI step and the treemap was never drawn.
+  return askedVisualsForSteps(question, goals).perStep[i]?.type;
 }
 
 export async function chartEveryStep(args: {
@@ -1814,6 +1945,8 @@ export async function runAnalystTurn(args: {
    * rather than "no such model", and points at the setting.
    */
   modelsOutsideScope?: string[];
+  /** Today as YYYY-MM-DD; defaults to the running environment's date. */
+  today?: string;
   onUpdate: (turn: AnalystTurn) => void;
 }): Promise<AnalystTurn> {
   const ask: LlmJsonFn = args.llm ?? llmJson;
@@ -1944,7 +2077,17 @@ export async function runAnalystTurn(args: {
 
   try {
     // 1. PLAN
-    await ensureGovernedCatalog();
+    // With today's date and the dates the data covers (lib/analystDates):
+    // R512's UI test asked for "the latest year" and the plan picked 2023 of
+    // data running to 2025-12-31. Read on the local engine only (the browser,
+    // or the server's local executor, which has no dialect) — a warehouse
+    // range would be a scan nobody asked for.
+    const today = args.today ?? todayIso();
+    const [, spans] = await Promise.all([
+      ensureGovernedCatalog(),
+      args.dialect ? Promise.resolve<DateSpan[]>([]) : readDateSpans(args.datasets, runSql),
+    ]);
+    const dates = describeDates(today, spans);
     const schema = describeSchema(args.datasets, args.semantics, args.metrics);
     const prior = priorContext(args.priorTurns);
     const catalog = args.catalog ?? [];
@@ -1954,6 +2097,7 @@ export async function runAnalystTurn(args: {
       prior,
       catalog,
       models: args.models,
+      dates: describeDates(today, spans, true),
     });
     let plan = parseAnalysisPlan(
       await ask<unknown>({ ...planPrompt, model: args.model, maxTokens: ANALYST_TOKENS.plan }),
@@ -2261,6 +2405,8 @@ export async function runAnalystTurn(args: {
         sql: s.sql,
         facts: stepFacts(results[i], s),
         error: s.error,
+        rowCount: s.rowCount,
+        truncated: results[i]?.capped === true,
         scored:
           s.scored && !s.forecast
             ? {
@@ -2281,6 +2427,7 @@ export async function runAnalystTurn(args: {
           : undefined,
       })),
       catalog,
+      dates,
     });
     let headline = 0;
     try {
@@ -2324,10 +2471,31 @@ export async function runAnalystTurn(args: {
               `which no query can (a model output exists in no table); the original result above stands. ` +
               `To rank by a model output, the plan asks for "rank" and the platform orders the scored rows.`,
           };
+        } else if (
+          c.refined_sql &&
+          needlessLimitCorrection({
+            sql: step.sql,
+            rowCount: step.rowCount,
+            truncated: results[i]?.capped === true,
+            note: c.note,
+          })
+        ) {
+          // The concern is disproved by the row count; the original — its
+          // order, its governed status — stands (needlessLimitCorrection).
+          const n = step.rowCount ?? 0;
+          const fact =
+            `All ${n} row${n === 1 ? "" : "s"} came back — the LIMIT of ` +
+            `${trailingLimit(step.sql ?? "")} cut nothing, so the result stands as it ran.`;
+          step.check = pre
+            ? { verdict: "suspect", note: `${pre.note} ${fact}` }
+            : { verdict: "pass", note: fact };
         } else if (c.refined_sql) {
           try {
-            const res = await runSql(c.refined_sql);
-            step.sql = c.refined_sql;
+            // In the engine's quoting, as generated SQL is: the R512 UI test's
+            // correction quoted `Order Date` in backticks and DuckDB refused it.
+            const refined = sqlForEngine(c.refined_sql, { dialect: args.dialect });
+            const res = await runSql(refined);
+            step.sql = refined;
             // A REFINED STEP IS NO LONGER COMPILED. The correction is SQL the
             // model wrote, replacing what the compiler produced, so the badge
             // would now vouch for a query the semantic layer never saw —
@@ -2335,6 +2503,11 @@ export async function runAnalystTurn(args: {
             // live: a governed "top 5" compiled without ORDER BY, the check
             // rewrote it correctly, and the step kept its governed marking.
             const wasGoverned = step.governed?.model;
+            const first = results[i];
+            const before = {
+              rows: first?.rows.length ?? step.rowCount ?? 0,
+              capped: first?.capped === true,
+            };
             step.governed = undefined;
             delete step.semantic;
             // A REFINED STEP IS RE-SCORED: the corrected query's rows are new
@@ -2351,8 +2524,16 @@ export async function runAnalystTurn(args: {
             step.check = {
               verdict: "refined",
               note:
-                (pre ? `${pre.note} ` : "") +
-                (c.note || "Corrected on self-review.") +
+                correctedStepNote({
+                  pre: pre?.note,
+                  reason: c.note,
+                  before,
+                  after: {
+                    rows: res.rows.length,
+                    total: res.total_matched,
+                    capped: res.capped === true,
+                  },
+                }) +
                 (wasGoverned
                   ? ` The correction is hand-written SQL, so this step is no longer compiled from ${wasGoverned}.`
                   : ""),
@@ -2410,6 +2591,10 @@ export async function runAnalystTurn(args: {
     // 4. SYNTHESIZE, and chart EVERY step that has something to show
     turn.status = "synthesizing";
     emit();
+    const visuals = askedVisualsForSteps(
+      args.question,
+      turn.steps.map((s) => s.goal),
+    );
     const synthPrompt = buildSynthesisPrompt({
       question: args.question,
       approach: turn.approach ?? "",
@@ -2423,7 +2608,10 @@ export async function runAnalystTurn(args: {
         scored: s.scored ? scoredLabel(s.scored) : undefined,
         forecast: !!s.forecast,
         scoredNotes: s.scored?.notes,
+        visual: visuals.perStep[i]?.phrase,
       })),
+      dates,
+      undrawn: visuals.unplaced.map((v) => v.phrase),
     });
     const [synth] = await Promise.all([
       ask<unknown>({ ...synthPrompt, model: args.model, maxTokens: ANALYST_TOKENS.synthesis }),
@@ -2529,6 +2717,10 @@ export async function resynthesizeTurn(args: {
       : null;
   const results = turn.steps.map(asResult);
   try {
+    const visuals = askedVisualsForSteps(
+      turn.question,
+      turn.steps.map((s) => s.goal),
+    );
     const prompt = buildSynthesisPrompt({
       question: turn.question,
       approach: turn.approach ?? "",
@@ -2542,7 +2734,12 @@ export async function resynthesizeTurn(args: {
         scored: s.scored ? scoredLabel(s.scored) : undefined,
         forecast: !!s.forecast,
         scoredNotes: s.scored?.notes,
+        visual: visuals.perStep[i]?.phrase,
       })),
+      // Today only: the data's ranges are read when a turn runs, and a
+      // rewrite works from the stored trace.
+      dates: describeDates(todayIso(), []),
+      undrawn: visuals.unplaced.map((v) => v.phrase),
     });
     const [synth] = await Promise.all([
       ask<unknown>({ ...prompt, model: args.model, maxTokens: ANALYST_TOKENS.synthesis }),

@@ -382,11 +382,58 @@ development branch and may be ahead of the latest tag.
 - **Analyst findings printed raw decimals** (fixed in R512): "474150.4844" in
   the findings and "474150.48440000083" in a step's table. They now read
   474,150.48; small values keep four decimals, and years and ids are left as
-  they are. The analyst's PDF tables match.
+  they are. The analyst's PDF tables match. A figure in the thousands with
+  two decimals, such as a total copied from the facts or one cell of a
+  findings table, gains separators too (733,948.02).
+- **The analyst's self-check read a trend's slope as its average** (fixed
+  after R512's UI test). Told a daily series was "flat at 6.77 per period",
+  it flagged daily sales averaging 2,272.28 as suspect data. The facts now
+  give the series' mean and call the slope a slope.
+- **A governed query filtered to a year returned nothing** (fixed after
+  R512's UI test). `order_date = '2023'` was compared with the day labels
+  the query grouped by, so the analyst's daily-sales step came back with 0
+  rows and no error; on the ungrained date, DuckDB refused to read '2023' as
+  a date. A time dimension filtered to a year, quarter or month ("2023",
+  "2023-Q2", "2023-07") now means every day in that period.
+- **Analyst steps quoted columns in backticks and failed on DuckDB** (fixed
+  after R512's UI test). A small model wrote `Order Date` in backticks
+  though the prompt says not to, wrote it again when shown DuckDB's error,
+  and the self-check's correction did the same, so the question got no
+  answer. SQL generated for the local engine is now rewritten to double
+  quotes before it runs, the self-check's correction included; warehouse SQL
+  is sent as written.
+- **The analyst picked the wrong "latest year"** (fixed after R512's second
+  UI pass). No prompt said what today was or what dates the data held, so
+  over orders running to 2025-12-31 the plan filtered to 2023 and reported
+  470,532.51 instead of 733,948.02, and the self-check called 2024 and 2025
+  "future years". The plan, the self-check and the findings are now given
+  today's date and each date column's earliest and latest value, read with
+  one query per local dataset before planning.
+- **The self-check corrected a LIMIT that cut nothing** (fixed after R512's
+  second UI pass). A governed 4-row step under `LIMIT 101` was rewritten,
+  losing its ORDER BY and its governed status, and the yearly chart read
+  2024, 2023, 2022, 2025. Such a correction is now refused and the original
+  result stands.
+- **A corrected step still said it was cut short** (fixed after R512's
+  third UI pass). The governed daily step returned the first 100 of 323
+  days; the self-check's correction brought back all 323, yet the step's
+  note still said "shows only 100 rows" and the findings warned that the
+  year's data might be incomplete. A corrected step's note now ends with what
+  the corrected query returned, drops a cut the correction cured, and the
+  findings are told that the reason for a correction describes the first
+  run.
+- **A visual the question asked for went to the wrong step, or nowhere**
+  (fixed after R512's second UI pass). Visuals were matched to steps by
+  position: the calendar went to the total and the treemap was never drawn,
+  and the findings said no pivot was provided while one was drawn. Visuals
+  are now matched by what they show, each gets its own step, and the
+  findings name any visual no step was drawn as.
 - **A Percent format printed a ratio as "0.14%"** (fixed in R512). A chart,
   table, KPI or PDF now reads the scale from its values, so a margin of 0.14
   prints 14%, and an Excel export gives the column Excel's own percent. The
-  value-format picker can state the scale (0.14 → 14%, or 14 → 14%).
+  value-format picker can state the scale (0.14 → 14%, or 14 → 14%). The
+  builder's suggested narratives and its raw-rows preview read the scale
+  the same way.
 - **A top or bottom narrative added up a running total** (fixed in R512), so
   the Grand Prix points race ranked drivers by twenty rounds of running points
   summed. A running total is now ranked by each item's latest value and an

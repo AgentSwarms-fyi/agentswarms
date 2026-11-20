@@ -345,6 +345,17 @@ function BiPage() {
         rows, and print figures as people read them (474,150.48 rather than 474150.4844).
       </P>
       <P>
+        The AI Analyst is told today&apos;s date and, for local datasets, the earliest and latest
+        value of each date column, so &ldquo;the latest year&rdquo; means the newest year the data
+        holds and &ldquo;this year&rdquo; counts back from today. Each visual a question names is
+        given its own step and lands on the step that computes it, matched by what the visual is of
+        rather than by position, and the findings name any visual no step was drawn as. The
+        self-check never rewrites a step for a LIMIT that cut nothing: when fewer rows came back
+        than the LIMIT allows, the original result, its order and its governed status stand. When a
+        correction does run, the step&apos;s note ends with what the corrected query returned, so a
+        cut the correction cured is no longer reported as one.
+      </P>
+      <P>
         What a model returns is read before anything is drawn. Its word for a visual is mapped onto
         the one that draws it (&ldquo;donut&rdquo; is a pie, &ldquo;choropleth&rdquo; a map,
         &ldquo;pivot table&rdquo; a matrix). A setting whose value the chart does not read is

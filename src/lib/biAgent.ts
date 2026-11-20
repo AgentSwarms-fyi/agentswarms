@@ -24,7 +24,12 @@ import { supabase } from "@/integrations/supabase/client";
 // a single question ran. The engine itself is reached dynamically below.
 import type { ColumnDef, DatasetMeta, QueryResult } from "@/lib/sqlEngine";
 import type { OntologySpec } from "@/lib/biOntology";
-import { metricExpression, type SemanticDimension, type SemanticMetric } from "@/lib/semanticLayer";
+import {
+  metricExpression,
+  normaliseIdentQuotes,
+  type SemanticDimension,
+  type SemanticMetric,
+} from "@/lib/semanticLayer";
 import { parseModelChoice } from "@/utils/providers/modelChoice";
 import { clientDeadlineMs } from "@/lib/llmDeadline";
 import type { GovernedModelFields } from "@/lib/aiAnalyst";
@@ -1045,7 +1050,24 @@ export async function generateSql(args: {
   const { systemPrompt, userPrompt } = buildSqlPrompt({ ...args, schema });
   const ask = args.llm ?? llmJson;
   const out = await ask<{ sql: string }>({ model: args.model, systemPrompt, userPrompt });
-  return out.sql;
+  return sqlForEngine(out.sql, args);
+}
+
+/**
+ * Generated SQL in the quoting of the engine that runs it.
+ *
+ * The prompt says DuckDB takes double quotes, and a small model wrote
+ * `Order Date` in backticks anyway — on its first attempt and again on the
+ * repair pass shown DuckDB's own error (R512 UI test: two analyst steps, no
+ * answer). Backticks are never valid DuckDB quoting, so they are rewritten
+ * rather than sent. A warehouse dialect, or AlaSQL, keeps what was written.
+ */
+export function sqlForEngine(
+  sql: string,
+  target: { dialect?: string; localEngine?: "alasql" | "duckdb" },
+): string {
+  if (typeof sql !== "string" || target.dialect || target.localEngine === "alasql") return sql;
+  return normaliseIdentQuotes(sql, "duckdb");
 }
 
 /**

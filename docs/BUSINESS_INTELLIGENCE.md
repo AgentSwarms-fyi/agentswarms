@@ -1633,8 +1633,15 @@ a way nobody reads.
   copies figures from the facts, so the findings printed "474150.4844" and
   the step table "474150.48440000083". A number of 1 or more takes two
   decimals and thousands separators, a smaller one four decimals; integers
-  (years, ids), dates and times stay as written (`readableNumbers`). The
+  (years, ids), dates and times stay as written (`readableNumbers`). A
+  figure in the thousands with one or two decimals keeps them and gains
+  separators, so a total copied from the facts reads 733,948.02, and a
+  findings table the model returns as data is set the same way. The
   analyst's PDF prints its tables the same way.
+- **The self-check is told a trend's mean as well as its slope.** Given only
+  "flat at 6.77 per period", it read 6.77 as the average of daily sales whose
+  mean was 2,272.28 and flagged the step as suspect data. A series' facts now
+  state its mean and call the slope a slope.
 - **A Percent format reads a ratio as a percentage.** The format treated
   every value as a percentage already, so a margin returned as 0.14 printed
   "0.14%". A chart reads the scale from its measures: values all between −1
@@ -1643,13 +1650,49 @@ a way nobody reads.
   PDFs, and an Excel export gives a ratio column Excel's own percent format.
   The value-format picker states the scale when the values cannot
   (_0.14 → 14%_ or _14 → 14%_). A gauge against a percentage target keeps
-  R511's reading and is not scaled twice.
+  R511's reading and is not scaled twice. In the builder, the suggested
+  narratives under the preview and the raw-rows preview read the scale the
+  same way; a narrative you add keeps only the scale you stated and reads
+  the rest from its own values.
 - **A ranked narrative knows a running total.** Top and bottom added the
   measure up per item, so a running total counted every earlier step again:
   the Grand Prix points race ranked drivers by the sum of twenty rounds of
   running points. A narrative now takes each item's latest value of a running
   total and averages an average or rate, with no share of a total
   (`measureKindFor`). See [Narratives computed from the data](#narratives-computed-from-the-data).
+- **The AI Analyst knows today's date and the dates its data covers.**
+  Neither was in any prompt. Asked for "the latest year" of orders running
+  2022-01-04 → 2025-12-31, the plan filtered to 2023 and gave 470,532.51 as
+  the year's total, not 2025's 733,948.02; the self-check called 2024 and
+  2025 "future years". Before planning, one query per dataset reads the
+  earliest and latest value of each date column (ISO, month-first or
+  day-first text, whichever parses the most values), and the plan, the
+  self-check and the findings are given those ranges and today's date. "The
+  latest year" is the newest the data holds; "this year" counts back from
+  today. Warehouse analysts are given today's date only — a range there
+  would be a scan nobody asked for.
+- **The self-check no longer corrects a LIMIT that cut nothing.** A governed
+  yearly step returned 4 rows under `LIMIT 101`; the reviewer rewrote it
+  anyway, the rewrite dropped the ORDER BY and the governed status, and the
+  chart read 2024, 2023, 2022, 2025. The reviewer is now told when a step is
+  complete, and a correction whose stated reason is the LIMIT is refused when
+  fewer rows came back than the LIMIT allows: the original result stands.
+- **A corrected step says what the correction returned.** When the governed
+  daily step was cut at 100 of 323 days and the correction brought back all
+  323, the step still said "shows only 100 rows" and the findings warned the
+  year might be incomplete. The note now ends with the corrected query's
+  outcome ("The first run stopped at 100 rows; the corrected query returned
+  all 323."), drops the cut the correction cured, and the findings are told
+  that a correction's reason describes the first run.
+- **Each visual a question names lands on the step that computes it.**
+  Visuals were matched to steps by position, so with a total planned first
+  the calendar went to the total and the treemap was never drawn. A step
+  whose goal names a visual keeps it; the rest are matched by what each
+  visual is of ("sales by region and segment as a treemap") against each
+  step's goal. The plan gives each visual its own step, even two visuals of
+  the same numbers. The findings are told which visual each step is drawn
+  as, and name any visual no step was drawn as instead of saying it is
+  missing.
 
 Still open: PDFs format numbers in the server's locale, not each
 recipient's.

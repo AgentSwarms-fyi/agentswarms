@@ -5,6 +5,7 @@ import { BiChartRender } from "@/components/bi/BiChartRender";
 import { WidgetDataTable } from "@/components/bi/BiDataTable";
 import { fmtBiValue } from "@/components/bi/biChartData";
 import type { BiColumnFormat, ChartSpec } from "@/lib/biAgent";
+import { readsAsRatios } from "@/lib/biColumnKinds";
 
 export function BiBuildPreview({
   chartSpec,
@@ -17,6 +18,13 @@ export function BiBuildPreview({
   preview: { columns: string[]; rows: Record<string, unknown>[] };
   colFormats: Record<string, BiColumnFormat>;
 }) {
+  // A Percent column of ratios prints 14%, as the table does (R512).
+  const formatFor = (c: string): BiColumnFormat | undefined => {
+    const f = colFormats[c];
+    return f?.format === "percent" && !f.percentOf && readsAsRatios(preview.rows, [c])
+      ? { ...f, percentOf: "ratio" }
+      : f;
+  };
   return (
     <div className="rounded-lg border border-border/60 bg-card p-2">
       {chartSpec && chartSpec.type !== "table" ? (
@@ -54,7 +62,7 @@ export function BiBuildPreview({
                       {row[c] === null || row[c] === undefined
                         ? "null"
                         : typeof row[c] === "number"
-                          ? fmtBiValue(row[c], colFormats[c])
+                          ? fmtBiValue(row[c], formatFor(c))
                           : String(row[c])}
                     </td>
                   ))}

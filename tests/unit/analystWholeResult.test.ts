@@ -39,6 +39,7 @@ import {
   chartEveryStep,
   rerunStep,
   runAnalystTurn,
+  structuredToMarkdown,
   trimStepForStorage,
   type AnalystTurn,
 } from "@/lib/aiAnalyst";
@@ -189,9 +190,15 @@ describe("numbers in the findings and the step tables", () => {
     expect(turn.answer).toBe("Sales were 474,150.48 (step 1).");
   });
 
-  it("change only long decimals", () => {
+  it("change only long decimals and big ones", () => {
     expect(readableDecimals("| Finance | 474150.4844 |")).toBe("| Finance | 474,150.48 |");
     expect(readableDecimals("rate: -24.709, margin 0.124712")).toBe("rate: -24.71, margin 0.1247");
+    // A total copied from the facts (total=733948.02) keeps its decimals and
+    // gains separators, so it reads like the 474,150.48 beside it (R512 UI test).
+    expect(readableDecimals("total sales: 733948.02, avg 2272.28, -1500.5")).toBe(
+      "total sales: 733,948.02, avg 2,272.28, -1,500.5",
+    );
+    expect(readableDecimals("$1500.50 a day")).toBe("$1,500.50 a day");
     // Short decimals, integers, dates, times and versions are left alone.
     for (const s of [
       "a 12.47% margin",
@@ -200,9 +207,33 @@ describe("numbers in the findings and the step tables", () => {
       "at 12:30.125",
       "v1.2.345",
       "0.125 of the total",
+      "release 2025.10",
+      "on 17.01.2025",
+      "host 192.168.1.85",
+      "already 733,948.02",
+      "took 1234.5ms",
     ]) {
       expect(readableDecimals(s), s).toBe(s);
     }
+  });
+
+  it("sets a structured write-up's numbers like the step tables", () => {
+    // gpt-4o-mini answered with data, not prose: { "daily sales 2025":
+    // { "total sales": 733948.02 }, ... } and a table whose one exactly
+    // two-decimal cell read 203254.16 among 608,197.28 and 254,942.56.
+    const md = structuredToMarkdown({
+      daily_sales: { total_sales: 733948.02, min_sales: 3.82 },
+      by_region: [
+        { region: "EMEA", sales: 608197.276 },
+        { region: "AMER", sales: 203254.16 },
+        { region: "APJ", sales: 74350.8234, orders: 1200 },
+      ],
+    });
+    expect(md).toContain("total sales: 733,948.02");
+    expect(md).toContain("min sales: 3.82");
+    expect(md).toContain("| AMER | 203,254.16 |");
+    expect(md).toContain("| EMEA | 608,197.28 |");
+    expect(md).toContain("| APJ | 74,350.82 | 1200 |"); // a count stays as stored
   });
 
   it("read a table cell the same way", () => {

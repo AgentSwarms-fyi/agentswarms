@@ -7,10 +7,13 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { BiBuildPreview } from "@/components/bi/BiBuildPreview";
 import { fmtBiValue } from "@/components/bi/biChartData";
 import { WidgetDataTable } from "@/components/bi/BiDataTable";
+import { BiSuggestedNarratives } from "@/components/bi/BiSuggestedNarratives";
 import { gaugeReading } from "@/components/bi/biDrawHelpers";
 import { readsAsRatios, resolvePercentOf } from "@/lib/biChartFields";
+import { suggestNarratives } from "@/lib/biInsights";
 import { renderVisualMarkup } from "@/utils/bi/reportCharts.server";
 
 const margins = [
@@ -107,5 +110,57 @@ describe("drawn", () => {
     const text = JSON.stringify(kpi);
     expect(text).toContain("14%");
     expect(text).not.toMatch(RAW_RATIO);
+  });
+});
+
+describe("in the builder", () => {
+  // R512 UI test on 8080: a Percent bar of average discounts drew 27% on its
+  // axis while the suggested narratives under it read "APJ 0.27%".
+  const discounts = [
+    { region: "AMER", avg_discount: 0.1094 },
+    { region: "APJ", avg_discount: 0.2672 },
+    { region: "EMEA", avg_discount: 0.1414 },
+  ];
+  const base = { source: { kind: "local" as const }, sql: "select 1" };
+
+  it("suggests narratives that print the ratio as a percentage", () => {
+    const html = renderToStaticMarkup(
+      createElement(BiSuggestedNarratives, {
+        columns: ["region", "avg_discount"],
+        rows: discounts,
+        chart: { type: "bar", xField: "region", yField: "avg_discount", format: "percent" },
+        base,
+        onAdd: () => {},
+      }),
+    );
+    expect(html).toContain("26.72%");
+    expect(html).not.toMatch(RAW_RATIO);
+  });
+
+  it("gives an added narrative the stated scale only", () => {
+    const value = (n: number) => String(n);
+    const [auto] = suggestNarratives(["region", "avg_discount"], discounts, value, {
+      format: "percent",
+    });
+    expect(auto.spec.format).toBe("percent");
+    expect(auto.spec.percentOf).toBeUndefined(); // read from its values when it draws
+    const [stated] = suggestNarratives(["region", "avg_discount"], discounts, value, {
+      format: "percent",
+      percentOf: "percent",
+    });
+    expect(stated.spec.percentOf).toBe("percent");
+  });
+
+  it("previews raw rows with a Percent column as percentages", () => {
+    const html = renderToStaticMarkup(
+      createElement(BiBuildPreview, {
+        chartSpec: null,
+        chartType: "bar",
+        preview: { columns: ["region", "avg_discount"], rows: discounts },
+        colFormats: { avg_discount: { format: "percent" } },
+      }),
+    );
+    expect(html).toContain("26.72%");
+    expect(html).not.toMatch(RAW_RATIO);
   });
 });
