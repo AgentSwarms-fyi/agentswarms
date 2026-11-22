@@ -301,15 +301,16 @@ Errors use the OpenAI shape, `{ "error": { "message", "type", "code" } }`:
 | `AI_GATEWAY_METRICS_MAX_ROWS`   | 10,000  | Rows one metrics query may return; a smaller `limit` in the request wins. Admin → Developer runtime. |
 | Fallback entries per key        | 10      | Entries that do not parse as `provider/model` are dropped when saved, and said so.                   |
 
-## How this compares
+## Alongside a model gateway
 
-LiteLLM and Portkey are gateways in front of model providers: keys, routing,
-fallbacks, spend, all for raw models. This endpoint is a gateway in front of
+A model gateway, such as one the platform can route its own traffic through
+(Integrations → LLM gateway), sits in front of model providers: keys,
+routing, fallbacks, spend, all for raw models. This endpoint sits in front of
 your **agents** as well as your models, and it inherits the platform's
 governance instead of carrying its own copy: the same IAM rules, budgets,
 guardrails, traces and audit that apply in the app apply here. If you
-already run one of those gateways, keep it as the outbound route and put
-this endpoint in front of the agents.
+already run a model gateway, keep it as the outbound route and put this
+endpoint in front of the agents.
 
 ## Troubleshooting
 

@@ -82,11 +82,10 @@ may read from the run's owner.
   sweep runs; a check must answer within 60 seconds. Both defaults are
   editable under Admin → Developer runtime.
 
-## How this compares
+## What it covers
 
-Monte Carlo, Anomalo and Metaplane sell this as a product: freshness, volume,
-schema and custom checks with learned baselines and incidents. This is the
-same shape, on the tables the platform already governs, alerting through the
+Freshness, volume, schema and custom checks with learned baselines and
+incidents, on the tables the platform already governs, alerting through the
 channels it already has, and readable by its agents. What it does not do
 yet: column-level lineage of an incident to the dashboards it affects, and
 checks that run inside a pipeline before its load commits (the ETL quality

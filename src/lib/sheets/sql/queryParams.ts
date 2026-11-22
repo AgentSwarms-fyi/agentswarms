@@ -1,4 +1,4 @@
-// Query variables (R155), as Row Zero's: {{Region}} in a query sheet's SQL is
+// Query variables (R155): {{Region}} in a query sheet's SQL is
 // the value of the workbook's name Region (Data → Names), so a cell can
 // steer the query: type EMEA in the cell the name points at, and the sheet,
 // and every formula over it, shows EMEA's rows.
@@ -6,7 +6,7 @@
 // A variable is always a value, never SQL: it is bound as a literal ('EMEA',
 // 42, TRUE, NULL), and a name over several cells becomes a list for IN
 // ('EMEA', 'APAC'). Whatever a browser sends as a value, the query stays the
-// one saved with the sheet. Row Zero's examples quote a text variable
+// one saved with the sheet. People often quote a text variable
 // ('{{date}}'); the quotes around a variable are taken as part of it, so both
 // ways read the same.
 

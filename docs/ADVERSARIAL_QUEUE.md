@@ -1255,14 +1255,14 @@ that round:
   the workbook.
 
 Closed with Query sheets: R154 (a sheet could only open a table that already existed; no query
-over the lakehouse). Open from that round, the rest of Row Zero's connected tables:
+over the lakehouse). Open from that round:
 
 - **No scheduled refresh.** A table imported from a connection refreshes only when its owner
   presses Refresh from source. A query sheet is live, but nothing runs it on a schedule for the
   formulas and charts built on it.
 - ~~No query variables.~~ Closed by R155: `{{Name}}` is a workbook name's value.
-- **A variable is a workbook name only.** Row Zero also has typed variables with defaults and a
-  picker; here the cell a name points at is the picker (a data-validation list makes it a
+- **A variable is a workbook name only.** There are no typed variables with defaults and a
+  picker; the cell a name points at is the picker (a data-validation list makes it a
   dropdown).
 - **A connection import stops at `WAREHOUSE_ABS_MAX_ROWS`** (5,000); larger ones are refused
   rather than paged.

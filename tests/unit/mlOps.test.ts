@@ -325,20 +325,20 @@ describe("compare and docs", () => {
     expect(page).toContain("Tick two or more trained versions to compare them side by side.");
   });
 
-  it("describe automation, drift, the card, GPUs and how this compares, with every knob", () => {
+  it("describe automation, drift, the card, GPUs and what it covers, with every knob", () => {
     const md = rd("docs/ML.md");
     const page = docsFamily("ml");
     for (const phrase of [
       "## Automation",
       "## Drift",
-      "## How this compares",
+      "## What it covers",
       "Model card",
       "promote when better",
       "population stability index",
     ]) {
       expect(md).toContain(phrase);
     }
-    for (const id of ['id="automation"', 'id="drift"', 'id="how-this-compares"'])
+    for (const id of ['id="automation"', 'id="drift"', 'id="what-it-covers"'])
       expect(page).toContain(id);
     for (const knob of ["ML_TRAIN_GPUS", "ML_DRIFT_ALERT_PSI"]) {
       for (const f of [".env.example", "docs/SCALE_AND_LIMITS.md", "docs/ML.md"]) {
@@ -370,10 +370,9 @@ describe("compare and docs", () => {
     // be split. What is still admitted is the machines limit below.
     expect(md).not.toContain("- **Canary traffic.**");
     // This used to match the gap bullet's own "Canary and shadow traffic",
-    // not the comparison, so narrowing that bullet silently changed what it
-    // was about. Anchored on the right-hand column, which is what a reader
-    // would check it against: what the managed products do here.
-    expect(md).toContain("Autoscaling across hosts, canary and shadow traffic");
+    // so narrowing that bullet silently changed what it was about. Anchored
+    // on what the capability table says the platform does.
+    expect(md).toContain("Shadow traffic (mirrored, compared, never served) and canary traffic");
     expect(md).not.toContain("no warm autoscaled endpoint yet");
     expect(page).toContain("Feature store");
   });

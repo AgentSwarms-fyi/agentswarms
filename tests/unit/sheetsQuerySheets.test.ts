@@ -1,4 +1,4 @@
-// Query sheets (R154): Row Zero's connected table, for the lakehouse. A table
+// Query sheets (R154): a table sheet over the lakehouse. A table
 // sheet's rows can be a SELECT the person writes, run whenever the sheet is
 // read, as whoever reads it. Before, a sheet could only open a table that
 // already existed; a join, a filter or a total had to be saved as a table

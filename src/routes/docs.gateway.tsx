@@ -331,13 +331,14 @@ curl https://<your host>/api/v1/metrics/query \\
         ]}
       />
 
-      <H2 id="how-this-compares">How this compares</H2>
+      <H2 id="with-a-model-gateway">Alongside a model gateway</H2>
       <P>
-        LiteLLM and Portkey are gateways in front of model providers: keys, routing, fallbacks and
-        spend for raw models. This endpoint is a gateway in front of your <strong>agents</strong> as
-        well as your models, and it inherits the platform&apos;s governance instead of carrying its
-        own copy. If you already run one of those gateways, keep it as the outbound route and put
-        this endpoint in front of the agents.
+        A model gateway, such as one the platform can route its own traffic through (Integrations →
+        LLM gateway), sits in front of model providers: keys, routing, fallbacks and spend for raw
+        models. This endpoint sits in front of your <strong>agents</strong> as well as your models,
+        and it inherits the platform&apos;s governance instead of carrying its own copy. If you
+        already run a model gateway, keep it as the outbound route and put this endpoint in front of
+        the agents.
       </P>
 
       <H3 id="troubleshooting">Troubleshooting</H3>

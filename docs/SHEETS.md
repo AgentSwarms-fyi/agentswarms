@@ -805,8 +805,8 @@ starting with a letter.
 
 ### Query sheets
 
-A query sheet's rows are what a SELECT over the lakehouse returns, as a connected table is in
-Row Zero. Nothing is copied: the query runs whenever the sheet is read.
+A query sheet's rows are what a SELECT over the lakehouse returns. Nothing is copied: the query
+runs whenever the sheet is read.
 
 - **Writing it.** **Lakehouse query** in **Add a table sheet** has the SQL, the tables you can
   read (a click puts one in the query), and **Preview** (Ctrl+Enter), which shows the first 50
@@ -849,7 +849,7 @@ sheet follows, as does `=SUM(ByMonth[revenue])` in a grid sheet.
   reads.
 - **A name over several cells** is a list for `IN`: `WHERE region IN {{Regions}}`. Blanks are left
   out, and at most 1,000 values are used.
-- **Row Zero's quoted form** reads the same: `'{{Start}}'` and `{{Start}}` are one value.
+- **A quoted variable** reads the same: `'{{Start}}'` and `{{Start}}` are one value.
 - **A variable whose name is not defined** stops the sheet with a reason (`{{Region}} has no value: name a cell
 Region…`) rather than showing no rows. The query editor lists each variable with its value now.
 

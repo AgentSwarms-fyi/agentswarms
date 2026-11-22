@@ -1,4 +1,4 @@
-// Query variables (R155), as Row Zero's: {{Region}} in a query sheet's SQL is
+// Query variables (R155): {{Region}} in a query sheet's SQL is
 // the value of the workbook's name Region, so a cell can steer the query.
 // Before, a query sheet ran the same SQL whatever the workbook held: to see
 // another region, someone who could edit the sheet rewrote its query.
@@ -41,7 +41,7 @@ describe("a query's variables", () => {
     const b = bindQuery("SELECT * FROM t WHERE region = {{r}}", { r: "x' OR '1'='1" });
     expect(b).toEqual({ ok: true, sql: "SELECT * FROM t WHERE region = 'x'' OR ''1''=''1'" });
   });
-  it("Row Zero's '{{name}}' reads the same as {{name}}", () => {
+  it("a quoted '{{name}}' reads the same as {{name}}", () => {
     expect(bindQuery("WHERE d >= '{{Start}}'", { start: "2026-03-08" })).toEqual({
       ok: true,
       sql: "WHERE d >= '2026-03-08'",

@@ -5924,7 +5924,7 @@ Fixtures: **"R153 contacts"** (`0ceb0280…`). Every change was undone.
 
 ## 2026-09-29 — Query variables, ADVERSARIAL_LOG R155
 
-**Why this round exists.** Row Zero's connected tables take variables; a query sheet could not.
+**Why this round exists.** A query sheet could not take variables: its SQL was fixed.
 
 Fixtures: **"R154 query sheets"** (`6b6a8810…`). Sheet1 D1 is named **Region** and holds EMEA. The
 query sheet **ByMonth** reads `WHERE region = {{Region}}`, and Sheet1 E1 is `=SUM(ByMonth[revenue])`.
@@ -5946,7 +5946,7 @@ All three are left in place.
 ## 2026-09-29 — Query sheets, ADVERSARIAL_LOG R154
 
 **Why this round exists.** The user asked whether Sheets can query data sources and the
-lakehouse straight into a sheet, as Row Zero does.
+lakehouse straight into a sheet.
 
 Fixtures: **"R154 query sheets"** (`6b6a8810…`), with a grid Sheet1 (a total and a lookup over
 the query) and the query sheet **Revenue** over `analytics.bi_demo_sales`, left in place.

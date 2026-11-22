@@ -466,7 +466,7 @@ describe("the gap list no longer claims shadowing is missing", () => {
   // Sliced to the list itself. Asserting against the whole file would pass on
   // the word "shadow" appearing in the section written two screens above.
   const slice = (src: string, end: string) => {
-    const a = src.indexOf("Everything in the left column is shipped and tested");
+    const a = src.indexOf("Everything in this table is shipped and tested");
     expect(a).toBeGreaterThan(-1);
     const b = src.indexOf(end, a);
     expect(b).toBeGreaterThan(a);

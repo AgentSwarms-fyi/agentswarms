@@ -246,12 +246,12 @@ function SheetsDocsPage() {
       <UL>
         <li>
           <strong>Query sheets.</strong> A table sheet&apos;s rows can be a SELECT over the
-          lakehouse (<strong>Lakehouse query</strong>), as a connected table is in Row Zero. Nothing
-          is copied: the query runs whenever the sheet is read, as whoever reads it, with their own
-          grants and policies. <strong>Refresh</strong> runs it again; <strong>Edit query</strong>{" "}
-          changes it and keeps the sheet&apos;s calculated columns, sort and filters.{" "}
-          <C>{"{{Region}}"}</C> in the query is the value of the workbook name Region, bound as a
-          value (never SQL): change the cell and the sheet, and the formulas over it, follow.
+          lakehouse (<strong>Lakehouse query</strong>). Nothing is copied: the query runs whenever
+          the sheet is read, as whoever reads it, with their own grants and policies.{" "}
+          <strong>Refresh</strong> runs it again; <strong>Edit query</strong> changes it and keeps
+          the sheet&apos;s calculated columns, sort and filters. <C>{"{{Region}}"}</C> in the query
+          is the value of the workbook name Region, bound as a value (never SQL): change the cell
+          and the sheet, and the formulas over it, follow.
         </li>
         <li>
           <strong>Sort and filter.</strong> The engine sorts and filters every row. A column&apos;s
@@ -405,11 +405,10 @@ function SheetsDocsPage() {
         </li>
       </UL>
 
-      <Callout title="How this compares">
-        Row Zero (now part of Databricks) made this shape popular: spreadsheet formulas on
-        warehouse-sized tables. Here the tables are the platform&apos;s own governed lakehouse, a
-        saved result lands in the catalog with lineage, and the same formulas work in a grid and in
-        a table&apos;s columns.
+      <Callout title="What it covers">
+        Spreadsheet formulas on warehouse-sized tables. The tables are the platform&apos;s own
+        governed lakehouse, a saved result lands in the catalog with lineage, and the same formulas
+        work in a grid and in a table&apos;s columns.
       </Callout>
 
       <NextPrev current="/docs/sheets" />

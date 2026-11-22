@@ -152,12 +152,12 @@ function DataMonitorsDocsPage() {
         </li>
       </UL>
 
-      <Callout title="How this compares">
-        Monte Carlo, Anomalo and Metaplane sell this as a product: freshness, volume, schema and
-        custom checks with learned baselines and incidents. This is the same shape, on the tables
-        the platform already governs, alerting through the channels it already has, and readable by
-        its agents. Not yet: column-level lineage from an incident to the dashboards it affects, and
-        checks inside a pipeline before its load commits (the ETL quality gates cover that half).
+      <Callout title="What it covers">
+        Freshness, volume, schema and custom checks with learned baselines and incidents, on the
+        tables the platform already governs, alerting through the channels it already has, and
+        readable by its agents. Not yet: column-level lineage from an incident to the dashboards it
+        affects, and checks inside a pipeline before its load commits (the ETL quality gates cover
+        that half).
       </Callout>
 
       <H3 id="troubleshooting">Troubleshooting</H3>

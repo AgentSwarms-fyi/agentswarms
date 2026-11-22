@@ -13854,8 +13854,8 @@ Tests: `tests/unit/sheetsQueryVariables.test.ts` (17), 5 of them on DuckDB. The 
 
 #### R155 · S3 · A query sheet ran the same SQL whatever the workbook held
 
-**Found.** Row Zero's connected tables take variables (`WHERE FL_DATE >= '{{date}}'`) that a
-person changes without touching the query. A query sheet (R154) could not: its Edit query preview
+**Found.** A query with variables (`WHERE FL_DATE >= '{{date}}'`) lets a
+person change what it reads without touching the query. A query sheet (R154) could not: its Edit query preview
 with `WHERE region = {{Region}}` said `SQL parse error: syntax error at or near "{"`. To see
 another region, someone who could edit the sheet had to rewrite its SQL. A viewer could not do it
 at all.
@@ -13864,7 +13864,7 @@ at all.
 
 - **Binding.** The value is bound on the server as a literal: text quoted, with its quotes
   doubled; numbers; TRUE and FALSE; NULL. A name over several cells is a list for IN, and a date
-  cell goes as its date. Row Zero's `'{{name}}'` reads the same. The template is checked, bound,
+  cell goes as its date. A quoted `'{{name}}'` reads the same. The template is checked, bound,
   and checked again.
 - **Where the values come from.** The workbook sends the values of its names with every read:
   a page, a filter's values, a download, Save to lakehouse, and grid formulas over table sheets.
@@ -13884,8 +13884,7 @@ Tests: `tests/unit/sheetsQuerySheets.test.ts` (20), 7 of them on DuckDB. The mut
 
 #### R154 · S2 · A sheet could only open a table that already existed
 
-**Found.** Asked whether Sheets does what Row Zero's connected tables do (query a source and fill
-a sheet), a research pass and the UI answered: in part.
+**Found.** Asked whether Sheets can query a source and fill a sheet, a research pass and the UI answered: in part.
 
 - **What was there.** A table sheet could open a lakehouse table, or copy a connection's table or
   query into a new lakehouse table, with a manual Refresh from source.

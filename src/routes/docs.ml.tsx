@@ -221,126 +221,83 @@ function MlDocsPage() {
           },
         ]}
       />
-      <H2 id="how-this-compares">How this compares</H2>
-      <P>Where AgentSwarms stands against Databricks ML and SageMaker, honestly:</P>
+      <H2 id="what-it-covers">What it covers</H2>
+      <P>Capability by capability, what the ML module does today and where it stops:</P>
       <Table
-        headers={["Capability", "AgentSwarms", "Databricks / SageMaker"]}
+        headers={["Capability", "What it does"]}
         rows={[
           [
             "No-code AutoML",
             "Six tasks incl. clustering, anomaly, recommendation; tuning; data prep in the wizard",
-            "AutoML / Canvas: similar tasks, larger search spaces",
           ],
           [
             "Registry, stages, lineage",
             "Versions, stages, snapshot + decision id per version, artifact digests",
-            "MLflow registry / Model Registry",
           ],
-          [
-            "Batch scoring",
-            "Into lakehouse tables, scheduled, with drift per run",
-            "Jobs / Batch Transform",
-          ],
+          ["Batch scoring", "Into lakehouse tables, scheduled, with drift per run"],
           [
             "Real-time inference",
             "Warm endpoints hold the served version in memory: 45 ms of scoring instead of a ~25 s container start; several copies per endpoint, scaled on measured load, plus a candidate's copy while one is being tried",
-            "Serving endpoints with autoscaling",
           ],
           [
             "Serving at scale",
             "Several copies per endpoint, added on measured request rate and removed only when idle and clear of the line; on Kubernetes each copy is a Pod the scheduler may place anywhere. Shadow traffic (mirrored, compared, never served) and canary traffic (a share of real requests answered by the candidate, rolled back automatically when it fails worse than production)",
-            "Autoscaling across hosts, canary and shadow traffic",
           ],
-          [
-            "Drift monitoring",
-            "PSI per feature on every batch, threshold alerts",
-            "Lakehouse Monitoring / Model Monitor (more statistics)",
-          ],
+          ["Drift monitoring", "PSI per feature on every batch, threshold alerts"],
           [
             "Ground-truth monitoring",
             "Outcome source per model; the training metric recomputed on matched rows, with coverage; decay alerts on the platform clock",
-            "Model-quality monitoring jobs",
           ],
           [
             "Model selection",
             "Candidates scored by cross-validation inside the training rows; the holdout is read once, for reporting. Fold spread on every version; TimeSeriesSplit for ordered data",
-            "Cross-validation in AutoML / Autopilot",
           ],
           [
             "Calibration and thresholds",
             "Reliability curve and Brier/ECE per version; calibration kept only when both improve; measured threshold sweep, set per version without retraining",
-            "Calibration in SageMaker Clarify; thresholds set in application code",
           ],
           [
             "Reason codes in batch",
             "Top-3 drivers and their effects as columns on the scored table, the same ablation as the single-row explanation; refused above a row ceiling rather than truncated",
-            "Clarify batch explainability jobs",
           ],
           [
             "Explainability",
             "Global permutation importance at training, plus per-row contributions by ablation against a typical row. Not Shapley values",
-            "SHAP per prediction, Clarify",
           ],
           [
             "Fairness",
             "Selection-rate ratio and error-rate gaps per group, per column; assistant suggests columns and proxies; four-fifths default",
-            "Clarify / bias reports",
           ],
           [
             "Promotion approval",
             "Named approvers per model, in the same inbox as swarm approvals; a requester can never approve their own",
-            "Approval workflows",
           ],
-          [
-            "Scheduled retraining",
-            "Cron/cadence, promote-when-better, one platform clock",
-            "Workflows / Pipelines",
-          ],
-          [
-            "Public API",
-            "Per-model scoped keys, rate limits, audited denials, BYO registration",
-            "Yes, IAM-based",
-          ],
-          [
-            "Bring your own model",
-            "Any joblib pipeline under a small contract",
-            "Any framework, containers",
-          ],
+          ["Scheduled retraining", "Cron/cadence, promote-when-better, one platform clock"],
+          ["Public API", "Per-model scoped keys, rate limits, audited denials, BYO registration"],
+          ["Bring your own model", "Any joblib pipeline under a small contract"],
           [
             "Feature store",
             "Feature views: score by key, read from the table training read, with an online store serving the latest row per key in ~2 ms",
-            "Yes",
           ],
           [
             "Distributed / GPU training",
             "The algorithm search spreads across several sandboxes, and a dataset too large for one container is refit across several — disjoint hashed slices, averaged into one model, instead of a sample; GPUs requestable",
-            "Clusters, distributed frameworks, GPU instances",
           ],
           [
             "Experiment tracking",
             "Runs logged from a notebook or a script with params, metrics and curves; a run promotes into the registry",
-            "MLflow / Experiments",
           ],
-          ["Model cards", "Generated from the registry", "SageMaker Model Cards"],
+          ["Model cards", "Generated from the registry"],
           [
             "Governance",
             "IAM shares, trigger audit, decision ids, result digests, one statement guard for all data",
-            "Unity Catalog / IAM",
           ],
-          [
-            "Agents and BI",
-            "Models are agent tools; forecasts and drift live in the BI layer",
-            "Separate products",
-          ],
-          [
-            "Cost and residency",
-            "Self-hosted, your infrastructure, no per-call charges",
-            "Managed, metered",
-          ],
+          ["Agents and BI", "Models are agent tools; forecasts and drift live in the BI layer"],
+          ["Cost and residency", "Self-hosted, your infrastructure, no per-call charges"],
         ]}
       />
       <P>
-        Everything in the left column is shipped and tested. What is left:{" "}
+        Everything in this table is shipped and tested. What is left:{" "}
         <strong>growing the cluster itself</strong>. On Kubernetes copies already spread across
         nodes — each is a pod, placed by the scheduler — and a copy that cannot be placed now says
         so rather than timing out. What the platform does not do is add a node: that is a cluster

@@ -2077,8 +2077,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 2
       },
       {
-        "id": "how-this-compares",
-        "text": "How this compares",
+        "id": "with-a-model-gateway",
+        "text": "Alongside a model gateway",
         "level": 2
       },
       {
@@ -3109,8 +3109,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 3
       },
       {
-        "id": "how-this-compares",
-        "text": "How this compares",
+        "id": "what-it-covers",
+        "text": "What it covers",
         "level": 2
       }
     ]

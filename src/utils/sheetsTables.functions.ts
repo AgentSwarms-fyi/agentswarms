@@ -144,7 +144,7 @@ export const sheetsAddTableTab = createServerFn({ method: "POST" })
 
 // ── A query over the lakehouse ─────────────────────────────────────────────
 //
-// Row Zero's "connected table", for the lakehouse (R154): a sheet whose rows
+// A query sheet over the lakehouse (R154): a sheet whose rows
 // are a SELECT the person writes. Nothing is copied; the query runs whenever
 // the sheet is read, as whoever reads it, with their own grants and policies,
 // so a shared workbook never shows a viewer more than they could query.
