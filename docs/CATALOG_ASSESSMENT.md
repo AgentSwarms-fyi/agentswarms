@@ -1,21 +1,16 @@
 # Data Catalog assessment
 
-**As of 2026-11-07.** How the Data Catalog compares with the catalogs teams
-usually weigh it against, what this round changed, and what would close the
-remaining gaps.
-
-Our side of this is measured: read from the code, or run. The other products'
-side comes from their public material, much of it vendor-written, so treat
-their column as positioning and check it before relying on any one claim.
+**As of 2026-11-07.** What the Data Catalog does, what this round changed, and
+what would close the gaps that remain. Everything here is measured: read from
+the code, or run.
 
 ## The short answer
 
-The catalog is not the best in the industry, and no single round of work would
-make it so. A product like DataHub or OpenMetadata is years of connectors, search
-infrastructure and workflow. What this catalog has that those do not is being
-part of the platform: it sits on the same data as the SQL Workbench, lineage from
-pipelines and BI, governed metrics and agents, and it says plainly what it does
-not know.
+The catalog's strength is being part of the platform: it sits on the same data
+as the SQL Workbench, lineage from pipelines and BI, governed metrics and agents,
+and it says plainly what it does not know. Its weak spots are search,
+classification and automation; the scorecard rates each capability and the last
+section lists what would close the gaps.
 
 Before this round it had a defect at the centre: it did not understand a data
 lake. A Hive-partitioned table became one asset per folder, a Delta table was
@@ -29,19 +24,19 @@ why that was not built, and the choice it leaves.
 
 ## Scorecard
 
-| Capability            | AgentSwarms                                                                                                         | Rating  | Where the leaders are                                                                       |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------- |
-| Source coverage       | 22 databases and warehouses, S3-compatible and Azure storage, Iceberg REST, Hive Metastore, AWS Glue, 17 SaaS apps  | Good    | DataHub and OpenMetadata list 100 or more connectors, including BI tools and message queues |
-| Understanding a lake  | Hive partitions, Delta, Iceberg and Hudi in a bucket; location, SerDe, partition facts on every lake asset          | Good    | Glue crawlers and Unity Catalog do this well                                                |
-| Serving other engines | Nothing. No Thrift endpoint, no Iceberg REST server, no public catalog API                                          | Missing | Unity Catalog, Polaris, Gravitino and Glue all serve engines                                |
-| Lineage               | Table and column level from pipelines and SQL models, BI usage, Unity Catalog system tables, Hive and Glue view SQL | Good    | OpenLineage ingestion is standard in the open-source leaders; not here                      |
-| Search                | In-browser substring match over up to 20,000 assets. No ranking, no server-side index                               | Weak    | DataHub runs a search index; commercial tools add ranking by usage                          |
-| Curation              | Descriptions, tags, owner, certified or deprecated, flat glossary, AI-written docs                                  | Fair    | Domains, data products, glossary hierarchies and approval workflows                         |
-| Classification        | PII by column name only                                                                                             | Weak    | Content-based classifiers that look at values                                               |
-| Access control        | Read sharing through IAM; row filters, column masks and tag policies on the lakehouse                               | Good    | Unity Catalog's central grants across engines go further                                    |
-| Data quality          | dbt-style checks and freshness alerts on local datasets; monitors on the lakehouse                                  | Fair    | Checks on warehouse tables, data contracts                                                  |
-| Change history        | Column changes kept per asset, breaking changes marked                                                              | Good    | Comparable to the open-source leaders                                                       |
-| Automation            | Scheduled crawls with change alerts. No API, no webhooks, and agents cannot search the catalog                      | Weak    | APIs throughout; DataHub and others publish an MCP server                                   |
+| Capability            | What it does                                                                                                        | Rating  |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------- | ------- |
+| Source coverage       | 22 databases and warehouses, S3-compatible and Azure storage, Iceberg REST, Hive Metastore, AWS Glue, 17 SaaS apps  | Good    |
+| Understanding a lake  | Hive partitions, Delta, Iceberg and Hudi in a bucket; location, SerDe, partition facts on every lake asset          | Good    |
+| Serving other engines | Nothing. No Thrift endpoint, no Iceberg REST server, no public catalog API                                          | Missing |
+| Lineage               | Table and column level from pipelines and SQL models, BI usage, Unity Catalog system tables, Hive and Glue view SQL | Good    |
+| Search                | In-browser substring match over up to 20,000 assets. No ranking, no server-side index                               | Weak    |
+| Curation              | Descriptions, tags, owner, certified or deprecated, flat glossary, AI-written docs                                  | Fair    |
+| Classification        | PII by column name only                                                                                             | Weak    |
+| Access control        | Read sharing through IAM; row filters, column masks and tag policies on the lakehouse                               | Good    |
+| Data quality          | dbt-style checks and freshness alerts on local datasets; monitors on the lakehouse                                  | Fair    |
+| Change history        | Column changes kept per asset, breaking changes marked                                                              | Good    |
+| Automation            | Scheduled crawls with change alerts. No API, no webhooks, and agents cannot search the catalog                      | Weak    |
 
 ## What this round changed
 
@@ -103,23 +98,23 @@ before deciding to build it.
 2. **The lakehouse's tables cannot be served this way honestly.** Hive reads a directory.
    DuckLake's truth is a list of live files in its catalog, and a directory also holds
    files from older snapshots, so an engine would read rows the table has deleted.
-3. **New engines are moving to Iceberg REST.** It carries credentials, and Unity Catalog,
-   Polaris and Gravitino all serve it. Serving the lakehouse's tables as Iceberg REST
-   reaches Spark, Trino, Flink and DuckDB with real authentication, which a Thrift
-   endpoint cannot.
+3. **New engines are moving to Iceberg REST.** It carries credentials, and current
+   catalog servers speak it. Serving the lakehouse's tables as Iceberg REST reaches
+   Spark, Trino, Flink and DuckDB with real authentication, which a Thrift endpoint
+   cannot.
 
 **Recommendation:** serve Iceberg REST, not Thrift, unless a named engine needs the
 older protocol. Either one should wait for the public catalog API below, which both
 would stand on.
 
-## What would move the score most
+## What would help most
 
 In order, with a rough size. Each is independent of the others.
 
 1. **A public catalog API and an agent tool** (days). Search, read an asset, read its
-   lineage, behind a gateway key scope. An agent that can find the right table from the
-   catalog is the thing none of the catalogs above offer as part of the same product,
-   and everything else in this list builds on the API.
+   lineage, behind a gateway key scope. An agent that finds the right table in the
+   catalog and then queries it in the same product is what this platform is for, and
+   everything else in this list builds on the API.
 2. **OpenLineage ingestion** (days). One endpoint, and Airflow, Spark and dbt lineage
    arrive without writing a connector for each.
 3. **Iceberg REST server over the lakehouse** (weeks). The real answer to serving
@@ -144,5 +139,3 @@ In order, with a rough size. Each is independent of the others.
   specific cluster.
 - Hive 3.1.3 and 4.0.1 are the versions tested. Older versions are expected to work
   through the fallback call, and that has not been run.
-- Competitor capabilities come from public, often vendor-written, sources. They were not
-  measured.

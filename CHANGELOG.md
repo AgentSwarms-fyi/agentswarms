@@ -1052,7 +1052,7 @@ admin_email=you@example.com`. Each root builds the same base:
   re-insert on object storage).
 - **Clustered tables keep their order:** a clustered rewrite also records its keys as
   DuckLake's sort order, so rows flushed after it are written in key order.
-- **An assessment of the lakehouse against the field,** with what DuckDB 2.0 would change:
+- **An assessment of the lakehouse,** what it covers and where it stops, with what DuckDB 2.0 would change:
   [docs/LAKEHOUSE_ASSESSMENT.md](docs/LAKEHOUSE_ASSESSMENT.md).
 
 - **Hive Metastore as a catalog source**, read over Thrift. Tested against Hive 3.1.3
