@@ -1673,6 +1673,17 @@ function AssetSheet({
             )}
           </SheetTitle>
           <SheetDescription className="font-mono text-xs">{asset.fqn}</SheetDescription>
+          {/* A dataset stored here has a page of its own (R519): this drawer
+              is the quick look, the page is everything. */}
+          {asset.local && (
+            <Link
+              to="/data-sql/$datasetId"
+              params={{ datasetId: asset.id.replace(/^local:/, "") }}
+              className="w-fit text-xs font-medium text-primary underline-offset-2 hover:underline"
+            >
+              Open its page
+            </Link>
+          )}
         </SheetHeader>
 
         <div className="grid grid-cols-4 gap-2 border-y border-border py-2.5 text-center">

@@ -7,11 +7,14 @@
 // platform has. `workflowCandidates` exists for the same reason: the editor is
 // only ever offered the caller's own things to wire up.
 import { createServerFn } from "@tanstack/react-start";
+import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 import { auditEvent } from "@/utils/audit.server";
-import type { Json } from "@/integrations/supabase/types";
+import type { Database, Json } from "@/integrations/supabase/types";
+import { trashErrorText } from "@/lib/trash";
 import { validateCron } from "@/lib/cron";
 import { workflowChangedSinceRun } from "@/lib/workflowDrift";
 import {
@@ -32,6 +35,25 @@ async function resolveCaller(accessToken: string): Promise<string> {
   const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
   if (error || !data?.user) throw new Error(callerFailure(error, "Not signed in"));
   return data.user.id;
+}
+
+/**
+ * A client that acts as the caller. Moving a workflow to the trash goes
+ * through it, never the service role: trash_object reads auth.uid() and moves
+ * only what that person owns.
+ */
+function userClient(accessToken: string) {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_PUBLISHABLE_KEY;
+  if (!url || !key) throw new Error("Server is missing Supabase configuration");
+  return createClient<Database>(
+    url,
+    key,
+    withNulSafeFetch({
+      auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: `Bearer ${accessToken}` } },
+    }),
+  );
 }
 
 /**
@@ -426,15 +448,16 @@ export const workflowDelete = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
     z.object({ accessToken: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
-  .handler(async ({ data }): Promise<Fail | { ok: true }> => {
-    const userId = await resolveCaller(data.accessToken);
-    const { error } = await supabaseAdmin
-      .from("workflows")
-      .delete()
-      .eq("id", data.id)
-      .eq("user_id", userId);
-    if (error) return { ok: false, error: error.message };
-    return { ok: true };
+  .handler(async ({ data }): Promise<Fail | { ok: true; trashId: string }> => {
+    await resolveCaller(data.accessToken);
+    const { data: trashId, error } = await userClient(data.accessToken).rpc("trash_object", {
+      p_kind: "workflow",
+      p_id: data.id,
+    });
+    if (error || typeof trashId !== "string") {
+      return { ok: false, error: trashErrorText(error, "move") };
+    }
+    return { ok: true, trashId };
   });
 
 export const workflowRunNow = createServerFn({ method: "POST" })

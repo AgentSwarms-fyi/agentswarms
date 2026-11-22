@@ -189,16 +189,8 @@ export const prepPreview = createServerFn({ method: "POST" })
 
 // ── Dependency lookup (safe deletion) ─────────────────────────────────────
 
-export type DatasetDependents = {
-  /** Flows that READ this dataset (base, join, or append source). */
-  flowsUsing: { id: string; name: string }[];
-  /** Flows whose OUTPUT is this dataset — deleting it breaks their refresh. */
-  flowsProducing: { id: string; name: string }[];
-  semanticModels: { id: string; name: string }[];
-  /** Dashboards whose widget SQL mentions the table name. */
-  dashboards: { id: string; name: string }[];
-  savedMetrics: number;
-};
+export type { DatasetDependents } from "@/lib/datasetDependents";
+import type { DatasetDependents } from "@/lib/datasetDependents";
 
 /**
  * Everything that would break if this dataset were deleted.
@@ -220,52 +212,12 @@ export const datasetDependents = createServerFn({ method: "POST" })
       .eq("id", data.tableId)
       .maybeSingle();
     if (!table) throw new Error("Dataset not found");
-    const name = table.name;
-
-    const [{ data: flows }, { data: models }, { data: dashboards }, { count: metricCount }] =
-      await Promise.all([
-        sb.from("user_prep_flows").select("id, name, config, output_table_id"),
-        sb.from("semantic_models").select("id, name, source_table, source_kind"),
-        // `pages` too: the top-level widgets only mirror page 1 (R510).
-        sb.from("bi_dashboards").select("id, name, widgets, pages"),
-        sb
-          .from("user_saved_metrics")
-          .select("id", { head: true, count: "exact" })
-          .eq("table_id", data.tableId),
-      ]);
-
-    const flowsUsing: { id: string; name: string }[] = [];
-    const flowsProducing: { id: string; name: string }[] = [];
-    for (const f of flows ?? []) {
-      if (f.output_table_id === data.tableId) {
-        flowsProducing.push({ id: f.id, name: f.name });
-        continue;
-      }
-      // The config holds base/joins/append-step table names.
-      const cfg = f.config as { base?: string; joins?: { table?: string }[]; steps?: unknown[] };
-      const names = new Set<string>();
-      if (typeof cfg?.base === "string") names.add(cfg.base);
-      for (const j of cfg?.joins ?? []) if (j?.table) names.add(j.table);
-      for (const s of (cfg?.steps ?? []) as { kind?: string; table?: string }[]) {
-        if (s?.kind === "append" && s.table) names.add(s.table);
-      }
-      if (names.has(name)) flowsUsing.push({ id: f.id, name: f.name });
-    }
-
-    const semanticModels = (models ?? [])
-      .filter((m) => m.source_kind === "data_table" && m.source_table === name)
-      .map((m) => ({ id: m.id, name: m.name }));
-
-    const { dashboardsUsingTable } = await import("@/lib/datasetDependents");
-    const dashboardsUsing = dashboardsUsingTable(dashboards ?? [], name);
-
+    // The same lookup the dataset's page reads (R519), so what deleting it
+    // breaks and what its page says uses it cannot disagree.
+    const { computeDatasetDependents } = await import("@/utils/data/datasetDependents.server");
     return {
-      tableName: name,
-      flowsUsing,
-      flowsProducing,
-      semanticModels,
-      dashboards: dashboardsUsing,
-      savedMetrics: metricCount ?? 0,
+      tableName: table.name,
+      ...(await computeDatasetDependents(sb, data.tableId, table.name)),
     };
   });
 

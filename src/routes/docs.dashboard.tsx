@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import {
+  C,
   Callout,
   DocLink,
   DocsHeader,
@@ -12,6 +13,7 @@ import {
   Steps,
   Table,
 } from "@/components/docs/DocsShell";
+import { TRASH_RETENTION_DAYS } from "@/lib/trash";
 
 export const Route = createFileRoute("/docs/dashboard")({
   head: () => ({
@@ -75,7 +77,7 @@ function DashboardDoc() {
             "A warehouse whose last connection test failed",
             "Integrations",
           ],
-          ["schedules failing", "A swarm schedule whose last run errored", "Swarms"],
+          ["schedules failing", "A swarm schedule whose last run errored", "Agent Swarms"],
           [
             "pipeline runs failed today",
             "An ETL run that failed in the last 24 hours",
@@ -213,12 +215,46 @@ function DashboardDoc() {
         so a figure here and a budget alert can never disagree about what someone spent.
       </P>
 
-      <H2 id="recent-runs">Recent runs</H2>
+      <H2 id="recent-runs">Recent model calls</H2>
       <P>
-        The last six executions across your workspace, each with the agent name, model, latency,
-        cost, and a success/error indicator. <em>View all</em> opens the full run history at{" "}
-        <DocLink to="/traces">/traces</DocLink>, where every run can be expanded into its complete
-        trace — see <DocLink to="/docs/debugging">Logs &amp; traces</DocLink> for how to read one.
+        The last six calls to a model across your workspace, each with the agent name, model,
+        latency, cost, and a success/error indicator. <em>View all</em> opens every call at{" "}
+        <DocLink to="/traces">/traces</DocLink>, where each can be expanded into its complete trace
+        — see <DocLink to="/docs/debugging">Logs &amp; traces</DocLink> for how to read one. For
+        what ran rather than what was said, see Runs below.
+      </P>
+
+      <H2 id="runs">Runs</H2>
+      <P>
+        <strong>Overview → Runs</strong> (<strong>G</strong> then <strong>R</strong>) lists
+        everything that ran for you, newest first and grouped by day: pipeline runs, workflow runs,
+        swarm runs, scheduled emails of reports and dashboards, model training and batch
+        predictions, notebook runs, SQL model runs, data monitor checks and evaluations. Each says
+        what ran, how it was started (by hand, on a schedule, from the API, or by another run),
+        when, how long it took, what it cost where that is known, and, when it failed, why in one
+        line. Its name opens the thing that ran.
+      </P>
+      <Table
+        headers={["On the page", "What it does"]}
+        rows={[
+          [
+            "All · Needs a look · Not finished",
+            "Needs a look is what failed, partly failed or raised an alert; Not finished is what is queued, running, or waiting for someone to approve a step. While anything has not finished the list looks again every half minute.",
+          ],
+          ["The kinds", "Show only some kinds of run; each says how many there are."],
+          ["In the last", "24 hours, 7, 14, 30 or 90 days."],
+          [
+            "Ask about this",
+            "On a run that needs a look: opens the assistant with the run's kind, name and error, to find what usually causes it and what to check.",
+          ],
+        ]}
+      />
+      <P>
+        Some scheduled work keeps only its latest result, not a history: data-prep refreshes,
+        scheduled analyses and dashboard refreshes. Their latest result is listed, marked{" "}
+        <em>Only its latest run is kept</em>. Each kind is read as you, so the page lists your own
+        runs and nobody else&apos;s, and a kind that cannot be read just then is named at the foot
+        instead of the page failing.
       </P>
 
       <H2 id="search">Finding your work, and starting something new</H2>
@@ -266,7 +302,7 @@ function DashboardDoc() {
           [
             "Overview",
             "Where things stand, your own work, and the handbook",
-            "Dashboard, My work, Documentation",
+            "Dashboard, My work, Runs, Trash, Documentation",
           ],
           [
             "Build",
@@ -384,6 +420,82 @@ function DashboardDoc() {
         No page shows what you opened to anyone else, and the database returns each person their own
         rows only. <em>Clear what I opened</em>, under the Recent tab, forgets all of it. Your
         favourites stay, and your own work is listed by when it last changed again.
+      </P>
+
+      <H2 id="assistant">The assistant</H2>
+      <P>
+        <strong>Assistant</strong> in the top bar (<C>Ctrl/⌘ J</C>) opens a panel beside whatever
+        page you are on. It knows that page and the thing open on it, and it answers three kinds of
+        question: what the page is for, how to do something, and where one of your things is. How-to
+        answers come from this handbook, with a link to the section it used, and it says so when the
+        handbook does not cover something rather than guess. It finds your things by name, shared
+        ones included, and links them. When a piece of work belongs to a page with AI of its own, it
+        sends you there: Ask AI in a workbook, the AI analyst tab on a dashboard, the Ask tab in an
+        ontology, or the AI Analyst page.
+      </P>
+      <Table
+        headers={["In the panel", "What it does"]}
+        rows={[
+          [
+            "A link to a page or one of your things",
+            "Opens it in this tab; the panel and the conversation stay beside it.",
+          ],
+          ["A link to the handbook", "Opens in a new tab, so the conversation stays in view."],
+          ["New conversation", "Starts again with nothing asked."],
+          ["Stop", "Ends the answer being written; what it said so far stays."],
+          ["Esc", "Closes the panel when you are typing in it."],
+        ]}
+      />
+      <P>
+        It reads and explains; it does not change anything. It runs on the workspace&apos;s default
+        model (Admin → Developer runtime → AI services → Default model), under your role&apos;s
+        model rules and your AI budget, as every other AI feature does, and each answer is recorded
+        like any other model call, named <em>Assistant</em>, with what it looked up sealed under
+        your key. The conversation follows you from page to page and is kept in this browser tab
+        only: closing the tab forgets it, and someone else signing in on the same browser does not
+        see it. In search (<C>Ctrl/⌘ K</C>), anything you type can be handed to the assistant with{" "}
+        <strong>Ask the assistant</strong>, which is the way to go when what you typed is a question
+        rather than a name.
+      </P>
+
+      <H2 id="trash">Trash</H2>
+      <P>
+        Deleting an agent, swarm, dashboard, report, workbook, notebook, workflow, prompt, skill,
+        evaluation set, semantic model, SQL model, data monitor, AI analyst or embed moves it to{" "}
+        <strong>Overview → Trash</strong>, with everything that belonged to it: its versions, its
+        schedules, its run history, its shares. Nothing else changes while it is there; a trashed
+        workflow does not run and a trashed embed does not serve. The message that says it was moved
+        has an <em>Undo</em>, and the Trash page restores it for {TRASH_RETENTION_DAYS} days, with
+        the same address, so links to it work again.
+      </P>
+      <Table
+        headers={["On the Trash page", "What it does"]}
+        rows={[
+          [
+            "Restore",
+            "Puts it back as it was. Something that belonged to it and pointed at something deleted since (a promotion to a dashboard that is gone) stays out, and the message says how many.",
+          ],
+          ["Delete for good", "Deletes that one now. It asks first, and it cannot be undone."],
+          ["Empty trash", "Deletes everything in your trash now. It asks first."],
+        ]}
+      />
+      <P>
+        After {TRASH_RETENTION_DAYS} days an entry is deleted for good by itself. If something with
+        the same unique name or link has been made since, Restore says so and leaves the entry in
+        the trash until that one is renamed or removed.
+      </P>
+      <Note>
+        Datasets, knowledge bases, ML models, MCP projects and connections, ETL pipelines and
+        lakehouse tables are deleted for good at once and do not come here: deleting each also
+        removes something outside the database (stored files, search vectors, a running service, a
+        replication slot on the source), which a copy of its rows could not bring back. Each of
+        those asks first and says what goes.
+      </Note>
+      <P>
+        Only you see your trash and only you can restore from it. What it keeps is a copy of the
+        rows, held where no page can read it; the Trash page shows names and dates and nothing more.
+        Something you shared goes out of sight for the people you shared it with while it is in the
+        trash, and comes back to them when you restore it.
       </P>
 
       <H2 id="first-run">What to do on a new workspace</H2>

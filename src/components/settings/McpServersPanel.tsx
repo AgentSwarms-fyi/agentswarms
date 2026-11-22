@@ -306,7 +306,7 @@ export function McpServersPanel({
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
             <DialogTrigger asChild>
               <Button size="sm">
-                <Plus className="h-4 w-4 mr-1.5" /> Add MCP Server
+                <Plus className="h-4 w-4 mr-1.5" /> Add MCP server
               </Button>
             </DialogTrigger>
             <AddServerDialog onAdd={addServer} />
@@ -451,7 +451,9 @@ export function McpServersPanel({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-7 w-7 p-0 text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                      className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                      aria-label={`Remove ${server.name}`}
+                      title="Remove"
                       onClick={() => removeServer(server.id)}
                     >
                       <Trash2 className="h-3 w-3" />
@@ -467,7 +469,7 @@ export function McpServersPanel({
             className="rounded-lg border-2 border-dashed border-border hover:border-primary/40 hover:bg-muted/20 transition-all flex flex-col items-center justify-center gap-2 min-h-[200px] text-muted-foreground hover:text-primary"
           >
             <Plus className="h-8 w-8" />
-            <span className="text-sm font-medium">Add MCP Server</span>
+            <span className="text-sm font-medium">Add MCP server</span>
           </button>
         </div>
       )}
@@ -509,14 +511,14 @@ function AddServerDialog({
   return (
     <DialogContent className="sm:max-w-md">
       <DialogHeader>
-        <DialogTitle>Add MCP Server</DialogTitle>
+        <DialogTitle>Add MCP server</DialogTitle>
         <DialogDescription className="text-xs">
           Connect a Model Context Protocol server to expose its tools and resources to your agents.
         </DialogDescription>
       </DialogHeader>
       <form onSubmit={handleSubmit} className="space-y-3">
         <div className="space-y-1.5">
-          <Label className="text-xs">Server Name *</Label>
+          <Label className="text-xs">Server name *</Label>
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -525,7 +527,7 @@ function AddServerDialog({
           />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs">Server Type</Label>
+          <Label className="text-xs">Server type</Label>
           <Select value={type} onValueChange={(v: McpServerType) => setType(v)}>
             <SelectTrigger>
               <SelectValue />
@@ -540,7 +542,7 @@ function AddServerDialog({
           </Select>
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs">MCP Endpoint URL *</Label>
+          <Label className="text-xs">MCP endpoint URL *</Label>
           <Input
             value={endpoint}
             onChange={(e) => setEndpoint(e.target.value)}
@@ -563,14 +565,14 @@ function AddServerDialog({
           />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs">Auth Type</Label>
+          <Label className="text-xs">Auth type</Label>
           <Select value={authType} onValueChange={(v: McpAuthType) => setAuthType(v)}>
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="none">None</SelectItem>
-              <SelectItem value="token">Bearer Token</SelectItem>
+              <SelectItem value="token">Bearer token</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -590,7 +592,7 @@ function AddServerDialog({
           </div>
         )}
         <Button type="submit" className="w-full" disabled={authType === "token" && !token}>
-          Connect Server
+          Connect server
         </Button>
       </form>
     </DialogContent>

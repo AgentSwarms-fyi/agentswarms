@@ -3,7 +3,7 @@
 //
 // Built-ins are shipped in src/lib/promptLibrary.ts and cannot be removed.
 // User prompts are persisted to public.user_prompts (RLS: owner-only).
-import { PageEyebrow } from "@/components/PageEyebrow";
+import { PageHeader } from "@/components/PageHeader";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
@@ -53,6 +53,8 @@ import { StarButton } from "@/components/StarButton";
 import { FavouritesFilter } from "@/components/FavouritesFilter";
 import { useFavouritesFilter } from "@/hooks/use-favourites-filter";
 import { useRecordOpened } from "@/hooks/use-object-marks";
+import { moveToTrash } from "@/hooks/use-trash";
+import { RESTORE_HINT } from "@/lib/trash";
 
 export const Route = createFileRoute("/_authenticated/prompts")({
   component: PromptsPage,
@@ -205,14 +207,22 @@ function PromptsPage() {
     loadUserPrompts();
   }
 
-  async function deletePrompt(id: string) {
-    if (!(await confirmAsk({ title: "Delete this prompt? This cannot be undone." }))) return;
-    const { error } = await supabase.from("user_prompts").delete().eq("id", id);
-    if (error) {
-      toast.error(error.message);
+  async function deletePrompt(id: string, title: string) {
+    if (
+      !(await confirmAsk({
+        title: `Move “${title}” to the trash?`,
+        body: RESTORE_HINT,
+        actionLabel: "Move to trash",
+      }))
+    )
       return;
-    }
-    toast.success("Prompt deleted");
+    const r = await moveToTrash({
+      kind: "prompt",
+      id,
+      name: title,
+      onRestored: () => void loadUserPrompts(),
+    });
+    if (!r.ok) return;
     loadUserPrompts();
   }
 
@@ -241,23 +251,16 @@ function PromptsPage() {
 
   return (
     <div className="flex">
-      <div className="flex-1 p-6 space-y-6">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <PageEyebrow />
-            <h1 className="font-display text-3xl font-semibold tracking-tight flex items-center gap-2">
-              <BookMarked className="h-7 w-7 text-primary" />
-              Prompt Library
-            </h1>
-            <p className="text-muted-foreground mt-1">
-              Production-grade system prompts you can drop into any agent. Built-ins ship with the
-              app and can't be deleted.
-            </p>
-          </div>
-          <Button onClick={openNew}>
-            <Plus className="h-4 w-4 mr-2" /> New Prompt
-          </Button>
-        </div>
+      <div className="min-w-0 flex-1 space-y-6 p-6">
+        <PageHeader
+          title="Prompt Library"
+          description="Browse the built-in system prompts and save your own to use in any agent."
+          actions={
+            <Button onClick={openNew}>
+              <Plus className="h-4 w-4 mr-2" /> New prompt
+            </Button>
+          }
+        />
 
         <div className="flex gap-3 flex-wrap items-center">
           <div className="relative flex-1 min-w-[240px]">
@@ -296,7 +299,7 @@ function PromptsPage() {
               <UserIcon className="h-3.5 w-3.5" />
               {/* Not userPrompts.length — that is 0 on a failed read, which is
                   the one number this tab cannot stand behind. */}
-              My Prompts ({mineClaim.countLabel})
+              My prompts ({mineClaim.countLabel})
             </TabsTrigger>
           </TabsList>
 
@@ -454,14 +457,22 @@ function PromptsPage() {
                         >
                           <Copy className="h-3 w-3" /> Copy
                         </Button>
-                        <Button variant="ghost" size="sm" onClick={() => openEdit(p)}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Edit ${p.title}`}
+                          title="Edit"
+                          onClick={() => openEdit(p)}
+                        >
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="text-destructive"
-                          onClick={() => deletePrompt(p.id)}
+                          aria-label={`Delete ${p.title}`}
+                          title="Delete"
+                          className="text-muted-foreground hover:text-destructive"
+                          onClick={() => deletePrompt(p.id, p.title)}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
@@ -477,7 +488,7 @@ function PromptsPage() {
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>{form.id ? "Edit Prompt" : "Create Prompt"}</DialogTitle>
+              <DialogTitle>{form.id ? "Edit prompt" : "Create prompt"}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
               <div className="space-y-2">

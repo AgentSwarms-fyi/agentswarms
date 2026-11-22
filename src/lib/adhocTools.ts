@@ -37,7 +37,7 @@ export const ADHOC_SERVER_TOOLS: ReadonlyArray<{
     id: "web_browse",
     label: "Read a web page",
     description:
-      "Fetch a specific URL and read it as clean text. Needs Firecrawl (Integrations → Web Search) — without it the model cannot browse and will say so.",
+      "Fetch a specific URL and read it as clean text. Needs Firecrawl (Integrations → Web search) — without it the model cannot browse and will say so.",
   },
   {
     id: "calculator",

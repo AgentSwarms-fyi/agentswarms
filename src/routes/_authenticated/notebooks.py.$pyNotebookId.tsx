@@ -486,6 +486,8 @@ function PyNotebookPage() {
             size="sm"
             variant="ghost"
             className="text-muted-foreground hover:text-destructive"
+            aria-label={title ? `Delete ${title}` : "Delete this notebook"}
+            title="Delete"
             onClick={deleteNotebook}
           >
             <Trash2 className="h-3.5 w-3.5" />

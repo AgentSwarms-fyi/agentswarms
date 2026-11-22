@@ -419,7 +419,7 @@ clean markdown). How well they work depends on whether a key is configured —
 | Setup                                                        | `web_search`                                                                                                                                           | `web_browse`                                                                   |
 | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------ |
 | **No key** (default)                                         | Works, but falls back to DuckDuckGo's free Instant Answer API — only entity summaries + a few related topics, so thin/often empty for ordinary queries | Works via the **built-in fetcher** — server-rendered pages only, no JavaScript |
-| **Firecrawl connector** (Integrations page → **Web Search**) | Real web search via [Firecrawl](https://firecrawl.dev) for every agent — key stored encrypted, no restart                                              | Full-page reads via Firecrawl                                                  |
+| **Firecrawl connector** (Integrations page → **Web search**) | Real web search via [Firecrawl](https://firecrawl.dev) for every agent — key stored encrypted, no restart                                              | Full-page reads via Firecrawl                                                  |
 | **`FIRECRAWL_API_KEY` in `.env`** (workspace-wide)           | Same as above, set via env instead of the UI                                                                                                           | Full-page reads via Firecrawl                                                  |
 | **Per-agent key** (agent editor, no `.env` change)           | Bring your own **Brave / SerpAPI / Tavily** key                                                                                                        | Bring your own **ScrapingBee** or custom **Firecrawl** key                     |
 
@@ -449,7 +449,7 @@ that is a category difference, not a quality one. The Instant Answer API returns
 encyclopedia-style entries for recognised entities and has no ranked web results
 at all, which is why ordinary queries come back empty however they are phrased.
 
-Easiest fix: open **Integrations → Web Search**, paste a Firecrawl key (from
+Easiest fix: open **Integrations → Web search**, paste a Firecrawl key (from
 [firecrawl.dev](https://firecrawl.dev)) and click **Validate & Save** — it takes
 effect immediately, no restart. You can also set `FIRECRAWL_API_KEY` in `.env`,
 or give one agent its own key in the agent editor. Resolution order for the
@@ -491,7 +491,7 @@ browser.
    embedding-capable provider is connected (or `OPENROUTER_API_KEY` is set), it
    gets embedded for vector search; otherwise it still works via keyword
    search.
-4. Open **Swarms** and load one of the built-in templates to confirm the
+4. Open **Agent Swarms** and load one of the built-in templates to confirm the
    visual canvas and multi-agent execution work end-to-end.
 
 Product documentation for every feature ships inside the app at `/docs`.

@@ -1,4 +1,4 @@
-import { PageEyebrow } from "@/components/PageEyebrow";
+import { PageHeader } from "@/components/PageHeader";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
@@ -261,11 +261,11 @@ const EMBED_PROVIDERS: { id: string; label: string; models: string[] }[] = [
 const DEFAULT_EMBED_PROVIDER = "openrouter";
 
 const CHUNKING_STRATEGIES = [
-  { value: "fixed", label: "Fixed Size" },
+  { value: "fixed", label: "Fixed size" },
   { value: "sentence", label: "Sentence-based" },
   { value: "paragraph", label: "Paragraph-based" },
-  { value: "semantic", label: "Semantic Chunking" },
-  { value: "recursive", label: "Recursive Character" },
+  { value: "semantic", label: "Semantic chunking" },
+  { value: "recursive", label: "Recursive character" },
 ];
 
 function KnowledgePage() {
@@ -1178,539 +1178,542 @@ function KnowledgePage() {
 
   return (
     <div className="flex">
-      <div className="flex-1 p-6 space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <PageEyebrow />
-            <h1 className="font-display text-3xl font-semibold tracking-tight">Knowledge Bases</h1>
-            <p className="text-muted-foreground mt-1">
-              The documents your agents retrieve from. Add sources, watch them get chunked and
-              embedded, then wire a knowledge base into any agent.
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline">
-                  <Settings2 className="h-4 w-4 mr-2" /> RAG Settings
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
-                <DialogHeader>
-                  <DialogTitle>RAG Pipeline Settings</DialogTitle>
-                </DialogHeader>
-                <Tabs defaultValue="vectorstore">
-                  <TabsList className="w-full">
-                    <TabsTrigger value="vectorstore" className="flex-1">
-                      Vector Store
-                    </TabsTrigger>
-                    <TabsTrigger value="embedding" className="flex-1">
-                      Embedding
-                    </TabsTrigger>
-                    <TabsTrigger value="chunking" className="flex-1">
-                      Chunking
-                    </TabsTrigger>
-                    <TabsTrigger value="retrieval" className="flex-1">
-                      Retrieval
-                    </TabsTrigger>
-                  </TabsList>
+      <div className="min-w-0 flex-1 space-y-6 p-6">
+        <PageHeader
+          title="Knowledge Base"
+          description="The documents your agents look things up in. Add sources here, then attach a knowledge base to an agent."
+          actions={
+            <>
+              <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline">
+                    <Settings2 className="h-4 w-4 mr-2" /> RAG settings
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle>RAG pipeline settings</DialogTitle>
+                  </DialogHeader>
+                  <Tabs defaultValue="vectorstore">
+                    <TabsList className="w-full">
+                      <TabsTrigger value="vectorstore" className="flex-1">
+                        Vector store
+                      </TabsTrigger>
+                      <TabsTrigger value="embedding" className="flex-1">
+                        Embedding
+                      </TabsTrigger>
+                      <TabsTrigger value="chunking" className="flex-1">
+                        Chunking
+                      </TabsTrigger>
+                      <TabsTrigger value="retrieval" className="flex-1">
+                        Retrieval
+                      </TabsTrigger>
+                    </TabsList>
 
-                  {/*
-                   * READ-ONLY, and that is the honest shape.
-                   *
-                   * This tab used to be a "Vector Store Provider" dropdown
-                   * with one option, backed by a `useState` nothing read and
-                   * nothing saved — a control that looked like a choice and
-                   * was not one. Where vectors are searched is a deployment
-                   * setting (VECTOR_STORE / QDRANT_URL), not a per-collection
-                   * one: splitting it per collection would put one knowledge
-                   * base's vectors in Postgres and another's in Qdrant, and a
-                   * switch would strand half of one in each.
-                   *
-                   * So it says which store this deployment uses, and where to
-                   * change it. Nothing here is sensitive — no endpoint, no
-                   * counts, no key — because any collection owner can open it.
-                   */}
-                  <TabsContent value="vectorstore" className="space-y-4 mt-4">
-                    <div className="rounded-lg border border-border/60 p-3 space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Database className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-sm font-medium">
-                          {storeBrief?.external
-                            ? `Searched in ${storeBrief.kind}`
-                            : "Searched in Postgres (pgvector)"}
-                        </span>
-                        <Badge variant="secondary" className="text-[10px]">
-                          {storeBrief ? `${storeBrief.dims} dimensions` : "…"}
-                        </Badge>
+                    {/*
+                     * READ-ONLY, and that is the honest shape.
+                     *
+                     * This tab used to be a "Vector Store Provider" dropdown
+                     * with one option, backed by a `useState` nothing read and
+                     * nothing saved — a control that looked like a choice and
+                     * was not one. Where vectors are searched is a deployment
+                     * setting (VECTOR_STORE / QDRANT_URL), not a per-collection
+                     * one: splitting it per collection would put one knowledge
+                     * base's vectors in Postgres and another's in Qdrant, and a
+                     * switch would strand half of one in each.
+                     *
+                     * So it says which store this deployment uses, and where to
+                     * change it. Nothing here is sensitive — no endpoint, no
+                     * counts, no key — because any collection owner can open it.
+                     */}
+                    <TabsContent value="vectorstore" className="space-y-4 mt-4">
+                      <div className="rounded-lg border border-border/60 p-3 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Database className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm font-medium">
+                            {storeBrief?.external
+                              ? `Searched in ${storeBrief.kind}`
+                              : "Searched in Postgres (pgvector)"}
+                          </span>
+                          <Badge variant="secondary" className="text-[10px]">
+                            {storeBrief ? `${storeBrief.dims} dimensions` : "…"}
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {storeBrief?.external ? (
+                            <>
+                              Embeddings are searched in an external{" "}
+                              <strong>{storeBrief.kind}</strong> store. It holds vectors and two
+                              ids; the chunk text, the parent passages and who may read them stay in
+                              Postgres, so keyword search is unaffected and the index can always be
+                              rebuilt.
+                            </>
+                          ) : (
+                            <>
+                              Embeddings live in <strong>Postgres</strong>, in the same rows as the
+                              chunks they belong to. One thing to run, one thing to back up, and the
+                              permission check is the row-level security already protecting those
+                              rows.
+                            </>
+                          )}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          This applies to <strong>every</strong> collection — it is set once for the
+                          deployment, not per knowledge base, because one collection&apos;s vectors
+                          living somewhere else from another&apos;s is a way to strand half of each.
+                          An operator changes it in{" "}
+                          <strong>Admin → Developer runtime → AI services</strong>, which also shows
+                          whether the store is answering and can re-index it.
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          What you set on the other tabs — chunking, the embedding model, retrieval
+                          mode — applies wherever the vectors are searched.
+                        </p>
                       </div>
-                      <p className="text-xs text-muted-foreground">
-                        {storeBrief?.external ? (
-                          <>
-                            Embeddings are searched in an external{" "}
-                            <strong>{storeBrief.kind}</strong> store. It holds vectors and two ids;
-                            the chunk text, the parent passages and who may read them stay in
-                            Postgres, so keyword search is unaffected and the index can always be
-                            rebuilt.
-                          </>
-                        ) : (
-                          <>
-                            Embeddings live in <strong>Postgres</strong>, in the same rows as the
-                            chunks they belong to. One thing to run, one thing to back up, and the
-                            permission check is the row-level security already protecting those
-                            rows.
-                          </>
-                        )}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        This applies to <strong>every</strong> collection — it is set once for the
-                        deployment, not per knowledge base, because one collection&apos;s vectors
-                        living somewhere else from another&apos;s is a way to strand half of each.
-                        An operator changes it in{" "}
-                        <strong>Admin → Developer runtime → AI services</strong>, which also shows
-                        whether the store is answering and can re-index it.
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        What you set on the other tabs — chunking, the embedding model, retrieval
-                        mode — applies wherever the vectors are searched.
-                      </p>
-                    </div>
-                  </TabsContent>
+                    </TabsContent>
 
-                  <TabsContent value="embedding" className="space-y-4 mt-4">
-                    <div className="space-y-2">
-                      <Label>Embedding Provider</Label>
-                      <Select
-                        value={embedProvider}
-                        onValueChange={(v) => {
-                          setEmbedProvider(v);
-                          setEmbedChoiceTouched(true);
-                          setCustomEmbedModel("");
-                          setProbe(null);
-                          const first = EMBED_PROVIDERS.find((p) => p.id === v)?.models[0];
-                          if (first) setEmbeddingModel(first);
-                        }}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {embedProviderOptions.map((p) => (
-                            <SelectItem key={p.id} value={p.id}>
-                              {p.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      {anyProviderResolvable === false && (
-                        <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs text-destructive">
-                          <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
-                          <span>
-                            No connected provider can embed, so documents are saved with keyword
-                            search only. Connect one with an embeddings API under Integrations.
-                          </span>
-                        </div>
-                      )}
-                      <div className="flex items-center gap-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={probing || !embedProvider}
-                          onClick={async () => {
-                            setProbing(true);
-                            setProbe(null);
-                            try {
-                              const r = await probeFn({
-                                data: {
-                                  provider: embedProvider,
-                                  model: effectiveEmbedModel || undefined,
-                                },
-                              });
-                              setProbe(r);
-                            } catch (e) {
-                              setProbe({ ok: false, message: (e as Error).message });
-                            } finally {
-                              setProbing(false);
-                            }
-                          }}
-                        >
-                          {probing ? "Testing…" : "Test embedding"}
-                        </Button>
-                        {probe?.ok && (
-                          <span className="text-xs text-emerald-600 dark:text-emerald-400">
-                            Works — {probe.dims} dimensions
-                          </span>
-                        )}
-                      </div>
-                      {probe && !probe.ok && (
-                        <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs text-destructive">
-                          <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
-                          <span>{probe.message}</span>
-                        </div>
-                      )}
-                      <p className="text-xs text-muted-foreground">
-                        Only providers with an embeddings API are listed. Chat-only providers (e.g.
-                        Anthropic, Grok, Groq) can't embed documents — connect OpenRouter, OpenAI,
-                        Gemini, Ollama, vLLM, NVIDIA or Qwen under{" "}
-                        <Link to="/integrations" className="text-primary underline">
-                          Integrations
-                        </Link>{" "}
-                        to see them here.
-                      </p>
-                      <Label className="pt-1">Embedding Model</Label>
-                      {embedModelSuggestions.length > 0 && (
+                    <TabsContent value="embedding" className="space-y-4 mt-4">
+                      <div className="space-y-2">
+                        <Label>Embedding provider</Label>
                         <Select
-                          value={
-                            customEmbedModel
-                              ? "__custom__"
-                              : embedModelSuggestions.includes(embeddingModel)
-                                ? embeddingModel
-                                : "__custom__"
-                          }
+                          value={embedProvider}
                           onValueChange={(v) => {
+                            setEmbedProvider(v);
                             setEmbedChoiceTouched(true);
-                            if (v === "__custom__") setCustomEmbedModel(embeddingModel);
-                            else {
-                              setEmbeddingModel(v);
-                              setCustomEmbedModel("");
-                            }
+                            setCustomEmbedModel("");
+                            setProbe(null);
+                            const first = EMBED_PROVIDERS.find((p) => p.id === v)?.models[0];
+                            if (first) setEmbeddingModel(first);
                           }}
                         >
                           <SelectTrigger>
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {embedModelSuggestions.map((m) => (
-                              <SelectItem key={m} value={m}>
-                                {m}
+                            {embedProviderOptions.map((p) => (
+                              <SelectItem key={p.id} value={p.id}>
+                                {p.label}
                               </SelectItem>
                             ))}
-                            <SelectItem value="__custom__">Custom model name…</SelectItem>
                           </SelectContent>
                         </Select>
-                      )}
-                      {(customEmbedModel !== "" || embedModelSuggestions.length === 0) && (
-                        <Input
-                          value={customEmbedModel}
-                          onChange={(e) => setCustomEmbedModel(e.target.value)}
-                          placeholder="Model name, e.g. text-embedding-3-small"
-                        />
-                      )}
-                      <p className="text-xs text-muted-foreground">
-                        Custom models must return 1536-dim vectors (or support dimension truncation)
-                        to match the pgvector column — mismatches are rejected with a clear error.
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Only models from connected providers are listed.{" "}
-                        <Link to="/integrations" className="text-primary underline">
-                          Connect more providers
-                        </Link>
-                        .
-                      </p>
-                      {!isEmbeddingProviderConnected && (
-                        <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs text-destructive">
-                          <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
-                          <span>
-                            The selected model's provider is not connected. Connect it before
-                            embedding.
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <Label>Auto-Embed on Upload</Label>
-                        <p className="text-xs text-muted-foreground">
-                          Automatically generate embeddings when documents are added
-                        </p>
-                      </div>
-                      <Switch checked={autoEmbed} onCheckedChange={setAutoEmbed} />
-                    </div>
-                  </TabsContent>
-
-                  <TabsContent value="chunking" className="space-y-4 mt-4">
-                    <div className="space-y-2">
-                      <Label>Chunking Mode</Label>
-                      <Select value={chunkMode} onValueChange={(v) => setChunkMode(v as ChunkMode)}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="flat">Flat &mdash; one size for both</SelectItem>
-                          <SelectItem value="parent_child">
-                            Parent-child &mdash; match small, read large
-                          </SelectItem>
-                          <SelectItem value="qa">
-                            Q&amp;A &mdash; index generated questions
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <p className="text-xs text-muted-foreground">
-                        {chunkMode === "flat"
-                          ? "The chunk that matches is the text the model reads. Best for short documents."
-                          : chunkMode === "parent_child"
-                            ? "Small chunks are embedded so matching stays precise; the surrounding parent is what reaches the model. Best for long reference documents."
-                            : "An LLM writes question/answer pairs and the QUESTION is embedded, so a user question is compared against a question. Costs one model call per passage at index time."}
-                      </p>
-                    </div>
-                    {chunkMode === "parent_child" && (
-                      <div className="space-y-2">
-                        <Label>Parent Size (tokens)</Label>
-                        <Input
-                          type="number"
-                          value={parentChunkSize}
-                          onChange={(e) => setParentChunkSize(Number(e.target.value))}
-                          min={128}
-                          max={4096}
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          The chunk size below becomes the CHILD size &mdash; what gets embedded. A
-                          child is capped at half the parent, so leave clear space between the two.
-                        </p>
-                      </div>
-                    )}
-                    <div className="space-y-2">
-                      <Label>Chunking Strategy</Label>
-                      <Select value={chunkStrategy} onValueChange={setChunkStrategy}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {CHUNKING_STRATEGIES.map((s) => (
-                            <SelectItem key={s.value} value={s.value}>
-                              {s.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label>Chunk Size (tokens)</Label>
-                        <Input
-                          type="number"
-                          value={chunkSize}
-                          onChange={(e) => setChunkSize(Number(e.target.value))}
-                          min={64}
-                          max={8192}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Chunk Overlap (tokens)</Label>
-                        <Input
-                          type="number"
-                          value={chunkOverlap}
-                          onChange={(e) => setChunkOverlap(Number(e.target.value))}
-                          min={0}
-                          max={1024}
-                        />
-                      </div>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Overlap ensures context continuity between chunks. Typically 10-20% of chunk
-                      size.
-                    </p>
-                    <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
-                      <p>
-                        These settings apply to documents added from now on. Documents that are
-                        already embedded keep the chunks they were built with &mdash; changing the
-                        mode does not rewrite them, because re-chunking means paying to embed the
-                        whole document again.
-                      </p>
-                      {selectedBase && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={reindexing}
-                          onClick={reindexWithCurrentSettings}
-                        >
-                          {reindexing
-                            ? "Re-indexing\u2026"
-                            : `Re-index \u201C${selectedBase.name}\u201D with these settings`}
-                        </Button>
-                      )}
-                    </div>
-                  </TabsContent>
-
-                  <TabsContent value="retrieval" className="space-y-4 mt-4">
-                    {!selectedBase ? (
-                      <p className="text-sm text-muted-foreground">
-                        Select a knowledge base to configure how it is searched.
-                      </p>
-                    ) : (
-                      <>
-                        {chunkCountsWhole &&
-                          indexCoverage.total > 0 &&
-                          indexCoverage.indexed === 0 && (
-                            <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs leading-relaxed">
-                              <p className="font-medium text-foreground">
-                                Nothing in this collection is indexed yet — these settings are not
-                                in effect.
-                              </p>
-                              <p className="mt-1 text-muted-foreground">
-                                All {indexCoverage.total} document
-                                {indexCoverage.total === 1 ? " has" : "s have"} zero chunks, so
-                                searching it falls back to matching words in the raw text. Search
-                                mode, the semantic/keyword balance, parent expansion and Q&amp;A
-                                pairs all operate on chunks, so they change nothing until it is
-                                indexed. The shipped sample collections start this way — indexing
-                                them costs embedding calls, so it is left to you.
-                              </p>
-                              {indexButton && <div className="mt-2">{indexButton}</div>}
-                            </div>
-                          )}
-                        <div className="space-y-2">
-                          <Label>Search Mode</Label>
-                          <Select
-                            value={retrievalMode}
-                            onValueChange={(v) => setRetrievalMode(v as RetrievalMode)}
-                          >
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="semantic">Semantic &mdash; vector only</SelectItem>
-                              <SelectItem value="hybrid">
-                                Hybrid &mdash; vector + keyword
-                              </SelectItem>
-                              <SelectItem value="keyword">
-                                Keyword &mdash; full-text only
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <p className="text-xs text-muted-foreground">
-                            Semantic finds meaning and misses exact strings. Keyword finds part
-                            numbers, error codes and names that vectors blur together. Hybrid runs
-                            both and merges them.
-                          </p>
-                        </div>
-
-                        {retrievalMode === "hybrid" && (
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between">
-                              <Label>Weighting</Label>
-                              <span className="text-xs font-mono text-muted-foreground">
-                                {Math.round(semanticWeight * 100)}% semantic /{" "}
-                                {Math.round((1 - semanticWeight) * 100)}% keyword
-                              </span>
-                            </div>
-                            <Slider
-                              value={[semanticWeight]}
-                              onValueChange={([v]) => setSemanticWeight(v)}
-                              min={0}
-                              max={1}
-                              step={0.05}
-                            />
-                            <p className="text-xs text-muted-foreground">
-                              Each retriever scores on a different scale &mdash; cosine similarity
-                              and text rank are not the same kind of number &mdash; so both are
-                              normalised before weighting. A chunk found by both is ranked above a
-                              chunk found by only one.
-                            </p>
+                        {anyProviderResolvable === false && (
+                          <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs text-destructive">
+                            <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+                            <span>
+                              No connected provider can embed, so documents are saved with keyword
+                              search only. Connect one with an embeddings API under Integrations.
+                            </span>
                           </div>
                         )}
-
-                        <div className="space-y-2">
-                          <Label>Vector index</Label>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={probing || !embedProvider}
+                            onClick={async () => {
+                              setProbing(true);
+                              setProbe(null);
+                              try {
+                                const r = await probeFn({
+                                  data: {
+                                    provider: embedProvider,
+                                    model: effectiveEmbedModel || undefined,
+                                  },
+                                });
+                                setProbe(r);
+                              } catch (e) {
+                                setProbe({ ok: false, message: (e as Error).message });
+                              } finally {
+                                setProbing(false);
+                              }
+                            }}
+                          >
+                            {probing ? "Testing…" : "Test embedding"}
+                          </Button>
+                          {probe?.ok && (
+                            <span className="text-xs text-emerald-600 dark:text-emerald-400">
+                              Works — {probe.dims} dimensions
+                            </span>
+                          )}
+                        </div>
+                        {probe && !probe.ok && (
+                          <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs text-destructive">
+                            <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+                            <span>{probe.message}</span>
+                          </div>
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          Only providers with an embeddings API are listed. Chat-only providers
+                          (e.g. Anthropic, Grok, Groq) can't embed documents — connect OpenRouter,
+                          OpenAI, Gemini, Ollama, vLLM, NVIDIA or Qwen under{" "}
+                          <Link to="/integrations" className="text-primary underline">
+                            Integrations
+                          </Link>{" "}
+                          to see them here.
+                        </p>
+                        <Label className="pt-1">Embedding model</Label>
+                        {embedModelSuggestions.length > 0 && (
                           <Select
-                            value={vectorStoreChoice}
-                            onValueChange={(v) => setVectorStoreChoice(v as VectorStoreChoice)}
+                            value={
+                              customEmbedModel
+                                ? "__custom__"
+                                : embedModelSuggestions.includes(embeddingModel)
+                                  ? embeddingModel
+                                  : "__custom__"
+                            }
+                            onValueChange={(v) => {
+                              setEmbedChoiceTouched(true);
+                              if (v === "__custom__") setCustomEmbedModel(embeddingModel);
+                              else {
+                                setEmbeddingModel(v);
+                                setCustomEmbedModel("");
+                              }
+                            }}
                           >
                             <SelectTrigger>
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="default">
-                                Instance default
-                                {storeBrief ? ` — ${storeBrief.kind}` : ""}
-                              </SelectItem>
-                              <SelectItem value="pgvector">
-                                Postgres (pgvector) &mdash; in this database
-                              </SelectItem>
-                              <SelectItem value="qdrant">
-                                Qdrant &mdash; dedicated vector service
-                              </SelectItem>
+                              {embedModelSuggestions.map((m) => (
+                                <SelectItem key={m} value={m}>
+                                  {m}
+                                </SelectItem>
+                              ))}
+                              <SelectItem value="__custom__">Custom model name…</SelectItem>
                             </SelectContent>
                           </Select>
+                        )}
+                        {(customEmbedModel !== "" || embedModelSuggestions.length === 0) && (
+                          <Input
+                            value={customEmbedModel}
+                            onChange={(e) => setCustomEmbedModel(e.target.value)}
+                            placeholder="Model name, e.g. text-embedding-3-small"
+                          />
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          Custom models must return 1536-dim vectors (or support dimension
+                          truncation) to match the pgvector column — mismatches are rejected with a
+                          clear error.
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Only models from connected providers are listed.{" "}
+                          <Link to="/integrations" className="text-primary underline">
+                            Connect more providers
+                          </Link>
+                          .
+                        </p>
+                        {!isEmbeddingProviderConnected && (
+                          <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs text-destructive">
+                            <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
+                            <span>
+                              The selected model's provider is not connected. Connect it before
+                              embedding.
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <Label>Auto-embed on upload</Label>
                           <p className="text-xs text-muted-foreground">
-                            Where this collection{"\u2019"}s nearest-neighbour search runs. Postgres
-                            keeps the vector on the chunk row, so permissions are the same row
-                            permissions and there is nothing to keep in sync &mdash; the right
-                            answer for most collections. Qdrant holds a copy of the vectors in a
-                            service built for them, which pays off on collections large enough that
-                            the database is the bottleneck. The text, the permissions and the
-                            embeddings stay in Postgres either way.
+                            Automatically generate embeddings when documents are added
                           </p>
-                          {vectorStoreChoice === "qdrant" &&
-                            storeBrief &&
-                            !storeBrief.externalAvailable && (
-                              <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
-                                Qdrant is not configured on this deployment, so saving this would
-                                leave the collection searching Postgres anyway. Set QDRANT_URL and
-                                restart the app first.
+                        </div>
+                        <Switch checked={autoEmbed} onCheckedChange={setAutoEmbed} />
+                      </div>
+                    </TabsContent>
+
+                    <TabsContent value="chunking" className="space-y-4 mt-4">
+                      <div className="space-y-2">
+                        <Label>Chunking mode</Label>
+                        <Select
+                          value={chunkMode}
+                          onValueChange={(v) => setChunkMode(v as ChunkMode)}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="flat">Flat &mdash; one size for both</SelectItem>
+                            <SelectItem value="parent_child">
+                              Parent-child &mdash; match small, read large
+                            </SelectItem>
+                            <SelectItem value="qa">
+                              Q&amp;A &mdash; index generated questions
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                          {chunkMode === "flat"
+                            ? "The chunk that matches is the text the model reads. Best for short documents."
+                            : chunkMode === "parent_child"
+                              ? "Small chunks are embedded so matching stays precise; the surrounding parent is what reaches the model. Best for long reference documents."
+                              : "An LLM writes question/answer pairs and the QUESTION is embedded, so a user question is compared against a question. Costs one model call per passage at index time."}
+                        </p>
+                      </div>
+                      {chunkMode === "parent_child" && (
+                        <div className="space-y-2">
+                          <Label>Parent size (tokens)</Label>
+                          <Input
+                            type="number"
+                            value={parentChunkSize}
+                            onChange={(e) => setParentChunkSize(Number(e.target.value))}
+                            min={128}
+                            max={4096}
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            The chunk size below becomes the CHILD size &mdash; what gets embedded.
+                            A child is capped at half the parent, so leave clear space between the
+                            two.
+                          </p>
+                        </div>
+                      )}
+                      <div className="space-y-2">
+                        <Label>Chunking strategy</Label>
+                        <Select value={chunkStrategy} onValueChange={setChunkStrategy}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {CHUNKING_STRATEGIES.map((s) => (
+                              <SelectItem key={s.value} value={s.value}>
+                                {s.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Chunk size (tokens)</Label>
+                          <Input
+                            type="number"
+                            value={chunkSize}
+                            onChange={(e) => setChunkSize(Number(e.target.value))}
+                            min={64}
+                            max={8192}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Chunk overlap (tokens)</Label>
+                          <Input
+                            type="number"
+                            value={chunkOverlap}
+                            onChange={(e) => setChunkOverlap(Number(e.target.value))}
+                            min={0}
+                            max={1024}
+                          />
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Overlap ensures context continuity between chunks. Typically 10-20% of chunk
+                        size.
+                      </p>
+                      <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
+                        <p>
+                          These settings apply to documents added from now on. Documents that are
+                          already embedded keep the chunks they were built with &mdash; changing the
+                          mode does not rewrite them, because re-chunking means paying to embed the
+                          whole document again.
+                        </p>
+                        {selectedBase && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={reindexing}
+                            onClick={reindexWithCurrentSettings}
+                          >
+                            {reindexing
+                              ? "Re-indexing\u2026"
+                              : `Re-index \u201C${selectedBase.name}\u201D with these settings`}
+                          </Button>
+                        )}
+                      </div>
+                    </TabsContent>
+
+                    <TabsContent value="retrieval" className="space-y-4 mt-4">
+                      {!selectedBase ? (
+                        <p className="text-sm text-muted-foreground">
+                          Select a knowledge base to configure how it is searched.
+                        </p>
+                      ) : (
+                        <>
+                          {chunkCountsWhole &&
+                            indexCoverage.total > 0 &&
+                            indexCoverage.indexed === 0 && (
+                              <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs leading-relaxed">
+                                <p className="font-medium text-foreground">
+                                  Nothing in this collection is indexed yet — these settings are not
+                                  in effect.
+                                </p>
+                                <p className="mt-1 text-muted-foreground">
+                                  All {indexCoverage.total} document
+                                  {indexCoverage.total === 1 ? " has" : "s have"} zero chunks, so
+                                  searching it falls back to matching words in the raw text. Search
+                                  mode, the semantic/keyword balance, parent expansion and Q&amp;A
+                                  pairs all operate on chunks, so they change nothing until it is
+                                  indexed. The shipped sample collections start this way — indexing
+                                  them costs embedding calls, so it is left to you.
+                                </p>
+                                {indexButton && <div className="mt-2">{indexButton}</div>}
+                              </div>
+                            )}
+                          <div className="space-y-2">
+                            <Label>Search mode</Label>
+                            <Select
+                              value={retrievalMode}
+                              onValueChange={(v) => setRetrievalMode(v as RetrievalMode)}
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="semantic">
+                                  Semantic &mdash; vector only
+                                </SelectItem>
+                                <SelectItem value="hybrid">
+                                  Hybrid &mdash; vector + keyword
+                                </SelectItem>
+                                <SelectItem value="keyword">
+                                  Keyword &mdash; full-text only
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <p className="text-xs text-muted-foreground">
+                              Semantic finds meaning and misses exact strings. Keyword finds part
+                              numbers, error codes and names that vectors blur together. Hybrid runs
+                              both and merges them.
+                            </p>
+                          </div>
+
+                          {retrievalMode === "hybrid" && (
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <Label>Weighting</Label>
+                                <span className="text-xs font-mono text-muted-foreground">
+                                  {Math.round(semanticWeight * 100)}% semantic /{" "}
+                                  {Math.round((1 - semanticWeight) * 100)}% keyword
+                                </span>
+                              </div>
+                              <Slider
+                                value={[semanticWeight]}
+                                onValueChange={([v]) => setSemanticWeight(v)}
+                                min={0}
+                                max={1}
+                                step={0.05}
+                              />
+                              <p className="text-xs text-muted-foreground">
+                                Each retriever scores on a different scale &mdash; cosine similarity
+                                and text rank are not the same kind of number &mdash; so both are
+                                normalised before weighting. A chunk found by both is ranked above a
+                                chunk found by only one.
+                              </p>
+                            </div>
+                          )}
+
+                          <div className="space-y-2">
+                            <Label>Vector index</Label>
+                            <Select
+                              value={vectorStoreChoice}
+                              onValueChange={(v) => setVectorStoreChoice(v as VectorStoreChoice)}
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="default">
+                                  Instance default
+                                  {storeBrief ? ` — ${storeBrief.kind}` : ""}
+                                </SelectItem>
+                                <SelectItem value="pgvector">
+                                  Postgres (pgvector) &mdash; in this database
+                                </SelectItem>
+                                <SelectItem value="qdrant">
+                                  Qdrant &mdash; dedicated vector service
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <p className="text-xs text-muted-foreground">
+                              Where this collection{"\u2019"}s nearest-neighbour search runs.
+                              Postgres keeps the vector on the chunk row, so permissions are the
+                              same row permissions and there is nothing to keep in sync &mdash; the
+                              right answer for most collections. Qdrant holds a copy of the vectors
+                              in a service built for them, which pays off on collections large
+                              enough that the database is the bottleneck. The text, the permissions
+                              and the embeddings stay in Postgres either way.
+                            </p>
+                            {vectorStoreChoice === "qdrant" &&
+                              storeBrief &&
+                              !storeBrief.externalAvailable && (
+                                <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
+                                  Qdrant is not configured on this deployment, so saving this would
+                                  leave the collection searching Postgres anyway. Set QDRANT_URL and
+                                  restart the app first.
+                                </p>
+                              )}
+                            {vectorStoreChoice !== savedVectorStore && (
+                              <p className="rounded-md border border-sky-500/40 bg-sky-500/10 p-2 text-xs">
+                                Saving moves this collection{"\u2019"}s existing vectors into the
+                                new index and clears the old one. Nothing is re-embedded, so this
+                                costs no model calls &mdash; but it does read every chunk, so a
+                                large collection takes a moment.
                               </p>
                             )}
-                          {vectorStoreChoice !== savedVectorStore && (
-                            <p className="rounded-md border border-sky-500/40 bg-sky-500/10 p-2 text-xs">
-                              Saving moves this collection{"\u2019"}s existing vectors into the new
-                              index and clears the old one. Nothing is re-embedded, so this costs no
-                              model calls &mdash; but it does read every chunk, so a large
-                              collection takes a moment.
-                            </p>
-                          )}
-                        </div>
-                        <Button
-                          size="sm"
-                          disabled={savingRetrieval}
-                          onClick={saveRetrievalSettings}
-                        >
-                          {savingRetrieval ? "Saving\u2026" : "Save retrieval settings"}
-                        </Button>
-                        <p className="text-xs text-muted-foreground">
-                          Applies immediately to every agent and swarm that searches this knowledge
-                          base. Nothing here re-embeds anything &mdash; search mode and weighting
-                          change how the existing index is queried, and changing the index moves the
-                          vectors that are already built.
-                        </p>
-                      </>
-                    )}
-                  </TabsContent>
-                </Tabs>
-              </DialogContent>
-            </Dialog>
+                          </div>
+                          <Button
+                            size="sm"
+                            disabled={savingRetrieval}
+                            onClick={saveRetrievalSettings}
+                          >
+                            {savingRetrieval ? "Saving\u2026" : "Save retrieval settings"}
+                          </Button>
+                          <p className="text-xs text-muted-foreground">
+                            Applies immediately to every agent and swarm that searches this
+                            knowledge base. Nothing here re-embeds anything &mdash; search mode and
+                            weighting change how the existing index is queried, and changing the
+                            index moves the vectors that are already built.
+                          </p>
+                        </>
+                      )}
+                    </TabsContent>
+                  </Tabs>
+                </DialogContent>
+              </Dialog>
 
-            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-              <DialogTrigger asChild>
-                <Button>
-                  <Plus className="h-4 w-4 mr-2" /> New Knowledge Base
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Create Knowledge Base</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>Name</Label>
-                    <Input
-                      value={newBaseName}
-                      onChange={(e) => setNewBaseName(e.target.value)}
-                      placeholder="e.g. Product docs"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Description</Label>
-                    <Input value={newBaseDesc} onChange={(e) => setNewBaseDesc(e.target.value)} />
-                  </div>
-                  <Button onClick={createBase} disabled={!newBaseName.trim()}>
-                    Create
+              <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+                <DialogTrigger asChild>
+                  <Button>
+                    <Plus className="h-4 w-4 mr-2" /> New knowledge base
                   </Button>
-                </div>
-              </DialogContent>
-            </Dialog>
-          </div>
-        </div>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Create knowledge base</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label>Name</Label>
+                      <Input
+                        value={newBaseName}
+                        onChange={(e) => setNewBaseName(e.target.value)}
+                        placeholder="e.g. Product docs"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Description</Label>
+                      <Input value={newBaseDesc} onChange={(e) => setNewBaseDesc(e.target.value)} />
+                    </div>
+                    <Button onClick={createBase} disabled={!newBaseName.trim()}>
+                      Create
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            </>
+          }
+        />
 
         {/* Active Retrieval Banner */}
         <Card className="border-primary/20 bg-primary/5">
@@ -1784,7 +1787,9 @@ function KnowledgePage() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-6 w-6 p-0 text-destructive"
+                        className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                        aria-label={`Delete ${base.name}`}
+                        title="Delete"
                         onClick={(e) => {
                           e.stopPropagation();
                           deleteBase(base.id);
@@ -1844,7 +1849,7 @@ function KnowledgePage() {
                     <div className="flex items-center gap-2">
                       {indexButton}
                       <Button size="sm" variant="outline" onClick={() => setAddSourceOpen(true)}>
-                        <Plus className="h-3 w-3 mr-1" /> Add Source
+                        <Plus className="h-3 w-3 mr-1" /> Add source
                       </Button>
                       <Button
                         size="sm"
@@ -1859,17 +1864,17 @@ function KnowledgePage() {
                       <Dialog open={docOpen} onOpenChange={setDocOpen}>
                         <DialogTrigger asChild>
                           <Button size="sm">
-                            <Plus className="h-3 w-3 mr-1" /> Add Document
+                            <Plus className="h-3 w-3 mr-1" /> Add document
                           </Button>
                         </DialogTrigger>
                         <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
                           <DialogHeader>
-                            <DialogTitle>Add Documents</DialogTitle>
+                            <DialogTitle>Add documents</DialogTitle>
                           </DialogHeader>
                           <div className="space-y-4">
                             {/* Multi-file upload */}
                             <div className="space-y-2">
-                              <Label>Upload Files</Label>
+                              <Label>Upload files</Label>
                               <div
                                 {...(getRootProps() as React.HTMLAttributes<HTMLDivElement>)}
                                 className={cn(
@@ -1908,6 +1913,8 @@ function KnowledgePage() {
                                         variant="ghost"
                                         size="sm"
                                         className="h-6 w-6 p-0"
+                                        aria-label={`Remove ${f.name}`}
+                                        title="Remove"
                                         onClick={() =>
                                           setUploadFiles((prev) =>
                                             prev.filter((_, idx) => idx !== i),
@@ -1934,7 +1941,7 @@ function KnowledgePage() {
                             </div>
 
                             <div className="space-y-2">
-                              <Label>Document Name (optional)</Label>
+                              <Label>Document name (optional)</Label>
                               <Input
                                 value={docName}
                                 onChange={(e) => setDocName(e.target.value)}
@@ -1964,7 +1971,7 @@ function KnowledgePage() {
                                   <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Adding…
                                 </>
                               ) : (
-                                `Add ${uploadFiles.length + (docName.trim() && docContent.trim() ? 1 : 0) || ""} Document${uploadFiles.length + (docName.trim() && docContent.trim() ? 1 : 0) === 1 ? "" : "s"} & Process`
+                                `Add ${uploadFiles.length + (docName.trim() && docContent.trim() ? 1 : 0) || ""} document${uploadFiles.length + (docName.trim() && docContent.trim() ? 1 : 0) === 1 ? "" : "s"} & process`
                               )}
                             </Button>
                           </div>

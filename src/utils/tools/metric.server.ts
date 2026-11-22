@@ -236,7 +236,7 @@ export async function runMetricQuery(
   if (!allow) {
     return (
       "Error: this agent has no semantic models enabled. " +
-      "Choose them in Agent Builder → Tools → Semantic Metrics."
+      "Choose them in Agent Builder → Tools → Semantic metrics."
     );
   }
   if (!allow.has(model.trim())) {

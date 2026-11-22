@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Loader2, RefreshCw, Search as SearchIcon, X } from "lucide-react";
 
+import { PageHeader } from "@/components/PageHeader";
 import { IconTile, ObjectRow } from "@/components/search/parts";
 import { Button } from "@/components/ui/button";
 import { useCappedMatches, useObjectIndex } from "@/hooks/use-object-index";
@@ -110,12 +111,10 @@ function SearchPage() {
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-5 p-6">
-      <div>
-        <h1 className="text-xl font-semibold">Search</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Find anything you made or that was shared with you, by name.
-        </p>
-      </div>
+      <PageHeader
+        title="Search"
+        description="Find anything you made or that was shared with you, by name."
+      />
 
       <div className="relative">
         <SearchIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />

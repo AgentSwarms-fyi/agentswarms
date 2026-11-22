@@ -517,7 +517,7 @@ rows, same answers" from drift.
 
 ### Agents
 
-Enable **ML Predictions** in an agent's tools. The agent gets
+Enable **ML predictions** in an agent's tools. The agent gets
 `ml_list_models` (name, task, target, feature columns with categories and
 ranges) and `ml_predict` (rows in, predictions out, fifty rows shown to the
 model). Both are offered only when the caller can use at least one model with
@@ -585,7 +585,7 @@ downstream as if it were a result. A key that matches nothing _among others_
 is not an error: the rows that matched are scored and it comes back named in
 `keys_not_found` beside them.
 
-**What the Playground shows.** The inspector's Tool Calls panel shows a
+**What the Playground shows.** The inspector's Tool calls panel shows a
 prediction as a table — key columns first, then the prediction and its
 probabilities — with the model and version above it and, beside it, how many
 rows were scored, where the features came from and which keys were not found;
@@ -1933,7 +1933,7 @@ one.
 2. If the holdout error is high, add a row filter (`region = 'EMEA'`) or a
    custom `SELECT` with derived columns in **Prepare the data**, and train a
    new version with a quick tuning search.
-3. Enable **ML Predictions** on an agent and ask it to estimate an order it
+3. Enable **ML predictions** on an agent and ask it to estimate an order it
    describes.
 
 ### Next quarter's revenue, on the dashboard

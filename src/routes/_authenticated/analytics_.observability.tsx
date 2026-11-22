@@ -1,4 +1,4 @@
-import { PageEyebrow } from "@/components/PageEyebrow";
+import { PageHeader, TitleCount } from "@/components/PageHeader";
 import { formatUsd } from "@/lib/usd";
 import { createFileRoute, Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
@@ -104,17 +104,20 @@ function ObservabilityList() {
   return (
     <div className="p-6 space-y-4">
       <div>
-        <PageEyebrow />
-        <h1 className="font-display text-3xl font-semibold tracking-tight">Swarm Observability</h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          {claim.message === "error"
-            ? `${UNKNOWN_COUNT} swarm runs`
-            : countHeadline(
-                { fetched: runs.length, total: exactTotal },
-                { one: "swarm run", many: "swarm runs" },
-              )}{" "}
-          · click a row to inspect agent-level traces · auto-deleted after 30 days
-        </p>
+        <PageHeader
+          title="Swarm Traces"
+          description="Click a run to see what each agent in it did; runs are deleted after 30 days."
+          meta={
+            <TitleCount>
+              {claim.message === "error"
+                ? `${UNKNOWN_COUNT} swarm runs`
+                : countHeadline(
+                    { fetched: runs.length, total: exactTotal },
+                    { one: "swarm run", many: "swarm runs" },
+                  )}
+            </TitleCount>
+          }
+        />
         {claim.message !== "error" &&
           !windowComplete({ fetched: runs.length, total: exactTotal }) && (
             <p className="mt-0.5 text-xs text-warning">

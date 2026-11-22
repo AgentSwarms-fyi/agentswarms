@@ -288,7 +288,7 @@ export function FindPanel({
           {replacing ? (
             <>
               <Button size="sm" variant="outline" className="h-7 text-xs" onClick={replaceAll}>
-                Replace All
+                Replace all
               </Button>
               <Button size="sm" variant="outline" className="h-7 text-xs" onClick={replaceOne}>
                 Replace
@@ -296,7 +296,7 @@ export function FindPanel({
             </>
           ) : null}
           <Button size="sm" variant="outline" className="h-7 text-xs" onClick={findAll}>
-            Find All
+            Find all
           </Button>
           <Button
             size="sm"
@@ -304,10 +304,10 @@ export function FindPanel({
             className="ml-auto h-7 text-xs"
             onClick={() => findNext(true)}
           >
-            Find Previous
+            Find previous
           </Button>
           <Button size="sm" className="h-7 text-xs" onClick={() => findNext()}>
-            Find Next
+            Find next
           </Button>
         </div>
         {status && (
@@ -361,7 +361,7 @@ export function FindPanel({
             </table>
             {(listed.hits.length > LIST_MAX || listed.more) && (
               <p className="border-t border-border px-2 py-1 text-[11px] text-muted-foreground">
-                The first {LIST_MAX} are listed; Find Next walks them all.
+                The first {LIST_MAX} are listed; Find next walks them all.
               </p>
             )}
           </div>

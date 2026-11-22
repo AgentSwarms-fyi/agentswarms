@@ -299,43 +299,43 @@ function providerLacksToolSupport(provider?: string): boolean {
 const TOOL_CATALOG: { id: SwarmToolId; label: string; desc: string; icon: typeof Search }[] = [
   {
     id: "web_search",
-    label: "Web Search",
+    label: "Web search",
     desc: "Search the web for fresh info (Firecrawl, falls back to DuckDuckGo).",
     icon: Search,
   },
   {
     id: "web_browse",
-    label: "Web Browse",
+    label: "Web browse",
     desc: "Fetch a URL as clean markdown for the agent to read (Firecrawl required).",
     icon: Globe,
   },
   {
     id: "kb_search",
-    label: "Knowledge Base Search",
+    label: "Knowledge base search",
     desc: "Search documents in the agent's linked knowledge base.",
     icon: BookOpen,
   },
   {
     id: "kb_graph_search",
-    label: "Knowledge Graph Search",
+    label: "Knowledge graph search",
     desc: "Multi-hop Graph RAG over the KB's entity relationships. Build the graph in Knowledge → Graph first.",
     icon: GitBranch,
   },
   {
     id: "sql_query",
-    label: "SQL Query",
+    label: "SQL query",
     desc: "Run read-only SQL against the user's local CSV-derived tables (Data & SQL page).",
     icon: Database,
   },
   {
     id: "metric_query",
-    label: "Semantic Metrics",
+    label: "Semantic metrics",
     desc: "Query governed metrics from the Semantic Layer. Pick the models below — the node gets none until you do.",
     icon: Database,
   },
   {
     id: "ml_predict",
-    label: "ML Predictions",
+    label: "ML predictions",
     desc: "Score rows with trained models from the ML registry (own and shared); forecasts return their projected periods.",
     icon: Brain,
   },
@@ -347,7 +347,7 @@ const TOOL_CATALOG: { id: SwarmToolId; label: string; desc: string; icon: typeof
   },
   {
     id: "datetime",
-    label: "Date & Time",
+    label: "Date & time",
     desc: "Current date/time in any IANA timezone. No key needed.",
     icon: Clock,
   },
@@ -359,13 +359,13 @@ const TOOL_CATALOG: { id: SwarmToolId; label: string; desc: string; icon: typeof
   },
   {
     id: "n8n_run_workflow",
-    label: "n8n Workflow",
+    label: "n8n workflow",
     desc: "Trigger a workflow on the user's connected n8n instance.",
     icon: Workflow,
   },
   {
     id: "mcp_call_tool",
-    label: "MCP Tool Call",
+    label: "MCP tool call",
     desc: "Invoke a tool on a connected MCP server.",
     icon: Plug,
   },
@@ -693,7 +693,7 @@ export function NodeInspector({
             )}
             {data.kind === "router" && (
               <div className="rounded-md border border-indigo-500/30 bg-indigo-500/5 p-2.5 text-[11px] leading-relaxed">
-                <p className="font-medium text-foreground mb-0.5">🧭 Router Agent</p>
+                <p className="font-medium text-foreground mb-0.5">🧭 Router agent</p>
                 <p className="text-muted-foreground">
                   Intelligently picks <strong>one</strong> outgoing route. Label each outgoing edge
                   with a route name (e.g. <code className="font-mono">math</code>,{" "}
@@ -2646,10 +2646,12 @@ function InputFieldsPanel({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 shrink-0"
+                className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+                aria-label={f.name ? `Remove the field ${f.name}` : "Remove this field"}
+                title="Remove"
                 onClick={() => onChange({ inputFields: fields.filter((_, idx) => idx !== i) })}
               >
-                <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </div>
             <Input
@@ -2730,7 +2732,7 @@ function SubSwarmPanel({
   return (
     <>
       <div className="rounded-md border border-purple-500/30 bg-purple-500/5 p-2.5 text-[11px] leading-relaxed">
-        <p className="font-medium text-foreground mb-0.5">🧩 Execute Swarm</p>
+        <p className="font-medium text-foreground mb-0.5">🧩 Execute swarm</p>
         <p className="text-muted-foreground">
           Runs another saved swarm as a single step — its final output becomes this node&apos;s
           output. Great for reusing a sub-pipeline. Runs in isolation (nesting is capped at 3
@@ -2943,7 +2945,7 @@ function SetVarPanel({
   return (
     <>
       <div className="rounded-md border border-cyan-500/30 bg-cyan-500/5 p-2.5 text-[11px] leading-relaxed">
-        <p className="font-medium text-foreground mb-0.5">🔧 Set Variable</p>
+        <p className="font-medium text-foreground mb-0.5">🔧 Set variable</p>
         <p className="text-muted-foreground">
           Writes named keys into the shared <strong>flow state</strong>. Each value is a template —
           use <code className="font-mono">{"{{input}}"}</code>,{" "}
@@ -3003,7 +3005,7 @@ function HttpPanel({
   return (
     <>
       <div className="rounded-md border border-lime-500/30 bg-lime-500/5 p-2.5 text-[11px] leading-relaxed">
-        <p className="font-medium text-foreground mb-0.5">🌐 HTTP Request</p>
+        <p className="font-medium text-foreground mb-0.5">🌐 HTTP request</p>
         <p className="text-muted-foreground">
           Deterministic call (runs server-side). The URL, the body and a header set to Text take{" "}
           <code className="font-mono">{"{{var}}"}</code> for a flow-state value, such as{" "}
@@ -3159,28 +3161,28 @@ const TOOL_NODE_OPTIONS: {
   label: string;
   args: { key: string; placeholder: string; textarea?: boolean }[];
 }[] = [
-  { id: "web_search", label: "Web Search", args: [{ key: "query", placeholder: "{{input}}" }] },
-  { id: "web_browse", label: "Web Browse", args: [{ key: "url", placeholder: "https://…" }] },
+  { id: "web_search", label: "Web search", args: [{ key: "query", placeholder: "{{input}}" }] },
+  { id: "web_browse", label: "Web browse", args: [{ key: "url", placeholder: "https://…" }] },
   {
     id: "sql_query",
-    label: "SQL Query",
+    label: "SQL query",
     args: [{ key: "sql", placeholder: "SELECT * FROM my_table LIMIT 10", textarea: true }],
   },
   {
     id: "kb_search",
-    label: "Knowledge Base Search",
+    label: "Knowledge base search",
     args: [{ key: "query", placeholder: "{{input}}" }],
   },
   { id: "calculator", label: "Calculator", args: [{ key: "expression", placeholder: "2*(3+4)" }] },
   {
     id: "datetime",
-    label: "Date & Time",
+    label: "Date & time",
     args: [{ key: "timezone", placeholder: "America/New_York" }],
   },
   { id: "weather", label: "Weather", args: [{ key: "location", placeholder: "Paris" }] },
   {
     id: "mcp_call_tool",
-    label: "MCP Tool Call",
+    label: "MCP tool call",
     args: [
       { key: "server_name", placeholder: "my-server" },
       { key: "tool_name", placeholder: "search" },
@@ -3450,7 +3452,7 @@ function ForEachPanel({
   return (
     <>
       <div className="rounded-md border border-amber-600/30 bg-amber-600/5 p-2.5 text-[11px] leading-relaxed">
-        <p className="font-medium text-foreground mb-0.5">🔁 For Each</p>
+        <p className="font-medium text-foreground mb-0.5">🔁 For each</p>
         <p className="text-muted-foreground">
           Reads an array from a variable and runs the agent body above{" "}
           <strong>once per element</strong>. Results are collected into this node&apos;s output as a
@@ -3552,10 +3554,12 @@ function ExtractPanel({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 shrink-0"
+                className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+                aria-label={f.name ? `Remove the field ${f.name}` : "Remove this field"}
+                title="Remove"
                 onClick={() => onChange({ extractSchema: fields.filter((_, idx) => idx !== i) })}
               >
-                <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </div>
             <Input
@@ -3945,7 +3949,7 @@ function FunctionPanel({
     setTestLogs(result.logs);
     if (result.ok) {
       setTestOutput(safeStringify(result.value));
-      toast.success("Function ran successfully");
+      toast.success("The function ran");
     } else {
       setTestError(result.error);
       toast.error(result.error);
@@ -4198,10 +4202,12 @@ function EvaluatePanel({
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-5 w-5"
+                      className="h-5 w-5 text-muted-foreground hover:text-destructive"
+                      aria-label={`Remove the metric ${m.name}`}
+                      title="Remove"
                       onClick={() => removeMetric(m.id)}
                     >
-                      <X className="h-3 w-3 text-destructive" />
+                      <X className="h-3 w-3" />
                     </Button>
                   )}
                 </div>

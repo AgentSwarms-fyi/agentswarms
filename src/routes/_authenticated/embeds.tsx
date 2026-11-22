@@ -1,9 +1,8 @@
 // Web Embedding workspace (/embeds): create and manage iframe embeds of
 // chat agents, swarm tasks and BI dashboards. All the machinery lives in
 // EmbedSection — this route gives it a first-class page + sidebar home.
-import { PageEyebrow } from "@/components/PageEyebrow";
+import { PageHeader } from "@/components/PageHeader";
 import { createFileRoute } from "@tanstack/react-router";
-import { Code2 } from "lucide-react";
 
 import { EmbedSection } from "@/components/embed/EmbedSection";
 import { readPageIntent } from "@/lib/pageIntent";
@@ -24,19 +23,10 @@ function EmbedsPage() {
   const search = Route.useSearch();
   return (
     <div className="max-w-6xl space-y-6 p-6">
-      <div>
-        <PageEyebrow />
-        <h1 className="flex items-center gap-2 font-display text-3xl font-semibold tracking-tight">
-          <Code2 className="h-7 w-7 text-primary" /> Web Embedding
-        </h1>
-        <p className="mt-1 max-w-2xl text-muted-foreground">
-          Put your chat agents, multi-agent swarms and BI dashboards on any website — drop in an
-          iframe, or use the React SDK (<code className="text-xs">@agentswarms/react</code>) for
-          full control over the UI. Each embed is authorized by a generated key scoped to one
-          resource and a domain allow-list you control — disable the key and every integration stops
-          instantly.
-        </p>
-      </div>
+      <PageHeader
+        title="Web Embedding"
+        description="Put a chat agent, swarm or dashboard on another website with an iframe or the React SDK, each behind its own key and list of allowed sites."
+      />
       <EmbedSection intent={search} />
     </div>
   );

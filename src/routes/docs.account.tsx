@@ -47,14 +47,14 @@ function AccountDoc() {
       <DocsHeader
         eyebrow="Getting started"
         title="Account"
-        description="Account Settings at /account covers your identity and credentials. Spend controls live separately at /budgets."
+        description="The Account page at /account covers your identity and credentials. Spend controls live separately at /budgets."
       />
 
       <H2 id="settings">Account settings</H2>
       <FieldList
         items={[
           {
-            name: "Public Profile",
+            name: "Public profile",
             body: (
               <>
                 Display name, avatar, bio, role, designation, and organization. The name is how the
@@ -71,11 +71,11 @@ function AccountDoc() {
             body: "Your current sign-in email and provider, read-only.",
           },
           {
-            name: "Change Password",
+            name: "Change password",
             body: "Set a new password. You stay signed in on the current device.",
           },
           {
-            name: "Change Email",
+            name: "Change email",
             body: "Enter a new address; the change takes effect after you click the confirmation link sent to it.",
           },
           {
@@ -83,7 +83,7 @@ function AccountDoc() {
             body: "Sign out of AgentSwarms on this device.",
           },
           {
-            name: "Delete Account",
+            name: "Delete account",
             body: "Permanently deletes your account and all associated data — agents, swarms, knowledge bases, runs. Requires explicit confirmation and cannot be undone.",
           },
         ]}
@@ -97,15 +97,15 @@ function AccountDoc() {
       <FieldList
         items={[
           {
-            name: "Monthly Hard Cap",
+            name: "Monthly hard cap",
             body: "A workspace-wide dollar cap. Agents refuse new requests once month-to-date spend reaches it. The card shows current spend against the cap.",
           },
           {
-            name: "Spend Alerts",
+            name: "Spend alerts",
             body: "Notifications before you hit the cap, so the hard stop is never a surprise.",
           },
           {
-            name: "Agent-Specific Limits",
+            name: "Agent-specific limits",
             body: "Per-agent daily caps, with an optional auto-disable when an agent hits its limit.",
           },
         ]}

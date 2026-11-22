@@ -47,10 +47,10 @@ import {
   Search,
   Settings2,
   Trash2,
-  Workflow as WorkflowIcon,
   XCircle,
 } from "lucide-react";
 
+import { PageHeader } from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -85,7 +85,9 @@ import { recordOpened } from "@/hooks/use-object-marks";
 import { usePageIntent } from "@/hooks/use-page-intent";
 import { useTokenRef } from "@/hooks/use-token-ref";
 import { useTheme } from "@/hooks/use-theme";
+import { announceTrashed } from "@/hooks/use-trash";
 import { readPageIntent } from "@/lib/pageIntent";
+import { RESTORE_HINT } from "@/lib/trash";
 import { cn } from "@/lib/utils";
 import {
   NODE_KIND_LABEL,
@@ -566,14 +568,14 @@ function WorkflowsPage() {
 
   async function removeWorkflow(w: WorkflowRowDto) {
     const ok = await confirmAsk({
-      title: `Delete "${w.name}"?`,
-      body: "The graph and its run history go with it. The pipelines, models and notebooks it orchestrated are untouched.",
-      actionLabel: "Delete workflow",
+      title: `Move “${w.name}” to the trash?`,
+      body: `The graph and its run history go with it. The pipelines, models and notebooks it orchestrated are untouched. ${RESTORE_HINT}`,
+      actionLabel: "Move to trash",
     });
     if (!ok) return;
     const res = await deleteFn({ data: { accessToken: token, id: w.id } });
     if (!res.ok) return toast.error(res.error);
-    toast.success("Workflow deleted");
+    announceTrashed(w.name, res.trashId, () => void reload());
     // FOUND IN R268: deleting ANOTHER workflow from the list emptied the
     // editor too, unsaved edits and all, and the reload then opened the first
     // workflow in the list. Only deleting the open one empties it.
@@ -592,20 +594,15 @@ function WorkflowsPage() {
 
   return (
     <div className="flex h-canvas w-full min-h-0 flex-col gap-3 overflow-hidden p-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <h1 className="flex items-center gap-2 font-display text-2xl font-semibold tracking-tight">
-          <WorkflowIcon className="h-6 w-6 text-primary" /> Workflows
-        </h1>
-        <p className="hidden max-w-lg text-xs text-muted-foreground xl:block">
-          One graph over the pipelines, models, retrains, notebooks and swarms you already have.
-          Branch on a parameter, retry a flaky step, wait for a person.
-        </p>
-        <div className="ml-auto flex gap-2">
+      <PageHeader
+        title="Workflows"
+        description="Join your pipelines, models, retrains, notebooks and swarms into one graph, with branches, retries and approval steps."
+        actions={
           <Button size="sm" onClick={() => setCreateOpen(true)}>
             <Plus className="mr-1 h-3.5 w-3.5" /> New workflow
           </Button>
-        </div>
-      </div>
+        }
+      />
 
       <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[248px_1fr_300px]">
         {/* Left: the saved workflows, then the palette.
@@ -1411,7 +1408,9 @@ function SettingsDialog({
                   }
                 />
                 <button
-                  className="px-1 text-destructive"
+                  className="px-1 text-muted-foreground hover:text-destructive"
+                  aria-label={p.name ? `Remove the parameter ${p.name}` : "Remove this parameter"}
+                  title="Remove"
                   onClick={() => onParamsChange(params.filter((_, j) => j !== i))}
                 >
                   <Trash2 className="h-3 w-3" />

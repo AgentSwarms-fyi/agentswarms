@@ -520,9 +520,9 @@ To keep a sheet from someone, leave it out of their share (see [Sharing](#sharin
 **Ctrl+F** (or **Home → Find**) opens Find over the grid, and **Ctrl+H** opens it on Replace. The
 grid stays usable while it is open, and **Esc** closes it.
 
-- **Find Next** (Enter) goes to the next match after the active cell, and wraps round at the end.
-  **Find Previous** (Shift+Enter) goes back.
-- **Find All** lists every match with its sheet and cell; click one to go there.
+- **Find next** (Enter) goes to the next match after the active cell, and wraps round at the end.
+  **Find previous** (Shift+Enter) goes back.
+- **Find all** lists every match with its sheet and cell; click one to go there.
 - **Within**: the sheet, or every grid sheet of the workbook. A table sheet lives in the lakehouse
   and is searched with its own filters.
 - **Look in: Values** matches what a cell shows, so a formula's answer, or `$1,350.00` for a
@@ -532,7 +532,7 @@ grid stays usable while it is open, and **Esc** closes it.
   characters, `?` for any one, and `~` before either (or before `~`) for the character itself:
   `SO-102??` finds SO-10200 to SO-10299, and `5~*` finds `5*`.
 - **Replace** changes what was typed, as Excel's does, so Look in is Formulas. The first **Replace**
-  goes to a match and the next one replaces it. **Replace All** changes every match at once, and a
+  goes to a match and the next one replaces it. **Replace all** changes every match at once, and a
   single Ctrl+Z takes all of them back, across sheets.
 - A change that would break a formula (`COUNTA(` → `COUNTA((`) is not made; the panel says how many
   cells it left.
@@ -591,7 +591,7 @@ The ribbon's **Home** tab formats the selection, as Excel's does:
   in thin, medium, thick, dashed, dotted or double lines of a chosen color.
 - Horizontal and vertical alignment, indent, and **Wrap text**. A row grows to fit wrapped text or a
   larger font until you set its height yourself; double-click a row's lower edge to return it to fitting.
-- **Merge & Center**, **Merge Across**, **Merge Cells** and **Unmerge**. Merging asks before it throws
+- **Merge & center**, **Merge across**, **Merge cells** and **Unmerge**. Merging asks before it throws
   away any value but the upper-left one. A merged cell selects, moves and edits as one cell.
 - The **format painter** copies the formats of the selection to the next cells you select.
 - **Clear**: all, formats, contents or hyperlinks.
@@ -792,7 +792,7 @@ Add one from the **+** beside the sheet tabs → **Table sheet**. The data can c
   connected database is copied into a new lakehouse table through its connection. Seeing a table
   in the catalog does not give access to its rows; its connection must be shared with you.
 - **Connection**: a table or a read-only query on a database connection (Integrations → Data
-  Sources), copied into a new lakehouse table in a schema you own.
+  sources), copied into a new lakehouse table in a schema you own.
 - **Upload CSV**: a file of up to `SHEETS_UPLOAD_MAX_MB` (50 MB), with the first row as the header
   and column types detected, landed as a new lakehouse table.
 

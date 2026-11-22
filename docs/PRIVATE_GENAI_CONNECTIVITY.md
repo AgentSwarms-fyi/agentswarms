@@ -214,7 +214,7 @@ through the PSC name.
 1. **"Network" section per provider integration:** _Public_, _Private DNS_
    (public hostname, resolves privately), or _Private endpoint URL_ — with the
    accepted host shape shown inline.
-2. **Connectivity test that reports the path:** Test & Connect shows the
+2. **Connectivity test that reports the path:** Test & connect shows the
    resolved address and whether it is private (RFC 1918 / ULA / CGNAT), the TLS
    certificate subject, and whether a proxy was used — e.g. "Connected via
    10.0.12.34 (private) — PrivateLink".
@@ -245,7 +245,7 @@ through the PSC name.
    also reads the endpoint's certificate (subject, issuer, valid for the name)
    in a handshake to the address already resolved, with SNI, a 5 s timeout, and
    never to a name resolving to a metadata or link-local address. A passing
-   Test & Connect appends it; the four cloud providers and Azure, which have no
+   Test & connect appends it; the four cloud providers and Azure, which have no
    live test, get a credential-free **Check network path** button. A
    certificate not valid for the name is flagged: every call to it would fail.
 3. **Require a private network path** is a switch on every provider, stored as

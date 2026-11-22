@@ -1,4 +1,4 @@
-import { PageEyebrow } from "@/components/PageEyebrow";
+import { PageHeader } from "@/components/PageHeader";
 import { formatUsd } from "@/lib/usd";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
@@ -191,37 +191,36 @@ function TraceDetail() {
         </Link>
       </div>
 
-      <div>
-        <PageEyebrow />
-        <h1 className="font-display text-2xl font-semibold tracking-tight flex items-center gap-2">
-          {run.swarm_name ?? "Untitled swarm"}
-          <Badge
-            variant="outline"
-            className={
-              run.status === "success"
-                ? "border-emerald-500/40 text-emerald-500"
-                : run.status === "error"
-                  ? "border-red-500/40 text-red-500"
-                  : "border-amber-500/40 text-amber-500"
-            }
-          >
-            {run.status}
-          </Badge>
-          {run.body_sealed && (
+      <PageHeader
+        title={run.swarm_name ?? "Untitled swarm"}
+        description={`${format(new Date(run.started_at), "PPpp")} · run ${run.id.slice(0, 8)}`}
+        meta={
+          <>
             <Badge
               variant="outline"
-              data-run-sealed
-              className="text-[10px] font-normal"
-              title="Its input, output, each step's text and tool calls are stored encrypted under your key."
+              className={
+                run.status === "success"
+                  ? "border-emerald-500/40 text-emerald-500"
+                  : run.status === "error"
+                    ? "border-red-500/40 text-red-500"
+                    : "border-amber-500/40 text-amber-500"
+              }
             >
-              <Lock className="mr-1 h-2.5 w-2.5" /> Encrypted under your key
+              {run.status}
             </Badge>
-          )}
-        </h1>
-        <p className="text-xs text-muted-foreground mt-1 font-mono">
-          {format(new Date(run.started_at), "PPpp")} · run {run.id.slice(0, 8)}
-        </p>
-      </div>
+            {run.body_sealed && (
+              <Badge
+                variant="outline"
+                data-run-sealed
+                className="text-[10px] font-normal"
+                title="Its input, output, each step's text and tool calls are stored encrypted under your key."
+              >
+                <Lock className="mr-1 h-2.5 w-2.5" /> Encrypted under your key
+              </Badge>
+            )}
+          </>
+        }
+      />
 
       <div className="grid grid-cols-2 md:grid-cols-7 gap-2">
         <Metric label="Steps" value={String(run.step_count)} />

@@ -5,7 +5,7 @@
 // red "Down", and memory says whether the total is the container's limit or
 // the host's RAM. A monitoring page that cries wolf is a page people stop
 // opening.
-import { PageEyebrow } from "@/components/PageEyebrow";
+import { PageHeader } from "@/components/PageHeader";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { CapacityPanel } from "@/components/data/CapacityPanel";
@@ -16,16 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import {
-  Activity,
-  Cpu,
-  HardDrive,
-  Loader2,
-  MemoryStick,
-  RefreshCw,
-  ShieldAlert,
-  Server,
-} from "lucide-react";
+import { Cpu, HardDrive, Loader2, MemoryStick, RefreshCw, ShieldAlert, Server } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   formatBytes,
@@ -222,35 +213,29 @@ function MonitoringPage() {
 
   return (
     <main className="mx-auto w-full max-w-[1400px] px-4 py-6 md:px-8">
-      <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <PageEyebrow className="mb-0" />
-          <h1 className="mt-1 flex items-center gap-2 text-2xl font-semibold tracking-tight">
-            <Activity className="h-6 w-6 text-primary" /> Monitoring
-          </h1>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Live health of every service in this deployment, and what the machine running it is
-            doing right now. Optional services that were never started are listed as such rather
-            than reported as failures.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <Switch id="auto-refresh" checked={auto} onCheckedChange={setAuto} />
-            <Label htmlFor="auto-refresh" className="text-xs text-muted-foreground">
-              Auto-refresh
-            </Label>
-          </div>
-          <Button size="sm" variant="outline" onClick={() => void refresh()} disabled={loading}>
-            {loading ? (
-              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-            )}
-            Refresh
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Monitoring"
+        description="See the health of every service in this deployment and what its machine is doing now."
+        className="mb-5"
+        actions={
+          <>
+            <div className="flex items-center gap-2">
+              <Switch id="auto-refresh" checked={auto} onCheckedChange={setAuto} />
+              <Label htmlFor="auto-refresh" className="text-xs text-muted-foreground">
+                Auto-refresh
+              </Label>
+            </div>
+            <Button size="sm" variant="outline" onClick={() => void refresh()} disabled={loading}>
+              {loading ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              Refresh
+            </Button>
+          </>
+        }
+      />
 
       {error && (
         <div

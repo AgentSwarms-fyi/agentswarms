@@ -4,6 +4,7 @@ import { createRouter, useRouter, type ErrorComponentProps } from "@tanstack/rea
 import { routeTree } from "./routeTree.gen";
 import { DefaultErrorComponent } from "./components/DefaultErrorComponent";
 import { cspNonce } from "./lib/cspNonce";
+import { guardViewTransitions } from "./lib/viewTransitionGuard";
 
 // AgentSwarms Router
 export const getRouter = () => {
@@ -25,5 +26,7 @@ export const getRouter = () => {
     defaultViewTransition: true,
   });
 
-  return router;
+  // …but only in a document someone can see: a hidden one refuses to start a
+  // transition, and the page would never change (viewTransitionGuard.ts).
+  return guardViewTransitions(router);
 };

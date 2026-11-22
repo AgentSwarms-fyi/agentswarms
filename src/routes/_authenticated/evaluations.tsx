@@ -5,7 +5,7 @@
 // comparable runs. The BATCH is driven from this page: a small concurrent loop
 // of runEvalCase server calls — cancel and resume are therefore natural (the
 // server refuses cases for cancelled runs and skips already-scored ones).
-import { PageEyebrow } from "@/components/PageEyebrow";
+import { PageHeader } from "@/components/PageHeader";
 import { formatUsd } from "@/lib/usd";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { createFileRoute } from "@tanstack/react-router";
@@ -71,6 +71,8 @@ import {
 import { reportFailure } from "@/lib/silentFailureNet";
 import { StarButton } from "@/components/StarButton";
 import { useRecordOpened } from "@/hooks/use-object-marks";
+import { moveToTrash } from "@/hooks/use-trash";
+import { RESTORE_HINT } from "@/lib/trash";
 
 export const Route = createFileRoute("/_authenticated/evaluations")({
   component: EvaluationsPage,
@@ -246,21 +248,16 @@ function EvaluationsPage() {
 
   return (
     <main className="mx-auto w-full max-w-[1500px] px-4 py-6 md:px-8">
-      <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <PageEyebrow className="mb-0" />
-          <h1 className="mt-1 flex items-center gap-2 text-2xl font-semibold tracking-tight">
-            <FlaskConical className="h-6 w-6 text-primary" /> Evaluations
-          </h1>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Run a dataset of test cases through a swarm and score every output — an LLM judge or a
-            deterministic check. Compare runs to catch regressions before your users do.
-          </p>
-        </div>
-        <Button onClick={() => setNewOpen(true)}>
-          <Plus className="mr-1.5 h-4 w-4" /> New dataset
-        </Button>
-      </div>
+      <PageHeader
+        className="mb-5"
+        title="Evaluations"
+        description="Run a set of test cases through a swarm, score each output, and compare runs to catch regressions."
+        actions={
+          <Button onClick={() => setNewOpen(true)}>
+            <Plus className="mr-1.5 h-4 w-4" /> New dataset
+          </Button>
+        }
+      />
 
       <Dialog open={newOpen} onOpenChange={setNewOpen}>
         <DialogContent className="max-w-md">
@@ -506,16 +503,21 @@ function DatasetPanel({
   const deleteDataset = async () => {
     if (
       !(await confirmAsk({
-        title: `Delete dataset "${dataset.name}" and its cases? Past run results are kept.`,
+        title: `Move “${dataset.name}” to the trash?`,
+        body: `Its cases go with it. Past run results are kept. ${RESTORE_HINT}`,
+        actionLabel: "Move to trash",
       }))
     )
       return;
     // FOUND IN R186: a refused delete said nothing; the dataset stayed.
-    const { error } = await supabase.from("eval_datasets").delete().eq("id", dataset.id);
-    if (error) {
-      toast.error(`"${dataset.name}" was not deleted`, { description: error.message });
-      return;
-    }
+    // moveToTrash says a refusal itself, and nothing carries on after one.
+    const r = await moveToTrash({
+      kind: "evaluation",
+      id: dataset.id,
+      name: dataset.name,
+      onRestored: onChanged,
+    });
+    if (!r.ok) return;
     onChanged();
   };
 

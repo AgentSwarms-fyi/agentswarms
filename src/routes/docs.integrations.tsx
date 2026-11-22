@@ -21,7 +21,7 @@ export const Route = createFileRoute("/docs/integrations")({
       {
         name: "description",
         content:
-          "The AgentSwarms Integration Hub: bring-your-own-key model providers, an OpenAI-compatible LLM gateway option, n8n workflows, and MCP servers.",
+          "AgentSwarms Integrations: bring-your-own-key model providers, an OpenAI-compatible LLM gateway option, n8n workflows, and MCP servers.",
       },
       { property: "og:title", content: "Integrations — AgentSwarms Documentation" },
       {
@@ -48,7 +48,7 @@ function IntegrationsDoc() {
       <DocsHeader
         eyebrow="Integrate & ship"
         title="Integrations"
-        description="The Integration Hub at /integrations connects AgentSwarms to outside model providers and automation; /mcp connects it to tool servers. Keys are stored server-side and used only by the runtime — they are never sent back to the browser."
+        description="The Integrations page at /integrations connects AgentSwarms to outside model providers and automation; /mcp connects it to tool servers. Keys are stored server-side and used only by the runtime — they are never sent back to the browser."
       />
 
       <H2 id="builtin">The default provider first</H2>
@@ -61,7 +61,7 @@ function IntegrationsDoc() {
 
       <H2 id="providers">LLM providers (bring your own key)</H2>
       <P>
-        The <em>LLM Providers</em> tab is a set of key forms, one per provider, each with the fields
+        The <em>LLM providers</em> tab is a set of key forms, one per provider, each with the fields
         that provider actually needs:
       </P>
       <UL>
@@ -85,9 +85,9 @@ function IntegrationsDoc() {
         tools is pointed at one.
       </P>
 
-      <H2 id="gateway">LLM Gateway</H2>
+      <H2 id="gateway">LLM gateway</H2>
       <P>
-        The <em>LLM Gateway</em> tab points the platform at your own OpenAI-compatible gateway —
+        The <em>LLM gateway</em> tab points the platform at your own OpenAI-compatible gateway —
         LiteLLM and similar. You give it a base URL and a key, and choose one of two routing modes.
       </P>
       <Table
@@ -163,7 +163,7 @@ function IntegrationsDoc() {
 
       <H2 id="websearch">Web search &amp; browsing</H2>
       <P>
-        The <strong>Web Search</strong> tab holds one workspace-wide Firecrawl key, which powers the{" "}
+        The <strong>Web search</strong> tab holds one workspace-wide Firecrawl key, which powers the{" "}
         <C>web_search</C> and <C>web_browse</C> tools for every agent that has them enabled.
       </P>
       <Callout kind="info" title="It works with no key at all">
@@ -326,7 +326,7 @@ function IntegrationsDoc() {
 
       <H2 id="n8n">n8n workflows</H2>
       <P>
-        The <em>n8n Workflows</em> tab connects an n8n instance by webhook URL and token, letting
+        The <em>n8n workflows</em> tab connects an n8n instance by webhook URL and token, letting
         agents trigger your automations as a tool. The same pattern extends to the other automation
         platforms configurable per-agent in the Agent Builder (Activepieces, Node-RED, Windmill,
         Temporal, Airflow, Zapier, Make, or a plain webhook).

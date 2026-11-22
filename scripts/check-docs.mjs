@@ -339,6 +339,15 @@ for (const f of DOCS) {
   if (gen.status !== 0) fail("stale search index", "run: npm run docs:index");
 }
 
+// The assistant answers from the handbook's words, generated beside the
+// index. A page changed without regenerating would have it quote the old text.
+{
+  const gen = spawnSync(process.execPath, ["scripts/build-docs-text.mjs", "--check"], {
+    encoding: "utf8",
+  });
+  if (gen.status !== 0) fail("stale handbook text", "run: npm run docs:index");
+}
+
 // Everything above proves what the pages say is true. This is the other
 // direction (R485): every variable the server reads is in .env.example, which
 // All settings is generated from, and the generated page is current.

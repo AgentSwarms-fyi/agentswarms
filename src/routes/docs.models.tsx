@@ -251,7 +251,7 @@ function ModelsPage() {
           ],
           [
             "Proof of which path a call takes",
-            "Check network path on Bedrock, Vertex AI, OCI, Azure and Claude Platform on AWS — no credentials, no request to the provider — or the result of Test & Connect for the others. Each says via the proxy, or direct to a private or public address, and names the TLS certificate the endpoint presents, flagged when it is not valid for that name.",
+            "Check network path on Bedrock, Vertex AI, OCI, Azure and Claude Platform on AWS — no credentials, no request to the provider — or the result of Test & connect for the others. Each says via the proxy, or direct to a private or public address, and names the TLS certificate the endpoint presents, flagged when it is not valid for that name.",
           ],
           [
             "A missing DNS zone must fail, not fall back to the internet",

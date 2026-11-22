@@ -152,7 +152,7 @@ function LoginPage() {
           options: { emailRedirectTo: `${window.location.origin}/dashboard` },
         });
         if (error) throw error;
-        toast.success("Check your email to confirm your account!", {
+        toast.success("Check your email to confirm your account.", {
           description: "Click the link in the email and you'll be signed in automatically.",
         });
       } else if (mode === "signin") {

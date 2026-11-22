@@ -1995,7 +1995,7 @@ export const SETTINGS_REFERENCE: SettingsTier[] = [
             "body": [
               {
                 "kind": "text",
-                "text": "The same for Integration Hub credentials: LLM provider keys, the LLM gateway, n8n and Firecrawl are re-tested this often, in hours (decimals work), with the same test their save runs. A key that starts or stops failing gets a badge, an in-app notification and an audit event; nothing is disabled. At most 10 checks a pass. 0, off, false or no turns it off."
+                "text": "The same for Integrations credentials: LLM provider keys, the LLM gateway, n8n and Firecrawl are re-tested this often, in hours (decimals work), with the same test their save runs. A key that starts or stops failing gets a badge, an in-app notification and an audit event; nothing is disabled. At most 10 checks a pass. 0, off, false or no turns it off."
               }
             ]
           },

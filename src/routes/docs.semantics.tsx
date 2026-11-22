@@ -186,7 +186,7 @@ function SemanticsPage() {
         The lakehouse is a <strong>first-class warehouse provider</strong>, not a separate kind of
         source, so a table a <DocLink to="/docs/sql-models">SQL model</DocLink> built is reached
         exactly like a Snowflake table. It needs a connection row once, under{" "}
-        <strong>Integrations → Data Sources → AgentSwarms Lakehouse (built-in)</strong>, which asks
+        <strong>Integrations → Data sources → AgentSwarms Lakehouse (built-in)</strong>, which asks
         only for a name because the deployment already holds the credentials. Following{" "}
         <strong>Define metrics on this</strong> from a built model or a lakehouse table offers to
         create it for you and then opens the editor on that table.

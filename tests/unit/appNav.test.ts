@@ -278,7 +278,9 @@ describe("a group is a job", () => {
     expect(navItemForPath("/ml")?.title).toBe("ML Models");
     expect(navGroupForPath("/ml")?.label).toBe("Data science");
     // The page says the name the rail says.
-    expect(rd("src/routes/_authenticated/model-registry.tsx")).toContain("/> AI Model Catalog");
+    expect(rd("src/routes/_authenticated/model-registry.tsx")).toContain(
+      'title="AI Model Catalog"',
+    );
   });
 
   it("names no group after a menu inside a page", () => {
@@ -330,11 +332,11 @@ describe("screens that hold part of one thing say where the rest is", () => {
   it("keys: the Secrets page points at the list of every key", () => {
     const secrets = flat(rd("src/routes/_authenticated/secrets.tsx"));
     expect(secrets).toContain('to="/settings" search={{ tab: "api-keys" }}');
-    expect(secrets).toContain("Settings → API Keys");
+    expect(secrets).toContain("Settings → API keys");
     // And that tab exists, under that name.
     const settings = rd("src/routes/_authenticated/settings.tsx");
     expect(settings).toContain('id: "api-keys"');
-    expect(settings).toContain('label: "API Keys"');
+    expect(settings).toContain('label: "API keys"');
   });
 });
 
@@ -379,7 +381,9 @@ describe("the group a page says it is in", () => {
       const src = rd(`${ROUTES}/${file}`);
       expect(written.test(src), file).toBe(false);
       const uses = [...src.matchAll(/<PageEyebrow\b([^>]*)\/>/g)];
-      if (uses.length === 0) continue;
+      // PageHeader draws the same label, with `eyebrow` as its fallback.
+      const header = src.includes("<PageHeader");
+      if (uses.length === 0 && !header) continue;
       using++;
       const listed = navGroupForPath(urlOf(file)) !== undefined;
       for (const use of uses) {
@@ -387,6 +391,8 @@ describe("the group a page says it is in", () => {
         // list has to bring its own words, or it would print nothing.
         expect(use[1].includes("fallback="), `${file} (${urlOf(file)})`).toBe(!listed);
       }
+      // A listed page never writes its own label into its header either.
+      if (header && listed) expect(/\beyebrow=/.test(src), `${file} (${urlOf(file)})`).toBe(false);
     }
     // Twenty-eight pages carried a written label when this was introduced.
     expect(using).toBeGreaterThanOrEqual(28);

@@ -1,7 +1,7 @@
 // Audit Log — its own page under the Observability sidebar group.
 // Who did what, when: model calls, dataset & warehouse queries,
 // dashboard views and catalog crawls, with configurable retention.
-import { PageEyebrow } from "@/components/PageEyebrow";
+import { PageHeader } from "@/components/PageHeader";
 import { createFileRoute } from "@tanstack/react-router";
 
 import { AuditLog } from "@/components/observability/AuditLog";
@@ -22,15 +22,10 @@ export const Route = createFileRoute("/_authenticated/audit")({
 function AuditPage() {
   return (
     <div className="space-y-4 p-6">
-      <div>
-        <PageEyebrow />
-        <h1 className="font-display text-3xl font-semibold tracking-tight">Audit Log</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Who did what, when — model calls, dataset and warehouse queries, dashboard views and
-          catalog crawls. Administrators see the whole instance; everyone else sees their own
-          activity.
-        </p>
-      </div>
+      <PageHeader
+        title="Audit Log"
+        description="See who did what and when; administrators see everyone's activity, everyone else sees their own."
+      />
       <AuditLog />
     </div>
   );

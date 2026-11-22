@@ -609,7 +609,9 @@ export function FeatureViewsPanel({ token }: { token: string }) {
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="text-destructive"
+                      className="text-muted-foreground hover:text-destructive"
+                      aria-label={`Delete the feature view ${v.name}`}
+                      title="Delete"
                       disabled={busy}
                       onClick={() => void remove(v)}
                     >

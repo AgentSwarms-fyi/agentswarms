@@ -835,6 +835,8 @@ export function WarehousesTab() {
                             size="sm"
                             variant="ghost"
                             className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                            aria-label={`Remove the connection ${c.name}`}
+                            title="Remove"
                             onClick={() =>
                               requestRemove([c.id], WAREHOUSE_LABELS[c.provider], [c.name])
                             }

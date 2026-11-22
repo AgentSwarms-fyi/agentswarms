@@ -1764,6 +1764,11 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
       undefined,
     );
     await step(
+      "trash-purge",
+      () => import("@/utils/trash.server").then((m) => m.purgeExpiredTrash(force)),
+      undefined,
+    );
+    await step(
       "chat-retention",
       () =>
         import("@/utils/chatRetention.server").then(async (m) => {

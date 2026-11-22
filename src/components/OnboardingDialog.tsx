@@ -99,7 +99,7 @@ export function OnboardingDialog() {
         .from("profiles")
         .upsert(payload as never, { onConflict: "user_id" });
       if (error) throw error;
-      toast.success("Welcome! Your profile is set up.");
+      toast.success("Your profile is set up.");
       setOpen(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save");
@@ -164,7 +164,7 @@ export function OnboardingDialog() {
             />
           </div>
           <p className="text-xs text-muted-foreground">
-            You can update this anytime in <span className="font-medium">Account Settings</span>.
+            You can change this any time under <span className="font-medium">Account</span>.
           </p>
           <Button className="w-full" onClick={handleSave} disabled={saving}>
             {saving ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}

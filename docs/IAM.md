@@ -194,7 +194,7 @@ A data engineer owns the production Postgres connection and the whole
 analytics group needs to query it from agents and the SQL workbench.
 
 1. The owner creates the connection once under **Integrations → Data
-   Sources** and tests it.
+   sources** and tests it.
 2. On **Admin → IAM → Access** the owner (or a superadmin) shares the
    connection with the _Analytics_ group, read-only.
 3. Each analyst's agents can now query it. The credential never leaves the

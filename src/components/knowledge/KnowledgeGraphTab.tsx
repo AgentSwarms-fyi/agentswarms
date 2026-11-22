@@ -215,7 +215,7 @@ export function KnowledgeGraphTab({ knowledgeBaseId, isSample }: Props) {
               {/* div, not p: Badge renders a <div>, and a div inside a p is
                   invalid HTML — React flags it as a hydration error. */}
               <div className="text-sm font-medium flex items-center gap-2 flex-wrap">
-                Knowledge Graph
+                Knowledge graph
                 {status === "ready" && (
                   <Badge
                     variant="outline"
@@ -378,7 +378,7 @@ export function KnowledgeGraphTab({ knowledgeBaseId, isSample }: Props) {
             <Card>
               <CardContent className="p-3 space-y-2">
                 <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Entity Types
+                  Entity types
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {typeBuckets.map(([type, count]) => (

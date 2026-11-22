@@ -95,16 +95,16 @@ function GuardrailsPage() {
         headers={["Field", "Default", "Values", "Effect"]}
         rows={[
           [
-            "Safety Level",
+            "Safety level",
             "off",
             "off / low / medium / high",
             "Graded filter for harmful content. low catches the overt cases; high is conservative and will refuse borderline-but-legitimate requests. Start at medium for anything public.",
           ],
           [
-            "Block Profanity",
+            "Block profanity",
             "off",
             "on / off",
-            "Independent of Safety Level. Turn on for brand-facing surfaces.",
+            "Independent of Safety level. Turn on for brand-facing surfaces.",
           ],
         ]}
       />
@@ -114,38 +114,38 @@ function GuardrailsPage() {
         headers={["Field", "Default", "Range", "Effect"]}
         rows={[
           [
-            "Enable Input Filtering",
+            "Enable input filtering",
             "off",
             "on / off",
             "Master switch for the checks in this section. Off means input is passed through untouched.",
           ],
           [
-            "Max Input Length",
+            "Max input length",
             "4000",
             "100 – 100,000 characters",
             "Longer messages are rejected before any model call. Protects context budget and blunts the cheapest denial-of-wallet attack on a public embed.",
           ],
           [
-            "Blocked Input Patterns",
+            "Blocked input patterns",
             "empty",
             "one regex per line",
             "Any match refuses the turn. Regex, not glob — see the examples below.",
           ],
           [
-            "Restricted Topics",
+            "Restricted topics",
             "empty",
             "one per line",
             "Subjects the agent must not engage with, checked before the model runs.",
           ],
           [
-            "Allowed Topics",
+            "Allowed topics",
             "empty",
             "one per line",
             "The inverse: when set, anything outside these topics is refused. Much stricter — use for narrowly-scoped agents.",
           ],
         ]}
       />
-      <Code lang="Blocked Input Patterns — one regex per line">{`(?i)ignore (all )?(previous|prior) instructions
+      <Code lang="Blocked input patterns — one regex per line">{`(?i)ignore (all )?(previous|prior) instructions
 (?i)reveal (your )?(system )?prompt
 (?i)\\bsudo\\b|\\bDROP TABLE\\b
 (?i)act as (an? )?(unfiltered|jailbroken|DAN)`}</Code>
@@ -161,32 +161,32 @@ function GuardrailsPage() {
         headers={["Field", "Default", "Values", "Effect"]}
         rows={[
           [
-            "Enable Output Filtering",
+            "Enable output filtering",
             "off",
             "on / off",
             "Master switch for this section. When a check fires, the answer is replaced rather than shown.",
           ],
           [
-            "Hallucination Detection",
+            "Hallucination detection",
             "off",
             "on / off",
             "Flags answers that assert facts the retrieved context doesn't support. Best-effort — treat as a signal, not a proof.",
           ],
           [
-            "Citation Check",
+            "Citation check",
             "off",
             "on / off",
             "Flags an answer that cites nothing when sources WERE available. The cheapest hallucination detector you have; turn it on for every retrieval agent.",
           ],
           [
-            "Custom Output Filter Prompt",
+            "Custom output filter prompt",
             "empty",
             "free text",
             "Your own review instruction, applied to the finished answer. Example below.",
           ],
         ]}
       />
-      <Code lang="Custom Output Filter Prompt">{`Check the response before it is shown. Reject it if it:
+      <Code lang="Custom output filter prompt">{`Check the response before it is shown. Reject it if it:
 - states a price, date or policy that does not appear in the sources
 - promises a refund, discount or delivery date
 - names a customer other than the one asking
@@ -197,19 +197,19 @@ Otherwise approve it unchanged.`}</Code>
         headers={["Field", "Default", "Range", "Effect"]}
         rows={[
           [
-            "Max Turns / Conversation",
+            "Max turns / conversation",
             "50",
             "1 – 500",
             "Hard stop on a single conversation's length. Bounds the cost of one runaway session.",
           ],
           [
-            "Rate Limit",
+            "Rate limit",
             "20 per minute",
             "1 – 1000",
             "Requests per minute for this agent. Lower it for public embeds.",
           ],
           [
-            "Require Approval Above",
+            "Require approval above",
             "0 (disabled)",
             "tokens",
             "Above this token count, the turn needs human approval before it runs. Use on expensive agents where a large request should be a decision, not an accident.",
@@ -309,25 +309,25 @@ Otherwise approve it unchanged.`}</Code>
       <H3 id="recipe-public">Public website embed</H3>
       <Steps
         items={[
-          { title: "Safety Level → medium", body: "Strangers, brand exposure." },
-          { title: "Block Profanity → on", body: "" },
+          { title: "Safety level → medium", body: "Strangers, brand exposure." },
+          { title: "Block profanity → on", body: "" },
           {
             title: "Personal data → redact, Applies to → both",
             body: "Visitors paste order numbers, emails and phone numbers into public chat boxes constantly.",
           },
           {
-            title: "Enable Input Filtering, Max Input Length → 2000",
+            title: "Enable input filtering, Max input length → 2000",
             body: "Shorter than the 4000 default; a support question does not need more.",
           },
           {
-            title: "Blocked Input Patterns → the jailbreak list above",
+            title: "Blocked input patterns → the jailbreak list above",
             body: "",
           },
           {
-            title: "Enable Output Filtering + Citation Check → on",
+            title: "Enable output filtering + Citation check → on",
             body: "Stops confident uncited answers reaching a customer.",
           },
-          { title: "Rate Limit → 6/min, Max Turns → 20", body: "Bounds one visitor's cost." },
+          { title: "Rate limit → 6/min, Max turns → 20", body: "Bounds one visitor's cost." },
           {
             title: "Then set a budget cap on the embed key",
             body: (
@@ -343,7 +343,7 @@ Otherwise approve it unchanged.`}</Code>
       <H3 id="recipe-internal">Internal analyst agent</H3>
       <UL>
         <li>
-          Safety Level <strong>off</strong>, Block Profanity <strong>off</strong> — colleagues, not
+          Safety level <strong>off</strong>, Block profanity <strong>off</strong> — colleagues, not
           strangers; false refusals cost more than they save.
         </li>
         <li>
@@ -352,9 +352,9 @@ Otherwise approve it unchanged.`}</Code>
           report.
         </li>
         <li>
-          Citation Check <strong>on</strong> if it answers from documents.
+          Citation check <strong>on</strong> if it answers from documents.
         </li>
-        <li>Rate Limit and Max Turns at defaults.</li>
+        <li>Rate limit and Max turns at defaults.</li>
       </UL>
 
       <H3 id="recipe-regulated">Regulated / high-sensitivity</H3>
@@ -364,10 +364,10 @@ Otherwise approve it unchanged.`}</Code>
           than redact, so nothing personal reaches a provider even in masked form.
         </li>
         <li>
-          <strong>Allowed Topics</strong> rather than Restricted, so anything off-script is refused
+          <strong>Allowed topics</strong> rather than Restricted, so anything off-script is refused
           by default.
         </li>
-        <li>Require Approval Above set to a real token number.</li>
+        <li>Require approval above set to a real token number.</li>
         <li>
           Short <DocLink to="/docs/budgets">retention</DocLink> — guardrails limit what is said,
           retention limits how long it is kept.

@@ -6990,6 +6990,47 @@ export type Database = {
         };
         Relationships: [];
       };
+      // 20261122000000 (R516): what was moved to the trash. No policy: read
+      // only through my_trash(), written only by the trash functions.
+      trash_items: {
+        Row: {
+          deleted_at: string;
+          id: string;
+          kind: string;
+          links: Json;
+          name: string;
+          object_id: string;
+          payload: Json;
+          purge_after: string;
+          row_count: number;
+          user_id: string;
+        };
+        Insert: {
+          deleted_at?: string;
+          id?: string;
+          kind: string;
+          links?: Json;
+          name?: string;
+          object_id: string;
+          payload: Json;
+          purge_after: string;
+          row_count: number;
+          user_id: string;
+        };
+        Update: {
+          deleted_at?: string;
+          id?: string;
+          kind?: string;
+          links?: Json;
+          name?: string;
+          object_id?: string;
+          payload?: Json;
+          purge_after?: string;
+          row_count?: number;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       otel_export_cursor: {
         Row: {
           last_id: string;
@@ -9184,6 +9225,51 @@ export type Database = {
       upsert_sample_dataset: {
         Args: { _columns: Json; _name: string; _source_filename: string };
         Returns: string;
+      };
+      // 20261123000000 (R519): who can read a dataset, for its owner only.
+      dataset_access: {
+        Args: { p_dataset_id: string };
+        Returns: {
+          grant_id: string;
+          principal_type: string;
+          principal_id: string;
+          name: string | null;
+          email: string | null;
+          member_count: number | null;
+          row_filter: Json | null;
+          column_mask: string[];
+          granted_at: string;
+          granted_by_name: string | null;
+        }[];
+      };
+      // 20261122000000 (R516): the trash.
+      trash_object: {
+        Args: { p_kind: string; p_id: string };
+        Returns: string;
+      };
+      restore_trash: {
+        Args: { p_trash_id: string };
+        Returns: Json;
+      };
+      my_trash: {
+        Args: never;
+        Returns: {
+          id: string;
+          kind: string;
+          object_id: string;
+          name: string;
+          deleted_at: string;
+          purge_after: string;
+          row_count: number;
+        }[];
+      };
+      empty_trash: {
+        Args: { p_trash_id?: string | null };
+        Returns: number;
+      };
+      purge_expired_trash: {
+        Args: never;
+        Returns: number;
       };
       // 20261116000000 (R492): the caller's applicable grants, with whether
       // each masks anything and never the mask's terms.

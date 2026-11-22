@@ -278,6 +278,8 @@ export function BiWorkspaceManager({
                   <Button
                     size="sm"
                     className="h-8 gap-1"
+                    aria-label={`Add the selected ${addType} to the workspace`}
+                    title="Add member"
                     onClick={() => void addMember()}
                     disabled={!addPrincipal}
                   >

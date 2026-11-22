@@ -422,6 +422,8 @@ export function ScheduleDialog({
                       variant="ghost"
                       size="icon"
                       className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                      aria-label={`Delete the alert on ${widgetTitle(a.widget_id)}`}
+                      title="Delete"
                       onClick={() => void deleteAlert(a.id)}
                     >
                       <Trash2 className="h-3 w-3" />

@@ -1,10 +1,10 @@
-import { PageEyebrow } from "@/components/PageEyebrow";
+import { PageHeader, TitleCount } from "@/components/PageHeader";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { identityHue } from "@/lib/identityHue";
+import { IdentityTile } from "@/components/IdentityTile";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { usePageIntent } from "@/hooks/use-page-intent";
@@ -29,7 +29,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
-import { toast } from "sonner";
+import { moveToTrash } from "@/hooks/use-trash";
+import { RESTORE_HINT } from "@/lib/trash";
 import {
   AlertTriangle,
   Bot,
@@ -152,16 +153,17 @@ function AgentsPage() {
   async function deleteAgent(agent: Agent) {
     setDeleting(true);
     try {
-      // Surface failures instead of reporting a false success: an RLS denial
-      // returns an error rather than throwing, so the old code showed
-      // "Agent deleted" for a delete that never happened.
-      const { error } = await supabase.from("agents").delete().eq("id", agent.id);
-      if (error) throw error;
-      toast.success(`Deleted "${agent.name}"`);
+      // Surface failures instead of reporting a false success: a refusal comes
+      // back as a result, not a throw, and moveToTrash says it itself.
+      const r = await moveToTrash({
+        kind: "agent",
+        id: agent.id,
+        name: agent.name,
+        onRestored: () => void loadAgents(),
+      });
+      if (!r.ok) return;
       setConfirmDelete(null);
       await loadAgents();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not delete the agent");
     } finally {
       setDeleting(false);
     }
@@ -186,61 +188,60 @@ function AgentsPage() {
 
   return (
     <div className="flex">
-      <div className="flex-1 p-6 space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <PageEyebrow />
-            <h1 className="font-display text-3xl font-semibold tracking-tight">Agent Builder</h1>
-            <p className="text-muted-foreground mt-1">
-              Create and manage your AI agents.
-              {agents.length > 0 && (
-                <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                  {agents.length} {agents.length === 1 ? "agent" : "agents"}
-                </span>
-              )}
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <ImportAgentDialog
-              userId={user?.id || ""}
-              onImported={loadAgents}
-              trigger={
-                <Button variant="outline">
-                  <Upload className="h-4 w-4 mr-2" /> Import Agent
-                </Button>
-              }
-            />
-            <Dialog
-              open={dialogOpen}
-              onOpenChange={(o) => {
-                setDialogOpen(o);
-                if (!o) setEditing(null);
-              }}
-            >
-              <DialogTrigger asChild>
-                <Button>
-                  <Plus className="h-4 w-4 mr-2" /> New Agent
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-                <DialogHeader>
-                  <DialogTitle>{editing ? "Edit Agent" : "Create Agent"}</DialogTitle>
-                </DialogHeader>
-                <AgentForm
-                  // One form per agent: it loads that agent's memory settings on mount (R323).
-                  key={editing?.id ?? "new"}
-                  agent={editing}
-                  userId={user?.id || ""}
-                  onSaved={() => {
-                    setDialogOpen(false);
-                    setEditing(null);
-                    loadAgents();
-                  }}
-                />
-              </DialogContent>
-            </Dialog>
-          </div>
-        </div>
+      <div className="min-w-0 flex-1 space-y-6 p-6">
+        <PageHeader
+          title="Agent Builder"
+          description="Create and manage the agents you chat with and use in swarms."
+          meta={
+            agents.length > 0 ? (
+              <TitleCount>
+                {agents.length} {agents.length === 1 ? "agent" : "agents"}
+              </TitleCount>
+            ) : null
+          }
+          actions={
+            <>
+              <ImportAgentDialog
+                userId={user?.id || ""}
+                onImported={loadAgents}
+                trigger={
+                  <Button variant="outline">
+                    <Upload className="h-4 w-4 mr-2" /> Import agent
+                  </Button>
+                }
+              />
+              <Dialog
+                open={dialogOpen}
+                onOpenChange={(o) => {
+                  setDialogOpen(o);
+                  if (!o) setEditing(null);
+                }}
+              >
+                <DialogTrigger asChild>
+                  <Button>
+                    <Plus className="h-4 w-4 mr-2" /> New agent
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle>{editing ? "Edit agent" : "Create agent"}</DialogTitle>
+                  </DialogHeader>
+                  <AgentForm
+                    // One form per agent: it loads that agent's memory settings on mount (R323).
+                    key={editing?.id ?? "new"}
+                    agent={editing}
+                    userId={user?.id || ""}
+                    onSaved={() => {
+                      setDialogOpen(false);
+                      setEditing(null);
+                      loadAgents();
+                    }}
+                  />
+                </DialogContent>
+              </Dialog>
+            </>
+          }
+        />
 
         {agents.length > 0 && (
           <div className="flex items-center gap-2">
@@ -286,7 +287,7 @@ function AgentsPage() {
                   setDialogOpen(true);
                 }}
               >
-                <Plus className="h-4 w-4 mr-2" /> New Agent
+                <Plus className="h-4 w-4 mr-2" /> New agent
               </Button>
             }
           />
@@ -305,11 +306,7 @@ function AgentsPage() {
               <Card key={agent.id} className="glow-card group flex flex-col border-border/50">
                 <CardHeader className="p-4 pb-2.5">
                   <div className="flex items-start gap-2.5">
-                    <div
-                      className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-gradient-to-br text-white shadow-sm ${identityHue(agent.name)}`}
-                    >
-                      <Bot className="h-4 w-4" strokeWidth={1.8} />
-                    </div>
+                    <IdentityTile name={agent.name} icon={Bot} />
                     <div className="min-w-0 flex-1">
                       <CardTitle className="truncate text-base leading-tight">
                         {agent.name}
@@ -352,7 +349,7 @@ function AgentsPage() {
                     </span>
                   </div>
                   <div className="flex items-center gap-1 border-t border-border/60 pt-2.5">
-                    <Button size="sm" className="h-7 gap-1 px-3 text-xs" asChild>
+                    <Button size="sm" variant="outline" className="h-7 gap-1 px-3 text-xs" asChild>
                       <Link to="/playground" search={{ agentId: agent.id }}>
                         <Play className="h-3 w-3" /> Chat
                       </Link>
@@ -441,17 +438,11 @@ function AgentsPage() {
         >
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Delete “{confirmDelete?.name}”?</AlertDialogTitle>
+              <AlertDialogTitle>Move “{confirmDelete?.name}” to the trash?</AlertDialogTitle>
               <AlertDialogDescription asChild>
                 <div className="space-y-2">
-                  <p>
-                    This permanently deletes the agent and everything attached to it: its chat
-                    history, stored memory, and any embed keys pointing at it.
-                  </p>
-                  <p className="text-destructive">
-                    Sites embedding this agent and API calls that reference it will stop working.
-                    This cannot be undone.
-                  </p>
+                  <p>Sites embedding this agent and API calls that reference it stop working.</p>
+                  <p>{RESTORE_HINT}</p>
                 </div>
               </AlertDialogDescription>
             </AlertDialogHeader>
@@ -465,7 +456,7 @@ function AgentsPage() {
                   if (confirmDelete) void deleteAgent(confirmDelete);
                 }}
               >
-                {deleting ? "Deleting…" : "Delete agent"}
+                {deleting ? "Moving…" : "Move to trash"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

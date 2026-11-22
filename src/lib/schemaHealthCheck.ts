@@ -72,6 +72,12 @@ export const REQUIRED_SCHEMA_CHECKS: SchemaCheck[] = [
     description:
       "Favourites and what you opened last: My work, the stars, and what search opens on.",
   },
+  {
+    // Every delete on a list page moves the thing here; without it nothing can be deleted.
+    table: "trash_items",
+    migration: "20261122000000_trash.sql",
+    description: "The trash: deleting keeps a thing for 30 days so it can be restored.",
+  },
 ];
 
 export type SchemaIssue = {

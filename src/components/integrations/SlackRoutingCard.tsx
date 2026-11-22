@@ -244,7 +244,9 @@ export function SlackRoutingCard({
                         <Button
                           size="icon"
                           variant="ghost"
-                          className="h-7 w-7 text-destructive"
+                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                          aria-label={`Remove the route for ${r.command}`}
+                          title="Remove"
                           disabled={busy}
                           onClick={() => void dropRoute(r.id, r.command)}
                         >

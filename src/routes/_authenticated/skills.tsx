@@ -1,4 +1,4 @@
-import { PageEyebrow } from "@/components/PageEyebrow";
+import { PageHeader } from "@/components/PageHeader";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Wand2, Pencil, Trash2, Copy, BookOpen } from "lucide-react";
+import { Plus, Pencil, Trash2, Copy, BookOpen } from "lucide-react";
 import { toast } from "sonner";
 import { SAMPLE_SKILLS } from "@/lib/sampleSkills";
 import { SkillEditorDialog } from "@/components/skills/SkillEditorDialog";
@@ -19,6 +19,8 @@ import { StarButton } from "@/components/StarButton";
 import { FavouritesFilter } from "@/components/FavouritesFilter";
 import { useFavouritesFilter } from "@/hooks/use-favourites-filter";
 import { useRecordOpened } from "@/hooks/use-object-marks";
+import { moveToTrash } from "@/hooks/use-trash";
+import { RESTORE_HINT } from "@/lib/trash";
 
 type SkillRow = {
   id: string;
@@ -102,19 +104,17 @@ function SkillLibraryPage() {
     },
   });
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (id: string, name: string) => {
     if (
       !(await confirmAsk({
-        title: "Delete this skill? Agents that reference it will silently drop it.",
+        title: `Move “${name}” to the trash?`,
+        body: `Agents that reference it drop it. ${RESTORE_HINT}`,
+        actionLabel: "Move to trash",
       }))
     )
       return;
-    const { error } = await supabase.from("agent_skills").delete().eq("id", id);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-    toast.success("Skill deleted");
+    const r = await moveToTrash({ kind: "skill", id, name, onRestored: () => void refresh() });
+    if (!r.ok) return;
     refresh();
   };
 
@@ -155,27 +155,17 @@ function SkillLibraryPage() {
 
   return (
     <div className="flex">
-      <div className="flex-1 container mx-auto space-y-6 p-6">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <PageEyebrow />
-            <h1 className="flex items-center gap-2 font-display text-2xl font-semibold tracking-tight">
-              <Wand2 className="h-6 w-6 text-primary" />
-              Skill Library
-            </h1>
-            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              Skills are reusable, focused playbooks (Anthropic-style{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">skill.md</code> files) you can
-              attach to any agent or swarm node. At run time, every selected skill is composed into
-              the agent's effective system prompt — so the same agent can be specialised for
-              different jobs just by swapping skills.
-            </p>
-          </div>
-          <Button onClick={handleNew}>
-            <Plus className="mr-2 h-4 w-4" />
-            New skill
-          </Button>
-        </div>
+      <div className="container mx-auto min-w-0 flex-1 space-y-6 p-6">
+        <PageHeader
+          title="Skill Library"
+          description="Write reusable playbooks and attach them to any agent or swarm node; they are added to its system prompt when it runs."
+          actions={
+            <Button onClick={handleNew}>
+              <Plus className="mr-2 h-4 w-4" />
+              New skill
+            </Button>
+          }
+        />
 
         <Tabs value={tab} onValueChange={setTab}>
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -244,7 +234,7 @@ function SkillLibraryPage() {
                           <Button
                             size="icon"
                             variant="ghost"
-                            onClick={() => handleDelete(s.id)}
+                            onClick={() => handleDelete(s.id, s.name)}
                             title="Delete"
                           >
                             <Trash2 className="h-4 w-4" />

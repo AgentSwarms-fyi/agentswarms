@@ -14,9 +14,9 @@ export function useLangChainExportAnnouncement() {
 
     // Small delay so it doesn't compete with page load toasts
     const timer = setTimeout(() => {
-      toast("🚀 New: LangChain & LangGraph Export", {
+      toast("New: LangChain and LangGraph export", {
         description:
-          "You can now export agents as LangChain (LCEL) and swarms as LangGraph StateGraphs — in both Python and TypeScript.",
+          "Agents export as LangChain (LCEL) and swarms as LangGraph StateGraphs, in Python or TypeScript.",
         duration: 8000,
       });
       localStorage.setItem(STORAGE_KEY, "1");

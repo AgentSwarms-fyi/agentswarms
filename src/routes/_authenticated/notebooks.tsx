@@ -3,6 +3,7 @@
 // could never import real LangChain/LlamaIndex), plus read-only framework
 // samples you can run and fork. Each new notebook starts from a template with
 // notes on calling models through the user's connected providers.
+import { PageHeader } from "@/components/PageHeader";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
@@ -24,6 +25,8 @@ import { useFavouritesFilter } from "@/hooks/use-favourites-filter";
 import { StarButton } from "@/components/StarButton";
 import { listClaim, type ListClaim } from "@/lib/listClaim";
 import { reportFailure } from "@/lib/silentFailureNet";
+import { moveToTrash } from "@/hooks/use-trash";
+import { RESTORE_HINT } from "@/lib/trash";
 
 export const Route = createFileRoute("/_authenticated/notebooks")({
   head: () => ({
@@ -109,9 +112,29 @@ function usePyNotebooks(pathname: string) {
   };
 
   const deleteNotebook = async (id: string) => {
-    if (!(await confirmAsk({ title: "Delete this notebook? This cannot be undone." }))) return;
-    const { error } = await supabase.from("user_python_notebooks").delete().eq("id", id);
-    if (error) return toast.error(error.message);
+    const nb = pyNotebooks.find((n) => n.id === id);
+    if (
+      !(await confirmAsk({
+        title: nb ? `Move “${nb.title}” to the trash?` : "Move this notebook to the trash?",
+        body: RESTORE_HINT,
+        actionLabel: "Move to trash",
+      }))
+    )
+      return;
+    const r = await moveToTrash({
+      kind: "notebook",
+      id,
+      name: nb?.title ?? "",
+      // Back in the list after an Undo, where it stood (newest first).
+      onRestored: () =>
+        nb &&
+        setPyNotebooks((prev) =>
+          prev.some((n) => n.id === id)
+            ? prev
+            : [...prev, nb].sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
+        ),
+    });
+    if (!r.ok) return;
     setPyNotebooks((prev) => prev.filter((n) => n.id !== id));
   };
 
@@ -296,22 +319,16 @@ function PythonLabCatalog({
   return (
     <div className="h-full overflow-y-auto p-6 lg:p-8">
       <div className="mx-auto w-full max-w-5xl">
-        <div className="mb-6 flex items-start justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <FlaskConical className="mt-1 h-7 w-7 shrink-0 text-primary" />
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight">Developer workspace</h1>
-              <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-                Python notebooks that run on sandboxed server kernels — real CPython with pip
-                install and the actual frameworks. Start from the framework samples below, or create
-                your own with governed access to your models and knowledge bases.
-              </p>
-            </div>
-          </div>
-          <Button className="shrink-0 gap-1.5" onClick={onCreate} disabled={creating}>
-            <Plus className="h-4 w-4" /> New Python notebook
-          </Button>
-        </div>
+        <PageHeader
+          className="mb-6"
+          title="Developer workspace"
+          description="Python notebooks that run on sandboxed server kernels. Start from a sample below or create your own."
+          actions={
+            <Button className="shrink-0 gap-1.5" onClick={onCreate} disabled={creating}>
+              <Plus className="h-4 w-4" /> New Python notebook
+            </Button>
+          }
+        />
 
         <div className="mb-8 grid gap-3 sm:grid-cols-3">
           <div className="rounded-md border border-border bg-card/50 p-4">

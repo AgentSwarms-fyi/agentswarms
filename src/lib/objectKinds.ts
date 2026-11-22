@@ -215,7 +215,8 @@ export const OBJECT_KINDS: ObjectKind[] = [
     plural: "Datasets",
     icon: Database,
     page: "/data-sql",
-    open: onPage("/data-sql"),
+    // A dataset has a page of its own (R519); the Catalog lists them.
+    open: (e) => ({ to: `/data-sql/${e.id}` }),
     create: {
       title: "Dataset",
       hint: "Upload a CSV, Excel or JSON file",

@@ -27,6 +27,8 @@ const pageFile = (url: string) => path.join(ROUTES, `${url.replace(/^\//, "")}.t
 const DETAIL_ROUTES: Record<string, string> = {
   "/bi/": "bi_.$dashboardId.tsx",
   "/bi/report/": "bi_.report.$reportId.tsx",
+  // A dataset's own page (R519).
+  "/data-sql/": "data-sql_.$datasetId.tsx",
   "/ml/": "ml_.$modelId.tsx",
   "/mcp-builder/": "mcp-builder_.$appId.tsx",
   "/notebooks/py/": "notebooks.py.$pyNotebookId.tsx",

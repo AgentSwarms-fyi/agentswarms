@@ -426,7 +426,7 @@ export function AddSourceDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Add Source</DialogTitle>
+          <DialogTitle>Add source</DialogTitle>
         </DialogHeader>
         <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
           <TabsList className="w-full">
@@ -498,6 +498,8 @@ export function AddSourceDialog({
                       variant="ghost"
                       size="sm"
                       className="h-6 w-6 p-0"
+                      aria-label={`Remove ${f.name}`}
+                      title="Remove"
                       onClick={() => setFiles((p) => p.filter((_, idx) => idx !== i))}
                     >
                       <X className="h-3 w-3" />

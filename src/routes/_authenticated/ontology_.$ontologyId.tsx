@@ -462,7 +462,7 @@ function OntologyTitle(props: {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(props.name);
   const cancelled = useRef(false);
-  const heading = "truncate font-display text-2xl font-semibold tracking-tight";
+  const heading = "truncate text-[22px] font-semibold leading-7 tracking-[-0.012em]";
   if (!props.editable) return <h1 className={heading}>{props.name}</h1>;
   if (editing) {
     const commit = () => {

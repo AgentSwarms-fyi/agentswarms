@@ -8,7 +8,7 @@
 // ones four ways: the sample (one click, real tables), a draft from tables
 // (measured, optionally described by AI), an import (Apache Ossie or JSON),
 // or a blank model. The workspace is ontology_.$ontologyId.
-import { PageEyebrow } from "@/components/PageEyebrow";
+import { PageHeader } from "@/components/PageHeader";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
@@ -172,33 +172,26 @@ function OntologyGallery() {
 
   return (
     <div className="mx-auto w-full max-w-[1600px] space-y-8 p-4 sm:p-6 lg:p-8">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <PageEyebrow />
-          <h1 className="font-display text-3xl font-semibold tracking-tight">
-            Enterprise Ontology
-          </h1>
-          <p className="mt-1.5 max-w-3xl text-balance text-muted-foreground">
-            Describe the business once — the things it deals in, how they connect, what is measured,
-            what must hold true and what may be changed — on top of your lakehouse tables. People,
-            dashboards and agents then ask in business words and get governed answers.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => void load()} disabled={refreshing}>
-            <RefreshCw className={cn("mr-1.5 h-4 w-4", refreshing && "animate-spin")} /> Refresh
-          </Button>
-          <Button variant="outline" onClick={() => setMode("import")}>
-            <FileUp className="mr-1.5 h-4 w-4" /> Import
-          </Button>
-          <Button variant="outline" onClick={() => setMode("draft")}>
-            <Wand2 className="mr-1.5 h-4 w-4" /> Draft from tables
-          </Button>
-          <Button onClick={() => setMode("blank")}>
-            <Plus className="mr-1.5 h-4 w-4" /> New ontology
-          </Button>
-        </div>
-      </header>
+      <PageHeader
+        title="Enterprise Ontology"
+        description="Describe your business once on top of your lakehouse tables, so people, dashboards and agents can ask in business words."
+        actions={
+          <>
+            <Button variant="outline" size="sm" onClick={() => void load()} disabled={refreshing}>
+              <RefreshCw className={cn("mr-1.5 h-4 w-4", refreshing && "animate-spin")} /> Refresh
+            </Button>
+            <Button variant="outline" onClick={() => setMode("import")}>
+              <FileUp className="mr-1.5 h-4 w-4" /> Import
+            </Button>
+            <Button variant="outline" onClick={() => setMode("draft")}>
+              <Wand2 className="mr-1.5 h-4 w-4" /> Draft from tables
+            </Button>
+            <Button onClick={() => setMode("blank")}>
+              <Plus className="mr-1.5 h-4 w-4" /> New ontology
+            </Button>
+          </>
+        }
+      />
 
       {error && (
         <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm">

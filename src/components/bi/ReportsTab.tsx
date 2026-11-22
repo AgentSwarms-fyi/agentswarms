@@ -29,7 +29,9 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { useAuth } from "@/hooks/use-auth";
+import { announceTrashed } from "@/hooks/use-trash";
 import { PAGE_SIZES } from "@/lib/biReports";
+import { RESTORE_HINT } from "@/lib/trash";
 import { useSingleFlight } from "@/lib/singleFlight";
 import {
   biReportCreate,
@@ -107,14 +109,14 @@ export function ReportsTab({
 
   async function remove(r: BiReportRow) {
     const ok = await confirmAsk({
-      title: `Delete "${r.name}"?`,
-      body: "The report and its blocks go with it. Exported PDFs are unaffected.",
-      actionLabel: "Delete report",
+      title: `Move “${r.name}” to the trash?`,
+      body: `Its blocks go with it. Exported PDFs are unaffected. ${RESTORE_HINT}`,
+      actionLabel: "Move to trash",
     });
     if (!ok) return;
     const res = await deleteFn({ data: { accessToken: token, id: r.id } });
     if (!res.ok) return toast.error(res.error);
-    toast.success("Report deleted");
+    announceTrashed(r.name, res.trashId, () => void reload());
     void reload();
   }
 

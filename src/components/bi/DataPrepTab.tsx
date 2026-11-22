@@ -1223,7 +1223,7 @@ export function DataPrepTab() {
               <Skeleton className="h-9 w-full" />
             ) : whConns.length === 0 ? (
               <p className="py-2 text-center text-[11px] text-muted-foreground">
-                No connected sources. Add one under Integrations → Data Sources.
+                No connected sources. Add one under Integrations → Data sources.
               </p>
             ) : (
               whConns.map((conn) => {
@@ -2669,6 +2669,8 @@ function FilterStepEditor({
               size="sm"
               variant="ghost"
               className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+              aria-label="Remove this condition"
+              title="Remove"
               onClick={() =>
                 onUpdate({ ...step, conditions: step.conditions.filter((c) => c.id !== f.id) })
               }
@@ -2802,6 +2804,8 @@ function AggregateStepEditor({
                   size="sm"
                   variant="ghost"
                   className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                  aria-label={`Remove the measure ${m.name}`}
+                  title="Remove"
                   onClick={() =>
                     onUpdate({ ...step, measures: step.measures.filter((x) => x.id !== m.id) })
                   }
@@ -2978,6 +2982,8 @@ function PivotStepEditor({
                 <button
                   type="button"
                   className="text-muted-foreground hover:text-destructive"
+                  aria-label={`Remove the pivot value ${v}`}
+                  title="Remove"
                   onClick={() => onUpdate({ ...step, values: step.values.filter((x) => x !== v) })}
                 >
                   <X className="h-2.5 w-2.5" />
@@ -3116,6 +3122,8 @@ function SplitStepEditor({
                 <button
                   type="button"
                   className="text-muted-foreground hover:text-destructive"
+                  aria-label={`Remove the output column ${name}`}
+                  title="Remove"
                   onClick={() => onUpdate({ ...step, into: step.into.filter((_, j) => j !== i) })}
                 >
                   <X className="h-3 w-3" />

@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Clock, Loader2, RefreshCw, Star, Users } from "lucide-react";
 
-import { PageEyebrow } from "@/components/PageEyebrow";
+import { PageHeader } from "@/components/PageHeader";
 import { ObjectRow } from "@/components/search/parts";
 import { Button } from "@/components/ui/button";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
@@ -134,13 +134,10 @@ function MyWorkPage() {
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-5 p-6">
-      <div>
-        <PageEyebrow />
-        <h1 className="text-xl font-semibold">My work</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          What you opened last, what you starred, and what other people shared with you.
-        </p>
-      </div>
+      <PageHeader
+        title="My work"
+        description="What you opened last, what you starred, and what other people shared with you."
+      />
 
       <div className="flex flex-wrap items-end justify-between gap-x-4 border-b">
         <div role="tablist" aria-label="My work" className="flex flex-wrap gap-1">

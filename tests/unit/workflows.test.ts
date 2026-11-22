@@ -1134,7 +1134,7 @@ describe("the wiring", () => {
     // workflow that no longer exists sitting beside an empty list.
     const page = rd("src/routes/_authenticated/workflows.tsx");
     expect(page).toMatch(
-      /Workflow deleted[\s\S]{0,400}setGraph\(\{ nodes: \[\], edges: \[\], params: \[\] \}\)/,
+      /announceTrashed\(w\.name, res\.trashId[\s\S]{0,400}setGraph\(\{ nodes: \[\], edges: \[\], params: \[\] \}\)/,
     );
   });
 

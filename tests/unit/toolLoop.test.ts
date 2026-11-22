@@ -43,10 +43,13 @@ describe("frameUntrustedResult — which tools get wrapped", () => {
     }
   });
 
-  it("the untrusted set is exactly the fetch-from-outside tools", () => {
+  it("the untrusted set is exactly the tools that return other people's text", () => {
     // A new tool that reaches the internet MUST be added here. Pinning the set
-    // makes that a deliberate decision rather than an omission.
+    // makes that a deliberate decision rather than an omission. find_my_work
+    // (R518) reaches nothing outside, but lists names, and a name shared with
+    // the reader was typed by someone else.
     expect([...UNTRUSTED_CONTENT_TOOLS].sort()).toEqual([
+      "find_my_work",
       "mcp_call_tool",
       "web_browse",
       "web_search",

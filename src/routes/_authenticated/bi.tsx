@@ -1,12 +1,12 @@
 // BI Workspace — the list of BI projects (editable dashboards/reports).
 import { FavouritesFilter } from "@/components/FavouritesFilter";
 import { useFavouritesFilter } from "@/hooks/use-favourites-filter";
-import { PageEyebrow } from "@/components/PageEyebrow";
+import { PageHeader } from "@/components/PageHeader";
 import { StarButton } from "@/components/StarButton";
 import { StarMark } from "@/components/search/parts";
 import { useObjectMarks } from "@/hooks/use-object-marks";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
-import { identityHue } from "@/lib/identityHue";
+import { IdentityTile } from "@/components/IdentityTile";
 // Own projects open in the editor; projects shared via IAM group grants open
 // read-only. Published projects expose a public read-only link.
 import { createFileRoute } from "@tanstack/react-router";
@@ -69,7 +69,6 @@ import { usePageIntent } from "@/hooks/use-page-intent";
 import { readPageIntent, type PageIntent } from "@/lib/pageIntent";
 import {
   createDashboard,
-  deleteDashboard,
   listDashboards,
   dashboardSize,
   publicDashboardUrl,
@@ -84,6 +83,8 @@ import {
   type BiWorkspace,
 } from "@/lib/biWorkspaces";
 import { useSingleFlight } from "@/lib/singleFlight";
+import { moveToTrash } from "@/hooks/use-trash";
+import { RESTORE_HINT } from "@/lib/trash";
 
 const BI_TABS = ["projects", "reports", "prep"] as const;
 type BiTab = (typeof BI_TABS)[number];
@@ -208,15 +209,16 @@ function BiWorkspacePage() {
   });
 
   const remove = async (d: BiDashboardRow) => {
-    if (!(await confirmAsk({ title: `Delete BI project "${d.name}"? This cannot be undone.` })))
+    if (
+      !(await confirmAsk({
+        title: `Move “${d.name}” to the trash?`,
+        body: RESTORE_HINT,
+        actionLabel: "Move to trash",
+      }))
+    )
       return;
-    try {
-      await deleteDashboard(d.id);
-      toast.success("Project deleted");
-      reload();
-    } catch (e) {
-      toast.error((e as Error).message);
-    }
+    const r = await moveToTrash({ kind: "dashboard", id: d.id, name: d.name, onRestored: reload });
+    if (r.ok) reload();
   };
 
   const copyLink = (d: BiDashboardRow) => {
@@ -285,28 +287,22 @@ function BiWorkspacePage() {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <PageEyebrow />
-          <h1 className="font-display text-3xl font-semibold tracking-tight flex items-center gap-2">
-            <LayoutDashboard className="h-7 w-7 text-primary" /> BI Workspace
-          </h1>
-          <p className="text-muted-foreground mt-1 max-w-2xl">
-            Build dashboards and reports from your datasets and connected warehouses — by hand or
-            with the AI analyst — then publish them with a link or share them with groups.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {isAdmin && (
-            <Button variant="outline" className="gap-1.5" onClick={() => setGitSyncOpen(true)}>
-              <GitBranch className="h-4 w-4" /> Git sync
+      <PageHeader
+        title="BI Workspace"
+        description="Build dashboards and reports from your datasets and warehouses, then publish them with a link or share them with groups."
+        actions={
+          <>
+            {isAdmin && (
+              <Button variant="outline" className="gap-1.5" onClick={() => setGitSyncOpen(true)}>
+                <GitBranch className="h-4 w-4" /> Git sync
+              </Button>
+            )}
+            <Button className="gap-1.5" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-4 w-4" /> New BI project
             </Button>
-          )}
-          <Button className="gap-1.5" onClick={() => setCreateOpen(true)}>
-            <Plus className="h-4 w-4" /> New BI project
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as BiTab)}>
         <TabsList className="h-auto w-full justify-start gap-6 rounded-none border-b border-border bg-transparent p-0">
@@ -506,11 +502,7 @@ function BiWorkspacePage() {
                         <CardContent className="flex flex-1 flex-col gap-2.5 p-3.5">
                           <div className="flex items-start justify-between gap-2">
                             <div className="flex min-w-0 items-start gap-2">
-                              <div
-                                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-white shadow-sm ${identityHue(d.name)}`}
-                              >
-                                <LayoutDashboard className="h-4 w-4" />
-                              </div>
+                              <IdentityTile name={d.name} icon={LayoutDashboard} />
                               <div className="min-w-0">
                                 <p className="flex min-w-0 items-center gap-1.5 font-semibold">
                                   <span className="truncate">{d.name}</span>

@@ -13,7 +13,7 @@ grounded in your own data.
    If your agents cannot be read, the page says so, with the error and
    **Try again**, instead of asking for a pick from an empty selector.
    An agent you have not chatted with gets a first conversation made for it.
-   If that, or **New Chat**, cannot be saved, a toast and the empty chat say
+   If that, or **New chat**, cannot be saved, a toast and the empty chat say
    so, with the reason and **Try again**: without a conversation there is
    nowhere to write, and the message box stays off.
 2. Type a message. The agent runs with its configured system prompt, tools,

@@ -11,6 +11,7 @@ import {
   MessageSquare,
   Network,
   Star,
+  Timer,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -34,6 +35,11 @@ export const SHORTCUTS: ShortcutDef[] = [
   {
     keys: ["Ctrl/⌘", "K"],
     description: "Search — find your work by name, start something new, or go to a page",
+    category: "General",
+  },
+  {
+    keys: ["Ctrl/⌘", "J"],
+    description: "Open or close the assistant",
     category: "General",
   },
   {
@@ -70,6 +76,12 @@ export const SHORTCUTS: ShortcutDef[] = [
   {
     keys: ["G", "M"],
     description: "Go to My work",
+    category: "Navigation",
+    sequential: true,
+  },
+  {
+    keys: ["G", "R"],
+    description: "Go to Runs",
     category: "Navigation",
     sequential: true,
   },
@@ -119,6 +131,7 @@ export const SHORTCUT_CATEGORIES: ShortcutCategory[] = [
 export const GO_TO_SHORTCUTS: { key: string; url: string; label: string; icon: LucideIcon }[] = [
   { key: "d", url: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { key: "m", url: "/my-work", label: "My work", icon: Star },
+  { key: "r", url: "/runs", label: "Runs", icon: Timer },
   { key: "a", url: "/agents", label: "Agent Builder", icon: Bot },
   { key: "s", url: "/swarms", label: "Agent Swarms", icon: Network },
   { key: "c", url: "/playground", label: "Agent Chat", icon: MessageSquare },

@@ -286,10 +286,11 @@ export function ApprovalInbox() {
           {approvals.length > 0 && (
             <>
               {pulse && (
-                <span className="absolute -right-0.5 -top-0.5 h-4 w-4 animate-ping rounded-full bg-destructive/60" />
+                <span className="absolute -right-0.5 -top-0.5 h-4 w-4 animate-ping rounded-full bg-primary/50" />
               )}
-              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
-                {approvals.length}
+              {/* Something waiting, not something broken: the accent, not red. */}
+              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold tabular-nums text-primary-foreground">
+                {approvals.length > 99 ? "99+" : approvals.length}
               </span>
             </>
           )}
@@ -299,7 +300,7 @@ export function ApprovalInbox() {
         <SheetHeader className="border-b border-border p-4">
           <SheetTitle className="flex items-center gap-2">
             <ShieldAlert className="h-4 w-4 text-primary" />
-            Pending Approvals
+            Pending approvals
             {approvals.length > 0 && (
               <Badge variant="outline" className="ml-1">
                 {approvals.length}

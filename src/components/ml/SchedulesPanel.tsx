@@ -214,7 +214,9 @@ export function SchedulesPanel({
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="text-red-600 hover:text-red-600"
+                        className="text-muted-foreground hover:text-destructive"
+                        aria-label={`Delete the schedule ${s.name}`}
+                        title="Delete"
                         onClick={() => void remove(s)}
                       >
                         <Trash2 className="h-3 w-3" />

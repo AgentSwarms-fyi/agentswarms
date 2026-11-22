@@ -449,9 +449,9 @@ export function SwarmDeployDialog({
                   .join(", ")}
                 ){" "}
                 {a2aNodes.length > 0 && functionNodes.length > 0
-                  ? "use A2A Remote, or custom code with no JS sandbox deployed"
+                  ? "use A2A remote, or custom code with no JS sandbox deployed"
                   : a2aNodes.length > 0
-                    ? "use A2A Remote, which needs your login"
+                    ? "use A2A remote, which needs your login"
                     : sandbox?.configured
                       ? "use custom code, and this instance's JS sandbox is not answering"
                       : "use custom code, which needs the JS sandbox service"}
@@ -770,7 +770,9 @@ export function SwarmDeployDialog({
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-7 w-7 text-destructive hover:text-destructive"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                            aria-label={`Revoke the key ${k.name}`}
+                            title="Revoke"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
@@ -928,7 +930,9 @@ export function SwarmDeployDialog({
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 text-destructive hover:text-destructive"
+                        className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                        aria-label={`Delete the schedule ${s.name}`}
+                        title="Delete"
                         onClick={() => deleteSchedule(s.id)}
                       >
                         <Trash2 className="h-3.5 w-3.5" />

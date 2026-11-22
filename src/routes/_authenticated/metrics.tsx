@@ -14,10 +14,11 @@
 // incomplete scan is the expensive mistake here.
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BadgeCheck, Layers, Search, Sigma, TriangleAlert } from "lucide-react";
+import { BadgeCheck, Layers, Search, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 
 import { FavouritesFilter } from "@/components/FavouritesFilter";
+import { PageHeader } from "@/components/PageHeader";
 import { useFavouritesFilter } from "@/hooks/use-favourites-filter";
 import { StarButton } from "@/components/StarButton";
 import { Badge } from "@/components/ui/badge";
@@ -151,14 +152,10 @@ function MetricsPage() {
 
   return (
     <div className="space-y-4 p-6">
-      <div>
-        <h1 className="flex items-center gap-2 text-xl font-semibold">
-          <Sigma className="h-5 w-5" /> Metrics
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Every governed metric you can use, and how far to trust each one.
-        </p>
-      </div>
+      <PageHeader
+        title="Metrics"
+        description="Find a governed metric to use, and see how far to trust each one."
+      />
 
       <Card className="p-3">
         <div className="flex flex-wrap items-center gap-3">

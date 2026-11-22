@@ -187,7 +187,7 @@ function DataPage() {
       {/* ── CONNECTORS ── */}
       <H2 id="connectors">External connections — every field</H2>
       <P>
-        Configure these under <strong>Integrations → Data Sources → Add connection</strong>. Every
+        Configure these under <strong>Integrations → Data sources → Add connection</strong>. Every
         connector has a <strong>Name</strong> (your label) and a <strong>Test connection</strong>{" "}
         button; the last test result and its error are kept on the connection so you can see when it
         started failing. All secrets are encrypted at rest and never returned to the browser.
@@ -574,7 +574,7 @@ function DataPage() {
         across formats — a Parquet fact table against a CSV lookup is an ordinary query.
       </P>
       <P>
-        In the Workbench, <strong>Run Query</strong> and Ctrl+Enter (⌘+Enter on a Mac) run one query
+        In the Workbench, <strong>Run query</strong> and Ctrl+Enter (⌘+Enter on a Mac) run one query
         at a time. A second press while one runs is ignored, so a query is never sent, kept in
         Recent queries, or audited twice for one double press.
       </P>
@@ -894,6 +894,53 @@ function DataPage() {
         <strong>Query data</strong> on any dataset opens it in the workbench with the table loaded.
       </P>
 
+      <H2 id="dataset-page">A dataset&apos;s page</H2>
+      <P>
+        Every dataset stored here has a page of its own, at <C>/data-sql/&lt;id&gt;</C>: search, My
+        work and a dataset&apos;s link all open it, and <strong>Open its page</strong> in the
+        catalog&apos;s drawer does too. It starts with one plain verdict and the facts it rests on:
+        how long ago its rows were last loaded (against its own freshness check when it has one,
+        otherwise a day), whether its checks pass, where its rows come from, and how many things of
+        yours are built on it. There is no score: the facts are short enough to read.
+      </P>
+      <Table
+        headers={["Tab", "What it shows", "Who sees it"]}
+        rows={[
+          [
+            "Overview",
+            "The verdict, where its rows come from (an upload, a warehouse copy, a synced connection, or the data-prep flow that writes it and how often that flow refreshes it), and what uses it: dashboards, semantic models, AI analysts and agents that name it, data-prep flows, saved metrics, and how many analysts and agents read every dataset of yours.",
+            "Everyone who can open it; the source is the owner's",
+          ],
+          ["Sample", "The first 100 rows, as the reader may see them.", "Everyone"],
+          [
+            "Columns",
+            "What each column holds, read from the first 500 rows: numbers, dates, text or true/false, how many are empty, how many different values, the range, the most common values.",
+            "Everyone",
+          ],
+          [
+            "Checks and versions",
+            "Its data-quality checks and freshness check, and the versions kept before each overwrite, with restore.",
+            "Owner",
+          ],
+          [
+            "Schema changes",
+            "Columns added and removed between the kept versions and today.",
+            "Owner",
+          ],
+          [
+            "Access",
+            "For the owner: every grant on it — the person or group (and how many are in the group), the rows it allows, the columns it hides, and who gave it when. For someone it is shared with: whether their access leaves out rows or columns, never which.",
+            "Owner, and whoever it is shared with",
+          ],
+        ]}
+      />
+      <P>
+        Grants are still made by an administrator under Admin → IAM → Access; the page shows them
+        and changes nothing. <strong>Query</strong> opens the workbench with a first query on the
+        dataset written and run, and the owner&apos;s <strong>Delete</strong> lists what would break
+        first, as everywhere else.
+      </P>
+
       {/* ── WORKBENCH ── */}
       <H2 id="workbench">SQL workbench</H2>
       <P>
@@ -1084,7 +1131,7 @@ ORDER  BY 1;`}</Code>
       <Steps
         items={[
           {
-            title: "Integrations → Data Sources → new connection",
+            title: "Integrations → Data sources → new connection",
             body: (
               <>
                 Name it, pick the provider, enter a read-only login, test. The credential is

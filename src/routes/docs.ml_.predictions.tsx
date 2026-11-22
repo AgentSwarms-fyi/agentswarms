@@ -83,7 +83,7 @@ function MlPredictionsPage() {
       </P>
       <H3 id="agents">Agents</H3>
       <P>
-        Enable <strong>ML Predictions</strong> in an agent&apos;s tools. The agent gets{" "}
+        Enable <strong>ML predictions</strong> in an agent&apos;s tools. The agent gets{" "}
         <C>ml_list_models</C> (name, task, target, feature columns with categories and ranges) and{" "}
         <C>ml_predict</C> (rows in, predictions out). Both are offered only when the caller can use
         at least one model with a production version; on headless runs grants are re-derived from
@@ -149,7 +149,7 @@ function MlPredictionsPage() {
         named in <C>keys_not_found</C> beside them.
       </P>
       <P>
-        <strong>What the Playground shows.</strong> The inspector&apos;s Tool Calls panel shows a
+        <strong>What the Playground shows.</strong> The inspector&apos;s Tool calls panel shows a
         prediction as a table — key columns first, then the prediction and its probabilities — with
         the model and version above it and, beside it, how many rows were scored, where the features
         came from and which keys were not found; <C>ml_list_models</C> shows the models with their

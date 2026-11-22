@@ -5,6 +5,7 @@ import { comparisonCaveat, winnerIndex } from "@/lib/compareWinner";
 import { readChatStream, type ChatUsage } from "@/lib/chatStream";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -256,23 +257,18 @@ function PromptComparePage() {
       <div className="flex-1 flex flex-col h-full">
         {/* Header */}
         <div className="shrink-0 border-b border-border bg-card/40 px-4 py-3 sm:px-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="font-display text-lg font-semibold tracking-tight">
-                Prompt Comparison Lab
-              </h1>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Send the same prompt to two models — see how they differ in quality, speed, and
-                style.
-              </p>
-            </div>
-            {hasRun && (
-              <Button variant="outline" size="sm" onClick={handleReset} disabled={isRunning}>
-                <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
-                Reset
-              </Button>
-            )}
-          </div>
+          <PageHeader
+            title="Prompt Compare"
+            description="Send the same prompt to two or three models and compare their answers, speed and cost."
+            actions={
+              hasRun && (
+                <Button variant="outline" size="sm" onClick={handleReset} disabled={isRunning}>
+                  <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+                  Reset
+                </Button>
+              )
+            }
+          />
         </div>
 
         {/* Main content */}

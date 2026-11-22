@@ -37,6 +37,7 @@ import {
 } from "@/lib/semanticMeasure";
 import { callerFailure } from "@/utils/callerLookup.server";
 import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
+import { trashErrorText } from "@/lib/trash";
 
 function userClient(accessToken: string) {
   const url = process.env.SUPABASE_URL;
@@ -514,9 +515,12 @@ export const semanticDeleteModel = createServerFn({ method: "POST" })
   .validator((d: { accessToken: string; id: string }) => d)
   .handler(async ({ data }) => {
     const { sb } = await requireUser(data.accessToken);
-    const { error } = await sb.from("semantic_models").delete().eq("id", data.id);
-    if (error) throw new Error(error.message);
-    return { ok: true };
+    const { data: trashId, error } = await sb.rpc("trash_object", {
+      p_kind: "semantic_model",
+      p_id: data.id,
+    });
+    if (error || typeof trashId !== "string") throw new Error(trashErrorText(error, "move"));
+    return { ok: true, trashId };
   });
 
 type Cell = string | number | boolean | null;

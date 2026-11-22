@@ -43,6 +43,12 @@ import { resolveIntegrationConfig } from "@/utils/providers/integrationConfig.se
 import { integrationHosts } from "@/utils/providers/integrationHosts";
 import { containsSecretRef, resolveSecretRefs } from "@/utils/secrets.server";
 import { webToolKeyHost } from "@/lib/webToolProviders";
+import {
+  docsSearchTool,
+  findMyWorkTool,
+  runDocsSearch,
+  runFindMyWork,
+} from "@/utils/assistant/tools.server";
 import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.server";
 import { executeWarehouseQuery, listWarehouseTables } from "@/utils/warehouse/drivers.server";
 import {
@@ -1654,6 +1660,10 @@ export const TOOLABLE_IDS = [
   "memory_forget",
   "memory_set",
   "memory_get",
+  // The assistant's: the handbook, and the reader's own things by name.
+  // Registered only when a request names them (see resolveAgentTools).
+  "docs_search",
+  "find_my_work",
 ] as const;
 export type ToolableId = (typeof TOOLABLE_IDS)[number];
 
@@ -1919,6 +1929,20 @@ export async function resolveAgentTools(
     tools.push(datetimeTool);
     handlers.set("datetime", runDatetime);
     enabled.datetime = true;
+  }
+
+  // The assistant's tools, only when the request names them: `allows` says
+  // yes to everything when no list is given, which is right for an agent's
+  // always-on utilities and wrong for these. find_my_work reads with the
+  // reader's own token, so a run without one (headless, service role) never
+  // gets it.
+  if (allow?.includes("docs_search")) {
+    tools.push(docsSearchTool);
+    handlers.set("docs_search", runDocsSearch);
+  }
+  if (allow?.includes("find_my_work") && ctx.authToken && !ctx.scopeUserId) {
+    tools.push(findMyWorkTool);
+    handlers.set("find_my_work", runFindMyWork);
   }
   if (allows("weather")) {
     tools.push(weatherTool);

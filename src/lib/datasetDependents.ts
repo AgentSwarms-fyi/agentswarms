@@ -3,6 +3,27 @@
 // utils/dataPrep.functions). Pure, so tests feed it stored row shapes.
 import { allDashboardWidgets } from "@/lib/biDashboards";
 
+/** What is built on a dataset, and the flows that build it (computeDatasetDependents). */
+export type FlowDependent = {
+  id: string;
+  name: string;
+  refreshEnabled?: boolean | null;
+  refreshEveryMinutes?: number | null;
+  lastRefreshAt?: string | null;
+  lastRefreshError?: string | null;
+};
+
+export type DatasetDependents = {
+  /** Flows that READ this dataset (base, join, or append source). */
+  flowsUsing: { id: string; name: string }[];
+  /** Flows whose OUTPUT is this dataset — deleting it breaks their refresh. */
+  flowsProducing: FlowDependent[];
+  semanticModels: { id: string; name: string }[];
+  /** Dashboards whose widget SQL mentions the table name. */
+  dashboards: { id: string; name: string }[];
+  savedMetrics: number;
+};
+
 /** Word-boundary match so "orders" doesn't match "orders_archive". */
 export function mentionsTable(sql: string, table: string): boolean {
   const esc = table.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

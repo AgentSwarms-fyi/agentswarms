@@ -352,7 +352,9 @@ function ModelPage() {
             <ArrowLeft className="h-3 w-3" /> ML Models
           </Link>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <h1 className="font-display text-3xl font-semibold tracking-tight">{model.name}</h1>
+            <h1 className="text-[22px] font-semibold leading-7 tracking-[-0.012em]">
+              {model.name}
+            </h1>
             <StarButton kind="ml_model" id={model.id} name={model.name} />
             <TaskBadge task={model.task} />
             {focus ? <StageChip stage={focus.stage} status={focus.status} /> : null}
@@ -1056,6 +1058,8 @@ function VersionOverview({
                     <button
                       type="button"
                       className="text-muted-foreground hover:text-foreground"
+                      aria-label="Copy the decision id"
+                      title="Copy"
                       onClick={() => {
                         void navigator.clipboard?.writeText(version.decision_id ?? "");
                         toast.success("Decision id copied");

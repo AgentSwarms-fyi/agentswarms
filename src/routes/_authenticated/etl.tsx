@@ -7,6 +7,7 @@
 // full-height editor with AI generate/refine through the shared
 // provider+model picker, so IAM model rules apply here exactly as in BI.
 import { createFileRoute, useBlocker } from "@tanstack/react-router";
+import { PageHeader } from "@/components/PageHeader";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { useServerFn } from "@tanstack/react-start";
 
@@ -317,20 +318,15 @@ function EtlPage() {
 
   return (
     <div className="w-full space-y-5 p-4 lg:p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-semibold">
-            <Workflow className="h-6 w-6" /> ETL Pipelines
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Move data from APIs, databases, warehouses and files into destinations your catalog, BI
-            and agents can query — visually, in Python, or generated with AI.
-          </p>
-        </div>
-        <Button onClick={() => setCreating(true)}>
-          <Plus className="mr-1 h-4 w-4" /> New pipeline
-        </Button>
-      </div>
+      <PageHeader
+        title="ETL Pipelines"
+        description="Move data from APIs, databases, warehouses and files into tables your catalog, dashboards and agents can query."
+        actions={
+          <Button onClick={() => setCreating(true)}>
+            <Plus className="mr-1 h-4 w-4" /> New pipeline
+          </Button>
+        }
+      />
 
       {/* ── Health strip ── */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
@@ -719,7 +715,13 @@ function PipelineRow({
           >
             <Copy className="h-4 w-4" />
           </Button>
-          <Button size="icon" variant="ghost" onClick={() => setConfirmDelete(true)}>
+          <Button
+            size="icon"
+            variant="ghost"
+            aria-label={`Delete ${p.name}`}
+            title="Delete"
+            onClick={() => setConfirmDelete(true)}
+          >
             <Trash2 className="h-4 w-4" />
           </Button>
         </div>
@@ -2152,7 +2154,14 @@ function NodePanel({
           {TypeIcon ? <TypeIcon className="mr-1 inline h-3 w-3" /> : null}
           {node.kind} · {typeLabel(node)}
         </Badge>
-        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onDelete}>
+        <Button
+          size="icon"
+          variant="ghost"
+          className="h-7 w-7"
+          aria-label={`Remove ${node.label || typeLabel(node)} from the pipeline`}
+          title="Remove"
+          onClick={onDelete}
+        >
           <Trash2 className="h-3.5 w-3.5" />
         </Button>
       </div>
@@ -4144,6 +4153,8 @@ function SettingsTab({
                 <Button
                   size="icon"
                   variant="ghost"
+                  aria-label="Copy the trigger token"
+                  title="Copy"
                   onClick={() => {
                     void navigator.clipboard.writeText(triggerToken);
                     toast.success("Copied — it is not shown again");
@@ -4226,7 +4237,12 @@ function SettingsTab({
             <CardTitle className="text-sm">Danger zone</CardTitle>
           </CardHeader>
           <CardContent>
-            <Button size="sm" variant="destructive" onClick={() => setConfirmDelete(true)}>
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+              onClick={() => setConfirmDelete(true)}
+            >
               <Trash2 className="mr-1 h-4 w-4" /> Delete pipeline
             </Button>
           </CardContent>

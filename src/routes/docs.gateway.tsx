@@ -59,7 +59,7 @@ function GatewayDocsPage() {
 
       <H2 id="keys">Keys</H2>
       <P>
-        Mint a key under <strong>Integrations → LLM Gateway → API access</strong>. The plaintext{" "}
+        Mint a key under <strong>Integrations → LLM gateway → API access</strong>. The plaintext{" "}
         <C>gw_…</C> is shown once; the row keeps a hash and the first characters. Revoking is
         immediate and permanent, and every change to a key is audited by trigger.
       </P>
@@ -346,7 +346,7 @@ curl https://<your host>/api/v1/metrics/query \\
         rows={[
           [
             "401 invalid_api_key",
-            "Missing, malformed, revoked or expired key. Mint a new one under Integrations → LLM Gateway.",
+            "Missing, malformed, revoked or expired key. Mint a new one under Integrations → LLM gateway.",
           ],
           [
             "404 model_not_found",

@@ -249,7 +249,7 @@ because two systems disagree.
 Set `VECTOR_STORE=qdrant` and `QDRANT_URL` to search them in Qdrant instead.
 That setting is the **default for every collection**, not a decision for the
 whole deployment: a single knowledge base can be pointed at either index from
-**RAG Settings → Retrieval → Vector index**, which is usually how this should
+**RAG settings → Retrieval → Vector index**, which is usually how this should
 be adopted — the one collection that outgrew Postgres moves, and nothing else
 changes.
 
@@ -407,7 +407,7 @@ image (in namespace `agentswarms`, or `QDRANT_NAMESPACE`) and prints a
 
 #### Moving one collection
 
-Changing **RAG Settings → Retrieval → Vector index** copies that collection's
+Changing **RAG settings → Retrieval → Vector index** copies that collection's
 existing vectors into the index it chose, saves the setting, then clears the
 one it left. Nothing is re-embedded — the embeddings are a column on
 `kb_chunks` and are read back from there — so a move costs no model calls, only
@@ -574,7 +574,7 @@ text. The rules err toward deny:
 
 Support agents should answer from the public docs, and the docs change weekly.
 
-1. Open **Knowledge**, create a knowledge base, and click **Add Source →
+1. Open **Knowledge**, create a knowledge base, and click **Add source →
    Website**. Give one or more start URLs; optionally a sitemap URL, path
    prefixes to stay inside (for example `/docs`), and a page cap (100 by
    default, 500 at most). No credential is needed.
@@ -594,7 +594,7 @@ path prefixes to the documentation tree.
 
 Engineering keeps runbooks in Confluence; the on-call agent needs them.
 
-1. **Add Source → Confluence.** Enter the site URL, the space keys to sync,
+1. **Add source → Confluence.** Enter the site URL, the space keys to sync,
    and an API token — plus the account email for Confluence Cloud. Cloud and
    Data Center are told apart from the URL and authenticated accordingly.
 2. Pages arrive as text converted from Confluence's storage format; code

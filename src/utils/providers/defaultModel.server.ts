@@ -108,7 +108,7 @@ export async function modelUnavailable(
   if (await loadCredentialRowShared(userId, t.provider).catch(() => null)) return null;
   return {
     reason: "not_configured",
-    message: `${t.provider} is not connected for this account (Integrations → LLM Providers)`,
+    message: `${t.provider} is not connected for this account (Integrations → LLM providers)`,
   };
 }
 

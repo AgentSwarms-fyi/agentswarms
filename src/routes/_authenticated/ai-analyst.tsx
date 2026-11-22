@@ -154,6 +154,8 @@ import { listWarehouseConnections } from "@/utils/warehouse.functions";
 import { WAREHOUSE_LABELS, type WarehouseTable } from "@/utils/warehouse/types";
 import type { WarehouseConnectionSummary } from "@/utils/warehouse/types";
 import { reportFailure } from "@/lib/silentFailureNet";
+import { moveToTrash } from "@/hooks/use-trash";
+import { RESTORE_HINT } from "@/lib/trash";
 
 export const Route = createFileRoute("/_authenticated/ai-analyst")({
   component: AiAnalystPage,
@@ -999,10 +1001,23 @@ function AiAnalystPage() {
 
   async function deleteAnalyst(id: string) {
     const a = analysts?.find((x) => x.id === id);
-    if (!(await confirmAsk({ title: `Delete ${a?.name ?? "this analyst"} and its analyses?` })))
+    if (
+      !(await confirmAsk({
+        title: a ? `Move “${a.name}” to the trash?` : "Move this analyst to the trash?",
+        body: `Its analyses go with it. ${RESTORE_HINT}`,
+        actionLabel: "Move to trash",
+      }))
+    )
       return;
-    const { error } = await supabase.from("ai_analysts").delete().eq("id", id);
-    if (error) return toast.error(error.message);
+    const r = await moveToTrash({
+      kind: "ai_analyst",
+      id,
+      name: a?.name ?? "",
+      // Back in the list after an Undo (the list is read once, on sign-in).
+      onRestored: () =>
+        a && setAnalysts((cur) => (cur?.some((x) => x.id === id) ? cur : [a, ...(cur ?? [])])),
+    });
+    if (!r.ok) return;
     setAnalysts((cur) => (cur ?? []).filter((x) => x.id !== id));
     if (selectedId === id) setSelectedId(null);
   }

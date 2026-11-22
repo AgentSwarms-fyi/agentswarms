@@ -43,6 +43,7 @@ import { KpiTile } from "@/components/dashboard/KpiTile";
 import { PlatformSurface, type SurfaceItem } from "@/components/dashboard/PlatformSurface";
 import { StatusBand, type Attention } from "@/components/dashboard/StatusBand";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -608,37 +609,35 @@ function DashboardPage() {
           : "bad";
 
   return (
-    <div className="dot-matrix-bg flex min-h-full font-sans">
+    <div className="flex min-h-full font-sans">
       <div className="flex-1 space-y-6 p-6 sm:p-8">
         {/* The greeting is one line now. It was a 350px hero with four
             decorative layers and two blurred colour blobs, which is a lot of
             screen to spend on saying hello every single day. */}
-        <header className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h1 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl">
-              Welcome back, <span className="text-gradient-brand">{userName}</span>
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {firstRun
-                ? "Nothing has run here yet. The list below is the shortest path to the first answer."
-                : "Everything this deployment is running, and what it cost."}
-            </p>
-          </div>
-          {!firstRun && (
-            <div className="flex gap-2">
-              <Button asChild size="sm" variant="outline">
-                <Link to="/playground" search={{ agentId: undefined }}>
-                  <Zap className="mr-1.5 h-3.5 w-3.5" /> Agent Chat
-                </Link>
-              </Button>
-              <Button asChild size="sm">
-                <Link to="/swarms">
-                  <Network className="mr-1.5 h-3.5 w-3.5" /> Design a swarm
-                </Link>
-              </Button>
-            </div>
-          )}
-        </header>
+        <PageHeader
+          title={`Welcome back, ${userName}`}
+          description={
+            firstRun
+              ? "Nothing has run here yet. The list below is the shortest path to the first answer."
+              : "Everything this deployment is running, and what it cost."
+          }
+          actions={
+            firstRun ? null : (
+              <>
+                <Button asChild size="sm" variant="outline">
+                  <Link to="/playground" search={{ agentId: undefined }}>
+                    <Zap className="mr-1.5 h-3.5 w-3.5" /> Agent Chat
+                  </Link>
+                </Button>
+                <Button asChild size="sm">
+                  <Link to="/swarms">
+                    <Network className="mr-1.5 h-3.5 w-3.5" /> Design a swarm
+                  </Link>
+                </Button>
+              </>
+            )
+          }
+        />
 
         {firstRun ? (
           <FirstRun steps={steps} />
@@ -769,7 +768,7 @@ function DashboardPage() {
             <Card>
               <CardContent className="p-6">
                 <div className="mb-4 flex items-center justify-between gap-3">
-                  <h2 className="text-lg font-semibold tracking-tight">Recent runs</h2>
+                  <h2 className="text-lg font-semibold tracking-tight">Recent model calls</h2>
                   <Button asChild size="sm" variant="ghost">
                     <Link to="/traces">View all</Link>
                   </Button>

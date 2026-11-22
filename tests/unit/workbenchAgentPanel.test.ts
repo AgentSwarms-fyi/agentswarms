@@ -85,8 +85,8 @@ describe("the page", () => {
     const button = src.slice(src.indexOf("onClick={toggleAgentPanel}"));
     expect(button.slice(0, 420)).toContain("aria-expanded={agentPanelOpen}");
     expect(button.slice(0, 420)).toContain('aria-controls="workbench-agent-panel"');
-    expect(button.slice(0, 420)).toContain('"Hide BI Agent and SQL Chat"');
-    expect(button.slice(0, 420)).toContain('"Show BI Agent and SQL Chat"');
+    expect(button.slice(0, 420)).toContain('"Hide BI agent and SQL chat"');
+    expect(button.slice(0, 420)).toContain('"Show BI agent and SQL chat"');
   });
 
   it("sits in the title row, so a narrow window does not lose a row of the editor", () => {
@@ -99,7 +99,7 @@ describe("the page", () => {
   });
 
   it("leaves a way back that says what it is", () => {
-    expect(src).toMatch(/<PanelRightOpen className="h-3\.5 w-3\.5 mr-1\.5" \/> BI Agent/);
+    expect(src).toMatch(/<PanelRightOpen className="h-3\.5 w-3\.5 mr-1\.5" \/> BI agent/);
   });
 
   it("does not point at a panel that is hidden", () => {

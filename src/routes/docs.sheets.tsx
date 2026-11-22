@@ -120,7 +120,7 @@ function SheetsDocsPage() {
         <li>
           <strong>Find and replace.</strong> Ctrl+F finds and Ctrl+H replaces, in the sheet or the
           whole workbook, in what cells show or what was typed, with Excel&apos;s <C>*</C> and{" "}
-          <C>?</C>. Find All lists every match; Replace All is one Ctrl+Z to take back, and leaves
+          <C>?</C>. Find all lists every match; Replace all is one Ctrl+Z to take back, and leaves
           alone a formula the change would break.
         </li>
         <li>
@@ -189,7 +189,7 @@ function SheetsDocsPage() {
         <li>
           <strong>Formatting.</strong> The ribbon&apos;s Home tab sets fonts and sizes, bold,
           italic, underline and strikethrough, font and fill colors, borders, alignment, indent,
-          wrapping, merged cells (Merge &amp; Center, Merge Across) and number formats, with a
+          wrapping, merged cells (Merge &amp; center, Merge across) and number formats, with a
           format painter and Clear. Rows grow for wrapped text and larger fonts. A format code such
           as <C>#,##0;[Red]-#,##0</C> paints negatives red. Excel&apos;s durations (<C>[h]:mm</C>),
           currency tags (<C>[$€-2]</C>), fractions (<C># ?/?</C>), conditions (<C>[&lt;10]</C>),

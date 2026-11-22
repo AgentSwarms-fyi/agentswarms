@@ -87,7 +87,7 @@ describe("saving a provider credential that fails the schema", () => {
     expect(msg).not.toContain("privateKeyPem");
     expect(msg).not.toContain("oci_genai");
     expect(msg).toBe(
-      "Private Key (PEM) is too short — paste the whole PEM file, from its -----BEGIN line to its -----END line.",
+      "Private key (PEM) is too short — paste the whole PEM file, from its -----BEGIN line to its -----END line.",
     );
   });
 
@@ -97,19 +97,19 @@ describe("saving a provider credential that fails the schema", () => {
     expectPlainWords(msg);
     expect(msg).toBe(
       "Tenancy OCID is too short — paste the whole OCID, which starts ocid1.tenancy. " +
-        "Private Key (PEM) is too short — paste the whole PEM file, from its -----BEGIN line to its -----END line.",
+        "Private key (PEM) is too short — paste the whole PEM file, from its -----BEGIN line to its -----END line.",
     );
   });
 
   it("says a missing field is required, not that it is too short", async () => {
     const { save } = await fns();
     expect(await messageOf(save({ data: oci({ userOcid: "" }) }))).toMatch(
-      /^User OCID is required\. Private Key/,
+      /^User OCID is required\. Private key/,
     );
     const noFingerprint = oci();
     delete (noFingerprint.oci_genai as Record<string, unknown>).fingerprint;
     expect(await messageOf(save({ data: noFingerprint }))).toMatch(
-      /^API Key Fingerprint is required\./,
+      /^API key fingerprint is required\./,
     );
   });
 
@@ -124,7 +124,7 @@ describe("saving a provider credential that fails the schema", () => {
       }),
     );
     expect(azure).toBe(
-      "Azure Endpoint URL is not in the right form — enter the full address, such as https://myresource.openai.azure.com.",
+      "Azure endpoint URL is not in the right form — enter the full address, such as https://myresource.openai.azure.com.",
     );
     const claude = await messageOf(
       save({
@@ -143,7 +143,7 @@ describe("saving a provider credential that fails the schema", () => {
     const { save } = await fns();
     const msg = await messageOf(save({ data: oci({ endpoint: `https://${"a".repeat(300)}` }) }));
     expect(msg).toBe(
-      "Private Key (PEM) is too short — paste the whole PEM file, from its -----BEGIN line to its -----END line. " +
+      "Private key (PEM) is too short — paste the whole PEM file, from its -----BEGIN line to its -----END line. " +
         "Private endpoint URL is too long — it can be at most 300 characters.",
     );
   });
@@ -154,14 +154,14 @@ describe("the file's other server functions answer the same way", () => {
     const { check } = await fns();
     const long = "x".repeat(61);
     expect(await messageOf(check({ data: { provider: "bedrock", region: long } }))).toBe(
-      "AWS Region is too long — it can be at most 60 characters.",
+      "AWS region is too long — it can be at most 60 characters.",
     );
     expect(await messageOf(check({ data: { provider: "vertex", region: long } }))).toBe(
       "Region is too long — it can be at most 60 characters.",
     );
     expect(
       await messageOf(check({ data: { provider: "azure_openai", endpoint: "x".repeat(301) } })),
-    ).toBe("Azure Endpoint URL is too long — it can be at most 300 characters.");
+    ).toBe("Azure endpoint URL is too long — it can be at most 300 characters.");
     const bad = await messageOf(check({ data: { provider: "openai" } }));
     expectPlainWords(bad);
     expect(bad).toMatch(/^Provider must be one of: bedrock, vertex, oci_genai/);

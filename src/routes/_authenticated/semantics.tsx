@@ -1,6 +1,6 @@
 // Semantic Layer — define governed metrics + dimensions over a dataset, then
 // query them (the same definitions the metric_query agent tool consumes).
-import { PageEyebrow } from "@/components/PageEyebrow";
+import { PageHeader } from "@/components/PageHeader";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { createFileRoute, useBlocker } from "@tanstack/react-router";
 import { z } from "zod";
@@ -40,6 +40,8 @@ import { StarButton } from "@/components/StarButton";
 import { useAuth } from "@/hooks/use-auth";
 import { useRecordOpened } from "@/hooks/use-object-marks";
 import { usePageIntent } from "@/hooks/use-page-intent";
+import { announceTrashed } from "@/hooks/use-trash";
+import { RESTORE_HINT } from "@/lib/trash";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -944,6 +946,8 @@ function SemanticsPage() {
   const restoreFn = useServerFn(semanticRestoreVersion);
 
   const remove = async (id: string) => {
+    const target = models.find((x) => x.id === id);
+    const name = (target?.label as string) || (target?.name as string) || "";
     try {
       // Deleting a model silently breaks every widget and agent that names
       // it. List them BEFORE the delete, not in a post-mortem.
@@ -960,15 +964,21 @@ function SemanticsPage() {
         if (d.swarms.length > 0)
           parts.push(`${d.swarms.length} swarm(s): ${d.swarms.map((x) => x.name).join(", ")}`);
         if (d.sharedWith.length > 0) parts.push(`shared with ${d.sharedWith.length} principal(s)`);
-        summary = parts.join("\n");
+        summary = parts.join("; ");
       } catch {
         // Dependents are advisory; their lookup failing must not block delete.
       }
-      const message = summary
-        ? `This model is still in use:\n\n${summary}\n\nDeleting it will break these. Delete anyway?`
-        : "Delete this semantic model?";
-      if (!(await confirmAsk({ title: message }))) return;
-      await deleteFn({ data: { accessToken: token, id } });
+      const body = summary
+        ? `This model is still in use: ${summary}. Moving it to the trash will break these. ${RESTORE_HINT}`
+        : RESTORE_HINT;
+      const ok = await confirmAsk({
+        title: `Move “${name}” to the trash?`,
+        body,
+        actionLabel: "Move to trash",
+      });
+      if (!ok) return;
+      const res = await deleteFn({ data: { accessToken: token, id } });
+      announceTrashed(name, res.trashId, () => void load());
       if (draft?.id === id) setDraft(null);
       await load();
     } catch (e) {
@@ -1281,18 +1291,10 @@ function SemanticsPage() {
 
   return (
     <div className="space-y-6 p-6">
-      <div>
-        <PageEyebrow />
-        <h1 className="flex items-center gap-2 font-display text-2xl font-semibold tracking-tight">
-          <Layers className="h-6 w-6 text-primary" /> Semantic Layer
-        </h1>
-        <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-          Define governed <strong>metrics</strong> and <strong>dimensions</strong> once. The BI
-          engine and your AI agents (via the <code>metric_query</code> tool) query the same
-          definitions, so &ldquo;revenue&rdquo; always computes the same way — and the AI picks
-          names, never writes SQL.
-        </p>
-      </div>
+      <PageHeader
+        title="Semantic Layer"
+        description="Define metrics and dimensions once, so dashboards and agents compute them the same way."
+      />
 
       {/* Someone followed "Define metrics on this" before the built-in
           lakehouse was connected. Say so, and offer the one click that fixes
@@ -1361,8 +1363,8 @@ function SemanticsPage() {
                     <div
                       className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${
                         draft?.id === m.id
-                          ? "bg-gradient-to-br from-primary/25 to-primary/10 text-primary"
-                          : "bg-gradient-to-br from-primary/15 to-primary/5 text-primary/80"
+                          ? "bg-primary/15 text-primary"
+                          : "bg-primary/10 text-primary/80"
                       }`}
                     >
                       <Layers className="h-4 w-4" />
@@ -1425,7 +1427,7 @@ function SemanticsPage() {
         {!draft ? (
           <Card>
             <CardContent className="flex flex-col items-center gap-3 p-14 text-center">
-              <div className="grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-primary/15 to-primary/5">
+              <div className="grid h-12 w-12 place-items-center rounded-xl bg-primary/10">
                 <Layers className="h-7 w-7 text-primary/70" />
               </div>
               <div>
@@ -1788,7 +1790,7 @@ function SemanticsPage() {
                                 <SelectValue
                                   placeholder={
                                     whConns.length === 0
-                                      ? "Nothing connected — add one under Integrations → Data Sources, including this deployment's own lakehouse"
+                                      ? "Nothing connected — add one under Integrations → Data sources, including this deployment's own lakehouse"
                                       : "Pick a connection…"
                                   }
                                 />
@@ -3934,7 +3936,7 @@ function SectionTitle({
 }) {
   return (
     <div className="flex items-start gap-2.5">
-      <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-primary/15 to-primary/5 text-primary">
+      <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
         <Icon className="h-4 w-4" />
       </div>
       <div className="min-w-0">
@@ -3976,12 +3978,12 @@ function FieldColumnHeader({ cols }: { cols: Array<{ label: string; className: s
  */
 const FIELD_TONES = {
   sky: {
-    chip: "bg-gradient-to-br from-sky-500/20 to-sky-500/5 text-sky-600 dark:text-sky-400",
+    chip: "bg-sky-500/10 text-sky-600 dark:text-sky-400",
     pill: "bg-sky-500/10 text-sky-600 dark:text-sky-400",
     topline: "border-t-2 border-t-sky-500/50",
   },
   emerald: {
-    chip: "bg-gradient-to-br from-emerald-500/20 to-emerald-500/5 text-emerald-600 dark:text-emerald-400",
+    chip: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
     pill: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
     topline: "border-t-2 border-t-emerald-500/50",
   },

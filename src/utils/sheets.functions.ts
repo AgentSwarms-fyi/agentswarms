@@ -3,14 +3,18 @@
 //
 // Every write goes through the service role, after the caller's access to
 // the workbook is checked (sheets/access.server): the owner and editors may
-// change it, a viewer only reads, and some things are the owner's alone. A
+// change it, a viewer only reads, and some things are the owner's alone
+// (moving a workbook to the trash is one, and acts as the caller). A
 // grid save names the version it was read at; a save against a newer version
 // is refused as a conflict rather than written over it, so two people (or two
 // browser tabs) cannot silently undo each other.
 import { createServerFn } from "@tanstack/react-start";
+import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 import type { Database, Json } from "@/integrations/supabase/types";
+import { trashErrorText } from "@/lib/trash";
 import { deleteKeepingAtLeastOne } from "@/utils/lastOneGuard";
 import { getPlatformResources } from "@/utils/notebookRuntime/config.server";
 import { gridSchema } from "@/utils/sheets/schemas";
@@ -34,6 +38,25 @@ async function resolveCaller(accessToken: string): Promise<{ ok: true; userId: s
   const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
   if (error || !data?.user) return { ok: false, error: callerFailure(error, "Not signed in") };
   return { ok: true, userId: data.user.id };
+}
+
+/**
+ * A client that acts as the caller. Moving a workbook to the trash goes
+ * through it, never the service role: trash_object reads auth.uid() and moves
+ * only what that person owns.
+ */
+function userClient(accessToken: string) {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_PUBLISHABLE_KEY;
+  if (!url || !key) throw new Error("Server is missing Supabase configuration");
+  return createClient<Database>(
+    url,
+    key,
+    withNulSafeFetch({
+      auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: `Bearer ${accessToken}` } },
+    }),
+  );
 }
 
 export type WorkbookSummary = {
@@ -409,23 +432,22 @@ export const sheetsUpdateWorkbook = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-/** Delete a workbook: its owner only. */
+/** Move a workbook to the trash: its owner only. */
 export const sheetsDelete = createServerFn({ method: "POST" })
   .validator((input: unknown) => tokenOnly.extend({ id: z.string().uuid() }).parse(input))
-  .handler(async ({ data }): Promise<{ ok: true } | Fail> => {
+  .handler(async ({ data }): Promise<{ ok: true; trashId: string } | Fail> => {
     const caller = await resolveCaller(data.access_token);
     if (!caller.ok) return caller;
     const got = await requireAccess(caller.userId, data.id, "own", { doing: "delete it" });
     if (!got.ok) return got;
-    const { data: rows, error } = await supabaseAdmin
-      .from("sheet_workbooks")
-      .delete()
-      .eq("id", data.id)
-      .eq("user_id", caller.userId)
-      .select("id");
-    if (error) return { ok: false, error: `Could not delete the workbook: ${error.message}` };
-    if (!rows?.length) return { ok: false, error: "This workbook does not exist, or is not yours" };
-    return { ok: true };
+    const { data: trashId, error } = await userClient(data.access_token).rpc("trash_object", {
+      p_kind: "workbook",
+      p_id: data.id,
+    });
+    if (error || typeof trashId !== "string") {
+      return { ok: false, error: trashErrorText(error, "move") };
+    }
+    return { ok: true, trashId };
   });
 
 /** A new grid sheet at the end of the workbook. */

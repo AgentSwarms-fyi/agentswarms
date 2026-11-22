@@ -88,7 +88,7 @@ describe("walkthroughs cite labels the UI actually renders", () => {
   });
 
   it("the knowledge walkthrough's button exists and the delete asks first", () => {
-    expect(kbPage).toContain("Add Source");
+    expect(kbPage).toContain("Add source");
     expect(kbPage).toContain('actionLabel: "Delete knowledge base"');
   });
 
@@ -99,7 +99,7 @@ describe("walkthroughs cite labels the UI actually renders", () => {
   });
 
   it("the data-sources walkthrough's tabs and wizard fields exist", () => {
-    expect(integrations).toContain(">Data Sources<");
+    expect(integrations).toContain(">Data sources<");
     expect(integrations).toContain(">Apps<");
     expect(wizard).toContain("Azure Blob Storage / ADLS Gen2");
     expect(wizard).toContain("Storage account name");

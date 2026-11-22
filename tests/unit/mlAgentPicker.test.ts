@@ -78,7 +78,7 @@ describe("the form", () => {
   it("has a branch of its own, so the tool no longer falls through to a key field", () => {
     expect(formBranch.length).toBeGreaterThan(200);
     expect(formBranch).toContain("Models this agent may predict with");
-    expect(formBranch).not.toContain("API Key / Endpoint");
+    expect(formBranch).not.toContain("API key / endpoint");
     expect(formBranch).not.toContain('type="password"');
   });
 

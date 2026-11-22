@@ -525,7 +525,7 @@ export function OpenTableDialog({
                   <p className="text-xs text-muted-foreground">
                     No database connections yet. Add one under{" "}
                     <Link to="/integrations" className="text-primary hover:underline">
-                      Integrations → Data Sources
+                      Integrations → Data sources
                     </Link>
                     .
                   </p>

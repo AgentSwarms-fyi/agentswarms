@@ -316,6 +316,16 @@ html {
     color: var(--color-foreground);
   }
 
+  /* A grid that names its columns only from a breakpoint up (sm:grid-cols-2)
+     has, below it, one implicit column sized "auto": as wide as its widest
+     item. One card with a long model id then pushed the whole page past a
+     phone's screen. Below the breakpoint that column now fits the screen.
+     In the base layer, so every sm:/md:/lg: column count, a utility, still
+     wins from its breakpoint up. */
+  .grid[class*=":grid-cols-"]:not([class^="grid-cols-"]):not([class*=" grid-cols-"]) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   /* Brand-tinted selection — the default blue looks foreign in both themes. */
   ::selection {
     background: color-mix(in oklch, var(--primary) 30%, transparent);
@@ -497,17 +507,16 @@ html {
     0 1px 2px 0 oklch(0 0 0 / 40%);
 }
 
+/* A card answers the pointer with its border and nothing else. It used to
+   glow in the brand colour and cast a coloured shadow, which on a grid of
+   twenty cards made the pointer the loudest thing on the page. */
 .glow-card {
   transition:
-    border-color 200ms,
-    box-shadow 200ms,
-    transform 200ms;
+    border-color 150ms,
+    background-color 150ms;
 }
 .glow-card:hover {
-  border-color: color-mix(in oklch, var(--primary) 45%, var(--border));
-  box-shadow:
-    0 0 0 1px color-mix(in oklch, var(--primary) 20%, transparent),
-    0 12px 40px -16px color-mix(in oklch, var(--primary) 35%, transparent);
+  border-color: color-mix(in oklch, var(--foreground) 22%, var(--border));
 }
 
 /* Landing hero swarm visual */

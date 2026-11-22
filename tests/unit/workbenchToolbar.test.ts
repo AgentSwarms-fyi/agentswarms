@@ -30,8 +30,8 @@ const src = readFileSync("src/routes/_authenticated/data-sql.tsx", "utf8");
 function toolbar(): string {
   const start = src.indexOf("flex flex-wrap items-center justify-between");
   expect(start, "the SQL editor toolbar row was not found").toBeGreaterThan(0);
-  const end = src.indexOf("Run Query", start);
-  expect(end, "Run Query is not inside the toolbar row").toBeGreaterThan(start);
+  const end = src.indexOf("Run query", start);
+  expect(end, "Run query is not inside the toolbar row").toBeGreaterThan(start);
   return src.slice(start, end);
 }
 

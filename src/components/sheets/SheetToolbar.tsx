@@ -491,12 +491,12 @@ export function SheetToolbar({
               </DropdownMenuTrigger>
               <DropdownMenuContent onCloseAutoFocus={backToGrid} align="start">
                 <DropdownMenuItem onSelect={() => a.merge("center")}>
-                  Merge &amp; Center
+                  Merge &amp; center
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => a.merge("across")}>Merge Across</DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => a.merge("merge")}>Merge Cells</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => a.merge("across")}>Merge across</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => a.merge("merge")}>Merge cells</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => a.merge("unmerge")} disabled={!merged}>
-                  Unmerge Cells
+                  Unmerge cells
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

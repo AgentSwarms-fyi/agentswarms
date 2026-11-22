@@ -121,7 +121,7 @@ export function AccountSettingsPanel() {
     try {
       const { error } = await supabase.auth.updateUser({ password: newPassword });
       if (error) throw error;
-      toast.success("Password updated successfully");
+      toast.success("Password changed");
       setNewPassword("");
       setConfirmPassword("");
     } catch (err) {

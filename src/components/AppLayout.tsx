@@ -16,6 +16,8 @@ import { Outlet } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useSessionRestore } from "@/hooks/use-session-restore";
 import { SessionRestoreBanner } from "@/components/SessionRestoreBanner";
+import { AssistantPanel, AssistantToggle } from "@/components/assistant/AssistantPanel";
+import { useAssistant } from "@/hooks/use-assistant";
 
 export function AppLayout() {
   // Route-change motion is the router's defaultViewTransition (see
@@ -26,6 +28,8 @@ export function AppLayout() {
   const isMac =
     typeof navigator !== "undefined" && /Mac|iP(hone|ad|od)/.test(navigator.platform || "");
   const { orphanedSession, restore, startFresh } = useSessionRestore();
+  // Held here, above every page, so the conversation follows the reader.
+  const assistant = useAssistant();
 
   /**
    * How much chrome sits above the routed page: the header, plus the
@@ -114,6 +118,7 @@ export function AppLayout() {
                 <Search className="h-4 w-4" />
               </Button>
               <GlobalCreateMenu />
+              <AssistantToggle state={assistant} isMac={isMac} />
               <Button
                 type="button"
                 variant="ghost"
@@ -130,9 +135,14 @@ export function AppLayout() {
               <UserMenu />
             </div>
           </header>
-          <main ref={mainRef} className="flex-1 min-w-0 overflow-hidden">
-            <Outlet />
-          </main>
+          {/* The page, and the assistant beside it when it is open: the page
+              gives up the panel's width rather than being covered by it. */}
+          <div className="flex min-w-0 flex-1">
+            <main ref={mainRef} className="flex-1 min-w-0 overflow-hidden">
+              <Outlet />
+            </main>
+            <AssistantPanel state={assistant} />
+          </div>
         </div>
       </div>
       <CommandPalette open={palette.open} onOpenChange={palette.setOpen} />

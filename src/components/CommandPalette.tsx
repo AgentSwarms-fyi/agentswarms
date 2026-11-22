@@ -9,7 +9,16 @@
 // page rank the same way.
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { ArrowRight, Laptop, Loader2, Monitor, Moon, Plus, Sun } from "lucide-react";
+import {
+  ArrowRight,
+  Laptop,
+  Loader2,
+  MessageSquareText,
+  Monitor,
+  Moon,
+  Plus,
+  Sun,
+} from "lucide-react";
 
 import {
   Command,
@@ -29,6 +38,7 @@ import { useIsSuperadmin } from "@/hooks/use-iam";
 import { THEMES, useTheme, type ThemePreference } from "@/hooks/use-theme";
 import { agoLabel } from "@/lib/agoLabel";
 import { ADMIN_GROUP, NAV_GROUPS } from "@/lib/appNav";
+import { askAssistant } from "@/lib/assistantThread";
 import { linkToObject, objectKind, type ObjectEntry, type ObjectLink } from "@/lib/objectKinds";
 import { mergeEntries, scoreMatch } from "@/lib/objectSearch";
 import { createTitle, paletteResults, type PaletteSection } from "@/lib/paletteSearch";
@@ -121,6 +131,16 @@ export function CommandPalette({
   // only when the footer is busy saying something else.
   const footerSaysReading =
     stillReading !== "" && !index.loading && !index.error && index.failed.length === 0;
+
+  // Search finds things by name. A question ("how do I…", "where is…") is
+  // the assistant's, so what was typed can be handed to it from here.
+  const typed = query.trim();
+  const offerAsk = results.searching && typed.length >= 3;
+  const nothingByName =
+    !stillLoading &&
+    results.objects.length === 0 &&
+    results.create.length === 0 &&
+    results.pages.length === 0;
 
   // The three sections of a search, drawn below in the order paletteResults
   // gives: your work, then what you could start, then pages — unless a page or
@@ -260,6 +280,26 @@ export function CommandPalette({
                     {theme === t.id && <CommandShortcut>current</CommandShortcut>}
                   </CommandItem>
                 ))}
+              </CommandGroup>
+            )}
+
+            {offerAsk && (
+              <CommandGroup heading="Assistant">
+                <CommandItem
+                  value="assistant:ask"
+                  onSelect={() => run(() => askAssistant(typed))}
+                  className={ROW}
+                >
+                  <IconTile icon={MessageSquareText} className="bg-transparent" />
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-sm">
+                      {nothingByName
+                        ? "Nothing has that name. Ask the assistant"
+                        : "Ask the assistant"}
+                    </span>
+                    <span className="truncate text-xs text-muted-foreground">“{typed}”</span>
+                  </span>
+                </CommandItem>
               </CommandGroup>
             )}
           </CommandList>

@@ -4,17 +4,20 @@ import type { OrphanedSession } from "@/hooks/use-session-restore";
 
 function timeAgo(savedAt: number): string {
   const minutes = Math.max(1, Math.round((Date.now() - savedAt) / 60000));
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 60) return minutes === 1 ? "a minute ago" : `${minutes} minutes ago`;
   const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
+  if (hours < 24) return hours === 1 ? "an hour ago" : `${hours} hours ago`;
+  const days = Math.round(hours / 24);
+  return days === 1 ? "yesterday" : `${days} days ago`;
 }
 
 /**
- * Prominent but non-blocking: a banner above the app header, not a modal —
- * it never stops the user from just using the app on whatever page they
- * landed on, and stays up (it isn't a self-dismissing toast) until they
- * make a choice.
+ * Non-blocking: a slim line above the app header, not a modal. It never stops
+ * anyone using the page they landed on, and stays until they choose.
+ *
+ * Quiet on purpose. It was a tinted bar in the brand colour with two buttons
+ * that did the same thing ("Start Fresh" and ×), shown on every page until
+ * answered: the loudest thing on screen was a question about yesterday.
  */
 export function SessionRestoreBanner({
   session,
@@ -28,30 +31,25 @@ export function SessionRestoreBanner({
   return (
     <div
       role="status"
-      className="flex flex-wrap items-center justify-between gap-3 border-b border-primary/25 bg-primary/10 px-4 py-2.5 text-sm text-foreground"
+      className="flex items-center justify-between gap-3 border-b bg-muted/60 px-4 py-1.5 text-sm"
     >
-      <div className="flex min-w-0 items-center gap-2">
-        <History className="h-4 w-4 shrink-0 text-primary" />
+      <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
+        <History className="h-3.5 w-3.5 shrink-0" />
         <p className="min-w-0 truncate">
-          We found an unsaved session from your last visit.{" "}
-          <span className="text-muted-foreground">
-            You were on <span className="font-medium text-foreground">{session.label}</span>,{" "}
-            {timeAgo(session.savedAt)}.
-          </span>
+          You were on <span className="font-medium text-foreground">{session.label}</span>{" "}
+          {timeAgo(session.savedAt)}.
         </p>
       </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <Button size="sm" className="h-7 px-3 text-xs" onClick={onRestore}>
-          Restore Session
-        </Button>
-        <Button size="sm" variant="ghost" className="h-7 px-3 text-xs" onClick={onStartFresh}>
-          Start Fresh
+      <div className="flex shrink-0 items-center gap-1">
+        <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs" onClick={onRestore}>
+          Go back there
         </Button>
         <Button
           size="sm"
           variant="ghost"
-          className="h-7 w-7 p-0"
+          className="h-7 w-7 p-0 text-muted-foreground"
           aria-label="Dismiss"
+          title="Dismiss"
           onClick={onStartFresh}
         >
           <X className="h-3.5 w-3.5" />

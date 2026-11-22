@@ -1583,11 +1583,6 @@ export async function updateDashboard(
   return null;
 }
 
-export async function deleteDashboard(id: string): Promise<void> {
-  const { error } = await supabase.from("bi_dashboards").delete().eq("id", id);
-  if (error) throw new Error(error.message);
-}
-
 /** Re-reads and re-applies on a version conflict; bounded so a hot dashboard
  *  cannot spin forever. */
 const APPEND_MAX_ATTEMPTS = 4;

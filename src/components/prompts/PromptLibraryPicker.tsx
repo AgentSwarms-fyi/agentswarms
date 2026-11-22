@@ -48,7 +48,7 @@ type Props = {
 
 export function PromptLibraryPicker({
   onPick,
-  buttonLabel = "Use prompt from Library",
+  buttonLabel = "Use prompt from library",
   iconOnly = false,
   align = "end",
 }: Props) {
@@ -154,7 +154,7 @@ export function PromptLibraryPicker({
               </TabsTrigger>
               <TabsTrigger value="mine" className="text-xs gap-1.5">
                 <User className="h-3 w-3" />
-                My Prompts ({userPrompts.length})
+                My prompts ({userPrompts.length})
               </TabsTrigger>
             </TabsList>
           </Tabs>

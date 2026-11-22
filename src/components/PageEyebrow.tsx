@@ -29,7 +29,8 @@ export function PageEyebrow({
   return (
     <p
       className={cn(
-        "mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary",
+        // Quiet: it says where you are. The title says what this is.
+        "mb-1 text-xs font-medium text-muted-foreground",
         className,
       )}
     >

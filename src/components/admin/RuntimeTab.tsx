@@ -1099,7 +1099,7 @@ export function RuntimeTab({
                 label="Gateway calls per minute"
                 value={form.gateway_rate_limit_per_min}
                 onChange={(n) => set("gateway_rate_limit_per_min", n)}
-                hint="Calls a minute one AI-gateway key may make unless the key sets its own limit (Integrations → LLM Gateway → API access)."
+                hint="Calls a minute one AI-gateway key may make unless the key sets its own limit (Integrations → LLM gateway → API access)."
               />
               <div className="space-y-1 sm:col-span-2">
                 <Label className="text-xs">Gateway fallback chain</Label>
@@ -1125,7 +1125,7 @@ export function RuntimeTab({
             <p className="text-xs font-medium text-muted-foreground">
               Semantic cache
               <span className="ml-2 font-normal">
-                Applies only to keys that switch it on (Integrations &rarr; LLM Gateway &rarr; API
+                Applies only to keys that switch it on (Integrations &rarr; LLM gateway &rarr; API
                 access).
               </span>
             </p>

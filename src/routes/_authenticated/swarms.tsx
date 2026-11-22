@@ -144,6 +144,8 @@ import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { clickable } from "@/lib/clickable";
 import { StarButton } from "@/components/StarButton";
 import { useRecordOpened } from "@/hooks/use-object-marks";
+import { moveToTrash } from "@/hooks/use-trash";
+import { RESTORE_HINT } from "@/lib/trash";
 
 export const Route = createFileRoute("/_authenticated/swarms")({
   component: SwarmsPage,
@@ -165,17 +167,17 @@ export const Route = createFileRoute("/_authenticated/swarms")({
 // ──────────────────────────────────────────────────────────────────
 function nodeShellClass(selected: boolean, color: string, status?: string): string {
   const base =
-    "relative min-w-[180px] rounded-xl border-2 bg-card shadow-lg transition-all hover:shadow-[0_0_24px_-6px_color-mix(in_oklch,var(--primary)_40%,transparent)]";
+    "relative min-w-[180px] rounded-xl border-2 bg-card shadow-sm transition-[border-color,box-shadow] hover:shadow-md";
   if (status === "running" || status === "waiting") {
-    // Pulsing accent glow on the currently-executing node so users can
-    // visually track which step the swarm is on during a run.
-    return `${base} border-amber-400 ring-4 ring-amber-400/40 shadow-[0_0_24px_rgba(251,191,36,0.55)] scale-[1.03] animate-pulse`;
+    // The step the run is on: an amber edge, and its status dot pulses. The
+    // card itself holds still, so its name stays readable while it works.
+    return `${base} border-amber-400 ring-4 ring-amber-400/25`;
   }
   if (status === "done") {
-    return `${base} border-emerald-500/70 ring-2 ring-emerald-400/30 shadow-[0_0_16px_rgba(16,185,129,0.35)]`;
+    return `${base} border-emerald-500/70 ring-2 ring-emerald-400/20`;
   }
   if (status === "error") {
-    return `${base} border-destructive ring-2 ring-destructive/40 shadow-[0_0_16px_rgba(239,68,68,0.4)]`;
+    return `${base} border-destructive ring-2 ring-destructive/25`;
   }
   if (status === "skipped") {
     return `${base} border-border/40 opacity-50 grayscale`;
@@ -389,7 +391,7 @@ const nodeTypes = {
       accentText="text-fuchsia-400"
       accentBg="bg-fuchsia-500/10"
       Icon={Cloud}
-      kindLabel="A2A Remote"
+      kindLabel="A2A remote"
     />
   ),
   function: (p: NodeProps<Node<SwarmNodeData>>) => (
@@ -419,7 +421,7 @@ const nodeTypes = {
       accentText="text-cyan-300"
       accentBg="bg-cyan-500/10"
       Icon={Variable}
-      kindLabel="Set Variable"
+      kindLabel="Set variable"
     />
   ),
   http: (p: NodeProps<Node<SwarmNodeData>>) => (
@@ -449,7 +451,7 @@ const nodeTypes = {
       accentText="text-amber-300"
       accentBg="bg-amber-600/10"
       Icon={Repeat2}
-      kindLabel="For Each"
+      kindLabel="For each"
     />
   ),
   extract: (p: NodeProps<Node<SwarmNodeData>>) => (
@@ -489,7 +491,7 @@ const nodeTypes = {
       accentText="text-purple-300"
       accentBg="bg-purple-500/10"
       Icon={Workflow}
-      kindLabel="Execute Swarm"
+      kindLabel="Execute swarm"
     />
   ),
 };
@@ -578,7 +580,7 @@ const PALETTE_GROUPS: { label: string; kinds: SwarmNodeData["kind"][] }[] = [
   { label: "Flow", kinds: ["input", "output", "approval"] },
   { label: "Agents", kinds: ["agent", "router", "a2a_remote", "subswarm"] },
   { label: "Logic", kinds: ["condition", "loop", "foreach", "merge", "evaluate"] },
-  { label: "Data & Tools", kinds: ["set_var", "extract", "retrieve", "http", "tool", "function"] },
+  { label: "Data & tools", kinds: ["set_var", "extract", "retrieve", "http", "tool", "function"] },
 ];
 
 const PALETTE: PaletteItem[] = [
@@ -616,7 +618,7 @@ const PALETTE: PaletteItem[] = [
   },
   {
     kind: "router",
-    label: "Router Agent",
+    label: "Router agent",
     avatar: "🧭",
     description: "LLM picks 1 of N routes",
     defaults: {
@@ -650,7 +652,7 @@ const PALETTE: PaletteItem[] = [
   },
   {
     kind: "a2a_remote",
-    label: "A2A Remote",
+    label: "A2A remote",
     avatar: "🌐",
     description: "Delegate to a remote A2A agent",
     defaults: { a2aEndpoint: "", a2aStreaming: false, inputs: ["input"] },
@@ -719,7 +721,7 @@ const PALETTE: PaletteItem[] = [
   },
   {
     kind: "set_var",
-    label: "Set Variable",
+    label: "Set variable",
     avatar: "🔧",
     description: "Write named values into flow state",
     defaults: {
@@ -744,7 +746,7 @@ const PALETTE: PaletteItem[] = [
   },
   {
     kind: "http",
-    label: "HTTP Request",
+    label: "HTTP request",
     avatar: "🌐",
     description: "Call any REST API (deterministic)",
     defaults: {
@@ -767,7 +769,7 @@ const PALETTE: PaletteItem[] = [
   },
   {
     kind: "foreach",
-    label: "For Each",
+    label: "For each",
     avatar: "🔁",
     description: "Map an agent over each array item",
     defaults: {
@@ -803,7 +805,7 @@ const PALETTE: PaletteItem[] = [
   },
   {
     kind: "subswarm",
-    label: "Execute Swarm",
+    label: "Execute swarm",
     avatar: "🧩",
     description: "Run another saved swarm as a node",
     defaults: { subSwarmId: null, inputs: ["input"] },
@@ -1196,10 +1198,17 @@ function SwarmsCanvas({
 
   const performDeleteSwarm = async () => {
     if (!swarmId || !user) return;
-    const { error: deleteError } = await supabase.from("swarms").delete().eq("id", swarmId);
-    if (deleteError) {
+    const trashed = { id: swarmId, name: swarmName };
+    const r = await moveToTrash({
+      kind: "swarm",
+      id: trashed.id,
+      name: trashed.name,
+      // Back in the switcher after an Undo, without reloading over the canvas.
+      onRestored: () =>
+        setSwarmList((prev) => (prev.some((s) => s.id === trashed.id) ? prev : [...prev, trashed])),
+    });
+    if (!r.ok) {
       // The swarm is still there; the list and the canvas stay as they are.
-      toast.error("Could not delete the swarm", { description: deleteError.message });
       return;
     }
     const remaining = swarmList.filter((s) => s.id !== swarmId);
@@ -1234,7 +1243,6 @@ function SwarmsCanvas({
         setSavedAs(canvasForm(created.name, [], []));
       }
     }
-    toast.success("Swarm deleted");
   };
 
   const selectedNode = useMemo(
@@ -2151,7 +2159,7 @@ function SwarmsCanvas({
                       ) : (
                         <Maximize2 className="h-4 w-4 mr-2" />
                       )}
-                      {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+                      {isFullscreen ? "Exit fullscreen" : "Fullscreen"}
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={handleImportClick}>
@@ -2196,7 +2204,7 @@ function SwarmsCanvas({
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-8 w-8 p-0 text-destructive hover:text-destructive bg-card/80 backdrop-blur"
+                        className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive bg-card/80 backdrop-blur"
                         title="Delete swarm"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -2204,12 +2212,8 @@ function SwarmsCanvas({
                     </AlertDialogTrigger>
                     <AlertDialogContent>
                       <AlertDialogHeader>
-                        <AlertDialogTitle>Delete this swarm?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          <span className="font-semibold text-foreground">{swarmName}</span> will be
-                          permanently removed along with its nodes and edges. This action cannot be
-                          undone.
-                        </AlertDialogDescription>
+                        <AlertDialogTitle>Move “{swarmName}” to the trash?</AlertDialogTitle>
+                        <AlertDialogDescription>{RESTORE_HINT}</AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -2217,7 +2221,7 @@ function SwarmsCanvas({
                           onClick={performDeleteSwarm}
                           className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                         >
-                          Delete swarm
+                          Move to trash
                         </AlertDialogAction>
                       </AlertDialogFooter>
                     </AlertDialogContent>

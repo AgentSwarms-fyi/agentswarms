@@ -3,7 +3,7 @@
 // /api/public/hooks/refresh-model-registry. Users can filter by developer,
 // modality, and capability, search by name/id, and copy a model id to
 // paste into the Agent Builder or Swarm node config.
-import { PageEyebrow } from "@/components/PageEyebrow";
+import { PageHeader } from "@/components/PageHeader";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { countLabels } from "@/lib/countClaim";
@@ -238,42 +238,43 @@ function ModelRegistryPage() {
 
   return (
     <div className="flex">
-      <div className="flex-1 p-6 space-y-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <PageEyebrow />
-            <h1 className="font-display text-3xl font-semibold tracking-tight flex items-center gap-2">
-              <Boxes className="h-7 w-7 text-primary" /> AI Model Catalog
-            </h1>
-            <p className="text-muted-foreground mt-1 max-w-2xl">
-              Browse {totalDisplay}
-              {wholeCatalogue ? " across all major providers" : ""}. Filter by capability, copy the
-              exact model id, and paste it into the Agent Builder or any swarm node.
-            </p>
-            <p className="text-xs text-muted-foreground mt-2">
-              Source:{" "}
-              <a className="underline" href="https://aimlapi.com" target="_blank" rel="noreferrer">
-                AIMLAPI
-              </a>{" "}
-              · Last refreshed {lastRefreshedLabel}
-              {meta?.last_sync_status === "error" && (
-                <span className="text-destructive">
-                  {" "}
-                  · last attempt failed: {meta.last_sync_error}
-                </span>
-              )}
-            </p>
-          </div>
-          {isAdmin && (
-            <Button variant="outline" onClick={manualSync} disabled={syncing}>
-              {syncing ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4 mr-2" />
-              )}
-              Refresh now
-            </Button>
-          )}
+      <div className="min-w-0 flex-1 space-y-6 p-6">
+        <div>
+          <PageHeader
+            title="AI Model Catalog"
+            description={
+              <>
+                Browse {totalDisplay}
+                {wholeCatalogue ? " across all major providers" : ""}, and copy a model&apos;s exact
+                id into an agent or a swarm node.
+              </>
+            }
+            actions={
+              isAdmin && (
+                <Button variant="outline" onClick={manualSync} disabled={syncing}>
+                  {syncing ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                  )}
+                  Refresh now
+                </Button>
+              )
+            }
+          />
+          <p className="text-xs text-muted-foreground mt-2">
+            Source:{" "}
+            <a className="underline" href="https://aimlapi.com" target="_blank" rel="noreferrer">
+              AIMLAPI
+            </a>{" "}
+            · Last refreshed {lastRefreshedLabel}
+            {meta?.last_sync_status === "error" && (
+              <span className="text-destructive">
+                {" "}
+                · last attempt failed: {meta.last_sync_error}
+              </span>
+            )}
+          </p>
         </div>
 
         <Card className="border-border/50">

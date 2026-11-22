@@ -82,7 +82,7 @@ const BUILT_IN_TOOLS: BuiltInTool[] = [
   // Search & retrieval
   {
     id: "web_search",
-    name: "Web Search",
+    name: "Web search",
     description:
       "Search the web in real-time. Built-in Firecrawl, or bring your own key (Brave / SerpAPI / Tavily).",
     icon: Search,
@@ -91,7 +91,7 @@ const BUILT_IN_TOOLS: BuiltInTool[] = [
   },
   {
     id: "web_browse",
-    name: "Web Browser",
+    name: "Web browser",
     description:
       "Fetch a URL as clean markdown for the agent to read. Built-in Firecrawl or your own (ScrapingBee).",
     icon: Globe,
@@ -102,7 +102,7 @@ const BUILT_IN_TOOLS: BuiltInTool[] = [
   // Knowledge — auto-enabled when the agent has a knowledge base linked.
   {
     id: "kb_search",
-    name: "Knowledge Base Search",
+    name: "Knowledge base search",
     description:
       "Search documents in this agent's connected knowledge bases. Auto-enabled when a KB is linked above.",
     icon: BookOpen,
@@ -111,7 +111,7 @@ const BUILT_IN_TOOLS: BuiltInTool[] = [
   },
   {
     id: "kb_graph_search",
-    name: "Knowledge Graph Search",
+    name: "Knowledge graph search",
     description:
       "Multi-hop Graph RAG over the KB's entity relationships. Build the graph in Knowledge → Graph first, then link the KB above.",
     icon: GitBranch,
@@ -121,7 +121,7 @@ const BUILT_IN_TOOLS: BuiltInTool[] = [
   // Data — runs SQL against the user's uploaded CSV tables.
   {
     id: "sql_query",
-    name: "SQL Query",
+    name: "SQL query",
     description:
       "Run read-only SELECT against the user's local CSV-derived tables. Manage datasets in Data & SQL Agents.",
     icon: Database,
@@ -130,7 +130,7 @@ const BUILT_IN_TOOLS: BuiltInTool[] = [
   },
   {
     id: "metric_query",
-    name: "Semantic Metrics",
+    name: "Semantic metrics",
     description:
       "Query governed metrics + dimensions defined in the Semantic Layer, so business definitions (revenue, active customers) compute consistently. Pick which models this agent may read — it gets none until you do.",
     icon: Database,
@@ -157,7 +157,7 @@ const BUILT_IN_TOOLS: BuiltInTool[] = [
   },
   {
     id: "ml_predict",
-    name: "ML Predictions",
+    name: "ML predictions",
     description:
       "Score rows with trained models from ML Models — yours and those shared with you. The agent lists models, their feature columns and categories, then predicts; every prediction is audited with a digest.",
     icon: Brain,
@@ -176,7 +176,7 @@ const BUILT_IN_TOOLS: BuiltInTool[] = [
   },
   {
     id: "datetime",
-    name: "Date & Time",
+    name: "Date & time",
     description: "Current date/time in any IANA timezone. No key needed.",
     icon: Clock,
     category: "utility",
@@ -192,7 +192,7 @@ const BUILT_IN_TOOLS: BuiltInTool[] = [
   // Automation
   {
     id: "n8n_run_workflow",
-    name: "n8n Workflow",
+    name: "n8n workflow",
     description:
       "Trigger workflows on the user's connected n8n instance. Configure in the Workflows section below.",
     icon: Workflow,
@@ -201,7 +201,7 @@ const BUILT_IN_TOOLS: BuiltInTool[] = [
   },
   {
     id: "mcp_call_tool",
-    name: "MCP Tool",
+    name: "MCP tool",
     description:
       "Invoke tools on connected MCP servers. Toggle on, then pick which servers this agent may call.",
     icon: Plug,
@@ -210,7 +210,7 @@ const BUILT_IN_TOOLS: BuiltInTool[] = [
   },
   {
     id: "send_notification",
-    name: "Send Notification",
+    name: "Send notification",
     description:
       "Post a message to your connected Slack / Teams / Discord / webhook channels. Connect a channel under Integrations → Notifications first.",
     icon: Send,
@@ -219,7 +219,7 @@ const BUILT_IN_TOOLS: BuiltInTool[] = [
 ];
 
 const TOOL_CATEGORIES = [
-  { id: "search", label: "Search & Retrieval" },
+  { id: "search", label: "Search & retrieval" },
   { id: "knowledge", label: "Knowledge" },
   { id: "data", label: "Data" },
   { id: "utility", label: "Utilities" },
@@ -250,7 +250,7 @@ const WORKFLOW_PROVIDERS: WorkflowProvider[] = [
       },
       {
         key: "auth_header",
-        label: "Auth Header (optional)",
+        label: "Auth header (optional)",
         placeholder: "Bearer ...",
         type: "password",
       },
@@ -259,7 +259,7 @@ const WORKFLOW_PROVIDERS: WorkflowProvider[] = [
       // parses this as `tools.workflows.n8n.workflow_ids` and enforces it server-side.
       {
         key: "workflow_ids",
-        label: "Allowed Workflow IDs (comma-separated, optional)",
+        label: "Allowed workflow IDs (comma-separated, optional)",
         placeholder: "wf_abc123, wf_xyz789",
       },
     ],
@@ -273,7 +273,7 @@ const WORKFLOW_PROVIDERS: WorkflowProvider[] = [
     fields: [
       {
         key: "webhook_url",
-        label: "Trigger Webhook URL",
+        label: "Trigger webhook URL",
         placeholder: "https://cloud.activepieces.com/api/v1/webhooks/...",
       },
     ],
@@ -287,10 +287,10 @@ const WORKFLOW_PROVIDERS: WorkflowProvider[] = [
     fields: [
       {
         key: "endpoint",
-        label: "HTTP-In Endpoint",
+        label: "HTTP-in endpoint",
         placeholder: "https://nodered.example.com/agent-trigger",
       },
-      { key: "auth_token", label: "Auth Token (optional)", placeholder: "...", type: "password" },
+      { key: "auth_token", label: "Auth token (optional)", placeholder: "...", type: "password" },
     ],
   },
   {
@@ -301,8 +301,8 @@ const WORKFLOW_PROVIDERS: WorkflowProvider[] = [
     openSource: true,
     fields: [
       { key: "workspace", label: "Workspace", placeholder: "my-workspace" },
-      { key: "script_path", label: "Script/Flow Path", placeholder: "f/folder/my_flow" },
-      { key: "token", label: "API Token", placeholder: "...", type: "password" },
+      { key: "script_path", label: "Script/flow path", placeholder: "f/folder/my_flow" },
+      { key: "token", label: "API token", placeholder: "...", type: "password" },
       { key: "base_url", label: "Base URL", placeholder: "https://app.windmill.dev" },
     ],
   },
@@ -314,9 +314,9 @@ const WORKFLOW_PROVIDERS: WorkflowProvider[] = [
     openSource: true,
     fields: [
       { key: "namespace", label: "Namespace", placeholder: "default" },
-      { key: "task_queue", label: "Task Queue", placeholder: "agent-tasks" },
-      { key: "workflow_type", label: "Workflow Type", placeholder: "AgentWorkflow" },
-      { key: "endpoint", label: "Frontend Address", placeholder: "temporal.example.com:7233" },
+      { key: "task_queue", label: "Task queue", placeholder: "agent-tasks" },
+      { key: "workflow_type", label: "Workflow type", placeholder: "AgentWorkflow" },
+      { key: "endpoint", label: "Frontend address", placeholder: "temporal.example.com:7233" },
     ],
   },
   {
@@ -326,7 +326,7 @@ const WORKFLOW_PROVIDERS: WorkflowProvider[] = [
     icon: Workflow,
     openSource: true,
     fields: [
-      { key: "base_url", label: "Airflow Base URL", placeholder: "https://airflow.example.com" },
+      { key: "base_url", label: "Airflow base URL", placeholder: "https://airflow.example.com" },
       { key: "dag_id", label: "DAG ID", placeholder: "agent_pipeline" },
       { key: "username", label: "Username", placeholder: "admin" },
       { key: "password", label: "Password", placeholder: "...", type: "password" },
@@ -341,7 +341,7 @@ const WORKFLOW_PROVIDERS: WorkflowProvider[] = [
     fields: [
       {
         key: "webhook_url",
-        label: "Agent Webhook URL",
+        label: "Agent webhook URL",
         placeholder: "https://huginn.example.com/users/.../web_requests/...",
       },
       { key: "secret", label: "Secret", placeholder: "...", type: "password" },
@@ -373,13 +373,13 @@ const WORKFLOW_PROVIDERS: WorkflowProvider[] = [
   },
   {
     id: "custom_webhook",
-    name: "Custom Webhook",
+    name: "Custom webhook",
     description: "Trigger any HTTP endpoint",
     icon: Webhook,
     openSource: false,
     fields: [
       { key: "url", label: "Endpoint URL", placeholder: "https://api.example.com/trigger" },
-      { key: "method", label: "HTTP Method", placeholder: "POST" },
+      { key: "method", label: "HTTP method", placeholder: "POST" },
       { key: "headers", label: "Headers (JSON)", placeholder: '{"Authorization": "Bearer ..."}' },
     ],
   },
@@ -1498,7 +1498,7 @@ export function AgentForm({
           </div>
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <Label>System Prompt</Label>
+              <Label>System prompt</Label>
               <PromptLibraryPicker
                 onPick={(p) => {
                   setSystemPrompt(p.content);
@@ -1524,7 +1524,7 @@ export function AgentForm({
 
         <TabsContent value="model" className="space-y-4 mt-4">
           <div className="space-y-2">
-            <Label>LLM Provider</Label>
+            <Label>LLM provider</Label>
             <Select
               value={provider}
               onValueChange={(v) => {
@@ -1601,12 +1601,12 @@ export function AgentForm({
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <Label className="text-xs font-medium flex items-center gap-1">
-                  <Workflow className="h-3 w-3 text-primary" /> Route through LLM Gateway
+                  <Workflow className="h-3 w-3 text-primary" /> Route through LLM gateway
                 </Label>
                 <p className="text-muted-foreground mt-0.5">
                   {gatewayConnected.connected
                     ? `When on, this agent's calls go through your ${gatewayConnected.provider || "configured"} gateway instead of the upstream API.`
-                    : "Configure a gateway in Integrations → LLM Gateway first."}
+                    : "Configure a gateway in Integrations → LLM gateway first."}
                 </p>
                 {gatewayConnected.connected && gatewayConnected.baseUrl && (
                   <p className="text-muted-foreground mt-0.5 font-mono truncate">
@@ -1733,7 +1733,7 @@ export function AgentForm({
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Max Tokens</Label>
+              <Label>Max tokens</Label>
               <Input
                 type="number"
                 value={maxTokens}
@@ -1743,22 +1743,22 @@ export function AgentForm({
               />
             </div>
             <div className="space-y-2">
-              <Label>Top-P (Nucleus Sampling)</Label>
+              <Label>Top-P (nucleus sampling)</Label>
               <Input type="number" defaultValue={1} min={0} max={1} step={0.05} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Frequency Penalty</Label>
+              <Label>Frequency penalty</Label>
               <Input type="number" defaultValue={0} min={-2} max={2} step={0.1} />
             </div>
             <div className="space-y-2">
-              <Label>Presence Penalty</Label>
+              <Label>Presence penalty</Label>
               <Input type="number" defaultValue={0} min={-2} max={2} step={0.1} />
             </div>
           </div>
           <div className="space-y-2">
-            <Label>Stop Sequences</Label>
+            <Label>Stop sequences</Label>
             <Input placeholder="e.g. \n\n, END, ###  (comma-separated)" />
             <p className="text-xs text-muted-foreground">
               Sequences where the model will stop generating.
@@ -1770,7 +1770,7 @@ export function AgentForm({
           <Card className="border-border/50">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm flex items-center gap-2">
-                <BookOpen className="h-4 w-4 text-primary" /> Retrieval Re-ranker
+                <BookOpen className="h-4 w-4 text-primary" /> Retrieval re-ranker
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -1873,7 +1873,7 @@ export function AgentForm({
           <Card className="border-border/50">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm flex items-center gap-2">
-                <BookOpen className="h-4 w-4 text-primary" /> Knowledge Base Collections
+                <BookOpen className="h-4 w-4 text-primary" /> Knowledge base collections
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -2216,12 +2216,12 @@ export function AgentForm({
           <Card className="border-border/50">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm flex items-center gap-2">
-                <Shield className="h-4 w-4 text-primary" /> Content Safety
+                <Shield className="h-4 w-4 text-primary" /> Content safety
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="space-y-2">
-                <Label>Safety Level</Label>
+                <Label>Safety level</Label>
                 <Select
                   value={guardrails.contentSafetyLevel}
                   onValueChange={(v) =>
@@ -2333,7 +2333,7 @@ export function AgentForm({
               </div>
               <div className="flex items-center justify-between">
                 <div>
-                  <Label>Block Profanity</Label>
+                  <Label>Block profanity</Label>
                   <p className="text-xs text-muted-foreground">Filter profane language in output</p>
                 </div>
                 <Switch
@@ -2346,18 +2346,18 @@ export function AgentForm({
 
           <Card className="border-border/50">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Input Guardrails</CardTitle>
+              <CardTitle className="text-sm">Input guardrails</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex items-center justify-between">
-                <Label>Enable Input Filtering</Label>
+                <Label>Enable input filtering</Label>
                 <Switch
                   checked={guardrails.enableInputFilters}
                   onCheckedChange={(v) => updateGuardrail("enableInputFilters", v)}
                 />
               </div>
               <div className="space-y-2">
-                <Label>Max Input Length (characters)</Label>
+                <Label>Max input length (characters)</Label>
                 <Input
                   type="number"
                   value={guardrails.maxInputLength}
@@ -2367,7 +2367,7 @@ export function AgentForm({
                 />
               </div>
               <div className="space-y-2">
-                <Label>Blocked Input Patterns (regex, one per line)</Label>
+                <Label>Blocked input patterns (regex, one per line)</Label>
                 <Textarea
                   rows={3}
                   value={guardrails.blockedPatterns}
@@ -2383,11 +2383,11 @@ export function AgentForm({
 
           <Card className="border-border/50">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Output Guardrails</CardTitle>
+              <CardTitle className="text-sm">Output guardrails</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex items-center justify-between">
-                <Label>Enable Output Filtering</Label>
+                <Label>Enable output filtering</Label>
                 <Switch
                   checked={guardrails.enableOutputFilters}
                   onCheckedChange={(v) => updateGuardrail("enableOutputFilters", v)}
@@ -2395,7 +2395,7 @@ export function AgentForm({
               </div>
               <div className="flex items-center justify-between">
                 <div>
-                  <Label>Hallucination Detection</Label>
+                  <Label>Hallucination detection</Label>
                   <p className="text-xs text-muted-foreground">
                     Flag responses not grounded in provided context
                   </p>
@@ -2407,7 +2407,7 @@ export function AgentForm({
               </div>
               <div className="flex items-center justify-between">
                 <div>
-                  <Label>Citation Check</Label>
+                  <Label>Citation check</Label>
                   <p className="text-xs text-muted-foreground">
                     Require citations from knowledge base
                   </p>
@@ -2418,7 +2418,7 @@ export function AgentForm({
                 />
               </div>
               <div className="space-y-2">
-                <Label>Custom Output Filter Prompt</Label>
+                <Label>Custom output filter prompt</Label>
                 <Textarea
                   rows={3}
                   value={guardrails.customFilterPrompt}
@@ -2434,12 +2434,12 @@ export function AgentForm({
 
           <Card className="border-border/50">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Rate Limiting & Boundaries</CardTitle>
+              <CardTitle className="text-sm">Rate limiting & boundaries</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Max Turns / Conversation</Label>
+                  <Label>Max turns / conversation</Label>
                   <Input
                     type="number"
                     value={guardrails.maxTurnsPerConversation}
@@ -2451,7 +2451,7 @@ export function AgentForm({
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Rate Limit (req/min)</Label>
+                  <Label>Rate limit (req/min)</Label>
                   <Input
                     type="number"
                     value={guardrails.rateLimitPerMinute}
@@ -2462,7 +2462,7 @@ export function AgentForm({
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>Require Approval Above (tokens)</Label>
+                <Label>Require approval above (tokens)</Label>
                 <Input
                   type="number"
                   value={guardrails.requireApprovalAboveTokens}
@@ -2480,11 +2480,11 @@ export function AgentForm({
 
           <Card className="border-border/50">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Topic Boundaries</CardTitle>
+              <CardTitle className="text-sm">Topic boundaries</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="space-y-2">
-                <Label>Allowed Topics (one per line)</Label>
+                <Label>Allowed topics (one per line)</Label>
                 <Textarea
                   rows={3}
                   value={guardrails.allowedTopics}
@@ -2496,7 +2496,7 @@ export function AgentForm({
                 </p>
               </div>
               <div className="space-y-2">
-                <Label>Restricted Topics (one per line)</Label>
+                <Label>Restricted topics (one per line)</Label>
                 <Textarea
                   rows={3}
                   value={guardrails.topicRestrictions}
@@ -2516,7 +2516,7 @@ export function AgentForm({
             <div className="flex items-center justify-between mb-2">
               <div>
                 <h3 className="text-sm font-semibold flex items-center gap-2">
-                  <Wrench className="h-4 w-4 text-primary" /> Built-in Tools
+                  <Wrench className="h-4 w-4 text-primary" /> Built-in tools
                 </h3>
                 <p className="text-xs text-muted-foreground">
                   Toggle capabilities the agent can invoke. Configure credentials per-tool where
@@ -2996,11 +2996,11 @@ export function AgentForm({
                                   </div>
                                 ) : (
                                   <div className="space-y-1">
-                                    <Label className="text-xs">API Key / Endpoint</Label>
+                                    <Label className="text-xs">API key / endpoint</Label>
                                     <Input
                                       type="password"
                                       className="h-8 text-xs"
-                                      placeholder="Use Integration Hub or paste here"
+                                      placeholder="Use Integrations or paste here"
                                       value={toolConfigs[tool.id]?.api_key || ""}
                                       onChange={(e) =>
                                         updateToolConfig(tool.id, "api_key", e.target.value)
@@ -3024,7 +3024,7 @@ export function AgentForm({
             <div className="flex items-center justify-between mb-2">
               <div>
                 <h3 className="text-sm font-semibold flex items-center gap-2">
-                  <Workflow className="h-4 w-4 text-primary" /> Workflow & Automation Platforms
+                  <Workflow className="h-4 w-4 text-primary" /> Workflow & automation platforms
                 </h3>
                 <p className="text-xs text-muted-foreground">
                   Connect open-source and hosted workflow engines. Open-source options are
@@ -3056,7 +3056,7 @@ export function AgentForm({
                                   variant="outline"
                                   className="text-[10px] border-primary/40 text-primary"
                                 >
-                                  Open Source
+                                  Open source
                                 </Badge>
                               )}
                             </CardTitle>
@@ -3097,7 +3097,7 @@ export function AgentForm({
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-sm flex items-center gap-2">
-                  <Send className="h-4 w-4 text-primary" /> Quick n8n Webhook (legacy)
+                  <Send className="h-4 w-4 text-primary" /> Quick n8n webhook (legacy)
                 </CardTitle>
                 <Switch checked={useN8n} onCheckedChange={setUseN8n} />
               </div>
@@ -3123,7 +3123,7 @@ export function AgentForm({
           never make anyone scroll to find out how to save it. */}
       <div className="sticky bottom-0 -mx-6 -mb-6 border-t border-border/60 bg-background/95 px-6 py-3 backdrop-blur">
         <Button type="submit" className="w-full cursor-pointer" disabled={loading}>
-          {loading ? "Saving..." : agent ? "Update Agent" : "Create Agent"}
+          {loading ? "Saving..." : agent ? "Update agent" : "Create agent"}
         </Button>
       </div>
     </form>

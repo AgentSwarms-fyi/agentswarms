@@ -1,4 +1,4 @@
-import { PageEyebrow } from "@/components/PageEyebrow";
+import { PageHeader } from "@/components/PageHeader";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
@@ -36,7 +36,7 @@ import { ProfileSettingsPanel } from "@/components/settings/ProfileSettingsPanel
 
 export const Route = createFileRoute("/_authenticated/account")({
   head: () => ({
-    meta: [{ title: "Account Settings — AgentSwarms" }],
+    meta: [{ title: "Account — AgentSwarms" }],
   }),
   component: AccountPage,
 });
@@ -72,7 +72,7 @@ function AccountPage() {
     try {
       const { error } = await supabase.auth.updateUser({ password: newPassword });
       if (error) throw error;
-      toast.success("Password updated successfully");
+      toast.success("Password changed");
       setNewPassword("");
       setConfirmPassword("");
     } catch (err) {
@@ -118,13 +118,11 @@ function AccountPage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-6">
-      <div>
-        <PageEyebrow fallback="Settings" />
-        <h1 className="font-display text-3xl font-semibold tracking-tight">Account Settings</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Manage your AgentSwarms profile, password, and session.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Settings"
+        title="Account"
+        description="Change your profile, password and email, or sign out."
+      />
 
       {/* PROFILE EDITOR — shared with the quick Settings dialog's Profile
           tab (see src/components/settings/ProfileSettingsPanel.tsx) so
@@ -132,7 +130,7 @@ function AccountPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <UserCircle2 className="h-4 w-4 text-primary" /> Public Profile
+            <UserCircle2 className="h-4 w-4 text-primary" /> Public profile
           </CardTitle>
           <CardDescription>
             How you appear across the app — the dashboard greeting, the user list, and the audit log
@@ -166,7 +164,7 @@ function AccountPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <KeyRound className="h-4 w-4 text-primary" /> Change Password
+            <KeyRound className="h-4 w-4 text-primary" /> Change password
           </CardTitle>
           <CardDescription>
             Choose a new password. You'll stay signed in on this device.
@@ -175,7 +173,7 @@ function AccountPage() {
         <CardContent>
           <form onSubmit={handlePasswordChange} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="new-password">New Password</Label>
+              <Label htmlFor="new-password">New password</Label>
               <Input
                 id="new-password"
                 type="password"
@@ -187,7 +185,7 @@ function AccountPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="confirm-password">Confirm New Password</Label>
+              <Label htmlFor="confirm-password">Confirm new password</Label>
               <Input
                 id="confirm-password"
                 type="password"
@@ -199,7 +197,7 @@ function AccountPage() {
               />
             </div>
             <Button type="submit" disabled={pwLoading}>
-              {pwLoading ? "Updating..." : "Update Password"}
+              {pwLoading ? "Updating..." : "Update password"}
             </Button>
           </form>
         </CardContent>
@@ -208,7 +206,7 @@ function AccountPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <Mail className="h-4 w-4 text-primary" /> Change Email
+            <Mail className="h-4 w-4 text-primary" /> Change email
           </CardTitle>
           <CardDescription>
             We'll send a confirmation link to your new email address.
@@ -217,7 +215,7 @@ function AccountPage() {
         <CardContent>
           <form onSubmit={handleEmailChange} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="new-email">New Email</Label>
+              <Label htmlFor="new-email">New email</Label>
               <Input
                 id="new-email"
                 type="email"
@@ -228,23 +226,23 @@ function AccountPage() {
               />
             </div>
             <Button type="submit" variant="outline" disabled={emailLoading}>
-              {emailLoading ? "Sending..." : "Send Confirmation"}
+              {emailLoading ? "Sending..." : "Send confirmation"}
             </Button>
           </form>
         </CardContent>
       </Card>
 
-      <Card className="border-destructive/40">
+      <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <LogOut className="h-4 w-4 text-destructive" /> Session
+            <LogOut className="h-4 w-4 text-muted-foreground" /> Session
           </CardTitle>
           <CardDescription>Sign out of AgentSwarms on this device.</CardDescription>
         </CardHeader>
         <CardContent>
           <Separator className="mb-4" />
-          <Button variant="destructive" onClick={signOut}>
-            <LogOut className="mr-2 h-4 w-4" /> Sign Out
+          <Button variant="outline" onClick={signOut}>
+            <LogOut className="mr-2 h-4 w-4" /> Sign out
           </Button>
         </CardContent>
       </Card>
@@ -252,7 +250,7 @@ function AccountPage() {
       <Card className="border-destructive/60">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base text-destructive">
-            <AlertTriangle className="h-4 w-4" /> Delete Account
+            <AlertTriangle className="h-4 w-4" /> Delete account
           </CardTitle>
           <CardDescription>
             Permanently delete your account and all associated data — agents, swarms, knowledge
@@ -266,7 +264,10 @@ function AccountPage() {
             }}
           >
             <AlertDialogTrigger asChild>
-              <Button variant="destructive">
+              <Button
+                variant="outline"
+                className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+              >
                 <Trash2 className="mr-2 h-4 w-4" /> Delete my account
               </Button>
             </AlertDialogTrigger>

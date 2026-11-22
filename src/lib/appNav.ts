@@ -59,6 +59,8 @@ import {
   ShieldCheck,
   Sigma,
   Star,
+  Timer,
+  Trash2,
   type LucideIcon,
   Wand2,
   Warehouse,
@@ -93,6 +95,10 @@ export const NAV_GROUPS: NavGroup[] = [
       // Everything of yours across every page: what you opened last, what you
       // starred, and what other people shared with you.
       { title: "My work", url: "/my-work", icon: Star },
+      // Everything that ran for you, every kind in one list: what needs a look.
+      { title: "Runs", url: "/runs", icon: Timer },
+      // What was deleted in the last thirty days, to restore or delete for good.
+      { title: "Trash", url: "/trash", icon: Trash2 },
       // The handbook was reachable from the marketing site only, which is the
       // one place you are NOT standing when you get stuck using the product.
       { title: "Documentation", url: "/docs", icon: LifeBuoy },

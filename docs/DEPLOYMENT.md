@@ -1989,7 +1989,7 @@ one pass runs at a time (extra callers get `{"skipped": true}`).
     -H "Authorization: Bearer $BI_CRON_TOKEN"
   ```
 
-The scheduled pass also **re-validates Integration Hub credentials** (LLM
+The scheduled pass also **re-validates Integrations credentials** (LLM
 provider keys, the LLM gateway, n8n, Firecrawl) every 6 hours with the same
 cheap live tests used at save time, so a key revoked upstream surfaces as a
 "failing health checks" badge, an in-app notification and an audit event
@@ -2194,7 +2194,7 @@ is why the default is deliberately low.
 ### Data connection health and credential age
 
 The scheduled pass also re-validates **data connections** (warehouses and app
-sources), not just Integration Hub keys, using the product's own probes: a
+sources), not just Integrations keys, using the product's own probes: a
 `SELECT 1` through the real driver, or the same stream listing the "test"
 button makes. A warehouse password expiring on the customer's rotation policy
 otherwise surfaces as a dashboard erroring in front of someone.

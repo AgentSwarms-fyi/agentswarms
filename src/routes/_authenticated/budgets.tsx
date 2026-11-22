@@ -1,4 +1,4 @@
-import { PageEyebrow } from "@/components/PageEyebrow";
+import { PageHeader } from "@/components/PageHeader";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { loadBudgetData } from "@/lib/budgetLoad";
@@ -303,11 +303,10 @@ function BudgetsPage() {
   return (
     <div className="p-6 space-y-6 max-w-5xl">
       <div>
-        <PageEyebrow />
-        <h1 className="font-display text-3xl font-semibold tracking-tight">Budgets & Guardrails</h1>
-        <p className="text-muted-foreground mt-1">
-          Set spend caps and automated guardrails for your agent fleet.
-        </p>
+        <PageHeader
+          title="AI Budgets"
+          description="Set a monthly spend cap, spend alerts and per-agent limits for the AI calls you make."
+        />
         {/* Three budgets can stop a call and only one of them is on this page.
             Saying where the other two are is what keeps this from reading as
             the whole story, and the other screens from reading as copies. */}
@@ -334,7 +333,7 @@ function BudgetsPage() {
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <DollarSign className="h-4 w-4 text-primary" />
-            Monthly Hard Cap
+            Monthly hard cap
           </CardTitle>
           {/* What this cap DOES depends on the deployment, so say which.
               Claiming a hard stop that is switched off is the failure
@@ -412,14 +411,14 @@ function BudgetsPage() {
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Bell className="h-4 w-4 text-primary" />
-            Spend Alerts
+            Spend alerts
           </CardTitle>
           <p className="text-xs text-muted-foreground">Get notified before you hit your cap.</p>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <Label className="text-sm">Enable Spend Alerts</Label>
+              <Label className="text-sm">Enable spend alerts</Label>
               <p className="text-xs text-muted-foreground">
                 Email notifications at the selected thresholds.
               </p>
@@ -465,7 +464,7 @@ function BudgetsPage() {
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 text-primary" />
-            Agent-Specific Limits
+            Agent-specific limits
           </CardTitle>
           {/* FOUND IN R294. This read "Cap daily spend per agent and
               optionally auto-disable on limit reached", and nothing in the
@@ -499,8 +498,8 @@ function BudgetsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Agent</TableHead>
-                  <TableHead className="w-[180px]">Max Spend / Day</TableHead>
-                  <TableHead className="w-[200px] text-center">Auto-Disable on Limit</TableHead>
+                  <TableHead className="w-[180px]">Max spend / day</TableHead>
+                  <TableHead className="w-[200px] text-center">Auto-disable on limit</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

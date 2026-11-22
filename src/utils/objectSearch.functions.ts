@@ -16,66 +16,28 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { isObjectKindId, type ObjectEntry, type ObjectKindId } from "@/lib/objectKinds";
-import { readSharedDatasets } from "@/lib/sharedDatasetList";
-import { openAnalystTitle } from "@/utils/chat/sealedThreads.server";
 import { listLakehouseTablesForUser } from "@/utils/lakehouse/tables.server";
+import { indexExtrasFor, SEALED_NAMES } from "@/utils/objectSearch/extras.server";
 import {
   BY_ID_CAP,
-  INDEX_CAP,
   loadObjectIndex,
   readObjectsByIds,
   searchCappedKinds,
   type IndexResult,
 } from "@/utils/objectSearch/sources.server";
-import { sharedWithMe } from "@/utils/sheets/access.server";
 
 type Fail = { ok: false; error: string };
-
-/**
- * Kinds whose stored name is sealed under the owner's key, and how each is
- * opened. A saved analysis's title is sealed with its turns; the row was
- * already read with the caller's own token, so this opens only their own.
- */
-const SEALED_NAMES = {
-  analysis: (row: { id: string; name: string }) =>
-    openAnalystTitle({ id: row.id, title: row.name }),
-};
-
-/** Workbooks shared with `userId`. Shares are a server-only table. */
-async function sharedWorkbookEntries(userId: string): Promise<ObjectEntry[]> {
-  const shared = await sharedWithMe(userId);
-  if (!shared.size) return [];
-  const { data, error } = await supabaseAdmin
-    .from("sheet_workbooks")
-    .select("id, name, description, updated_at, user_id")
-    .in("id", [...shared.keys()])
-    .neq("user_id", userId)
-    .order("updated_at", { ascending: false })
-    .limit(INDEX_CAP);
-  if (error) throw new Error(error.message);
-  return (data ?? []).map((w) => ({
-    kind: "workbook" as const,
-    id: w.id,
-    name: w.name,
-    detail: w.description ?? undefined,
-    updatedAt: w.updated_at,
-    mine: false,
-  }));
-}
 
 export const objectIndex = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }): Promise<Fail | ({ ok: true } & IndexResult)> => {
     try {
-      const index = await loadObjectIndex(context.supabase, context.userId, {
-        // Masked shares are absent from a direct read of the table; the
-        // function returns every share. `null` means the database predates it.
-        sharedDatasets: async () => (await readSharedDatasets(context.supabase)) ?? [],
-        sharedWorkbooks: () => sharedWorkbookEntries(context.userId),
-        openName: SEALED_NAMES,
-      });
+      const index = await loadObjectIndex(
+        context.supabase,
+        context.userId,
+        indexExtrasFor(context.supabase, context.userId),
+      );
       return { ok: true, ...index };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : "Search could not load" };

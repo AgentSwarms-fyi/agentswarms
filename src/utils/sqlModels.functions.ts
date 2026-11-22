@@ -4,11 +4,15 @@
 // Every write goes through the service role with an explicit user_id pin, the
 // same idiom the rest of the platform uses; the audit trigger on the table
 // records every change under the owner's name, and a build audits its own row.
+// The one exception is moving a model to the trash, which acts as the caller.
 import { createServerFn } from "@tanstack/react-start";
+import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import type { Json } from "@/integrations/supabase/types";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
+import type { Database, Json } from "@/integrations/supabase/types";
+import { trashErrorText } from "@/lib/trash";
 import { auditEvent } from "@/utils/audit.server";
 import {
   buildPlan,
@@ -52,6 +56,25 @@ async function resolveCaller(accessToken: string): Promise<{ ok: true; userId: s
   const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
   if (error || !data?.user) return { ok: false, error: callerFailure(error, "Not signed in") };
   return { ok: true, userId: data.user.id };
+}
+
+/**
+ * A client that acts as the caller. Moving a model to the trash goes through
+ * it, never the service role: trash_object reads auth.uid() and moves only
+ * what that person owns.
+ */
+function userClient(accessToken: string) {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_PUBLISHABLE_KEY;
+  if (!url || !key) throw new Error("Server is missing Supabase configuration");
+  return createClient<Database>(
+    url,
+    key,
+    withNulSafeFetch({
+      auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: `Bearer ${accessToken}` } },
+    }),
+  );
 }
 
 const testSchema = z.object({
@@ -329,7 +352,7 @@ export const sqlModelSave = createServerFn({ method: "POST" })
   );
 
 /**
- * Delete a model's definition. The table it built is left where it is.
+ * Move a model's definition to the trash. The table it built is left where it is.
  *
  * Dropping it would delete data the owner may still be reading from a
  * dashboard, an agent or another tool, and a definition is not the data. The
@@ -339,25 +362,28 @@ export const sqlModelDelete = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
-  .handler(async ({ data }): Promise<Fail | { ok: true; dependants: string[] }> => {
-    const caller = await resolveCaller(data.access_token);
-    if (!caller.ok) return caller;
-    const models = await loadModels(caller.userId);
-    const target = models.find((m) => m.id === data.id);
-    if (!target) return { ok: false, error: "Model not found" };
-    // Say what breaks rather than refusing: the owner may be deleting exactly
-    // because they are about to rewrite the dependants.
-    const dependants = models
-      .filter((m) => m.id !== data.id && refNames(m.sql).includes(target.name))
-      .map((m) => m.name);
-    const { error } = await supabaseAdmin
-      .from("sql_models")
-      .delete()
-      .eq("id", data.id)
-      .eq("user_id", caller.userId);
-    if (error) return { ok: false, error: error.message };
-    return { ok: true, dependants };
-  });
+  .handler(
+    async ({ data }): Promise<Fail | { ok: true; dependants: string[]; trashId: string }> => {
+      const caller = await resolveCaller(data.access_token);
+      if (!caller.ok) return caller;
+      const models = await loadModels(caller.userId);
+      const target = models.find((m) => m.id === data.id);
+      if (!target) return { ok: false, error: "Model not found" };
+      // Say what breaks rather than refusing: the owner may be deleting exactly
+      // because they are about to rewrite the dependants.
+      const dependants = models
+        .filter((m) => m.id !== data.id && refNames(m.sql).includes(target.name))
+        .map((m) => m.name);
+      const { data: trashId, error } = await userClient(data.access_token).rpc("trash_object", {
+        p_kind: "sql_model",
+        p_id: data.id,
+      });
+      if (error || typeof trashId !== "string") {
+        return { ok: false, error: trashErrorText(error, "move") };
+      }
+      return { ok: true, dependants, trashId };
+    },
+  );
 
 /** Build now: the named models with their ancestors, or everything active. */
 export const sqlModelsBuild = createServerFn({ method: "POST" })

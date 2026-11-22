@@ -194,8 +194,8 @@ function buildEncryptedPayload(
       const accessKeyId = trim(config.access_key_id);
       const secretAccessKey = trim(config.secret_access_key);
       if (!region) return { error: "AWS region is required" };
-      if (!accessKeyId) return { error: "Access Key ID is required" };
-      if (!secretAccessKey) return { error: "Secret Access Key is required" };
+      if (!accessKeyId) return { error: "Access key ID is required" };
+      if (!secretAccessKey) return { error: "Secret access key is required" };
       return {
         data: {
           provider: "bedrock",
@@ -215,7 +215,7 @@ function buildEncryptedPayload(
       const endpoint = trim(config.endpoint);
       const apiKey = trim(config.api_key);
       if (!endpoint) return { error: "Azure endpoint URL is required" };
-      if (!apiKey) return { error: "API Key is required" };
+      if (!apiKey) return { error: "API key is required" };
       // deployment_name is stored as defaultModel so the agent picker can
       // use it as the default — the Azure adapter takes the model id as
       // the deployment name directly.
@@ -238,9 +238,9 @@ function buildEncryptedPayload(
       const projectId = trim(config.project_id);
       const location = trim(config.region);
       const serviceAccountJson = trim(config.service_account_json);
-      if (!projectId) return { error: "GCP Project ID is required" };
+      if (!projectId) return { error: "GCP project ID is required" };
       if (!location) return { error: "Region is required" };
-      if (!serviceAccountJson) return { error: "Service Account JSON is required" };
+      if (!serviceAccountJson) return { error: "Service account JSON is required" };
       return {
         data: {
           provider: "vertex",
@@ -266,8 +266,8 @@ function buildEncryptedPayload(
       if (!compartmentId) return { error: "Compartment OCID is required" };
       if (!tenancyOcid) return { error: "Tenancy OCID is required" };
       if (!userOcid) return { error: "User OCID is required" };
-      if (!fingerprint) return { error: "API Key Fingerprint is required" };
-      if (!privateKeyPem) return { error: "Private Key (PEM) is required" };
+      if (!fingerprint) return { error: "API key fingerprint is required" };
+      if (!privateKeyPem) return { error: "Private key (PEM) is required" };
       return {
         data: {
           provider: "oci_genai",
@@ -358,10 +358,10 @@ const LLM_PROVIDERS = [
     description:
       "⭐ Generous free tier from NVIDIA — sign up at build.nvidia.com to get an `nvapi-...` key with thousands of free monthly requests. OpenAI-compatible endpoint serving Meta Llama 3.3, NVIDIA Nemotron 49B/70B, DeepSeek R1, Qwen QwQ, Mixtral, Gemma 3 and more. Perfect for learning agentic AI without burning credits.",
     fields: [
-      { key: "api_key", label: "API Key", type: "password", placeholder: "nvapi-..." },
+      { key: "api_key", label: "API key", type: "password", placeholder: "nvapi-..." },
       {
         key: "base_url",
-        label: "Custom Base URL (optional)",
+        label: "Custom base URL (optional)",
         type: "text",
         placeholder: "https://integrate.api.nvidia.com/v1",
       },
@@ -376,10 +376,10 @@ const LLM_PROVIDERS = [
     description:
       "One key, 200+ models from OpenAI, Anthropic, Google, Meta, Mistral, DeepSeek, xAI and more. If your admin has configured a shared OpenRouter key, agents already work without connecting your own — add a key here to use your own account/billing instead. ⭐ Includes openrouter/free — a smart router that picks a free model at random with 200K context, perfect for experimentation and learning at zero cost.",
     fields: [
-      { key: "api_key", label: "API Key", type: "password", placeholder: "sk-or-v1-..." },
+      { key: "api_key", label: "API key", type: "password", placeholder: "sk-or-v1-..." },
       {
         key: "base_url",
-        label: "Custom Base URL (optional)",
+        label: "Custom base URL (optional)",
         type: "text",
         placeholder: "https://openrouter.ai/api/v1",
       },
@@ -391,7 +391,7 @@ const LLM_PROVIDERS = [
       },
       {
         key: "app_title",
-        label: "App Title (optional, shown in OpenRouter analytics)",
+        label: "App title (optional, shown in OpenRouter analytics)",
         type: "text",
         placeholder: "AgentSwarms",
       },
@@ -403,7 +403,7 @@ const LLM_PROVIDERS = [
     icon: Brain,
     description: "The GPT-5 and GPT-4o families, o-series reasoning, Whisper and image models.",
     fields: [
-      { key: "api_key", label: "API Key", type: "password", placeholder: "sk-..." },
+      { key: "api_key", label: "API key", type: "password", placeholder: "sk-..." },
       {
         key: "organization_id",
         label: "Organization ID (optional)",
@@ -412,7 +412,7 @@ const LLM_PROVIDERS = [
       },
       {
         key: "base_url",
-        label: "Custom Base URL (optional)",
+        label: "Custom base URL (optional)",
         type: "text",
         placeholder: "https://api.openai.com/v1",
       },
@@ -424,14 +424,14 @@ const LLM_PROVIDERS = [
     icon: Brain,
     description: "The Claude Opus, Sonnet and Haiku families via your Anthropic API key.",
     fields: [
-      { key: "api_key", label: "API Key", type: "password", placeholder: "sk-ant-..." },
+      { key: "api_key", label: "API key", type: "password", placeholder: "sk-ant-..." },
       {
         key: "base_url",
-        label: "Custom Base URL (optional)",
+        label: "Custom base URL (optional)",
         type: "text",
         placeholder: "https://api.anthropic.com/v1/",
       },
-      { key: "anthropic_version", label: "API Version", type: "text", placeholder: "2023-06-01" },
+      { key: "anthropic_version", label: "API version", type: "text", placeholder: "2023-06-01" },
     ],
   },
   {
@@ -440,10 +440,10 @@ const LLM_PROVIDERS = [
     icon: Globe,
     description: "Gemini via Google AI Studio native API.",
     fields: [
-      { key: "api_key", label: "API Key", type: "password", placeholder: "AQ... or AIza..." },
+      { key: "api_key", label: "API key", type: "password", placeholder: "AQ... or AIza..." },
       {
         key: "project_id",
-        label: "GCP Project ID (optional)",
+        label: "GCP project ID (optional)",
         type: "text",
         placeholder: "my-project-id",
       },
@@ -455,8 +455,8 @@ const LLM_PROVIDERS = [
     icon: Brain,
     description: "The Grok family from xAI, full-size and Mini.",
     fields: [
-      { key: "api_key", label: "API Key", type: "password", placeholder: "xai-..." },
-      { key: "base_url", label: "API Base URL", type: "text", placeholder: "https://api.x.ai/v1" },
+      { key: "api_key", label: "API key", type: "password", placeholder: "xai-..." },
+      { key: "base_url", label: "API base URL", type: "text", placeholder: "https://api.x.ai/v1" },
     ],
   },
   {
@@ -466,10 +466,10 @@ const LLM_PROVIDERS = [
     description:
       "Ultra-fast LPU inference for Llama 3.3, Mixtral, Gemma 2, DeepSeek R1, Qwen 2.5 and more — often 500+ tokens/sec.",
     fields: [
-      { key: "api_key", label: "API Key", type: "password", placeholder: "gsk_..." },
+      { key: "api_key", label: "API key", type: "password", placeholder: "gsk_..." },
       {
         key: "base_url",
-        label: "Custom Base URL (optional)",
+        label: "Custom base URL (optional)",
         type: "text",
         placeholder: "https://api.groq.com/openai/v1",
       },
@@ -482,10 +482,10 @@ const LLM_PROVIDERS = [
     description:
       "Qwen Max, Plus, Turbo and Qwen2.5 family (incl. Coder 32B) via Alibaba DashScope's OpenAI-compatible endpoint. Get a key at bailian.console.aliyun.com.",
     fields: [
-      { key: "api_key", label: "API Key", type: "password", placeholder: "sk-..." },
+      { key: "api_key", label: "API key", type: "password", placeholder: "sk-..." },
       {
         key: "base_url",
-        label: "Custom Base URL (optional)",
+        label: "Custom base URL (optional)",
         type: "text",
         placeholder:
           "https://dashscope-intl.aliyuncs.com/compatible-mode/v1 (use dashscope.aliyuncs.com for mainland China)",
@@ -517,19 +517,19 @@ const LLM_PROVIDERS = [
     fields: [
       {
         key: "base_url",
-        label: "Server Base URL",
+        label: "Server base URL",
         type: "text",
         placeholder: "http://my-vllm:8000/v1",
       },
       {
         key: "api_key",
-        label: "API Key (only if vLLM was started with --api-key)",
+        label: "API key (only if vLLM was started with --api-key)",
         type: "password",
         placeholder: "",
       },
       {
         key: "served_model_name",
-        label: "Served Model Name (optional alias)",
+        label: "Served model name (optional alias)",
         type: "text",
         placeholder: "meta-llama/Meta-Llama-3.1-8B-Instruct",
       },
@@ -544,7 +544,7 @@ const LLM_PROVIDERS = [
     fields: [
       {
         key: "region",
-        label: "AWS Region (the workspace's)",
+        label: "AWS region (the workspace's)",
         type: "text",
         placeholder: "us-west-2",
       },
@@ -556,15 +556,15 @@ const LLM_PROVIDERS = [
       },
       {
         key: "api_key",
-        label: "API Key (or use access keys below)",
+        label: "API key (or use access keys below)",
         type: "password",
         placeholder: "",
       },
-      { key: "access_key_id", label: "Access Key ID", type: "password", placeholder: "AKIA..." },
-      { key: "secret_access_key", label: "Secret Access Key", type: "password", placeholder: "" },
+      { key: "access_key_id", label: "Access key ID", type: "password", placeholder: "AKIA..." },
+      { key: "secret_access_key", label: "Secret access key", type: "password", placeholder: "" },
       {
         key: "session_token",
-        label: "Session Token (optional)",
+        label: "Session token (optional)",
         type: "password",
         placeholder: "",
       },
@@ -582,12 +582,12 @@ const LLM_PROVIDERS = [
     icon: Cloud,
     description: "Access Claude, Titan, Llama, and more through AWS.",
     fields: [
-      { key: "region", label: "AWS Region", type: "text", placeholder: "us-east-1" },
-      { key: "access_key_id", label: "Access Key ID", type: "password", placeholder: "AKIA..." },
-      { key: "secret_access_key", label: "Secret Access Key", type: "password", placeholder: "" },
+      { key: "region", label: "AWS region", type: "text", placeholder: "us-east-1" },
+      { key: "access_key_id", label: "Access key ID", type: "password", placeholder: "AKIA..." },
+      { key: "secret_access_key", label: "Secret access key", type: "password", placeholder: "" },
       {
         key: "session_token",
-        label: "Session Token (optional)",
+        label: "Session token (optional)",
         type: "password",
         placeholder: "",
       },
@@ -607,13 +607,13 @@ const LLM_PROVIDERS = [
     fields: [
       {
         key: "endpoint",
-        label: "Azure Endpoint URL",
+        label: "Azure endpoint URL",
         type: "text",
         placeholder: "https://myresource.openai.azure.com",
       },
-      { key: "api_key", label: "API Key", type: "password", placeholder: "" },
-      { key: "deployment_name", label: "Deployment Name", type: "text", placeholder: "gpt-4o" },
-      { key: "api_version", label: "API Version", type: "text", placeholder: "2024-02-15-preview" },
+      { key: "api_key", label: "API key", type: "password", placeholder: "" },
+      { key: "deployment_name", label: "Deployment name", type: "text", placeholder: "gpt-4o" },
+      { key: "api_version", label: "API version", type: "text", placeholder: "2024-02-15-preview" },
     ],
   },
   {
@@ -622,11 +622,11 @@ const LLM_PROVIDERS = [
     icon: Cloud,
     description: "Enterprise Google AI with VPC, IAM, and Gemini models.",
     fields: [
-      { key: "project_id", label: "GCP Project ID", type: "text", placeholder: "my-project-123" },
+      { key: "project_id", label: "GCP project ID", type: "text", placeholder: "my-project-123" },
       { key: "region", label: "Region", type: "text", placeholder: "us-central1" },
       {
         key: "service_account_json",
-        label: "Service Account Key (JSON)",
+        label: "Service account key (JSON)",
         type: "password",
         placeholder: '{"type": "service_account", ...}',
       },
@@ -665,13 +665,13 @@ const LLM_PROVIDERS = [
       { key: "user_ocid", label: "User OCID", type: "text", placeholder: "ocid1.user.oc1.." },
       {
         key: "fingerprint",
-        label: "API Key Fingerprint",
+        label: "API key fingerprint",
         type: "text",
         placeholder: "aa:bb:cc:...",
       },
       {
         key: "private_key",
-        label: "Private Key (PEM)",
+        label: "Private key (PEM)",
         type: "password",
         placeholder: "-----BEGIN PRIVATE KEY-----",
       },
@@ -1631,7 +1631,7 @@ function ProviderConfigDialog({
             ) : provider.id === "ollama" ? (
               "Connect"
             ) : willTest ? (
-              "Test & Connect"
+              "Test & connect"
             ) : (
               "Save"
             )}

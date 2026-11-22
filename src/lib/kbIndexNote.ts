@@ -23,7 +23,7 @@ export function indexNote(outcome: EmbedOutcome): string | null {
   const r = outcome.ok;
   if (r?.skipped) {
     return r.reason === "no_api_key"
-      ? "Not indexed: no embedding key is set (RAG Settings), so it is found by keyword only until one is."
+      ? "Not indexed: no embedding key is set (RAG settings), so it is found by keyword only until one is."
       : "Not indexed: the embed step was skipped, so it is found by keyword only.";
   }
   const warnings = r?.warnings ?? [];

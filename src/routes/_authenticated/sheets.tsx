@@ -9,7 +9,7 @@
 // not opened since previews began, one this page asks the server to build).
 import { FavouritesFilter } from "@/components/FavouritesFilter";
 import { useFavouritesFilter } from "@/hooks/use-favourites-filter";
-import { PageEyebrow } from "@/components/PageEyebrow";
+import { PageHeader } from "@/components/PageHeader";
 import { StarButton } from "@/components/StarButton";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
@@ -40,7 +40,9 @@ import { ImportFileDialog } from "@/components/sheets/ImportFileDialog";
 import { WorkbookThumb } from "@/components/sheets/WorkbookThumb";
 import { useAuth } from "@/hooks/use-auth";
 import { usePageIntent } from "@/hooks/use-page-intent";
+import { announceTrashed } from "@/hooks/use-trash";
 import { readPageIntent } from "@/lib/pageIntent";
+import { RESTORE_HINT } from "@/lib/trash";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -342,19 +344,19 @@ function SheetsPage() {
   async function remove(wb: WorkbookSummary) {
     if (!token) return;
     const ok = await confirmAsk({
-      title: `Delete "${wb.name}"?`,
-      body: `Its ${wb.sheet_count} sheet(s) go with it. Tables it saved to the lakehouse stay where they are.`,
-      actionLabel: "Delete workbook",
+      title: `Move “${wb.name}” to the trash?`,
+      body: `Its ${wb.sheet_count} sheet(s) go with it. Tables it saved to the lakehouse stay where they are. ${RESTORE_HINT}`,
+      actionLabel: "Move to trash",
     });
     if (!ok) return;
     setBusy(wb.id);
     try {
       const r = await deleteFn({ data: { access_token: token, id: wb.id } });
-      if (!r.ok) return toast.error(`"${wb.name}" was not deleted: ${r.error}`);
-      toast.success(`Deleted "${wb.name}"`);
+      if (!r.ok) return toast.error(r.error);
+      announceTrashed(wb.name, r.trashId, () => void reload());
       await reload();
     } catch (e) {
-      toast.error(`"${wb.name}" was not deleted: ${(e as Error).message}`);
+      toast.error(`“${wb.name}” was not moved to the trash: ${(e as Error).message}`);
     } finally {
       setBusy(null);
     }
@@ -408,30 +410,26 @@ function SheetsPage() {
 
   return (
     <div className="mx-auto w-full max-w-[1600px] space-y-8 p-4 sm:p-6 lg:p-8">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <PageEyebrow />
-          <h1 className="font-display text-3xl font-semibold tracking-tight">Sheets</h1>
-          <p className="mt-1.5 max-w-2xl text-balance text-muted-foreground">
-            Excel formulas over grid cells, and table sheets whose rows stay in the lakehouse —
-            sorted, filtered and summed where the data lives.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={() => {
-              setSample(null);
-              setImportOpen(true);
-            }}
-          >
-            <FileUp className="mr-1.5 h-4 w-4" /> Import
-          </Button>
-          <Button onClick={() => setNewOpen(true)}>
-            <Plus className="mr-1.5 h-4 w-4" /> New workbook
-          </Button>
-        </div>
-      </header>
+      <PageHeader
+        title="Sheets"
+        description="Use Excel formulas in grid sheets, or table sheets whose rows stay in the lakehouse."
+        actions={
+          <>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setSample(null);
+                setImportOpen(true);
+              }}
+            >
+              <FileUp className="mr-1.5 h-4 w-4" /> Import
+            </Button>
+            <Button onClick={() => setNewOpen(true)}>
+              <Plus className="mr-1.5 h-4 w-4" /> New workbook
+            </Button>
+          </>
+        }
+      />
 
       <section aria-labelledby="start-heading" className="space-y-3">
         <h2

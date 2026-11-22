@@ -10,7 +10,9 @@ const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElemen
     <div
       ref={ref}
       className={cn(
-        "surface-raised rounded-xl border bg-card text-card-foreground shadow",
+        // A hairline border, no shadow: on a light page a card is set apart
+        // by its edge, and a grid of shadowed cards reads as noise.
+        "surface-raised rounded-lg border bg-card text-card-foreground",
         className,
       )}
       {...props}

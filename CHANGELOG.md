@@ -16,6 +16,14 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Apply migration `20261123000000`** (R519) for a dataset's owner to see
+  who else can read it. Until then the dataset page's Access tab says it
+  needs the update; everything else on the page works.
+- **Apply migrations `20261121000000` and `20261122000000`** (R515, R516),
+  for example with `npx supabase db push --remote`, for favourites and the
+  trash. Until then the app says the database is behind and names the
+  command, the stars are left out, and deleting from a list page says the
+  trash is not set up yet instead of deleting.
 - **Apply migrations `20261118000000` and `20261119000000`** (R509, R510),
   for example with `npx supabase db push --remote`, to send reports and
   dashboards on a schedule. Until then the Schedule dialog says which
@@ -55,6 +63,29 @@ development branch and may be ahead of the latest tag.
 
 ### Changed
 
+- **A calmer look** (R517). Every page opens the same way: where you are, a
+  title that matches its name in the menu, one sentence on what the page is
+  for, and its own buttons on the right. Titles were in three sizes and two
+  typefaces, some with an icon. Cards and buttons are flat with a fine
+  border: no coloured glow, no lift on hover, no shadow under the main
+  button. The small label above each title is grey, not the accent colour.
+  Agent and dashboard cards mark each one with a soft tint instead of a
+  bright gradient. Counts on the inbox and the bell use the accent, not red,
+  and the approvals count stops at 99+. The note about an unsaved session is
+  one slim grey line ("You were on Dashboard 7 hours ago. Go back there")
+  instead of a coloured bar with two buttons that did the same thing. In
+  Agent Chat the agent's mark is a soft tint, the send button is the plain
+  main button, and the conversation sits on the page colour with no glow
+  behind it. On a running swarm the step at work has an amber edge and a
+  pulsing dot; the card no longer pulses, glows and grows, so its name stays
+  readable. Messages say what happened without exclamation marks or
+  "successfully" ("Password changed"). Pages
+  renamed to match the menu: Integration Hub → Integrations, Budgets &
+  Guardrails → AI Budgets, MCP Integrations → MCP Servers, Knowledge Bases →
+  Knowledge Base, Swarm Observability → Swarm Traces, Swarms → Agent Swarms,
+  Prompt Comparison Lab → Prompt Compare, Identity & Access Management → IAM,
+  Account Settings → Account.
+- **Deleting moves things to the trash** (R516). See Added.
 - **Model Registry is now AI Model Catalog** (R514), under Integrations. It
   lists the models other people host; the models you train are under Data
   science → ML Models. Search still finds it by its old name, and its address
@@ -233,6 +264,51 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Runs: everything that ran for you, in one list** (R520). **Overview →
+  Runs** (G then R) lists pipeline, workflow and swarm runs, scheduled report
+  and dashboard emails, model training and batch predictions, notebook runs,
+  SQL model runs, data monitor checks and evaluations, newest first and
+  grouped by day, in one set of words: each says how it was started, how
+  long it took, what it cost where known, and why it failed in one line.
+  **Needs a look** shows what failed, partly failed or alerted, **Not finished**
+  what is queued, running or waiting for an approval; **Ask about
+  this** hands a failure to the assistant. Scheduled work that keeps only
+  its latest result (data-prep refreshes, scheduled analyses, dashboard
+  refreshes) is listed and marked so. The Dashboard's "Recent runs" card,
+  which listed model calls, is now called **Recent model calls**.
+- **A page for every dataset** (R519). Search, My work and the catalog's
+  drawer open a dataset on a page of its own: one plain verdict on whether
+  it can be trusted today and the facts behind it (when its rows were last
+  loaded, whether its checks pass, where its rows come from, what is built
+  on it), a sample, what each column holds, its checks and versions, how its
+  columns changed, and who can read it. The owner now sees every grant on
+  their dataset, with the rows it allows and the columns it hides; someone
+  it is shared with sees whether their access leaves anything out, never
+  what. Deleting a dataset and its page read one lookup of what uses it,
+  which now also counts semantic models linked by id, AI analysts and
+  agents.
+- **An assistant beside every page** (R518). **Assistant** in the top bar
+  (Ctrl/⌘ J) opens a panel that knows the page you are on and the thing open
+  on it. It answers how-to questions from this handbook and links the
+  section it used, finds your own things by name and links them, and points
+  you to the page whose own AI does a piece of work (Ask AI in a workbook,
+  the AI analyst tab on a dashboard). It reads and explains; it changes
+  nothing. It runs on the workspace's default model under your model rules
+  and AI budget. The conversation follows you between pages and is
+  forgotten when the tab closes.
+- **Trash with restore** (R516). Deleting an agent, swarm, dashboard, report,
+  workbook, notebook, workflow, prompt, skill, evaluation set, semantic
+  model, SQL model, data monitor, AI analyst or embed moves it to
+  **Overview → Trash** for 30 days, with its versions, schedules, run history
+  and shares. The message that says so has an **Undo**; the Trash page
+  restores it with the same address, deletes one thing for good, or empties
+  the trash. After 30 days an entry is deleted by itself. A restore that
+  meets a name or link taken since says so and keeps the entry. Datasets,
+  knowledge bases, ML models, MCP projects and connections, ETL pipelines and
+  lakehouse tables are still deleted at once: each also removes something
+  outside the database. The copy is held where no page can read it, and only
+  its owner can restore it. Every delete on these pages now checks it
+  happened: one refused by the database used to report success.
 - **My work: recent, favourites and shared with you** (R515). A new page,
   **Overview → My work**, lists your things from every page in one place:
   what you opened and changed last, what you starred, and what other people
@@ -431,6 +507,24 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **A link followed as the tab went to the background never changed the
+  page** (fixed in R520). The browser refuses to animate a page change in a
+  hidden document, and the app waited for that animation: the address
+  changed and the old page stayed. A page change in a hidden tab now happens
+  without the animation.
+- **43 icon-only buttons had no name** (fixed in R520): a screen reader read
+  them as "button" and there was no tooltip. Each now says what pressing it
+  does ("Delete Q3 prompt", "Remove this filter"), and a delete icon is grey
+  until pointed at instead of always red.
+- **Empty trash said "1 thing and everything that belonged to them"** (fixed
+  in R520); one thing is "it".
+- **Seven list pages were wider than a phone's screen** (fixed in R518).
+  On Agent Builder, Integrations, Knowledge Base, MCP Servers, AI Model
+  Catalog, Prompt Library and Skills, one card with a long model id set the
+  width of the whole page, which ran off the right edge with its buttons. A
+  card grid now fits the screen below its first breakpoint everywhere.
+- **The handbook's search showed some headings with their markup** (fixed in
+  R518): "A table&amp;apos;s history" instead of "A table's history".
 - **A search on Agent Builder that matched nothing said nothing** (fixed in
   R515). It drew an empty grid, which looked like a page still loading. It
   now says no agents match what was typed.

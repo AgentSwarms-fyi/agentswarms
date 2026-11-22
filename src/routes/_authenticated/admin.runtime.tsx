@@ -1,8 +1,8 @@
 // /admin/runtime — dedicated superadmin page for the Developer-workspace server
 // runtime (enable, tune limits/egress, grant access). Separate from IAM.
-import { PageEyebrow } from "@/components/PageEyebrow";
+import { PageHeader } from "@/components/PageHeader";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Server, ShieldAlert } from "lucide-react";
+import { ShieldAlert } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
@@ -59,21 +59,18 @@ function AdminRuntimePage() {
 
   return (
     <div className="space-y-6 p-6">
-      <div>
-        <PageEyebrow />
-        <h1 className="flex items-center gap-2 font-display text-2xl font-semibold tracking-tight">
-          <Server className="h-6 w-6 text-primary" /> Developer runtime
-        </h1>
-        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-          Enable and configure the server-side Python runtime for the{" "}
-          <Link to="/notebooks" className="text-primary hover:underline">
-            Developer workspace
-          </Link>{" "}
-          — real CPython kernels with <code>pip install</code> and the full frameworks, sandboxed
-          and governed. Off by default: until you enable it, notebooks show a short &ldquo;runtime
-          required&rdquo; prompt instead of running.
-        </p>
-      </div>
+      <PageHeader
+        title="Developer runtime"
+        description={
+          <>
+            Turn on and set up the sandboxed Python runtime that runs notebooks in the{" "}
+            <Link to="/notebooks" className="text-primary hover:underline">
+              Developer workspace
+            </Link>
+            ; it stays off until you do.
+          </>
+        }
+      />
       <div className="max-w-4xl">
         <RuntimeTab
           token={token!}

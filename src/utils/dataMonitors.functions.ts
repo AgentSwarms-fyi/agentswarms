@@ -4,11 +4,15 @@
 //
 // Every write goes through the service role pinned to the caller's user id
 // (the idiom the ML schedules use); the table's trigger audits definition
-// changes, and the runner audits alerts and resolutions.
+// changes, and the runner audits alerts and resolutions. Moving a monitor to
+// the trash is the exception: it acts as the caller.
 import { createServerFn } from "@tanstack/react-start";
+import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import type { Json } from "@/integrations/supabase/types";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
+import type { Database, Json } from "@/integrations/supabase/types";
+import { trashErrorText } from "@/lib/trash";
 import { auditEvent } from "@/utils/audit.server";
 import {
   MONITOR_KINDS,
@@ -35,6 +39,21 @@ async function resolveCaller(accessToken: string): Promise<{ ok: true; userId: s
   const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
   if (error || !data?.user) return { ok: false, error: callerFailure(error, "Not signed in") };
   return { ok: true, userId: data.user.id };
+}
+
+/** A client that acts as the caller, for moving a monitor to the trash. */
+function userClient(accessToken: string) {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_PUBLISHABLE_KEY;
+  if (!url || !key) throw new Error("Server is missing Supabase configuration");
+  return createClient<Database>(
+    url,
+    key,
+    withNulSafeFetch({
+      auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: `Bearer ${accessToken}` } },
+    }),
+  );
 }
 
 export type MonitorView = DataMonitorRow & {
@@ -348,17 +367,19 @@ export const dataMonitorDelete = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
     z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
-  .handler(async ({ data }): Promise<Fail | { ok: true }> => {
+  .handler(async ({ data }): Promise<Fail | { ok: true; trashId: string }> => {
     const caller = await resolveCaller(data.access_token);
     if (!caller.ok) return caller;
-    const { error, count } = await supabaseAdmin
-      .from("data_monitors")
-      .delete({ count: "exact" })
-      .eq("id", data.id)
-      .eq("user_id", caller.userId);
-    if (error) return { ok: false, error: error.message };
-    if (!count) return { ok: false, error: "Monitor not found" };
-    return { ok: true };
+    // As the caller, never the service role: trash_object moves only what
+    // auth.uid() owns, and says so when it is not here or not theirs.
+    const { data: trashId, error } = await userClient(data.access_token).rpc("trash_object", {
+      p_kind: "data_monitor",
+      p_id: data.id,
+    });
+    if (error || typeof trashId !== "string") {
+      return { ok: false, error: trashErrorText(error, "move") };
+    }
+    return { ok: true, trashId };
   });
 
 export const dataMonitorRunNow = createServerFn({ method: "POST" })

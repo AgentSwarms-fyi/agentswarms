@@ -151,6 +151,8 @@ export function OverviewTab() {
               size="sm"
               variant="ghost"
               className="h-7 px-2"
+              aria-label="Measure the fit to the data again"
+              title="Refresh"
               onClick={() => void loadProfile()}
               disabled={loading}
             >

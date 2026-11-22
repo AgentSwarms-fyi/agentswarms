@@ -18,7 +18,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
   {
     "route": "/docs/account",
     "title": "Account",
-    "description": "Account Settings at /account covers your identity and credentials. Spend controls live separately at /budgets.",
+    "description": "The Account page at /account covers your identity and credentials. Spend controls live separately at /budgets.",
     "terms": [],
     "headings": [
       {
@@ -46,7 +46,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
   {
     "route": "/docs/agents",
     "title": "Agent Builder",
-    "description": "A complete reference for every field on an agent. Open Build → Agent Builder → New Agent; the form has six tabs, and nothing is saved until you press Save.",
+    "description": "A complete reference for every field on an agent. Open Build → Agent Builder → New agent; the form has six tabs, and nothing is saved until you press Save.",
     "terms": [
       "SQL_TOOL_SCHEMA_MAX_CHARS",
       "calculator",
@@ -284,7 +284,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "run",
       "runId",
       "scopes",
-      "sha256=&lt;hex&gt;",
+      "sha256=<hex>",
       "sk_swarm_…",
       "swarm.run.completed",
       "user",
@@ -730,7 +730,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       },
       {
         "id": "design-cards",
-        "text": "A widget&apos;s appearance",
+        "text": "A widget's appearance",
         "level": 3
       },
       {
@@ -905,7 +905,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       },
       {
         "id": "report-reuse",
-        "text": "Reusing a dashboard&apos;s widgets",
+        "text": "Reusing a dashboard's widgets",
         "level": 3
       },
       {
@@ -915,7 +915,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       },
       {
         "id": "report-queries",
-        "text": "A block&apos;s own query",
+        "text": "A block's own query",
         "level": 3
       },
       {
@@ -1159,7 +1159,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       },
       {
         "id": "running",
-        "text": "What you&rsquo;re running",
+        "text": "What you're running",
         "level": 2
       },
       {
@@ -1169,7 +1169,12 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       },
       {
         "id": "recent-runs",
-        "text": "Recent runs",
+        "text": "Recent model calls",
+        "level": 2
+      },
+      {
+        "id": "runs",
+        "text": "Runs",
         "level": 2
       },
       {
@@ -1201,6 +1206,16 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "what-is-kept",
         "text": "What is kept, and who can read it",
         "level": 3
+      },
+      {
+        "id": "assistant",
+        "text": "The assistant",
+        "level": 2
+      },
+      {
+        "id": "trash",
+        "text": "Trash",
+        "level": 2
       },
       {
         "id": "first-run",
@@ -1367,6 +1382,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       ".hoodie/",
       ".privatelink",
       ".xlsx",
+      "/data-sql/<id>",
       "2024-03-01",
       "ANALYZE",
       "AwsDataCatalog",
@@ -1419,8 +1435,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "products",
       "project_id",
       "read_orc",
-      "read_orc(&apos;s3://…&apos;)",
-      "read_parquet(&apos;s3://…&apos;)",
+      "read_orc('s3://…')",
+      "read_parquet('s3://…')",
       "region",
       "require",
       "role",
@@ -1507,6 +1523,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "catalog",
         "text": "The catalog",
+        "level": 2
+      },
+      {
+        "id": "dataset-page",
+        "text": "A dataset's page",
         "level": 2
       },
       {
@@ -1656,7 +1677,6 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "Web embedding",
     "description": "Publish an agent, a swarm or a dashboard to your own site — where the visitors are anonymous, which changes what you must think about.",
     "terms": [
-      "&lt;AgentChat&gt;",
       "--as-accent",
       "--as-accent-fg",
       "--as-bg",
@@ -1666,11 +1686,12 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "--as-muted",
       "--as-radius",
       "/embed/agent/",
-      "/embed/agent/&lt;key&gt;",
-      "/embed/analyst/&lt;key&gt;",
+      "/embed/agent/<key>",
+      "/embed/analyst/<key>",
       "/embed/bi/",
-      "/embed/bi/&lt;key&gt;",
-      "/embed/swarm/&lt;key&gt;",
+      "/embed/bi/<key>",
+      "/embed/swarm/<key>",
+      "<AgentChat>",
       "?vt=…",
       "ENFORCE_BUDGET_CAP",
       "Origin",
@@ -2332,7 +2353,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
   {
     "route": "/docs/integrations",
     "title": "Integrations",
-    "description": "The Integration Hub at /integrations connects AgentSwarms to outside model providers and automation; /mcp connects it to tool servers. Keys are stored server-side and used only by the runtime — they are never sent back to the browser.",
+    "description": "The Integrations page at /integrations connects AgentSwarms to outside model providers and automation; /mcp connects it to tool servers. Keys are stored server-side and used only by the runtime — they are never sent back to the browser.",
     "terms": [
       "/api/slack/command",
       "/ask",
@@ -2356,7 +2377,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       },
       {
         "id": "gateway",
-        "text": "LLM Gateway",
+        "text": "LLM gateway",
         "level": 2
       },
       {
@@ -2822,7 +2843,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       },
       {
         "id": "history",
-        "text": "A table&apos;s history and what changed",
+        "text": "A table's history and what changed",
         "level": 2
       },
       {
@@ -2862,7 +2883,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       },
       {
         "id": "customer-keys",
-        "text": "Files under a customer&apos;s key",
+        "text": "Files under a customer's key",
         "level": 3
       },
       {
@@ -2922,7 +2943,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "MCP servers",
     "description": "The Model Context Protocol is a standard way for a system to expose its tools to any agent. Connect one and its tools become available to yours.",
     "terms": [
-      "/api/mcp/s/&lt;slug&gt;",
+      "/api/mcp/s/<slug>",
       "404",
       "405",
       "@mcp.tool",
@@ -3084,7 +3105,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       },
       {
         "id": "use-case-forecast",
-        "text": "Next quarter&apos;s revenue, on the dashboard",
+        "text": "Next quarter's revenue, on the dashboard",
         "level": 3
       },
       {
@@ -3183,7 +3204,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "predict",
       "predict_proba",
       "prediction",
-      "proba_&lt;class&gt;",
+      "proba_<class>",
       "probability",
       "read",
       "redis://:PASSWORD@host:6379",
@@ -4234,7 +4255,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "description": "Deploy AgentSwarms on AWS with Terraform: VMs behind a load balancer, Amazon ECS, or Amazon EKS, with RDS, S3, HTTPS and sandboxes kept apart. Rehearse it locally on AWS Emulator first.",
     "terms": [
       "*.cloudfront.net",
-      "/agentswarms/&lt;name&gt;/",
+      "/agentswarms/<name>/",
       "/api/health/ready?scope=local",
       "APP_ROLE=analytics",
       "EARLY_HEADERS_AFTER_MS",
@@ -4599,7 +4620,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "Install & deploy · Kubernetes",
     "description": "Running the platform on Kubernetes: what each manifest is for, then Amazon EKS, Google GKE, Azure AKS and Oracle OKE step by step, and how to verify any of them.",
     "terms": [
-      "&quot;https://…&quot;",
+      "\"https://…\"",
       "./docker/notebook-runtime",
       "./services/notebook-gateway",
       ".env",
@@ -5314,16 +5335,16 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "description": "A metric defined once and reused everywhere. It exists so that two people asking the same question of the same data cannot get two different answers.",
     "terms": [
       "!=",
-      "&gt;",
-      "&gt;=",
-      "&lt;",
-      "&lt;=",
       "0.25",
       "2023",
       "2023-07",
       "2023-Q2",
       "2026",
       "20261",
+      "<",
+      "<=",
+      ">",
+      ">=",
       "COUNT(*)",
       "EXISTS",
       "HAVING",
@@ -5420,7 +5441,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       },
       {
         "id": "source",
-        "text": "Where a model&apos;s table comes from",
+        "text": "Where a model's table comes from",
         "level": 2
       },
       {
@@ -5557,15 +5578,15 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "-2^2",
       "15-Mar-2023",
       "1e5",
-      "=$C2&lt;0",
+      "=$C2<0",
       "=A1+30",
       "=CEILING(0.0000000001,1)",
       "=FLOOR(4.35,0.05)",
-      "=PROPER(&quot;ÉCOLE&quot;)",
+      "=PROPER(\"ÉCOLE\")",
       "=SORT()",
       "=SUM()",
       "=SUM(Revenue)*TaxRate",
-      "=TEXT(2.675,&quot;0.00&quot;)",
+      "=TEXT(2.675,\"0.00\")",
       "A2#",
       "Orders[amount]",
       "ROUND(1.005,2)",
@@ -5580,7 +5601,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "SHEETS_VERSION_INTERVAL_MINUTES",
       "WAREHOUSE_ABS_MAX_ROWS",
       "[$€-2]",
-      "[&lt;10]",
+      "[<10]",
       "[h]:mm",
       "_)",
       "javascript:",
@@ -5701,16 +5722,16 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "SQL Models",
     "description": "A model is one SELECT that becomes a lakehouse table. ref('other') names another model, which both declares the dependency and resolves to its table. A build walks the graph in dependency order, so a staging table is always rebuilt before the fact that reads it.",
     "terms": [
-      "&lt;schema&gt;.stg_orders",
       "+model",
       "/api/v1/metrics",
+      "<schema>.stg_orders",
       "SELECT",
       "analytics.fct_orders",
       "error",
       "metric_query",
       "net_usd",
       "not_null",
-      "ref(&apos;stg_orders&apos;)",
+      "ref('stg_orders')",
       "ref()",
       "schema.table",
       "sql_model.build",

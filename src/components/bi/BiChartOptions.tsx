@@ -39,7 +39,12 @@ export function BiDrillHierarchy({
         {drillList.map((f, i) => (
           <Badge key={f} variant="secondary" className="gap-1 px-1.5 text-[10px]">
             {i + 1}. {f}
-            <button type="button" onClick={() => setDrillList(drillList.filter((x) => x !== f))}>
+            <button
+              type="button"
+              aria-label={`Remove ${f} from the drill hierarchy`}
+              title="Remove"
+              onClick={() => setDrillList(drillList.filter((x) => x !== f))}
+            >
               <X className="h-2.5 w-2.5" />
             </button>
           </Badge>

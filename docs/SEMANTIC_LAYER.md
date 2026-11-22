@@ -50,7 +50,7 @@ says what its columns mean, so the table has to come from somewhere first:
 
 The lakehouse is a **first-class warehouse provider**, not a separate kind of
 source, so a table a SQL model built is reached exactly like a Snowflake table.
-It needs a connection row once: **Integrations → Data Sources → AgentSwarms
+It needs a connection row once: **Integrations → Data sources → AgentSwarms
 Lakehouse (built-in)**, which asks only for a name because the deployment
 already holds the credentials. Following **Define metrics on this** from a
 built model or a lakehouse table offers to create it for you and then opens
@@ -563,7 +563,7 @@ descriptions, and every truncation cap discloses what it dropped.
 
 ## AI agents: the `metric_query` tool
 
-Enable **Semantic Metrics** on an agent (Agent Builder → Tools), **then pick
+Enable **Semantic metrics** on an agent (Agent Builder → Tools), **then pick
 which models it may read**. The agent calls `metric_query` with a structured
 query instead of writing SQL — governed by the same IAM model rules, budgets and
 Traces as every other model call, and owner-scoped so it only ever reads data
@@ -597,7 +597,7 @@ narrows it from there.
 ## Over HTTP: the metrics API
 
 Any application can ask a governed question without an agent in between. A
-**gateway key** with the `metrics` scope (Integrations → LLM Gateway → API
+**gateway key** with the `metrics` scope (Integrations → LLM gateway → API
 access) lists the models its owner may read at `GET /api/v1/metrics` — names,
 labels, types, synonyms, sampled values, parameters, and the grains and
 comparisons a time dimension accepts, never the SQL behind them — and runs a

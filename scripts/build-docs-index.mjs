@@ -36,10 +36,16 @@ const plain = (s) =>
   s
     .replace(/\{"[^"]*"\}/g, " ")
     .replace(/<[^>]+>/g, "")
-    .replace(/&amp;/g, "&")
     .replace(/&rarr;/g, "→")
-    .replace(/&ldquo;|&rdquo;/g, '"')
+    .replace(/&ldquo;|&rdquo;|&quot;/g, '"')
+    .replace(/&apos;|&rsquo;|&lsquo;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&hellip;/g, "…")
     .replace(/&mdash;/g, "—")
+    // Last, so "&amp;lt;" reads "&lt;" as written rather than "<".
+    .replace(/&amp;/g, "&")
     .replace(/\s+/g, " ")
     .trim();
 

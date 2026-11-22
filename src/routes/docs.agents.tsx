@@ -47,7 +47,7 @@ function AgentsPage() {
       <DocsHeader
         eyebrow="Build"
         title="Agent Builder"
-        description="A complete reference for every field on an agent. Open Build → Agent Builder → New Agent; the form has six tabs, and nothing is saved until you press Save."
+        description="A complete reference for every field on an agent. Open Build → Agent Builder → New agent; the form has six tabs, and nothing is saved until you press Save."
       />
 
       <Callout kind="info" title="Only two fields are required">
@@ -74,7 +74,7 @@ function AgentsPage() {
             "For humans browsing the agent list. Not sent to the model.",
           ],
           [
-            "System Prompt",
+            "System prompt",
             "No",
             "empty",
             "Standing instructions prepended to every turn. The highest-leverage field on this page.",
@@ -123,7 +123,7 @@ If the customer is angry, or asks for a refund above $500, reply only:
         headers={["Field", "Default", "Range / values", "What it does"]}
         rows={[
           [
-            "LLM Provider",
+            "LLM provider",
             "workspace default",
             "Any connected provider",
             <>
@@ -147,7 +147,7 @@ If the customer is angry, or asks for a refund above $500, reply only:
             "Randomness. 0–0.2 for extraction, classification and anything you parse; 0.6–0.9 for drafting. Above ~1.2 tool choice becomes erratic.",
           ],
           [
-            "Max Tokens",
+            "Max tokens",
             "4096",
             "1 – 128,000",
             "Caps the REPLY only, not the prompt. Too low truncates mid-sentence — the usual cause of unparseable JSON.",
@@ -155,10 +155,10 @@ If the customer is angry, or asks for a refund above $500, reply only:
         ]}
       />
       <Callout kind="warn" title="Four fields on that panel do nothing yet">
-        <strong>Top-P</strong>, <strong>Frequency Penalty</strong>,{" "}
-        <strong>Presence Penalty</strong> and <strong>Stop Sequences</strong> are rendered but not
+        <strong>Top-P</strong>, <strong>Frequency penalty</strong>,{" "}
+        <strong>Presence penalty</strong> and <strong>Stop sequences</strong> are rendered but not
         wired: nothing you type into them is saved with the agent or sent to the provider. Only{" "}
-        <strong>Temperature</strong> and <strong>Max Tokens</strong> reach the model. They are
+        <strong>Temperature</strong> and <strong>Max tokens</strong> reach the model. They are
         listed here so nobody spends an afternoon tuning a control that is inert.
       </Callout>
       <Callout kind="warn" title="Temperature is the setting people get wrong">
@@ -203,7 +203,7 @@ If the customer is angry, or asks for a refund above $500, reply only:
         A reasonable question when configuring retrieval: which model embeds the user's question?
         The answer is that it is not an agent setting at all — it belongs to the{" "}
         <strong>collection</strong>, under{" "}
-        <strong>Knowledge Base → RAG Settings → Embedding</strong>. A query must be embedded into
+        <strong>Knowledge Base → RAG settings → Embedding</strong>. A query must be embedded into
         the same vector space as the chunks it is being compared against, so every document records
         the provider and model used at ingest, and the question is embedded with whatever{" "}
         <em>that</em> document used. If the agent owned the setting, attaching one agent to two
@@ -304,22 +304,22 @@ If the customer is angry, or asks for a refund above $500, reply only:
       <Table
         headers={["Field", "Default", "Range / values"]}
         rows={[
-          ["Safety Level", "off", "off / low / medium / high"],
+          ["Safety level", "off", "off / low / medium / high"],
           ["Personal data (PII)", "off", "off / redact / block"],
           ["Applies to", "both", "input / output / both"],
-          ["Block Profanity", "off", "on / off"],
-          ["Enable Input Filtering", "off", "on / off"],
-          ["Max Input Length", "4000", "100 – 100,000 characters"],
-          ["Blocked Input Patterns", "empty", "one regex per line"],
-          ["Enable Output Filtering", "off", "on / off"],
-          ["Hallucination Detection", "off", "on / off"],
-          ["Citation Check", "off", "on / off"],
-          ["Custom Output Filter Prompt", "empty", "free text"],
-          ["Max Turns / Conversation", "50", "1 – 500"],
-          ["Rate Limit", "20 / min", "1 – 1000"],
-          ["Require Approval Above", "0 (disabled)", "tokens"],
-          ["Allowed Topics", "empty", "one per line"],
-          ["Restricted Topics", "empty", "one per line"],
+          ["Block profanity", "off", "on / off"],
+          ["Enable input filtering", "off", "on / off"],
+          ["Max input length", "4000", "100 – 100,000 characters"],
+          ["Blocked input patterns", "empty", "one regex per line"],
+          ["Enable output filtering", "off", "on / off"],
+          ["Hallucination detection", "off", "on / off"],
+          ["Citation check", "off", "on / off"],
+          ["Custom output filter prompt", "empty", "free text"],
+          ["Max turns / conversation", "50", "1 – 500"],
+          ["Rate limit", "20 / min", "1 – 1000"],
+          ["Require approval above", "0 (disabled)", "tokens"],
+          ["Allowed topics", "empty", "one per line"],
+          ["Restricted topics", "empty", "one per line"],
         ]}
       />
       <Callout kind="info">
@@ -335,35 +335,35 @@ If the customer is angry, or asks for a refund above $500, reply only:
         rows={[
           [
             <>
-              Web Search <C key="a">web_search</C>
+              Web search <C key="a">web_search</C>
             </>,
             "Nothing (built-in Firecrawl), or your own key",
-            "Live web search. Provider choice: built-in Firecrawl, your own Firecrawl, Brave, SerpAPI or Tavily — each exposes an API Key field.",
+            "Live web search. Provider choice: built-in Firecrawl, your own Firecrawl, Brave, SerpAPI or Tavily — each exposes an API key field.",
           ],
           [
             <>
-              Web Browser <C key="b">web_browse</C>
+              Web browser <C key="b">web_browse</C>
             </>,
             "Nothing, or a ScrapingBee key",
             "Fetch one URL as clean markdown. Works with no key via the built-in fetcher, which does not run JavaScript — a client-rendered page comes back flagged as thin. A Firecrawl or ScrapingBee key adds JavaScript rendering. Private and link-local addresses are refused.",
           ],
           [
             <>
-              Knowledge Base Search <C key="c">kb_search</C>
+              Knowledge base search <C key="c">kb_search</C>
             </>,
             "A linked KB",
             "Semantic search over collections linked on the Knowledge tab. Auto-enabled when you link one.",
           ],
           [
             <>
-              Knowledge Graph Search <C key="d">kb_graph_search</C>
+              Knowledge graph search <C key="d">kb_graph_search</C>
             </>,
             "A KB with a built graph",
             "Multi-hop search over entity relationships. Build the graph in Knowledge → Graph first, or it returns nothing.",
           ],
           [
             <>
-              SQL Query <C key="e">sql_query</C>
+              SQL query <C key="e">sql_query</C>
             </>,
             "Allowed tables",
             "Read-only SELECT over the tables you list. Writes and DDL are rejected before execution.",
@@ -379,7 +379,7 @@ If the customer is angry, or asks for a refund above $500, reply only:
               <DocLink key="eo" to="/docs/ontology">
                 Enterprise Ontology
               </DocLink>
-              . <strong>Deny by default</strong>, like Semantic Metrics. Queries run as the person
+              . <strong>Deny by default</strong>, like Semantic metrics. Queries run as the person
               chatting (the owner on a scheduled run) with their share restrictions; an action
               request waits for a person unless the action type lets agents run it. Answers carry
               the ontology&apos;s trust envelope.
@@ -387,7 +387,7 @@ If the customer is angry, or asks for a refund above $500, reply only:
           ],
           [
             <>
-              Semantic Metrics <C key="f">metric_query</C>
+              Semantic metrics <C key="f">metric_query</C>
             </>,
             "Chosen semantic models",
             <>
@@ -410,7 +410,7 @@ If the customer is angry, or asks for a refund above $500, reply only:
           ],
           [
             <>
-              Date &amp; Time <C key="h">datetime</C>
+              Date &amp; time <C key="h">datetime</C>
             </>,
             "Nothing",
             "Current date/time in any IANA timezone.",
@@ -424,14 +424,14 @@ If the customer is angry, or asks for a refund above $500, reply only:
           ],
           [
             <>
-              n8n Workflow <C key="j">n8n_run_workflow</C>
+              n8n workflow <C key="j">n8n_run_workflow</C>
             </>,
             "Webhook URL",
             "Trigger a workflow on your n8n instance. Set the Webhook URL in the Workflows section below the toggles.",
           ],
           [
             <>
-              MCP Tool <C key="k">mcp_call_tool</C>
+              MCP tool <C key="k">mcp_call_tool</C>
             </>,
             "Allowed MCP servers",
             <>
@@ -461,7 +461,7 @@ If the customer is angry, or asks for a refund above $500, reply only:
         tokens a turn with the knowledge base alone and 10,400 with thirteen tools enabled — the
         answers were identical, the bill was not — and a question with a percentage in it went round
         the calculator three times, four times the tokens and twice the wait. Most tools cost
-        150–700 prompt tokens before they are called; SQL Query is the exception, because its
+        150–700 prompt tokens before they are called; SQL query is the exception, because its
         description carries your tables and their columns — budgeted at 4,000 characters (
         <C>SQL_TOOL_SCHEMA_MAX_CHARS</C>), the rest by name for <C>list_data_tables</C> to fill in.
       </Callout>
@@ -475,7 +475,7 @@ If the customer is angry, or asks for a refund above $500, reply only:
             title: "General",
             body: (
               <>
-                Name <C>Northwind Support</C>; System Prompt as shown above.
+                Name <C>Northwind Support</C>; System prompt as shown above.
               </>
             ),
           },
@@ -484,7 +484,7 @@ If the customer is angry, or asks for a refund above $500, reply only:
             body: (
               <>
                 Provider <C>openai</C>, a mid-tier chat model, Temperature <strong>0.2</strong> —
-                this agent quotes policy, it does not write essays. Max Tokens <strong>1200</strong>
+                this agent quotes policy, it does not write essays. Max tokens <strong>1200</strong>
                 . Everything else default.
               </>
             ),
@@ -517,7 +517,7 @@ If the customer is angry, or asks for a refund above $500, reply only:
             body: (
               <>
                 Personal data <strong>redact</strong>, Applies to <strong>both</strong>. Enable
-                Output Filtering and <strong>Citation Check</strong>. Restricted Topics (one per
+                output filtering and <strong>Citation check</strong>. Restricted topics (one per
                 line): <C>legal advice</C>, <C>competitor pricing</C>.
               </>
             ),
@@ -558,7 +558,7 @@ If the customer is angry, or asks for a refund above $500, reply only:
           [
             "Ignores the knowledge base",
             "Prompt doesn't require grounding",
-            "Add the SOURCES block; turn on Citation Check to catch recurrences.",
+            "Add the SOURCES block; turn on Citation check to catch recurrences.",
           ],
           [
             "Invents numbers",
@@ -572,8 +572,8 @@ If the customer is angry, or asks for a refund above $500, reply only:
           ],
           [
             "Truncated or invalid JSON",
-            "Max Tokens too low",
-            "Raise Max Tokens and set temperature 0.",
+            "Max tokens too low",
+            "Raise Max tokens and set temperature 0.",
           ],
           [
             "Forgets earlier in the chat",

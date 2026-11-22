@@ -234,7 +234,7 @@ function WorkbookPage() {
           <ArrowLeft className="h-4 w-4" /> Sheets
         </Link>
         <div className="h-5 w-px bg-border" />
-        <h1 className="truncate font-display text-lg font-semibold" data-testid="workbook-name">
+        <h1 className="truncate text-[15px] font-semibold" data-testid="workbook-name">
           {name ?? "…"}
         </h1>
         {loadedId && <StarButton kind="workbook" id={loadedId} name={name ?? "this workbook"} />}

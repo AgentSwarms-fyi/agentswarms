@@ -292,7 +292,14 @@ export function TeamsTab() {
                   >
                     Edit
                   </Button>
-                  <Button variant="ghost" size="sm" disabled={busy} onClick={() => void remove(b)}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-label={`Remove ${b.display_name || b.app_id}`}
+                    title="Remove"
+                    disabled={busy}
+                    onClick={() => void remove(b)}
+                  >
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                 </div>

@@ -1135,6 +1135,9 @@ async function chatPost(request: Request): Promise<Response> {
       // internal channel does not load the agent itself.
       costScope?: { type: "gateway_key"; id: string };
       agentName?: string;
+      // Which of the app's own surfaces is asking, from a fixed list, so a
+      // browser call is named honestly on its trace without naming it freely.
+      surface?: "assistant";
       // Internal channel only: keep image_url parts for a vision-capable
       // model (document OCR). Everything else flattens them to text.
       vision?: boolean;
@@ -1297,6 +1300,12 @@ async function chatPost(request: Request): Promise<Response> {
     let agentName = "Playground";
     if (isInternalRun && typeof body.agentName === "string" && body.agentName.trim()) {
       agentName = body.agentName.trim().slice(0, 120);
+    } else if (!body.agentId && body.surface === "assistant") {
+      // A browser may not name its own trace (the name reaches the audit
+      // log), but it may say which of the app's own surfaces it is, from a
+      // fixed list: the assistant's answers read "Assistant" in Analytics
+      // rather than passing for Agent Chat.
+      agentName = "Assistant";
     }
     let agentRouteThroughGateway = false;
     let agentN8nWebhookUrl: string | null = null;

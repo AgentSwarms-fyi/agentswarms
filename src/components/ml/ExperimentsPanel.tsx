@@ -468,6 +468,10 @@ with agentswarms.start_run("churn-v2", params={"lr": 0.01}) as run:
                                   <Button
                                     variant="ghost"
                                     size="sm"
+                                    aria-label={
+                                      r.name ? `Delete the run ${r.name}` : "Delete this run"
+                                    }
+                                    title="Delete"
                                     disabled={busy}
                                     onClick={() => void removeRun(r)}
                                   >

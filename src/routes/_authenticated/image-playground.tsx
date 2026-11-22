@@ -1,4 +1,4 @@
-import { PageEyebrow } from "@/components/PageEyebrow";
+import { PageHeader } from "@/components/PageHeader";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
@@ -450,28 +450,24 @@ function ImagePlaygroundPage() {
 
   return (
     <div className="container mx-auto max-w-[1600px] space-y-6 p-6">
-      <header className="space-y-2">
-        <div className="flex items-center gap-2">
-          <ImageIcon className="h-6 w-6 text-primary" />
-          <PageEyebrow />
-          <h1 className="font-display text-3xl font-semibold tracking-tight">Image Playground</h1>
-          <Badge variant="secondary" className="ml-1">
-            New
-          </Badge>
-        </div>
-        <p className="max-w-3xl text-sm text-muted-foreground">
-          Generate, edit or blend images with the image models your connected providers offer. No
-          conversation history — every run is a fresh prompt. For chat-style use, head to the{" "}
-          <Link
-            to="/playground"
-            search={{ agentId: undefined }}
-            className="underline underline-offset-2"
-          >
-            Agent Chat
-          </Link>
-          .
-        </p>
-      </header>
+      <PageHeader
+        title="Image Playground"
+        meta={<Badge variant="secondary">New</Badge>}
+        description={
+          <>
+            Make, edit or blend images with your connected providers&apos; image models; each run
+            starts from a fresh prompt. To chat instead, use{" "}
+            <Link
+              to="/playground"
+              search={{ agentId: undefined }}
+              className="underline underline-offset-2"
+            >
+              Agent Chat
+            </Link>
+            .
+          </>
+        }
+      />
 
       <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)_400px] lg:grid-cols-[380px_minmax(0,1fr)]">
         {/* Left: controls */}
@@ -771,7 +767,7 @@ function TracePanel({
     <Card className="flex h-[calc(100vh-220px)] min-h-[480px] flex-col xl:sticky xl:top-6 xl:self-start">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-sm">
-          <Activity className="h-4 w-4" /> Trace · Request & Response
+          <Activity className="h-4 w-4" /> Trace · Request & response
         </CardTitle>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-3 overflow-hidden p-3 pt-0">

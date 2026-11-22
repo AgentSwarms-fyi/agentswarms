@@ -30,7 +30,7 @@
     "check:md-docs": "node scripts/check-md-docs.mjs",
     "check:doc-commands": "node scripts/check-doc-commands.mjs",
     "check:infra": "node scripts/check-infra.mjs",
-    "docs:index": "node scripts/build-docs-index.mjs",
+    "docs:index": "node scripts/build-docs-index.mjs && node scripts/build-docs-text.mjs",
     "docs:settings": "node scripts/build-settings-reference.mjs",
     "release:prepare": "node scripts/release.mjs prepare",
     "format": "prettier --write .",

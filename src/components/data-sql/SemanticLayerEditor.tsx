@@ -91,7 +91,7 @@ export function SemanticLayerEditor({
             Semantic layer · <span className="font-mono text-sm">{dataset.name}</span>
           </SheetTitle>
           <SheetDescription className="text-xs">
-            Teach the BI Agent about this dataset. Better metadata = better SQL and clearer answers.
+            Teach the BI agent about this dataset. Better metadata = better SQL and clearer answers.
           </SheetDescription>
         </SheetHeader>
 
@@ -187,7 +187,7 @@ export function SemanticLayerEditor({
 
           <p className="text-[10px] text-slate-400 pt-2 flex items-center gap-1">
             <Wand2 className="h-2.5 w-2.5" />
-            Inspired by Wren AI's MDL pattern.
+            The BI agent reads these descriptions when it writes SQL.
           </p>
         </div>
       </SheetContent>

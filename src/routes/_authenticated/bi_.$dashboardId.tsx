@@ -174,7 +174,7 @@ import type { WarehouseConnectionSummary, WarehouseTable } from "@/utils/warehou
 
 export const Route = createFileRoute("/_authenticated/bi_/$dashboardId")({
   head: () => ({
-    meta: [{ title: "BI Project — AgentSwarms" }],
+    meta: [{ title: "BI project — AgentSwarms" }],
   }),
   component: BiProjectPage,
 });
@@ -1832,7 +1832,7 @@ function BiProjectPage() {
                     onClick={() => setGenerateOpen(true)}
                     title="Generate a whole dashboard from a goal with AI"
                   >
-                    <Wand2 className="h-3.5 w-3.5" /> Generate Entire Dashboard
+                    <Wand2 className="h-3.5 w-3.5" /> Generate entire dashboard
                   </Button>
                   <Button
                     size="sm"

@@ -375,7 +375,7 @@ function LakehouseDocsPage() {
       <H2 id="ecosystem">Across the ecosystem</H2>
       <P>
         The lakehouse registers as a <strong>warehouse connection</strong> (Integrations → Data
-        Sources → AgentSwarms Lakehouse — no credentials, it runs under your schema grants). That
+        sources → AgentSwarms Lakehouse — no credentials, it runs under your schema grants). That
         one connection wires it into everything:
       </P>
       <Table

@@ -1,6 +1,7 @@
 // Train a model — four steps: the table, the target, the options, the review.
 // Everything the wizard suggests comes from a real profile of the table
 // (SUMMARIZE + a sample), never from column names alone.
+import { PageHeader } from "@/components/PageHeader";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -349,11 +350,11 @@ function TrainWizard() {
         >
           <ArrowLeft className="h-3 w-3" /> ML Models
         </Link>
-        <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight">Train a model</h1>
-        <p className="mt-1 max-w-2xl text-muted-foreground">
-          Choose a table and what the model should do. The trainer profiles the data, tries several
-          algorithms under a time budget, and keeps the best one with its metrics.
-        </p>
+        <PageHeader
+          title="Train a model"
+          description="Pick a table and what to predict; the trainer tries several algorithms and keeps the best one with its metrics."
+          className="mt-2"
+        />
       </div>
 
       <ol className="flex flex-wrap items-center gap-2">

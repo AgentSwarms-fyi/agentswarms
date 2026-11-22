@@ -9,15 +9,14 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        // Inner top highlight + a shadow tinted with the button's own colour:
-        // the primary action should sit visibly above the page, not beside it.
-        default:
-          "bg-primary text-primary-foreground shadow-md shadow-primary/25 [box-shadow:inset_0_1px_0_0_oklch(1_0_0/0.18),var(--tw-shadow)] hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/30",
-        destructive:
-          "bg-destructive text-destructive-foreground shadow-sm shadow-destructive/25 [box-shadow:inset_0_1px_0_0_oklch(1_0_0/0.12),var(--tw-shadow)] hover:bg-destructive/90",
+        // Flat. The primary action stands out by its colour alone: it is the
+        // one filled button on a page. A coloured glow under it made every
+        // page's main button shout, and a page often has two.
+        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
         outline:
-          "border border-input bg-background shadow-sm hover:border-primary/40 hover:bg-accent hover:text-accent-foreground",
-        secondary: "bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80",
+          "border border-input bg-background hover:border-foreground/20 hover:bg-accent hover:text-accent-foreground",
+        secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost: "hover:bg-accent hover:text-accent-foreground",
         link: "text-primary underline-offset-4 hover:underline",
       },

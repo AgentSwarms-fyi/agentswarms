@@ -740,7 +740,7 @@ export const SWARM_TEMPLATES: SwarmTemplate[] = [
       },
       {
         nodeId: "setup",
-        title: "Step 2 — Set Variable",
+        title: "Step 2 — Set variable",
         what: "Deterministically writes `report_title` and `currency` into flow state using {{segment}} templating — no LLM call.",
         why: "Set-Variable nodes hold constants and derived values so later prompts stay clean and consistent.",
         watchFor: "The composed report title echoing your chosen segment.",
@@ -2448,7 +2448,7 @@ export const SWARM_TEMPLATES: SwarmTemplate[] = [
     tour: [
       {
         nodeId: "fetch",
-        title: "Step 1 — HTTP Request",
+        title: "Step 1 — HTTP request",
         what: "Calls https://api.github.com/users/{{input}} — the {{input}} is filled from the run input.",
         why: "The HTTP node runs server-side, so it isn't blocked by browser CORS and can carry secrets via {{secret:NAME}} without exposing them.",
         watchFor:
@@ -2464,7 +2464,7 @@ export const SWARM_TEMPLATES: SwarmTemplate[] = [
       },
       {
         nodeId: "headline",
-        title: "Step 3 — Set Variable",
+        title: "Step 3 — Set variable",
         what: "Builds a `headline` string using JSON-path templating: {{profile.name}}, {{profile.followers}}.",
         why: "Set Variable lets you compose and reshape flow state without an LLM call.",
         watchFor: "The `headline` key appearing in the Flow variables panel.",
@@ -2550,7 +2550,7 @@ export const SWARM_TEMPLATES: SwarmTemplate[] = [
     tour: [
       {
         nodeId: "each",
-        title: "Step 1 — For Each",
+        title: "Step 1 — For each",
         what: "Splits the input into an array (one item per line) and runs its agent body once per item.",
         why: "Batch/fan-out patterns — processing each row, file, or search result — are a first-class primitive, not a hack.",
         watchFor:

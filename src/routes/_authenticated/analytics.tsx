@@ -1,4 +1,4 @@
-import { PageEyebrow } from "@/components/PageEyebrow";
+import { PageHeader, TitleCount } from "@/components/PageHeader";
 import { formatUsd } from "@/lib/usd";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
@@ -73,6 +73,11 @@ const PRESETS: { id: RangePreset; label: string }[] = [
 export const Route = createFileRoute("/_authenticated/analytics")({
   component: AnalyticsPage,
 });
+
+// One line for all three headers (data, no data yet, a failed read), so the
+// page says what it is for whichever one is showing.
+const ANALYTICS_DESCRIPTION =
+  "What your agents cost, how fast they answer and how often they fail.";
 
 type Trace = {
   id: string;
@@ -367,10 +372,7 @@ function AnalyticsPage() {
   if (claim.message === "error") {
     return (
       <div className="p-6">
-        <div className="mb-6">
-          <PageEyebrow />
-          <h1 className="font-display text-3xl font-semibold tracking-tight">Analytics</h1>
-        </div>
+        <PageHeader title="Analytics" description={ANALYTICS_DESCRIPTION} className="mb-6" />
         <Card role="alert" className="p-12 text-center border-dashed border-warning/40">
           <h3 className="text-lg font-semibold mb-2 text-warning">
             Your traces could not be loaded
@@ -391,15 +393,7 @@ function AnalyticsPage() {
   if (traces.length === 0) {
     return (
       <div className="p-6">
-        <div className="flex items-start justify-between mb-6">
-          <div>
-            <PageEyebrow />
-            <h1 className="font-display text-3xl font-semibold tracking-tight">Analytics</h1>
-            <p className="text-muted-foreground mt-1">
-              Real-time observability for your agent fleet.
-            </p>
-          </div>
-        </div>
+        <PageHeader title="Analytics" description={ANALYTICS_DESCRIPTION} className="mb-6" />
         <Card className="p-12 text-center border-dashed">
           <Sparkles className="h-12 w-12 text-primary mx-auto mb-4" />
           <h3 className="text-lg font-semibold mb-2">No execution data yet</h3>
@@ -417,19 +411,21 @@ function AnalyticsPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <PageEyebrow />
-          <h1 className="font-display text-3xl font-semibold tracking-tight">Analytics</h1>
-          <p className="text-muted-foreground mt-1">
-            {traceCountHeadline({ fetched: traces.length, total: exactTotal })}
+      <div>
+        <PageHeader
+          title="Analytics"
+          description={ANALYTICS_DESCRIPTION}
+          meta={
+            <TitleCount>
+              {traceCountHeadline({ fetched: traces.length, total: exactTotal })}
+            </TitleCount>
+          }
+        />
+        {!windowComplete({ fetched: traces.length, total: exactTotal }) && (
+          <p className="mt-0.5 text-xs text-warning">
+            {traceKpiQualifier({ fetched: traces.length, total: exactTotal })}
           </p>
-          {!windowComplete({ fetched: traces.length, total: exactTotal }) && (
-            <p className="mt-0.5 text-xs text-warning">
-              {traceKpiQualifier({ fetched: traces.length, total: exactTotal })}
-            </p>
-          )}
-        </div>
+        )}
       </div>
 
       {/* Admin-only: instance-wide spend by user and group */}
@@ -451,19 +447,19 @@ function AnalyticsPage() {
         />
         <KpiCard
           icon={Cpu}
-          label="Total Tokens"
+          label="Total tokens"
           value={`${((totalTokensIn + totalTokensOut) / 1000).toFixed(1)}K`}
           subtext={`${(totalTokensIn / 1000).toFixed(0)}K in · ${(totalTokensOut / 1000).toFixed(0)}K out`}
         />
         <KpiCard
           icon={Gauge}
-          label="Avg Latency"
+          label="Avg latency"
           value={`${avgLatency}ms`}
           subtext="p50 across all models"
         />
         <KpiCard
           icon={Bot}
-          label="Active Agents"
+          label="Active agents"
           value={String(activeAgents)}
           subtext="ran in last 30 days"
         />

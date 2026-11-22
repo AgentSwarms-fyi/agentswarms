@@ -200,7 +200,7 @@ function MlDocsPage() {
             body: "Add a row filter or a custom SELECT with derived columns, and train a new version with a quick tuning search.",
           },
           {
-            title: "Enable ML Predictions on an agent",
+            title: "Enable ML predictions on an agent",
             body: "Ask it to estimate an order it describes; the tool reads the feature columns from ml_list_models.",
           },
         ]}

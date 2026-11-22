@@ -3,6 +3,7 @@
 // platform datasets — all through the server chokepoint that enforces
 // schema access, audits every statement, and writes query history.
 import { formatUsd } from "@/lib/usd";
+import { PageHeader } from "@/components/PageHeader";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { SharesDialog } from "@/components/lakehouse/SharesDialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -17,7 +18,6 @@ import {
   AlertTriangle,
   Boxes,
   Flame,
-  HardDrive,
   Loader2,
   Play,
   Plus,
@@ -238,31 +238,28 @@ function LakehousePage() {
     // tree above the editor on every laptop screen, which is not what a
     // database explorer is.
     <div className="flex h-canvas w-full flex-col overflow-hidden p-3 lg:p-4">
-      <div className="mb-3 flex flex-none flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="flex items-center gap-2 text-xl font-semibold">
-            <HardDrive className="h-5 w-5" /> Lakehouse
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Your local data warehouse — columnar SQL over Parquet in your own storage.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={reload}>
-            <RefreshCw className="mr-1 h-4 w-4" /> Refresh
-          </Button>
-          {data?.enabled && <MountLakeDialog onMounted={reload} />}
-          {data?.enabled && <IcebergCatalogsDialog onChanged={reload} />}
-          {data?.enabled && <NewSchemaDialog onCreated={reload} />}
-          {data?.enabled && <TagPoliciesDialog />}
-          {data?.enabled && (
-            <SharesDialog
-              tables={data.tables.map((t) => ({ schema: t.schema, name: t.name }))}
-              ownedSchemas={data.schemas.filter((s) => s.owned).map((s) => s.name)}
-            />
-          )}
-        </div>
-      </div>
+      <PageHeader
+        title="Lakehouse"
+        description="Query and manage tables kept as Parquet files in your own storage."
+        className="mb-3 flex-none"
+        actions={
+          <>
+            <Button variant="outline" size="sm" onClick={reload}>
+              <RefreshCw className="mr-1 h-4 w-4" /> Refresh
+            </Button>
+            {data?.enabled && <MountLakeDialog onMounted={reload} />}
+            {data?.enabled && <IcebergCatalogsDialog onChanged={reload} />}
+            {data?.enabled && <NewSchemaDialog onCreated={reload} />}
+            {data?.enabled && <TagPoliciesDialog />}
+            {data?.enabled && (
+              <SharesDialog
+                tables={data.tables.map((t) => ({ schema: t.schema, name: t.name }))}
+                ownedSchemas={data.schemas.filter((s) => s.owned).map((s) => s.name)}
+              />
+            )}
+          </>
+        }
+      />
 
       {data === null && loadError !== null ? (
         <Card>
@@ -2827,6 +2824,8 @@ function NewTableDialog({ schema, onCreated }: { schema: string; onCreated: () =
                     size="icon"
                     variant="ghost"
                     className="h-8 w-8"
+                    aria-label={c.name ? `Remove the column ${c.name}` : "Remove this column"}
+                    title="Remove"
                     onClick={() => setCols(cols.filter((_, j) => j !== i))}
                     disabled={cols.length === 1}
                   >

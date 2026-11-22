@@ -1,6 +1,6 @@
 // Identity & Access Management console (superadmin-only).
 // Users · Groups · Access (model rules + resource shares) · Settings.
-import { PageEyebrow } from "@/components/PageEyebrow";
+import { PageHeader } from "@/components/PageHeader";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { iamTabFrom, type IamTab } from "@/lib/iamTabs";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
@@ -25,7 +25,6 @@ import {
   Plus,
   RefreshCw,
   Settings2,
-  Shield,
   ShieldAlert,
   ShieldCheck,
   Trash2,
@@ -316,21 +315,15 @@ function AdminIamPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <PageEyebrow />
-          <h1 className="font-display text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <Shield className="h-6 w-6 text-primary" /> Identity &amp; Access Management
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Provision users, organize groups, and control access to models, knowledge bases, and
-            data tables.
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={reload} className="gap-1.5">
-          <RefreshCw className="h-3.5 w-3.5" /> Refresh
-        </Button>
-      </div>
+      <PageHeader
+        title="IAM"
+        description="Add people, put them in groups, and choose which models, knowledge bases and tables each can use."
+        actions={
+          <Button variant="outline" size="sm" onClick={reload} className="gap-1.5">
+            <RefreshCw className="h-3.5 w-3.5" /> Refresh
+          </Button>
+        }
+      />
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
@@ -1032,6 +1025,8 @@ function GroupsTab({
                           variant="ghost"
                           size="sm"
                           className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                          aria-label={`Remove ${u?.email ?? uid} from the group`}
+                          title="Remove"
                           onClick={async () => {
                             const res = await removeMember({
                               data: {
@@ -1360,6 +1355,8 @@ function AccessTab({
                       <button
                         type="button"
                         className="ml-1.5 hover:text-destructive"
+                        aria-label={`Remove the rule ${r.model_pattern}`}
+                        title="Remove"
                         onClick={() => {
                           setDraft(draft.filter((_, j) => j !== i));
                           setDirty(true);
@@ -1732,6 +1729,8 @@ function AccessTab({
                         variant="ghost"
                         size="sm"
                         className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                        aria-label={`Revoke the share of ${g.resource_name ?? "this item"} with ${principalName(g.principal_type, g.principal_id)}`}
+                        title="Revoke"
                         onClick={async () => {
                           const res = await deleteGrant({
                             data: { access_token: token, grant_id: g.id },
@@ -2537,6 +2536,12 @@ function SsoTab({
                         variant="ghost"
                         size="sm"
                         className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                        aria-label={
+                          p.domains.length
+                            ? `Remove the identity provider for ${p.domains.join(", ")}`
+                            : "Remove this identity provider"
+                        }
+                        title="Remove"
                         onClick={() => setDeleteTarget(p)}
                       >
                         <Trash2 className="h-3.5 w-3.5" />

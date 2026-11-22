@@ -88,18 +88,18 @@ const GROUPS: OptionGroup[] = [
     ],
   },
   {
-    heading: "Other Frameworks",
+    heading: "Other frameworks",
     items: [
       {
         id: "yaml",
-        title: "CrewAI YAML Config",
+        title: "CrewAI YAML config",
         description: "Strict CrewAI-compatible config for the Python framework.",
         icon: FileCode,
         tag: "Python",
       },
       {
         id: "autogen",
-        title: "AutoGen Python Script",
+        title: "AutoGen Python script",
         description: "Microsoft AutoGen AssistantAgent script — runnable with pyautogen.",
         icon: Bot,
         tag: "Python",

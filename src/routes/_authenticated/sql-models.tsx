@@ -10,7 +10,6 @@ import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import {
   AlertTriangle,
-  Blocks,
   Check,
   History,
   Loader2,
@@ -25,6 +24,8 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { useRecordOpened } from "@/hooks/use-object-marks";
 import { usePageIntent } from "@/hooks/use-page-intent";
+import { announceTrashed } from "@/hooks/use-trash";
+import { PageHeader } from "@/components/PageHeader";
 import { StarButton } from "@/components/StarButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { relTime } from "@/components/ml/mlFormat";
 import { readPageIntent } from "@/lib/pageIntent";
+import { RESTORE_HINT } from "@/lib/trash";
 import { cn } from "@/lib/utils";
 import {
   TEST_LABELS,
@@ -498,21 +500,22 @@ function SqlModelsPage() {
 
   async function remove(m: SqlModelRow) {
     const ok = await confirmAsk({
-      title: `Delete the model ${m.name}?`,
-      body: "The definition goes; the table it built stays where it is, because a dashboard or an agent may still be reading it. Drop the table from the Lakehouse page if you want it gone.",
-      actionLabel: "Delete model",
+      title: `Move “${m.name}” to the trash?`,
+      body: `The definition goes; the table it built stays where it is, because a dashboard or an agent may still be reading it. Drop the table from the Lakehouse page if you want it gone. ${RESTORE_HINT}`,
+      actionLabel: "Move to trash",
     });
     if (!ok) return;
     setBusy(true);
     try {
       const res = await deleteFn({ data: { access_token: token, id: m.id } });
       if (!res.ok) return toast.error(res.error);
+      announceTrashed(m.name, res.trashId, () => void reload());
       if (res.dependants.length) {
-        toast.warning(`Deleted ${m.name}`, {
+        toast.warning(`${m.name} is still referenced`, {
           description: `${res.dependants.join(", ")} still ref it and will fail until you edit them.`,
           duration: 10000,
         });
-      } else toast.success(`Deleted ${m.name}`);
+      }
       setDraft(null);
       await reload();
     } catch (e) {
@@ -573,37 +576,35 @@ function SqlModelsPage() {
 
   return (
     <div className="space-y-4 p-4 md:p-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="flex items-center gap-2 text-xl font-semibold">
-            <Blocks className="h-5 w-5" /> SQL Models
-          </h1>
-          <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-            A model is one SELECT that becomes a lakehouse table. Name another model with{" "}
-            <code className="font-mono text-xs">ref(&apos;name&apos;)</code> and it is built first,
-            every time. Tests run after a model builds; a failing one stops everything downstream
-            rather than rebuilding it from data you already know is wrong.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={busy || models.length === 0}
-            onClick={() => void build()}
-          >
-            {busy ? (
-              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Play className="mr-1 h-3.5 w-3.5" />
-            )}
-            Build all
-          </Button>
-          <Button size="sm" disabled={writable.length === 0} onClick={() => void startNew()}>
-            <Plus className="mr-1 h-3.5 w-3.5" /> New model
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="SQL Models"
+        description={
+          <>
+            Each model is one SELECT that becomes a lakehouse table. Name another model with{" "}
+            <code className="font-mono text-xs">ref(&apos;name&apos;)</code> to build it first.
+          </>
+        }
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy || models.length === 0}
+              onClick={() => void build()}
+            >
+              {busy ? (
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Play className="mr-1 h-3.5 w-3.5" />
+              )}
+              Build all
+            </Button>
+            <Button size="sm" disabled={writable.length === 0} onClick={() => void startNew()}>
+              <Plus className="mr-1 h-3.5 w-3.5" /> New model
+            </Button>
+          </>
+        }
+      />
 
       {writable.length === 0 && !loading ? (
         <Card>
@@ -1045,6 +1046,8 @@ function SqlModelsPage() {
                               size="sm"
                               variant="ghost"
                               className="h-8 px-2"
+                              aria-label="Remove this test"
+                              title="Remove"
                               onClick={() =>
                                 setDraft({
                                   ...draft,

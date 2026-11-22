@@ -1,4 +1,4 @@
-import { PageEyebrow } from "@/components/PageEyebrow";
+import { PageHeader, TitleCount } from "@/components/PageHeader";
 import { formatUsd } from "@/lib/usd";
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
@@ -66,6 +66,8 @@ import type { ReplayResult } from "@/utils/provenance/replay.server";
 export const Route = createFileRoute("/_authenticated/traces")({
   component: TracesPage,
 });
+
+const TRACES_DESCRIPTION = "Every agent call, with its model, tokens, time and cost.";
 
 type Trace = ExecutionTraceRow;
 
@@ -318,16 +320,14 @@ function TracesPage() {
   if (!loading && traces.length === 0) {
     return (
       <div className="p-6">
-        <PageEyebrow />
-        <h1 className="font-display text-3xl font-semibold tracking-tight mb-1">Traces & Logs</h1>
-        <p className="text-muted-foreground mb-6">Granular logs from every agent execution.</p>
+        <PageHeader title="Traces & Logs" description={TRACES_DESCRIPTION} className="mb-6" />
         <EmptyState
           icon={ScrollText}
           title={loadError ? "Couldn’t load traces" : "No traces yet"}
           description={
             loadError
               ? loadError
-              : "Traces are captured automatically when you run agents in the Playground. Swarm traces stay in Swarm Observability."
+              : "Traces are captured automatically when you run agents in the Playground. Swarm runs are in Swarm Traces."
           }
           action={
             <Button variant="outline" onClick={load} disabled={loading}>
@@ -341,23 +341,25 @@ function TracesPage() {
 
   return (
     <div className="p-6 space-y-4">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <PageEyebrow />
-          <h1 className="font-display text-3xl font-semibold tracking-tight">Traces & Logs</h1>
-          <p className="text-muted-foreground mt-1">
-            {hasClientFilters
-              ? `${filtered.length.toLocaleString()} of the ${traces.length.toLocaleString()} loaded traces match · click any row for details`
-              : `${traceCountHeadline({ fetched: traces.length, total: exactTotal }, rangeLabel)} · click any row for details`}
+      <div>
+        <PageHeader
+          title="Traces & Logs"
+          description={`${TRACES_DESCRIPTION} Click a row for details.`}
+          meta={
+            <TitleCount>
+              {hasClientFilters
+                ? `${filtered.length.toLocaleString()} of the ${traces.length.toLocaleString()} loaded traces match`
+                : traceCountHeadline({ fetched: traces.length, total: exactTotal }, rangeLabel)}
+            </TitleCount>
+          }
+        />
+        {!windowComplete({ fetched: traces.length, total: exactTotal }) && (
+          <p className="mt-0.5 text-xs text-warning">
+            Only the most recent {traces.length.toLocaleString()} are loaded — filters and counts
+            below cover these, not all {exactTotal.toLocaleString()}. Narrow the date range for a
+            complete window.
           </p>
-          {!windowComplete({ fetched: traces.length, total: exactTotal }) && (
-            <p className="mt-0.5 text-xs text-warning">
-              Only the most recent {traces.length.toLocaleString()} are loaded — filters and counts
-              below cover these, not all {exactTotal.toLocaleString()}. Narrow the date range for a
-              complete window.
-            </p>
-          )}
-        </div>
+        )}
       </div>
 
       {/* Filters */}
@@ -414,7 +416,7 @@ function TracesPage() {
             size="sm"
             className="h-9 gap-1.5"
             onClick={() => setNotebooksOnly((v) => !v)}
-            title="Show only traces from Notebooks"
+            title="Show only traces from notebooks"
           >
             <BookOpen className="h-3.5 w-3.5" />
             Notebooks
@@ -560,6 +562,8 @@ function TracesPage() {
               <Button
                 variant="outline"
                 size="sm"
+                aria-label="Previous page"
+                title="Previous page"
                 onClick={() => setPage((p) => Math.max(0, p - 1))}
                 disabled={page === 0}
               >
@@ -568,6 +572,8 @@ function TracesPage() {
               <Button
                 variant="outline"
                 size="sm"
+                aria-label="Next page"
+                title="Next page"
                 onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
                 disabled={page >= totalPages - 1}
               >
@@ -588,7 +594,7 @@ function TracesPage() {
                   <span
                     className={`inline-block h-2 w-2 rounded-full ${selected.status === "success" ? "bg-emerald-500" : selected.status === "cancelled" ? "bg-muted-foreground" : "bg-red-500"}`}
                   />
-                  Trace Details
+                  Trace details
                   <Badge variant="outline" className="ml-2 text-[10px] font-mono">
                     {selected.id.slice(0, 8)}
                   </Badge>
@@ -614,8 +620,8 @@ function TracesPage() {
                   {/* Metrics row */}
                   <div className="grid grid-cols-4 gap-2">
                     <Metric label="Latency" value={formatMs(selected.latency_ms)} />
-                    <Metric label="Tokens In" value={selected.tokens_in.toLocaleString()} />
-                    <Metric label="Tokens Out" value={selected.tokens_out.toLocaleString()} />
+                    <Metric label="Tokens in" value={selected.tokens_in.toLocaleString()} />
+                    <Metric label="Tokens out" value={selected.tokens_out.toLocaleString()} />
                     <Metric
                       label="Cost"
                       value={
@@ -932,7 +938,7 @@ function TracesPage() {
                   )}
 
                   {Array.isArray(selected.tool_calls) && selected.tool_calls.length > 0 && (
-                    <Section title={`Tool Calls (${selected.tool_calls.length})`}>
+                    <Section title={`Tool calls (${selected.tool_calls.length})`}>
                       <div className="space-y-1.5">
                         {selected.tool_calls.map((raw, i) => {
                           // Two shapes: the agent loop's events — a `tool_call`
@@ -980,7 +986,7 @@ function TracesPage() {
                   )}
 
                   {selected.request_payload !== undefined && (
-                    <Section title="Request Payload">
+                    <Section title="Request payload">
                       <pre className="bg-background border border-border rounded-md p-3 text-[10px] leading-relaxed font-mono whitespace-pre-wrap break-all max-w-full">
                         {JSON.stringify(selected.request_payload, null, 2)}
                       </pre>
@@ -988,7 +994,7 @@ function TracesPage() {
                   )}
 
                   {selected.response_payload !== undefined && (
-                    <Section title="Response Payload">
+                    <Section title="Response payload">
                       <pre className="bg-background border border-border rounded-md p-3 text-[10px] leading-relaxed font-mono whitespace-pre-wrap break-all max-w-full">
                         {JSON.stringify(selected.response_payload, null, 2)}
                       </pre>

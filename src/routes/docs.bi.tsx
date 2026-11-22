@@ -314,7 +314,7 @@ function BiPage() {
 
       <H3 id="generate-every-visual">Which visuals the AI can choose</H3>
       <P>
-        Four things ask a model for a chart: <strong>Generate Entire Dashboard</strong>, the{" "}
+        Four things ask a model for a chart: <strong>Generate entire dashboard</strong>, the{" "}
         <DocLink to="/docs/bi#ai-analyst">AI Analyst</DocLink>,{" "}
         <DocLink to="/docs/playground">Visual BI in chat</DocLink> and the chat of an embedded
         agent. All four choose from the same list: every visual in the builder&apos;s picker except

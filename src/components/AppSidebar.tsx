@@ -278,7 +278,7 @@ export function AppSidebar() {
           onClick={signOut}
         >
           <LogOut className="h-4 w-4" />
-          {!collapsed && <span>Sign Out</span>}
+          {!collapsed && <span>Sign out</span>}
         </Button>
       </SidebarFooter>
       <SidebarRail />

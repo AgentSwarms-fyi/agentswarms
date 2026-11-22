@@ -50,6 +50,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { usePageIntent } from "@/hooks/use-page-intent";
 import type { PageIntent } from "@/lib/pageIntent";
+import { moveToTrash } from "@/hooks/use-trash";
+import { RESTORE_HINT } from "@/lib/trash";
 import { cn } from "@/lib/utils";
 
 type EmbedType = "agent" | "swarm" | "bi_dashboard" | "ai_analyst";
@@ -95,21 +97,21 @@ const EMBED_META: Record<
   { title: string; desc: string; icon: typeof Bot; path: string; height: number }
 > = {
   agent: {
-    title: "Embed Standalone Chat Agent",
+    title: "Embed standalone chat agent",
     desc: "A streaming chat widget for one of your agents — grounded in its knowledge base, guarded by its guardrails. Workspace tools stay disabled.",
     icon: Bot,
     path: "agent",
     height: 640,
   },
   swarm: {
-    title: "Embed Multi-Agent Task (Swarm)",
+    title: "Embed multi-agent task (swarm)",
     desc: "Visitors describe a task and watch your swarm execute it step by step. Node prompts and wiring never leave your server.",
     icon: Network,
     path: "swarm",
     height: 720,
   },
   bi_dashboard: {
-    title: "Embed Dashboard (With/Without AI Analyst)",
+    title: "Embed dashboard (with/without AI Analyst)",
     desc: "A live, filterable BI dashboard rendered from snapshots — optionally with the Ask-AI analyst answering viewer questions.",
     icon: PieChart,
     path: "bi",
@@ -301,14 +303,20 @@ export function EmbedSection({
   async function remove(k: EmbedKey) {
     if (
       !(await confirmAsk({
-        title: `Delete embed "${k.name}"? Existing iframes will stop working.`,
+        title: `Move “${k.name}” to the trash?`,
+        body: `Existing iframes stop working. ${RESTORE_HINT}`,
+        actionLabel: "Move to trash",
       }))
     )
       return;
-    const { error } = await supabase.from("embed_keys").delete().eq("id", k.id);
-    if (error) return toast.error(error.message);
+    const r = await moveToTrash({
+      kind: "embed",
+      id: k.id,
+      name: k.name,
+      onRestored: () => void load(),
+    });
+    if (!r.ok) return;
     setKeys((prev) => prev.filter((x) => x.id !== k.id));
-    toast.success("Embed deleted");
   }
 
   return (

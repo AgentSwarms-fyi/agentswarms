@@ -1,4 +1,4 @@
-// BI Agent orchestrator — "Wren-style" GenBI pipeline.
+// BI agent orchestrator: question → plan → SQL → chart → narrative.
 //
 // Runs entirely in the browser, calling our existing /api/chat endpoint with
 // structured JSON-mode prompts. Pipeline:

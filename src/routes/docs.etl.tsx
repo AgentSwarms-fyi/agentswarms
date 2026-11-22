@@ -199,7 +199,7 @@ function EtlDocsPage() {
         Pipelines reuse the connections the rest of the product already governs — object-storage
         sources from the <DocLink to="/docs/data">Data Catalog</DocLink> (AWS S3, MinIO, R2, Spaces,
         B2, GCS in S3-compat mode) and database connections from{" "}
-        <DocLink to="/docs/data">Data Sources</DocLink>, including ones shared with you through{" "}
+        <DocLink to="/docs/data">Data sources</DocLink>, including ones shared with you through{" "}
         <DocLink to="/docs/iam">IAM</DocLink>. Credentials are resolved server-side at run start and
         delivered into the sandbox process only.
       </P>

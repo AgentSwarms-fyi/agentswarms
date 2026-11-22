@@ -486,7 +486,7 @@ function IamPage() {
       <Steps
         items={[
           {
-            title: "The owner creates and tests the connection under Integrations → Data Sources",
+            title: "The owner creates and tests the connection under Integrations → Data sources",
           },
           {
             title: "Access → share the connection with the Analytics group, read-only",

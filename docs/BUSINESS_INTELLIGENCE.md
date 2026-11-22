@@ -1488,7 +1488,7 @@ R507 lets the AI choose any visual the builder offers. Four things ask a
 model for a chart, and all four now choose from one list
 (`src/lib/biChartCatalog.ts`):
 
-- **Generate Entire Dashboard**, from a table or a governed model;
+- **Generate entire dashboard**, from a table or a governed model;
 - the **AI Analyst**, one chart per step, including scheduled and embedded
   analysts;
 - **Visual BI in chat**;

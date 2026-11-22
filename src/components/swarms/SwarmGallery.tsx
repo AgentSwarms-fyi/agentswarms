@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PageHeader } from "@/components/PageHeader";
 import { RecentRunsPanel } from "@/components/swarms/RecentRunsPanel";
 import { subscribe as subscribeRuns, getSnapshot as getRunsSnapshot } from "@/lib/swarmRunManager";
 import { liveSwarmIds } from "@/lib/swarmDeployment";
@@ -41,6 +42,8 @@ import {
   MoreVertical,
 } from "lucide-react";
 import { toast } from "sonner";
+import { moveToTrash } from "@/hooks/use-trash";
+import { RESTORE_HINT } from "@/lib/trash";
 import { SWARM_TEMPLATES } from "@/lib/swarmTemplates";
 import { ExportSwarmDropdown } from "@/components/swarms/ExportSwarmDropdown";
 import { StarButton } from "@/components/StarButton";
@@ -224,13 +227,9 @@ export function SwarmGallery() {
   }
 
   async function handleDelete(id: string, name: string) {
-    const { error } = await supabase.from("swarms").delete().eq("id", id);
-    if (error) {
-      toast.error("Failed to delete");
-      return;
-    }
+    const r = await moveToTrash({ kind: "swarm", id, name, onRestored: () => void load() });
+    if (!r.ok) return;
     setMySwarms((prev) => prev.filter((s) => s.id !== id));
-    toast.success(`Deleted "${name}"`);
   }
 
   function openSwarm(id: string) {
@@ -268,25 +267,20 @@ export function SwarmGallery() {
 
   return (
     <div className="p-6 space-y-8 max-w-7xl mx-auto">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-            <Network className="h-7 w-7 text-primary" /> Swarms
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            Your multi-agent swarms and ready-to-run templates. Open one in the canvas to edit and
-            run.
-          </p>
-        </div>
-        <Button onClick={handleNewSwarm} disabled={creating} size="lg" className="shadow-lg">
-          {creating ? (
-            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-          ) : (
-            <Plus className="h-4 w-4 mr-2" />
-          )}
-          New Swarm
-        </Button>
-      </div>
+      <PageHeader
+        title="Agent Swarms"
+        description="Your multi-agent swarms and ready-made templates. Open one in the canvas to edit and run it."
+        actions={
+          <Button onClick={handleNewSwarm} disabled={creating}>
+            {creating ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Plus className="h-4 w-4 mr-2" />
+            )}
+            New swarm
+          </Button>
+        }
+      />
 
       <Tabs
         value={tab}
@@ -323,7 +317,7 @@ export function SwarmGallery() {
           <section className="space-y-3">
             <div className="flex items-baseline justify-between">
               <h2 className="text-xl font-semibold flex items-center gap-2">
-                <Network className="h-5 w-5 text-primary" /> My Swarms
+                <Network className="h-5 w-5 text-primary" /> My swarms
                 <Badge variant="outline" className="ml-1 text-[10px]">
                   {mySwarms.length}
                 </Badge>
@@ -397,6 +391,7 @@ export function SwarmGallery() {
                         <div className="flex gap-1.5">
                           <Button
                             size="sm"
+                            variant="outline"
                             onClick={() => openSwarm(s.id)}
                             className="h-7 flex-1 text-xs"
                           >
@@ -427,11 +422,8 @@ export function SwarmGallery() {
                             </DropdownMenu>
                             <AlertDialogContent>
                               <AlertDialogHeader>
-                                <AlertDialogTitle>Delete this swarm?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  <span className="font-semibold text-foreground">{s.name}</span>{" "}
-                                  will be permanently removed. This action cannot be undone.
-                                </AlertDialogDescription>
+                                <AlertDialogTitle>Move “{s.name}” to the trash?</AlertDialogTitle>
+                                <AlertDialogDescription>{RESTORE_HINT}</AlertDialogDescription>
                               </AlertDialogHeader>
                               <AlertDialogFooter>
                                 <AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -439,7 +431,7 @@ export function SwarmGallery() {
                                   onClick={() => handleDelete(s.id, s.name)}
                                   className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                                 >
-                                  Delete swarm
+                                  Move to trash
                                 </AlertDialogAction>
                               </AlertDialogFooter>
                             </AlertDialogContent>

@@ -49,10 +49,14 @@ describe("the deletes", () => {
       /const \{ error \} = await supabase\.from\("eval_cases"\)\.delete\(\)\.eq\("id", id\);\s*if \(error\) toast\.error\("The case was not deleted", \{ description: error\.message \}\);/,
     );
   });
-  it("say when the dataset was not deleted, and do not carry on as if it were", () => {
+  it("say when the dataset was not moved to the trash, and do not carry on as if it were", () => {
+    // R516: the dataset goes to the trash. moveToTrash says a refusal itself
+    // (so it is not called quiet), and nothing carries on after one.
     expect(delSet).toMatch(
-      /const \{ error \} = await supabase\.from\("eval_datasets"\)\.delete\(\)\.eq\("id", dataset\.id\);\s*if \(error\) \{\s*toast\.error\(`"\$\{dataset\.name\}" was not deleted`, \{ description: error\.message \}\);\s*return;\s*\}\s*onChanged\(\);/,
+      /const r = await moveToTrash\(\{\s*kind: "evaluation",\s*id: dataset\.id,\s*name: dataset\.name,\s*onRestored: onChanged,\s*\}\);\s*if \(!r\.ok\) return;\s*onChanged\(\);/,
     );
+    expect(delSet).not.toContain("quiet");
+    expect(delSet).not.toContain('.from("eval_datasets").delete()');
   });
 });
 

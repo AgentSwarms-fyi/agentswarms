@@ -16,12 +16,12 @@ agents get, from the same definitions. See [The semantic layer](#the-semantic-la
 
 This is the inbound half of the gateway. The outbound half, routing the
 platform's own model traffic through LiteLLM, Portkey or Helicone, is the
-existing setting on the same tab (Integrations → LLM Gateway) and is
+existing setting on the same tab (Integrations → LLM gateway) and is
 unchanged.
 
 ## Keys
 
-Mint a key under **Integrations → LLM Gateway → API access**. A key is
+Mint a key under **Integrations → LLM gateway → API access**. A key is
 minted by one user and reaches only what that user could reach by hand:
 
 | Setting             | What it does                                                                                                                                                                                                                              |
@@ -176,7 +176,7 @@ matches on the MEANING of a question rather than its bytes, so "what was
 revenue last quarter" and "how much revenue did we make last quarter" are one
 question, answered once.
 
-It is **off unless a key turns it on**, under Integrations → LLM Gateway ->
+It is **off unless a key turns it on**, under Integrations → LLM gateway ->
 API access, on the key when it is minted or from the `Cache` column
 afterwards. Nobody inherits one by upgrading, because a cache that answers a
 question with a NEARLY identical question's answer is a correctness risk that
@@ -315,7 +315,7 @@ this endpoint in front of the agents.
 
 | Symptom                                   | Cause and fix                                                                                                                                                      |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 401 `invalid_api_key`                     | Missing, malformed, revoked or expired key. Mint a new one under Integrations → LLM Gateway.                                                                       |
+| 401 `invalid_api_key`                     | Missing, malformed, revoked or expired key. Mint a new one under Integrations → LLM gateway.                                                                       |
 | 404 `model_not_found`                     | `model` is neither `agent:<name or id>` nor `<provider>/<model>`, the agent is inactive, or two agents share the name — use `agent:<id>`.                          |
 | 403 `insufficient_scope`                  | The key lacks the scope, or the agent is not on its allow-list.                                                                                                    |
 | 403 `model_not_allowed`                   | Your IAM model rules forbid the model, or the key's model patterns do.                                                                                             |

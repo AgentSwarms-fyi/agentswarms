@@ -159,7 +159,7 @@ export function RunPanel({
                 <Play className="h-3.5 w-3.5 mr-1.5" /> Run
               </Button>
             ) : (
-              <Button onClick={onStop} size="sm" variant="destructive" className="h-7">
+              <Button onClick={onStop} size="sm" variant="outline" className="h-7">
                 <Square className="h-3.5 w-3.5 mr-1.5" /> Stop
               </Button>
             )}
@@ -332,7 +332,7 @@ export function RunPanel({
               <Play className="h-3.5 w-3.5 mr-1.5" /> Run
             </Button>
           ) : (
-            <Button onClick={onStop} size="sm" variant="destructive" className="flex-1">
+            <Button onClick={onStop} size="sm" variant="outline" className="flex-1">
               <Square className="h-3.5 w-3.5 mr-1.5" /> Stop
             </Button>
           )}
@@ -753,7 +753,7 @@ function ExpandedRunDialog({
         <DialogHeader className="px-6 pt-5 pb-3 border-b border-border">
           <DialogTitle className="flex items-center gap-2 text-base">
             <Sparkles className="h-4 w-4 text-primary" />
-            Swarm Run Details
+            Swarm run details
             {isRunning && (
               <Badge
                 variant="outline"
@@ -783,7 +783,7 @@ function ExpandedRunDialog({
             {/* Agent Outputs */}
             <section>
               <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                Agent Outputs ({nodeEvents.length})
+                Agent outputs ({nodeEvents.length})
               </h3>
               {nodeEvents.length === 0 ? (
                 <p className="text-sm text-muted-foreground italic">No agent outputs yet.</p>
@@ -821,7 +821,7 @@ function ExpandedRunDialog({
             {/* Final Output */}
             <section>
               <h3 className="text-xs font-semibold uppercase tracking-wider text-emerald-400 mb-2">
-                Final Output
+                Final output
               </h3>
               {finalOutput !== null ? (
                 <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm whitespace-pre-wrap leading-relaxed">

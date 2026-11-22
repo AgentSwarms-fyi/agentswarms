@@ -98,7 +98,7 @@ describe("the embedding model a user picks survives a session refresh (R220)", (
   });
 
   it("stops the embedding default once a model is picked, not only a provider", () => {
-    const at = src.indexOf('<Label className="pt-1">Embedding Model</Label>');
+    const at = src.indexOf('<Label className="pt-1">Embedding model</Label>');
     expect(at).toBeGreaterThan(-1);
     const picker = src.slice(at, src.indexOf("</Select>", at));
     expect(picker).toMatch(/onValueChange=\{\(v\) => \{\s*setEmbedChoiceTouched\(true\);/);

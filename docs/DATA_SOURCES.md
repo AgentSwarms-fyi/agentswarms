@@ -4,7 +4,7 @@
 
 Connect your own databases, warehouses and lakehouses so agents and the BI
 Workspace can query them directly. Connectors live under **Integrations →
-Data Sources**.
+Data sources**.
 
 ## Three different things are called a catalog
 
@@ -30,7 +30,7 @@ describes the data is also what governs it. See
 
 ## How connecting works
 
-1. Open **Integrations → Data Sources** and pick a provider.
+1. Open **Integrations → Data sources** and pick a provider.
 2. Fill in the connection fields (see the table below) and click **Test
    connection** — a `SELECT 1` probe confirms credentials and reachability
    before you save.
@@ -389,7 +389,7 @@ Use a read-only Oracle user.
 
 Two ways to confirm a connector works end-to-end against your systems:
 
-**From the UI** — in **Data Sources**, click **Test connection** (a `SELECT 1`
+**From the UI** — in **Data sources**, click **Test connection** (a `SELECT 1`
 probe), then open the **Data Catalog → SQL workbench**, expand the source to
 confirm its tables list, and run a small `SELECT`. Green on all three means the
 driver, credentials, schema listing and read path all work.
@@ -583,7 +583,7 @@ connection timeout rather than anything that names the cause.
 
 ### Connect the production warehouse and hand it to the team
 
-1. **Integrations → Data Sources.** Name the connection, choose the provider,
+1. **Integrations → Data sources.** Name the connection, choose the provider,
    enter host, database and a read-only login, and test it. The credential is
    encrypted at rest under `PROVIDER_CREDS_SECRET`; what you typed is never
    shown again.

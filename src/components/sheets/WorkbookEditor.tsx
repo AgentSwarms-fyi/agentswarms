@@ -827,7 +827,7 @@ export function WorkbookEditor({
       return;
     }
     if (mode === "across" && range.c0 === range.c1) {
-      toast.error("Merge Across joins cells in a row; select more than one column");
+      toast.error("Merge across joins cells in a row; select more than one column");
       return;
     }
     const cellCount = (range.r1 - range.r0 + 1) * (range.c1 - range.c0 + 1);
@@ -1435,7 +1435,7 @@ export function WorkbookEditor({
         clip.current = null;
       }
     } else if (mode === "formats") {
-      toast.error("Paste Formatting needs cells copied from this workbook");
+      toast.error("Paste formatting needs cells copied from this workbook");
       return;
     } else {
       const rows = parseTsv(text);

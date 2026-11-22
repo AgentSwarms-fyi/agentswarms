@@ -1613,12 +1613,14 @@ function PlaygroundPage() {
             variant="ghost"
             size="icon"
             className="h-8 w-8 shrink-0 md:hidden"
+            aria-label="Show the conversation list"
+            title="Show conversations"
             onClick={() => setSidebarOpen(true)}
           >
             <PanelLeftOpen className="h-4 w-4" />
           </Button>
           <div className="flex min-w-0 flex-1 items-center gap-2.5">
-            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-primary to-nexus-glow text-primary-foreground shadow-sm">
+            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
               <Bot className="h-4 w-4" />
             </div>
             <Select
@@ -1709,9 +1711,7 @@ function PlaygroundPage() {
         </div>
 
         {/* Messages area */}
-        <div className="relative flex-1 min-w-0 overflow-hidden bg-gradient-to-b from-muted/20 via-background to-background">
-          {/* soft premium glow behind the conversation */}
-          <div className="pointer-events-none absolute -top-24 left-1/2 h-64 w-[36rem] -translate-x-1/2 rounded-full bg-primary/5 blur-3xl" />
+        <div className="relative flex-1 min-w-0 overflow-hidden bg-background">
           <ScrollArea className="relative h-full w-full [&>[data-radix-scroll-area-viewport]>div]:!block [&>[data-radix-scroll-area-viewport]]:!w-full">
             <div className="mx-auto w-full min-w-0 max-w-3xl space-y-6 px-4 py-8">
               {messages.length === 0 && !messagesLoaded && !thinking && activeConvo && (
@@ -1725,7 +1725,7 @@ function PlaygroundPage() {
 
               {messages.length === 0 && (messagesLoaded || !activeConvo) && !thinking && (
                 <div className="flex flex-col items-center justify-center py-24 text-center">
-                  <div className="mb-5 grid h-16 w-16 place-items-center rounded-2xl bg-gradient-to-br from-primary to-nexus-glow text-primary-foreground shadow-lg shadow-primary/20">
+                  <div className="mb-5 grid h-14 w-14 place-items-center rounded-xl bg-primary/10 text-primary">
                     <Bot className="h-8 w-8" />
                   </div>
                   <h2 className="text-2xl font-semibold tracking-tight">
@@ -1920,8 +1920,8 @@ function PlaygroundPage() {
               {thinking ? (
                 <Button
                   size="sm"
-                  variant="destructive"
-                  className="h-8 w-8 p-0"
+                  variant="outline"
+                  className="h-8 w-8 rounded-lg p-0"
                   onClick={stopGeneration}
                   title="Stop generating"
                 >
@@ -1930,7 +1930,9 @@ function PlaygroundPage() {
               ) : (
                 <Button
                   size="sm"
-                  className="h-8 w-8 shrink-0 rounded-xl bg-gradient-to-br from-primary to-nexus-glow p-0 shadow-sm transition hover:opacity-90"
+                  className="h-8 w-8 shrink-0 rounded-lg p-0"
+                  aria-label={armedDoc ? "Generate the document" : "Send the message"}
+                  title={armedDoc ? "Generate" : "Send"}
                   onClick={sendMessage}
                   disabled={
                     docPhase !== "idle" ||
@@ -2303,7 +2305,7 @@ function ToolEventsPanel({ events, thinking }: { events: ToolUiEvent[]; thinking
     <div className="h-full rounded-lg border border-border bg-background/60 flex flex-col overflow-hidden">
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <p className="text-xs font-semibold flex items-center gap-1.5">
-          <Wrench className="h-3 w-3 text-primary" /> Tool Calls
+          <Wrench className="h-3 w-3 text-primary" /> Tool calls
         </p>
         <Badge variant="outline" className="text-[10px]">
           {calls.length} call{calls.length === 1 ? "" : "s"}
@@ -2700,7 +2702,7 @@ function RealExecutionTrace({ traceId, thinking }: { traceId: string | null; thi
     <div className="h-full rounded-lg border border-border bg-background/60 flex flex-col overflow-hidden">
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <p className="text-xs font-semibold flex items-center gap-1.5">
-          <Activity className="h-3 w-3 text-primary" /> Execution Trace
+          <Activity className="h-3 w-3 text-primary" /> Execution trace
         </p>
         <Badge
           variant="outline"
@@ -2834,7 +2836,7 @@ function ChatSidebar({
     <div className="flex flex-col h-full">
       <div className="p-3 border-b border-border">
         <Button variant="outline" size="sm" className="w-full" onClick={onNew}>
-          <Plus className="h-3 w-3 mr-1" /> New Chat
+          <Plus className="h-3 w-3 mr-1" /> New chat
         </Button>
       </div>
       <ScrollArea className="flex-1">
@@ -2891,7 +2893,9 @@ function ChatSidebar({
                   size="icon"
                   aria-label={`Delete ${c.title}`}
                   title="Delete chat"
-                  className="h-8 w-8 shrink-0 rounded-md border border-border/60 bg-background/80 p-0 text-destructive opacity-100 shadow-sm hover:bg-destructive hover:text-destructive-foreground"
+                  // Quiet until the row is pointed at, as Rename is; a touch
+                  // screen has no pointing, so there it always shows.
+                  className="h-8 w-8 shrink-0 rounded-md p-0 text-muted-foreground transition-opacity hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100"
                   onClick={(e) => {
                     e.stopPropagation();
                     onDelete(c.id);
@@ -2974,7 +2978,7 @@ function MessageBubble({
   if (editing) {
     return (
       <div className="flex gap-3">
-        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-slate-500 to-slate-700 text-white shadow-sm">
+        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground">
           <User className="h-4 w-4" />
         </div>
         <div className="flex-1 min-w-0 space-y-2">
@@ -3014,10 +3018,8 @@ function MessageBubble({
   return (
     <div className="group flex gap-3">
       <div
-        className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg text-white shadow-sm ${
-          isUser
-            ? "bg-gradient-to-br from-slate-500 to-slate-700"
-            : "bg-gradient-to-br from-primary to-nexus-glow"
+        className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${
+          isUser ? "bg-muted text-muted-foreground" : "bg-primary/10 text-primary"
         }`}
       >
         {isUser ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
@@ -3495,7 +3497,7 @@ function Sources({ sources }: { sources: Source[] }) {
 function ThinkingIndicator({ agent }: { agent?: Agent | null }) {
   return (
     <div className="flex gap-3">
-      <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-primary to-nexus-glow text-white shadow-sm">
+      <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
         <Bot className="h-4 w-4" />
       </div>
       <div className="flex items-center gap-2 text-sm text-muted-foreground">

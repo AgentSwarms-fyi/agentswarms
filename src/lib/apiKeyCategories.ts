@@ -113,7 +113,7 @@ export const API_KEY_CATEGORIES: ApiKeyCategory[] = [
   // ── Keys this instance issues ─────────────────────────────────────────────
   {
     id: "gateway",
-    label: "LLM Gateway Keys",
+    label: "LLM gateway keys",
     description: "Keys for calling into this instance's own LLM gateway from outside it.",
     icon: Server,
     route: "/integrations",
@@ -122,7 +122,7 @@ export const API_KEY_CATEGORIES: ApiKeyCategory[] = [
   },
   {
     id: "ml",
-    label: "ML Model API Keys",
+    label: "ML model API keys",
     description: "Serve predictions from a trained model you've published.",
     icon: Boxes,
     route: "/ml",
@@ -131,7 +131,7 @@ export const API_KEY_CATEGORIES: ApiKeyCategory[] = [
   },
   {
     id: "embeds",
-    label: "Web Embed Keys",
+    label: "Web embed keys",
     description: "Capability tokens that authorize an agent, swarm or dashboard iframe embed.",
     icon: Code2,
     route: "/embeds",
@@ -140,7 +140,7 @@ export const API_KEY_CATEGORIES: ApiKeyCategory[] = [
   },
   {
     id: "mcp_app_keys",
-    label: "MCP App Keys",
+    label: "MCP app keys",
     description: "Keys that call the MCP servers you built in MCP Builder.",
     icon: Blocks,
     route: "/mcp-builder",
@@ -157,7 +157,7 @@ export const API_KEY_CATEGORIES: ApiKeyCategory[] = [
   },
   {
     id: "notebook_keys",
-    label: "Notebook API Keys",
+    label: "Notebook API keys",
     description: "Keys that run your Python notebooks from outside the app.",
     icon: NotebookPen,
     route: "/notebooks",
@@ -166,7 +166,7 @@ export const API_KEY_CATEGORIES: ApiKeyCategory[] = [
   },
   {
     id: "share_tokens",
-    label: "Lakehouse Share Tokens",
+    label: "Lakehouse share tokens",
     description:
       "Delta Sharing tokens given to recipients OUTSIDE this instance — each reads the tables its share holds.",
     icon: Share2,
@@ -182,7 +182,7 @@ export const API_KEY_CATEGORIES: ApiKeyCategory[] = [
   },
   {
     id: "workflow_triggers",
-    label: "Workflow Trigger Tokens",
+    label: "Workflow trigger tokens",
     description: "Tokens that start one of your workflows over HTTP.",
     icon: Workflow,
     route: "/workflows",
@@ -191,7 +191,7 @@ export const API_KEY_CATEGORIES: ApiKeyCategory[] = [
   },
   {
     id: "etl_triggers",
-    label: "ETL Trigger Tokens",
+    label: "ETL trigger tokens",
     description: "Tokens that start or feed one of your ETL pipelines over HTTP.",
     icon: Zap,
     route: "/etl",
@@ -202,7 +202,7 @@ export const API_KEY_CATEGORIES: ApiKeyCategory[] = [
   },
   {
     id: "scim_tokens",
-    label: "SCIM Provisioning Tokens",
+    label: "SCIM provisioning tokens",
     description: "Tokens your identity provider uses to create and remove users here.",
     icon: UsersRound,
     route: "/admin/iam",
@@ -213,7 +213,7 @@ export const API_KEY_CATEGORIES: ApiKeyCategory[] = [
   // ── Credentials for other services ────────────────────────────────────────
   {
     id: "providers",
-    label: "LLM Provider Keys",
+    label: "LLM provider keys",
     description: "OpenAI, Anthropic, Gemini and other model providers — BYOK, per-provider.",
     icon: Cloud,
     route: "/integrations",
@@ -240,7 +240,7 @@ export const API_KEY_CATEGORIES: ApiKeyCategory[] = [
   },
   {
     id: "mcp",
-    label: "MCP Server Credentials",
+    label: "MCP server credentials",
     description: "Auth tokens stored for the external MCP servers you've connected.",
     icon: Plug,
     route: "/mcp",
@@ -251,7 +251,7 @@ export const API_KEY_CATEGORIES: ApiKeyCategory[] = [
   },
   {
     id: "warehouses",
-    label: "Warehouse Connections",
+    label: "Warehouse connections",
     description: "Logins for the databases and warehouses you query.",
     icon: Database,
     route: "/integrations",
@@ -260,7 +260,7 @@ export const API_KEY_CATEGORIES: ApiKeyCategory[] = [
   },
   {
     id: "catalog_sources",
-    label: "Catalog & Storage Sources",
+    label: "Catalog & storage sources",
     description: "Access keys for the object stores and databases the Data Catalog crawls.",
     icon: HardDrive,
     route: "/data-sql",
@@ -270,7 +270,7 @@ export const API_KEY_CATEGORIES: ApiKeyCategory[] = [
   },
   {
     id: "iceberg",
-    label: "Iceberg Catalogs",
+    label: "Iceberg catalogs",
     description: "Credentials for the Iceberg REST catalogs mounted in the lakehouse.",
     icon: Layers,
     route: "/lakehouse",
@@ -279,7 +279,7 @@ export const API_KEY_CATEGORIES: ApiKeyCategory[] = [
   },
   {
     id: "saas",
-    label: "App Connectors",
+    label: "App connectors",
     description: "Access to the SaaS apps whose data you sync, such as Salesforce.",
     icon: AppWindow,
     route: "/integrations",
@@ -288,7 +288,7 @@ export const API_KEY_CATEGORIES: ApiKeyCategory[] = [
   },
   {
     id: "chat_apps",
-    label: "Slack & Teams Apps",
+    label: "Slack & Teams apps",
     description: "Signing secrets and bot passwords for the chat apps your agents answer in.",
     icon: MessagesSquare,
     route: "/integrations",
@@ -297,7 +297,7 @@ export const API_KEY_CATEGORIES: ApiKeyCategory[] = [
   },
   {
     id: "kb_connectors",
-    label: "Knowledge Base Connectors",
+    label: "Knowledge base connectors",
     description:
       "Credentials the Knowledge Base uses to sync Google Drive, Confluence and similar.",
     icon: BookOpenText,
@@ -320,7 +320,7 @@ export const API_KEY_CATEGORIES: ApiKeyCategory[] = [
   },
   {
     id: "integrations",
-    label: "Service Integrations",
+    label: "Service integrations",
     description: "Keys for an upstream LLM gateway, Firecrawl, n8n and notification webhooks.",
     icon: Puzzle,
     route: "/integrations",

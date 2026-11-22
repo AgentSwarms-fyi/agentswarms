@@ -47,7 +47,14 @@ export const MAX_TOOL_RESULT_CHARS = 30_000;
  * instructions" arrives labeled as quoted material. First-party tools (KB, SQL,
  * calculator…) return the caller's own governed data and are not wrapped.
  */
-export const UNTRUSTED_CONTENT_TOOLS = new Set(["web_search", "web_browse", "mcp_call_tool"]);
+// find_my_work lists names, and a name shared with the reader was written by
+// someone else.
+export const UNTRUSTED_CONTENT_TOOLS = new Set([
+  "web_search",
+  "web_browse",
+  "mcp_call_tool",
+  "find_my_work",
+]);
 
 /**
  * Standing rule appended to the system prompt whenever tools are enabled.

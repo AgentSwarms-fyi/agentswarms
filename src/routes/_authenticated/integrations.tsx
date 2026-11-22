@@ -1,4 +1,4 @@
-import { PageEyebrow } from "@/components/PageEyebrow";
+import { PageHeader } from "@/components/PageHeader";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -47,7 +47,7 @@ const GATEWAY_PROVIDERS = [
   { value: "litellm", label: "LiteLLM" },
   { value: "portkey", label: "Portkey" },
   { value: "helicone", label: "Helicone" },
-  { value: "custom", label: "Custom Gateway" },
+  { value: "custom", label: "Custom gateway" },
 ];
 
 type Integration = {
@@ -480,14 +480,11 @@ function IntegrationsPage() {
 
   return (
     <div className="flex">
-      <div className="flex-1 p-6 space-y-6">
-        <div>
-          <PageEyebrow />
-          <h1 className="font-display text-3xl font-semibold tracking-tight">Integration Hub</h1>
-          <p className="text-muted-foreground mt-1">
-            Connect your LLM providers, gateways, and workflow tools.
-          </p>
-        </div>
+      <div className="min-w-0 flex-1 space-y-6 p-6">
+        <PageHeader
+          title="Integrations"
+          description="Connect model providers, data sources, apps and workflow tools."
+        />
 
         {readNotice && (
           <div
@@ -500,11 +497,11 @@ function IntegrationsPage() {
 
         <Tabs defaultValue="llm" className="space-y-4">
           <TabsList>
-            <TabsTrigger value="llm">LLM Providers</TabsTrigger>
-            <TabsTrigger value="warehouses">Data Sources</TabsTrigger>
+            <TabsTrigger value="llm">LLM providers</TabsTrigger>
+            <TabsTrigger value="warehouses">Data sources</TabsTrigger>
             <TabsTrigger value="apps">Apps</TabsTrigger>
-            <TabsTrigger value="gateway">LLM Gateway</TabsTrigger>
-            <TabsTrigger value="websearch">Web Search</TabsTrigger>
+            <TabsTrigger value="gateway">LLM gateway</TabsTrigger>
+            <TabsTrigger value="websearch">Web search</TabsTrigger>
             <TabsTrigger value="notifications">Notifications</TabsTrigger>
             {/* Beside Notifications because they are the two Slack-shaped
                 surfaces — but opposite directions. Notifications posts OUT to
@@ -513,7 +510,7 @@ function IntegrationsPage() {
             {/* Beside Slack for the same reason: the other inbound chat
                 surface, authenticated a completely different way. */}
             <TabsTrigger value="teams">Teams</TabsTrigger>
-            <TabsTrigger value="n8n">n8n Workflows</TabsTrigger>
+            <TabsTrigger value="n8n">n8n workflows</TabsTrigger>
           </TabsList>
 
           <TabsContent value="slack" className="space-y-4">
@@ -541,7 +538,7 @@ function IntegrationsPage() {
           <TabsContent value="gateway" className="space-y-4">
             <Card className="border-border/50 max-w-lg">
               <CardHeader>
-                <CardTitle>LLM Gateway</CardTitle>
+                <CardTitle>LLM gateway</CardTitle>
                 <CardDescription>
                   Route LLM traffic through a centralized gateway (LiteLLM, Portkey, Helicone, or
                   any OpenAI-compatible proxy) for logging, caching, and rate limiting. Two modes:
@@ -552,7 +549,7 @@ function IntegrationsPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <Label>Gateway Provider</Label>
+                  <Label>Gateway provider</Label>
                   <Select value={gatewayProvider} onValueChange={setGatewayProvider}>
                     <SelectTrigger>
                       <SelectValue />
@@ -567,7 +564,7 @@ function IntegrationsPage() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Gateway Base URL</Label>
+                  <Label>Gateway base URL</Label>
                   <Input
                     placeholder="https://gateway.example.com"
                     value={gatewayUrl}
@@ -575,7 +572,7 @@ function IntegrationsPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="gateway-api-key">Gateway API Key</Label>
+                  <Label htmlFor="gateway-api-key">Gateway API key</Label>
                   <SecretSelect
                     id="gateway-api-key"
                     value={gatewayKey}
@@ -709,7 +706,7 @@ function IntegrationsPage() {
                   key in the agent editor, override it.
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="firecrawl-api-key">Firecrawl API Key</Label>
+                  <Label htmlFor="firecrawl-api-key">Firecrawl API key</Label>
                   <SecretSelect
                     id="firecrawl-api-key"
                     value={firecrawlKey}
@@ -900,7 +897,7 @@ function IntegrationsPage() {
                               <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" /> Testing…
                             </>
                           ) : (
-                            "Send test & Save"
+                            "Send test & save"
                           )}
                         </Button>
                         {connected && (
@@ -924,14 +921,14 @@ function IntegrationsPage() {
           <TabsContent value="n8n" className="space-y-4">
             <Card className="border-border/50 max-w-lg">
               <CardHeader>
-                <CardTitle>n8n Workflow Automation</CardTitle>
+                <CardTitle>n8n workflow automation</CardTitle>
                 <CardDescription>
                   Connect your n8n instance for workflow triggers and tool actions.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <Label>n8n Instance URL</Label>
+                  <Label>n8n instance URL</Label>
                   <Input
                     placeholder="https://n8n.example.com"
                     value={n8nUrl}
@@ -939,15 +936,15 @@ function IntegrationsPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Authentication Type</Label>
+                  <Label>Authentication type</Label>
                   <Select value={n8nAuthType} onValueChange={setN8nAuthType}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="header">Header Auth Token</SelectItem>
-                      <SelectItem value="basic">Basic Auth</SelectItem>
-                      <SelectItem value="none">No Authentication</SelectItem>
+                      <SelectItem value="header">Header auth token</SelectItem>
+                      <SelectItem value="basic">Basic auth</SelectItem>
+                      <SelectItem value="none">No authentication</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -960,7 +957,7 @@ function IntegrationsPage() {
                 {n8nAuthType !== "none" && (
                   <div className="space-y-2">
                     <Label htmlFor="n8n-token">
-                      {n8nAuthType === "basic" ? "Credentials" : "API Key"}
+                      {n8nAuthType === "basic" ? "Credentials" : "API key"}
                     </Label>
                     <SecretSelect
                       id="n8n-token"

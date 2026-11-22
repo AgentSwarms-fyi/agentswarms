@@ -153,7 +153,7 @@ export function NotificationBell() {
         >
           <BellRing className="h-4 w-4" />
           {unread > 0 && (
-            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-semibold text-white">
+            <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold tabular-nums text-primary-foreground">
               {unread > 9 ? "9+" : unread}
             </span>
           )}

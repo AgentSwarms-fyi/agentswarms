@@ -246,6 +246,8 @@ function EmbedBiPage() {
                 </p>
                 <button
                   type="button"
+                  aria-label="Close the Ask AI panel"
+                  title="Close"
                   onClick={() => setAskOpen(false)}
                   className="text-muted-foreground hover:text-foreground"
                 >

@@ -107,7 +107,7 @@ export function ImportAgentDialog({
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>Import Agent</DialogTitle>
+          <DialogTitle>Import agent</DialogTitle>
         </DialogHeader>
 
         {!parsed ? (
@@ -148,7 +148,13 @@ export function ImportAgentDialog({
                   )}
                 </div>
               </div>
-              <Button variant="ghost" size="icon" onClick={reset}>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={`Remove ${filename}`}
+                title="Remove"
+                onClick={reset}
+              >
                 <X className="h-4 w-4" />
               </Button>
             </div>

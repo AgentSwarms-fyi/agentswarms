@@ -1,4 +1,4 @@
-import { PageEyebrow } from "@/components/PageEyebrow";
+import { PageHeader } from "@/components/PageHeader";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { McpServersPanel } from "@/components/settings/McpServersPanel";
 import { readPageIntent } from "@/lib/pageIntent";
@@ -16,19 +16,20 @@ function McpPage() {
   const search = Route.useSearch();
   return (
     <div className="flex">
-      <div className="flex-1 p-6 space-y-6">
-        <div>
-          <PageEyebrow />
-          <h1 className="font-display text-3xl font-semibold tracking-tight">MCP Integrations</h1>
-          <p className="text-muted-foreground mt-1">
-            Model Context Protocol servers expose tools and resources to your agents. To write your
-            own instead of connecting to someone else's, use{" "}
-            <Link to="/mcp-builder" className="text-primary hover:underline">
-              MCP Builder
-            </Link>{" "}
-            — servers you register there appear in this list automatically.
-          </p>
-        </div>
+      <div className="min-w-0 flex-1 space-y-6 p-6">
+        <PageHeader
+          title="MCP Servers"
+          description={
+            <>
+              Connect MCP servers so your agents can use their tools and resources. To write your
+              own, use{" "}
+              <Link to="/mcp-builder" className="text-primary hover:underline">
+                MCP Builder
+              </Link>
+              ; servers you make there appear here.
+            </>
+          }
+        />
         <McpServersPanel showBuilderLink={false} intent={search} />
       </div>
     </div>

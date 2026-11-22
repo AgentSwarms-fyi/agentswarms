@@ -105,7 +105,7 @@ export function wiringWarnings(
   const store = env.VECTOR_STORE?.trim().toLowerCase();
   if (env.QDRANT_URL === undefined && store !== "pgvector") {
     out.qdrant =
-      'Running, but this deployment does not search it: QDRANT_URL is not set, so knowledge bases search Postgres and RAG Settings cannot offer it. Re-run the installer (it wires an older .env), or add QDRANT_URL="http://qdrant:6333" and VECTOR_STORE="qdrant" to .env and run `docker compose up -d agentswarms`; the existing vectors are copied in by themselves.';
+      'Running, but this deployment does not search it: QDRANT_URL is not set, so knowledge bases search Postgres and RAG settings cannot offer it. Re-run the installer (it wires an older .env), or add QDRANT_URL="http://qdrant:6333" and VECTOR_STORE="qdrant" to .env and run `docker compose up -d agentswarms`; the existing vectors are copied in by themselves.';
   }
   return out;
 }

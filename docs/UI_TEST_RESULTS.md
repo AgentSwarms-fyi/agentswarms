@@ -15,6 +15,148 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-22 — R520: Runs, and a page change in a hidden tab
+
+Driven on a dev server built from the worktree (`:8102`), signed in as the owner, at
+1203 × 638, against the real database. Nothing was created or changed; one question was asked
+of the assistant.
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| `/runs` | the page, last 14 days | 238 runs grouped by day (Yesterday 109, then 9 a day); kinds with counts: Pipeline 2, Swarm 100, Model training 14, Notebook 22, Data monitor 100; the foot says only the newest 100 are listed for swarms and monitors |
+| Needs a look | the filter | 57: failed and alerted monitor checks, each with its reason in one line ("The newest value in this column is not a date or time: EMEA. Freshness needs a timestamp column.") |
+| The third filter | the filter | 70, all one scheduled test swarm **waiting for approval** — so the filter, first called "Running", is now **Not finished** (queued, running or waiting) |
+| Ask about this | on the alerted monitor | the assistant opened and asked with the monitor's name and error; it read the handbook and the reader's work and answered about the timestamp column. The question had a doubled full stop after the error (fixed) |
+| A page change with the document hidden | a link clicked while the tab was in the background | **the page never changed**: the browser refused the view transition ("InvalidStateError: … Document hidden") and the router never committed the new page — the address moved, the old page stayed. Fixed (`viewTransitionGuard.ts`): no transition in a hidden document; with the document reporting hidden, a change of page to Runs then completed |
+
+**Not driven:** a run of each kind in flight (only waiting swarms were); the dashboard-refresh and
+scheduled-analysis rows (none in the window).
+
+**On the 8080 image rebuilt with R516–R520** (2026-11-22):
+
+| Account | What was driven | Result |
+| --- | --- | --- |
+| The owner | Runs | 238 runs, Needs a look 57, Not finished 70, the same as on the dev server; Runs in the menu, Assistant in the top bar |
+| The owner | a dataset page; Trash | all six tabs, "Stale: last loaded 4mo ago"; "The trash is empty." |
+| The second account | Runs | "Nothing ran in the last 14 days." — none of the owner's runs |
+| The second account | the owner's dataset page, by its address | "This dataset is not here, or it is not yours to see." |
+
+## 2026-11-22 — R519: a page for every dataset
+
+Driven on the same dev server, against the real database with migration `20261123000000`
+applied. Nothing was created or changed.
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| Search for "sales", the dataset result | a click | opens `/data-sql/<id>` (was the catalog drawer) |
+| A bundled sample (`saas_sales`) | the page | Overview, Sample, Columns only; "A sample to try things on"; 15 things of the reader's built on it, listed (11 dashboards, a semantic model, an AI analyst, 2 data-prep flows) |
+| The same | Sample, Columns | the first 100 of 19 columns; a profile per column read from the first 500 rows, which says so |
+| Found and fixed | the first look | the origin said twice (in the verdict and its own block) and the verdict repeated as the page's description; Rows "—" for a dataset with no stored copy; a US-style date column ("6/13/2024") read as text though the dataset declares it a date, and "number (number)" |
+| An owned dataset made by a flow (`summary_segment_data`) | the page | all six tabs; Rows 9,992, 3 columns, 82 KB, loaded 4 months ago (search says 18 days ago: its name changed then, its rows did not); "Stale: last loaded 4mo ago", no checks yet, made by the flow "Summary data" |
+| Checks and versions, Schema changes, Access | the tabs | the checks panel and version history; "No earlier versions are kept yet"; "Only you can read it" — the owner-only function answering from the real database |
+| Query | the button | the Workbench with `SELECT * FROM "summary_segment_data" LIMIT 100` written and run |
+| The catalog drawer | Open its page | the dataset's page, the drawer closed |
+| A synced dataset (`sftest_accounts`) | Overview; the assistant | "Synced from the connection “sftest” (accounts)."; the assistant reads "On Dataset “sftest_accounts”" |
+
+**Not driven:** the Access list with grants in it, and a grantee's view — no dataset has a grant
+and none was made for the test (the function's answers for owner, grantee, stranger and anon were
+proved in a throwaway Postgres, 9 checks).
+
+## 2026-11-22 — R516: the trash, against the real database
+
+Driven on the same dev server with migration `20261122000000` applied, on two test prompts made
+for the purpose and deleted for good at the end.
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| Prompt Library, a test prompt's delete | the button | "Move “R516 trash probe” to the trash? You can restore it from Trash for 30 days." |
+| Move to trash | confirm | gone from the list; "Moved “R516 trash probe” to the trash" with **Undo** |
+| Undo | the message's button | "“R516 trash probe” is back"; listed again |
+| Trash page | after a second move | "R516 trash probe · Prompt · Deleted 2 minutes ago · Deleted for good in 30 days", Restore, Delete for good |
+| Restore | the button | the row stays, "Restored", with **Open**; Open shows the prompt's editor |
+| Delete for good | after a third move | "Delete “R516 trash probe” for good? It cannot be restored after this, and nothing that belonged to it can."; the row stays struck as "Deleted for good" |
+| Empty trash | a second test prompt | "Delete everything in the trash for good? 1 thing and everything that belonged to them…" — **them** for one thing (fixed to "it"); emptied |
+| Read back (read-only) | the database | the trash empty, no test prompt left, 8 audit rows (4 moves, 2 restores, 2 deletes for good) |
+
+**Found on the way:** the prompt cards' edit and delete buttons had no name for a screen reader
+(the delete icon was also red at rest); a scan of every page found 43 such icon buttons, named in
+this round, and a test now keeps the count at zero.
+
+## 2026-11-21 — R518: an assistant beside every page
+
+Driven on a dev server built from the worktree (`:8102`), signed in as the owner, at
+1203 × 638 and at 375 × 812, against the real database and the workspace's default model
+(`openai/gpt-4o-mini`). Ten questions were asked, which cost about $0.004 in all; nothing
+was created, changed or deleted (one agent's edit dialog was opened from a link and closed
+with Esc). The traces were read back with a read-only query.
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| Agent Builder, **Assistant** in the top bar | one press | a panel beside the page, "On Agent Builder", three starting questions, the cursor in the box; the page gave up the width instead of being covered |
+| "How do I give an agent a knowledge base?" | the starter | "Read the handbook", then an answer — **but** a link to an outside address the model made up, and steps for making a knowledge base rather than attaching one (fixed below) |
+| The same, asked again after the fixes | typed, Enter | the steps through the agent's Knowledge tab, linked to /docs/knowledge#using |
+| "Where are my budget probe agents?" | typed | "Looked through your work", the three real agents, each linked; the panel stays put while the page scrolls under it |
+| One of those links | a click | the agent's editor opened in this tab; the panel and all eight messages stayed; Esc closed the editor only |
+| BI Workspace, then a dashboard | moving inside the app | the panel's line followed: "On BI Workspace", then "On Dashboard “Bike Share Rides”" (the name looked up as the reader) |
+| "How do I email this dashboard to my team every Monday morning?" | typed | the dashboard-schedule section, linked; the handbook link opens in a new tab so the conversation stays in view |
+| Search (Ctrl K), "how long does the trash keep things" | Enter on the one row | "Nothing has that name. Ask the assistant"; the panel asked it once: 30 days, linked to the trash section |
+| A reload | the page | the panel still open, all eight messages kept, the line naming the dashboard |
+| Ctrl J, twice | the keyboard | closes, opens, the conversation kept; the button says whether it is pressed |
+| Esc in the box | the keyboard | closes the panel and puts the focus back on Assistant (it was dropped on the page before the fix) |
+| "What is Agent Builder for?" | the starter | first answered from memory without the handbook; after the instruction was sharpened, read the handbook: the six-tab form, the defaults, linked to /docs/agents |
+| Stop | while an answer was coming | "Stopped.", Send back |
+| A phone, 375 px | Assistant | the panel over the whole screen, the conversation and the box readable; closing it with × |
+| The traces | read-only query | each answer recorded as "Assistant" (was "Playground" before the fix), its tool rounds as "Chat: tool-round", what they looked up sealed under the owner's key |
+
+**Found and fixed in this round**
+
+| Found | Fix |
+| --- | --- |
+| The model wrapped handbook links in an address it remembered, once with the /docs dropped | the instructions say the handbook is part of this app; a handbook link under any address, or under a docs host with /docs dropped, is drawn as this app's /docs path |
+| Handbook search put each page's opening above the section that answers, and "share"/"sharing", "schedule"/"scheduling" did not match | the page title no longer counts twice on its own opening; one stem for a word's forms; the asker's words related to the handbook's ("email … every week" → schedule); each page's description counts for the sections under it; the best section quoted at length |
+| "What is Agent Builder for?" answered without the handbook | the kinds of question that must go to the handbook are named |
+| Answers recorded as "Playground" | a browser may say it is the assistant (a fixed name), never name a trace freely |
+| Esc dropped the keyboard focus on the page | focus goes back to the Assistant button |
+| Seven list pages ran past a phone's screen (one card with a long model id set the page's width) | the page column may shrink, and a grid with breakpoint-only columns has one column that fits below the breakpoint |
+| The handbook's search showed headings with `&apos;` in them | entities are decoded where both indexes are built |
+
+**Not driven:** the panel on a page whose own AI is open beside it (Ask AI in a workbook);
+an account whose role may not use the default model (the refusal text is unit-tested only);
+the second account.
+
+## 2026-11-21 — R517: a calmer look
+
+Driven on a dev server built from the worktree (`:8102`), signed in as the owner, at
+1203 × 638. Measured from the DOM (computed styles), not judged from screenshots alone.
+Nothing was created, changed or deleted; the one look at a running swarm step was made by
+putting that state's classes on a node in the page, then reloading.
+
+**Every page in the menu, opened one after another inside the app**
+
+| What was measured | Result |
+| --- | --- |
+| The page title on each of the 41 menu pages | 36 open with their menu name as the title, 22 px semibold. The other five by design: Dashboard greets the reader by name (22 px); Documentation has its own layout; Agent Chat and AI Analyst are full-height workspaces with no page header; Data Catalog is a workspace with a 14 px toolbar title |
+| A solid red button visible at rest | none on any page |
+| Gradients | only functional ones: the dotted canvas behind swarm thumbnails and the MCP builder, the paper of workbook thumbnails, one colour-scale legend |
+
+**The pages this round changed**
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| Agent Chat | the page, with a conversation open | no gradient and no glow behind the conversation; the agent's mark a soft accent tint, the person's grey; the send button the plain main button |
+| Agent Chat, the conversation list | at rest, then pointing at one row | each row's delete icon hidden and grey at rest; it shows on the row pointed at only, red only under the pointer |
+| An ML model's page | the title | 22 px semibold, as every other page (was the 30 px display face) |
+| An ontology's page | the title | 22 px semibold (was 24 px display) |
+| A workbook | the name in the toolbar | 15 px semibold, as the dashboard editor's (was the display face) |
+| A swarm on the canvas | the nodes at rest | a fine shadow, no glow, no animation, no scaling |
+| The same, one node given the running step's classes | a screenshot | an amber edge and a soft ring; the card holds still and its name stays readable |
+| Account | Session and Delete account | Sign out is an outline button on a plain card (was solid red on a red-edged card); Delete my account is a red outline button that opens the confirmation, which keeps the solid red |
+| Every toast in the code | a parse of each `toast(…)` call's text | none ends in "!" or says "successfully", none carries an emoji (six did) |
+| The dark theme, put on the page for a look (the saved preference was not changed) | Agent Builder and Account | cards are dark surfaces a step above the page, names readable, the agents' marks soft tints; the account's outline buttons and the red-edged delete card read the same as in light |
+
+**Not driven:** a real swarm run (it would spend model calls; the running look was checked
+with the state's classes, above); the Stop button while an answer streams.
+
 ## 2026-11-21 — R515: My work, favourites and what was opened last
 
 Driven on a dev server built from the worktree (`:8102`), signed in as the owner, at
@@ -81,9 +223,18 @@ nothing was created or saved.
   says no workbooks are under these filters, and its button shows them all.
 - The swarm canvas star had no backdrop over the canvas, unlike the controls beside it.
 
-**Not driven:** the table itself, which waits for its migration: that a star is still
-there after a reload, that a second person sees only their own, and that the database
-leaves the star alone when an opening is written. "Shared with me" with something in it:
+**On the 8080 image built from this round, with the table migrated** (2026-11-21):
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| `/agents`, the owner | the star on a test agent, then a reload | still on after the reload; the Favourites chip read 1 |
+| Edit on that agent, then Escape | My work → Recent | first, "Opened just now", its star still on: writing the opening left the star alone |
+| The second account, My work | the Favourites tab | 0: the owner's star is not theirs |
+| The second account, Shared with me | the tab | "Nothing has been shared with you.", which is true of that account |
+| The owner, the star taken off again | My work | Favourites 0; the account is as it was |
+
+**Not driven:** "Shared with me" with something in it (that needs a real share to the
+second account, which was not made for a test). "Shared with me" with something in it:
 the owner has nothing shared with them, and the second account is signed in only on the
 8080 origin. A saved prompt's star (the owner has no saved prompts). The report designer,
 workbook, notebook and MCP project pages, whose star is the same component in the same

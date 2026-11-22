@@ -93,6 +93,8 @@ export type DatasetVersionRow = {
   reason: string;
   row_count: number;
   column_count: number;
+  /** The columns the dataset had then: its page reads schema changes from them (R519). */
+  column_names: string[];
   rows_omitted: boolean;
   note: string | null;
 };
@@ -120,6 +122,7 @@ export const listDatasetVersionsFn = createServerFn({ method: "POST" })
             reason: v.reason,
             row_count: v.row_count,
             column_count: v.columns.length,
+            column_names: v.columns.map((c) => c.name),
             rows_omitted: v.rows_omitted,
             note: v.note,
           })),

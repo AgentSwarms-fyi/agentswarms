@@ -1,6 +1,6 @@
 // Main IDE route for /data-sql.
 // 3-pane layout: Database Explorer · SQL Editor (light) + Results · Agent Chat
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { summarizeTablesForPrompt } from "@/lib/sqlSchemaSummary";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -133,7 +133,13 @@ export const Route = createFileRoute("/_authenticated/data-sql")({
   component: DataCatalogRoute,
   // `?open=<dataset id>` shows one dataset and `?new=1` starts adding data —
   // how search results and the "New" menu link here (src/lib/pageIntent.ts).
-  validateSearch: (s: Record<string, unknown>) => readPageIntent(s),
+  validateSearch: (s: Record<string, unknown>) => ({
+    ...readPageIntent(s),
+    // A dataset's page asks for a first query on it (R519).
+    ...(typeof s.query === "string" && s.query.trim() && s.query.length <= 200
+      ? { query: s.query }
+      : {}),
+  }),
 });
 
 // Seed passed from the Catalog's "Query data" into the IDE below.
@@ -150,6 +156,31 @@ function DataCatalogRoute() {
   const [view, setView] = useState<"catalog" | "workbench">("catalog");
   const [wbMounted, setWbMounted] = useState(false);
   const [seed, setSeed] = useState<WorkbenchSeed | null>(null);
+  const navigateData = useNavigate();
+
+  // A dataset's page sends "Query" here: the Workbench, with a first query on
+  // that dataset written and run, as the Catalog's own "Query" does. Then the
+  // address forgets it, so a reload does not run it again.
+  useEffect(() => {
+    const q = search.query;
+    if (!q) return;
+    setSeed({
+      sql: `SELECT * FROM "${q.replace(/"/g, '""')}" LIMIT 100`,
+      dataSource: "local",
+      autorun: true,
+      nonce: Date.now(),
+    });
+    setWbMounted(true);
+    setView("workbench");
+    void navigateData({
+      to: "/data-sql",
+      search: (prev: Record<string, unknown>) => {
+        const { query: _q, ...rest } = prev;
+        return rest;
+      },
+      replace: true,
+    } as never);
+  }, [search.query]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A link that asks for one dataset is answered by the Catalog: it holds the
   // list of datasets. So the Catalog is the pane to show when one arrives, and
@@ -1115,7 +1146,7 @@ function DataSqlPage({
           <div className="flex items-center gap-2">
             <Database className="h-4 w-4 text-teal-600 dark:text-teal-400" />
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-700 dark:text-foreground">
-              Database Explorer
+              Database explorer
             </span>
           </div>
           <Button
@@ -1132,7 +1163,7 @@ function DataSqlPage({
         <ScrollArea className="flex-1">
           <div className="p-2">
             <p className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-muted-foreground px-2 py-1">
-              Local Tables
+              Local tables
             </p>
             {tablesError && datasets.length > 0 ? (
               <p
@@ -1397,7 +1428,7 @@ function DataSqlPage({
                 <Wand2 className="h-3 w-3 text-primary" />
               </div>
               <span className="text-sm font-semibold text-slate-800 dark:text-foreground shrink-0">
-                SQL Editor
+                SQL editor
               </span>
               {activeDataset && (
                 <Badge
@@ -1416,16 +1447,16 @@ function DataSqlPage({
                 aria-expanded={agentPanelOpen}
                 aria-controls="workbench-agent-panel"
                 aria-label={
-                  agentPanelOpen ? "Hide BI Agent and SQL Chat" : "Show BI Agent and SQL Chat"
+                  agentPanelOpen ? "Hide BI agent and SQL chat" : "Show BI agent and SQL chat"
                 }
-                title={agentPanelOpen ? "Hide BI Agent and SQL Chat" : "Show BI Agent and SQL Chat"}
+                title={agentPanelOpen ? "Hide BI agent and SQL chat" : "Show BI agent and SQL chat"}
                 className="ml-auto h-7 shrink-0 px-1.5 text-xs text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-foreground dark:hover:text-foreground dark:hover:bg-accent"
               >
                 {agentPanelOpen ? (
                   <PanelRightClose className="h-3.5 w-3.5" />
                 ) : (
                   <>
-                    <PanelRightOpen className="h-3.5 w-3.5 mr-1.5" /> BI Agent
+                    <PanelRightOpen className="h-3.5 w-3.5 mr-1.5" /> BI agent
                   </>
                 )}
               </Button>
@@ -1485,7 +1516,7 @@ function DataSqlPage({
                 ) : (
                   <Play className="h-3.5 w-3.5 mr-1.5" />
                 )}
-                Run Query
+                Run query
               </Button>
             </div>
           </div>
@@ -1604,7 +1635,7 @@ function DataSqlPage({
                 <div>
                   Press{" "}
                   <kbd className="mx-1 rounded border border-border bg-accent px-1.5 py-0.5 text-foreground shadow-sm">
-                    Run Query
+                    Run query
                   </kbd>
                   {agentPanelOpen ? " or ask the BI agent →" : ""}
                 </div>
@@ -1669,15 +1700,15 @@ function DataSqlPage({
           <div className="px-3 py-2 border-b border-slate-200 dark:border-border">
             <TabsList className="grid w-full grid-cols-2 h-8">
               <TabsTrigger value="bi" className="text-xs gap-1.5">
-                <Sparkles className="h-3 w-3" /> BI Agent
+                <Sparkles className="h-3 w-3" /> BI agent
               </TabsTrigger>
               <TabsTrigger value="sql" className="text-xs gap-1.5">
-                <Bot className="h-3 w-3" /> SQL Chat
+                <Bot className="h-3 w-3" /> SQL chat
               </TabsTrigger>
             </TabsList>
             <p className="text-[9px] text-slate-400 dark:text-muted-foreground mt-1.5 px-1 leading-snug">
               {rightTab === "bi"
-                ? "Plan → SQL → Chart → Narrative · GenBI patterns inspired by Wren AI"
+                ? "Plan → SQL → chart → narrative, from the semantic layer"
                 : "Free-form chat with sql_query tool"}
             </p>
           </div>
@@ -1710,6 +1741,8 @@ function DataSqlPage({
                     >
                       {m.name}
                       <button
+                        aria-label={`Delete the saved metric ${m.name}`}
+                        title="Delete"
                         onClick={(e) => {
                           e.stopPropagation();
                           handleDeleteMetric(m.id);
@@ -1904,6 +1937,8 @@ function DataSqlPage({
                 <Button
                   size="icon"
                   className="h-7 w-7 bg-violet-600 hover:bg-violet-500 dark:bg-violet-500 dark:hover:bg-violet-400"
+                  aria-label="Send the message"
+                  title="Send"
                   onClick={handleSend}
                   disabled={chatBusy || !chatInput.trim()}
                 >

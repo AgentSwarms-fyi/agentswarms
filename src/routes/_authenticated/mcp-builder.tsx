@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { PageHeader } from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -147,32 +148,27 @@ function McpBuilderPage() {
 
   return (
     <div className="dot-matrix-bg min-h-full p-6 sm:p-8">
-      <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="flex items-center gap-2 font-display text-2xl font-semibold tracking-tight">
-            <Wrench className="h-6 w-6 text-primary" />
-            MCP Builder
-          </h1>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Write a server in Python with FastMCP, deploy it to a sandboxed kernel, and call it over
-            Streamable HTTP — from your own agents here, or from any MCP client once you expose it.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* First in the row, so the buttons stay where they are when it appears. */}
-          <FavouritesFilter filter={favourites} />
-          <Button asChild variant="ghost" size="sm" className="gap-1.5 text-muted-foreground">
-            <Link to="/mcp">
-              <Plug className="h-4 w-4" />
-              Connected servers
-            </Link>
-          </Button>
-          <Button onClick={() => setNewOpen(true)} className="gap-1.5">
-            <Plus className="h-4 w-4" />
-            New server
-          </Button>
-        </div>
-      </header>
+      <PageHeader
+        title="MCP Builder"
+        description="Write an MCP server in Python, run it in a sandbox, and call it from your agents or any MCP client."
+        className="mb-6"
+        actions={
+          <>
+            {/* First in the row, so the buttons stay where they are when it appears. */}
+            <FavouritesFilter filter={favourites} />
+            <Button asChild variant="ghost" size="sm" className="gap-1.5 text-muted-foreground">
+              <Link to="/mcp">
+                <Plug className="h-4 w-4" />
+                Connected servers
+              </Link>
+            </Button>
+            <Button onClick={() => setNewOpen(true)} className="gap-1.5">
+              <Plus className="h-4 w-4" />
+              New server
+            </Button>
+          </>
+        }
+      />
 
       {loading ? (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

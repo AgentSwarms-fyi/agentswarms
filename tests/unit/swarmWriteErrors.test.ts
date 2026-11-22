@@ -30,21 +30,28 @@ describe("creating a swarm", () => {
 });
 
 describe("deleting a swarm", () => {
-  const fn = between("const performDeleteSwarm = async", 'toast.success("Swarm deleted");');
+  // R516: the delete moves the swarm to the trash. moveToTrash says a refusal
+  // itself, and says the success once, with Undo.
+  const fn = between("const performDeleteSwarm = async", "const selectedNode = useMemo");
 
-  it("keeps the delete's error, and a failed delete changes nothing on screen", () => {
-    expect(fn).toContain('const { error: deleteError } = await supabase.from("swarms").delete()');
-    expect(fn).toContain('toast.error("Could not delete the swarm"');
+  it("keeps the move's result, and a failed move changes nothing on screen", () => {
+    expect(fn).toMatch(/const r = await moveToTrash\(\{\s*kind: "swarm",/);
+    // Not quiet: the refusal is said by moveToTrash, so nothing here mutes it.
+    expect(fn).not.toContain("quiet");
+    expect(fn).not.toContain('.from("swarms").delete()');
     // The failure block RETURNS, before the list is touched — a toast alone
     // would still drop the swarm from the list.
-    const start = fn.indexOf("if (deleteError) {");
+    const start = fn.indexOf("if (!r.ok) {");
+    expect(start).toBeGreaterThan(0);
     const end = fn.indexOf("\n    }\n", start);
     expect(end).toBeGreaterThan(start);
     expect(fn.slice(start, end)).toContain("return;");
-    expect(fn.indexOf("if (deleteError) {")).toBeLessThan(
+    expect(fn.indexOf("if (!r.ok) {")).toBeLessThan(
       fn.indexOf("const remaining = swarmList.filter"),
     );
     expect(page).not.toMatch(/^\s*await supabase\.from\("swarms"\)\.delete\([^\n]*;\s*$/m);
+    // The one success word is the trash's own toast, not a second one here.
+    expect(fn).not.toContain('toast.success("Swarm deleted")');
   });
 
   it("says when the fresh swarm after the last delete could not be created", () => {

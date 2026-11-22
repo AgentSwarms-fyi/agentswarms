@@ -128,7 +128,8 @@ describe("what uses a dataset or a metric, on page 2 only", () => {
     // The pure functions above only help if the rows they get carry `pages`.
     for (const f of [
       "src/lib/dataCatalog.ts",
-      "src/utils/dataPrep.functions.ts",
+      // The dataset dependents read (delete check and dataset page, R519).
+      "src/utils/data/datasetDependents.server.ts",
       "src/utils/semantic.functions.ts",
       "src/routes/_authenticated/metrics.tsx",
     ]) {

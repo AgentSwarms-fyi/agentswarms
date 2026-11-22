@@ -1,7 +1,7 @@
 // Data engineering -> Data monitors: standing checks on tables, their incidents and
 // their history. A monitor is the question "is this table still right?",
 // asked on a schedule; an incident is the open answer.
-import { PageEyebrow } from "@/components/PageEyebrow";
+import { PageHeader } from "@/components/PageHeader";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
@@ -22,6 +22,8 @@ import { z } from "zod";
 import { useAuth } from "@/hooks/use-auth";
 import { useRecordOpened } from "@/hooks/use-object-marks";
 import { usePageIntent } from "@/hooks/use-page-intent";
+import { announceTrashed } from "@/hooks/use-trash";
+import { RESTORE_HINT } from "@/lib/trash";
 import { FavouritesFilter } from "@/components/FavouritesFilter";
 import { useFavouritesFilter } from "@/hooks/use-favourites-filter";
 import { StarButton } from "@/components/StarButton";
@@ -285,25 +287,20 @@ function DataMonitorsPage() {
 
   return (
     <div className="space-y-6 p-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <PageEyebrow />
-          <h1 className="font-display text-3xl font-semibold tracking-tight">Data monitors</h1>
-          <p className="mt-1 max-w-2xl text-muted-foreground">
-            Standing checks on your tables — freshness, volume against a learned baseline, schema
-            drift, null rates, uniqueness and custom SQL — run on a schedule, with an incident
-            opened when one fails and closed when it passes again.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => void reload()}>
-            <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Refresh
-          </Button>
-          <Button size="sm" onClick={() => setOpen(true)}>
-            <Plus className="mr-1.5 h-4 w-4" /> New monitor
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Data monitors"
+        description="Scheduled checks on your tables that open an incident when one fails and close it when it passes again."
+        actions={
+          <>
+            <Button variant="outline" size="sm" onClick={() => void reload()}>
+              <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Refresh
+            </Button>
+            <Button size="sm" onClick={() => setOpen(true)}>
+              <Plus className="mr-1.5 h-4 w-4" /> New monitor
+            </Button>
+          </>
+        }
+      />
 
       <div className="grid gap-3 sm:grid-cols-4">
         <Stat label="Monitors" value={stats.total} />
@@ -519,13 +516,16 @@ function DataMonitorsPage() {
                           disabled={busy === m.id}
                           onClick={async () => {
                             const ok = await confirmAsk({
-                              title: `Delete "${m.name}"?`,
-                              body: "Its run history and incidents go with it. Pausing keeps them.",
-                              actionLabel: "Delete",
+                              title: `Move “${m.name}” to the trash?`,
+                              body: `Its run history and incidents go with it. Pausing keeps them. ${RESTORE_HINT}`,
+                              actionLabel: "Move to trash",
                             }).catch(() => false);
                             if (ok)
-                              void act(m.id, () =>
-                                deleteFn({ data: { access_token: token, id: m.id } }),
+                              void act(
+                                m.id,
+                                () => deleteFn({ data: { access_token: token, id: m.id } }),
+                                (r) =>
+                                  announceTrashed(m.name, String(r.trashId), () => void reload()),
                               );
                           }}
                         >

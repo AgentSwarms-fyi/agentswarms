@@ -540,7 +540,7 @@ export function AddSourceWizard({
                     to="/integrations"
                     className="text-primary underline-offset-2 hover:underline"
                   >
-                    Integrations → Data Warehouses
+                    Integrations → Data sources
                   </Link>
                   .
                 </p>

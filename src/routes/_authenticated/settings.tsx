@@ -1,9 +1,9 @@
 // The Settings page: a tab-to-tab interface (URL-persisted via ?tab=, so a
 // link/bookmark/refresh lands on the same tab) over four panels that each
 // own their own state and backend calls — this route is just the shell.
-import { PageEyebrow } from "@/components/PageEyebrow";
+import { PageHeader } from "@/components/PageHeader";
 import { createFileRoute } from "@tanstack/react-router";
-import { KeyRound, LayoutGrid, Palette, Settings as SettingsIcon, UserCircle2 } from "lucide-react";
+import { KeyRound, LayoutGrid, Palette, UserCircle2 } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -34,7 +34,7 @@ const TABS = [
   },
   {
     id: "api-keys",
-    label: "API Keys",
+    label: "API keys",
     icon: KeyRound,
     description: "Generate, copy, and revoke keys for programmatic access.",
     Panel: ApiKeysSettingsPanel,
@@ -78,15 +78,12 @@ function SettingsPage() {
 
   return (
     <div className="mx-auto max-w-5xl p-6">
-      <div className="mb-6">
-        <PageEyebrow fallback="Workspace" />
-        <h1 className="flex items-center gap-2 font-display text-3xl font-semibold tracking-tight">
-          <SettingsIcon className="h-7 w-7 text-primary" /> Settings
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Your profile, workspace layout, API keys, and appearance.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Workspace"
+        title="Settings"
+        description="Change your profile, layout, API keys and theme."
+        className="mb-6"
+      />
 
       {/* Mobile: a dropdown, not a horizontal scroll strip — the brief asks
           for "collapsible/dropdown tabs," and with 4 tabs a select reads

@@ -233,7 +233,7 @@ counted by hand and re-checked when the feature changes.
   shape ([backups and restore](./docs/DEPLOYMENT.md#backups-and-restore)).
 - **Two vector stores, chosen per collection** — pgvector in the application
   database by default, or Qdrant for a collection that has outgrown it, picked
-  in **RAG Settings → Retrieval → Vector index**; `VECTOR_STORE` is the
+  in **RAG settings → Retrieval → Vector index**; `VECTOR_STORE` is the
   default for collections that have not chosen. Saving a change moves that
   collection's existing vectors into the new index and clears the old one, and
   re-embeds nothing, because the embeddings are a column on the chunk rows.

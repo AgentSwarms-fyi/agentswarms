@@ -256,7 +256,7 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
         that already makes chat work. Any other connected provider exposing an OpenAI-compatible{" "}
         <C>/embeddings</C> endpoint can be selected instead. The suggested default applies only
         until you pick a provider or a model; after that, your pick is what uploads and re-indexing
-        use, and the line under Add Document names it.
+        use, and the line under Add document names it.
       </P>
       <Callout kind="warn" title="Not every embedding model fits this store">
         The vector column is fixed at <strong>1536 dimensions</strong> and ingest rejects any other
@@ -336,7 +336,7 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
       </P>
       <P>
         That setting is the <strong>default for every collection</strong>, not a decision for the
-        whole deployment. <strong>RAG Settings &rarr; Retrieval &rarr; Vector index</strong> sets it
+        whole deployment. <strong>RAG settings &rarr; Retrieval &rarr; Vector index</strong> sets it
         per knowledge base, which is usually how to adopt Qdrant at all: the one collection that
         outgrew Postgres moves, every other one stays where its rows are. A collection pointed at
         Qdrant on a deployment that has none falls back to Postgres, and the picker says so rather
@@ -422,7 +422,7 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
       <P>
         Retrieval and generation want opposite things from a chunk. Matching is most precise when
         chunks are small and about one idea; answering is best when the model can see the whole
-        passage. <strong>RAG Settings &rarr; Chunking &rarr; Chunking Mode</strong> decides how that
+        passage. <strong>RAG settings &rarr; Chunking &rarr; Chunking mode</strong> decides how that
         tension is resolved for a document.
       </P>
       <Table
@@ -474,7 +474,7 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
       <P>
         Vector search finds meaning and blurs exact strings; an error code, a part number or a
         surname is exactly the kind of token embeddings smooth away. Keyword search is the opposite.
-        <strong> RAG Settings &rarr; Retrieval</strong> sets which of them runs, per knowledge base.{" "}
+        <strong> RAG settings &rarr; Retrieval</strong> sets which of them runs, per knowledge base.{" "}
         The same tab chooses the <strong>vector index</strong> that collection is searched in.
       </P>
       <Table
@@ -1015,7 +1015,7 @@ Never fill a gap with general knowledge.`}</Code>
       <Steps
         items={[
           {
-            title: "Add Source → Website",
+            title: "Add source → Website",
             body: (
               <>
                 Give start URLs; optionally a sitemap URL, path prefixes to stay inside such as{" "}
@@ -1033,7 +1033,7 @@ Never fill a gap with general knowledge.`}</Code>
       <Steps
         items={[
           {
-            title: "Add Source → Confluence",
+            title: "Add source → Confluence",
             body: "Site URL, the space keys to sync, an API token — plus the account email on Confluence Cloud. Cloud and Data Center are told apart from the URL and authenticated accordingly.",
           },
           {

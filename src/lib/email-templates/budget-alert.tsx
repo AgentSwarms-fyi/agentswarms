@@ -113,7 +113,7 @@ export const BudgetAlertEmail = ({
           <Text style={text}>
             {scopeLabel
               ? "You can raise the cap or change its alert thresholds under Admin → IAM → Budgets."
-              : "You can raise the cap, change alert thresholds, or set per-agent daily limits from the Budgets & Guardrails page."}
+              : "You can raise the cap, change alert thresholds, or set per-agent daily limits from the AI Budgets page."}
           </Text>
 
           <Hr style={hr} />

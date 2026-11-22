@@ -3,7 +3,7 @@
 // whether something is training right now.
 import { FavouritesFilter } from "@/components/FavouritesFilter";
 import { useFavouritesFilter } from "@/hooks/use-favourites-filter";
-import { PageEyebrow } from "@/components/PageEyebrow";
+import { PageHeader } from "@/components/PageHeader";
 import { StarButton } from "@/components/StarButton";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
@@ -115,27 +115,22 @@ function MlPage() {
 
   return (
     <div className="space-y-6 p-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <PageEyebrow />
-          <h1 className="font-display text-3xl font-semibold tracking-tight">ML Models</h1>
-          <p className="mt-1 max-w-2xl text-muted-foreground">
-            Train a model on a lakehouse table without writing code, keep every version with its
-            metrics and the snapshot it learned from, and let agents and dashboards predict with the
-            one you promote.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => void reload()}>
-            <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Refresh
-          </Button>
-          <Button size="sm" asChild>
-            <Link to="/ml/new">
-              <Plus className="mr-1.5 h-4 w-4" /> Train a model
-            </Link>
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="ML Models"
+        description="Train models on lakehouse tables without code, and promote the version agents and dashboards should predict with."
+        actions={
+          <>
+            <Button variant="outline" size="sm" onClick={() => void reload()}>
+              <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Refresh
+            </Button>
+            <Button size="sm" asChild>
+              <Link to="/ml/new">
+                <Plus className="mr-1.5 h-4 w-4" /> Train a model
+              </Link>
+            </Button>
+          </>
+        }
+      />
 
       <div className="flex items-center gap-1 border-b">
         {(
