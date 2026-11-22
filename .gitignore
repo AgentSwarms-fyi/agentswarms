@@ -83,6 +83,13 @@ public/vendor/
 # Test output: Vitest's reports and the browser checks' traces (R324). CI uploads them.
 test-results/
 
+# Python bytecode. tests/unit/etlSandboxScrub.test.ts loads
+# docker/notebook-runtime/batch_runner.py, and Python caches it in a
+# __pycache__/ beside the source, so every local test run left an untracked
+# folder that `git add .` would commit. docgen-service and the deploy scripts
+# do the same when run locally.
+__pycache__/
+
 # Security-assessment raw scanner output: the dated report under
 # docs/security/assessments/ is the committed summary, not these dumps.
 docs/security/reports/
