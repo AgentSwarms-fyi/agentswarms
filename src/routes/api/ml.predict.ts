@@ -17,6 +17,7 @@ import {
   pickVersion,
 } from "@/utils/ml/api.server";
 import { predictRowsSync } from "@/utils/ml/predict.server";
+import { pickForecastSeries } from "@/utils/ml/types";
 import { forecastNotes } from "@/utils/tools/registry.server";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -35,6 +36,8 @@ export const Route = createFileRoute("/api/ml/predict")({
           keys?: unknown;
           version_id?: unknown;
           wait_seconds?: unknown;
+          /** A forecast model with a series column: the series to return (R526). */
+          series?: unknown;
         }>(request);
 
         // Two ways in. `rows` means the caller computed the features and owns
@@ -109,6 +112,12 @@ export const Route = createFileRoute("/api/ml/predict")({
             points?: unknown[];
             meta?: Record<string, unknown> | null;
           } | null;
+          // The total, or one series of it (R526): body.series names it.
+          const picked = pickForecastSeries(
+            stored,
+            typeof body.series === "string" ? body.series : null,
+          );
+          if (!picked.ok) return mlJson({ error: picked.error, series: picked.available }, 400);
           return mlJson({
             version_id: version.id,
             version: version.version,
@@ -117,7 +126,10 @@ export const Route = createFileRoute("/api/ml/predict")({
             period: stored?.meta?.period ?? null,
             aggregation: stored?.meta?.aggregation ?? null,
             last_observed_period: stored?.meta?.last_period ?? null,
-            forecast: stored?.points ?? [],
+            ...(picked.available.length
+              ? { series: picked.series ?? "total", series_available: picked.available }
+              : {}),
+            forecast: picked.points,
             notes: forecastNotes(version.algorithm, stored?.meta ?? null),
           });
         }

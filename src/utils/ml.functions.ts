@@ -351,6 +351,8 @@ const createSchema = z.object({
   horizon: z.number().int().min(1).max(1000).optional(),
   aggregation: z.enum(["sum", "mean"]).optional(),
   period: z.enum(ML_PERIODS).optional(),
+  /** Forecasting: one forecast per value of this column, beside the total (R526). */
+  series_column: IDENT.optional(),
   feature_columns: z.array(IDENT).max(500).optional(),
   time_budget_minutes: z.number().int().min(1).optional(),
   max_rows: z.number().int().min(100).optional(),
@@ -421,6 +423,11 @@ export const mlCreateModel = createServerFn({ method: "POST" })
           horizon: data.task === "forecast" ? (data.horizon ?? 12) : null,
           aggregation: data.task === "forecast" ? (data.aggregation ?? "sum") : null,
           period: data.task === "forecast" ? (data.period ?? "auto") : "auto",
+          // Only when set: a database without migration 20261124000000 still
+          // takes a single-series forecast.
+          ...(data.task === "forecast" && data.series_column
+            ? { series_column: data.series_column }
+            : {}),
           feature_columns: data.feature_columns?.length ? data.feature_columns : null,
         })
         .select("*")
@@ -431,7 +438,11 @@ export const mlCreateModel = createServerFn({ method: "POST" })
           error:
             error?.code === "23505"
               ? `You already have a model called "${data.name}"`
-              : (error?.message ?? "Failed to create model"),
+              : /series_column/.test(error?.message ?? "")
+                ? "A forecast for each series needs a database update first (migration " +
+                  "20261124000000, for example npx supabase db push --remote). Choose " +
+                  '"One series: the total" to train without it.'
+                : (error?.message ?? "Failed to create model"),
         };
       }
       const started = await createAndTrainVersion(model, config, 1);
@@ -453,6 +464,8 @@ export const mlTrainVersion = createServerFn({ method: "POST" })
         feature_columns: z.array(IDENT).max(500).optional(),
         prep: prepSchema.optional(),
         tuning: z.enum(ML_TUNINGS).optional(),
+        /** Forecasting: how many periods ahead this and later versions project (R526). */
+        horizon: z.number().int().min(1).max(1000).optional(),
       })
       .parse(input),
   )
@@ -463,7 +476,23 @@ export const mlTrainVersion = createServerFn({ method: "POST" })
       { ok: true; job_id: string; version_id: string } | { ok: false; error: string }
     > => {
       const userId = await resolveCaller(data.access_token);
-      const { model } = await loadModelForUser(data.model_id, userId, { write: true });
+      const { model: loaded } = await loadModelForUser(data.model_id, userId, { write: true });
+      let model = loaded;
+      // FOUND IN R526. The app said "retrain with a different horizon" and a
+      // retrain could not take one: the horizon was fixed when the model was
+      // made. A retrain may now set it; the model keeps it for later versions.
+      if (model.task === "forecast" && data.horizon && data.horizon !== model.horizon) {
+        const { data: updated, error } = await supabaseAdmin
+          .from("ml_models")
+          .update({ horizon: data.horizon })
+          .eq("id", model.id)
+          .select("*")
+          .single();
+        if (error || !updated) {
+          return { ok: false, error: error?.message ?? "The horizon could not be changed" };
+        }
+        model = updated as typeof model;
+      }
       const started = await trainNewVersion(model, data, { userId });
       return started.ok
         ? { ok: true, job_id: started.jobId, version_id: started.versionId }

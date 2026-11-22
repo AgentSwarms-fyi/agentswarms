@@ -102,6 +102,55 @@ export type MlFeatureSchemaEntry = {
 
 export type MlForecastPoint = { period: string; yhat: number; lo: number; hi: number };
 export type MlHistoryPoint = { period: string; y: number };
+/** One series of a forecast with a series column (R526): its own winner and projection. */
+export type MlSeriesForecast = {
+  key: string;
+  algorithm: string;
+  rmse: number | null;
+  periods: number;
+  forecast: MlForecastPoint[];
+  history: MlHistoryPoint[];
+};
+
+/**
+ * The points a caller asked for: the total when no series is named, else that
+ * series (matched without case). An unknown series is an error that lists the
+ * ones there are, so an agent or a client can correct itself.
+ */
+export function pickForecastSeries(
+  stored: unknown,
+  series?: string | null,
+):
+  | { ok: true; points: MlForecastPoint[]; series: string | null; available: string[] }
+  | { ok: false; error: string; available: string[] } {
+  const all = forecastSeriesOf(stored);
+  const available = all.map((s) => s.key);
+  const total = ((stored as { points?: unknown } | null)?.points ?? []) as MlForecastPoint[];
+  const want = series?.trim();
+  if (!want)
+    return { ok: true, points: Array.isArray(total) ? total : [], series: null, available };
+  const hit = all.find((s) => s.key.toLowerCase() === want.toLowerCase());
+  if (hit) return { ok: true, points: hit.forecast, series: hit.key, available };
+  return {
+    ok: false,
+    available,
+    error: available.length
+      ? `No series named "${want}". Forecast one by one: ${available.join(", ")}. Leave out series for the total.`
+      : `This model forecasts one series; it has no series named "${want}".`,
+  };
+}
+
+/** A stored forecast's series, read defensively (it is a JSON column). */
+export function forecastSeriesOf(forecast: unknown): MlSeriesForecast[] {
+  const list = (forecast as { series?: unknown } | null)?.series;
+  if (!Array.isArray(list)) return [];
+  return list.filter(
+    (s): s is MlSeriesForecast =>
+      !!s &&
+      typeof (s as MlSeriesForecast).key === "string" &&
+      Array.isArray((s as MlSeriesForecast).forecast),
+  );
+}
 
 /** What the training program returns through the batch-result callback. */
 export type MlTrainResult = {
@@ -137,7 +186,15 @@ export type MlTrainResult = {
     season_length: number | null;
     aggregation: string;
     last_period: string;
+    /** How many windows chose the method (R526; one before). */
+    backtest_windows?: number;
+    series_column?: string | null;
+    /** Series in the data, and how many were forecast one by one. */
+    series_count?: number | null;
+    series_forecast?: number | null;
   };
+  /** One forecast per series when the model names a series column (R526). */
+  series_forecasts?: MlSeriesForecast[];
   tuning?: { mode: string; trials: number; best_params?: Record<string, unknown> };
 };
 

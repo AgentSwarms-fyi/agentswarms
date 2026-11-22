@@ -137,6 +137,8 @@ function TrainWizard() {
   const [horizon, setHorizon] = useState(12);
   const [aggregation, setAggregation] = useState<"sum" | "mean">("sum");
   const [period, setPeriod] = useState<MlPeriod>("auto");
+  // Forecasting (R526): "" is one series, the total; a column forecasts each of its values.
+  const [seriesColumn, setSeriesColumn] = useState("");
   const [name, setName] = useState("");
   const [nameTouched, setNameTouched] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -177,6 +179,7 @@ function TrainWizard() {
       setUserColumn("");
       setItemColumn("");
       setRatingColumn("");
+      setSeriesColumn("");
       setProfiling(true);
       try {
         const p = await profileFn({
@@ -307,6 +310,7 @@ function TrainWizard() {
           horizon: task === "forecast" ? horizon : undefined,
           aggregation: task === "forecast" ? aggregation : undefined,
           period: task === "forecast" ? period : undefined,
+          series_column: task === "forecast" && seriesColumn ? seriesColumn : undefined,
           user_column: task === "recommendation" ? userColumn : undefined,
           item_column: task === "recommendation" ? itemColumn : undefined,
           rating_column: task === "recommendation" && ratingColumn ? ratingColumn : undefined,
@@ -629,6 +633,34 @@ function TrainWizard() {
                                 <option value="mean">average</option>
                               </select>
                             </div>
+                            <div className="space-y-1 sm:col-span-2">
+                              <Label className="text-xs">Forecast each</Label>
+                              <select
+                                className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                                value={seriesColumn}
+                                onChange={(e) => setSeriesColumn(e.target.value)}
+                              >
+                                <option value="">One series: the total</option>
+                                {/* FOUND FROM THE UI (R526): identifiers were offered, and a
+                                    forecast per order id is one row each. A series is a
+                                    category: a region, a product, a plan. */}
+                                {keyColumns
+                                  .filter(
+                                    (c) =>
+                                      c.name !== target &&
+                                      (c.kind === "categorical" || c.kind === "boolean"),
+                                  )
+                                  .map((c) => (
+                                    <option key={c.name} value={c.name}>
+                                      {c.name}, one forecast per value
+                                    </option>
+                                  ))}
+                              </select>
+                              <p className="text-xs text-muted-foreground">
+                                Per value of a column (a region, a product), each with its own
+                                method, beside the total. The 25 largest are forecast one by one.
+                              </p>
+                            </div>
                           </div>
                         ) : null}
                       </div>
@@ -946,6 +978,15 @@ function TrainWizard() {
                       <Row
                         k="Horizon"
                         v={`${horizon} periods, ${aggregation === "sum" ? "totals" : "averages"} per period`}
+                      />
+                      {/* FOUND FROM THE UI (R526): the choice was missing here. */}
+                      <Row
+                        k="Series"
+                        v={
+                          seriesColumn
+                            ? `one forecast per ${seriesColumn}, and the total`
+                            : "one: the total"
+                        }
                       />
                     </>
                   ) : task === "recommendation" ? null : (

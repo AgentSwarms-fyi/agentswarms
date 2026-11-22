@@ -1776,6 +1776,13 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
         import("@/utils/data/sensitiveShares.server").then((m) => m.sweepSensitiveShares(force)),
       undefined,
     );
+    // Checks and pipelines that keep failing the same way: the change that
+    // would fix one is suggested to its owner in the approvals inbox (R525).
+    await step(
+      "run-fixes",
+      () => import("@/utils/runFixes.server").then((m) => m.sweepRunFixes(force)),
+      undefined,
+    );
     await step(
       "chat-retention",
       () =>

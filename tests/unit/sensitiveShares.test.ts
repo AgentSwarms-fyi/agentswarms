@@ -295,6 +295,7 @@ describe("the inbox carries out an approved suggestion through the server", () =
     expect(inbox).toContain("item?.action_type === HIDE_COLUMNS_ACTION");
   });
   it("does not call a suggestion a paused agent", () => {
-    expect(inbox).toContain('if (actionType === HIDE_COLUMNS_ACTION) return "suggested"');
+    // Both of the platform's suggestions (R521 and R525's fixes) are "suggested".
+    expect(inbox).toMatch(/actionType === HIDE_COLUMNS_ACTION[^\n]*\) return "suggested"/);
   });
 });

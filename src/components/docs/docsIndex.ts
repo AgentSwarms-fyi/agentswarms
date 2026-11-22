@@ -1178,6 +1178,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 2
       },
       {
+        "id": "fixes",
+        "text": "Fixes for what keeps failing",
+        "level": 3
+      },
+      {
         "id": "search",
         "text": "Finding your work, and starting something new",
         "level": 2
@@ -3217,6 +3222,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "redis://:PASSWORD@host:6379",
       "rows",
       "runMlPredict",
+      "series",
       "task",
       "tool",
       "train",
@@ -3261,6 +3267,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "forecast-period",
         "text": "What a forecast period is",
+        "level": 3
+      },
+      {
+        "id": "forecast-series",
+        "text": "A forecast for each series",
         "level": 3
       },
       {

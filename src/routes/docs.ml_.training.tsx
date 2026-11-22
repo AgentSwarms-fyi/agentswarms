@@ -225,8 +225,9 @@ function MlTrainingPage() {
         <li>
           <strong>Forecast history</strong> — a first or last period the data only partly covers is
           left out; an empty period of a total counts as 0 (an empty period of an average is
-          interpolated); the holdout is at least three periods once there are twelve; a projection
-          of a series that never goes below zero is floored at zero.
+          interpolated); each method is scored over up to three backtest windows of the most recent
+          periods, each at least three periods once there are twelve; a projection of a series that
+          never goes below zero is floored at zero.
         </li>
         <li>
           <strong>A random holdout is not a time split</strong> — classification and regression hold

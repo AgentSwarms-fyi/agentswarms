@@ -5921,6 +5921,7 @@ export type Database = {
           favourable_label: string | null;
           outcome_source: Json | null;
           sensitive_columns: string[] | null;
+          series_column: string | null;
           period: string;
           prep: Json;
           production_version_id: string | null;
@@ -5949,6 +5950,7 @@ export type Database = {
           favourable_label?: string | null;
           outcome_source?: Json | null;
           sensitive_columns?: string[] | null;
+          series_column?: string | null;
           period?: string;
           prep?: Json;
           production_version_id?: string | null;
@@ -5977,6 +5979,7 @@ export type Database = {
           favourable_label?: string | null;
           outcome_source?: Json | null;
           sensitive_columns?: string[] | null;
+          series_column?: string | null;
           period?: string;
           prep?: Json;
           production_version_id?: string | null;

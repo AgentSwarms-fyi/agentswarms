@@ -104,6 +104,7 @@ export const runsListFn = createServerFn({ method: "POST" })
           error: r.error ? (explainEtlError(r.error)?.summary ?? oneLineError(r.error)) : null,
           costUsd: null,
           link: r.pipeline_id ? { to: "/etl", search: { open: r.pipeline_id } } : null,
+          fixTarget: r.pipeline_id ? { type: "etl_pipeline" as const, id: r.pipeline_id } : null,
         }));
       }),
       read("workflow", async () => {
@@ -355,6 +356,9 @@ export const runsListFn = createServerFn({ method: "POST" })
           costUsd: null,
           link: r.monitor_id
             ? { to: "/data-monitors", search: { open: String(r.monitor_id) } }
+            : null,
+          fixTarget: r.monitor_id
+            ? { type: "data_monitor" as const, id: String(r.monitor_id) }
             : null,
         }));
       }),

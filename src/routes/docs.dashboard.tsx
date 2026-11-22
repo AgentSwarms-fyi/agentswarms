@@ -247,8 +247,44 @@ function DashboardDoc() {
             "Ask about this",
             "On a run that needs a look: opens the assistant with the run's kind, name and error, to find what usually causes it and what to check.",
           ],
+          [
+            "Suggest a fix",
+            "On a data monitor check or a pipeline run that needs a look: says why it failed and, when the platform knows the exact change that fixes it, offers to make it (below).",
+          ],
         ]}
       />
+      <H3 id="fixes">Fixes for what keeps failing</H3>
+      <P>
+        <strong>Suggest a fix</strong> reads the recent runs of the check or pipeline, and the
+        columns of the table a check reads, and says why it failed. Two changes can be offered:
+      </P>
+      <Table
+        headers={["When", "The change"]}
+        rows={[
+          [
+            "A freshness check reads a column whose values are not dates or times",
+            "Check the table's date or time column instead, preferring the one that says when a row last changed (updated, then loaded, then created). When the table has none, pause the check.",
+          ],
+          [
+            "A check or pipeline failed the same way at least three runs in a row",
+            "Pause its schedule. Running it again will not change the outcome; turn it back on once its cause is fixed.",
+          ],
+        ]}
+      />
+      <P>
+        Nothing is offered for a failure caused by something unreachable or busy (the lakehouse
+        catalog, a connection, the sandbox), because it recovers by itself, nor for a check that
+        alerted on the data, because that is the check working. Those say so, and{" "}
+        <strong>Ask the assistant</strong> explains the error. A change is made only when you press
+        it, and the server checks again that the check or pipeline is yours and, for a column, that
+        it is still a date or time column of that table. Every change is audited.
+      </P>
+      <Callout title="Asked in your approvals">
+        A few times a day the scheduler looks at the checks and pipelines whose latest run failed.
+        When one has a fix, you get it in the approvals inbox and a notification, with what it rests
+        on: &quot;The last 12 runs failed the same way.&quot; Approving makes the change, once;
+        rejecting leaves it as it is, and you are not asked about that change again.
+      </Callout>
       <P>
         Some scheduled work keeps only its latest result, not a history: data-prep refreshes,
         scheduled analyses and dashboard refreshes. Their latest result is listed, marked{" "}

@@ -240,7 +240,10 @@ describe("the UI carries the new controls", () => {
     expect(detail).toContain(
       "<PredictionsPanel token={token} model={model} versions={versions} shared={shared} />",
     );
-    expect(detail).toContain("tuning,\n        },");
+    // The retrain sends the tuning choice (and, since R526, a forecast's horizon).
+    expect(detail).toContain(
+      'tuning,\n          horizon: horizon === "" ? undefined : Number(horizon),\n        },',
+    );
   });
 
   it("the try-it form and batch dialog go through the app's own dialogs", () => {

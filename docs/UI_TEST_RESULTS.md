@@ -15,6 +15,59 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-22 — R526: forecasts per series, chosen over backtest windows
+
+Driven on the 8080 stack rebuilt with R526, signed in as the owner, after migration
+`20261124000000` was applied, in a fronted tab. Training ran in the real sandbox. Kept for review:
+the model **R526 revenue by region (test)** (`analytics.revenue_facts`, `net_usd` per week by
+`placed_at`, two versions).
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| New model → Goal | Forecast on `net_usd` | **Forecast each** under the period fields, "One series: the total" first. It offered `order_id` and `customer_id`: identifiers, one row per value (fixed: only category and true/false columns) |
+| Review | the summary | the series choice was not on it (fixed: "Series: one forecast per region, and the total") |
+| Train | weekly, 12 ahead, each `region` | succeeded: 4 series (APAC, AMER, EMEA, "(unknown)") beside the total; one backtest window (13 weeks of history, so older windows would train on fewer than 8); per-series warnings named ("APAC: Not enough history for a 52-period season…") |
+| Model page | the forecast card | "Total per week over 13 weeks of history, projected 12 weeks ahead… One forecast per region: 4."; the picker on **EMEA**: "…for EMEA… Its own method: moving average, backtest error (RMSE) 890.15", the chart at EMEA's level |
+| Model page | metric tiles | "backtest windows 1" was a tile with a raw label (fixed: a count, not a score; the leaderboard says "scored over the same 1 backtest window…") |
+| Train new version | **Periods ahead** 6 | the dialog: "Leave blank to keep 12. A new number applies to this version and the ones after it."; v2 projects 6 periods for the total and each series, the model's horizon is 6, v1 keeps its 12 (read back) |
+
+**Not driven:** the API's and the agent tool's `series` (an API key would have to be created; held
+by `tests/unit/mlForecastSeries.test.ts`), attaching one series to a dashboard chart (held by the
+same file). The trainer itself ran outside the app too, in the sandbox image, through
+`tests/unit/mlForecastRun.test.ts`.
+
+## 2026-11-22 — R525: fixes for what keeps failing
+
+Driven on a dev server built from the worktree (`:8102`), signed in as the owner, against the real
+database, in a fronted tab. The subject was a real broken check: "R238 freshness on a text column"
+(a freshness check on `analytics.revenue_facts.region`, hourly, 752 failed runs in 60 days).
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| `/runs` | the list | **Suggest a fix** beside **Ask about this** on failed data monitor and pipeline runs only; none on runs that succeeded |
+| Suggest a fix | on the R238 check | took over a minute at "Reading its recent runs…": the table's columns came from the whole lakehouse listing, which first tries every Iceberg mount, two of them on an unreachable LAN host. Now one `SELECT * … LIMIT 0` on that table, through the same access check, capped at 20 s; a second open answered on the warm engine |
+| Suggest a fix | the proposal | **Check "placed_at" instead of "region"**, right for that table. Two things were wrong and fixed: the cause sentence appeared twice (header and proposal; the proposal now gives only the reason for the change), and it said "The last 8 runs failed the same way" — one run during the restart had failed to reach the catalog and ended the count. Outages now neither count nor end it: "The last 412 runs failed the same way (not counting 6 when a service it needs was down)." |
+| Apply | the fix | "Changed: … now checks "placed_at". It runs on the next pass."; the 8080 scheduler's next run measured a real age ("Newest row is 236.6 days old; the limit is 24 h."), where every run before said the column held no dates; audit `run.fix.applied`, region → placed_at |
+| The scheduler's pass | the bell's call on the dev server | one suggestion, for the R238 check only (the pipelines hit by outages and the alerting custom check got none); audit `run.fix.suggested` and a notification |
+| Approvals inbox | the suggestion | a wrench, "suggested", the change and its reason, **Open it**; it had been filed before the fix was applied by hand and still waited for a yes to a change already made — applying a fix now withdraws a suggestion still waiting for the same thing |
+| Approvals inbox | **Approve** | left the list at once (217 → 216); carried out once (`resumed_at` set; audit `run.fix.applied` with its approval id) |
+
+Cleaned up: the check put back on `region` through the page's own update action, and the test's
+approval row and notification deleted by id with the owner's session. The audit rows stay.
+
+**Not driven:** pausing (unit-tested; no check or pipeline here fails the same non-outage way three
+times running); **Reject** (held by `tests/unit/runFixesServer.test.ts`).
+
+**Found on the way:** the Data monitors page has no way to change a check's column — a broken
+check could only be deleted and made again before this round.
+
+**On the 8080 image rebuilt with R525** (2026-11-22): **Suggest a fix** on the R238 check answered
+in about 6 s with the same proposal and "The last 2 runs failed the same way." (the runs since the
+check was put back on `region`; the run between measured a real age). The 8080 scheduler's own
+pass had already filed the suggestion: its toast "Check "placed_at" instead of "region" — A
+suggestion, waiting for your yes or no." appeared with **Review**. Left in the owner's inbox to
+decide.
+
 ## 2026-11-22 — R521: personal data, found from what a column holds
 
 Driven on a dev server built from the worktree (`:8102`), signed in as the owner, at 800 × 418,

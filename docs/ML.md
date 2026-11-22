@@ -208,7 +208,8 @@ and the public API's model listing repeat them:
   dislike, filter those rows out first.
 - **Forecast history** — a first or last period the data only partly covers
   is left out; an empty period of a total counts as 0 (an empty period of an
-  average is interpolated); the holdout is at least three periods once there
+  average is interpolated); each method is scored over up to three backtest
+  windows of the most recent periods, each at least three periods once there
   are twelve, because one point cannot tell a flat line from a trend; and a
   projection of a series that never goes below zero is floored at zero.
 - **A random holdout is not a time split** — classification and regression
@@ -1765,10 +1766,14 @@ will read the answer in. The last period the data only partly covers (the
 week the extract stopped in) is left out and the version says so, because a
 partial total misleads every candidate.
 
-Five candidates compete on a holdout of the most recent periods: last value
-(every future period repeats the last one), moving average (the mean of the
-recent periods), seasonal naive, Holt-Winters and gradient boosting on lags.
-The one with the lowest RMSE serves, so a flat line means the flat
+Five candidates compete: last value (every future period repeats the last
+one), moving average (the mean of the recent periods), seasonal naive,
+Holt-Winters, and gradient boosting on lags and the calendar (the hour and
+weekday of an hour, the weekday and month of a day, the month of a month,
+the quarter of a quarter). Each is scored over up to three backtest windows
+of the most recent periods, trained on everything before each, so a method
+wins because its advantage holds rather than on one stretch (R526). The one
+with the lowest average RMSE serves, so a flat line means the flat
 baselines beat the rest on your series - a noisy daily series often says
 exactly that. The model page, the agent tool and the API all state the
 period, the aggregation, the last observed period and the method, so a
@@ -1780,6 +1785,23 @@ the chart draws the model's projected periods. An alert's **basis** can be
 the forecast — "notify me when the projected total for the next three months
 falls below target" — evaluated at each scheduled refresh against the
 model's current projection, as the dashboard's owner.
+
+### A forecast for each series
+
+**Forecast each** in the wizard names a column - a region, a product, a
+store - and the model forecasts each of its values on its own, each with its
+own winning method, as well as the total (R526). The 25 largest by volume
+are forecast one by one; the rest count in the total, and the version names
+how many. The model page has a picker for the total or one series. The API
+(`POST /api/ml/predict` with `"series": "North"`) and the agent tool return
+one series, or the total without one, and list the series there are; an
+unknown name is an error that lists them. A dashboard chart can attach one
+series as its **Source**, and its refresh keeps that series (a version
+without it leaves the chart's last points, marked stale). It needs
+migration `20261124000000`.
+
+**Periods ahead** can be changed when you retrain: that version, and the
+ones after it, project that many periods.
 
 ## Sharing and governance
 

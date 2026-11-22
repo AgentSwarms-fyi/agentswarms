@@ -6,6 +6,8 @@ import { useLiveRows } from "@/hooks/use-live-rows";
 import { mlApplyApprovedPromotion } from "@/utils/ml.functions";
 import { applyApprovedColumnHideFn } from "@/utils/sensitiveData.functions";
 import { HIDE_COLUMNS_ACTION, suggestedColumns, suggestedDatasetId } from "@/lib/sensitiveData";
+import { fixFromPayload, RUN_FIX_ACTION } from "@/lib/runFixes";
+import { applyApprovedRunFixFn } from "@/utils/runFixes.functions";
 import { Link } from "@tanstack/react-router";
 import {
   Inbox,
@@ -19,6 +21,7 @@ import {
   Rocket,
   Terminal,
   Globe,
+  Wrench,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { Json } from "@/integrations/supabase/types";
@@ -67,7 +70,15 @@ const ACTION_ICON: Record<string, LucideIcon> = {
   external_api: Globe,
   "ml.promote": Rocket,
   [HIDE_COLUMNS_ACTION]: EyeOff,
+  [RUN_FIX_ACTION]: Wrench,
 };
+
+/** Where a suggested fix's check or pipeline is, built from its checked target. */
+function fixLink(payload: unknown): { to: string; open: string } | null {
+  const f = fixFromPayload(payload);
+  if (!f) return null;
+  return { to: f.target.type === "data_monitor" ? "/data-monitors" : "/etl", open: f.target.id };
+}
 
 /**
  * What kind of waiting this is. Only an agent's step is a run that paused; a
@@ -77,13 +88,15 @@ const ACTION_ICON: Record<string, LucideIcon> = {
  */
 function waitingWord(actionType: string): string {
   if (actionType === "ml.promote") return "asked";
-  if (actionType === HIDE_COLUMNS_ACTION) return "suggested";
+  if (actionType === HIDE_COLUMNS_ACTION || actionType === RUN_FIX_ACTION) return "suggested";
   return "paused";
 }
 
 /** Raised by an agent (it has a face) rather than by the platform itself. */
 const fromAnAgent = (actionType: string) =>
-  actionType !== "ml.promote" && actionType !== HIDE_COLUMNS_ACTION;
+  actionType !== "ml.promote" &&
+  actionType !== HIDE_COLUMNS_ACTION &&
+  actionType !== RUN_FIX_ACTION;
 
 const RISK_COLORS: Record<string, string> = {
   low: "bg-blue-500/10 text-blue-400 border-blue-500/30",
@@ -107,6 +120,7 @@ export function ApprovalInbox() {
   const resumeRunFn = useServerFn(resumeApprovedSwarmRun);
   const applyPromotionFn = useServerFn(mlApplyApprovedPromotion);
   const applyHideFn = useServerFn(applyApprovedColumnHideFn);
+  const applyRunFixFn = useServerFn(applyApprovedRunFixFn);
   const [open, setOpen] = useState(false);
   const [pulse, setPulse] = useState(false);
   const seenIdsRef = useRef<Set<string>>(new Set());
@@ -149,9 +163,10 @@ export function ApprovalInbox() {
 
     const announce = (ap: Approval) => {
       const Icon = ACTION_ICON[ap.action_type] ?? Globe;
-      const hide = ap.action_type === HIDE_COLUMNS_ACTION;
-      toast(hide ? ap.action_title : `${ap.agent_name} needs your approval`, {
-        description: hide ? "A suggestion, waiting for your yes or no." : ap.action_title,
+      const suggestion =
+        ap.action_type === HIDE_COLUMNS_ACTION || ap.action_type === RUN_FIX_ACTION;
+      toast(suggestion ? ap.action_title : `${ap.agent_name} needs your approval`, {
+        description: suggestion ? "A suggestion, waiting for your yes or no." : ap.action_title,
         icon: <Icon className="h-4 w-4 text-primary" />,
         duration: 10000,
         action: {
@@ -228,6 +243,26 @@ export function ApprovalInbox() {
     }
     // Decided: it leaves the list now, not when the next refresh comes round.
     setApprovals((list) => list.filter((a) => a.id !== id));
+    // A suggested fix for something that keeps failing (R525): the server
+    // makes the change, checked against the thing itself.
+    if (item?.action_type === RUN_FIX_ACTION) {
+      if (status === "rejected") {
+        toast(`Kept as it is: ${item.agent_name}`, {
+          description: "Nothing was changed. You will not be asked about this change again.",
+        });
+        return;
+      }
+      try {
+        const res = await applyRunFixFn({ data: { approvalId: id } });
+        if (res.ok) toast.success("Changed", { description: res.message });
+        else toast.warning("Decision saved, but nothing was changed", { description: res.error });
+      } catch (e) {
+        toast.warning("Decision saved, but nothing was changed", {
+          description: (e as Error).message,
+        });
+      }
+      return;
+    }
     // A suggestion to hide a dataset's columns: the server carries it out, and
     // the message says what it did, not what was asked.
     if (item?.action_type === HIDE_COLUMNS_ACTION) {
@@ -464,6 +499,17 @@ export function ApprovalInbox() {
                             </Link>
                           )}
                         </div>
+                      ) : ap.action_type === RUN_FIX_ACTION ? (
+                        fixLink(ap.payload) && (
+                          <Link
+                            to={fixLink(ap.payload)!.to as never}
+                            search={{ open: fixLink(ap.payload)!.open } as never}
+                            onClick={() => setOpen(false)}
+                            className="inline-block text-xs text-primary underline-offset-2 hover:underline"
+                          >
+                            Open it
+                          </Link>
+                        )
                       ) : (
                         <details className="group">
                           <summary className="text-[11px] text-muted-foreground cursor-pointer hover:text-foreground select-none">

@@ -1601,45 +1601,67 @@ def _period_label(ts, freq):
     return ts.strftime('%Y-%m-%dT%H:00') if freq == 'h' else ts.strftime('%Y-%m-%d')
 
 
-def _lag_frame(y, lags):
+def _calendar(idx, freq):
+    # What a period's date says about it, for the lag model (R526): the hour
+    # and weekday of an hour, the weekday and month of a day, the month and
+    # week of a week, the month of a month, the quarter of a quarter. Numbers,
+    # not one-hot columns: a gradient-boosted tree splits them where it needs.
+    import pandas as pd
+    idx = pd.DatetimeIndex(idx)
+    d = {}
+    if freq == 'h':
+        d['cal_hour'] = idx.hour
+        d['cal_dow'] = idx.dayofweek
+    elif freq == 'D':
+        d['cal_dow'] = idx.dayofweek
+        d['cal_month'] = idx.month
+    elif freq == 'W':
+        d['cal_month'] = idx.month
+        d['cal_week'] = idx.isocalendar().week.to_numpy().astype('int64')
+    elif freq == 'MS':
+        d['cal_month'] = idx.month
+    elif freq == 'QS':
+        d['cal_quarter'] = idx.quarter
+    return pd.DataFrame({k: list(v) for k, v in d.items()}, index=range(len(idx))).astype('float64')
+
+
+def _lag_frame(y, lags, freq=None):
     import numpy as np
     import pandas as pd
     X = pd.DataFrame({'lag_%d' % k: y.shift(k).to_numpy() for k in range(1, lags + 1)})
     X['t'] = np.arange(len(y), dtype='float64')
+    if freq:
+        cal = _calendar(y.index, freq)
+        for c in cal.columns:
+            X[c] = cal[c].to_numpy()
     return X
 
 
-def _lag_forecast(model, history, lags, steps, t_start):
+def _lag_forecast(model, history, lags, steps, t_start, future_idx=None, freq=None):
     import numpy as np
     import pandas as pd
     hist = list(history)
+    cal = _calendar(future_idx, freq) if (freq and future_idx is not None) else None
     out = []
     for i in range(steps):
         row = {'lag_%d' % k: hist[-k] for k in range(1, lags + 1)}
         row['t'] = float(t_start + i)
+        if cal is not None:
+            for c in cal.columns:
+                row[c] = float(cal[c].iloc[i])
         yhat = float(model.predict(pd.DataFrame([row]))[0])
         out.append(yhat)
         hist.append(yhat)
     return np.array(out)
 
 
-def _train_forecast(df, cfg, warnings_):
-    import numpy as np
+_MAX_SERIES = 25
+
+
+def _series_values(s, tcol, target, freq, agg, warnings_, label=None):
+    # One value per period for one series: the total, or one series of many.
     import pandas as pd
-    import joblib
-    tcol, target = cfg['time_column'], cfg['target_column']
-    horizon = int(cfg.get('horizon') or 12)
-    agg = cfg.get('aggregation') or 'sum'
-    budget = float(cfg.get('time_budget_minutes') or 30) * 60.0
-    s = df[[tcol, target]].copy()
-    s[tcol] = pd.to_datetime(s[tcol], errors='coerce')
-    s[target] = pd.to_numeric(s[target], errors='coerce')
-    s = s.dropna()
-    if len(s) < 8:
-        raise RuntimeError('Forecasting needs at least 8 dated rows with a numeric target; found %d.' % len(s))
-    # The period is the user's choice; 'auto' keeps the inference from the
-    # gaps between timestamps, which turns dated orders into a daily series.
-    freq = _FREQ_BY_PERIOD.get(cfg.get('period') or 'auto') or _infer_freq(s[tcol])
+    say = (lambda m: warnings_.append(m)) if label is None else (lambda m: warnings_.append('%s: %s' % (label, m)))
     g = s.groupby(pd.Grouper(key=tcol, freq=freq))[target]
     y = (g.sum() if agg == 'sum' else g.mean()).astype('float64').asfreq(freq)
     # A period the data only partly covers - the month the extract stopped
@@ -1648,25 +1670,46 @@ def _train_forecast(df, cfg, warnings_):
     mid = counts.iloc[1:-1]
     typical = float(mid[mid > 0].median() or 0) if len(y) > 3 and (mid > 0).any() else 0.0
     if typical > 0 and counts.iloc[-1] > 0 and counts.iloc[-1] < 0.5 * typical:
-        warnings_.append('The last period (%s) had %d rows against a typical %d and was left out as incomplete.' % (_period_label(y.index[-1], freq), int(counts.iloc[-1]), int(typical)))
+        say('The last period (%s) had %d rows against a typical %d and was left out as incomplete.' % (_period_label(y.index[-1], freq), int(counts.iloc[-1]), int(typical)))
         y = y.iloc[:-1]
     if typical > 0 and counts.iloc[0] > 0 and counts.iloc[0] < 0.5 * typical:
-        warnings_.append('The first period (%s) had %d rows against a typical %d and was left out as incomplete.' % (_period_label(y.index[0], freq), int(counts.iloc[0]), int(typical)))
+        say('The first period (%s) had %d rows against a typical %d and was left out as incomplete.' % (_period_label(y.index[0], freq), int(counts.iloc[0]), int(typical)))
         y = y.iloc[1:]
     empty = int((counts.reindex(y.index).fillna(0) == 0).sum())
     gaps = int(y.isna().sum())
     if agg == 'sum' and empty:
         # No rows in a period is a total of zero, not a value to guess at.
-        warnings_.append('%d empty period(s) had no rows and count as 0. If they are missing data rather than quiet periods, fill them in a prep flow first.' % empty)
+        say('%d empty period(s) had no rows and count as 0. If they are missing data rather than quiet periods, fill them in a prep flow first.' % empty)
         y = y.fillna(0.0)
     elif gaps:
-        warnings_.append('%d empty period(s) were filled by interpolation.' % gaps)
+        say('%d empty period(s) were filled by interpolation.' % gaps)
         y = y.interpolate(limit_direction='both')
     if len(y) < 8:
         raise RuntimeError('After aggregating to one value per %s period only %d periods remain; at least 8 are needed.' % (freq, len(y)))
+    return y
+
+
+def _backtest_windows(n, holdout, min_train):
+    # Up to three windows, newest first, each one holdout long and
+    # trained on everything before it. One window chose a method on one
+    # stretch of history; three see whether its advantage holds (R526).
+    out = []
+    for k in range(3):
+        end = n - k * holdout
+        start = end - holdout
+        if start < min_train:
+            break
+        out.append((start, end))
+    return out
+
+
+def _forecast_one(y, freq, horizon, budget, warnings_, label=None):
+    import numpy as np
+    import pandas as pd
+    say = (lambda m: warnings_.append(m)) if label is None else (lambda m: warnings_.append('%s: %s' % (label, m)))
     season = _SEASON.get(freq)
     if season and season > 1 and len(y) < 2 * season + 2:
-        warnings_.append('Not enough history for a %d-period season; seasonality was not modelled.' % season)
+        say('Not enough history for a %d-period season; seasonality was not modelled.' % season)
         season = None
     if season == 1:
         season = None
@@ -1675,11 +1718,13 @@ def _train_forecast(df, cfg, warnings_):
         # One or two points cannot tell a flat line from a trend; three is
         # the least worth choosing a method on.
         holdout = max(holdout, 3)
-    train, test = y.iloc[:-holdout], y.iloc[-holdout:]
-    _log('series: %d periods at %s, season=%s, holdout=%d, horizon=%d' % (len(y), freq, season, holdout, horizon))
+    min_train = max(8, 2 * season + 2 if season else 8)
+    windows = _backtest_windows(len(y), holdout, min_train) or [(len(y) - holdout, len(y))]
+    lags = int(max(1, min(season or 7, max(1, windows[-1][0] // 3))))
+    _log('%sseries: %d periods at %s, season=%s, holdout=%d x %d window(s), horizon=%d' % (
+        (label + ' ') if label else '', len(y), freq, season, holdout, len(windows), horizon))
 
     leaderboard, best = [], None
-    lags = int(max(1, min(season or 7, max(1, len(train) // 3))))
 
     def rmse(a, b):
         return float(np.sqrt(np.mean((np.asarray(a, dtype='float64') - np.asarray(b, dtype='float64')) ** 2)))
@@ -1691,15 +1736,24 @@ def _train_forecast(df, cfg, warnings_):
             return
         t0 = time.time()
         try:
-            pred = fit(train, len(test))
-            score = rmse(test.to_numpy(), pred)
-            leaderboard.append({'algorithm': name, 'metric': 'rmse', 'value': _safe_float(score), 'higher_is_better': False, 'fit_seconds': round(time.time() - t0, 2), 'status': 'ok'})
-            _log('%s: rmse=%.4f' % (name, score))
+            scores, resid = [], []
+            for start, end in windows:
+                tr, te = y.iloc[:start], y.iloc[start:end]
+                pred = np.asarray(fit(tr, len(te)), dtype='float64')
+                scores.append(rmse(te.to_numpy(), pred))
+                resid.extend((te.to_numpy() - pred).tolist())
+            score = float(np.mean(scores))
+            leaderboard.append({'algorithm': name, 'metric': 'rmse', 'value': _safe_float(score), 'higher_is_better': False,
+                                'fit_seconds': round(time.time() - t0, 2), 'status': 'ok', 'windows': len(windows)})
+            _log('%s: rmse=%.4f over %d window(s)' % (name, score, len(windows)))
             if best is None or score < best[1]:
-                best = (name, score, fit)
+                best = (name, score, fit, np.asarray(resid, dtype='float64'))
         except Exception as e:
             leaderboard.append({'algorithm': name, 'metric': 'rmse', 'value': None, 'higher_is_better': False, 'fit_seconds': round(time.time() - t0, 2), 'status': 'failed', 'note': str(e)[:200]})
             _log('%s failed: %s' % (name, str(e)[:200]))
+
+    def future_index(tr, steps):
+        return pd.date_range(tr.index[-1], periods=steps + 1, freq=freq)[1:]
 
     def naive(tr, steps):
         return np.repeat(float(tr.iloc[-1]), steps)
@@ -1723,31 +1777,29 @@ def _train_forecast(df, cfg, warnings_):
 
     def lag_model(tr, steps):
         from sklearn.ensemble import HistGradientBoostingRegressor
-        X = _lag_frame(tr, lags).iloc[lags:]
+        X = _lag_frame(tr, lags, freq).iloc[lags:]
         m = HistGradientBoostingRegressor(random_state=42, max_iter=300)
         m.fit(X, tr.to_numpy()[lags:])
-        return _lag_forecast(m, tr.to_numpy(), lags, steps, len(tr))
+        return _lag_forecast(m, tr.to_numpy(), lags, steps, len(tr), future_index(tr, steps), freq)
 
     consider('naive_last_value', naive)
     consider('moving_average', moving_average)
     if season:
         consider('seasonal_naive', seasonal_naive)
     consider('holt_winters', holt_winters)
-    if len(train) > lags + 10:
+    if windows[-1][0] > lags + 10:
         consider('gradient_boosting_lags', lag_model)
     if best is None:
         raise RuntimeError('Every forecasting candidate failed. First error: ' + str(leaderboard[0].get('note', 'unknown')))
     leaderboard.sort(key=lambda r: (r['status'] != 'ok', r['value'] if r['value'] is not None else 1e18))
-    name, score, fit = best
+    name, score, fit, resid = best
 
     # Refit the winner on the whole series and project the horizon. The band
-    # is the holdout residual spread widened by sqrt(k): an honest, simple
+    # is the backtest residual spread widened by sqrt(k): an honest, simple
     # interval that says less the further out it goes.
-    test_pred = fit(train, len(test))
-    resid = test.to_numpy() - np.asarray(test_pred, dtype='float64')
     sigma = float(np.std(resid)) if len(resid) > 1 else float(abs(resid[0])) if len(resid) else 0.0
     yhat = np.asarray(fit(y, horizon), dtype='float64')
-    idx = pd.date_range(y.index[-1], periods=horizon + 1, freq=freq)[1:]
+    idx = future_index(y, horizon)
     nonneg = bool((y >= 0).all())
     floored = False
     forecast = []
@@ -1760,24 +1812,80 @@ def _train_forecast(df, cfg, warnings_):
         forecast.append({'period': _period_label(idx[k], freq), 'yhat': _safe_float(point) or 0.0,
                          'lo': _safe_float(lo) or 0.0, 'hi': _safe_float(hi) or 0.0})
     if floored:
-        warnings_.append('Projected values below 0 were floored at 0: the history never goes below it.')
-    history = [{'period': _period_label(t, freq), 'y': _safe_float(v) or 0.0} for t, v in y.tail(240).items()]
-    mask = test.to_numpy() != 0
+        say('Projected values below 0 were floored at 0: the history never goes below it.')
+    actual = np.concatenate([y.iloc[s:e].to_numpy() for s, e in windows])
+    mask = actual != 0
     metrics = {
         'rmse': _safe_float(score),
         'mae': _safe_float(np.mean(np.abs(resid))),
-        'mape': _safe_float(np.mean(np.abs(resid[mask] / test.to_numpy()[mask])) * 100) if mask.any() else None,
-        'holdout_periods': float(len(test)),
+        'mape': _safe_float(np.mean(np.abs(resid[mask] / actual[mask])) * 100) if mask.any() else None,
+        'holdout_periods': float(holdout),
+        'backtest_windows': float(len(windows)),
     }
-    warnings_.append('Prediction intervals are residual-based (holdout spread x 1.96 x sqrt(steps ahead)), not model-derived.')
+    return {'algorithm': name, 'season': season, 'lags': lags, 'sigma': sigma, 'holdout': holdout,
+            'windows': len(windows), 'metrics': metrics, 'leaderboard': leaderboard, 'forecast': forecast,
+            'y': y, 'fit': fit}
 
+
+def _train_forecast(df, cfg, warnings_):
+    import numpy as np
+    import pandas as pd
+    import joblib
+    tcol, target = cfg['time_column'], cfg['target_column']
+    scol = cfg.get('series_column') or None
+    horizon = int(cfg.get('horizon') or 12)
+    agg = cfg.get('aggregation') or 'sum'
+    budget = float(cfg.get('time_budget_minutes') or 30) * 60.0
+    cols = [tcol, target] + ([scol] if scol else [])
+    if scol and scol not in df.columns:
+        raise RuntimeError('The series column "%s" is not in the data.' % scol)
+    s = df[cols].copy()
+    s[tcol] = pd.to_datetime(s[tcol], errors='coerce')
+    s[target] = pd.to_numeric(s[target], errors='coerce')
+    s = s.dropna(subset=[tcol, target])
+    if len(s) < 8:
+        raise RuntimeError('Forecasting needs at least 8 dated rows with a numeric target; found %d.' % len(s))
+    # The period is the user's choice; 'auto' keeps the inference from the
+    # gaps between timestamps, which turns dated orders into a daily series.
+    freq = _FREQ_BY_PERIOD.get(cfg.get('period') or 'auto') or _infer_freq(s[tcol])
+    y = _series_values(s, tcol, target, freq, agg, warnings_)
+    one = _forecast_one(y, freq, horizon, budget, warnings_)
+
+    # Many series (R526): one forecast per value of the series column, each
+    # with its own winner, beside the total above. The largest by volume come
+    # first; past _MAX_SERIES the rest are named in a warning, not forecast.
+    series_out, series_note = [], None
+    if scol:
+        keys = s[scol].fillna('(blank)').astype(str)
+        s = s.assign(**{scol: keys})
+        volume = s.groupby(scol)[target].apply(lambda v: float(np.abs(v).sum())).sort_values(ascending=False)
+        chosen = list(volume.index[:_MAX_SERIES])
+        if len(volume) > _MAX_SERIES:
+            series_note = '%d series in "%s"; the %d largest by volume were forecast one by one, the other %d count only in the total.' % (len(volume), scol, _MAX_SERIES, len(volume) - _MAX_SERIES)
+            warnings_.append(series_note)
+        per_budget = budget
+        for key in chosen:
+            sub = s[s[scol] == key]
+            try:
+                yk = _series_values(sub, tcol, target, freq, agg, warnings_, label=key)
+                r = _forecast_one(yk, freq, horizon, per_budget, warnings_, label=key)
+                series_out.append({'key': key, 'algorithm': r['algorithm'], 'rmse': r['metrics']['rmse'],
+                                   'periods': int(len(yk)), 'forecast': r['forecast'],
+                                   'history': [{'period': _period_label(t, freq), 'y': _safe_float(v) or 0.0} for t, v in yk.tail(120).items()]})
+            except Exception as e:
+                warnings_.append('%s: not forecast on its own - %s' % (key, str(e)[:160]))
+
+    warnings_.append('Prediction intervals are residual-based (backtest spread x 1.96 x sqrt(steps ahead)), not model-derived.')
+    name, season, lags = one['algorithm'], one['season'], one['lags']
+    history = [{'period': _period_label(t, freq), 'y': _safe_float(v) or 0.0} for t, v in y.tail(240).items()]
     payload = {'task': 'forecast', 'algorithm': name, 'freq': freq, 'season': season, 'lags': lags,
-               'aggregation': agg, 'time_column': tcol, 'target': target, 'sigma': sigma,
+               'aggregation': agg, 'time_column': tcol, 'target': target, 'sigma': one['sigma'],
+               'series_column': scol, 'series': [x['key'] for x in series_out],
                'y_tail': y.tail(max(lags, season or 0, 1) + 1).to_numpy().tolist(),
-               'last_period': _period_label(y.index[-1], freq), 'trainer_version': 2}
+               'last_period': _period_label(y.index[-1], freq), 'trainer_version': 3}
     if name == 'gradient_boosting_lags':
         from sklearn.ensemble import HistGradientBoostingRegressor
-        X = _lag_frame(y, lags).iloc[lags:]
+        X = _lag_frame(y, lags, freq).iloc[lags:]
         m = HistGradientBoostingRegressor(random_state=42, max_iter=300)
         m.fit(X, y.to_numpy()[lags:])
         payload['model'] = m
@@ -1786,13 +1894,16 @@ def _train_forecast(df, cfg, warnings_):
     schema = [
         {'name': tcol, 'dtype': 'datetime', 'role': 'time'},
         {'name': target, 'dtype': 'numeric', 'role': 'target'},
-    ]
+    ] + ([{'name': scol, 'dtype': 'categorical', 'role': 'series'}] if scol else [])
     return {
-        'task': 'forecast', 'algorithm': name, 'metrics': metrics, 'primary_metric': 'rmse',
-        'leaderboard': leaderboard, 'feature_importance': [], 'feature_schema': schema,
-        'training_rows': int(len(train)), 'holdout_rows': int(len(test)), 'forecast': forecast,
-        'history': history,
-        'series_meta': {'freq': freq, 'period': _PERIOD_NAME.get(freq, freq), 'season_length': season, 'aggregation': agg, 'last_period': _period_label(y.index[-1], freq), 'periods': int(len(y))},
+        'task': 'forecast', 'algorithm': name, 'metrics': one['metrics'], 'primary_metric': 'rmse',
+        'leaderboard': one['leaderboard'], 'feature_importance': [], 'feature_schema': schema,
+        'training_rows': int(len(y) - one['holdout']), 'holdout_rows': int(one['holdout']), 'forecast': one['forecast'],
+        'history': history, 'series_forecasts': series_out,
+        'series_meta': {'freq': freq, 'period': _PERIOD_NAME.get(freq, freq), 'season_length': season, 'aggregation': agg,
+                        'last_period': _period_label(y.index[-1], freq), 'periods': int(len(y)),
+                        'backtest_windows': one['windows'], 'series_column': scol,
+                        'series_count': int(s[scol].nunique()) if scol else None, 'series_forecast': len(series_out) if scol else None},
         'tuning': {'mode': 'none', 'trials': 0}, '_artifact': buf.getvalue(),
     }
 

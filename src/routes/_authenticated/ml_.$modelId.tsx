@@ -66,6 +66,7 @@ import {
   type MlTask,
   type MlClusterProfile,
   ML_PERIOD_PLURAL,
+  forecastSeriesOf,
 } from "@/utils/ml/types";
 import { JobStatusChip, MetricTile, StageChip, TaskBadge } from "@/components/ml/mlUi";
 import {
@@ -175,6 +176,8 @@ function ModelPage() {
   const [budget, setBudget] = useState<number | "">("");
   const [maxRows, setMaxRows] = useState<number | "">("");
   const [tuning, setTuning] = useState<MlTuning>("none");
+  // Forecasting (R526): a retrain may project a different number of periods.
+  const [horizon, setHorizon] = useState<number | "">("");
   const [busy, setBusy] = useState(false);
   const [logsFor, setLogsFor] = useState<MlJobRow | null>(null);
 
@@ -214,6 +217,7 @@ function ModelPage() {
           time_budget_minutes: budget === "" ? undefined : Number(budget),
           max_rows: maxRows === "" ? undefined : Number(maxRows),
           tuning,
+          horizon: horizon === "" ? undefined : Number(horizon),
         },
       });
       if (!r.ok) toast.error(r.error);
@@ -771,6 +775,29 @@ function ModelPage() {
                 onChange={(e) => setMaxRows(e.target.value === "" ? "" : Number(e.target.value))}
               />
             </div>
+            {model.task === "forecast" && (
+              <div className="space-y-1 sm:col-span-2">
+                <Label className="text-xs">Periods ahead</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={1000}
+                  placeholder={String(model.horizon ?? 12)}
+                  value={horizon}
+                  onChange={(e) =>
+                    setHorizon(
+                      e.target.value === ""
+                        ? ""
+                        : Math.min(1000, Math.max(1, Number(e.target.value))),
+                    )
+                  }
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Leave blank to keep {model.horizon ?? 12}. A new number applies to this version
+                  and the ones after it.
+                </p>
+              </div>
+            )}
             <div className="space-y-1 sm:col-span-2">
               <Label className="text-xs">Hyperparameter tuning</Label>
               <select
@@ -885,7 +912,8 @@ function VersionOverview({
   ][];
   const ordered = [
     ...scalar.filter(([k]) => k === primary),
-    ...scalar.filter(([k]) => k !== primary && k !== "holdout_periods"),
+    // Counts, not scores: the leaderboard says how many windows (R526).
+    ...scalar.filter(([k]) => k !== primary && k !== "holdout_periods" && k !== "backtest_windows"),
   ].slice(0, 6);
   const cm = metrics.confusion_matrix as { labels: string[]; matrix: number[][] } | undefined;
   const clusters = (Array.isArray(metrics.clusters) ? metrics.clusters : []) as MlClusterProfile[];
@@ -930,20 +958,7 @@ function VersionOverview({
       {selected ? <SelectionEvidence metrics={version.metrics} /> : null}
 
       <div className="grid gap-4 lg:grid-cols-2">
-        {task === "forecast" && forecast ? (
-          <Card className="lg:col-span-2">
-            <CardContent className="p-4">
-              <p className="text-sm font-medium">Forecast</p>
-              <p className="mb-3 text-xs text-muted-foreground">
-                {forecast.meta?.period
-                  ? `${forecast.meta.aggregation === "mean" ? "Average" : "Total"} per ${forecast.meta.period} over ${forecast.meta.periods ?? forecast.history.length} ${ML_PERIOD_PLURAL[forecast.meta.period] ?? "periods"} of history, projected ${forecast.points.length} ${ML_PERIOD_PLURAL[forecast.meta.period] ?? "periods"} ahead from ${forecast.meta.last_period ?? "the last period"}. `
-                  : ""}
-                History, the projected periods and a residual-based band that widens with distance.
-              </p>
-              <ForecastChart history={forecast.history} points={forecast.points} />
-            </CardContent>
-          </Card>
-        ) : null}
+        {task === "forecast" && forecast ? <ForecastCard forecast={forecast} /> : null}
 
         {clusters.length ? (
           <Card className="lg:col-span-2">
@@ -987,7 +1002,9 @@ function VersionOverview({
           <CardContent className="p-4">
             <p className="text-sm font-medium">Leaderboard</p>
             <p className="mb-3 text-xs text-muted-foreground">
-              Every candidate tried, scored on the same holdout.
+              {typeof metrics.backtest_windows === "number"
+                ? `Every candidate tried, scored over the same ${metrics.backtest_windows} backtest window${metrics.backtest_windows === 1 ? "" : "s"} of the most recent periods.`
+                : "Every candidate tried, scored on the same holdout."}
             </p>
             <table className="w-full text-xs">
               <thead className="text-left text-muted-foreground">
@@ -1127,6 +1144,74 @@ function ImportanceChart({ rows }: { rows: MlFeatureImportance[] }) {
         </BarChart>
       </ResponsiveContainer>
     </div>
+  );
+}
+
+/**
+ * The forecast, the total or one series (R526). A model with a series column
+ * stored one projection per series beside the total; the picker shows each
+ * with its own method and backtest error.
+ */
+function ForecastCard({
+  forecast,
+}: {
+  forecast: {
+    points: MlForecastPoint[];
+    history: MlHistoryPoint[];
+    meta?: {
+      period?: string;
+      aggregation?: string;
+      periods?: number;
+      last_period?: string;
+      series_column?: string | null;
+      series_count?: number | null;
+      backtest_windows?: number;
+    } | null;
+  };
+}) {
+  const series = forecastSeriesOf(forecast);
+  const [picked, setPicked] = useState("");
+  const one = series.find((x) => x.key === picked) ?? null;
+  const points = one ? one.forecast : forecast.points;
+  const history = one ? one.history : forecast.history;
+  const meta = forecast.meta;
+  const unit = meta?.period ? (ML_PERIOD_PLURAL[meta.period] ?? "periods") : "periods";
+  return (
+    <Card className="lg:col-span-2">
+      <CardContent className="p-4">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <p className="text-sm font-medium">Forecast</p>
+          {series.length > 0 && (
+            <select
+              aria-label="Series to show"
+              className="h-8 rounded-md border bg-background px-2 text-xs"
+              value={picked}
+              onChange={(e) => setPicked(e.target.value)}
+            >
+              <option value="">Total</option>
+              {series.map((x) => (
+                <option key={x.key} value={x.key}>
+                  {x.key}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+        <p className="mb-3 text-xs text-muted-foreground">
+          {meta?.period
+            ? `${meta.aggregation === "mean" ? "Average" : "Total"} per ${meta.period}${one ? ` for ${one.key}` : ""} over ${one ? one.periods : (meta.periods ?? history.length)} ${unit} of history, projected ${points.length} ${unit} ahead from ${meta.last_period ?? "the last period"}. `
+            : ""}
+          {one
+            ? `Its own method: ${one.algorithm.replace(/_/g, " ")}${one.rmse !== null ? `, backtest error (RMSE) ${one.rmse.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : ""}. `
+            : series.length
+              ? `One forecast per ${meta?.series_column ?? "series"}: ${series.length}${meta?.series_count && meta.series_count > series.length ? ` of ${meta.series_count}, the largest` : ""}. `
+              : ""}
+          History, the projected periods and a band from the backtest errors that widens with
+          distance.
+        </p>
+        <ForecastChart history={history} points={points} />
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1306,7 +1391,7 @@ function CompareVersions({
           .map(([k]) => k),
       ),
     ),
-  ).filter((k) => k !== "holdout_periods");
+  ).filter((k) => k !== "holdout_periods" && k !== "backtest_windows");
   const rows = [...keys.filter((k) => k === primary), ...keys.filter((k) => k !== primary)];
   const best = (k: string) => {
     const vals = ordered.map((v) => (v.metrics as Record<string, number | null>)?.[k] ?? null);

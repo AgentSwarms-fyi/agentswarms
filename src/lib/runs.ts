@@ -157,6 +157,8 @@ export type RunRow = {
   link: ObjectLink | null;
   /** This kind keeps only its latest result, not a history of runs. */
   latestOnly?: boolean;
+  /** What a failure here could be fixed on (R525): a check or a pipeline. */
+  fixTarget?: { type: "data_monitor" | "etl_pipeline"; id: string } | null;
 };
 
 /** How long it took: recorded, or from start to finish. */

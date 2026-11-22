@@ -100,8 +100,9 @@ describe("every surface names the period", () => {
 
   it("the model page says the granularity above the chart", () => {
     const page = rd("src/routes/_authenticated/ml_.$modelId.tsx");
-    expect(page).toContain("ML_PERIOD_PLURAL[forecast.meta.period]");
-    expect(page).toContain("projected ${forecast.points.length}");
+    // Since R526 the card shows the total or one series (ForecastCard).
+    expect(page).toContain("ML_PERIOD_PLURAL[meta.period]");
+    expect(page).toContain("projected ${points.length} ${unit} ahead");
     expect(ML_PERIOD_PLURAL.day).toBe("days");
   });
 

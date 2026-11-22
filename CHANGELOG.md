@@ -16,6 +16,9 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Apply migration `20261124000000`** (R526) for a forecast per series:
+  it adds the series column a forecasting model may name. Until then a
+  forecast is one series, as before.
 - **Apply migration `20261123000000`** (R519) for a dataset's owner to see
   who else can read it. Until then the dataset page's Access tab says it
   needs the update; everything else on the page works.
@@ -264,6 +267,32 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Forecasts per series, chosen over three windows** (R526). A forecasting
+  model may name a column to **Forecast each** of its values (a region, a
+  product): each gets its own winning method beside the total, the 25
+  largest by volume one by one. The model page picks the total or a series;
+  the API and the agent tool take a `series` and list the ones there are; a
+  dashboard chart can attach one series and its refresh keeps it. Every
+  method is now scored over up to three backtest windows instead of one
+  holdout, the gradient-boosting candidate sees the calendar (weekday, month,
+  hour, quarter), and the band comes from all the windows' errors. A retrain
+  can change **Periods ahead**: the app said to retrain with a different
+  horizon, and a retrain could not take one. The trainer's forecasting code
+  now runs for real in a test (with pandas and statsmodels, or in the
+  sandbox image), not only as text.
+- **Fixes for what keeps failing** (R525). On the Runs page, a data monitor
+  check or a pipeline run that needs a look has **Suggest a fix**: it reads
+  the recent runs, and the columns of the table a check reads, says why it
+  failed, and offers the change that fixes it when there is one. A freshness
+  check reading a column that holds no dates is pointed at the table's date
+  or time column (or paused when there is none); a check or pipeline that
+  failed the same way three runs in a row can be paused. Nothing is offered
+  for an outage or for a check alerting on the data. The change is made by
+  one server function that checks ownership and the table as it is now, and
+  is audited. A few times a day the scheduler offers the same fixes in the
+  approvals inbox and the bell, with what each rests on ("The last 12 runs
+  failed the same way"); approving makes the change once, rejecting means
+  that change is not offered again.
 - **Personal data, found from what a column holds** (R521). A dataset's page
   says which columns look personal and how it knows: from the values where
   they have a shape (email addresses, phone numbers, card numbers and IBANs

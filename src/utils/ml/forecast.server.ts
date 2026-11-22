@@ -10,7 +10,12 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
 import { forecastVersionId, type ForecastSetting } from "@/lib/mlForecast";
 import { accessibleModelIds } from "./access.server";
-import type { MlForecastPoint, MlHistoryPoint } from "./types";
+import {
+  forecastSeriesOf,
+  pickForecastSeries,
+  type MlForecastPoint,
+  type MlHistoryPoint,
+} from "./types";
 
 export type MlForecastVersionOption = {
   id: string;
@@ -25,6 +30,8 @@ export type MlForecastVersionOption = {
   points: MlForecastPoint[];
   history: MlHistoryPoint[];
   shared: boolean;
+  /** One projection per series, when the model names a series column (R526). */
+  series: Array<{ key: string; points: MlForecastPoint[] }>;
 };
 
 type StoredForecast = { points?: MlForecastPoint[]; history?: MlHistoryPoint[] } | null;
@@ -71,15 +78,21 @@ export async function listForecastVersionsForUser(
         points: f.points,
         history: f.history ?? [],
         shared: !own.has(m.id),
+        series: forecastSeriesOf(f).map((s) => ({ key: s.key, points: s.forecast })),
       },
     ];
   });
 }
 
-/** One version's projection, if the user may use its model. */
+/**
+ * One version's projection, if the user may use its model: the total, or the
+ * series a chart attached (R526). A series the version no longer has is null,
+ * like a version that is gone, so the chart keeps its points and says stale.
+ */
 export async function forecastPointsForUser(
   versionId: string,
   userId: string,
+  series?: string | null,
 ): Promise<{ points: MlForecastPoint[]; trained_at: string | null; model: string } | null> {
   const { data: v } = await supabaseAdmin
     .from("ml_model_versions")
@@ -96,10 +109,12 @@ export async function forecastPointsForUser(
     .maybeSingle();
   const f = v.forecast as StoredForecast;
   if (!f?.points?.length) return null;
+  const picked = pickForecastSeries(f, series);
+  if (!picked.ok || !picked.points.length) return null;
   return {
-    points: f.points,
+    points: picked.points,
     trained_at: v.trained_at,
-    model: `${m?.name ?? "model"} · v${v.version}`,
+    model: `${m?.name ?? "model"} · v${v.version}${picked.series ? ` · ${picked.series}` : ""}`,
   };
 }
 
@@ -118,7 +133,7 @@ export async function syncForecastVersions(
     const chart = w.chart as { forecast?: ForecastSetting } | undefined;
     const versionId = forecastVersionId(chart?.forecast);
     if (!chart || !versionId || typeof chart.forecast !== "object") continue;
-    const fresh = await forecastPointsForUser(versionId, ownerId);
+    const fresh = await forecastPointsForUser(versionId, ownerId, chart.forecast.series ?? null);
     if (fresh) {
       chart.forecast = {
         ...chart.forecast,

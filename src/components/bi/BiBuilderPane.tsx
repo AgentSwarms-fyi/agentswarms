@@ -424,7 +424,11 @@ export function BiBuilderPane({
       setRunningB(Boolean(c.running));
       setTrendB(Boolean(c.trend));
       setForecastN(forecastPeriods(c.forecast) ? String(forecastPeriods(c.forecast)) : "");
-      setForecastSource(forecastVersionId(c.forecast) ?? "auto");
+      setForecastSource(
+        forecastVersionId(c.forecast)
+          ? `${forecastVersionId(c.forecast)}${typeof c.forecast === "object" && c.forecast?.series ? `::${c.forecast.series}` : ""}`
+          : "auto",
+      );
       setRefMode(c.refLine?.mode ?? "none");
       const cf = c.type === "matrix" ? c.condFormat : undefined;
       setMatFmtMode(cf?.mode ?? "none");
@@ -1052,17 +1056,19 @@ export function BiBuilderPane({
           const f = Number(forecastN);
           if (forecastN.trim() && Number.isFinite(f) && f > 0) {
             const periods = Math.min(24, Math.round(f));
-            const v =
-              forecastSource !== "auto"
-                ? forecastVersions.find((x) => x.id === forecastSource)
-                : undefined;
+            // "versionId" for a model's total, "versionId::series" for one series (R526).
+            const [sourceId, seriesKey] =
+              forecastSource !== "auto" ? forecastSource.split("::") : [undefined, undefined];
+            const v = sourceId ? forecastVersions.find((x) => x.id === sourceId) : undefined;
+            const one = v && seriesKey ? v.series.find((x) => x.key === seriesKey) : undefined;
             analytics.forecast = v
               ? {
                   periods,
                   versionId: v.id,
-                  model: v.label,
+                  model: one ? `${v.label} · ${one.key}` : v.label,
                   trainedAt: v.trained_at ?? undefined,
-                  points: v.points,
+                  points: one ? one.points : v.points,
+                  ...(one ? { series: one.key } : {}),
                 }
               : periods;
           }
@@ -1969,10 +1975,16 @@ export function BiBuilderPane({
                               setForecastN={setForecastN}
                               forecastSource={forecastSource}
                               setForecastSource={setForecastSource}
-                              forecastVersions={forecastVersions.map((v) => ({
-                                id: v.id,
-                                label: v.label,
-                              }))}
+                              forecastVersions={forecastVersions.flatMap((v) => [
+                                {
+                                  id: v.id,
+                                  label: v.series.length ? `${v.label} · total` : v.label,
+                                },
+                                ...v.series.map((s) => ({
+                                  id: `${v.id}::${s.key}`,
+                                  label: `${v.label} · ${s.key}`,
+                                })),
+                              ])}
                             />
                           )}
 

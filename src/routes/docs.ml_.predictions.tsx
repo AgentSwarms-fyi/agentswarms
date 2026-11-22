@@ -288,11 +288,27 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
         period from the gaps between timestamps, which turns a table of dated orders into a{" "}
         <em>daily</em> series — fine for a month of data, surprising when you expected months. Pick
         the period you will read the answer in. A last period the data only partly covers is left
-        out and the version says so. Five candidates compete on a holdout of the most recent periods
-        — last value, moving average, seasonal naive, Holt-Winters, gradient boosting on lags — and
-        the lowest RMSE serves, so a flat line means the flat baselines beat the rest on your
-        series. The model page, the agent tool and the API all state the period, the aggregation,
-        the last observed period and the method.
+        out and the version says so. Five candidates compete — last value, moving average, seasonal
+        naive, Holt-Winters, gradient boosting on lags and the calendar (the weekday of a day, the
+        month of a month) — each scored over up to three backtest windows of the most recent
+        periods, so a method wins because its advantage holds, not on one lucky stretch. The lowest
+        average RMSE serves, so a flat line means the flat baselines beat the rest on your series.
+        The model page, the agent tool and the API all state the period, the aggregation, the last
+        observed period and the method.
+      </P>
+      <H3 id="forecast-series">A forecast for each series</H3>
+      <P>
+        <strong>Forecast each</strong> in the wizard names a column — a region, a product, a store —
+        and the model forecasts each of its values on its own, each with its own winning method, as
+        well as the total. The 25 largest by volume are forecast one by one; the rest count in the
+        total and the version names how many. The model page has a picker for the total or one
+        series. The API and the agent tool take a <C>series</C> to return one (the total without it)
+        and list the series there are, and a dashboard chart can attach one series as its{" "}
+        <strong>Source</strong>; its refresh keeps that series.
+      </P>
+      <P>
+        <strong>Periods ahead</strong> can be changed when you retrain: the new version projects
+        that many, and so do the ones after it.
       </P>
 
       <H2 id="forecasting">Forecasting in BI</H2>

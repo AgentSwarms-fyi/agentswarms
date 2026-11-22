@@ -495,7 +495,14 @@ export async function runMlPredict(
     const healthNote = healthLine((await modelHealthFor([model])).get(model.id));
     const healthNotes = healthNote ? [healthNote] : [];
     if (model.task === "forecast") {
-      const f = version.forecast as { points?: unknown[] } | null;
+      // The total, or one series of it (R526).
+      const { pickForecastSeries } = await import("@/utils/ml/types");
+      const picked = pickForecastSeries(
+        version.forecast,
+        typeof a.series === "string" ? a.series : null,
+      );
+      if (!picked.ok) return JSON.stringify({ error: picked.error, series: picked.available });
+      const f = { points: picked.points as unknown[] };
       auditEvent({
         userId: ctx.userId,
         action: "ml.predict_query",
@@ -527,6 +534,9 @@ export async function runMlPredict(
         period: meta?.period ?? null,
         aggregation: meta?.aggregation ?? null,
         last_observed_period: meta?.last_period ?? null,
+        ...(picked.available.length
+          ? { series: picked.series ?? "total", series_available: picked.available }
+          : {}),
         forecast: f?.points ?? [],
         notes: [
           ...forecastNotes(version.algorithm, meta),
@@ -2331,6 +2341,12 @@ export async function resolveAgentTools(
                     'column(s), e.g. [{"customer_id": "c-1"}] (max 50). The features are read ' +
                     "from the view; do not send rows as well.",
                   items: { type: "object" },
+                },
+                series: {
+                  type: "string",
+                  description:
+                    "For a forecast model with a series column: the series to return (e.g. a " +
+                    "region). Leave out for the total; the answer lists the series there are.",
                 },
               },
               required: ["model"],

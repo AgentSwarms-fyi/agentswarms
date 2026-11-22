@@ -240,6 +240,8 @@ export type ForecastSetting =
       model?: string;
       trainedAt?: string;
       points?: { period: string; yhat: number; lo: number; hi: number }[];
+      /** One series of a model that forecasts each value of a column (R526); absent: the total. */
+      series?: string;
     };
 
 export function forecastPeriods(setting: ForecastSetting | undefined | null): number {

@@ -6,10 +6,11 @@
 // own page and its own words for "it worked"; here they share one list, one
 // set of words, and one question: what needs a look.
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { MessageSquareText, RefreshCw } from "lucide-react";
+import { MessageSquareText, RefreshCw, Wrench } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { PageHeader } from "@/components/PageHeader";
+import { RunFixDialog } from "@/components/runs/RunFixDialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatRunDuration } from "@/lib/swarmRunStatus";
@@ -241,6 +242,7 @@ function RunsPage() {
 }
 
 function RunItem({ run: r }: { run: RunRow }) {
+  const [fixing, setFixing] = useState(false);
   const time = new Date(r.startedAt);
   const facts = [
     RUN_STATUS_LABEL[r.status],
@@ -277,14 +279,35 @@ function RunItem({ run: r }: { run: RunRow }) {
         )}
       </div>
       {NEEDS_A_LOOK.has(r.status) && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground"
-          onClick={() => askAssistant(askAboutFailure(r))}
-        >
-          <MessageSquareText className="h-3.5 w-3.5" /> Ask about this
-        </Button>
+        <div className="flex shrink-0 flex-col items-end gap-0.5 sm:flex-row sm:items-center">
+          {r.fixTarget && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1.5 px-2 text-xs text-muted-foreground"
+              onClick={() => setFixing(true)}
+            >
+              <Wrench className="h-3.5 w-3.5" /> Suggest a fix
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1.5 px-2 text-xs text-muted-foreground"
+            onClick={() => askAssistant(askAboutFailure(r))}
+          >
+            <MessageSquareText className="h-3.5 w-3.5" /> Ask about this
+          </Button>
+        </div>
+      )}
+      {r.fixTarget && (
+        <RunFixDialog
+          open={fixing}
+          onOpenChange={setFixing}
+          target={r.fixTarget}
+          name={r.name}
+          onAskAssistant={() => askAssistant(askAboutFailure(r))}
+        />
       )}
     </li>
   );

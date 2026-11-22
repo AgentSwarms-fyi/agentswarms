@@ -168,6 +168,8 @@ export async function mlBundleFor(
     horizon: b.model.horizon,
     aggregation: b.model.aggregation,
     period: b.model.period,
+    // Absent before migration 20261124000000: one series, as before.
+    series_column: (b.model as { series_column?: string | null }).series_column ?? null,
     feature_columns: b.model.feature_columns,
     user_column: b.model.user_column,
     item_column: b.model.item_column,
@@ -1198,7 +1200,13 @@ async function writeTrainOutcome(jobId: string, r: MlTrainResult, logs: string):
         training_sampled: r.training_sampled,
         warnings: (r.warnings ?? []) as Json,
         forecast: (r.forecast
-          ? { points: r.forecast, history: r.history ?? [], meta: r.series_meta ?? null }
+          ? {
+              points: r.forecast,
+              history: r.history ?? [],
+              meta: r.series_meta ?? null,
+              // One forecast per series, when the model names a series column (R526).
+              ...(r.series_forecasts?.length ? { series: r.series_forecasts } : {}),
+            }
           : null) as Json,
         trained_at: now,
       })

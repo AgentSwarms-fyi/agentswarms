@@ -607,7 +607,7 @@ describe("the bell", () => {
     const handler = inbox.slice(at, inbox.indexOf("const load = async", at));
     // The title, or for a suggestion about a dataset (R521) fixed words; never
     // the sealed description or payload.
-    expect(handler).toMatch(/description: hide \? "[^"]+" : ap\.action_title/);
+    expect(handler).toMatch(/description: suggestion \? "[^"]+" : ap\.action_title/);
     expect(handler).not.toMatch(/ap\.description|ap\.payload/);
     expect(inbox).not.toContain("payload.new");
   });
