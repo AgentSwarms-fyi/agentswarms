@@ -19,6 +19,9 @@ import { readPageIntent } from "@/lib/pageIntent";
 import { newPythonNotebookCells } from "@/lib/pythonNotebookTemplate";
 import { SAMPLE_NOTEBOOKS } from "@/lib/sampleNotebooks";
 import { RunningKernels } from "@/components/notebooks/RunningKernels";
+import { FavouritesFilter } from "@/components/FavouritesFilter";
+import { useFavouritesFilter } from "@/hooks/use-favourites-filter";
+import { StarButton } from "@/components/StarButton";
 import { listClaim, type ListClaim } from "@/lib/listClaim";
 import { reportFailure } from "@/lib/silentFailureNet";
 
@@ -284,6 +287,11 @@ function PythonLabCatalog({
       .maybeSingle()
       .then(({ data }) => setRuntimeEnabled(!!data?.server_runtime_enabled));
   }, []);
+  const favourites = useFavouritesFilter(
+    "notebook",
+    pyNotebooks.map((nb) => nb.id),
+  );
+  const shownNotebooks = pyNotebooks.filter((nb) => favourites.keep(nb.id));
 
   return (
     <div className="h-full overflow-y-auto p-6 lg:p-8">
@@ -365,7 +373,11 @@ function PythonLabCatalog({
 
         <RunningKernels enabled={runtimeEnabled} />
 
-        <h2 className="mb-3 text-base font-semibold tracking-tight">My notebooks</h2>
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h2 className="text-base font-semibold tracking-tight">My notebooks</h2>
+          {/* Negative margin: the chip is taller than the heading, and the row keeps its height. */}
+          <FavouritesFilter filter={favourites} className="-my-1" />
+        </div>
         {claim.message === "error" ? (
           // "Create your first" would be a claim that this is your first, and
           // a refused read is no basis for it.
@@ -390,7 +402,7 @@ function PythonLabCatalog({
           </button>
         ) : (
           <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
-            {pyNotebooks.map((nb) => (
+            {shownNotebooks.map((nb) => (
               <div
                 key={nb.id}
                 className="group relative rounded-md border border-border bg-card/50 transition hover:border-primary/60 hover:bg-card"
@@ -420,6 +432,12 @@ function PythonLabCatalog({
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
+                <StarButton
+                  kind="notebook"
+                  id={nb.id}
+                  name={nb.title}
+                  className="absolute bottom-3 right-10 h-6 w-6"
+                />
               </div>
             ))}
           </div>

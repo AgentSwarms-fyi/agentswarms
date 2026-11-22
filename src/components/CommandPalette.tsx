@@ -1,9 +1,10 @@
 // Global search (Ctrl/⌘-K): your own work by name, everything you can start,
-// and every page — one keystroke away.
+// and every page — one keystroke away. Before anything is typed it opens on
+// where you were: a few favourites and what you opened last.
 //
-// The three lists come from one place each: objects from the search index,
-// "new" actions from the object kinds, pages from the navigation the sidebar
-// renders. What is shown for what was typed is decided by paletteResults, not
+// The lists come from one place each: objects from the search index, what is
+// a favourite or was opened from your marks, "new" actions from the object
+// kinds, pages from the navigation the sidebar renders. What is shown for what was typed is decided by paletteResults, not
 // by the component library's built-in filter, so the palette and the results
 // page rank the same way.
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
@@ -20,12 +21,15 @@ import {
   CommandShortcut,
 } from "@/components/ui/command";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { agoLabel, IconTile, ObjectText } from "@/components/search/parts";
-import { useCappedMatches, useObjectIndex } from "@/hooks/use-object-index";
+import { IconTile, ObjectText, StarMark } from "@/components/search/parts";
+import { useMyWork } from "@/hooks/use-my-work";
+import { useCappedMatches } from "@/hooks/use-object-index";
+import { recordOpened } from "@/hooks/use-object-marks";
 import { useIsSuperadmin } from "@/hooks/use-iam";
 import { THEMES, useTheme, type ThemePreference } from "@/hooks/use-theme";
+import { agoLabel } from "@/lib/agoLabel";
 import { ADMIN_GROUP, NAV_GROUPS } from "@/lib/appNav";
-import { linkToObject, objectKind, type ObjectLink } from "@/lib/objectKinds";
+import { linkToObject, objectKind, type ObjectEntry, type ObjectLink } from "@/lib/objectKinds";
 import { mergeEntries, scoreMatch } from "@/lib/objectSearch";
 import { createTitle, paletteResults, type PaletteSection } from "@/lib/paletteSearch";
 
@@ -58,17 +62,17 @@ export function CommandPalette({
     if (!open) setQuery("");
   }, [open]);
 
-  const index = useObjectIndex(open);
+  const { index, marks, entries: known } = useMyWork(open);
   const older = useCappedMatches(open ? query : "", index.capped);
-  const entries = useMemo(() => mergeEntries(index.entries, older), [index.entries, older]);
+  const entries = useMemo(() => mergeEntries(known, older), [known, older]);
 
   const navGroups = useMemo(
     () => (isSuperadmin ? [...NAV_GROUPS, ADMIN_GROUP] : NAV_GROUPS),
     [isSuperadmin],
   );
   const results = useMemo(
-    () => paletteResults({ query, entries, navGroups }),
-    [query, entries, navGroups],
+    () => paletteResults({ query, entries, navGroups, marks: marks.marks }),
+    [query, entries, navGroups, marks.marks],
   );
   const themes = results.searching
     ? THEMES.filter((t) => scoreMatch(query, t.label, "theme appearance colours") > 0)
@@ -80,6 +84,25 @@ export function CommandPalette({
   };
   const go = (link: ObjectLink) =>
     run(() => navigate({ to: link.to, search: link.search ?? {} } as never));
+
+  // One of your things as a row. The same row whether it was found by typing,
+  // is a favourite, or was opened last; `when` says which time is shown.
+  const objectRow = (e: ObjectEntry, section: string, when: string) => (
+    <CommandItem
+      key={`${section}:${e.kind}:${e.id}`}
+      value={`${section}:${e.kind}:${e.id}`}
+      onSelect={() => {
+        void recordOpened(e.kind, e.id);
+        go(linkToObject(e));
+      }}
+      className={ROW}
+    >
+      <IconTile icon={objectKind(e.kind).icon} />
+      <ObjectText entry={e} query={query} />
+      {marks.isStarred(e.kind, e.id) && <StarMark />}
+      <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{when}</span>
+    </CommandItem>
+  );
 
   // The pages, in their navigation groups while the palette is a menu and as
   // one ranked list once something is typed.
@@ -105,22 +128,8 @@ export function CommandPalette({
   const sections: Record<PaletteSection, ReactNode> = {
     objects: results.searching && (results.objects.length > 0 || stillLoading) && (
       <CommandGroup heading="Your work">
-        {results.objects.map((e) => (
-          <CommandItem
-            key={`${e.kind}:${e.id}`}
-            value={`object:${e.kind}:${e.id}`}
-            onSelect={() => go(linkToObject(e))}
-            className={ROW}
-          >
-            <IconTile icon={objectKind(e.kind).icon} />
-            <ObjectText entry={e} query={query} />
-            {/* When it last changed: what tells two things with one
-                        name apart. */}
-            <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-              {agoLabel(e.updatedAt)}
-            </span>
-          </CommandItem>
-        ))}
+        {/* When it last changed: what tells two things with one name apart. */}
+        {results.objects.map((e) => objectRow(e, "object", agoLabel(e.updatedAt)))}
         {stillLoading && (
           <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -217,6 +226,18 @@ export function CommandPalette({
                     ? `Nothing matches “${query.trim()}” so far.`
                     : `Nothing matches “${query.trim()}” so far. Still reading ${stillReading}…`}
               </CommandEmpty>
+            )}
+
+            {/* Before anything is typed: where you were. */}
+            {results.favourites.length > 0 && (
+              <CommandGroup heading="Favourites">
+                {results.favourites.map((e) => objectRow(e, "favourite", ""))}
+              </CommandGroup>
+            )}
+            {results.recent.length > 0 && (
+              <CommandGroup heading="Opened last">
+                {results.recent.map((e) => objectRow(e, "recent", agoLabel(e.openedAt)))}
+              </CommandGroup>
             )}
 
             {results.order.map((section) => (

@@ -10,6 +10,9 @@ import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { FileText, Loader2, Plus, Trash2 } from "lucide-react";
 
+import { FavouritesFilter } from "@/components/FavouritesFilter";
+import { useFavouritesFilter } from "@/hooks/use-favourites-filter";
+import { StarButton } from "@/components/StarButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -57,6 +60,11 @@ export function ReportsTab({
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
+  const favourites = useFavouritesFilter(
+    "report",
+    reports.map((r) => r.id),
+  );
+  const shownReports = reports.filter((r) => favourites.keep(r.id));
 
   const reload = useCallback(async () => {
     if (!token) return;
@@ -120,9 +128,12 @@ export function ReportsTab({
           onto the next page with their header repeated — the shape a month-end pack or a regulatory
           return has to be. Generate one with AI, then export it to PDF.
         </p>
-        <Button className="gap-1.5" onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4" /> New report
-        </Button>
+        <div className="flex items-center gap-2">
+          <FavouritesFilter filter={favourites} />
+          <Button className="gap-1.5" onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4" /> New report
+          </Button>
+        </div>
       </div>
 
       {reports.length === 0 ? (
@@ -137,7 +148,7 @@ export function ReportsTab({
         </Card>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {reports.map((r) => {
+          {shownReports.map((r) => {
             const blocks = Array.isArray(r.blocks) ? r.blocks.length : 0;
             return (
               <Card key={r.id} className="group transition-shadow hover:shadow-md">
@@ -171,6 +182,7 @@ export function ReportsTab({
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
+                    <StarButton kind="report" id={r.id} name={r.name} />
                   </div>
                 </CardContent>
               </Card>

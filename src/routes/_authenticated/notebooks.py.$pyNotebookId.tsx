@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { StarButton } from "@/components/StarButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +38,7 @@ import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import { useAuth } from "@/hooks/use-auth";
+import { useRecordOpened } from "@/hooks/use-object-marks";
 import { useTokenRef } from "@/hooks/use-token-ref";
 import { useTheme } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
@@ -100,6 +102,9 @@ function PyNotebookPage() {
   const [title, setTitle] = useState("");
   const [cells, setCells] = useState<PyCell[] | null>(null);
   const [notFound, setNotFound] = useState(false);
+  // The notebook this page has read: null until one has loaded.
+  const [loadedId, setLoadedId] = useState<string | null>(null);
+  useRecordOpened("notebook", loadedId);
   /** Set when the notebook could not be READ, as opposed to not existing. */
   const [loadError, setLoadError] = useState<string | null>(null);
   // The notebook as loaded or last saved, and its title then, so the page can
@@ -212,6 +217,7 @@ function PyNotebookPage() {
         setCells(loadedCells);
         setSavedAs(JSON.stringify({ title: data.title, cells: loadedCells }));
         setSavedTitle(data.title);
+        setLoadedId(data.id);
         // Let the autosave effect skip the initial hydration.
         setTimeout(() => {
           loadedRef.current = true;
@@ -407,6 +413,7 @@ function PyNotebookPage() {
           className="h-9 max-w-md flex-1 text-base font-semibold"
           aria-label="Notebook title"
         />
+        {loadedId && <StarButton kind="notebook" id={loadedId} name={title} />}
         <Badge variant="outline" className="gap-1 text-[10px] uppercase tracking-wider">
           <Server className="h-3 w-3" /> Python · server kernel
         </Badge>

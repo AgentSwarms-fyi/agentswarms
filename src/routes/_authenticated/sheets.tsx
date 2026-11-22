@@ -7,7 +7,10 @@
 // sheets_.$workbookId. Each card shows the corner of the workbook's first
 // grid sheet as it reads, from a preview the editor keeps (or, for a workbook
 // not opened since previews began, one this page asks the server to build).
+import { FavouritesFilter } from "@/components/FavouritesFilter";
+import { useFavouritesFilter } from "@/hooks/use-favourites-filter";
 import { PageEyebrow } from "@/components/PageEyebrow";
+import { StarButton } from "@/components/StarButton";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
@@ -271,7 +274,11 @@ function SheetsPage() {
   }, []);
 
   const claim = listClaim({ loaded, error: loadError, count: workbooks?.length ?? 0 });
-  const shown = useMemo(
+  const favourites = useFavouritesFilter(
+    "workbook",
+    (workbooks ?? []).map((w) => w.id),
+  );
+  const found = useMemo(
     () =>
       searchWorkbooks(
         (workbooks ?? []).filter((w) =>
@@ -282,6 +289,8 @@ function SheetsPage() {
       ),
     [workbooks, query, sort, whose],
   );
+  // After the search and the "whose" choice, so the grid and the table both follow it.
+  const shown = found.filter((w) => favourites.keep(w.id));
   const sharedCount = (workbooks ?? []).filter((w) => w.role !== "owner").length;
   const total = workbooks?.length ?? 0;
 
@@ -531,6 +540,7 @@ function SheetsPage() {
                 : `${total} workbook${total === 1 ? "" : "s"}`}
           </p>
           <div className="ml-auto flex items-center gap-2">
+            <FavouritesFilter filter={favourites} />
             {sharedCount > 0 && (
               <ToggleGroup
                 type="single"
@@ -642,13 +652,32 @@ function SheetsPage() {
           <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border py-14 text-center">
             <SearchX className="h-9 w-9 text-muted-foreground" />
             <div>
-              <p className="font-medium">No workbooks match “{query.trim()}”</p>
+              {/* Nothing typed and still nothing listed: a filter did it, not a
+                  search. It read: No workbooks match “”. */}
+              <p className="font-medium">
+                {query.trim()
+                  ? `No workbooks match “${query.trim()}”`
+                  : "No workbooks under these filters"}
+              </p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Names, descriptions and sheet names are searched; every word has to appear.
+                {query.trim()
+                  ? "Names, descriptions and sheet names are searched; every word has to appear."
+                  : "Nothing is both in the list chosen above and among your favourites."}
               </p>
             </div>
-            <Button size="sm" variant="outline" onClick={() => setQuery("")}>
-              Clear search
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                if (query.trim()) {
+                  setQuery("");
+                  return;
+                }
+                setWhose("all");
+                if (favourites.on) favourites.toggle();
+              }}
+            >
+              {query.trim() ? "Clear search" : "Show all workbooks"}
             </Button>
           </div>
         ) : view === "grid" ? (
@@ -678,6 +707,13 @@ function SheetsPage() {
                           <Highlight text={wb.name} query={query} />
                         </Link>
                       </h3>
+                      {/* Above the card's link, like the menu beside it. */}
+                      <StarButton
+                        kind="workbook"
+                        id={wb.id}
+                        name={wb.name}
+                        className="relative z-10 mt-0.5"
+                      />
                       {actions(wb)}
                     </div>
                     {wb.role !== "owner" && (
@@ -769,7 +805,18 @@ function SheetsPage() {
                     <td className="whitespace-nowrap px-4 py-2.5 tabular-nums text-muted-foreground">
                       {new Date(wb.created_at).toLocaleDateString()}
                     </td>
-                    <td className="px-2 py-2.5 text-right">{actions(wb)}</td>
+                    <td className="px-2 py-2.5 text-right">
+                      {/* One line: the column is only as wide as its controls. */}
+                      <div className="flex items-center justify-end gap-1">
+                        <StarButton
+                          kind="workbook"
+                          id={wb.id}
+                          name={wb.name}
+                          className="relative z-10 h-6 w-6"
+                        />
+                        {actions(wb)}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>

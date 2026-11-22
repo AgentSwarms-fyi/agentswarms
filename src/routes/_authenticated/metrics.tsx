@@ -17,6 +17,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { BadgeCheck, Layers, Search, Sigma, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 
+import { FavouritesFilter } from "@/components/FavouritesFilter";
+import { useFavouritesFilter } from "@/hooks/use-favourites-filter";
+import { StarButton } from "@/components/StarButton";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -123,6 +126,7 @@ function MetricsPage() {
   }, [load]);
 
   const metrics = useMemo(() => flattenMetrics(models ?? []), [models]);
+  const favourites = useFavouritesFilter("metric", metrics.map(qualifiedName));
 
   // A link here names one metric. The page has no detail view to open, so the
   // name goes into the search box, which narrows the list to that metric and
@@ -134,11 +138,14 @@ function MetricsPage() {
     noun: "metric",
     onOpen: (id) => {
       if (!metrics.some((m) => qualifiedName(m) === id)) return false;
+      // The metric asked for is listed even when it is not a favourite.
+      if (!favourites.keep(id)) favourites.toggle();
       setQuery(id);
     },
   });
 
-  const shown = useMemo(() => metrics.filter((m) => matchesQuery(m, query)), [metrics, query]);
+  const matched = useMemo(() => metrics.filter((m) => matchesQuery(m, query)), [metrics, query]);
+  const shown = matched.filter((m) => favourites.keep(qualifiedName(m)));
   const summary = useMemo(() => catalogSummary(metrics), [metrics]);
   const now = Date.now();
 
@@ -164,6 +171,7 @@ function MetricsPage() {
               className="h-8 pl-7 text-xs"
             />
           </div>
+          <FavouritesFilter filter={favourites} />
           <p className="text-[11px] text-muted-foreground">
             {models === null
               ? "Loading…"
@@ -187,8 +195,15 @@ function MetricsPage() {
         </Card>
       ) : shown.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          Nothing matches “{query}”. Synonyms are searched too, so a metric with no match here
-          genuinely has none of these words.
+          {/* The second sentence is about every metric, so it is not said of favourites alone. */}
+          {favourites.on ? (
+            <>None of your favourites matches “{query}”.</>
+          ) : (
+            <>
+              Nothing matches “{query}”. Synonyms are searched too, so a metric with no match here
+              genuinely has none of these words.
+            </>
+          )}
         </p>
       ) : (
         <div className="space-y-2">
@@ -232,6 +247,13 @@ function MetricsPage() {
                   <Badge variant="outline" className="shrink-0 text-[9px] uppercase">
                     {m.agg}
                   </Badge>
+                  {/* Pulled in so it centres on the name's line and adds no height. */}
+                  <StarButton
+                    kind="metric"
+                    id={qualifiedName(m)}
+                    name={m.label || m.name}
+                    className="-my-1"
+                  />
                 </div>
 
                 {/* The three signals, each worded as what it actually covers. */}

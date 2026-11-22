@@ -21,6 +21,7 @@ import { useTokenRef } from "@/hooks/use-token-ref";
 import { usePageIntent } from "@/hooks/use-page-intent";
 import { readPageIntent } from "@/lib/pageIntent";
 import { DeleteDatasetDialog } from "@/components/bi/DeleteDatasetDialog";
+import { StarButton } from "@/components/StarButton";
 import { datasetDependents, type DatasetDependents } from "@/utils/dataPrep.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -1163,7 +1164,7 @@ function DataSqlPage({
               datasets.map((d) => (
                 <Collapsible key={d.id} defaultOpen={d.name === activeTable}>
                   <div
-                    className={`flex items-center gap-1 rounded-md px-1 py-0.5 group ${
+                    className={`flex items-center gap-1 rounded-md px-1 py-0.5 group group/star ${
                       d.name === activeTable
                         ? "bg-teal-100/60 dark:bg-teal-500/10"
                         : "hover:bg-slate-100 dark:hover:bg-muted"
@@ -1219,6 +1220,13 @@ function DataSqlPage({
                         )}
                       </button>
                     </CollapsibleTrigger>
+                    <StarButton
+                      kind="dataset"
+                      id={d.id}
+                      name={d.name}
+                      quiet="fade"
+                      className="h-6 w-6"
+                    />
                     <button
                       onClick={() => handleOpenSemantics(d)}
                       className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-primary dark:text-muted-foreground"

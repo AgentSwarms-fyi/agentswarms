@@ -21,6 +21,9 @@ import {
   Trash2,
 } from "lucide-react";
 
+import { FavouritesFilter } from "@/components/FavouritesFilter";
+import { useFavouritesFilter } from "@/hooks/use-favourites-filter";
+import { StarButton } from "@/components/StarButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -260,6 +263,12 @@ export function EmbedSection({
   }, [reveal]);
   const revealRowId = reveal !== null && reveal !== "create" ? reveal.row : null;
 
+  const favourites = useFavouritesFilter(
+    "embed",
+    keys.map((k) => k.id),
+  );
+  const shownKeys = keys.filter((k) => favourites.keep(k.id));
+
   // A link here can ask for a new embed or for one embed to be shown.
   usePageIntent(intent, {
     ready: loaded,
@@ -267,6 +276,8 @@ export function EmbedSection({
     onNew: () => setReveal("create"),
     onOpen: (id) => {
       if (!keys.some((k) => k.id === id)) return false;
+      // An embed the filter is hiding cannot be shown: the filter goes off.
+      if (!favourites.keep(id)) favourites.toggle();
       setReveal({ row: id });
     },
   });
@@ -339,6 +350,8 @@ export function EmbedSection({
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {/* Draws nothing, and takes no room, until an embed is starred. */}
+          <FavouritesFilter filter={favourites} className="mb-2 ml-auto flex" />
           {keys.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
               No embeds yet — create one above to get an iframe snippet.
@@ -358,7 +371,7 @@ export function EmbedSection({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/40">
-                  {keys.map((k) => (
+                  {shownKeys.map((k) => (
                     <tr
                       key={k.id}
                       ref={k.id === revealRowId ? revealRowRef : undefined}
@@ -445,6 +458,7 @@ export function EmbedSection({
                               <ShieldCheck className="h-3.5 w-3.5" />
                             </Button>
                           )}
+                          <StarButton kind="embed" id={k.id} name={k.name} className="h-6 w-6" />
                           <Button
                             variant="ghost"
                             size="icon"

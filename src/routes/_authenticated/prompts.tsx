@@ -49,6 +49,10 @@ import {
 import { BUILT_IN_PROMPTS, PROMPT_CATEGORIES, type PromptCategory } from "@/lib/promptLibrary";
 import { listClaim } from "@/lib/listClaim";
 import { matchesPromptQuery } from "@/lib/promptSearch";
+import { StarButton } from "@/components/StarButton";
+import { FavouritesFilter } from "@/components/FavouritesFilter";
+import { useFavouritesFilter } from "@/hooks/use-favourites-filter";
+import { useRecordOpened } from "@/hooks/use-object-marks";
 
 export const Route = createFileRoute("/_authenticated/prompts")({
   component: PromptsPage,
@@ -99,6 +103,12 @@ function PromptsPage() {
   useEffect(() => {
     loadUserPrompts();
   }, []);
+  // A new prompt has no id yet, so nothing is recorded for it.
+  useRecordOpened("prompt", dialogOpen ? form.id : null);
+  const favourites = useFavouritesFilter(
+    "prompt",
+    userPrompts.map((p) => p.id),
+  );
 
   async function loadUserPrompts() {
     const { data, error } = await supabase
@@ -222,7 +232,7 @@ function PromptsPage() {
   const filteredUser = useMemo(
     () => userPrompts.filter((p) => matchesPromptQuery(p, query, category)),
     [query, category, userPrompts],
-  );
+  ).filter((p) => favourites.keep(p.id));
 
   // What the "My Prompts" tab may claim — the same rule the notebooks list and
   // the publish dialog use. Counts the WHOLE collection, not the filtered view:
@@ -272,6 +282,8 @@ function PromptsPage() {
               ))}
             </SelectContent>
           </Select>
+          {/* Built-in prompts cannot be starred, so the chip is for "My Prompts" only. */}
+          {tab === "mine" && <FavouritesFilter filter={favourites} />}
         </div>
 
         <Tabs value={tab} onValueChange={(v) => setTab(v as "builtin" | "mine")}>
@@ -389,6 +401,12 @@ function PromptsPage() {
                     <CardHeader className="pb-3">
                       <div className="flex items-start justify-between gap-2">
                         <CardTitle className="text-base leading-tight">{p.title}</CardTitle>
+                        <StarButton
+                          kind="prompt"
+                          id={p.id}
+                          name={p.title}
+                          className="-my-1 ml-auto"
+                        />
                         <Badge variant="default" className="shrink-0 text-[10px]">
                           Mine
                         </Badge>

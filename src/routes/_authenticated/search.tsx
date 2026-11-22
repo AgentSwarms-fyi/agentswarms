@@ -5,15 +5,16 @@
 // With nothing typed it is an overview of what you have: one tile per kind,
 // and choosing a kind lists it newest first.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Loader2, RefreshCw, Search as SearchIcon, X } from "lucide-react";
 
-import { agoLabel, IconTile, ObjectText } from "@/components/search/parts";
+import { IconTile, ObjectRow } from "@/components/search/parts";
 import { Button } from "@/components/ui/button";
 import { useCappedMatches, useObjectIndex } from "@/hooks/use-object-index";
+import { useObjectMarks } from "@/hooks/use-object-marks";
 import {
   isObjectKindId,
-  linkToObject,
   OBJECT_KINDS,
   objectKind,
   type ObjectEntry,
@@ -26,6 +27,8 @@ import {
   queryTokens,
   rankObjects,
 } from "@/lib/objectSearch";
+import { agoLabel } from "@/lib/agoLabel";
+import { starredFirst } from "@/lib/objectMarks";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/search")({
@@ -69,6 +72,16 @@ function SearchPage() {
   }, []);
 
   const index = useObjectIndex(true);
+  const { marks, loaded: marksRead } = useObjectMarks(true);
+  // The stars as they stood when this was last searched. Ranked by the live
+  // stars, a row jumped to the top the moment it was starred, from under the
+  // pointer, and the next press landed on a different row.
+  const liveMarks = useRef(marks);
+  liveMarks.current = marks;
+  const [rankMarks, setRankMarks] = useState(marks);
+  useEffect(() => {
+    setRankMarks(liveMarks.current);
+  }, [text, marksRead]);
   const older = useCappedMatches(text, index.capped);
   const entries = useMemo(() => mergeEntries(index.entries, older), [index.entries, older]);
 
@@ -78,9 +91,10 @@ function SearchPage() {
   // What is listed: matches when something is typed; otherwise everything of
   // the chosen kind, newest first.
   const all = useMemo(() => {
-    if (searching) return rankObjects(entries, text);
+    // A favourite goes ahead of a match that is just as good, never of a better one.
+    if (searching) return starredFirst(rankObjects(entries, text), rankMarks);
     return entries.map((e) => ({ ...e, score: 1 })).sort(compareRanked);
-  }, [entries, text, searching]);
+  }, [entries, text, searching, rankMarks]);
   const counts = useMemo(() => countByKind(all), [all]);
   const shown = kind ? all.filter((e) => e.kind === kind) : all;
   const kindsWithAny = OBJECT_KINDS.filter((k) => (counts.get(k.id) ?? 0) > 0);
@@ -260,24 +274,9 @@ function Notice({ children }: { children: React.ReactNode }) {
 function ResultList({ entries, query }: { entries: ObjectEntry[]; query: string }) {
   return (
     <ul className="divide-y divide-border/60 overflow-hidden rounded-xl border bg-card">
-      {entries.map((e) => {
-        const link = linkToObject(e);
-        return (
-          <li key={`${e.kind}:${e.id}`}>
-            <Link
-              to={link.to as never}
-              search={(link.search ?? {}) as never}
-              className="flex items-center gap-3 px-3 py-2.5 outline-none transition hover:bg-muted/50 focus-visible:bg-muted/60"
-            >
-              <IconTile icon={objectKind(e.kind).icon} />
-              <ObjectText entry={e} query={query} />
-              <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                {agoLabel(e.updatedAt)}
-              </span>
-            </Link>
-          </li>
-        );
-      })}
+      {entries.map((e) => (
+        <ObjectRow key={`${e.kind}:${e.id}`} entry={e} query={query} when={agoLabel(e.updatedAt)} />
+      ))}
     </ul>
   );
 }

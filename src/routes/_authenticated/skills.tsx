@@ -15,6 +15,10 @@ import { toast } from "sonner";
 import { SAMPLE_SKILLS } from "@/lib/sampleSkills";
 import { SkillEditorDialog } from "@/components/skills/SkillEditorDialog";
 import { listClaim } from "@/lib/listClaim";
+import { StarButton } from "@/components/StarButton";
+import { FavouritesFilter } from "@/components/FavouritesFilter";
+import { useFavouritesFilter } from "@/hooks/use-favourites-filter";
+import { useRecordOpened } from "@/hooks/use-object-marks";
 
 type SkillRow = {
   id: string;
@@ -67,6 +71,12 @@ function SkillLibraryPage() {
   useEffect(() => {
     refresh();
   }, []);
+  useRecordOpened("skill", editorOpen ? (editing?.id ?? null) : null);
+  const favourites = useFavouritesFilter(
+    "skill",
+    mine.map((s) => s.id),
+  );
+  const shownMine = mine.filter((s) => favourites.keep(s.id));
 
   const handleNew = () => {
     setEditing(null);
@@ -168,11 +178,15 @@ function SkillLibraryPage() {
         </div>
 
         <Tabs value={tab} onValueChange={setTab}>
-          <TabsList>
-            {/* Not mine.length — that is 0 on a failed read. */}
-            <TabsTrigger value="mine">My skills ({mineClaim.countLabel})</TabsTrigger>
-            <TabsTrigger value="samples">Sample skills ({SAMPLE_SKILLS.length})</TabsTrigger>
-          </TabsList>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <TabsList>
+              {/* Not mine.length — that is 0 on a failed read. */}
+              <TabsTrigger value="mine">My skills ({mineClaim.countLabel})</TabsTrigger>
+              <TabsTrigger value="samples">Sample skills ({SAMPLE_SKILLS.length})</TabsTrigger>
+            </TabsList>
+            {/* Sample skills cannot be starred, so the chip is for "My skills" only. */}
+            {tab === "mine" && <FavouritesFilter filter={favourites} />}
+          </div>
 
           <TabsContent value="mine" className="pt-4">
             {mineClaim.message === "error" ? (
@@ -207,12 +221,18 @@ function SkillLibraryPage() {
               </Card>
             ) : (
               <div className="grid gap-3 lg:grid-cols-2">
-                {mine.map((s) => (
+                {shownMine.map((s) => (
                   <Card key={s.id}>
                     <CardHeader className="pb-2">
                       <div className="flex items-start justify-between gap-2">
                         <CardTitle className="text-base">{s.name}</CardTitle>
                         <div className="flex gap-1">
+                          <StarButton
+                            kind="skill"
+                            id={s.id}
+                            name={s.name}
+                            className="self-center"
+                          />
                           <Button
                             size="icon"
                             variant="ghost"

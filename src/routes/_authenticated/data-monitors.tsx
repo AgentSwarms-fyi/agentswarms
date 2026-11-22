@@ -20,7 +20,11 @@ import {
 } from "lucide-react";
 import { z } from "zod";
 import { useAuth } from "@/hooks/use-auth";
+import { useRecordOpened } from "@/hooks/use-object-marks";
 import { usePageIntent } from "@/hooks/use-page-intent";
+import { FavouritesFilter } from "@/components/FavouritesFilter";
+import { useFavouritesFilter } from "@/hooks/use-favourites-filter";
+import { StarButton } from "@/components/StarButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -191,6 +195,13 @@ function DataMonitorsPage() {
     monitor: MonitorView;
     runs: DataMonitorRunRow[];
   } | null>(null);
+  // Its history is the one view a monitor has, and only the reader opens it.
+  useRecordOpened("data_monitor", history?.monitor.id ?? null);
+  const favourites = useFavouritesFilter(
+    "data_monitor",
+    (monitors ?? []).map((m) => m.id),
+  );
+  const shownMonitors = (monitors ?? []).filter((m) => favourites.keep(m.id));
 
   const reload = useCallback(async () => {
     if (!token) return;
@@ -368,6 +379,8 @@ function DataMonitorsPage() {
         </Card>
       ) : null}
 
+      {/* Draws nothing, and takes no room, until a monitor here is starred. */}
+      <FavouritesFilter filter={favourites} className="ml-auto flex" />
       <Card>
         <CardContent className="p-0">
           {monitors === null ? (
@@ -398,7 +411,7 @@ function DataMonitorsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {monitors.map((m) => (
+                  {shownMonitors.map((m) => (
                     <tr
                       key={m.id}
                       className={cn("border-t align-top", !m.is_active && "opacity-60")}
@@ -445,6 +458,12 @@ function DataMonitorsPage() {
                         />
                       </td>
                       <td className="px-3 py-2 text-right whitespace-nowrap">
+                        <StarButton
+                          kind="data_monitor"
+                          id={m.id}
+                          name={m.name}
+                          className="h-6 w-6"
+                        />
                         <Button
                           size="sm"
                           variant="ghost"

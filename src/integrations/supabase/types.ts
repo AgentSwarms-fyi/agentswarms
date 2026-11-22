@@ -6964,6 +6964,32 @@ export type Database = {
         };
         Relationships: [];
       };
+      // 20261121000000 (R515): what a person starred and opened last. Read and
+      // written by its owner only; holds no names.
+      object_marks: {
+        Row: {
+          kind: string;
+          object_id: string;
+          opened_at: string | null;
+          starred_at: string | null;
+          user_id: string;
+        };
+        Insert: {
+          kind: string;
+          object_id: string;
+          opened_at?: string | null;
+          starred_at?: string | null;
+          user_id?: string;
+        };
+        Update: {
+          kind?: string;
+          object_id?: string;
+          opened_at?: string | null;
+          starred_at?: string | null;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       otel_export_cursor: {
         Row: {
           last_id: string;

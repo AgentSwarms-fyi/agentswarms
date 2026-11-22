@@ -8,6 +8,9 @@ import { useRefreshOnView } from "@/hooks/use-live-rows";
 import { usePageIntent } from "@/hooks/use-page-intent";
 import { listClaim } from "@/lib/listClaim";
 import { countLabels } from "@/lib/countClaim";
+import { FavouritesFilter } from "@/components/FavouritesFilter";
+import { useFavouritesFilter } from "@/hooks/use-favourites-filter";
+import { StarButton } from "@/components/StarButton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -162,6 +165,12 @@ export function McpServersPanel({
     return () => window.clearTimeout(t);
   }, [revealId]);
 
+  const favourites = useFavouritesFilter(
+    "mcp_server",
+    servers.map((s) => s.id),
+  );
+  const shownServers = servers.filter((s) => favourites.keep(s.id));
+
   // A link here can ask for a new connection or for one server to be shown.
   usePageIntent(intent, {
     ready: !loading && !loadError,
@@ -169,6 +178,8 @@ export function McpServersPanel({
     onNew: () => setAddOpen(true),
     onOpen: (id) => {
       if (!servers.some((s) => s.id === id)) return false;
+      // A server the filter is hiding cannot be shown: the filter goes off.
+      if (!favourites.keep(id)) favourites.toggle();
       setRevealId(id);
     },
   });
@@ -290,14 +301,17 @@ export function McpServersPanel({
             </Link>
           )}
         </div>
-        <Dialog open={addOpen} onOpenChange={setAddOpen}>
-          <DialogTrigger asChild>
-            <Button size="sm">
-              <Plus className="h-4 w-4 mr-1.5" /> Add MCP Server
-            </Button>
-          </DialogTrigger>
-          <AddServerDialog onAdd={addServer} />
-        </Dialog>
+        <div className="flex items-center gap-2">
+          <FavouritesFilter filter={favourites} />
+          <Dialog open={addOpen} onOpenChange={setAddOpen}>
+            <DialogTrigger asChild>
+              <Button size="sm">
+                <Plus className="h-4 w-4 mr-1.5" /> Add MCP Server
+              </Button>
+            </DialogTrigger>
+            <AddServerDialog onAdd={addServer} />
+          </Dialog>
+        </div>
       </div>
 
       {loading ? (
@@ -323,7 +337,7 @@ export function McpServersPanel({
         </p>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {servers.map((server) => {
+          {shownServers.map((server) => {
             const Icon = TYPE_ICON[server.type] ?? Boxes;
             const isConnected = server.status === "connected";
             const isError = server.status === "error";
@@ -350,6 +364,7 @@ export function McpServersPanel({
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
+                      <StarButton kind="mcp_server" id={server.id} name={server.name} />
                       <span className="relative flex h-2 w-2">
                         {isConnected && (
                           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />

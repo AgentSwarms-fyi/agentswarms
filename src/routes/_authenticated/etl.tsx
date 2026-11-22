@@ -132,10 +132,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { FavouritesFilter } from "@/components/FavouritesFilter";
+import { useFavouritesFilter } from "@/hooks/use-favourites-filter";
+import { StarButton } from "@/components/StarButton";
 import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import { parseModelChoice } from "@/utils/providers/modelChoice";
 import { listCatalogSources, type CatalogSource } from "@/lib/dataCatalog";
 import { useAuth } from "@/hooks/use-auth";
+import { useRecordOpened } from "@/hooks/use-object-marks";
 import { usePageIntent } from "@/hooks/use-page-intent";
 import { useTokenRef } from "@/hooks/use-token-ref";
 import { useTheme } from "@/hooks/use-theme";
@@ -241,6 +245,11 @@ function EtlPage() {
   const [data, setData] = useState<OverviewData | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  useRecordOpened("etl_pipeline", openId);
+  const favourites = useFavouritesFilter(
+    "etl_pipeline",
+    (data?.pipelines ?? []).map((p) => p.id),
+  );
 
   const reload = useCallback(async () => {
     if (!token) return;
@@ -369,6 +378,8 @@ function EtlPage() {
       <div className="grid gap-4 xl:grid-cols-[1fr_24rem]">
         {/* ── Pipelines ── */}
         <div className="min-w-0 space-y-2">
+          {/* Draws nothing, and takes no room, until a pipeline here is starred. */}
+          <FavouritesFilter filter={favourites} className="ml-auto flex" />
           {data === null ? (
             <>
               <Skeleton className="h-20 w-full" />
@@ -382,15 +393,17 @@ function EtlPage() {
               </CardContent>
             </Card>
           ) : (
-            data.pipelines.map((p) => (
-              <PipelineRow
-                key={p.id}
-                p={p}
-                pulse={data.per_pipeline[p.id]}
-                onOpen={() => setOpenId(p.id)}
-                onChanged={reload}
-              />
-            ))
+            data.pipelines
+              .filter((p) => favourites.keep(p.id))
+              .map((p) => (
+                <PipelineRow
+                  key={p.id}
+                  p={p}
+                  pulse={data.per_pipeline[p.id]}
+                  onOpen={() => setOpenId(p.id)}
+                  onChanged={reload}
+                />
+              ))
           )}
         </div>
 
@@ -674,6 +687,7 @@ function PipelineRow({
           )}
         </div>
         <div className="flex items-center gap-1">
+          <StarButton kind="etl_pipeline" id={p.id} name={p.name} />
           {p.schedule === "continuous" && p.live_run ? (
             <Button size="sm" variant="outline" onClick={stopLive} disabled={busy}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}

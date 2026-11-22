@@ -43,6 +43,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { StarButton } from "@/components/StarButton";
+import { FavouritesFilter } from "@/components/FavouritesFilter";
+import { useFavouritesFilter } from "@/hooks/use-favourites-filter";
 import { usePageIntent } from "@/hooks/use-page-intent";
 import { MCP_TEMPLATES } from "@/lib/mcpTemplates";
 import { readPageIntent } from "@/lib/pageIntent";
@@ -84,6 +87,11 @@ function McpBuilderPage() {
   const [name, setName] = useState("");
   const [template, setTemplate] = useState(MCP_TEMPLATES[0].id);
   const [pendingDelete, setPendingDelete] = useState<McpAppSummary | null>(null);
+  const favourites = useFavouritesFilter(
+    "mcp_app",
+    apps.map((a) => a.id),
+  );
+  const shownApps = apps.filter((a) => favourites.keep(a.id));
 
   const load = async () => {
     const res = await listFn({});
@@ -151,6 +159,8 @@ function McpBuilderPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* First in the row, so the buttons stay where they are when it appears. */}
+          <FavouritesFilter filter={favourites} />
           <Button asChild variant="ghost" size="sm" className="gap-1.5 text-muted-foreground">
             <Link to="/mcp">
               <Plug className="h-4 w-4" />
@@ -179,7 +189,7 @@ function McpBuilderPage() {
         />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {apps.map((app) => (
+          {shownApps.map((app) => (
             <div
               key={app.id}
               className="group flex flex-col rounded-xl border border-border bg-card p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
@@ -213,6 +223,7 @@ function McpBuilderPage() {
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
+                <StarButton kind="mcp_app" id={app.id} name={app.name} />
               </div>
 
               <div className="mt-3 flex flex-wrap items-center gap-1.5">

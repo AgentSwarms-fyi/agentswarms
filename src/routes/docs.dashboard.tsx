@@ -5,6 +5,7 @@ import {
   DocsHeader,
   FieldList,
   H2,
+  H3,
   NextPrev,
   Note,
   P,
@@ -262,7 +263,11 @@ function DashboardDoc() {
       <Table
         headers={["Group", "What it is for", "Pages"]}
         rows={[
-          ["Overview", "Where things stand, and the handbook", "Dashboard, Documentation"],
+          [
+            "Overview",
+            "Where things stand, your own work, and the handbook",
+            "Dashboard, My work, Documentation",
+          ],
           [
             "Build",
             "Make agents and what they work with",
@@ -319,6 +324,66 @@ function DashboardDoc() {
         yours with that exact name still comes before the page. A page that has been renamed is
         still found, and opened the same way, by its old name: the AI Model Catalog, the list of
         models other people host, was called the Model Registry.
+      </P>
+
+      <H2 id="my-work">My work: recent, favourites and shared with you</H2>
+      <P>
+        <strong>Overview → My work</strong> lists your things from every page in one place. An
+        agent, a dataset, a dashboard and a notebook live on four different pages; here they are one
+        list, and a row opens the thing itself.
+      </P>
+      <Table
+        headers={["Tab", "What it lists"]}
+        rows={[
+          [
+            "Recent",
+            "What you opened, newest first, with when. Your own work that you have not opened yet is listed among it by when it last changed, and says so: opened two hours ago, or changed three days ago. The fifty most recent.",
+          ],
+          ["Favourites", "Everything you starred, the most recently starred first."],
+          [
+            "Shared with me",
+            "What other people shared with you, whichever page it lives on. Bundled samples are not listed: nobody shared those.",
+          ],
+        ]}
+      />
+      <P>
+        Each tab counts what it holds, and the chips under the tabs narrow it to one kind. A link to
+        a tab can be kept or sent: the address carries the tab and the kind. Pressing G and then M
+        opens the page from anywhere.
+      </P>
+      <H3 id="favourites">Favourites</H3>
+      <P>
+        Press the star beside a name to keep it at hand, and press it again to take it off. The star
+        is on My work, in search results, on the rows and cards of the list pages, and beside the
+        title of an open dashboard, report, workbook, model, notebook, ontology or MCP project. It
+        is the same star everywhere: something starred on its own page is a favourite here.
+      </P>
+      <P>
+        Once something on a page of cards or a table is starred, that page shows a{" "}
+        <em>Favourites</em> chip with how many there are. Pressing it narrows the list to them;
+        pressing it again shows everything. Pages that keep their list in a narrow side rail, such
+        as Knowledge Base, SQL Models and Workflows, have the star and no chip. Favourites are yours
+        alone. Starring something changes nothing for the people it is shared with, and they do not
+        see your star.
+      </P>
+      <H3 id="where-you-were">Search opens on where you were</H3>
+      <P>
+        Before you type anything, search (Ctrl K, or ⌘ K) lists up to five favourites and then the
+        five things you opened last, so going back to yesterday's dashboard is two keys. Once you
+        type, a favourite goes ahead of another result that matches just as well. It never goes
+        ahead of a better match: a star settles a tie and nothing more.
+      </P>
+      <H3 id="what-is-kept">What is kept, and who can read it</H3>
+      <P>
+        To draw these lists the app keeps, for each thing you starred or opened, which thing it was
+        and when. It keeps no names. A name is looked up when the list is drawn, among what you may
+        see at that moment, so a favourite that was deleted, or is no longer shared with you, stops
+        being listed without anyone tidying up.
+      </P>
+      <P>
+        No page shows what you opened to anyone else, and the database returns each person their own
+        rows only. <em>Clear what I opened</em>, under the Recent tab, forgets all of it. Your
+        favourites stay, and your own work is listed by when it last changed again.
       </P>
 
       <H2 id="first-run">What to do on a new workspace</H2>

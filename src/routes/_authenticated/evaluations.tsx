@@ -69,6 +69,8 @@ import {
   startEvalRun,
 } from "@/utils/evals.functions";
 import { reportFailure } from "@/lib/silentFailureNet";
+import { StarButton } from "@/components/StarButton";
+import { useRecordOpened } from "@/hooks/use-object-marks";
 
 export const Route = createFileRoute("/_authenticated/evaluations")({
   component: EvaluationsPage,
@@ -202,6 +204,8 @@ function EvaluationsPage() {
 
   const selDataset = sel?.kind === "dataset" ? datasets.find((d) => d.id === sel.id) : undefined;
   const selRun = sel?.kind === "run" ? runs.find((r) => r.id === sel.id) : undefined;
+  // A dataset is only ever selected by choosing it: nothing is picked on load.
+  useRecordOpened("evaluation", selDataset?.id ?? null);
 
   const [newOpen, setNewOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -312,16 +316,24 @@ function EvaluationsPage() {
                 </p>
               )}
               {datasets.map((d) => (
-                <button
-                  key={d.id}
-                  onClick={() => setSel({ kind: "dataset", id: d.id })}
-                  className={cn(
-                    "w-full rounded-lg border px-3 py-2 text-left text-sm transition-colors hover:bg-accent",
-                    selDataset?.id === d.id && "border-primary/50 bg-primary/5",
-                  )}
-                >
-                  <span className="font-medium">{d.name}</span>
-                </button>
+                // The row is a button, so the star sits over its right edge, not inside it.
+                <div key={d.id} className="relative flex">
+                  <button
+                    onClick={() => setSel({ kind: "dataset", id: d.id })}
+                    className={cn(
+                      "w-full rounded-lg border px-3 py-2 pr-9 text-left text-sm transition-colors hover:bg-accent",
+                      selDataset?.id === d.id && "border-primary/50 bg-primary/5",
+                    )}
+                  >
+                    <span className="font-medium">{d.name}</span>
+                  </button>
+                  <StarButton
+                    kind="evaluation"
+                    id={d.id}
+                    name={d.name}
+                    className="absolute right-1.5 top-1/2 z-10 h-6 w-6 -translate-y-1/2"
+                  />
+                </div>
               ))}
             </div>
           </section>

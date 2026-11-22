@@ -1183,6 +1183,26 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 2
       },
       {
+        "id": "my-work",
+        "text": "My work: recent, favourites and shared with you",
+        "level": 2
+      },
+      {
+        "id": "favourites",
+        "text": "Favourites",
+        "level": 3
+      },
+      {
+        "id": "where-you-were",
+        "text": "Search opens on where you were",
+        "level": 3
+      },
+      {
+        "id": "what-is-kept",
+        "text": "What is kept, and who can read it",
+        "level": 3
+      },
+      {
         "id": "first-run",
         "text": "What to do on a new workspace",
         "level": 2

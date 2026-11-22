@@ -1,9 +1,11 @@
 // The small pieces a search result is drawn from, shared by the palette and
 // the results page so a row looks the same in both.
-import { formatDistanceToNowStrict } from "date-fns";
-import type { LucideIcon } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { Star, type LucideIcon } from "lucide-react";
 
-import { objectKind, type ObjectEntry } from "@/lib/objectKinds";
+import { StarButton } from "@/components/StarButton";
+import { recordOpened } from "@/hooks/use-object-marks";
+import { linkToObject, objectKind, type ObjectEntry } from "@/lib/objectKinds";
 import { matchRanges } from "@/lib/objectSearch";
 import { cn } from "@/lib/utils";
 
@@ -46,15 +48,6 @@ export function Highlighted({ text, query }: { text: string; query: string }) {
   return <>{out}</>;
 }
 
-/** "3 days ago", or nothing when the time is unknown. */
-export function agoLabel(iso?: string | null, now: Date = new Date()): string {
-  if (!iso) return "";
-  const t = new Date(iso);
-  if (Number.isNaN(t.getTime())) return "";
-  if (Math.abs(now.getTime() - t.getTime()) < 60_000) return "just now";
-  return formatDistanceToNowStrict(t, { addSuffix: true });
-}
-
 /** Whose it is, when it is not the reader's own. */
 export function OwnershipTag({ entry }: { entry: Pick<ObjectEntry, "mine" | "sample"> }) {
   const label = entry.sample ? "Sample" : entry.mine ? null : "Shared with you";
@@ -92,5 +85,60 @@ export function ObjectText({ entry, query }: { entry: ObjectEntry; query: string
         ) : null}
       </span>
     </span>
+  );
+}
+
+/** A small filled star: this is one of your favourites. Says so, does nothing. */
+export function StarMark() {
+  return (
+    <Star
+      aria-label="Favourite"
+      role="img"
+      className="shrink-0 text-amber-500 dark:text-amber-400"
+      style={{ width: 12, height: 12 }}
+      fill="currentColor"
+      strokeWidth={1.5}
+    />
+  );
+}
+
+/**
+ * One object as a row of a list: a link that opens it, and its star.
+ *
+ * The star sits beside the link, not inside it. A button inside a link is two
+ * things to press in one, and a screen reader announces only the link.
+ */
+export function ObjectRow({
+  entry,
+  query = "",
+  when,
+}: {
+  entry: ObjectEntry;
+  query?: string;
+  /** "Opened 2 hours ago": what this list orders by, in words. */
+  when?: string;
+}) {
+  const link = linkToObject(entry);
+  const opened = () => void recordOpened(entry.kind, entry.id);
+  return (
+    <li className="flex items-center gap-1 pr-2 transition hover:bg-muted/50">
+      <Link
+        to={link.to as never}
+        search={(link.search ?? {}) as never}
+        // A middle click opens it in a new tab, and is an opening all the same.
+        onClick={opened}
+        onAuxClick={opened}
+        className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 outline-none focus-visible:bg-muted/60"
+      >
+        <IconTile icon={objectKind(entry.kind).icon} />
+        <ObjectText entry={entry} query={query} />
+        {when ? (
+          <span className="hidden shrink-0 text-xs tabular-nums text-muted-foreground sm:inline">
+            {when}
+          </span>
+        ) : null}
+      </Link>
+      <StarButton kind={entry.kind} id={entry.id} name={entry.name} />
+    </li>
   );
 }

@@ -50,6 +50,7 @@ import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import { ShareAnalystDialog } from "@/components/bi/ShareAnalystDialog";
 import { ScheduleAnalysisDialog } from "@/components/bi/ScheduleAnalysisDialog";
 import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
+import { StarButton } from "@/components/StarButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -71,6 +72,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
+import { recordOpened } from "@/hooks/use-object-marks";
 import { usePageIntent } from "@/hooks/use-page-intent";
 import { supabase } from "@/integrations/supabase/client";
 import { saveThread, threadById, threadsOf } from "@/lib/analystThreads";
@@ -1019,6 +1021,7 @@ function AiAnalystPage() {
       setSelectedId(id);
       setRailOpen(false);
       setAskedThread(search.thread ? { analyst: id, thread: search.thread } : null);
+      void recordOpened("ai_analyst", id);
     },
   });
 
@@ -1046,6 +1049,7 @@ function AiAnalystPage() {
       setAskedThread(null);
       setThread(listed);
       setLiveTurn(null);
+      void recordOpened("analysis", listed.id);
       return;
     }
     // Only the newest analyses are listed and search reaches further back, so
@@ -1060,6 +1064,7 @@ function AiAnalystPage() {
       }
       setThread({ ...data, turns: (data.turns ?? []) as unknown as AnalystTurn[] } as ThreadRow);
       setLiveTurn(null);
+      void recordOpened("analysis", data.id);
     });
     return () => {
       live = false;
@@ -1179,16 +1184,25 @@ function AiAnalystPage() {
               return (
                 <Card
                   key={a.id}
-                  className={`cursor-pointer p-2.5 transition hover:border-primary/40 ${
+                  className={`group/star cursor-pointer p-2.5 transition hover:border-primary/40 ${
                     a.id === selectedId ? "border-primary/60 bg-primary/5" : ""
                   }`}
                   {...clickable(() => {
                     setSelectedId(a.id);
                     setRailOpen(false);
+                    void recordOpened("ai_analyst", a.id);
                   }, `Analyst ${a.name}`)}
                 >
                   <div className="flex items-start justify-between gap-1">
                     <p className="truncate text-xs font-medium">{a.name}</p>
+                    {/* Taller than the name: the negative margin keeps the row one line tall. */}
+                    <StarButton
+                      kind="ai_analyst"
+                      id={a.id}
+                      name={a.name}
+                      quiet="collapse"
+                      className="-my-1 ml-auto h-6 w-6"
+                    />
                     {/* Owner-only controls. A recipient pressing these would
                         hit the RLS policy and see a failure that reads like a
                         bug instead of "this analyst is not yours". */}
@@ -1302,34 +1316,50 @@ function AiAnalystPage() {
                 {sourceLabel(selected.source, warehouses).text}
               </span>
               <div className="ml-auto flex flex-wrap items-center gap-1.5">
-                {threads.length > 1 && (
-                  <Select
-                    value={thread?.id ?? ""}
-                    onValueChange={(id) => {
-                      const pick = threads.find((t) => t.id === id);
-                      if (pick) {
-                        setThread(pick);
-                        setLiveTurn(null);
-                      }
-                    }}
-                  >
-                    <SelectTrigger
-                      className="h-7 max-w-36 gap-1 text-xs lg:max-w-52"
-                      title="Past analyses"
+                {/* The select and the star of the analysis it shows share the
+                    room the select had alone. Beside it, the star pushed the
+                    row's last button onto a second line. */}
+                <div className="flex max-w-36 items-center gap-0.5 empty:hidden lg:max-w-52 [&>button:first-child]:min-w-0">
+                  {threads.length > 1 && (
+                    <Select
+                      value={thread?.id ?? ""}
+                      onValueChange={(id) => {
+                        const pick = threads.find((t) => t.id === id);
+                        if (pick) {
+                          setThread(pick);
+                          setLiveTurn(null);
+                          void recordOpened("analysis", pick.id);
+                        }
+                      }}
                     >
-                      <History className="h-3.5 w-3.5 shrink-0" />
-                      <SelectValue placeholder="Past analyses" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {threads.map((t) => (
-                        <SelectItem key={t.id} value={t.id} className="text-xs">
-                          {t.title || "Untitled analysis"}
-                          {t.updated_at ? ` · ${new Date(t.updated_at).toLocaleDateString()}` : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
+                      <SelectTrigger
+                        className="h-7 max-w-36 gap-1 text-xs lg:max-w-52"
+                        title="Past analyses"
+                      >
+                        <History className="h-3.5 w-3.5 shrink-0" />
+                        <SelectValue placeholder="Past analyses" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {threads.map((t) => (
+                          <SelectItem key={t.id} value={t.id} className="text-xs">
+                            {t.title || "Untitled analysis"}
+                            {t.updated_at
+                              ? ` · ${new Date(t.updated_at).toLocaleDateString()}`
+                              : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  {thread && thread.id !== "unsaved" && (
+                    <StarButton
+                      kind="analysis"
+                      id={thread.id}
+                      name={thread.title || "Untitled analysis"}
+                      className="h-6 w-6"
+                    />
+                  )}
+                </div>
                 <Button
                   size="sm"
                   variant="ghost"

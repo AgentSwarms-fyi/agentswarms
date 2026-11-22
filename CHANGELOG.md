@@ -233,6 +233,21 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **My work: recent, favourites and shared with you** (R515). A new page,
+  **Overview → My work**, lists your things from every page in one place:
+  what you opened and changed last, what you starred, and what other people
+  shared with you, each narrowed to one kind with a chip. A star beside a name
+  makes it a favourite; the star is in search results, on the rows and cards
+  of the list pages and beside the title of an open dashboard, report,
+  workbook, model, notebook, ontology or MCP project. A page of cards or a
+  table with something starred shows a **Favourites** chip that narrows it to
+  them.
+  Search (Ctrl K) now opens on up to five favourites and the five things you
+  opened last, and puts a favourite ahead of an equally good match. What you
+  opened is kept for you alone and **Clear what I opened** forgets it. Needs
+  migration `20261121000000_object_marks.sql`. Until it is applied the app
+  says the database is behind and how to bring it up to date, and the stars
+  are left out.
 - **A menu grouped by job** (R514). The left menu has a group for each kind of
   work. The fourteen pages that were under one heading are now three groups:
   **Data engineering** (Data Catalog, ETL Pipelines, Lakehouse, SQL Models,
@@ -416,6 +431,13 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **A search on Agent Builder that matched nothing said nothing** (fixed in
+  R515). It drew an empty grid, which looked like a page still loading. It
+  now says no agents match what was typed.
+- **Sheets could say that no workbooks match an empty search** (fixed in
+  R515). With nothing typed, choosing a list that held no workbooks read
+  "No workbooks match" followed by empty quotes. It says no workbooks are
+  under these filters, and its button shows them all.
 - **On a phone, the menu button said the menu was open when it was closed**
   (fixed in R514). A screen reader heard "Collapse sidebar, expanded" on the
   button that opens the menu. It now says "Open menu" or "Close menu", and

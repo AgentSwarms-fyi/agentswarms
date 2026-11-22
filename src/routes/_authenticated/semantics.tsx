@@ -36,7 +36,9 @@ import { clickable } from "@/lib/clickable";
 import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import { useBiModelPref } from "@/components/bi/biModelPref";
 import { AddMetricToDashboardDialog } from "@/components/bi/AddMetricToDashboardDialog";
+import { StarButton } from "@/components/StarButton";
 import { useAuth } from "@/hooks/use-auth";
+import { useRecordOpened } from "@/hooks/use-object-marks";
 import { usePageIntent } from "@/hooks/use-page-intent";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -360,6 +362,8 @@ function SemanticsPage() {
   const [whConns, setWhConns] = useState<WhConn[]>([]);
   const [whTables, setWhTables] = useState<Record<string, WhTable[] | "loading" | "error">>({});
   const [draft, setDraft] = useState<Draft | null>(null);
+  // A saved model is only ever opened by the reader; a new one has no id yet.
+  useRecordOpened("semantic_model", draft?.id ?? null);
   // The draft as it was opened or last saved, so the page can tell what is
   // unsaved (R277, sweep 8). Values a validation samples into the draft count:
   // they are kept only by the next Save.
@@ -1390,6 +1394,12 @@ function SemanticsPage() {
                         {m.name as string} · {m.source_table as string}
                       </p>
                     </div>
+                    <StarButton
+                      kind="semantic_model"
+                      id={m.id as string}
+                      name={(m.label as string) || (m.name as string) || ""}
+                      className="h-6 w-6"
+                    />
                     {!shared && (
                       <Button
                         variant="ghost"

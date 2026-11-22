@@ -142,6 +142,8 @@ import { SwarmVersionsDialog } from "@/components/swarms/SwarmVersionsDialog";
 import { canvasForm, snapshotSwarmVersion, graphHash, swarmStoredForm } from "@/lib/swarmVersions";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { clickable } from "@/lib/clickable";
+import { StarButton } from "@/components/StarButton";
+import { useRecordOpened } from "@/hooks/use-object-marks";
 
 export const Route = createFileRoute("/_authenticated/swarms")({
   component: SwarmsPage,
@@ -2113,6 +2115,14 @@ function SwarmsCanvas({
                 className="h-8 w-64 text-sm font-semibold bg-card/80 backdrop-blur"
                 placeholder="Swarm name"
               />
+              {swarmId && (
+                <StarButton
+                  kind="swarm"
+                  id={swarmId}
+                  name={swarmName}
+                  className="h-8 w-8 bg-card/80 backdrop-blur"
+                />
+              )}
               <Badge variant="outline" className="text-[10px] hidden xl:inline-flex">
                 {nodes.length} nodes
               </Badge>
@@ -2513,6 +2523,8 @@ function SwarmsPage() {
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   const showCanvas = view === "canvas" || !!template || !!swarm;
+  // The swarm asked for by id, not whichever one the canvas falls back to.
+  useRecordOpened("swarm", showCanvas ? (swarm ?? null) : null);
   // A new swarm was asked for. A swarm or a template named beside it already
   // says what to show, and wins here as it does over everything else.
   const startNew = newParam === 1 && !swarm && !template;

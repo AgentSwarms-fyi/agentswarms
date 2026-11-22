@@ -21,6 +21,7 @@ import {
   KeyRound,
   FileText,
 } from "lucide-react";
+import { StarButton } from "@/components/StarButton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -37,6 +38,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { confirmAsk, promptAsk } from "@/components/ui/confirm-dialog";
 import { useAuth } from "@/hooks/use-auth";
+import { useRecordOpened } from "@/hooks/use-object-marks";
 import { cn } from "@/lib/utils";
 import {
   mlCancelJob,
@@ -188,6 +190,7 @@ function ModelPage() {
   useEffect(() => {
     void reload();
   }, [reload]);
+  useRecordOpened("ml_model", detail?.model.id);
   const liveJob = detail?.jobs.find((j) => LIVE.has(j.status)) ?? null;
   useEffect(() => {
     if (!liveJob) return;
@@ -350,6 +353,7 @@ function ModelPage() {
           </Link>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <h1 className="font-display text-3xl font-semibold tracking-tight">{model.name}</h1>
+            <StarButton kind="ml_model" id={model.id} name={model.name} />
             <TaskBadge task={model.task} />
             {focus ? <StageChip stage={focus.stage} status={focus.status} /> : null}
             {shared ? (

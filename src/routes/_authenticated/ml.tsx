@@ -1,7 +1,10 @@
 // ML Models — the registry. Every model the user owns or was granted, with
 // its production version's headline metric, what it predicts from, and
 // whether something is training right now.
+import { FavouritesFilter } from "@/components/FavouritesFilter";
+import { useFavouritesFilter } from "@/hooks/use-favourites-filter";
 import { PageEyebrow } from "@/components/PageEyebrow";
+import { StarButton } from "@/components/StarButton";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -80,7 +83,11 @@ function MlPage() {
   }, [data, reload]);
 
   const models = data?.models ?? null;
-  const filtered = useMemo(() => {
+  const favourites = useFavouritesFilter(
+    "ml_model",
+    (models ?? []).map((m) => m.id),
+  );
+  const matched = useMemo(() => {
     if (!models) return [];
     const needle = q.trim().toLowerCase();
     return models.filter((m) => {
@@ -94,6 +101,7 @@ function MlPage() {
       );
     });
   }, [models, q, task]);
+  const filtered = matched.filter((m) => favourites.keep(m.id));
 
   const stats = useMemo(() => {
     if (!models) return null;
@@ -196,6 +204,7 @@ function MlPage() {
             </button>
           ))}
         </div>
+        <FavouritesFilter filter={favourites} />
       </div>
 
       {tab !== "models" ? null : data === null && error !== null ? (
@@ -271,67 +280,76 @@ function ModelCard({ model, onOpen }: { model: MlModelSummary; onOpen: () => voi
   const primary = ML_PRIMARY_METRIC[model.task as MlTask];
   const value = v ? ((v.metrics as Record<string, number | null>)?.[primary] ?? null) : null;
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="group flex flex-col rounded-xl border bg-card p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="truncate font-medium group-hover:text-primary">{model.name}</p>
-          <p className="mt-0.5 truncate text-xs text-muted-foreground">
-            {src.schema}.{src.table} →{" "}
-            <span className="font-medium">
-              {model.task === "recommendation"
-                ? `${model.item_column} for ${model.user_column}`
-                : model.task === "clustering"
-                  ? "groups of rows"
-                  : model.task === "anomaly"
-                    ? "unusual rows"
-                    : model.target_column}
-            </span>
-          </p>
+    // The star sits beside the card, not in it: a button cannot hold a button.
+    <div className="relative grid grid-cols-1">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="group flex flex-col rounded-xl border bg-card p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      >
+        <div className="flex items-start justify-between gap-2 pr-8">
+          <div className="min-w-0">
+            <p className="truncate font-medium group-hover:text-primary">{model.name}</p>
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+              {src.schema}.{src.table} →{" "}
+              <span className="font-medium">
+                {model.task === "recommendation"
+                  ? `${model.item_column} for ${model.user_column}`
+                  : model.task === "clustering"
+                    ? "groups of rows"
+                    : model.task === "anomaly"
+                      ? "unusual rows"
+                      : model.target_column}
+              </span>
+            </p>
+          </div>
+          <TaskBadge task={model.task} />
         </div>
-        <TaskBadge task={model.task} />
-      </div>
-      <div className="mt-4 flex items-end justify-between gap-2">
-        <div>
-          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-            {v ? metricLabel(primary) : "No version yet"}
-          </p>
-          <p
-            className={cn(
-              "text-2xl font-bold tracking-tight tabular-nums",
-              metricTone(primary, value) === "good"
-                ? "text-emerald-600 dark:text-emerald-400"
-                : metricTone(primary, value) === "bad"
-                  ? "text-red-600 dark:text-red-400"
-                  : "",
-            )}
-          >
-            {model.live_job && !value ? "…" : fmtMetric(primary, value)}
-          </p>
+        <div className="mt-4 flex items-end justify-between gap-2">
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              {v ? metricLabel(primary) : "No version yet"}
+            </p>
+            <p
+              className={cn(
+                "text-2xl font-bold tracking-tight tabular-nums",
+                metricTone(primary, value) === "good"
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : metricTone(primary, value) === "bad"
+                    ? "text-red-600 dark:text-red-400"
+                    : "",
+              )}
+            >
+              {model.live_job && !value ? "…" : fmtMetric(primary, value)}
+            </p>
+          </div>
+          <div className="flex flex-col items-end gap-1">
+            {model.live_job ? (
+              <Chip label="training" style={JOB_STATUS_STYLE.running} pulse />
+            ) : v ? (
+              <StageChip stage={v.stage} status={v.status} />
+            ) : null}
+            {v ? <span className="text-[11px] text-muted-foreground">v{v.version}</span> : null}
+          </div>
         </div>
-        <div className="flex flex-col items-end gap-1">
-          {model.live_job ? (
-            <Chip label="training" style={JOB_STATUS_STYLE.running} pulse />
-          ) : v ? (
-            <StageChip stage={v.stage} status={v.status} />
-          ) : null}
-          {v ? <span className="text-[11px] text-muted-foreground">v{v.version}</span> : null}
-        </div>
-      </div>
-      <div className="mt-3 flex items-center justify-between border-t pt-2 text-[11px] text-muted-foreground">
-        <span>
-          {model.versions_count} version{model.versions_count === 1 ? "" : "s"} · updated{" "}
-          {relTime(model.updated_at)}
-        </span>
-        {model.shared ? (
-          <span className="inline-flex items-center gap-1">
-            <Share2 className="h-3 w-3" /> shared with you
+        <div className="mt-3 flex items-center justify-between border-t pt-2 text-[11px] text-muted-foreground">
+          <span>
+            {model.versions_count} version{model.versions_count === 1 ? "" : "s"} · updated{" "}
+            {relTime(model.updated_at)}
           </span>
-        ) : null}
-      </div>
-    </button>
+          {model.shared ? (
+            <span className="inline-flex items-center gap-1">
+              <Share2 className="h-3 w-3" /> shared with you
+            </span>
+          ) : null}
+        </div>
+      </button>
+      <StarButton
+        kind="ml_model"
+        id={model.id}
+        name={model.name}
+        className="absolute right-3 top-3 z-10"
+      />
+    </div>
   );
 }

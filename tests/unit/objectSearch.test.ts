@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import { NAV_GROUPS } from "@/lib/appNav";
 import type { ObjectEntry } from "@/lib/objectKinds";
+import { starredFirst, type MarkMap } from "@/lib/objectMarks";
 import {
   countByKind,
   foldText,
@@ -244,6 +245,61 @@ describe("which section of the palette comes first", () => {
     const r = paletteResults({ query: "new dashboard", entries: mine, navGroups: NAV_GROUPS });
     expect(r.order[0]).toBe("create");
     expect(r.create[0].kind).toBe("dashboard");
+  });
+});
+
+describe("the palette and what you starred or opened (R515)", () => {
+  const at = (d: number) => `2026-11-${String(d).padStart(2, "0")}T09:00:00.000Z`;
+  const mine = [
+    entry({ kind: "dashboard", name: "Sales overview", id: "d1", updatedAt: at(1) }),
+    entry({ kind: "dashboard", name: "Sales by region", id: "d2", updatedAt: at(9) }),
+    entry({ kind: "agent", name: "Support", id: "a1", updatedAt: at(2) }),
+    entry({ kind: "dataset", name: "orders", id: "t1", updatedAt: at(3) }),
+  ];
+  const marks: MarkMap = new Map([
+    ["dashboard:d1", { kind: "dashboard", id: "d1", starredAt: at(5), openedAt: at(6) }],
+    ["agent:a1", { kind: "agent", id: "a1", starredAt: null, openedAt: at(8) }],
+    ["dataset:t1", { kind: "dataset", id: "t1", starredAt: null, openedAt: at(7) }],
+  ]);
+
+  it("opens on where you were: favourites, then what was opened last", () => {
+    const r = paletteResults({ query: "", entries: mine, navGroups: NAV_GROUPS, marks });
+    expect(r.favourites.map((e) => e.name)).toEqual(["Sales overview"]);
+    // Newest opening first; the favourite is not listed twice.
+    expect(r.recent.map((e) => e.name)).toEqual(["Support", "orders"]);
+    // Still a menu: every page is there under it.
+    expect(r.pages).toHaveLength(NAV_GROUPS.flatMap((g) => g.items).length);
+  });
+
+  it("offers neither to someone with no marks, and neither once something is typed", () => {
+    const none = paletteResults({ query: "", entries: mine, navGroups: NAV_GROUPS });
+    expect(none.favourites).toEqual([]);
+    expect(none.recent).toEqual([]);
+    const typed = paletteResults({ query: "sales", entries: mine, navGroups: NAV_GROUPS, marks });
+    expect(typed.favourites).toEqual([]);
+    expect(typed.recent).toEqual([]);
+  });
+
+  it("puts a favourite ahead of a match that is just as good, never a better one", () => {
+    // Both start with the word typed. Unmarked, the newer one leads.
+    const plain = paletteResults({ query: "sales", entries: mine, navGroups: NAV_GROUPS });
+    expect(plain.objects.map((e) => e.name)).toEqual(["Sales by region", "Sales overview"]);
+    const starred = paletteResults({ query: "sales", entries: mine, navGroups: NAV_GROUPS, marks });
+    expect(starred.objects.map((e) => e.name)).toEqual(["Sales overview", "Sales by region"]);
+    // "Sales by region" typed in full outranks the favourite that only starts with it.
+    const exact = paletteResults({
+      query: "sales by region",
+      entries: mine,
+      navGroups: NAV_GROUPS,
+      marks,
+    });
+    expect(exact.objects[0].name).toBe("Sales by region");
+    // The helper leaves an order with no ties and no stars exactly as it was.
+    const ranked = [
+      { kind: "agent" as const, id: "x", score: 800 },
+      { kind: "agent" as const, id: "y", score: 600 },
+    ];
+    expect(starredFirst(ranked, new Map())).toEqual(ranked);
   });
 });
 

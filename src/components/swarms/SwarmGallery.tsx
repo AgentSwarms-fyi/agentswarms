@@ -43,6 +43,9 @@ import {
 import { toast } from "sonner";
 import { SWARM_TEMPLATES } from "@/lib/swarmTemplates";
 import { ExportSwarmDropdown } from "@/components/swarms/ExportSwarmDropdown";
+import { StarButton } from "@/components/StarButton";
+import { FavouritesFilter } from "@/components/FavouritesFilter";
+import { useFavouritesFilter } from "@/hooks/use-favourites-filter";
 import { useLangChainExportAnnouncement } from "@/hooks/use-langchain-export-announcement";
 import type { Node, Edge } from "@xyflow/react";
 import type { SwarmNodeData } from "@/lib/swarmRuntime";
@@ -238,6 +241,10 @@ export function SwarmGallery() {
     navigate({ to: "/swarms", search: { template: templateId, view: "canvas", swarm: undefined } });
   }
 
+  const favourites = useFavouritesFilter(
+    "swarm",
+    mySwarms.map((s) => s.id),
+  );
   const q = search.trim().toLowerCase();
   const filteredMine = useMemo(
     () =>
@@ -246,7 +253,7 @@ export function SwarmGallery() {
           !q || s.name.toLowerCase().includes(q) || (s.description ?? "").toLowerCase().includes(q),
       ),
     [mySwarms, q],
-  );
+  ).filter((s) => favourites.keep(s.id));
   const filteredTemplates = useMemo(
     () =>
       SWARM_TEMPLATES.filter(
@@ -299,14 +306,17 @@ export function SwarmGallery() {
         </TabsList>
 
         <TabsContent value="library" className="space-y-8">
-          <div className="relative max-w-md">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search your swarms and templates…"
-              className="pl-8"
-            />
+          <div className="flex items-center gap-2">
+            <div className="relative min-w-0 max-w-md flex-1">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search your swarms and templates…"
+                className="pl-8"
+              />
+            </div>
+            <FavouritesFilter filter={favourites} />
           </div>
 
           {/* My swarms */}
@@ -352,6 +362,12 @@ export function SwarmGallery() {
                           <CardTitle className="text-sm truncate flex-1" title={s.name}>
                             {s.name}
                           </CardTitle>
+                          <StarButton
+                            kind="swarm"
+                            id={s.id}
+                            name={s.name}
+                            className="-my-1 -mr-1.5"
+                          />
                         </div>
                         {s.description && (
                           <p className="text-xs text-muted-foreground line-clamp-1">

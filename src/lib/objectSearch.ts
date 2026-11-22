@@ -123,8 +123,10 @@ export function rankObjects(
   return opts.limit ? out.slice(0, opts.limit) : out;
 }
 
-/** How many matches each kind has, for the filter chips. */
-export function countByKind(ranked: readonly RankedObject[]): Map<ObjectKindId, number> {
+/** How many of each kind a list holds, for the filter chips. */
+export function countByKind(
+  ranked: readonly Pick<ObjectEntry, "kind">[],
+): Map<ObjectKindId, number> {
   const out = new Map<ObjectKindId, number>();
   for (const r of ranked) out.set(r.kind, (out.get(r.kind) ?? 0) + 1);
   return out;

@@ -3,7 +3,15 @@
 // list means the two can never say something different than what actually
 // happens, the same reasoning NAV_GROUPS already applies to the sidebar and
 // command palette.
-import { BarChart3, Bot, BookOpen, LayoutDashboard, MessageSquare, Network } from "lucide-react";
+import {
+  BarChart3,
+  Bot,
+  BookOpen,
+  LayoutDashboard,
+  MessageSquare,
+  Network,
+  Star,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 export type ShortcutCategory = "General" | "Navigation" | "Sidebar & window";
@@ -60,6 +68,12 @@ export const SHORTCUTS: ShortcutDef[] = [
     sequential: true,
   },
   {
+    keys: ["G", "M"],
+    description: "Go to My work",
+    category: "Navigation",
+    sequential: true,
+  },
+  {
     keys: ["G", "A"],
     description: "Go to Agent Builder",
     category: "Navigation",
@@ -104,6 +118,7 @@ export const SHORTCUT_CATEGORIES: ShortcutCategory[] = [
  */
 export const GO_TO_SHORTCUTS: { key: string; url: string; label: string; icon: LucideIcon }[] = [
   { key: "d", url: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { key: "m", url: "/my-work", label: "My work", icon: Star },
   { key: "a", url: "/agents", label: "Agent Builder", icon: Bot },
   { key: "s", url: "/swarms", label: "Agent Swarms", icon: Network },
   { key: "c", url: "/playground", label: "Agent Chat", icon: MessageSquare },

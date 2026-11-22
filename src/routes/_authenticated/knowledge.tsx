@@ -87,6 +87,8 @@ import {
   resolveRetrievalSettings,
 } from "@/lib/kbRag";
 import { reportFailure } from "@/lib/silentFailureNet";
+import { StarButton } from "@/components/StarButton";
+import { useRecordOpened } from "@/hooks/use-object-marks";
 
 // Chunks scanned to build the per-document counts. Well past any real
 // collection — the point of the ceiling is that an unbounded client scan
@@ -353,6 +355,8 @@ function KnowledgePage() {
       setSelectedBase(base);
     },
   });
+  // A base is only ever selected by choosing it: nothing is picked on load.
+  useRecordOpened("knowledge_base", selectedBase?.id ?? null);
 
   // Create form
   const [newBaseName, setNewBaseName] = useState("");
@@ -1769,6 +1773,13 @@ function KnowledgePage() {
                         </Badge>
                       )}
                     </div>
+                    {/* ml-auto keeps it at the right edge, beside the delete button. */}
+                    <StarButton
+                      kind="knowledge_base"
+                      id={base.id}
+                      name={base.name}
+                      className="ml-auto h-6 w-6"
+                    />
                     {!base.is_sample && base.user_id === user?.id && (
                       <Button
                         variant="ghost"

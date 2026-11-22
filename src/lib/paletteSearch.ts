@@ -6,11 +6,19 @@
 // Enter opens the first row, and someone who types "Knowledge Base" and
 // presses it means the page, not the agent whose description mentions one.
 //
-// With nothing typed the palette is a menu: the pages, and a short list of
-// things to create. Once something is typed it is a search, and every list is
-// filtered and ordered by the same scorer (objectSearch).
+// With nothing typed the palette is a menu: a few of your favourites, what you
+// opened last, a short list of things to create, and the pages. Once something
+// is typed it is a search, and every list is filtered and ordered by the same
+// scorer (objectSearch); a favourite goes ahead of an equally good match.
 import type { NavGroup, NavItem } from "@/lib/appNav";
 import { createActions, type CreateAction, type ObjectEntry } from "@/lib/objectKinds";
+import {
+  paletteMarks,
+  starredFirst,
+  withMarks,
+  type MarkMap,
+  type WorkEntry,
+} from "@/lib/objectMarks";
 import {
   compareRanked,
   EXACT,
@@ -50,6 +58,10 @@ export type PaletteResults = {
   objectTotal: number;
   create: CreateAction[];
   pages: PalettePage[];
+  /** With nothing typed: a few favourites, the most recently starred first. */
+  favourites: WorkEntry[];
+  /** With nothing typed: what was opened last and is not listed above. */
+  recent: WorkEntry[];
 };
 
 /**
@@ -68,8 +80,11 @@ export function paletteResults(args: {
   entries: readonly ObjectEntry[];
   navGroups: readonly NavGroup[];
   objectLimit?: number;
+  /** What the reader starred and opened. Left out, nothing is a favourite. */
+  marks?: MarkMap;
 }): PaletteResults {
   const { query, entries, navGroups } = args;
+  const marks: MarkMap = args.marks ?? new Map();
   const limit = args.objectLimit ?? PALETTE_OBJECT_LIMIT;
   const pagesAll: PalettePage[] = navGroups.flatMap((g) =>
     g.items.map((item) => ({ ...item, group: g.label })),
@@ -86,10 +101,11 @@ export function paletteResults(args: {
         (a): a is CreateAction => !!a,
       ),
       pages: pagesAll,
+      ...paletteMarks(withMarks(entries, marks)),
     };
   }
 
-  const ranked = rankObjects(entries, query);
+  const ranked = starredFirst(rankObjects(entries, query), marks);
   const scored = <T>(items: T[], name: (t: T) => string, detail: (t: T) => string) =>
     items
       .map((item) => ({
@@ -141,6 +157,8 @@ export function paletteResults(args: {
     objectTotal: ranked.length,
     create: create.map((r) => r.item),
     pages: pages.map((r) => r.item),
+    favourites: [],
+    recent: [],
   };
 }
 

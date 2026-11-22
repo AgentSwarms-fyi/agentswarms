@@ -15,6 +15,80 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-21 — R515: My work, favourites and what was opened last
+
+Driven on a dev server built from the worktree (`:8102`), signed in as the owner, at
+1203 × 638 and at 375 × 812. The table behind favourites was not in the database yet (its
+migration, `20261121000000_object_marks.sql`, had not been applied), so two things were
+driven: the app as it is without the table, and every star, chip and list with that one
+table answered from memory inside the page. Nothing was written to the database, and
+nothing was created or saved.
+
+**Without the table**
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| Any page | the first load | the app's own "Your database schema is out of date" notice: "object_marks table does not exist", with the command to run |
+| `/my-work`, notice dismissed | the page | Recent lists 50 of the owner's things by when they changed; no stars; nothing fails |
+| The Favourites tab | the tab | "Favourites need a database update." and what to do |
+| `/agents` | the cards | 14 cards, no star, no chip |
+
+**With the table answered in the page**
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| `/agents`, the star on the first card | one press | on at once, written as one insert; the card's editor did not open; a "Favourites 1" chip appeared beside the search box |
+| The chip | pressed; `zzqx` typed; pressed again | one card, the heading still "14 agents"; "None of your favourites matches “zzqx”."; then "No agents match “zzqx”." |
+| Edit on a second agent, then Escape | what was written | when it was opened, once, and nothing about its star |
+| My work, from the menu | Recent | that agent first, "Opened just now"; then the owner's work by when it changed |
+| A star on a My work row | one press | Favourites 2 on the tab, with no reload |
+| The Favourites tab | the list | the most recently starred first; chips All 2, Agents 1, ML models 1 |
+| Ctrl K, nothing typed | the sections | Favourites (2, each with its star), Opened last (1, "2 minutes ago"), Create, then the pages |
+| Enter on the first favourite | the model's page | its star beside the title, on; one opening written, not two (the palette and the page both note it) |
+| The list pages | stars drawn | ML Models 9, BI Workspace 31, Sheets 85, Enterprise Ontology 2, ETL Pipelines 31, Data monitors 7, SQL Models 6, Semantic Layer 5, Metrics 28, Knowledge Base 21, Evaluations 4, Skill Library 2, Agent Swarms 23, MCP Builder 7, Workflows 5, AI Analyst 4, MCP Servers 1, Web Embedding 5, Data Catalog 48, Developer workspace 7; none inside a link or a button, none under another control |
+| Workflows and AI Analyst, each opened from search | what was written | nothing: the workflow and the analyst those pages pick by themselves are not openings |
+| A dashboard, an ontology, a swarm and a model, each opened from search | the page | a star beside the name, and one opening written each |
+| `/search?q=budget+probe`, the star on the third of three equal matches | one press | on, and the row stayed third |
+| Favourites, the star on the second of five | one press | the row stayed where it was with an empty star; the tab read 4; after leaving the tab and coming back, four rows |
+| **Clear what I opened** | pressed, then **Forget** | it asked first; unstarred rows deleted and the time cleared on the favourites; the rows read "Changed" again; four favourites kept |
+| G then M | the keys | My work |
+| 375 × 812, My work | the page | the three tabs on one line, the kinds in one row that scrolls, no sideways scroll of the page, a star on every row |
+
+**Found in the browser and fixed:**
+
+- In the lakehouse, workflow and analyst rails a star on every row cut each name short
+  ("bike_s…"). There the star now takes no room until the row is pointed at or holds the
+  keyboard, and always shows on a favourite.
+- The Data Catalog's star was in the table's last column, which is off the screen at most
+  widths. It is beside the dataset's name.
+- In the AI Analyst header the star of the open analysis pushed **Save as PDF** onto a
+  second line. The star and the past-analyses select share the room the select had.
+- Starring a search result moved it to the top from under the pointer, so the next press
+  landed on a different row. A search is ranked by the stars as they stood when it was
+  typed.
+- Taking a star off in Favourites pulled the next row up under the pointer; a double
+  click took two stars off. The row stays, with an empty star, until the tab is left.
+- Recent said "Changed 5 minutes ago" over a dashboard that had only been looked at: a
+  dashboard saves itself while it is open. Once something has been opened, when it was
+  opened is the time that counts.
+- **Clear what I opened** was under a fifty-row list. It is beside the tabs, and asks.
+- On a phone the tabs wrapped onto two lines and the kinds stacked five lines deep above
+  the list. Each is one line.
+- A favourite dashboard showed its star only while its card was pointed at, among the
+  hover actions. It has a small star beside its name at rest.
+- On Agent Builder a search that matched nothing drew an empty grid and said nothing.
+- On Sheets, choosing a filter that left nothing listed read: No workbooks match “”. It
+  says no workbooks are under these filters, and its button shows them all.
+- The swarm canvas star had no backdrop over the canvas, unlike the controls beside it.
+
+**Not driven:** the table itself, which waits for its migration: that a star is still
+there after a reload, that a second person sees only their own, and that the database
+leaves the star alone when an opening is written. "Shared with me" with something in it:
+the owner has nothing shared with them, and the second account is signed in only on the
+8080 origin. A saved prompt's star (the owner has no saved prompts). The report designer,
+workbook, notebook and MCP project pages, whose star is the same component in the same
+place as the pages driven. A screen with nothing to point with.
+
 ## 2026-11-21 — R514: a menu grouped by job
 
 Driven on a dev server built from the worktree (`:8102`), signed in as the owner (a

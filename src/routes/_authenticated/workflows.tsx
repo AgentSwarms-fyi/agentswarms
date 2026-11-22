@@ -76,10 +76,12 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
+import { StarButton } from "@/components/StarButton";
 import { StepInspector } from "@/components/workflows/StepInspector";
 import { WorkflowPalette } from "@/components/workflows/WorkflowPalette";
 import { KIND_STYLE, stepRunLink } from "@/components/workflows/nodeStyles";
 import { useAuth } from "@/hooks/use-auth";
+import { recordOpened } from "@/hooks/use-object-marks";
 import { usePageIntent } from "@/hooks/use-page-intent";
 import { useTokenRef } from "@/hooks/use-token-ref";
 import { useTheme } from "@/hooks/use-theme";
@@ -541,6 +543,9 @@ function WorkflowsPage() {
     if (id === selectedId) return;
     if (!(await mayDiscard("Opening another workflow replaces them."))) return;
     setSelectedId(id);
+    // Recorded here, not from the selection: the first workflow is opened on
+    // load, and visiting the page is not opening one.
+    void recordOpened("workflow", id);
   }
 
   // A link here can ask for a new workflow or for one to be opened. Opening
@@ -553,6 +558,9 @@ function WorkflowsPage() {
     onOpen: (id) => {
       if (!workflows.some((w) => w.id === id)) return false;
       void pick(id);
+      // A link to the workflow already on screen changes nothing, and still
+      // asked for it.
+      if (id === selectedId) void recordOpened("workflow", id);
     },
   });
 
@@ -650,7 +658,7 @@ function WorkflowsPage() {
                   <div
                     key={w.id}
                     className={cn(
-                      "flex items-center gap-1 rounded-md border px-2 py-1.5 text-xs",
+                      "group/star flex items-center gap-1 rounded-md border px-2 py-1.5 text-xs",
                       selectedId === w.id && "border-primary bg-primary/5",
                     )}
                   >
@@ -680,6 +688,13 @@ function WorkflowsPage() {
                         {w.last_run_status}
                       </Badge>
                     ) : null}
+                    <StarButton
+                      kind="workflow"
+                      id={w.id}
+                      name={w.name}
+                      quiet="collapse"
+                      className="h-6 w-6"
+                    />
                     <button
                       title="Delete workflow"
                       className="shrink-0 text-muted-foreground hover:text-destructive"
@@ -972,6 +987,7 @@ function WorkflowsPage() {
                 setNewName("");
                 await reload();
                 setSelectedId(res.id);
+                void recordOpened("workflow", res.id);
               }}
             >
               Create workflow

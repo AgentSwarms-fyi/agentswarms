@@ -58,6 +58,7 @@ import {
   Shapes,
   ShieldCheck,
   Sigma,
+  Star,
   type LucideIcon,
   Wand2,
   Warehouse,
@@ -86,9 +87,12 @@ export type NavGroup = {
 export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Overview",
-    hint: "Where things stand, and the handbook",
+    hint: "Where things stand, your own work, and the handbook",
     items: [
       { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
+      // Everything of yours across every page: what you opened last, what you
+      // starred, and what other people shared with you.
+      { title: "My work", url: "/my-work", icon: Star },
       // The handbook was reachable from the marketing site only, which is the
       // one place you are NOT standing when you get stuck using the product.
       { title: "Documentation", url: "/docs", icon: LifeBuoy },

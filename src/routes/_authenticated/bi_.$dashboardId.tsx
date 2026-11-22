@@ -38,6 +38,7 @@ import {
   Image as ImageIcon,
 } from "lucide-react";
 
+import { StarButton } from "@/components/StarButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -84,6 +85,7 @@ import { GenerateDashboardDialog } from "@/components/bi/GenerateDashboardDialog
 import { InsightSweepDialog } from "@/components/bi/InsightSweepDialog";
 import type { BiDataContext } from "@/components/bi/biDataContext";
 import { useAuth } from "@/hooks/use-auth";
+import { useRecordOpened } from "@/hooks/use-object-marks";
 import { supabase } from "@/integrations/supabase/client";
 import { saveFailureText, useSaveBeforeLeave } from "@/hooks/use-save-before-leave";
 import { biGetSharedWidgetResults } from "@/utils/bi.functions";
@@ -588,6 +590,7 @@ function BiProjectPage() {
     viewTouched.current = dashboardId;
     touchDashboardView(dashboardId);
   }, [row, user?.id, dashboardId]);
+  useRecordOpened("dashboard", row !== null && row !== "missing" ? row.id : null);
 
   // Row-level security: viewers get the row filters attached to their IAM
   // grants (null = unrestricted). Applied to every widget snapshot before
@@ -1623,6 +1626,7 @@ function BiProjectPage() {
                   className="h-8 w-56 rounded-md border-transparent bg-transparent px-2 text-[15px] font-semibold shadow-none hover:bg-muted/60 focus:bg-background focus-visible:border-border"
                 />
               )}
+              <StarButton kind="dashboard" id={row.id} name={row.name} />
             </div>
             {row.published && (
               <Badge className="gap-1 border-0 bg-emerald-500/15 text-[10px] font-medium text-emerald-600 hover:bg-emerald-500/15 dark:text-emerald-400">

@@ -28,6 +28,7 @@ import {
   Type,
 } from "lucide-react";
 
+import { StarButton } from "@/components/StarButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -50,6 +51,7 @@ import { ReportPagePreview } from "@/components/bi/ReportPagePreview";
 import { notDrawnTitles } from "@/lib/biReportSchedule";
 import type { BiDataContext } from "@/components/bi/biDataContext";
 import { useAuth } from "@/hooks/use-auth";
+import { useRecordOpened } from "@/hooks/use-object-marks";
 import { useTokenRef } from "@/hooks/use-token-ref";
 import {
   loadSavedMetrics,
@@ -189,6 +191,7 @@ function ReportDesigner() {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getFn, signedIn, reportId, loadNonce]);
+  useRecordOpened("report", report?.id);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -596,6 +599,7 @@ function ReportDesigner() {
           value={report.name}
           onChange={(e) => patch({ name: e.target.value })}
         />
+        <StarButton kind="report" id={report.id} name={report.name} />
         <Badge variant="outline" className="text-[10px]">
           {PAGE_SIZES[report.page.size].label} · {report.page.orientation}
         </Badge>

@@ -82,6 +82,7 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
+import { useRecordOpened } from "@/hooks/use-object-marks";
 import { usePageIntent } from "@/hooks/use-page-intent";
 import type { PageIntent } from "@/lib/pageIntent";
 import { useBiModelPref } from "@/components/bi/biModelPref";
@@ -130,6 +131,9 @@ import {
   catalogDeleteSource,
   catalogSetSchedule,
 } from "@/utils/catalog.functions";
+import { FavouritesFilter } from "@/components/FavouritesFilter";
+import { useFavouritesFilter } from "@/hooks/use-favourites-filter";
+import { StarButton } from "@/components/StarButton";
 import { AddSourceWizard } from "@/components/catalog/AddSourceWizard";
 import { DatasetQualityPanel, QualityChip } from "@/components/catalog/DatasetQualityPanel";
 import { AssetStorageFacts } from "@/components/catalog/AssetStorageFacts";
@@ -211,6 +215,8 @@ export function CatalogView({
   const [wizardOpen, setWizardOpen] = useState(false);
   const [crawlingIds, setCrawlingIds] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<UnifiedAsset | null>(null);
+  // Only a dataset is a kind of its own; a crawled asset is not recorded.
+  useRecordOpened("dataset", selected?.local ? selected.id.replace(/^local:/, "") : null);
 
   const [lineage, setLineage] = useState<LineageIndex>(new Map());
   const [catalogLineage, setCatalogLineage] = useState<CatalogLineageEdge[]>([]);
@@ -441,7 +447,13 @@ export function CatalogView({
     [localAssets, assets],
   );
 
-  const filtered = useMemo(() => {
+  // Only a dataset can be starred, so the filter counts the local tables.
+  const favourites = useFavouritesFilter(
+    "dataset",
+    localAssets.map((a) => a.id.replace(/^local:/, "")),
+  );
+
+  const matched = useMemo(() => {
     const q = search.trim().toLowerCase();
     return allAssets.filter((a) => {
       if (sourceFilter !== "all" && a.source_id !== sourceFilter) return false;
@@ -454,6 +466,11 @@ export function CatalogView({
       return q.split(/\s+/).every((part) => hay.includes(part));
     });
   }, [allAssets, search, sourceFilter, typeFilter, piiOnly, certOnly]);
+  // Narrowed after the search: with the filter on, a crawled asset is left
+  // out, because it can never be a favourite.
+  const filtered = favourites.on
+    ? matched.filter((a) => a.local && favourites.keep(a.id.replace(/^local:/, "")))
+    : matched;
 
   // An empty list is only "no match" once every half that could hold a match
   // has been read. MEASURED on a fresh load: for ~7 s the list held only the
@@ -1106,6 +1123,7 @@ export function CatalogView({
           >
             <BadgeCheck className="h-3.5 w-3.5" /> Certified
           </Button>
+          <FavouritesFilter filter={favourites} />
           <Button
             size="sm"
             variant="outline"
@@ -1278,7 +1296,7 @@ export function CatalogView({
                 {filtered.slice(0, 500).map((a) => (
                   <TableRow
                     key={a.id}
-                    className="group cursor-pointer border-b border-border/40 transition-colors hover:bg-primary/5"
+                    className="group group/star cursor-pointer border-b border-border/40 transition-colors hover:bg-primary/5"
                     onClick={() => setSelected(a)}
                   >
                     <TableCell className="max-w-72">
@@ -1292,6 +1310,19 @@ export function CatalogView({
                             </p>
                           )}
                         </div>
+                        {/* Only a dataset can be starred: a crawled asset is not a
+                            kind. Beside the name, because the row's last column is
+                            off the screen at most widths; shown when the row is
+                            pointed at, or when it is a favourite. */}
+                        {a.local && (
+                          <StarButton
+                            kind="dataset"
+                            id={a.id.replace(/^local:/, "")}
+                            name={a.name}
+                            quiet="fade"
+                            className="h-6 w-6"
+                          />
+                        )}
                         {a.status === "certified" && (
                           <Badge
                             variant="outline"

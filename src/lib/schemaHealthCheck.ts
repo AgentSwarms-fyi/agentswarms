@@ -65,6 +65,13 @@ export const REQUIRED_SCHEMA_CHECKS: SchemaCheck[] = [
     migration: "20260833000000_slack_workspace.sql",
     description: "Inbound Slack workspace installs for the AI Analyst.",
   },
+  {
+    // Read on the first render of every page that draws a star.
+    table: "object_marks",
+    migration: "20261121000000_object_marks.sql",
+    description:
+      "Favourites and what you opened last: My work, the stars, and what search opens on.",
+  },
 ];
 
 export type SchemaIssue = {

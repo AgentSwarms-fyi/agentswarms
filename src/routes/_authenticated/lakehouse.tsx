@@ -59,6 +59,7 @@ import { Switch } from "@/components/ui/switch";
 import { formatBytes } from "@/utils/lakehouse/layout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { StarButton } from "@/components/StarButton";
 import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import { AiFunctionsReference } from "@/components/lakehouse/AiFunctionsReference";
 import {
@@ -88,6 +89,7 @@ import { useSingleFlight } from "@/lib/singleFlight";
 import { pollSparkQuery } from "@/lib/sparkPoll";
 import { matviewBadge } from "@/lib/matviewBadge";
 import { useAuth } from "@/hooks/use-auth";
+import { useRecordOpened } from "@/hooks/use-object-marks";
 import { usePageIntent } from "@/hooks/use-page-intent";
 import { useTokenRef } from "@/hooks/use-token-ref";
 import { supabase } from "@/integrations/supabase/client";
@@ -171,6 +173,11 @@ function LakehousePage() {
   const [selected, setSelected] = useState<{ schema: string; table: string } | null>(null);
   const [tab, setTab] = useState("query");
   const [sql, setSql] = useState("");
+  // A table is only ever chosen by the reader, from the list or from a link.
+  useRecordOpened(
+    "lakehouse_table",
+    selected && tab === "table" ? `${selected.schema}.${selected.table}` : null,
+  );
 
   const reload = useCallback(async () => {
     if (!token) return;
@@ -523,35 +530,50 @@ function SchemaRail({
                   const active = selected?.schema === s.name && selected?.table === t.name;
                   const hurt = broken.get(`${s.name}.${t.name}`);
                   return (
-                    <button
+                    // The star sits beside the row's button, so the row carries
+                    // the hover and the selected background for both. It takes
+                    // no room until the row is pointed at: this rail is narrow,
+                    // and a star on every row cut each table's name short.
+                    <div
                       key={t.name}
-                      title={
-                        hurt
-                          ? `${hurt.missing} data file(s) this table refers to are missing from object storage — ${hurt.rows.toLocaleString()} row(s) cannot be read. Re-import the table, or drop it.`
-                          : undefined
-                      }
-                      className={`flex w-full items-center justify-between gap-2 rounded-md py-1 pl-7 pr-2 text-left text-[13px] hover:bg-muted ${active ? "bg-muted font-medium" : ""} ${hurt ? "text-destructive" : ""}`}
-                      onClick={() => onOpenTable(s.name, t.name)}
+                      className={`group/star flex items-center rounded-md pr-1 hover:bg-muted ${active ? "bg-muted" : ""}`}
                     >
-                      <span className="flex min-w-0 items-center gap-1.5">
-                        <Table2 className="h-3.5 w-3.5 flex-none text-muted-foreground" />
-                        <span className="truncate">{t.name}</span>
-                        {hurt && (
-                          <AlertTriangle
-                            className="h-3.5 w-3.5 flex-none text-destructive"
-                            aria-label="Missing data files"
-                          />
-                        )}
-                      </span>
-                      <span className="flex-none font-mono text-[10px] tabular-nums text-muted-foreground">
-                        {/* The row count comes from catalog metadata, so it
-                            still reads full for a table whose Parquet is gone.
-                            Say so here rather than letting the number reassure. */}
-                        {hurt
-                          ? `${hurt.missing} file${hurt.missing === 1 ? "" : "s"} missing`
-                          : `${t.row_count === null ? "" : `${t.row_count.toLocaleString()} · `}${fmtBytes(t.size_bytes)}`}
-                      </span>
-                    </button>
+                      <button
+                        title={
+                          hurt
+                            ? `${hurt.missing} data file(s) this table refers to are missing from object storage — ${hurt.rows.toLocaleString()} row(s) cannot be read. Re-import the table, or drop it.`
+                            : undefined
+                        }
+                        className={`flex min-w-0 flex-1 items-center justify-between gap-2 rounded-md py-1 pl-7 pr-2 text-left text-[13px] hover:bg-muted ${active ? "bg-muted font-medium" : ""} ${hurt ? "text-destructive" : ""}`}
+                        onClick={() => onOpenTable(s.name, t.name)}
+                      >
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <Table2 className="h-3.5 w-3.5 flex-none text-muted-foreground" />
+                          <span className="truncate">{t.name}</span>
+                          {hurt && (
+                            <AlertTriangle
+                              className="h-3.5 w-3.5 flex-none text-destructive"
+                              aria-label="Missing data files"
+                            />
+                          )}
+                        </span>
+                        <span className="flex-none font-mono text-[10px] tabular-nums text-muted-foreground">
+                          {/* The row count comes from catalog metadata, so it
+                              still reads full for a table whose Parquet is gone.
+                              Say so here rather than letting the number reassure. */}
+                          {hurt
+                            ? `${hurt.missing} file${hurt.missing === 1 ? "" : "s"} missing`
+                            : `${t.row_count === null ? "" : `${t.row_count.toLocaleString()} · `}${fmtBytes(t.size_bytes)}`}
+                        </span>
+                      </button>
+                      <StarButton
+                        kind="lakehouse_table"
+                        id={`${s.name}.${t.name}`}
+                        name={t.name}
+                        quiet="collapse"
+                        className="h-6 w-6"
+                      />
+                    </div>
                   );
                 })}
             </div>

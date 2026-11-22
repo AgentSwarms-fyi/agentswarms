@@ -1,5 +1,10 @@
 // BI Workspace — the list of BI projects (editable dashboards/reports).
+import { FavouritesFilter } from "@/components/FavouritesFilter";
+import { useFavouritesFilter } from "@/hooks/use-favourites-filter";
 import { PageEyebrow } from "@/components/PageEyebrow";
+import { StarButton } from "@/components/StarButton";
+import { StarMark } from "@/components/search/parts";
+import { useObjectMarks } from "@/hooks/use-object-marks";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { identityHue } from "@/lib/identityHue";
 // Own projects open in the editor; projects shared via IAM group grants open
@@ -108,6 +113,7 @@ export const Route = createFileRoute("/_authenticated/bi")({
 
 function BiWorkspacePage() {
   const { user } = useAuth();
+  const { isStarred } = useObjectMarks();
   const isAdmin = useIsSuperadmin();
   const navigate = Route.useNavigate();
   const search = Route.useSearch();
@@ -271,6 +277,11 @@ function BiWorkspacePage() {
     if (folderSel === null) return true;
     return d.folder_id === folderSel;
   });
+  const favourites = useFavouritesFilter(
+    "dashboard",
+    visibleDashboards.map((d) => d.id),
+  );
+  const shownDashboards = visibleDashboards.filter((d) => favourites.keep(d.id));
 
   return (
     <div className="p-6 space-y-6">
@@ -440,6 +451,8 @@ function BiWorkspacePage() {
 
             {/* Main: the dashboard grid for the current scope + folder */}
             <div className="min-w-0 flex-1">
+              {/* Draws nothing, and takes no room, until a dashboard here is starred. */}
+              <FavouritesFilter filter={favourites} className="mb-3 ml-auto flex" />
               {dashboards === null ? (
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-3">
                   {[0, 1, 2].map((i) => (
@@ -471,7 +484,7 @@ function BiWorkspacePage() {
                 </Card>
               ) : (
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-3">
-                  {visibleDashboards.map((d) => {
+                  {shownDashboards.map((d) => {
                     const mine = d.user_id === user?.id;
                     // Counted from `pages`, the source of truth — NOT from the
                     // top-level `widgets` mirror, which only ever holds page 1.
@@ -499,7 +512,12 @@ function BiWorkspacePage() {
                                 <LayoutDashboard className="h-4 w-4" />
                               </div>
                               <div className="min-w-0">
-                                <p className="truncate font-semibold">{d.name}</p>
+                                <p className="flex min-w-0 items-center gap-1.5 font-semibold">
+                                  <span className="truncate">{d.name}</span>
+                                  {/* The star button is among the hover actions; a favourite
+                                      says so while nothing is hovered too. */}
+                                  {isStarred("dashboard", d.id) && <StarMark />}
+                                </p>
                                 {d.description ? (
                                   <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
                                     {d.description}
@@ -555,6 +573,7 @@ function BiWorkspacePage() {
                               className="flex items-center gap-1 opacity-0 transition group-hover:opacity-100"
                               onClick={(e) => e.stopPropagation()}
                             >
+                              <StarButton kind="dashboard" id={d.id} name={d.name} />
                               {d.published && d.public_slug && (
                                 <Button
                                   size="sm"

@@ -285,6 +285,9 @@ export type IndexResult = {
   failed: ObjectKindId[];
 };
 
+// The table read is chosen at run time, one per kind, so this is the client
+// without a schema: the generated types only accept a table name known when
+// the code is compiled.
 type AnyClient = SupabaseClient;
 
 /** Escape a LIKE pattern's own wildcards in what somebody typed. */
@@ -318,10 +321,12 @@ async function readSource(
   userId: string,
   nameContains?: string,
   open?: (row: { id: string; name: string }) => Promise<string | null>,
+  ids?: readonly string[],
 ): Promise<{ entries: ObjectEntry[]; capped: boolean }> {
   let q = sb.from(s.table).select(columnsOf(s));
   if (s.hideNamesLike) q = q.not(s.name, "like", s.hideNamesLike);
   if (nameContains) q = q.ilike(s.name, `%${likeEscape(nameContains)}%`);
+  if (ids) q = q.in("id", [...ids]);
   const { data, error } = await q.order(s.time, { ascending: false }).limit(INDEX_CAP);
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as unknown as Row[];
@@ -498,6 +503,48 @@ export async function loadObjectIndex(
   }
 
   return { entries, capped: [...new Set(capped)], failed: [...new Set(failed)] };
+}
+
+/** How many ids of one kind may be asked for at once. */
+export const BY_ID_CAP = 200;
+
+/** The shape of an id in every table search reads: a uuid. */
+const ROW_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The entries with these ids, for marks (a favourite, something opened) on
+ * objects older than the index holds. Read with the reader's own client like
+ * everything else here, so an id the reader may not see returns nothing —
+ * asking for an id is not a way to learn a name.
+ */
+export async function readObjectsByIds(
+  sb: AnyClient,
+  userId: string,
+  wanted: Partial<Record<ObjectKindId, readonly string[]>>,
+  openName: IndexExtras["openName"] = {},
+): Promise<ObjectEntry[]> {
+  const out: ObjectEntry[] = [];
+  await Promise.all(
+    TABLE_SOURCES.map(async (s) => {
+      // An id that is not a row id would fail the whole read of its kind.
+      const ids = [...new Set(wanted[s.kind] ?? [])].filter((id) => ROW_ID.test(id));
+      if (!ids.length) return;
+      try {
+        const r = await readSource(
+          sb,
+          s,
+          userId,
+          undefined,
+          openName?.[s.kind],
+          ids.slice(0, BY_ID_CAP),
+        );
+        out.push(...r.entries);
+      } catch {
+        /* a kind that cannot be read adds nothing */
+      }
+    }),
+  );
+  return out;
 }
 
 /**

@@ -38,6 +38,9 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { usePageIntent } from "@/hooks/use-page-intent";
 import { useTokenRef } from "@/hooks/use-token-ref";
+import { FavouritesFilter } from "@/components/FavouritesFilter";
+import { useFavouritesFilter } from "@/hooks/use-favourites-filter";
+import { StarButton } from "@/components/StarButton";
 import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -141,7 +144,11 @@ function OntologyGallery() {
     }
   };
 
-  const shown = useMemo(() => {
+  const favourites = useFavouritesFilter(
+    "ontology",
+    (items ?? []).map((o) => o.id),
+  );
+  const matched = useMemo(() => {
     const q = query.trim().toLowerCase();
     return (items ?? []).filter(
       (o) =>
@@ -151,6 +158,7 @@ function OntologyGallery() {
         o.domains.some((d) => d.toLowerCase().includes(q)),
     );
   }, [items, query]);
+  const shown = matched.filter((o) => favourites.keep(o.id));
 
   const totals = useMemo(() => {
     const own = (items ?? []).filter((o) => o.role === "owner");
@@ -239,6 +247,8 @@ function OntologyGallery() {
                 aria-label="Search ontologies"
               />
             </div>
+            {/* Its own margin keeps it by the search box in a row that spreads its ends apart. */}
+            <FavouritesFilter filter={favourites} className="mr-auto" />
             <Button variant="ghost" size="sm" onClick={startSample} disabled={creatingSample}>
               {creatingSample ? (
                 <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
@@ -333,93 +343,98 @@ function CompletenessRing({ score }: { score: number }) {
 function OntologyCard({ o }: { o: OntologySummary }) {
   const health = o.health;
   return (
-    <Link
-      to="/ontology/$ontologyId"
-      params={{ ontologyId: o.id }}
-      className="group flex flex-col rounded-xl border border-border bg-card p-4 transition hover:border-primary/50 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <h2 className="truncate font-semibold">{o.name}</h2>
-            {o.role === "viewer" && (
-              <Badge variant="outline" className="text-[10px]">
-                Shared with you
-              </Badge>
-            )}
-            {o.sample && (
-              <Badge variant="secondary" className="text-[10px]">
-                Sample
-              </Badge>
-            )}
+    // The whole card is a link, so the star is laid over its corner from
+    // outside it; the title row leaves that corner free.
+    <div className="relative flex">
+      <Link
+        to="/ontology/$ontologyId"
+        params={{ ontologyId: o.id }}
+        className="group flex w-full flex-col rounded-xl border border-border bg-card p-4 transition hover:border-primary/50 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <div className="flex items-start justify-between gap-3 pr-7">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <h2 className="truncate font-semibold">{o.name}</h2>
+              {o.role === "viewer" && (
+                <Badge variant="outline" className="text-[10px]">
+                  Shared with you
+                </Badge>
+              )}
+              {o.sample && (
+                <Badge variant="secondary" className="text-[10px]">
+                  Sample
+                </Badge>
+              )}
+            </div>
+            <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+              {o.description || "No description yet."}
+            </p>
           </div>
-          <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
-            {o.description || "No description yet."}
-          </p>
+          <CompletenessRing score={o.completeness} />
         </div>
-        <CompletenessRing score={o.completeness} />
-      </div>
 
-      <dl className="mt-4 grid grid-cols-5 gap-1 text-center">
-        {(
-          [
-            ["Types", o.counts.objectTypes],
-            ["Links", o.counts.linkTypes],
-            ["Metrics", o.counts.metrics],
-            ["Rules", o.counts.rules],
-            ["Actions", o.counts.actions],
-          ] as const
-        ).map(([label, n]) => (
-          <div key={label} className="rounded-md bg-muted/50 px-1 py-1.5">
-            <dd className="text-sm font-semibold tabular-nums">{n}</dd>
-            <dt className="text-[10px] text-muted-foreground">{label}</dt>
-          </div>
-        ))}
-      </dl>
-
-      {o.domains.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-1">
-          {o.domains.slice(0, 5).map((d) => (
-            <span
-              key={d}
-              className="rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground"
-            >
-              {d}
-            </span>
+        <dl className="mt-4 grid grid-cols-5 gap-1 text-center">
+          {(
+            [
+              ["Types", o.counts.objectTypes],
+              ["Links", o.counts.linkTypes],
+              ["Metrics", o.counts.metrics],
+              ["Rules", o.counts.rules],
+              ["Actions", o.counts.actions],
+            ] as const
+          ).map(([label, n]) => (
+            <div key={label} className="rounded-md bg-muted/50 px-1 py-1.5">
+              <dd className="text-sm font-semibold tabular-nums">{n}</dd>
+              <dt className="text-[10px] text-muted-foreground">{label}</dt>
+            </div>
           ))}
-        </div>
-      )}
+        </dl>
 
-      <div className="mt-auto flex items-center justify-between gap-2 border-t border-border pt-3 text-xs text-muted-foreground">
-        <span className="flex items-center gap-1.5">
-          <GitBranch className="h-3.5 w-3.5" />
-          {o.published_version ? `v${o.published_version} published` : "Draft, not published"}
-        </span>
-        {health ? (
-          <span
-            className={cn(
-              "flex items-center gap-1",
-              health.failed > 0
-                ? "text-amber-700 dark:text-amber-400"
-                : "text-emerald-700 dark:text-emerald-400",
-            )}
-            title={`Rules last run ${relativeTime(health.ran_at)}`}
-          >
-            {health.failed > 0 ? (
-              <CircleAlert className="h-3.5 w-3.5" />
-            ) : (
-              <CheckCircle2 className="h-3.5 w-3.5" />
-            )}
-            {health.failed > 0
-              ? `${health.failed} rule${health.failed === 1 ? "" : "s"} failing`
-              : `${health.passed} rules pass`}
-          </span>
-        ) : (
-          <span>Rules not run</span>
+        {o.domains.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-1">
+            {o.domains.slice(0, 5).map((d) => (
+              <span
+                key={d}
+                className="rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground"
+              >
+                {d}
+              </span>
+            ))}
+          </div>
         )}
-        <span>{relativeTime(o.updated_at)}</span>
-      </div>
-    </Link>
+
+        <div className="mt-auto flex items-center justify-between gap-2 border-t border-border pt-3 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            <GitBranch className="h-3.5 w-3.5" />
+            {o.published_version ? `v${o.published_version} published` : "Draft, not published"}
+          </span>
+          {health ? (
+            <span
+              className={cn(
+                "flex items-center gap-1",
+                health.failed > 0
+                  ? "text-amber-700 dark:text-amber-400"
+                  : "text-emerald-700 dark:text-emerald-400",
+              )}
+              title={`Rules last run ${relativeTime(health.ran_at)}`}
+            >
+              {health.failed > 0 ? (
+                <CircleAlert className="h-3.5 w-3.5" />
+              ) : (
+                <CheckCircle2 className="h-3.5 w-3.5" />
+              )}
+              {health.failed > 0
+                ? `${health.failed} rule${health.failed === 1 ? "" : "s"} failing`
+                : `${health.passed} rules pass`}
+            </span>
+          ) : (
+            <span>Rules not run</span>
+          )}
+          <span>{relativeTime(o.updated_at)}</span>
+        </div>
+      </Link>
+      <StarButton kind="ontology" id={o.id} name={o.name} className="absolute right-2 top-2 z-10" />
+    </div>
   );
 }
 

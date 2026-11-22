@@ -37,7 +37,9 @@ import {
   Zap,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { useRecordOpened } from "@/hooks/use-object-marks";
 import { useTokenRef } from "@/hooks/use-token-ref";
+import { StarButton } from "@/components/StarButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -113,6 +115,8 @@ function OntologyWorkspace() {
   const saveFn = useServerFn(ontologySave);
 
   const [detail, setDetail] = useState<OntologyDetail | null>(null);
+  // Recorded once it has loaded: one that could not be opened is not recorded.
+  useRecordOpened("ontology", detail?.id ?? null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [spec, setSpecState] = useState<OntologySpec | null>(null);
   const [revision, setRevision] = useState(1);
@@ -286,6 +290,7 @@ function OntologyWorkspace() {
                   editable={canEdit}
                   onRename={(name) => setSpec((s) => ({ ...s, name }))}
                 />
+                <StarButton kind="ontology" id={detail.id} name={spec.name} />
                 {detail.role === "viewer" ? (
                   <Badge variant="outline" className="gap-1">
                     <Eye className="h-3 w-3" /> v{detail.version} · shared with you

@@ -16,6 +16,8 @@ import {
   Share2,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { useRecordOpened } from "@/hooks/use-object-marks";
+import { StarButton } from "@/components/StarButton";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -68,6 +70,9 @@ function WorkbookPage() {
   const navigate = useNavigate();
   const [busy, setBusy] = useState<"xlsx" | "csv" | null>(null);
   const [name, setName] = useState<string | null>(null);
+  // The workbook this page has read: null until one has loaded.
+  const [loadedId, setLoadedId] = useState<string | null>(null);
+  useRecordOpened("workbook", loadedId);
   const [tabs, setTabs] = useState<SheetTabRow[] | null>(null);
   const [names, setNames] = useState<DefinedName[] | null>(null);
   const [limits, setLimits] = useState<SheetsLimits | null>(null);
@@ -96,6 +101,7 @@ function WorkbookPage() {
       }
       setAccess(r.access);
       setName(r.workbook.name);
+      setLoadedId(r.workbook.id);
       setStoredPreview(r.workbook.preview);
       setLimits(r.limits);
       setNames(r.names);
@@ -231,6 +237,7 @@ function WorkbookPage() {
         <h1 className="truncate font-display text-lg font-semibold" data-testid="workbook-name">
           {name ?? "…"}
         </h1>
+        {loadedId && <StarButton kind="workbook" id={loadedId} name={name ?? "this workbook"} />}
         {name !== null && !readOnly && (
           <Button
             size="icon"

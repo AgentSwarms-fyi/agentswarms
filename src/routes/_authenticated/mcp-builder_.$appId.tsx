@@ -48,8 +48,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { BiModelSelect } from "@/components/bi/BiModelSelect";
+import { StarButton } from "@/components/StarButton";
 import { useTheme } from "@/hooks/use-theme";
 import { useAuth } from "@/hooks/use-auth";
+import { useRecordOpened } from "@/hooks/use-object-marks";
 import { saveFailureText, useSaveBeforeLeave } from "@/hooks/use-save-before-leave";
 import { fingerprintOf } from "@/lib/definitionFingerprint";
 import { mcpSourceDefinition } from "@/lib/mcpSource";
@@ -217,6 +219,8 @@ function McpAppEditor() {
   useEffect(() => {
     void reload();
   }, [reload]);
+  // The loaded server's id, so an address for a server that is gone is not recorded.
+  useRecordOpened("mcp_app", app?.id);
 
   // Saves what the editor holds now and records it as saved, once the reply
   // has no error. An edit typed while it is out stays unsaved.
@@ -397,6 +401,7 @@ function McpAppEditor() {
           />
           <div className="px-1 font-mono text-[11px] text-muted-foreground">/{app.slug}</div>
         </div>
+        <StarButton kind="mcp_app" id={app.id} name={app.name} />
         <StatusPill status={app.status} />
         <div className="ml-auto flex items-center gap-2">
           {stale && (

@@ -6,7 +6,9 @@
 //   objectIndexLakehouse   lakehouse tables, which live in the lake's catalog
 //                          and are listed through the schemas the caller may
 //                          read;
-//   objectSearchMore       an older name in a kind too large for the index.
+//   objectSearchMore       an older name in a kind too large for the index;
+//   objectsByIds           the names of marked objects (favourites, recently
+//                          opened) that are older than the index holds.
 //
 // The palette opens on what the first call returns and adds the second when it
 // arrives.
@@ -20,8 +22,10 @@ import { readSharedDatasets } from "@/lib/sharedDatasetList";
 import { openAnalystTitle } from "@/utils/chat/sealedThreads.server";
 import { listLakehouseTablesForUser } from "@/utils/lakehouse/tables.server";
 import {
+  BY_ID_CAP,
   INDEX_CAP,
   loadObjectIndex,
+  readObjectsByIds,
   searchCappedKinds,
   type IndexResult,
 } from "@/utils/objectSearch/sources.server";
@@ -125,5 +129,23 @@ export const objectSearchMore = createServerFn({ method: "POST" })
       kinds,
       Object.keys(SEALED_NAMES) as ObjectKindId[],
     );
+    return { ok: true, entries };
+  });
+
+export const objectsByIds = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((input: unknown) =>
+    z
+      .object({
+        ids: z.record(z.string().max(40), z.array(z.string().min(1).max(400)).max(BY_ID_CAP)),
+      })
+      .parse(input),
+  )
+  .handler(async ({ context, data }): Promise<{ ok: true; entries: ObjectEntry[] }> => {
+    const wanted: Partial<Record<ObjectKindId, string[]>> = {};
+    for (const [kind, ids] of Object.entries(data.ids)) {
+      if (isObjectKindId(kind)) wanted[kind] = ids;
+    }
+    const entries = await readObjectsByIds(context.supabase, context.userId, wanted, SEALED_NAMES);
     return { ok: true, entries };
   });

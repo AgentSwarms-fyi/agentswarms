@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import { OBJECT_KINDS } from "@/lib/objectKinds";
 import {
+  BY_ID_CAP,
   columnsOf,
   entryFromRow,
   INDEX_CAP,
@@ -16,6 +17,7 @@ import {
   loadObjectIndex,
   looksSealed,
   NEVER_READ,
+  readObjectsByIds,
   searchCappedKinds,
   TABLE_SOURCES,
 } from "@/utils/objectSearch/sources.server";
@@ -32,7 +34,14 @@ function columnsInTypes(table: string): Set<string> {
 }
 
 type Row = Record<string, unknown>;
-type Call = { table: string; select?: string; not?: unknown[]; ilike?: unknown[]; limit?: number };
+type Call = {
+  table: string;
+  select?: string;
+  not?: unknown[];
+  ilike?: unknown[];
+  in?: unknown[];
+  limit?: number;
+};
 
 /** A stand-in for the database client: rows per table, or an error. */
 function fakeClient(tables: Record<string, Row[] | Error>) {
@@ -51,6 +60,10 @@ function fakeClient(tables: Record<string, Row[] | Error>) {
       },
       ilike(...args: unknown[]) {
         call.ilike = args;
+        return q;
+      },
+      in(...args: unknown[]) {
+        call.in = args;
         return q;
       },
       order() {
@@ -297,6 +310,77 @@ describe("an older name in a kind too large for the index", () => {
     expect(likeEscape("a\\b")).toBe("a\\\\b");
     // One letter is not a search.
     expect(await searchCappedKinds(client, ME, "a", ["prompt"])).toEqual([]);
+  });
+});
+
+// A favourite, or something opened, older than the newest few hundred of its
+// kind is not in the index. Its name is asked for by id (R515).
+describe("the name of a marked object the index does not hold", () => {
+  const A = "11111111-1111-4111-8111-111111111111";
+  const B = "22222222-2222-4222-8222-222222222222";
+
+  it("is read by id with the reader's own client, like every other name", async () => {
+    const { client, calls } = fakeClient({
+      agents: [{ id: A, name: "Old agent", description: null, updated_at: null, user_id: ME }],
+    });
+    const got = await readObjectsByIds(client, ME, { agent: [A, A, B] });
+    expect(got.map((e) => [e.kind, e.id, e.name, e.mine])).toEqual([
+      ["agent", A, "Old agent", true],
+    ]);
+    // One read, of the one kind asked about, with each id once.
+    expect(calls).toHaveLength(1);
+    expect(calls[0].table).toBe("agents");
+    expect(calls[0].in).toEqual(["id", [A, B]]);
+    // The same columns as the index: a name is all that is read.
+    expect(calls[0].select).toBe(columnsOf(TABLE_SOURCES.find((s) => s.kind === "agent")!));
+  });
+
+  it("asks nothing about an id that is not a row id, or a kind with no table", async () => {
+    const { client, calls } = fakeClient({});
+    // A lakehouse table's id is schema.table and a metric's model.metric:
+    // neither is a row, and a stray one must not fail a whole kind's read.
+    expect(
+      await readObjectsByIds(client, ME, {
+        agent: ["not-an-id", "x' or 1=1"],
+        lakehouse_table: ["sales.orders"],
+        metric: ["m.revenue"],
+      }),
+    ).toEqual([]);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("asks for no more than a page of ids, and survives a kind that fails", async () => {
+    const many = Array.from(
+      { length: BY_ID_CAP + 50 },
+      (_, i) => `33333333-3333-4333-8333-${String(i).padStart(12, "0")}`,
+    );
+    const { client, calls } = fakeClient({
+      agents: new Error("boom"),
+      user_prompts: [{ id: A, title: "Kept", updated_at: null, user_id: "them" }],
+    });
+    const got = await readObjectsByIds(client, ME, { agent: many, prompt: [A] });
+    expect(got.map((e) => [e.name, e.mine])).toEqual([["Kept", false]]);
+    const agents = calls.find((c) => c.table === "agents")!;
+    expect((agents.in![1] as string[]).length).toBe(BY_ID_CAP);
+  });
+
+  it("opens a sealed name the same way the index does, or leaves it out", async () => {
+    const sealed = "ck1:abc:iv:ct";
+    const { client } = fakeClient({
+      ai_analyst_threads: [
+        { id: A, title: sealed, updated_at: null, user_id: ME, analyst_id: "an" },
+        { id: B, title: sealed, updated_at: null, user_id: ME, analyst_id: "an" },
+      ],
+    });
+    const got = await readObjectsByIds(
+      client,
+      ME,
+      { analysis: [A, B] },
+      { analysis: async (row) => (row.id === A ? "Why did sales dip?" : null) },
+    );
+    expect(got.map((e) => e.name)).toEqual(["Why did sales dip?"]);
+    // No opener at all: a sealed title is never listed as it is stored.
+    expect(await readObjectsByIds(client, ME, { analysis: [A] })).toEqual([]);
   });
 });
 

@@ -23,7 +23,9 @@ import {
   X,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { useRecordOpened } from "@/hooks/use-object-marks";
 import { usePageIntent } from "@/hooks/use-page-intent";
+import { StarButton } from "@/components/StarButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -280,6 +282,8 @@ function SqlModelsPage() {
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState<"editor" | "graph" | "runs">("editor");
   const [draft, setDraft] = useState<Draft | null>(null);
+  // A draft is only ever opened by the reader; a new one has no id until saved.
+  useRecordOpened("sql_model", draft?.id ?? null);
   // The draft as it was opened or last saved, so the editor can tell what is
   // unsaved (R275-R276, sweep 8). A new model's empty draft counts as saved
   // until something is typed into it.
@@ -635,28 +639,40 @@ function SqlModelsPage() {
               </p>
             ) : (
               models.map((m) => (
-                <button
+                // The star sits beside the row's button, so the row carries
+                // the hover and the selected background for both.
+                <div
                   key={m.id}
-                  type="button"
-                  onClick={() => {
-                    if (m.id !== draft?.id) void openModel(m);
-                  }}
                   className={cn(
-                    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted",
+                    "flex items-center rounded-md pr-1 hover:bg-muted",
                     draft?.id === m.id && "bg-muted",
                   )}
                 >
-                  <StatusDot state={modelBuildState(m)} active={m.is_active} />
-                  <span className={cn("flex-1 truncate", !m.is_active && "text-muted-foreground")}>
-                    {m.name}
-                  </span>
-                  {missing[m.name]?.length ? (
-                    <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
-                  ) : null}
-                  {m.materialization === "view" ? (
-                    <span className="text-[10px] uppercase text-muted-foreground">view</span>
-                  ) : null}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (m.id !== draft?.id) void openModel(m);
+                    }}
+                    className={cn(
+                      "flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted",
+                      draft?.id === m.id && "bg-muted",
+                    )}
+                  >
+                    <StatusDot state={modelBuildState(m)} active={m.is_active} />
+                    <span
+                      className={cn("flex-1 truncate", !m.is_active && "text-muted-foreground")}
+                    >
+                      {m.name}
+                    </span>
+                    {missing[m.name]?.length ? (
+                      <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                    ) : null}
+                    {m.materialization === "view" ? (
+                      <span className="text-[10px] uppercase text-muted-foreground">view</span>
+                    ) : null}
+                  </button>
+                  <StarButton kind="sql_model" id={m.id} name={m.name} className="h-6 w-6" />
+                </div>
               ))
             )}
           </CardContent>
