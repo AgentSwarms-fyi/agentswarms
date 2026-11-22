@@ -51,7 +51,7 @@ function DataMonitorsDocsPage() {
         watched a table that was simply standing there: going stale, shrinking, filling with nulls,
         growing duplicates. That is how a dashboard shows last week&apos;s number with today&apos;s
         date on it. A monitor is the standing question; an incident is the open answer. Find them
-        under <strong>Data &amp; BI → Data monitors</strong>.
+        under <strong>Data engineering → Data monitors</strong>.
       </P>
 
       <H2 id="checks">What a monitor checks</H2>

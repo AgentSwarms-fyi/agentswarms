@@ -1,4 +1,4 @@
-// Data & BI -> Enterprise Ontology -> one ontology: the workspace.
+// Analysis -> Enterprise Ontology -> one ontology: the workspace.
 //
 // Ten tabs over one model. The OWNER edits a draft that saves itself a moment
 // after each change (revision-checked: a save from a stale tab is refused, not

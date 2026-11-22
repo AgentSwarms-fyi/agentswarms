@@ -1,7 +1,7 @@
 # Sheets
 
 Spreadsheets with the Excel formulas people already know, over data far larger than a browser
-could hold. Find them under **Data & BI → Sheets**.
+could hold. Find them under **Analysis → Sheets**.
 
 A workbook holds two kinds of sheet:
 

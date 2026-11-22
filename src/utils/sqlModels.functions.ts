@@ -1,4 +1,4 @@
-// Server functions behind Data & BI -> SQL Models: define models, build them,
+// Server functions behind Data engineering -> SQL Models: define models, build them,
 // and read the build log.
 //
 // Every write goes through the service role with an explicit user_id pin, the

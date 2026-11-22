@@ -47,8 +47,8 @@ function SheetsDocsPage() {
 
       <H2 id="what">Two kinds of sheet</H2>
       <P>
-        Find workbooks under <strong>Data &amp; BI → Sheets</strong>. A workbook holds grid sheets
-        and table sheets side by side, and formulas reach across both.
+        Find workbooks under <strong>Analysis → Sheets</strong>. A workbook holds grid sheets and
+        table sheets side by side, and formulas reach across both.
       </P>
       <Table
         headers={["Sheet", "Data lives in", "Size", "Computed by"]}

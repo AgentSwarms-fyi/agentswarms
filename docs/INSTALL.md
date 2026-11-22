@@ -545,7 +545,7 @@ least-privilege proxy so it can start kernel containers. Neither is wrong to
 run — both ship hardened — but they should be a decision, not a surprise.
 
 **Confirm what is actually running:** sign in as the admin and open
-**Observability → Monitoring**. It lists every service with its status and
+**Admin → Monitoring**. It lists every service with its status and
 response time. Optional services you chose not to start appear as "Not running"
 in grey rather than as failures.
 

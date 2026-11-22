@@ -61,7 +61,7 @@ one table, SQL or a sheet is quicker.
 
 ## Your first hour: the Northwind Outfitters sample
 
-**Data & BI → Enterprise Ontology → Add the Northwind Outfitters sample** creates six tables in a
+**Analysis → Enterprise Ontology → Add the Northwind Outfitters sample** creates six tables in a
 lakehouse schema and a complete model over them: an outdoor-gear retailer's customers, orders,
 order lines, products, suppliers and shipments. Some rows are wrong on purpose, so the rules have
 something to find.

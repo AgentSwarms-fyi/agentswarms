@@ -71,7 +71,7 @@ function DataPage() {
       />
 
       <P>
-        Open <strong>Data &amp; BI → Data Catalog</strong>.
+        Open <strong>Data engineering → Data Catalog</strong>.
       </P>
 
       <H2 id="choosing">Which kind of source do you want?</H2>

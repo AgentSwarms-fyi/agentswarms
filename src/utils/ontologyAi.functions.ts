@@ -1,4 +1,4 @@
-// Server functions behind Data & BI -> Enterprise Ontology: AI.
+// Server functions behind Analysis -> Enterprise Ontology: AI.
 //
 // Drafting a model from tables, asking it questions, and the verified
 // questions that make its answers trustworthy over time. Every model call

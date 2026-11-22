@@ -2233,7 +2233,7 @@ export async function resolveAgentTools(
         notes: [
           "last_status ok means the last check passed; alert means it failed and an incident is open unless resolved; error means the check could not run.",
           rows.length === 0
-            ? "No monitors match; the user can create one under Data & BI -> Data monitors."
+            ? "No monitors match; the user can create one under Data engineering -> Data monitors."
             : "A table with no monitor has no health record; say so rather than assuming it is fine.",
         ],
       });

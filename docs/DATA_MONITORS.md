@@ -3,7 +3,7 @@
 Standing checks on your tables, run on the platform's own clock, with the
 history to know what normal looks like, an incident opened when a check
 fails and closed when it passes again, and a notification either way. Under
-**Data & BI → Data monitors**.
+**Data engineering → Data monitors**.
 
 The catalog notices schema drift when it crawls and ETL gates quality on
 the way in. Nothing watched a table that was simply standing there: going

@@ -1,6 +1,7 @@
 // The Settings page: a tab-to-tab interface (URL-persisted via ?tab=, so a
 // link/bookmark/refresh lands on the same tab) over four panels that each
 // own their own state and backend calls — this route is just the shell.
+import { PageEyebrow } from "@/components/PageEyebrow";
 import { createFileRoute } from "@tanstack/react-router";
 import { KeyRound, LayoutGrid, Palette, Settings as SettingsIcon, UserCircle2 } from "lucide-react";
 import {
@@ -78,9 +79,7 @@ function SettingsPage() {
   return (
     <div className="mx-auto max-w-5xl p-6">
       <div className="mb-6">
-        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
-          Workspace
-        </p>
+        <PageEyebrow fallback="Workspace" />
         <h1 className="flex items-center gap-2 font-display text-3xl font-semibold tracking-tight">
           <SettingsIcon className="h-7 w-7 text-primary" /> Settings
         </h1>

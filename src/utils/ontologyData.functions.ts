@@ -1,4 +1,4 @@
-// Server functions behind Data & BI -> Enterprise Ontology: the data.
+// Server functions behind Analysis -> Enterprise Ontology: the data.
 //
 // Exploring objects, one object and what it links to, the neighbourhood graph,
 // metrics, the binding preview and profile, and rule runs. Every query is

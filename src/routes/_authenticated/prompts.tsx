@@ -3,6 +3,7 @@
 //
 // Built-ins are shipped in src/lib/promptLibrary.ts and cannot be removed.
 // User prompts are persisted to public.user_prompts (RLS: owner-only).
+import { PageEyebrow } from "@/components/PageEyebrow";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
@@ -233,9 +234,7 @@ function PromptsPage() {
       <div className="flex-1 p-6 space-y-6">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
-            <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
-              Library
-            </p>
+            <PageEyebrow />
             <h1 className="font-display text-3xl font-semibold tracking-tight flex items-center gap-2">
               <BookMarked className="h-7 w-7 text-primary" />
               Prompt Library

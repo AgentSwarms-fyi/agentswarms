@@ -54,7 +54,7 @@ function SqlModelsDocsPage() {
         <strong>ordered transformation</strong>, not a templating language.
       </P>
       <P>
-        Find it under <strong>Data &amp; BI → SQL Models</strong>.
+        Find it under <strong>Data engineering → SQL Models</strong>.
       </P>
 
       <H2 id="why">Why this and not a materialized view</H2>

@@ -252,7 +252,7 @@ describe("lakehouse wiring", () => {
     expect(fns).toContain('rtype: "data_table"');
   });
 
-  it("the page is reachable from the sidebar under Data & BI", () => {
+  it("the page is reachable from the sidebar, after the pipelines that fill it", () => {
     const nav = read("src/lib/appNav.ts");
     expect(nav).toContain('url: "/lakehouse"');
     const etlIdx = nav.indexOf('url: "/etl"');

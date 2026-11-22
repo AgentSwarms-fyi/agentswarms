@@ -658,7 +658,7 @@ PDF instead. Name, page setup and band changes are written to the audit log via
 
 ## AI Analyst — your analytical partner
 
-**AI Analyst** (`/ai-analyst`, under Data &amp; BI) is the dedicated
+**AI Analyst** (`/ai-analyst`, under Analysis) is the dedicated
 conversational-analysis surface, built on this stack's own discipline: every
 answer shows its work.
 

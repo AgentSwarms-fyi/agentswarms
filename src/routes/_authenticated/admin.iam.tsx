@@ -1,6 +1,8 @@
 // Identity & Access Management console (superadmin-only).
 // Users · Groups · Access (model rules + resource shares) · Settings.
+import { PageEyebrow } from "@/components/PageEyebrow";
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { iamTabFrom, type IamTab } from "@/lib/iamTabs";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
@@ -152,6 +154,10 @@ import { reportFailure } from "@/lib/silentFailureNet";
 import { publicConfig } from "@/lib/publicConfig";
 
 export const Route = createFileRoute("/_authenticated/admin/iam")({
+  // The tab is in the address so that another page can link to one of them
+  // ("Admin → IAM → Budgets") and so a refresh stays where it was.
+  validateSearch: (s: Record<string, unknown>): { tab?: IamTab } =>
+    typeof s.tab === "string" ? { tab: iamTabFrom(s.tab) } : {},
   component: AdminIamPage,
 });
 
@@ -165,6 +171,11 @@ function generatePassword(): string {
 }
 
 function AdminIamPage() {
+  // Read through iamTabFrom here as well: what a route validates is merged
+  // over what the address said, so a value this page does not know can still
+  // arrive, and a tab that does not exist selects nothing.
+  const tab = iamTabFrom(Route.useSearch().tab);
+  const navigate = Route.useNavigate();
   const { user, session } = useAuth();
   const isSuperadmin = useIsSuperadmin();
   const token = session?.access_token;
@@ -307,9 +318,7 @@ function AdminIamPage() {
     <div className="p-6 space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
-            Admin
-          </p>
+          <PageEyebrow />
           <h1 className="font-display text-2xl font-semibold tracking-tight flex items-center gap-2">
             <Shield className="h-6 w-6 text-primary" /> Identity &amp; Access Management
           </h1>
@@ -325,7 +334,12 @@ function AdminIamPage() {
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
-      <Tabs defaultValue="users">
+      <Tabs
+        value={tab}
+        onValueChange={(next) =>
+          void navigate({ search: { tab: iamTabFrom(next) }, replace: true })
+        }
+      >
         <TabsList>
           <TabsTrigger value="users" className="gap-1.5">
             <UsersIcon className="h-3.5 w-3.5" /> Users

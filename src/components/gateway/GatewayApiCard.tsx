@@ -639,7 +639,7 @@ curl ${baseUrl}/metrics/query \\
                 <div className="max-h-36 space-y-1 overflow-y-auto rounded-md border p-2">
                   {semanticModels.length === 0 ? (
                     <p className="text-xs text-muted-foreground">
-                      No semantic models yet. Define one under Data &amp; BI → Semantic Layer.
+                      No semantic models yet. Define one under Analysis → Semantic Layer.
                     </p>
                   ) : (
                     semanticModels.map((m) => (

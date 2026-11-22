@@ -48,9 +48,9 @@ function Page() {
         A warehouse question often ends in a judgement no expression makes: which of three zones a
         free-text region belongs to, whether a name is a company, what a comment's mood is. The
         functions below answer those inside the statement, so the answer lands in a column, a GROUP
-        BY or a WHERE like any other value. Find them under Data & BI → Lakehouse → Query, behind
-        the <strong>AI functions</strong> button beside the editor; each entry there puts a runnable
-        example in the editor.
+        BY or a WHERE like any other value. Find them under Data engineering → Lakehouse → Query,
+        behind the <strong>AI functions</strong> button beside the editor; each entry there puts a
+        runnable example in the editor.
       </P>
 
       <H2 id="functions">The functions</H2>
@@ -108,7 +108,7 @@ SELECT *, ai_classify(region, 'americas, emea, apac') AS zone FROM analytics.rev
 
       <H2 id="prep">In Data Prep</H2>
       <P>
-        The same functions are a step in Data & BI → BI Workspace → Data preparation: add an{" "}
+        The same functions are a step in Analysis → BI Workspace → Data preparation: add an{" "}
         <strong>AI column</strong>, pick what the model does, the column it reads (or, for a free
         prompt, write the prompt with <C>{"{column}"}</C> placeholders), name the output and
         optionally the model. The step compiles to the matching <C>ai_*</C> call, so it runs

@@ -17,7 +17,7 @@ import {
   scoreMatch,
   wordsOf,
 } from "@/lib/objectSearch";
-import { createTitle, FEATURED_CREATE, paletteResults } from "@/lib/paletteSearch";
+import { createTitle, FEATURED_CREATE, paletteResults, SECTION_ORDER } from "@/lib/paletteSearch";
 import { readPageIntent, withoutPageIntent } from "@/lib/pageIntent";
 
 const entry = (over: Partial<ObjectEntry> & Pick<ObjectEntry, "kind" | "name">): ObjectEntry => ({
@@ -166,6 +166,84 @@ describe("the palette's contents", () => {
     expect(pages.map((p) => p.title)).toContain("Lakehouse");
     const byGroup = paletteResults({ query: "observability", entries: [], navGroups: NAV_GROUPS });
     expect(byGroup.pages.map((p) => p.title)).toContain("Audit Log");
+  });
+});
+
+describe("which section of the palette comes first", () => {
+  const order = (query: string, entries: ObjectEntry[] = []) =>
+    paletteResults({ query, entries, navGroups: NAV_GROUPS }).order;
+  // An agent that only MENTIONS a knowledge base, and one named after sales.
+  const mine = [
+    entry({ kind: "agent", name: "RAG eval", detail: "Answers from the knowledge base" }),
+    entry({ kind: "dashboard", name: "Sales performance 2026" }),
+  ];
+
+  it("is your work, then what you could start, then pages", () => {
+    expect([...SECTION_ORDER]).toEqual(["objects", "create", "pages"]);
+    expect(order("")).toEqual(["objects", "create", "pages"]);
+    expect(order("sales", mine)).toEqual(["objects", "create", "pages"]);
+    // Part of a page's name is not its name: "lake" keeps the usual order.
+    expect(order("lake", mine)).toEqual(["objects", "create", "pages"]);
+    expect(order("knowledge", mine)).toEqual(["objects", "create", "pages"]);
+  });
+
+  it("is the pages when a page is named in full, so Enter opens that page", () => {
+    // It opened the agent whose description mentions a knowledge base.
+    const r = paletteResults({ query: "Knowledge Base", entries: mine, navGroups: NAV_GROUPS });
+    expect(r.order[0]).toBe("pages");
+    expect(r.pages[0].title).toBe("Knowledge Base");
+    // The agent is still listed, after it.
+    expect(r.objects.map((o) => o.name)).toContain("RAG eval");
+    expect(r.order).toEqual(["pages", "objects", "create"]);
+    // However it is typed.
+    expect(order("knowledge base", mine)[0]).toBe("pages");
+    expect(order("  LAKEHOUSE ", mine)[0]).toBe("pages");
+  });
+
+  it("is still your work when something of yours has that very name", () => {
+    const named = [...mine, entry({ kind: "dataset", name: "Lakehouse" })];
+    // Both are named in full: yours first, the page straight after it.
+    expect(order("lakehouse", named)).toEqual(["objects", "pages", "create"]);
+  });
+
+  it("finds a renamed page by the name it used to have", () => {
+    const r = paletteResults({ query: "model registry", entries: [], navGroups: NAV_GROUPS });
+    expect(r.pages.map((p) => p.title)).toContain("AI Model Catalog");
+    // The old name typed in full names the page in full: it leads, ahead of an
+    // agent that only mentions a model registry. Enter opened that agent.
+    const mentions = [
+      ...mine,
+      entry({ kind: "agent", name: "Predictive Analyst", detail: "Uses the model registry" }),
+    ];
+    const old = paletteResults({
+      query: "Model Registry",
+      entries: mentions,
+      navGroups: NAV_GROUPS,
+    });
+    expect(old.order).toEqual(["pages", "objects", "create"]);
+    expect(old.pages[0].title).toBe("AI Model Catalog");
+    expect(old.objects.map((o) => o.name)).toContain("Predictive Analyst");
+    // Part of the old name finds it without reordering anything.
+    const part = paletteResults({ query: "registry", entries: mentions, navGroups: NAV_GROUPS });
+    expect(part.pages.map((p) => p.title)).toContain("AI Model Catalog");
+    expect(part.order).toEqual(["objects", "create", "pages"]);
+    // The group and the old name together still find it.
+    const both = paletteResults({
+      query: "integrations registry",
+      entries: [],
+      navGroups: NAV_GROUPS,
+    });
+    expect(both.pages.map((p) => p.title)).toEqual(["AI Model Catalog"]);
+    // By its new name it is named in full, and leads.
+    const now = paletteResults({ query: "ai model catalog", entries: mine, navGroups: NAV_GROUPS });
+    expect(now.order[0]).toBe("pages");
+    expect(now.pages[0].url).toBe("/model-registry");
+  });
+
+  it("is the thing to start when that is what was named in full", () => {
+    const r = paletteResults({ query: "new dashboard", entries: mine, navGroups: NAV_GROUPS });
+    expect(r.order[0]).toBe("create");
+    expect(r.create[0].kind).toBe("dashboard");
   });
 });
 

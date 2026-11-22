@@ -36,7 +36,9 @@ export const Route = createFileRoute("/api/public/hooks/refresh-model-registry")
           const guard = await requireSuperadmin(bearer);
           if (!guard.ok) {
             return json(
-              { error: "Only the operator's cron or a superadmin can refresh the model registry" },
+              {
+                error: "Only the operator's cron or a superadmin can refresh the AI model catalog",
+              },
               403,
             );
           }
@@ -46,7 +48,7 @@ export const Route = createFileRoute("/api/public/hooks/refresh-model-registry")
           await rateLimitedGlobal("model-registry-sync", envInt("MODEL_REGISTRY_SYNC_PER_MIN", 2))
         ) {
           return json(
-            { error: "The model registry was refreshed moments ago — try again in a minute" },
+            { error: "The AI model catalog was refreshed moments ago — try again in a minute" },
             429,
           );
         }

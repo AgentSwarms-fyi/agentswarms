@@ -15,6 +15,92 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-21 — R514: a menu grouped by job
+
+Driven on a dev server built from the worktree (`:8102`), signed in as the owner (a
+superadmin), at 1280 × 900 and at 375 × 812. Nothing was created or saved.
+
+**Before:** one group, Data & BI, held 14 of the menu's 35 pages; open, the menu was 1,516 px
+of content in a 734 px rail. Monitoring, which only a superadmin can use, was listed for
+everyone under Observability. The Knowledge Base page printed "Data & BI" above its title
+while sitting under Build.
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| The menu | every group's name, state and tooltip | Overview, Build, Library, Experiment, Data engineering (6), Analysis (6), Data science (2), Integrations (5), Observability (5), Admin (3); each says what it is for when pointed at |
+| `/lakehouse`, loaded | the highlighted row | Lakehouse, fully in view with 8 px to spare; the page itself did not scroll |
+| Palette → `Monitoring` → Enter | the rail, without touching it | scrolled from the top to 1,042 px; Monitoring highlighted under Admin and in view after the page had rendered |
+| The same, read every 100 ms | the page being left | "Sheets" kept "Analysis" above its title until Monitoring replaced it with "Admin" |
+| The rail, wheel-scrolled away from the current row | the rail | stayed where it was put |
+| Palette → `Agent Builder`, `ML Models`, `Data monitors` | row, group, label above the title | Build / Data science / Data engineering each time, row in view; the rail did not move when the row already was |
+| Palette, `Knowledge Base` | the first row | Pages first: "Knowledge Base · Build"; Enter opened `/knowledge`, which now reads "Build" |
+| Palette, `model registry` | the pages listed | AI Model Catalog · Integrations |
+| `/model-registry` | the page | "Integrations", "AI Model Catalog", 789 models |
+| `/budgets` | the note under the title, its link | "Up to three budgets apply to a call…"; **Admin → IAM → Budgets** opened `/admin/iam?tab=budgets` on the Budgets tab |
+| Admin → IAM | the Groups tab; `?tab=nonsense`; no tab | `?tab=groups`; the address became `?tab=users` with Users selected; Users |
+| Group budgets | the link in its description | Observability → AI Budgets, to `/budgets` |
+| `/secrets` | the link under the title | Settings → API Keys, opened on that tab |
+| `/docs/dashboard#menu` | the table | ten rows, the same groups and pages as the menu |
+| 375 × 812, `/budgets`, the menu opened | the highlighted row | AI Budgets, in view (the sheet opened at 970 px) |
+
+**Found in the browser and fixed:**
+
+- A group called "Data" made every "Data → Sort A to Z" in the documents (the Sheets
+  editor's own Data menu) read as a path into the menu; the docs checker reported 20 of
+  them. The group is Data engineering.
+- The current row was scrolled into view once, 220 ms after the page changed. On a slow
+  load the groups above it had not finished opening, and it ended 6 px under the edge. It
+  is now revealed each time a group changes height.
+- The router puts every scrolling element back where it was once the new page has
+  rendered. For the menu that is where it was before the page was asked for, so the
+  reveal was undone seconds later. It is done again after the page has rendered.
+- A page's label was read from the address, which changes as soon as a link is pressed.
+  The page being left then named the next page's group: "Build" above "Sheets". It is
+  read from the page's own route.
+- Typing `Knowledge Base` and pressing Enter opened an agent whose description mentions
+  a knowledge base. A page or an action named in full now comes first.
+- `/admin/iam?tab=nonsense` selected no tab: the header over an empty page. Anything
+  that is not a tab opens the first one.
+- On a phone-sized screen the menu opened at its top with the current page 930 px below
+  the fold: the sheet mounts a render after it is opened, and the reveal had already
+  looked for it.
+
+**On the 8080 image built from this round** (2026-11-21), on two accounts: the owner, a
+superadmin, and a second account that is not one. Nothing was created or saved.
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| `/lakehouse`, the owner | the menu | the ten groups, each with its hint; Lakehouse highlighted, in view with 8 px to spare |
+| Palette → `Monitoring` → Enter | the rail, without touching it | scrolled to 657 px; Monitoring highlighted under Admin and in view; "Admin" above the title |
+| Palette, `Knowledge Base` | the sections | Pages ("Knowledge Base · Build"), then Your work, then Create |
+| `/model-registry` | the page | "Integrations", "AI Model Catalog"; its row in view; "Model Registry" nowhere on the page |
+| `/budgets` → **Admin → IAM → Budgets** | the link | `/admin/iam?tab=budgets`, the Budgets tab, whose description links back to `/budgets` |
+| `/admin/iam?tab=nonsense` | the address | became `?tab=users`, Users selected |
+| `/secrets` | the link under the title | Settings → API Keys, to `/settings?tab=api-keys` |
+| `/docs/dashboard#menu` | the table | ten rows, the same groups and pages as the menu |
+| 375 × 812, `/budgets`, the menu opened | the highlighted row | AI Budgets, in view (the sheet opened at 502 px) |
+| The second account, `/budgets` | the menu, the note | nine groups and no Admin; the note names Admin → IAM → Budgets in words, with no link |
+| The second account, palette `Monitoring` | the answer | "Nothing matches “Monitoring”." |
+| The second account, `/monitoring` and `/admin/iam?tab=budgets` typed in | each page | "Restricted area": only available to superadmins, with a way back to the dashboard |
+
+**Found on 8080 and fixed:**
+
+- Typing `model registry`, the old name of the AI Model Catalog, and pressing Enter
+  opened an agent whose description mentions a model registry. The page was listed, but
+  under it: an old name was searched as a description, so it never named the page in
+  full. An old name is now a name. Driven on the dev server afterwards: Pages first,
+  "AI Model Catalog · Integrations" selected, the agent listed after it, and Enter
+  opened `/model-registry`; `registry` alone finds the page and keeps the usual order.
+- At phone size the button that opens the menu told a screen reader "Collapse sidebar,
+  expanded" while the menu was closed. On a phone the menu is a sheet with its own open
+  state, and the button read the rail's. It now says "Open menu" or "Close menu" there,
+  and whether the sheet is open. Driven on the dev server afterwards at 375 × 812:
+  "Open menu", not expanded; pressed, "Close menu", expanded, with AI Budgets in view;
+  Escape, "Open menu" again. On a wide screen it still says "Collapse sidebar" and
+  "Expand sidebar" as the rail is folded and opened.
+
+Neither of these two fixes is in the 8080 image yet.
+
 ## 2026-11-20 — R513: search finds your work, one "New" menu, links that open one object
 
 Driven on a dev server built from the worktree (`:8102`), signed in as the owner,
@@ -117,8 +203,10 @@ each state stays on screen long enough to read:
 The index fixes are pinned by the `objectIndexStore` unit tests (12; each fix has a
 test that fails when it is taken out). Saying "still reading" once, and the page
 reading the index again after it is thrown away, were checked in the browser only. A
-second person really signing in on the same tab was not driven. None of this section's
-fixes is in the 8080 image yet.
+second person really signing in on the same tab was not driven. These fixes are in the
+8080 image built with R514 on 2026-11-21: there, straight after the container started,
+the palette listed its result for `Monitoring` and said "Still reading lakehouse
+tables…" once, in its footer.
 
 ## 2026-11-09 — R460: a link records what its source node left
 
@@ -1420,7 +1508,7 @@ REST catalog's warehouse) plus Compose's `minio` twin, which holds only an empty
 | ETL → `spark_live` → Run now                                     | Succeeded, 257 rows → 1 target in 1 m 38 s (its September runs on MinIO: 257). SILO's trace: 119 list, 48 head, 26 put, 16 copy, one multi-delete, and a 403 on the run's parent prefix, which only a credential scoped to the run's own prefix answers                  |
 | Data Catalog → MinIO local etl demo → Query data                 | `orders_reconciled_r183`'s rows (ORD-1000 …) read from the Parquet object                                                                                                                                                                                                |
 | … → Re-crawl                                                     | "Crawled "MinIO local etl demo" — 12 assets, 85 columns"                                                                                                                                                                                                                 |
-| Observability → Monitoring                                       | Object store (SILO) Healthy                                                                                                                                                                                                                                              |
+| Admin → Monitoring                                               | Object store (SILO) Healthy                                                                                                                                                                                                                                              |
 
 Kept for review: table `analytics.r418_silo_probe` (250,001 rows), the backup volumes
 `agentswarms-minio-data-r418-backup` and `agentswarms-share_lake-data-r418-backup`, and the stopped
@@ -1460,7 +1548,7 @@ The app ran this round's build, from the main checkout. The live volume was copi
 | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `node scripts/upgrade-qdrant.mjs --dry-run`, pin 1.20.0 | "last opened by 1.12.4 (container d30f407e8db8)"; seven releases listed; Qdrant still running                                                     |
 | **The skipped upgrade**: `docker compose up -d qdrant`  | 1.20.0 restarted 7 times in 75 s, health `starting`, the `on_disk` panic                                                                          |
-| Observability → Monitoring                              | "1 needing attention"; **Vector store (Qdrant): Down**, "… its volume skipped a release: run `node scripts/upgrade-qdrant.mjs` …"                 |
+| Admin → Monitoring                                      | "1 needing attention"; **Vector store (Qdrant): Down**, "… its volume skipped a release: run `node scripts/upgrade-qdrant.mjs` …"                 |
 | The script, as the hint names it                        | stopped the loop, tried 1.20.0, refused (exit 1): "nothing on it says which release last did", with the `QDRANT_FROM=1.12.4` line for both shells |
 | `QDRANT_FROM=1.12.4 node scripts/upgrade-qdrant.mjs`    | seven releases, exit 0 in 454 s                                                                                                                   |
 | `docker compose up -d qdrant`                           | 1.20.0 healthy, 0 restarts; `agentswarms_kb_chunks` 4 points, green, payload index `kb`, `doc`; without the key, 401                              |
@@ -1502,7 +1590,7 @@ Build: R414 hot-deployed into the app (`docker cp` of `dist` and a restart; read
 | From `spark-connect`: TCP to `minio:9000`, `lakehouse-catalog:5432`, `agentswarms-lakehouse-catalog:5432`; `GET /minio/health/live`     | all three open; 200                                                                                                                                      |
 | A throwaway MinIO started with the published defaults: a bucket and an 11-byte object; restarted on the same volume with a new password | the new pair lists `probe.txt` and reads `probe-r414`; the old pair: "The request signature we calculated does not match"; containers and volume removed |
 | `setup.sh` on a copy of `.env.example`, twice                                                                                           | run 1: "Generating LAKEHOUSE_S3_SECRET (the lake's object-store password)", 64 hex characters; run 2: silent, the value kept; 924 non-empty lines both   |
-| Observability → **Monitoring** on this install, whose lake credentials are not the defaults                                             | "No problems detected"; Object store (MinIO) **Healthy**, Lakehouse catalog **Healthy**: no false warning                                                |
+| Admin → **Monitoring** on this install, whose lake credentials are not the defaults                                             | "No problems detected"; Object store (MinIO) **Healthy**, Lakehouse catalog **Healthy**: no false warning                                                |
 
 The degraded state is pinned by `lakeDefaults.test.ts`. Showing it live would mean running this
 install's app on a published default. No fixtures.
@@ -1569,7 +1657,7 @@ No page changes in this round. The check is the command `setup.sh --dev` now pri
 ## 2026-10-30 — R409: Monitoring's Scheduler row, before and after
 
 Build: a hot deploy of the working copy, R409 included (`docker cp dist` then `docker restart`). The app
-runs eight workers. Observability → Monitoring, pressing **Refresh** (the page reports from whichever
+runs eight workers. Admin → Monitoring, pressing **Refresh** (the page reports from whichever
 worker answers).
 
 | What was pressed                          | Result                                                                                                                                                                                                                                           |
@@ -1731,7 +1819,7 @@ No fixtures were created.
 **Later the same day, on a rebuilt image.** `docker compose build agentswarms` from a clean worktree at
 545766a5 (2 h 44 min on this disk; `npm ci` installed from the lockfile), then `docker compose up -d --no-deps
 agentswarms`. Ready on the first health probe; inside the container `seroval` 1.6.12, `seroval-plugins` 1.6.12,
-`qs` 6.16.1, now from the image rather than a copy. Data & BI → Enterprise Ontology listed 2 ontologies, 14 object
+`qs` 6.16.1, now from the image rather than a copy. Analysis → Enterprise Ontology listed 2 ontologies, 14 object
 types and 26 metrics from its server function, as before.
 
 ## 2026-10-29 — R402: the embed form offers only what you own
@@ -6398,7 +6486,7 @@ Findings from this round: R115–R117 in the [Adversarial log](./ADVERSARIAL_LOG
 
 ## 2026-09-25 — Sheets: grid and table sheets, imports, pivots, formulas over tables, saving to the lakehouse and the catalog, ADVERSARIAL_LOG R112–R114
 
-**Why this round exists.** Sheets is new (Data & BI → Sheets): grid sheets
+**Why this round exists.** Sheets is new (Analysis → Sheets): grid sheets
 computed in the browser, table sheets computed by the lakehouse. Every
 feature below was pressed in the browser on the running app, and the result
 was read from the DOM, the formula bar, the save state and, for the

@@ -1,6 +1,7 @@
 // ML Models — the registry. Every model the user owns or was granted, with
 // its production version's headline metric, what it predicts from, and
 // whether something is training right now.
+import { PageEyebrow } from "@/components/PageEyebrow";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -108,9 +109,7 @@ function MlPage() {
     <div className="space-y-6 p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
-            Data &amp; BI
-          </p>
+          <PageEyebrow />
           <h1 className="font-display text-3xl font-semibold tracking-tight">ML Models</h1>
           <p className="mt-1 max-w-2xl text-muted-foreground">
             Train a model on a lakehouse table without writing code, keep every version with its

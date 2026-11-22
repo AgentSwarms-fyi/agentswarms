@@ -77,7 +77,7 @@ describe("who may refresh the registry", () => {
     const res = await post("some-users-session-token");
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({
-      error: "Only the operator's cron or a superadmin can refresh the model registry",
+      error: "Only the operator's cron or a superadmin can refresh the AI model catalog",
     });
     expect(requireSuperadmin).toHaveBeenCalledWith("some-users-session-token");
     expect(syncModelRegistryFromAimlapi).not.toHaveBeenCalled();

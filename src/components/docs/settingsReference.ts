@@ -2075,7 +2075,7 @@ export const SETTINGS_REFERENCE: SettingsTier[] = [
             "body": [
               {
                 "kind": "text",
-                "text": "The same token lets that scheduler refresh the Model Registry from AIMLAPI by POSTing to /api/public/hooks/refresh-model-registry (a superadmin's session works too). At most this many refreshes run a minute; extra calls get 429."
+                "text": "The same token lets that scheduler refresh the AI Model Catalog from AIMLAPI by POSTing to /api/public/hooks/refresh-model-registry (a superadmin's session works too). At most this many refreshes run a minute; extra calls get 429."
               }
             ]
           },
@@ -2090,7 +2090,7 @@ export const SETTINGS_REFERENCE: SettingsTier[] = [
             "body": [
               {
                 "kind": "text",
-                "text": "Models the Model Registry page loads, read in pages of 1,000 (a value under 1000 counts as 1000). Past it the page says it shows the first N of M models, and its filters and search cover only those. Raise it once the registry outgrows it."
+                "text": "Models the AI Model Catalog page loads, read in pages of 1,000 (a value under 1000 counts as 1000). Past it the page says it shows the first N of M models, and its filters and search cover only those. Raise it once the registry outgrows it."
               }
             ]
           },
@@ -3157,7 +3157,7 @@ export const SETTINGS_REFERENCE: SettingsTier[] = [
             "body": [
               {
                 "kind": "text",
-                "text": "Workflows (Data & BI -> Workflows): one graph over pipelines, SQL models, ML schedules and notebooks. The timeout is a BACKSTOP for a step whose sandbox vanished without reporting -- the work itself is capped by the pipeline, training job or notebook, not here. See docs/WORKFLOWS.md."
+                "text": "Workflows (Data engineering -> Workflows): one graph over pipelines, SQL models, ML schedules and notebooks. The timeout is a BACKSTOP for a step whose sandbox vanished without reporting -- the work itself is capped by the pipeline, training job or notebook, not here. See docs/WORKFLOWS.md."
               }
             ]
           },
@@ -3965,7 +3965,7 @@ export const SETTINGS_REFERENCE: SettingsTier[] = [
             "body": [
               {
                 "kind": "text",
-                "text": "Data monitors (Data & BI -> Data monitors): standing checks on tables, run on the scheduler sweep. Both are also editable under Admin -> Developer runtime."
+                "text": "Data monitors (Data engineering -> Data monitors): standing checks on tables, run on the scheduler sweep. Both are also editable under Admin -> Developer runtime."
               }
             ]
           },
@@ -4010,7 +4010,7 @@ export const SETTINGS_REFERENCE: SettingsTier[] = [
             "body": [
               {
                 "kind": "text",
-                "text": "Sheets (Data & BI -> Sheets): spreadsheets whose large tables live in the lakehouse. Both are also editable under Admin -> Developer runtime."
+                "text": "Sheets (Analysis -> Sheets): spreadsheets whose large tables live in the lakehouse. Both are also editable under Admin -> Developer runtime."
               }
             ]
           },
@@ -4050,7 +4050,7 @@ export const SETTINGS_REFERENCE: SettingsTier[] = [
             "body": [
               {
                 "kind": "text",
-                "text": "Enterprise Ontology (Data & BI -> Enterprise Ontology): business objects, links, metrics, rules and actions over lakehouse tables. A row in notebook_runtime_settings (ontology_max_rows, ontology_max_spec_kb) wins."
+                "text": "Enterprise Ontology (Analysis -> Enterprise Ontology): business objects, links, metrics, rules and actions over lakehouse tables. A row in notebook_runtime_settings (ontology_max_rows, ontology_max_spec_kb) wins."
               }
             ]
           },

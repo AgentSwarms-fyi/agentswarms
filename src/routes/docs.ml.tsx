@@ -50,9 +50,9 @@ function MlDocsPage() {
       <H2 id="what">What it is</H2>
       <UL>
         <li>
-          <strong>Registry</strong> — <strong>Data &amp; BI → ML Models</strong>: every model you
-          own or were granted, its production version&apos;s headline metric, what it predicts from,
-          and whether something is training right now.
+          <strong>Registry</strong> — <strong>Data science → ML Models</strong>: every model you own
+          or were granted, its production version&apos;s headline metric, what it predicts from, and
+          whether something is training right now.
         </li>
         <li>
           <strong>Training</strong> — a four-step wizard drives a batch sandbox of the notebook

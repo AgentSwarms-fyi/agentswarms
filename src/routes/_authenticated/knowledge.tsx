@@ -1,3 +1,4 @@
+import { PageEyebrow } from "@/components/PageEyebrow";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
@@ -1176,9 +1177,7 @@ function KnowledgePage() {
       <div className="flex-1 p-6 space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
-              Data &amp; BI
-            </p>
+            <PageEyebrow />
             <h1 className="font-display text-3xl font-semibold tracking-tight">Knowledge Bases</h1>
             <p className="text-muted-foreground mt-1">
               The documents your agents retrieve from. Add sources, watch them get chunked and

@@ -1,3 +1,4 @@
+import { PageEyebrow } from "@/components/PageEyebrow";
 import { formatUsd } from "@/lib/usd";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
@@ -191,9 +192,7 @@ function TraceDetail() {
       </div>
 
       <div>
-        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
-          Observability
-        </p>
+        <PageEyebrow />
         <h1 className="font-display text-2xl font-semibold tracking-tight flex items-center gap-2">
           {run.swarm_name ?? "Untitled swarm"}
           <Badge

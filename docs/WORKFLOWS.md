@@ -3,7 +3,7 @@
 > Part of the [AgentSwarms docs](../README.md#documentation).
 
 One graph over work that used to keep four separate clocks. Open
-**Data & BI → Workflows** (`/workflows`).
+**Data engineering → Workflows** (`/workflows`).
 
 A workflow's steps are things the platform can already run — an ETL pipeline,
 a SQL model build, an ML schedule, a notebook — and its arrows mean _after_.

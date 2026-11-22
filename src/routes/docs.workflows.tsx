@@ -48,7 +48,7 @@ function WorkflowsDocs() {
       />
 
       <P>
-        Open <strong>Data &amp; BI → Workflows</strong>. A workflow is a graph: each step is
+        Open <strong>Data engineering → Workflows</strong>. A workflow is a graph: each step is
         something the platform can already run, and each arrow means <em>after</em>. A step starts
         when its parents have finished the way its trigger rule requires, steps that nothing orders
         run at the same time, and a step whose branch was not taken is not run at all.

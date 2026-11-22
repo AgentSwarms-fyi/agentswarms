@@ -5,6 +5,7 @@
 // red "Down", and memory says whether the total is the container's limit or
 // the host's RAM. A monitoring page that cries wolf is a page people stop
 // opening.
+import { PageEyebrow } from "@/components/PageEyebrow";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { CapacityPanel } from "@/components/data/CapacityPanel";
@@ -223,9 +224,7 @@ function MonitoringPage() {
     <main className="mx-auto w-full max-w-[1400px] px-4 py-6 md:px-8">
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-widest text-primary">
-            Observability
-          </p>
+          <PageEyebrow className="mb-0" />
           <h1 className="mt-1 flex items-center gap-2 text-2xl font-semibold tracking-tight">
             <Activity className="h-6 w-6 text-primary" /> Monitoring
           </h1>

@@ -89,7 +89,7 @@ export function ModelRegistryPicker({ trigger, defaultModality = "text", onPick 
       <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Boxes className="h-5 w-5 text-primary" /> Browse Model Registry
+            <Boxes className="h-5 w-5 text-primary" /> Browse the AI Model Catalog
           </DialogTitle>
         </DialogHeader>
 
@@ -151,7 +151,7 @@ export function ModelRegistryPicker({ trigger, defaultModality = "text", onPick 
             </div>
           ) : filtered.length === 0 ? (
             <p className="text-sm text-muted-foreground p-4">
-              No models match. Sync may still be pending — try the Model Registry page.
+              No models match. Sync may still be pending — try the AI Model Catalog page.
             </p>
           ) : (
             <ul className="divide-y border rounded-md">

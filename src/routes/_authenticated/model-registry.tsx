@@ -3,6 +3,7 @@
 // /api/public/hooks/refresh-model-registry. Users can filter by developer,
 // modality, and capability, search by name/id, and copy a model id to
 // paste into the Agent Builder or Swarm node config.
+import { PageEyebrow } from "@/components/PageEyebrow";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { countLabels } from "@/lib/countClaim";
@@ -153,7 +154,7 @@ function ModelRegistryPage() {
         toast.error(res.error || "Sync failed");
       }
     } catch (e) {
-      reportFailure("sync the model registry", e);
+      reportFailure("sync the AI model catalog", e);
     } finally {
       setSyncing(false);
     }
@@ -240,11 +241,9 @@ function ModelRegistryPage() {
       <div className="flex-1 p-6 space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
-              Integrations
-            </p>
+            <PageEyebrow />
             <h1 className="font-display text-3xl font-semibold tracking-tight flex items-center gap-2">
-              <Boxes className="h-7 w-7 text-primary" /> Model Registry
+              <Boxes className="h-7 w-7 text-primary" /> AI Model Catalog
             </h1>
             <p className="text-muted-foreground mt-1 max-w-2xl">
               Browse {totalDisplay}
@@ -393,7 +392,9 @@ function ModelRegistryPage() {
         ) : claim.message === "error" ? (
           <Card className="border-dashed border-2 border-warning/40">
             <CardContent role="alert" className="py-12 text-center text-sm">
-              <p className="text-warning">The model registry could not be loaded — {loadError}.</p>
+              <p className="text-warning">
+                The AI model catalog could not be loaded — {loadError}.
+              </p>
               <p className="mt-1 text-muted-foreground">
                 The registry has not been emptied and the filters are not hiding anything — this
                 page could not read it. No sync is offered here on purpose: a sync started from a

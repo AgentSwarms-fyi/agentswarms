@@ -1,4 +1,4 @@
-// Data & BI → Workflows: one graph over work that kept its own clocks.
+// Data engineering → Workflows: one graph over work that kept its own clocks.
 //
 // The canvas is the same @xyflow/react surface the ETL builder uses, so the
 // gesture an operator already knows — drag from a handle to join two steps,

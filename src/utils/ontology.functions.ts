@@ -1,4 +1,4 @@
-// Server functions behind Data & BI -> Enterprise Ontology: the model itself.
+// Server functions behind Analysis -> Enterprise Ontology: the model itself.
 //
 // Creating, saving, publishing, versions, proposals and deleting. Data
 // (objects, metrics, rules), AI and actions live beside this file in

@@ -1178,6 +1178,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 2
       },
       {
+        "id": "menu",
+        "text": "The menu, grouped by job",
+        "level": 2
+      },
+      {
         "id": "first-run",
         "text": "What to do on a new workspace",
         "level": 2
@@ -3577,7 +3582,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       },
       {
         "id": "registry",
-        "text": "Model registry",
+        "text": "AI model catalog",
         "level": 2
       },
       {

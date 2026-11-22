@@ -523,9 +523,9 @@ kubectl apply -f deploy/k8s/app/agentswarms.yaml`}</Code>
             name: "Monitoring shows one pod, not the fleet",
             body: (
               <>
-                <strong>Observability → Monitoring</strong> reports the replica that answered — the
-                page names it, and on Kubernetes that name is the pod. For fleet-wide numbers use
-                your cluster metrics; this page is for looking at one instance and at what is down.
+                <strong>Admin → Monitoring</strong> reports the replica that answered — the page
+                names it, and on Kubernetes that name is the pod. For fleet-wide numbers use your
+                cluster metrics; this page is for looking at one instance and at what is down.
               </>
             ),
           },

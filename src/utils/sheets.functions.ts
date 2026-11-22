@@ -1,4 +1,4 @@
-// Server functions behind Data & BI -> Sheets: workbooks, their sheets, and
+// Server functions behind Analysis -> Sheets: workbooks, their sheets, and
 // saving a grid sheet's cells.
 //
 // Every write goes through the service role, after the caller's access to

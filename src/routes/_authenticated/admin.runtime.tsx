@@ -1,5 +1,6 @@
 // /admin/runtime — dedicated superadmin page for the Developer-workspace server
 // runtime (enable, tune limits/egress, grant access). Separate from IAM.
+import { PageEyebrow } from "@/components/PageEyebrow";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Server, ShieldAlert } from "lucide-react";
 
@@ -59,9 +60,7 @@ function AdminRuntimePage() {
   return (
     <div className="space-y-6 p-6">
       <div>
-        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
-          Admin
-        </p>
+        <PageEyebrow />
         <h1 className="flex items-center gap-2 font-display text-2xl font-semibold tracking-tight">
           <Server className="h-6 w-6 text-primary" /> Developer runtime
         </h1>

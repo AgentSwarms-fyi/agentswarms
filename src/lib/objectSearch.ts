@@ -39,7 +39,7 @@ export function queryTokens(query: string): string[] {
   return wordsOf(query);
 }
 
-const EXACT = 1000;
+export const EXACT = 1000;
 /** The name starts with the words typed, as whole words. */
 const NAME_STARTS_WORDS = 850;
 /** The name starts with what was typed, part-way through a word. */

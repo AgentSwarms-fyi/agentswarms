@@ -1,3 +1,4 @@
+import { PageEyebrow } from "@/components/PageEyebrow";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Search } from "lucide-react";
@@ -167,9 +168,7 @@ function AgentsPage() {
       <div className="flex-1 p-6 space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
-              Build
-            </p>
+            <PageEyebrow />
             <h1 className="font-display text-3xl font-semibold tracking-tight">Agent Builder</h1>
             <p className="text-muted-foreground mt-1">
               Create and manage your AI agents.

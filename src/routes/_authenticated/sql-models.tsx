@@ -1,4 +1,4 @@
-// Data & BI -> SQL Models: a transformation layer over the lakehouse.
+// Data engineering -> SQL Models: a transformation layer over the lakehouse.
 //
 // A model is one SELECT that may name other models with ref('name'). The page
 // is built around the two questions that matter and that a list of queries

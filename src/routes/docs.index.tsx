@@ -249,7 +249,7 @@ function IntroductionPage() {
             <DocLink key="b" to="/docs/models">
               Models & providers
             </DocLink>,
-            "BYOK, the model registry, and choosing the right model per job.",
+            "BYOK, the AI model catalog, and choosing the right model per job.",
           ],
           [
             <DocLink key="c" to="/docs/mcp">

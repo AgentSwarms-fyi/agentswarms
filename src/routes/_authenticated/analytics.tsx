@@ -1,3 +1,4 @@
+import { PageEyebrow } from "@/components/PageEyebrow";
 import { formatUsd } from "@/lib/usd";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
@@ -367,9 +368,7 @@ function AnalyticsPage() {
     return (
       <div className="p-6">
         <div className="mb-6">
-          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
-            Observability
-          </p>
+          <PageEyebrow />
           <h1 className="font-display text-3xl font-semibold tracking-tight">Analytics</h1>
         </div>
         <Card role="alert" className="p-12 text-center border-dashed border-warning/40">
@@ -394,9 +393,7 @@ function AnalyticsPage() {
       <div className="p-6">
         <div className="flex items-start justify-between mb-6">
           <div>
-            <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
-              Observability
-            </p>
+            <PageEyebrow />
             <h1 className="font-display text-3xl font-semibold tracking-tight">Analytics</h1>
             <p className="text-muted-foreground mt-1">
               Real-time observability for your agent fleet.
@@ -422,9 +419,7 @@ function AnalyticsPage() {
     <div className="p-6 space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
-            Observability
-          </p>
+          <PageEyebrow />
           <h1 className="font-display text-3xl font-semibold tracking-tight">Analytics</h1>
           <p className="text-muted-foreground mt-1">
             {traceCountHeadline({ fetched: traces.length, total: exactTotal })}

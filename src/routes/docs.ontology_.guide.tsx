@@ -138,7 +138,7 @@ order_lines  order_id, product_id, ...   →   OrderLine ── order ──▶ 
 
       <H2 id="first-hour">Your first hour: the Northwind Outfitters sample</H2>
       <P>
-        <strong>Data &amp; BI → Enterprise Ontology → Add the Northwind Outfitters sample</strong>{" "}
+        <strong>Analysis → Enterprise Ontology → Add the Northwind Outfitters sample</strong>{" "}
         creates six tables in a lakehouse schema and a complete model over them: an outdoor-gear
         retailer&apos;s customers, orders, order lines, products, suppliers and shipments. Some rows
         are wrong on purpose, so the rules have something to find.

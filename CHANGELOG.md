@@ -55,6 +55,20 @@ development branch and may be ahead of the latest tag.
 
 ### Changed
 
+- **Model Registry is now AI Model Catalog** (R514), under Integrations. It
+  lists the models other people host; the models you train are under Data
+  science → ML Models. Search still finds it by its old name, and its address
+  is unchanged.
+- **Monitoring moved to Admin** (R514), beside IAM and Developer runtime. It
+  was listed under Observability for everyone, and only a superadmin can use
+  it.
+- **Each page takes the group above its title from the menu** (R514). The
+  Knowledge Base page named a group it was no longer in.
+- **Budgets and keys say where the rest is** (R514). The AI Budgets page says
+  that a group's ceiling and a key's cap also apply and where each is set, and
+  the group budgets tab links back. Admin → IAM remembers its tab in the
+  address, so Admin → IAM → Budgets can be linked to. The Secrets page links to
+  the list of every key under Settings → API Keys.
 - **A point map without streets tells its owner how to add them** (R504).
   With no tile server set, a point map draws its points on a plain grid, and
   an owner who saw only dots took the map for broken. The dashboard's owner
@@ -219,6 +233,19 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **A menu grouped by job** (R514). The left menu has a group for each kind of
+  work. The fourteen pages that were under one heading are now three groups:
+  **Data engineering** (Data Catalog, ETL Pipelines, Lakehouse, SQL Models,
+  Workflows, Data monitors), **Analysis** (Semantic Layer, Metrics, Enterprise
+  Ontology, Sheets, AI Analyst, BI Workspace) and **Data science** (ML Models,
+  Developer workspace). Library and Experiment now sit straight after Build.
+  Pointing at a group says what it is for. The page you are on is scrolled
+  into view in the menu however you reached it.
+- **A page named in full comes first in search** (R514). Typing _Knowledge
+  Base_ and pressing Enter opens that page; it used to open whatever of your
+  work mentioned one. Your own work with that exact name still comes first.
+  A renamed page's old name counts as its name, so _Model Registry_ and Enter
+  opens the AI Model Catalog.
 - **Search finds your work, not only pages** (R513). The search box (Ctrl K,
   or ⌘ K) now lists your agents, swarms, knowledge bases, datasets, lakehouse
   tables, pipelines, semantic models and metrics, dashboards, reports,
@@ -389,6 +416,10 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **On a phone, the menu button said the menu was open when it was closed**
+  (fixed in R514). A screen reader heard "Collapse sidebar, expanded" on the
+  button that opens the menu. It now says "Open menu" or "Close menu", and
+  whether the menu is open.
 - **The AI Analyst worked out its findings from 50 rows of a larger result**
   (fixed in R512). In the browser, steps over local datasets ran through the
   workbench's 50-row runner, so a year of 323 days was summed as its first 50

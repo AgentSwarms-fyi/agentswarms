@@ -1,3 +1,4 @@
+import { PageEyebrow } from "@/components/PageEyebrow";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
@@ -147,9 +148,7 @@ function SkillLibraryPage() {
       <div className="flex-1 container mx-auto space-y-6 p-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
-              Library
-            </p>
+            <PageEyebrow />
             <h1 className="flex items-center gap-2 font-display text-2xl font-semibold tracking-tight">
               <Wand2 className="h-6 w-6 text-primary" />
               Skill Library

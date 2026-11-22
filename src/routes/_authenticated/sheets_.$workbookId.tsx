@@ -1,4 +1,4 @@
-// Data & BI -> Sheets -> a workbook: the spreadsheet editor.
+// Analysis -> Sheets -> a workbook: the spreadsheet editor.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";

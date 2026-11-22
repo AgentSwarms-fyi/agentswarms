@@ -82,7 +82,7 @@ bash scripts/setup.sh`}</Code>
         A version that cannot be pulled stops the setup rather than building your checkout under the
         release&apos;s name, and for the same reason never pass <C>--build</C> to Docker Compose
         while a version is set. <C>AGENTSWARMS_REGISTRY</C> points at your own mirror for an
-        air-gapped install. Observability → Monitoring shows which release each instance runs, or
+        air-gapped install. Admin → Monitoring shows which release each instance runs, or
         &ldquo;built from source&rdquo;. To check a signature:
       </P>
       <Code lang="bash">{`cosign verify ghcr.io/agentswarms-fyi/agentswarms:1.7.0 \\
@@ -249,9 +249,9 @@ bash scripts/setup.sh`}</Code>
         container runs while nothing uses it.
       </P>
       <P>
-        <strong>Observability → Monitoring</strong> (superadmin) shows which of these are actually
-        up on this deployment, with the address that answered and live CPU, memory and disk. A
-        profile you chose not to start reads &ldquo;Not running&rdquo; rather than as a failure.
+        <strong>Admin → Monitoring</strong> (superadmin) shows which of these are actually up on
+        this deployment, with the address that answered and live CPU, memory and disk. A profile you
+        chose not to start reads &ldquo;Not running&rdquo; rather than as a failure.
       </P>
       <H2 id="deploy-targets">Deployment targets</H2>
       <FieldList

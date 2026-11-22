@@ -1,4 +1,4 @@
-// Server functions behind Data & BI → Workflows.
+// Server functions behind Data engineering → Workflows.
 //
 // A workflow can start an ETL pipeline, build SQL models, retrain a model, run
 // a notebook, run a swarm, call an API and ask a person a question — so every

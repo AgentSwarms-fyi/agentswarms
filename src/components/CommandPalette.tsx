@@ -6,7 +6,7 @@
 // renders. What is shown for what was typed is decided by paletteResults, not
 // by the component library's built-in filter, so the palette and the results
 // page rank the same way.
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { ArrowRight, Laptop, Loader2, Monitor, Moon, Plus, Sun } from "lucide-react";
 
@@ -27,7 +27,7 @@ import { THEMES, useTheme, type ThemePreference } from "@/hooks/use-theme";
 import { ADMIN_GROUP, NAV_GROUPS } from "@/lib/appNav";
 import { linkToObject, objectKind, type ObjectLink } from "@/lib/objectKinds";
 import { mergeEntries, scoreMatch } from "@/lib/objectSearch";
-import { createTitle, paletteResults } from "@/lib/paletteSearch";
+import { createTitle, paletteResults, type PaletteSection } from "@/lib/paletteSearch";
 
 // Matches ThemeToggle/AppearanceSettingsPanel's icon choice per theme, so
 // "System" isn't left sharing Monitor with "AgentSwarms Native" here as if
@@ -99,6 +99,95 @@ export function CommandPalette({
   const footerSaysReading =
     stillReading !== "" && !index.loading && !index.error && index.failed.length === 0;
 
+  // The three sections of a search, drawn below in the order paletteResults
+  // gives: your work, then what you could start, then pages — unless a page or
+  // an action was named in full, which then goes first.
+  const sections: Record<PaletteSection, ReactNode> = {
+    objects: results.searching && (results.objects.length > 0 || stillLoading) && (
+      <CommandGroup heading="Your work">
+        {results.objects.map((e) => (
+          <CommandItem
+            key={`${e.kind}:${e.id}`}
+            value={`object:${e.kind}:${e.id}`}
+            onSelect={() => go(linkToObject(e))}
+            className={ROW}
+          >
+            <IconTile icon={objectKind(e.kind).icon} />
+            <ObjectText entry={e} query={query} />
+            {/* When it last changed: what tells two things with one
+                        name apart. */}
+            <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+              {agoLabel(e.updatedAt)}
+            </span>
+          </CommandItem>
+        ))}
+        {stillLoading && (
+          <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Searching your work…
+          </div>
+        )}
+        {results.objectTotal > 0 && (
+          <CommandItem
+            value="object:all"
+            onSelect={() =>
+              run(() => navigate({ to: "/search", search: { q: query.trim() } } as never))
+            }
+            className={`${ROW} text-muted-foreground`}
+          >
+            <IconTile icon={ArrowRight} className="bg-transparent" />
+            <span className="text-sm">
+              {results.objectTotal > results.objects.length
+                ? `See all ${results.objectTotal} results`
+                : "Open in search"}
+            </span>
+          </CommandItem>
+        )}
+      </CommandGroup>
+    ),
+    create: results.create.length > 0 && (
+      <CommandGroup heading="Create">
+        {results.create.map((a) => (
+          <CommandItem
+            key={a.kind}
+            value={`create:${a.kind}`}
+            onSelect={() => go(a.link)}
+            className={ROW}
+          >
+            <IconTile icon={Plus} className="bg-primary/10 text-primary" />
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate text-sm">{createTitle(a)}</span>
+              {results.searching && (
+                <span className="truncate text-xs text-muted-foreground">{a.hint}</span>
+              )}
+            </span>
+          </CommandItem>
+        ))}
+      </CommandGroup>
+    ),
+    pages: pageGroups.map(
+      (g) =>
+        g.items.length > 0 && (
+          <CommandGroup key={g.label} heading={g.label}>
+            {g.items.map((item) => (
+              <CommandItem
+                key={item.url}
+                value={`page:${item.url}`}
+                onSelect={() => run(() => navigate({ to: item.url } as never))}
+                className={ROW}
+              >
+                <IconTile icon={item.icon} className="bg-transparent" />
+                <span className="flex-1 truncate text-sm">{item.title}</span>
+                {results.searching && (
+                  <span className="text-xs text-muted-foreground">{item.group}</span>
+                )}
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        ),
+    ),
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -130,91 +219,9 @@ export function CommandPalette({
               </CommandEmpty>
             )}
 
-            {results.searching && (results.objects.length > 0 || stillLoading) && (
-              <CommandGroup heading="Your work">
-                {results.objects.map((e) => (
-                  <CommandItem
-                    key={`${e.kind}:${e.id}`}
-                    value={`object:${e.kind}:${e.id}`}
-                    onSelect={() => go(linkToObject(e))}
-                    className={ROW}
-                  >
-                    <IconTile icon={objectKind(e.kind).icon} />
-                    <ObjectText entry={e} query={query} />
-                    {/* When it last changed: what tells two things with one
-                        name apart. */}
-                    <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-                      {agoLabel(e.updatedAt)}
-                    </span>
-                  </CommandItem>
-                ))}
-                {stillLoading && (
-                  <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Searching your work…
-                  </div>
-                )}
-                {results.objectTotal > 0 && (
-                  <CommandItem
-                    value="object:all"
-                    onSelect={() =>
-                      run(() => navigate({ to: "/search", search: { q: query.trim() } } as never))
-                    }
-                    className={`${ROW} text-muted-foreground`}
-                  >
-                    <IconTile icon={ArrowRight} className="bg-transparent" />
-                    <span className="text-sm">
-                      {results.objectTotal > results.objects.length
-                        ? `See all ${results.objectTotal} results`
-                        : "Open in search"}
-                    </span>
-                  </CommandItem>
-                )}
-              </CommandGroup>
-            )}
-
-            {results.create.length > 0 && (
-              <CommandGroup heading="Create">
-                {results.create.map((a) => (
-                  <CommandItem
-                    key={a.kind}
-                    value={`create:${a.kind}`}
-                    onSelect={() => go(a.link)}
-                    className={ROW}
-                  >
-                    <IconTile icon={Plus} className="bg-primary/10 text-primary" />
-                    <span className="flex min-w-0 flex-1 flex-col">
-                      <span className="truncate text-sm">{createTitle(a)}</span>
-                      {results.searching && (
-                        <span className="truncate text-xs text-muted-foreground">{a.hint}</span>
-                      )}
-                    </span>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            )}
-
-            {pageGroups.map(
-              (g) =>
-                g.items.length > 0 && (
-                  <CommandGroup key={g.label} heading={g.label}>
-                    {g.items.map((item) => (
-                      <CommandItem
-                        key={item.url}
-                        value={`page:${item.url}`}
-                        onSelect={() => run(() => navigate({ to: item.url } as never))}
-                        className={ROW}
-                      >
-                        <IconTile icon={item.icon} className="bg-transparent" />
-                        <span className="flex-1 truncate text-sm">{item.title}</span>
-                        {results.searching && (
-                          <span className="text-xs text-muted-foreground">{item.group}</span>
-                        )}
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                ),
-            )}
+            {results.order.map((section) => (
+              <Fragment key={section}>{sections[section]}</Fragment>
+            ))}
 
             {themes.length > 0 && (
               <CommandGroup heading="Preferences">

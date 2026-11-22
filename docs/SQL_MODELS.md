@@ -11,7 +11,7 @@ already know what a model, a ref, a materialization and a `not_null` test are.
 What is deliberately absent is Jinja, macros, seeds and packages. The gap this
 closes is **ordered transformation**, not a templating language.
 
-Find it under **Data & BI → SQL Models**.
+Find it under **Data engineering → SQL Models**.
 
 ---
 

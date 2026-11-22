@@ -1,4 +1,4 @@
-// Data & BI -> Sheets: the gallery of workbooks.
+// Analysis -> Sheets: the gallery of workbooks.
 //
 // A workbook is a spreadsheet: grid sheets for the familiar cells and
 // formulas, and table sheets whose rows live in the lakehouse, so a sheet can
@@ -7,6 +7,7 @@
 // sheets_.$workbookId. Each card shows the corner of the workbook's first
 // grid sheet as it reads, from a preview the editor keeps (or, for a workbook
 // not opened since previews began, one this page asks the server to build).
+import { PageEyebrow } from "@/components/PageEyebrow";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
@@ -400,9 +401,7 @@ function SheetsPage() {
     <div className="mx-auto w-full max-w-[1600px] space-y-8 p-4 sm:p-6 lg:p-8">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
-            Data &amp; BI
-          </p>
+          <PageEyebrow />
           <h1 className="font-display text-3xl font-semibold tracking-tight">Sheets</h1>
           <p className="mt-1.5 max-w-2xl text-balance text-muted-foreground">
             Excel formulas over grid cells, and table sheets whose rows stay in the lakehouse —

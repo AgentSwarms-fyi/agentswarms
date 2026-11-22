@@ -119,7 +119,7 @@ all. That is deliberate, and it is what Step 2's LEFT join exists to survive.
 
 ## Step 2 — Conform it with a visual pipeline
 
-**Data & BI → ETL Pipelines → New pipeline**, visual mode. The canvas ends up
+**Data engineering → ETL Pipelines → New pipeline**, visual mode. The canvas ends up
 reading as _the list of reasons the naive number was wrong_ — one node per
 defect:
 
@@ -223,7 +223,7 @@ priced** while it is open, and that the total is right either way.
 
 ## Step 4 — Define the metric once
 
-**Data & BI → Semantic Layer → New model**, pointed at the lakehouse
+**Analysis → Semantic Layer → New model**, pointed at the lakehouse
 connection and `analytics.revenue_facts`.
 
 Dimensions: `region`, `plan`, `customer_name`, `currency`, `placed_at` (time).
@@ -276,7 +276,7 @@ the work is **SQL**, [SQL models](./SQL_MODELS.md) say the same thing in less
 space and give you something a pipeline cannot: models that name each other and
 are therefore always built in the right order.
 
-Two models, under **Data & BI → SQL Models**:
+Two models, under **Data engineering → SQL Models**:
 
 ```sql
 -- stg_orders
@@ -326,7 +326,7 @@ does not care which of the two producers wrote its table.
 
 ## Step 5 — Build the dashboard
 
-**Data & BI → BI Workspace → New dashboard**. Nine widgets, and every one of
+**Analysis → BI Workspace → New dashboard**. Nine widgets, and every one of
 them takes its SQL **from the semantic model** rather than hand-written SQL —
 which is what stops the dashboard and the analyst drifting apart later.
 

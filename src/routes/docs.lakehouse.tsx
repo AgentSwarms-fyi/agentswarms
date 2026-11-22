@@ -612,11 +612,11 @@ function LakehouseDocsPage() {
         Both services share a network with the Spark cluster, where pipelines&apos; Python code
         runs, so on either default one pipeline author can read and rewrite every table outside
         every policy. The installers replace the object store&apos;s secret, on an existing install
-        too; the store keeps its data across the change. Observability → Monitoring marks a lake
-        service degraded while the app runs on one. To change the catalog&apos;s, change it inside
-        Postgres first, as <C>docs/LAKEHOUSE.md</C> shows: Postgres keeps the password it was
-        created with. The installers generate it only for a catalog with no data yet, and print
-        those steps for one that already holds data.
+        too; the store keeps its data across the change. Admin → Monitoring marks a lake service
+        degraded while the app runs on one. To change the catalog&apos;s, change it inside Postgres
+        first, as <C>docs/LAKEHOUSE.md</C> shows: Postgres keeps the password it was created with.
+        The installers generate it only for a catalog with no data yet, and print those steps for
+        one that already holds data.
       </Callout>
 
       <H2 id="use-cases">Use cases</H2>

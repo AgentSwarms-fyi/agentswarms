@@ -329,7 +329,7 @@ nobody:
 - **The scheduler sweeps.** Every `VECTOR_INDEX_SYNC_MINUTES` the scheduler
   pass checks every collection on the index and repairs the ones behind, so one
   nobody is querying is caught too. A collection it could not check is a
-  failure in that pass, which Observability → Monitoring shows on the
+  failure in that pass, which Admin → Monitoring shows on the
   scheduler's row.
 - **And if Qdrant does not answer** a search, the same collections are searched
   in Postgres for that request. Keyword-only is left for when Postgres itself

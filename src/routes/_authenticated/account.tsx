@@ -1,3 +1,4 @@
+import { PageEyebrow } from "@/components/PageEyebrow";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
@@ -118,9 +119,7 @@ function AccountPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-6">
       <div>
-        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
-          Settings
-        </p>
+        <PageEyebrow fallback="Settings" />
         <h1 className="font-display text-3xl font-semibold tracking-tight">Account Settings</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Manage your AgentSwarms profile, password, and session.

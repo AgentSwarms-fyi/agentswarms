@@ -252,6 +252,75 @@ function DashboardDoc() {
         it is for. The same list is in search: type <em>new report</em> and press Enter.
       </P>
 
+      <H2 id="menu">The menu, grouped by job</H2>
+      <P>
+        The menu on the left has one group for each kind of work, so the page you want is in the
+        group named for what you came to do. Inside a group the pages are in the order the work
+        goes: under Data engineering you find a table, move it, store it, shape it, run it on a
+        schedule and watch it.
+      </P>
+      <Table
+        headers={["Group", "What it is for", "Pages"]}
+        rows={[
+          ["Overview", "Where things stand, and the handbook", "Dashboard, Documentation"],
+          [
+            "Build",
+            "Make agents and what they work with",
+            "Agent Builder, Knowledge Base, Agent Chat, Agent Swarms, MCP Builder",
+          ],
+          ["Library", "Prompts and skills to reuse", "Prompt Library, Skill Library"],
+          [
+            "Experiment",
+            "Try prompts and models, and score the answers",
+            "Prompt Compare, Evaluations, Image Playground",
+          ],
+          [
+            "Data engineering",
+            "Bring data in, shape it, run it on a schedule, watch it",
+            "Data Catalog, ETL Pipelines, Lakehouse, SQL Models, Workflows, Data monitors",
+          ],
+          [
+            "Analysis",
+            "Say what the data means, then ask it questions",
+            "Semantic Layer, Metrics, Enterprise Ontology, Sheets, AI Analyst, BI Workspace",
+          ],
+          [
+            "Data science",
+            "Train models and write code against your data",
+            "ML Models, Developer workspace",
+          ],
+          [
+            "Integrations",
+            "Connect models, tools and other systems",
+            "Integrations, MCP Servers, AI Model Catalog, Secrets, Web Embedding",
+          ],
+          [
+            "Observability",
+            "See what ran, what it cost and who did what",
+            "Analytics, Traces & Logs, Swarm Traces, AI Budgets, Audit Log",
+          ],
+          [
+            "Admin (superadmins only)",
+            "People, access and the machines this runs on",
+            "IAM, Monitoring, Developer runtime",
+          ],
+        ]}
+      />
+      <P>
+        A group opens and closes when you press its name, and this browser remembers which ones you
+        left open. A closed group shows how many pages it holds, and pointing at it says what it is
+        for. The group holding the page you are on opens by itself and that page is scrolled into
+        view, however you got there; once you scroll the menu yourself it stays where you put it.
+        Each page prints the name of its group above its title.
+      </P>
+      <P>
+        In search, a page named in full goes first, so typing <em>Lakehouse</em> and pressing Enter
+        opens the Lakehouse page even when some of your work mentions a lakehouse. Something of
+        yours with that exact name still comes before the page. A page that has been renamed is
+        still found, and opened the same way, by its old name: the AI Model Catalog, the list of
+        models other people host, was called the Model Registry.
+      </P>
+
       <H2 id="first-run">What to do on a new workspace</H2>
       <P>
         A deployment with nothing built and nothing run gets a different page: an ordered checklist

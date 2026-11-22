@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "@tanstack/react-router";
-import { navItemForPath } from "@/lib/appNav";
+import { ALL_NAV_GROUPS, navItemForPath } from "@/lib/appNav";
 
 const SESSION_STORAGE_KEY = "agentswarms:lastSession";
 // Bump this whenever the payload shape changes. A stored payload with a
@@ -51,7 +51,9 @@ function isExcluded(href: string): boolean {
 // palette use, so this never has its own, second opinion about what a page
 // is called.
 function labelFor(href: string): string {
-  return navItemForPath(href)?.title ?? href.split("?")[0].split("#")[0];
+  // Every group: this names a page the reader was already on, so a
+  // superadmin's page is "Monitoring" here, not "/monitoring".
+  return navItemForPath(href, ALL_NAV_GROUPS)?.title ?? href.split("?")[0].split("#")[0];
 }
 
 /**

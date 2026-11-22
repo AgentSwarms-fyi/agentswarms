@@ -1,4 +1,4 @@
-// Server functions behind Data & BI -> Data monitors: what can be watched,
+// Server functions behind Data engineering -> Data monitors: what can be watched,
 // the monitors and their incidents, create / edit / pause / delete / run now,
 // run history, and acknowledging or resolving an incident by hand.
 //

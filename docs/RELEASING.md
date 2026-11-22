@@ -35,7 +35,7 @@ Installs pick a release by `AGENTSWARMS_VERSION` (R470). Compose, the
 installers and `setup-k8s.sh` all name these images, and with a version set
 they pull them and build nothing. `local` is the tag of a build from a
 checkout, and no release ever publishes it. The app records its release in
-`/app/release.json`, which Observability → Monitoring shows.
+`/app/release.json`, which Admin → Monitoring shows.
 
 ## Cadence
 

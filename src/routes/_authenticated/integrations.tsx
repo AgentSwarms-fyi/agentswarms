@@ -1,3 +1,4 @@
+import { PageEyebrow } from "@/components/PageEyebrow";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -481,9 +482,7 @@ function IntegrationsPage() {
     <div className="flex">
       <div className="flex-1 p-6 space-y-6">
         <div>
-          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
-            Integrations
-          </p>
+          <PageEyebrow />
           <h1 className="font-display text-3xl font-semibold tracking-tight">Integration Hub</h1>
           <p className="text-muted-foreground mt-1">
             Connect your LLM providers, gateways, and workflow tools.

@@ -48,13 +48,13 @@ function BiPage() {
       />
 
       <P>
-        Open <strong>Data &amp; BI → BI Workspace</strong>. Dashboards live in workspaces and
-        folders; each is a grid of resizable widgets you drag into place.
+        Open <strong>Analysis → BI Workspace</strong>. Dashboards live in workspaces and folders;
+        each is a grid of resizable widgets you drag into place.
       </P>
 
       <H2 id="ai-analyst">AI Analyst — conversational analysis</H2>
       <P>
-        <strong>AI Analyst</strong> (under Data &amp; BI) is the dedicated ask-anything surface. An
+        <strong>AI Analyst</strong> (under Analysis) is the dedicated ask-anything surface. An
         analyst is three choices: a <strong>reasoning model</strong> from your connected providers
         (the dialog suggests reasoning families and nudges you when a pick doesn&apos;t look like
         one), <strong>the data</strong> it analyses — local datasets and uploads, one table, or a
@@ -2334,7 +2334,7 @@ ORDER BY dayofweek(ride_date)`}</Code>
         other shape: a fixed page, a flow of blocks down it, and content that continues onto the
         next page when the room runs out — the thing a month-end pack, an invoice or a regulatory
         return has to be, because somebody prints it and the page count matters. Open{" "}
-        <strong>Data &amp; BI → BI Workspace → Reports</strong>.
+        <strong>Analysis → BI Workspace → Reports</strong>.
       </P>
       <P>
         Reports and dashboards share everything below the layout. A report&apos;s chart block{" "}

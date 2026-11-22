@@ -440,8 +440,8 @@ export function SlackTab() {
               </Select>
               {analysts.length === 0 && (
                 <p className="text-[11px] text-amber-600 dark:text-amber-400">
-                  You have no AI Analysts yet — create one in Data &amp; BI → AI Analyst first, or
-                  the command will reply that none is selected.
+                  You have no AI Analysts yet — create one in Analysis → AI Analyst first, or the
+                  command will reply that none is selected.
                 </p>
               )}
             </div>

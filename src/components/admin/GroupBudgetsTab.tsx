@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Loader2, Wallet } from "lucide-react";
 
+import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -177,7 +178,11 @@ export function GroupBudgetsTab({ groups }: { groups: GroupOption[] }) {
           A shared monthly ceiling for everything the group's members spend on AI. Enforcement is
           opt-in per instance (<code className="text-xs">ENFORCE_BUDGET_CAP=1</code>); when on, a
           call is refused if the user's own cap, any of their groups' caps, or the credential's cap
-          is exhausted — whichever binds first.
+          is exhausted — whichever binds first. Each person sets their own cap under{" "}
+          <Link to="/budgets" className="text-primary underline-offset-4 hover:underline">
+            Observability → AI Budgets
+          </Link>
+          .
         </CardDescription>
       </CardHeader>
       <CardContent>

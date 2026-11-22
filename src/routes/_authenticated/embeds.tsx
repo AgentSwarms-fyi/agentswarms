@@ -1,6 +1,7 @@
 // Web Embedding workspace (/embeds): create and manage iframe embeds of
 // chat agents, swarm tasks and BI dashboards. All the machinery lives in
 // EmbedSection — this route gives it a first-class page + sidebar home.
+import { PageEyebrow } from "@/components/PageEyebrow";
 import { createFileRoute } from "@tanstack/react-router";
 import { Code2 } from "lucide-react";
 
@@ -24,9 +25,7 @@ function EmbedsPage() {
   return (
     <div className="max-w-6xl space-y-6 p-6">
       <div>
-        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
-          Integrations
-        </p>
+        <PageEyebrow />
         <h1 className="flex items-center gap-2 font-display text-3xl font-semibold tracking-tight">
           <Code2 className="h-7 w-7 text-primary" /> Web Embedding
         </h1>

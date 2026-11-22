@@ -5,6 +5,7 @@
 // comparable runs. The BATCH is driven from this page: a small concurrent loop
 // of runEvalCase server calls — cancel and resume are therefore natural (the
 // server refuses cases for cancelled runs and skips already-scored ones).
+import { PageEyebrow } from "@/components/PageEyebrow";
 import { formatUsd } from "@/lib/usd";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { createFileRoute } from "@tanstack/react-router";
@@ -243,7 +244,7 @@ function EvaluationsPage() {
     <main className="mx-auto w-full max-w-[1500px] px-4 py-6 md:px-8">
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-widest text-primary">Experiment</p>
+          <PageEyebrow className="mb-0" />
           <h1 className="mt-1 flex items-center gap-2 text-2xl font-semibold tracking-tight">
             <FlaskConical className="h-6 w-6 text-primary" /> Evaluations
           </h1>

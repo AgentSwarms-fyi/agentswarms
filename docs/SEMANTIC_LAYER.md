@@ -679,7 +679,7 @@ say so when reporting — a scoped number must never pass for the global truth.
 
 ## The metric catalog
 
-**Data & BI → Metrics** lists every governed metric you can use, across every
+**Analysis → Metrics** lists every governed metric you can use, across every
 model, and answers the question the layer exists for: _which "revenue" should I
 use, and can I trust it?_ Search covers names, labels, descriptions and
 **synonyms** — a metric called `net_revenue` is findable by typing "bookings",

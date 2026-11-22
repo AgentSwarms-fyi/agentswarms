@@ -1,6 +1,7 @@
-// Data & BI -> Data monitors: standing checks on tables, their incidents and
+// Data engineering -> Data monitors: standing checks on tables, their incidents and
 // their history. A monitor is the question "is this table still right?",
 // asked on a schedule; an incident is the open answer.
+import { PageEyebrow } from "@/components/PageEyebrow";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
@@ -275,9 +276,7 @@ function DataMonitorsPage() {
     <div className="space-y-6 p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
-            Data &amp; BI
-          </p>
+          <PageEyebrow />
           <h1 className="font-display text-3xl font-semibold tracking-tight">Data monitors</h1>
           <p className="mt-1 max-w-2xl text-muted-foreground">
             Standing checks on your tables — freshness, volume against a learned baseline, schema

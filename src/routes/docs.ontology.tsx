@@ -57,7 +57,7 @@ function OntologyDocsPage() {
         through the lakehouse as the person asking.
       </P>
       <P>
-        Find it under <strong>Data &amp; BI → Enterprise Ontology</strong>. Start from the{" "}
+        Find it under <strong>Analysis → Enterprise Ontology</strong>. Start from the{" "}
         <strong>Northwind Outfitters</strong> sample (six tables and a full model, created in one
         click), draft a model from tables you already have, import Apache Ossie documents, or start
         blank.

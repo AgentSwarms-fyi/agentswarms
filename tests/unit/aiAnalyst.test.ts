@@ -368,22 +368,25 @@ describe("the wiring (real nav, source guards)", () => {
   it("AI Analyst leads the pages that CONSUME data, after the ones that make it", () => {
     // This used to pin AI Analyst as the first item in the group, on the
     // reasoning that asking a question is what most people open the app to
-    // do. Data & BI now reads in the order data moves — find it, move it,
-    // store it, shape it, define it, then use it — because eleven items in
-    // an arbitrary order is a list you search rather than read.
+    // do. The data pages then read in the order data moves — find it, move
+    // it, store it, shape it, define it, then use it — because items in an
+    // arbitrary order are a list you search rather than read. That list has
+    // since been split by job, and the Analyst sits in Analysis.
     //
-    // What survives that change is the part worth pinning: of everything
-    // that consumes the data, the Analyst comes first.
-    const dataBi = NAV_GROUPS.find((g) => g.label === "Data & BI");
-    expect(dataBi).toBeDefined();
-    const titles = dataBi!.items.map((i) => i.title);
+    // What survives both changes is the part worth pinning: of the pages
+    // that put questions to the data, the Analyst comes before the
+    // dashboards, and after the layer that gives it its vocabulary.
+    const analysis = NAV_GROUPS.find((g) => g.label === "Analysis");
+    expect(analysis).toBeDefined();
+    const titles = analysis!.items.map((i) => i.title);
     const analyst = titles.indexOf("AI Analyst");
-    expect(dataBi!.items[analyst].url).toBe("/ai-analyst");
-    for (const consumer of ["BI Workspace", "ML Models"]) {
-      expect(analyst, consumer).toBeLessThan(titles.indexOf(consumer));
-    }
-    // And it still comes after the layer that gives it its vocabulary.
+    expect(analysis!.items[analyst].url).toBe("/ai-analyst");
+    expect(analyst).toBeLessThan(titles.indexOf("BI Workspace"));
     expect(analyst).toBeGreaterThan(titles.indexOf("Semantic Layer"));
+    // Training a model is another job, in a group that comes after this one.
+    const labels = NAV_GROUPS.map((g) => g.label);
+    const ml = NAV_GROUPS.find((g) => g.items.some((i) => i.title === "ML Models"));
+    expect(labels.indexOf("Analysis")).toBeLessThan(labels.indexOf(ml!.label));
   });
 
   it("the page runs the real loop and stores TRIMMED turns", () => {

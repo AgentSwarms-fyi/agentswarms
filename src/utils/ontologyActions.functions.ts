@@ -1,4 +1,4 @@
-// Server functions behind Data & BI -> Enterprise Ontology: actions.
+// Server functions behind Analysis -> Enterprise Ontology: actions.
 //
 // Requesting an action on an object, deciding a proposed one, and the log of
 // every change. The rules live in src/utils/ontology/actions.server.ts, which

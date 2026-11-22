@@ -1561,7 +1561,7 @@ kubectl -n agentswarms exec deploy/agentswarms-web -- wget -qO- localhost:8080/a
 
 6. **`PUBLIC_APP_URL` matches the hostname people type.** Invitations,
    embeds and OAuth callbacks are built from it.
-7. **The lakehouse can write.** Sign in, open **Data & BI → Lakehouse**, and
+7. **The lakehouse can write.** Sign in, open **Data engineering → Lakehouse**, and
    run `CREATE SCHEMA IF NOT EXISTS smoke; CREATE TABLE smoke.t AS SELECT 1 AS n;`
    — this exercises the catalog Postgres and the object store together, which
    is the pair most likely to be misconfigured.
@@ -1979,7 +1979,7 @@ one pass runs at a time (extra callers get `{"skipped": true}`).
     -H "Authorization: Bearer $BI_CRON_TOKEN"
   ```
 
-- **Model Registry refresh (optional, e.g. weekly):** the same token lets a
+- **AI Model Catalog refresh (optional, e.g. weekly):** the same token lets a
   scheduler pull the AIMLAPI catalogue. Only that token or a superadmin's session
   is accepted, and at most `MODEL_REGISTRY_SYNC_PER_MIN` (default 2) run a
   minute:
@@ -2849,12 +2849,12 @@ the same `.env` works whether you run the app in Compose or with `npm run dev`
 browser build, producing a file identical to Fast. The UI disables the Deep
 option and states the reason rather than leaving a control that does nothing.
 
-### Checking what is running (Observability → Monitoring)
+### Checking what is running (Admin → Monitoring)
 
 Every service below is started by every install, which makes "is this
 deployment complete?" a question with a checkable answer rather than a
 matter of which pieces you chose. The
-in-app **Observability → Monitoring** page answers it: one row per service
+in-app **Admin → Monitoring** page answers it: one row per service
 with its status, response time and the address that answered, plus live CPU,
 memory and disk for the machine running the app.
 
@@ -2999,7 +2999,7 @@ busy with an image build or pull on the same host, where `/_ping` took 13 s
 minute later succeeds); and the proxy's HAProxy wedging, where it logged
 `ha_stuck_warning` and answered nothing on either address while `docker ps`
 still said `Up`. The compose service carries a health check, so a wedge
-shows as `unhealthy` in `docker compose ps` and on Observability →
+shows as `unhealthy` in `docker compose ps` and on Admin →
 Monitoring; the fix is a restart:
 
 ```bash
@@ -3048,7 +3048,7 @@ docker compose pull && docker compose up -d --no-build
 ```
 
 Never add `--build` while a version is set: that builds the checkout and tags
-it as the release. Observability → Monitoring says which release each
+it as the release. Admin → Monitoring says which release each
 instance runs, or "built from source".
 
 **Roll back one release:** set the previous version in `.env` and run the
@@ -3147,7 +3147,7 @@ are absent (a value already there, `VECTOR_STORE="pgvector"` included, is
 kept), and the app then copies the existing vectors from Postgres into Qdrant
 by itself, searching Postgres until it has (R417; see
 [KNOWLEDGE_BASES.md](./KNOWLEDGE_BASES.md#the-index-keeps-itself-in-step)).
-Observability → Monitoring flags an install that is still unwired.
+Admin → Monitoring flags an install that is still unwired.
 
 **Rebuild everything, not just the app.** Several things the app orchestrates
 run inside OTHER images built by the same compose file — notably the

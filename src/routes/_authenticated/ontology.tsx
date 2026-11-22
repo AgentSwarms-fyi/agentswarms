@@ -1,4 +1,4 @@
-// Data & BI -> Enterprise Ontology: the gallery.
+// Analysis -> Enterprise Ontology: the gallery.
 //
 // An ontology describes the business in its own words — Customers, Orders,
 // Shipments, how they connect, what is measured, what must hold true and
@@ -8,6 +8,7 @@
 // ones four ways: the sample (one click, real tables), a draft from tables
 // (measured, optionally described by AI), an import (Apache Ossie or JSON),
 // or a blank model. The workspace is ontology_.$ontologyId.
+import { PageEyebrow } from "@/components/PageEyebrow";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
@@ -165,9 +166,7 @@ function OntologyGallery() {
     <div className="mx-auto w-full max-w-[1600px] space-y-8 p-4 sm:p-6 lg:p-8">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
-            Data &amp; BI
-          </p>
+          <PageEyebrow />
           <h1 className="font-display text-3xl font-semibold tracking-tight">
             Enterprise Ontology
           </h1>

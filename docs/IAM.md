@@ -123,7 +123,7 @@ It manages:
   policies, and the headless execution paths (swarms, schedulers, embeds)
   re-derive the same grant set explicitly rather than trusting the caller.
   The deliberate exceptions are the public demo samples and public metadata
-  (profiles, the model registry).
+  (profiles, the AI model catalog).
 
 - **Settings** — flip the instance to **invite-only**: public self-signup
   (including OAuth) is rejected at the database level, while invited,

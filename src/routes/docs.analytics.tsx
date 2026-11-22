@@ -234,10 +234,10 @@ function AnalyticsDoc() {
 
       <H2 id="monitoring">Service monitoring</H2>
       <P>
-        <strong>Observability → Monitoring</strong> answers the operator&rsquo;s question rather
-        than the analyst&rsquo;s: is every piece of this deployment actually running, and what is
-        the machine doing right now? It is superadmin-only, because it reports hostnames, container
-        limits and which internal services exist.
+        <strong>Admin → Monitoring</strong> answers the operator&rsquo;s question rather than the
+        analyst&rsquo;s: is every piece of this deployment actually running, and what is the machine
+        doing right now? It is superadmin-only, because it reports hostnames, container limits and
+        which internal services exist.
       </P>
       <Table
         headers={["Panel", "What it shows"]}

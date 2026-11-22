@@ -18,6 +18,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { isSidebarShortcut } from "@/lib/sidebarShortcut";
+import { menuButton } from "@/lib/menuButton";
 
 const SIDEBAR_STATE_STORAGE_KEY = "sidebar:state";
 const SIDEBAR_WIDTH_STORAGE_KEY = "sidebar:width";
@@ -341,8 +342,12 @@ const SidebarTrigger = React.forwardRef<
   React.ElementRef<typeof Button>,
   React.ComponentProps<typeof Button>
 >(({ className, onClick, ...props }, ref) => {
-  const { toggleSidebar, state } = useSidebar();
-  const expanded = state === "expanded";
+  const { toggleSidebar, state, isMobile, openMobile } = useSidebar();
+  const { expanded, label } = menuButton({
+    isMobile,
+    openMobile,
+    railExpanded: state === "expanded",
+  });
 
   return (
     <Button
@@ -351,7 +356,7 @@ const SidebarTrigger = React.forwardRef<
       variant="ghost"
       size="icon"
       aria-expanded={expanded}
-      aria-label={expanded ? "Collapse sidebar" : "Expand sidebar"}
+      aria-label={label}
       className={cn("h-7 w-7", className)}
       onClick={(event) => {
         onClick?.(event);

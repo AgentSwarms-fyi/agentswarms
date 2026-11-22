@@ -12,7 +12,7 @@ IAM, audited by trigger, with a decision id and a passport.
 
 ## What it is
 
-- **Registry** — `ML Models` under **Data & BI**: every model you own or were
+- **Registry** — `ML Models` under **Data science**: every model you own or were
   granted, its production version's headline metric, what it predicts from,
   and whether something is training right now.
 - **Training** — a four-step wizard (data, goal, options, review) drives a

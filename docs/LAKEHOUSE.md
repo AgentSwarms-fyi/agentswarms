@@ -142,7 +142,7 @@ store's `LAKEHOUSE_S3_SECRET` (`agentswarms-lake-dev`, the bundled store's
 **root** password) and the catalog's `change-me`. Both services share the
 Compose network with `spark-connect`, where Spark pipelines' Python UDFs run.
 On either default, one pipeline author can read and rewrite every table,
-outside every policy (VA-44). Observability → Monitoring marks a lake service
+outside every policy (VA-44). Admin → Monitoring marks a lake service
 running on one as degraded.
 
 **The object store.** The installers replace the default secret, on an existing

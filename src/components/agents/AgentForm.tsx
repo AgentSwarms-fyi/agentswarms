@@ -150,7 +150,7 @@ const BUILT_IN_TOOLS: BuiltInTool[] = [
     id: "data_health",
     name: "Data health",
     description:
-      "Answer whether a table is fresh, complete and trustworthy from your data monitors and their open incidents (Data & BI → Data monitors).",
+      "Answer whether a table is fresh, complete and trustworthy from your data monitors and their open incidents (Data engineering → Data monitors).",
     icon: HeartPulse,
     category: "data",
     requiresConfig: false,

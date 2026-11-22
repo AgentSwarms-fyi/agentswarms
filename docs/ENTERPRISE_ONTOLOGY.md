@@ -3,7 +3,7 @@
 > Part of the [AgentSwarms docs](../README.md#documentation).
 
 The business described once — the things it deals in, how they connect, what is measured, what
-must hold true and what may be changed — on top of lakehouse tables. Find it under **Data & BI →
+must hold true and what may be changed — on top of lakehouse tables. Find it under **Analysis →
 Enterprise Ontology**; the in-app reference is at `/docs/ontology`.
 
 **New to it?** [ONTOLOGY_GUIDE.md](./ONTOLOGY_GUIDE.md) explains what an ontology is, walks through

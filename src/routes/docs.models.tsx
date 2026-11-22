@@ -21,7 +21,7 @@ export const Route = createFileRoute("/docs/models")({
       {
         name: "description",
         content:
-          "Connect your own model providers, understand BYOK, curate the model registry, and choose the right model for each job.",
+          "Connect your own model providers, understand BYOK, curate the AI model catalog, and choose the right model for each job.",
       },
       { property: "og:title", content: "Models & providers — AgentSwarms Documentation" },
       {
@@ -301,12 +301,12 @@ vllm      http://vllm.internal:8000/v1`}</Code>
         anything sensitive apart if your users are not all trusted.
       </Callout>
 
-      <H2 id="registry">Model registry</H2>
+      <H2 id="registry">AI model catalog</H2>
       <P>
-        <strong>Integrations → Model Registry</strong> curates which models appear in pickers across
-        the app. Left alone, every model your connected providers expose is offered — which is
-        rarely what you want on a shared instance, where a handful of sensible defaults beats a list
-        of two hundred.
+        <strong>Integrations → AI Model Catalog</strong> curates which models appear in pickers
+        across the app. Left alone, every model your connected providers expose is offered — which
+        is rarely what you want on a shared instance, where a handful of sensible defaults beats a
+        list of two hundred.
       </P>
       <UL>
         <li>Enable or hide models per provider.</li>

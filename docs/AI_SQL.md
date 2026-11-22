@@ -6,7 +6,7 @@ summarize, translate, filter rows by a condition a formula cannot express,
 or ask anything. They work where a `lower()` works — a SELECT list, a WHERE,
 a CREATE TABLE AS — and every call goes through the platform's own model
 channel, so the model rules in IAM, the budget, the trace and the cost
-accounting apply per call. Find them under **Data & BI → Lakehouse → Query**,
+accounting apply per call. Find them under **Data engineering → Lakehouse → Query**,
 behind the **AI functions** button beside the editor.
 
 ## The functions
@@ -73,7 +73,7 @@ The result line under the editor shows what a statement cost: `12 AI calls ·
 
 ## In Data Prep
 
-The same functions are a step in **Data & BI → BI Workspace → Data
+The same functions are a step in **Analysis → BI Workspace → Data
 preparation**: add an
 **AI column**, pick what the model does, the column it reads (or, for a free
 prompt, write the prompt with `{column}` placeholders), name the output and

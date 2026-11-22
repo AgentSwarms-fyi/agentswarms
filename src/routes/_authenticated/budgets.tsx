@@ -1,4 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { PageEyebrow } from "@/components/PageEyebrow";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { loadBudgetData } from "@/lib/budgetLoad";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -24,6 +25,7 @@ import { Bell, AlertTriangle, DollarSign } from "lucide-react";
 import { monthStartIso, mySpendSince } from "@/lib/budgetSpendClient";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { useIsSuperadmin } from "@/hooks/use-iam";
 import { toast } from "sonner";
 
 import { fieldsLeft, makePatchWriter, typedAmount, type PatchWriter } from "@/lib/latestWrite";
@@ -109,6 +111,9 @@ const THRESHOLD_PRESETS = [
 
 function BudgetsPage() {
   const { user } = useAuth();
+  // Only a superadmin can open the group budgets; for everyone else the path
+  // is named, not linked.
+  const isSuperadmin = useIsSuperadmin();
   const [budget, setBudget] = useState<Budget | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [limits, setLimits] = useState<Record<string, AgentLimit>>({});
@@ -298,12 +303,29 @@ function BudgetsPage() {
   return (
     <div className="p-6 space-y-6 max-w-5xl">
       <div>
-        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
-          Observability
-        </p>
+        <PageEyebrow />
         <h1 className="font-display text-3xl font-semibold tracking-tight">Budgets & Guardrails</h1>
         <p className="text-muted-foreground mt-1">
           Set spend caps and automated guardrails for your agent fleet.
+        </p>
+        {/* Three budgets can stop a call and only one of them is on this page.
+            Saying where the other two are is what keeps this from reading as
+            the whole story, and the other screens from reading as copies. */}
+        <p className="mt-2 max-w-3xl text-xs text-muted-foreground">
+          Up to three budgets apply to a call, and the strictest wins: yours, set here; a shared
+          ceiling for each group you belong to, set by an administrator in{" "}
+          {isSuperadmin ? (
+            <Link
+              to="/admin/iam"
+              search={{ tab: "budgets" }}
+              className="text-primary underline-offset-4 hover:underline"
+            >
+              Admin → IAM → Budgets
+            </Link>
+          ) : (
+            "Admin → IAM → Budgets"
+          )}
+          ; and a cap on the key or embed that made the call, set where that key is created.
         </p>
       </div>
 
