@@ -103,6 +103,10 @@ export type CatalogColumn = {
   type: string;
   sample?: string;
   pii?: boolean;
+  /** What personal data it looks like it holds (R521), when `pii`. */
+  pii_kind?: string;
+  /** How that is known: from sampled values where the crawl profiled the table, else its name. */
+  pii_evidence?: string;
   /** Curation/AI documentation — preserved across re-crawls. */
   description?: string;
   /** Owner-written tags, merged forward from the previous crawl. */
@@ -170,25 +174,32 @@ export type CrawlStats = {
   note?: string;
 };
 
-// ── PII classification (column-name heuristics) ──────────────────────────
+// ── PII classification ───────────────────────────────────────────────────
 
 // The heuristic itself lives in lib/piiHeuristic so the catalog UI and this
-// crawler cannot drift apart; this file used to carry its own copy.
+// crawler cannot drift apart; this file used to carry its own copy. Since
+// R521 a table the crawl profiles is classified again from its sampled
+// values (lib/sensitiveData), which overrule the name where they can.
 import { isPiiColumnName } from "@/lib/piiHeuristic";
+import { classifyColumn } from "@/lib/sensitiveData";
 
 export const isPiiColumn = isPiiColumnName;
+
+/** A column with its personal-data finding set, or cleared when there is none. */
+function withFinding<C extends CatalogColumn>(c: C, values: readonly unknown[]): C {
+  const f = classifyColumn(c.name, values);
+  const { pii: _p, pii_kind: _k, pii_evidence: _e, ...rest } = c;
+  return f
+    ? { ...(rest as C), pii: true, pii_kind: f.kind, pii_evidence: f.evidence }
+    : (rest as C);
+}
 
 function classify(columns: { name: string; type: string; sample?: string }[]): {
   columns: CatalogColumn[];
   pii: boolean;
 } {
-  let pii = false;
-  const out = columns.map((c) => {
-    const hit = isPiiColumn(c.name);
-    if (hit) pii = true;
-    return hit ? { ...c, pii: true } : { ...c };
-  });
-  return { columns: out, pii };
+  const out = columns.map((c) => withFinding<CatalogColumn>({ ...c }, []));
+  return { columns: out, pii: out.some((c) => c.pii) };
 }
 
 // ── Warehouse crawling ───────────────────────────────────────────────────
@@ -413,16 +424,23 @@ export async function crawlWarehouse(
       );
       if (res.rows.length === 0) continue;
       const byLower = new Map(Object.keys(res.rows[0]).map((k) => [k.toLowerCase(), k]));
-      for (const col of asset.columns) {
-        const key = byLower.get(col.name.toLowerCase());
-        if (!key) continue;
+      asset.columns = asset.columns.map((c) => {
+        const key = byLower.get(c.name.toLowerCase());
+        if (!key) return c;
         const stats = computeColumnStats(res.rows, key);
+        // The values just read decide what the column holds (R521).
+        const col = withFinding(
+          c,
+          res.rows.map((r) => r[key]),
+        );
         col.sample = stats.sample;
         col.null_pct = stats.null_pct;
         col.distinct_count = stats.distinct_count;
         if (stats.min !== undefined) col.min = stats.min;
         if (stats.max !== undefined) col.max = stats.max;
-      }
+        return col;
+      });
+      asset.pii = asset.columns.some((c) => c.pii);
       sampled++;
     } catch {
       // Profiling is best-effort — schema metadata alone is a valid crawl.

@@ -15,6 +15,54 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-22 — R521: personal data, found from what a column holds
+
+Driven on a dev server built from the worktree (`:8102`), signed in as the owner, at 800 × 418,
+against the real database, in a fronted tab. Fixtures: a 30-row dataset uploaded through **New →
+Dataset** (`r521_personal_test`: `contact` addresses, `+1 415 555 01nn` phones, first names, a
+numeric `email_campaign_id`, regions, and notes of which 3 mention an address; every value an
+`@example.com` or 555 fake) and a share of it to the second account through Admin → IAM → Access.
+Before the test there were no dataset shares in the database, so the sweep could touch nothing else.
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| Dataset page, Overview | the Personal data block, unshared | contact "30 of 30 values are email addresses", phone "30 of 30 values are phone numbers", first_name "Its name suggests people's names", notes "3 of 30 values mention an email address"; `email_campaign_id` (numbers) and `customer_id`, `region` not flagged. Every row ended "Only you can read it." — said four times, now said once under the list |
+| Dataset page, Columns | the table | a Personal data column: "email addresses / from its values", "phone numbers / from its name and values", "people's names / from its name"; blank for the rest |
+| Admin → IAM → Access | share to the second account, no filter, no hidden columns | listed; the dataset page then read "Readable by 1 of 1 grant." on all four and offered **Hide from shares…** |
+| Hide from shares… | untick first_name and notes, **Hide 2 columns** | contact and phone "Hidden from every grant."; Access tab "Every row. Hidden columns: contact, phone."; the dialog said "the grant that share" (fixed: "shares") |
+| The scheduler's pass | the bell's call to `/api/bi/cron` after a reload | the first two calls skipped (the 8080 scheduler held the lease); the next ran with no errors and filed one suggestion |
+| Approvals inbox | the suggestion | "r521_personal_test · suggested", an icon not a robot, "Hide personal data in r521_personal_test from its shares", only first_name and notes with their evidence, "the one grant that shares it", **Open the dataset** |
+| Approvals inbox | **Approve** | left the list at once (212 → 211); "Hidden in r521_personal_test: first_name, notes are hidden from 1 grant. You still see them."; the page then read "Hidden from every grant." on all four and the button was gone; IAM's list showed "4 hidden" |
+| The bell | the notification | "Personal data in r521_personal_test is shared", naming both columns and what they hold |
+| Read back (read-only SQL) | approvals, grants, audit | the approval `approved` with `resumed_at` set (carried out once); audit `dataset.columns.hidden` (the button), `dataset.columns.hide_suggested`, `dataset.columns.hidden` (the approval) |
+
+Cleaned up: the share removed in IAM, the dataset deleted from its page, and the test's approval
+row and notification deleted by id with the owner's session. The three audit rows stay.
+
+**Not driven:** the view of the person it is shared with (that account is not signed in on a
+second origin here; the hidden columns are the existing masked-share enforcement, driven with that
+account in R492); **Reject** in the inbox (the sweep asks at most every six hours per process; a
+rejection's "not asked again" is held by `tests/unit/sensitiveShares.test.ts`); the catalog crawl's
+value classification on a real warehouse (held by
+`tests/unit/catalogCrawlPersonalData.test.ts` against a stand-in warehouse).
+
+**Found on the way:** signed-in pages with no title of their own show "AgentSwarms — Lab" in the
+browser tab (the IAM page, about 21 others); filed as a separate task.
+
+**On the 8080 image rebuilt with R521** (2026-11-22), owner, on a real synced contacts table
+(`sftest_contacts`, 20 rows, 65 columns, not shared): 17 columns found — names and postal
+addresses by their names, `Phone` "18 of 18 values are phone numbers", `Email` "16 of 18 values
+are email addresses". Three things were wrong, all fixed and checked again on the dev server:
+
+| Found | Why | Now |
+| --- | --- | --- |
+| `IsEmailBounced` (all false) listed as email addresses | true and false were not counted as values, so nothing overruled the name | counted; the flag is not listed |
+| `HomePhone`, `EmailBouncedReason`, `EmailBouncedDate` flagged by name with nothing in them | the finding did not say that no value was seen | "…; none of the 20 rows read has a value in it." |
+| "1 of 1 value is phone numbers." | the plural label was used for one value | "1 of 1 value is a phone number." |
+
+The approvals inbox there reads "What is waiting for your yes or no: an agent's step, a model
+going into production, a suggestion about your data." and agent steps still say "paused".
+
 ## 2026-11-22 — R520: Runs, and a page change in a hidden tab
 
 Driven on a dev server built from the worktree (`:8102`), signed in as the owner, at

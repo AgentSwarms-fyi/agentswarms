@@ -4,6 +4,9 @@ import { resumeApprovedSwarmRun } from "@/utils/swarmResume.functions";
 import { OPEN_APPROVALS_EVENT, approvalsToAnnounce } from "@/lib/approvalsInbox";
 import { useLiveRows } from "@/hooks/use-live-rows";
 import { mlApplyApprovedPromotion } from "@/utils/ml.functions";
+import { applyApprovedColumnHideFn } from "@/utils/sensitiveData.functions";
+import { HIDE_COLUMNS_ACTION, suggestedColumns, suggestedDatasetId } from "@/lib/sensitiveData";
+import { Link } from "@tanstack/react-router";
 import {
   Inbox,
   CheckCircle2,
@@ -12,6 +15,8 @@ import {
   ShieldAlert,
   Webhook,
   Database,
+  EyeOff,
+  Rocket,
   Terminal,
   Globe,
 } from "lucide-react";
@@ -60,7 +65,25 @@ const ACTION_ICON: Record<string, LucideIcon> = {
   mcp_tool: Database,
   shell_command: Terminal,
   external_api: Globe,
+  "ml.promote": Rocket,
+  [HIDE_COLUMNS_ACTION]: EyeOff,
 };
+
+/**
+ * What kind of waiting this is. Only an agent's step is a run that paused; a
+ * model promotion is a person asking, and a suggestion about a dataset is the
+ * platform pointing something out. Calling all three "paused" made the last
+ * two read as something stuck.
+ */
+function waitingWord(actionType: string): string {
+  if (actionType === "ml.promote") return "asked";
+  if (actionType === HIDE_COLUMNS_ACTION) return "suggested";
+  return "paused";
+}
+
+/** Raised by an agent (it has a face) rather than by the platform itself. */
+const fromAnAgent = (actionType: string) =>
+  actionType !== "ml.promote" && actionType !== HIDE_COLUMNS_ACTION;
 
 const RISK_COLORS: Record<string, string> = {
   low: "bg-blue-500/10 text-blue-400 border-blue-500/30",
@@ -83,6 +106,7 @@ export function ApprovalInbox() {
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const resumeRunFn = useServerFn(resumeApprovedSwarmRun);
   const applyPromotionFn = useServerFn(mlApplyApprovedPromotion);
+  const applyHideFn = useServerFn(applyApprovedColumnHideFn);
   const [open, setOpen] = useState(false);
   const [pulse, setPulse] = useState(false);
   const seenIdsRef = useRef<Set<string>>(new Set());
@@ -125,8 +149,9 @@ export function ApprovalInbox() {
 
     const announce = (ap: Approval) => {
       const Icon = ACTION_ICON[ap.action_type] ?? Globe;
-      toast(`${ap.agent_name} needs your approval`, {
-        description: ap.action_title,
+      const hide = ap.action_type === HIDE_COLUMNS_ACTION;
+      toast(hide ? ap.action_title : `${ap.agent_name} needs your approval`, {
+        description: hide ? "A suggestion, waiting for your yes or no." : ap.action_title,
         icon: <Icon className="h-4 w-4 text-primary" />,
         duration: 10000,
         action: {
@@ -201,6 +226,38 @@ export function ApprovalInbox() {
       });
       return;
     }
+    // Decided: it leaves the list now, not when the next refresh comes round.
+    setApprovals((list) => list.filter((a) => a.id !== id));
+    // A suggestion to hide a dataset's columns: the server carries it out, and
+    // the message says what it did, not what was asked.
+    if (item?.action_type === HIDE_COLUMNS_ACTION) {
+      if (status === "rejected") {
+        toast(`Kept as it is: ${item.agent_name}`, {
+          description:
+            "Its shares still read those columns. You will not be asked about them again.",
+        });
+        return;
+      }
+      try {
+        const res = await applyHideFn({ data: { approvalId: id } });
+        if (res.ok) {
+          toast.success(`Hidden in ${item.agent_name}`, {
+            description:
+              res.changed === 0
+                ? "Every grant already hid those columns."
+                : `${res.columns.join(", ")} ${res.columns.length === 1 ? "is" : "are"} hidden from ${res.changed} grant${res.changed === 1 ? "" : "s"}. You still see ${res.columns.length === 1 ? "it" : "them"}.`,
+          });
+        } else {
+          toast.warning("Decision saved, but nothing was hidden", { description: res.error });
+        }
+      } catch (e) {
+        toast.warning("Decision saved, but nothing was hidden", {
+          description: (e as Error).message,
+        });
+      }
+      return;
+    }
+
     // A model promotion is not an agent resuming, and saying so would be the
     // kind of small lie that makes a reader distrust the rest of the sentence.
     const isPromotion = item?.action_type === "ml.promote";
@@ -308,7 +365,8 @@ export function ApprovalInbox() {
             )}
           </SheetTitle>
           <SheetDescription className="text-xs">
-            Agents pause here when they request a high-impact action. Live-synced from your backend.
+            What is waiting for your yes or no: an agent's step, a model going into production, a
+            suggestion about your data.
           </SheetDescription>
         </SheetHeader>
 
@@ -317,12 +375,14 @@ export function ApprovalInbox() {
             <div className="flex flex-col items-center justify-center py-20 text-center px-4">
               <CheckCircle2 className="h-12 w-12 text-muted-foreground/30 mb-3" />
               <p className="text-sm font-medium">All caught up</p>
-              <p className="text-xs text-muted-foreground mt-1">No agents waiting for approval.</p>
+              <p className="text-xs text-muted-foreground mt-1">Nothing is waiting for you.</p>
             </div>
           ) : (
             <div className="p-4 space-y-3">
               {approvals.map((ap) => {
                 const Icon = ACTION_ICON[ap.action_type] ?? Globe;
+                const columns =
+                  ap.action_type === HIDE_COLUMNS_ACTION ? suggestedColumns(ap.payload) : [];
                 return (
                   <div
                     key={ap.id}
@@ -331,11 +391,17 @@ export function ApprovalInbox() {
                     <div className="p-3 space-y-2">
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center gap-2 min-w-0">
-                          <span className="text-lg">{ap.agent_avatar ?? "🤖"}</span>
+                          {fromAnAgent(ap.action_type) ? (
+                            <span className="text-lg">{ap.agent_avatar ?? "🤖"}</span>
+                          ) : (
+                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-muted/40">
+                              <Icon className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+                            </span>
+                          )}
                           <div className="min-w-0">
                             <p className="text-sm font-medium truncate">{ap.agent_name}</p>
                             <p className="text-[11px] text-muted-foreground">
-                              paused · {timeAgo(ap.created_at)}
+                              {waitingWord(ap.action_type)} · {timeAgo(ap.created_at)}
                             </p>
                           </div>
                         </div>
@@ -377,14 +443,37 @@ export function ApprovalInbox() {
                         </div>
                       </div>
 
-                      <details className="group">
-                        <summary className="text-[11px] text-muted-foreground cursor-pointer hover:text-foreground select-none">
-                          View payload
-                        </summary>
-                        <pre className="mt-1 max-w-full rounded-md bg-background border border-border/50 p-2 text-[10px] leading-relaxed whitespace-pre-wrap break-all font-mono text-muted-foreground">
-                          {JSON.stringify(ap.payload, null, 2)}
-                        </pre>
-                      </details>
+                      {columns.length > 0 ? (
+                        <div className="space-y-1.5">
+                          <ul className="space-y-1 text-xs" aria-label="Columns it would hide">
+                            {columns.map((c) => (
+                              <li key={c.column} className="leading-5">
+                                <span className="font-medium">{c.column}</span>{" "}
+                                <span className="text-muted-foreground">— {c.evidence}</span>
+                              </li>
+                            ))}
+                          </ul>
+                          {suggestedDatasetId(ap.payload) && (
+                            <Link
+                              to="/data-sql/$datasetId"
+                              params={{ datasetId: suggestedDatasetId(ap.payload)! }}
+                              onClick={() => setOpen(false)}
+                              className="inline-block text-xs text-primary underline-offset-2 hover:underline"
+                            >
+                              Open the dataset
+                            </Link>
+                          )}
+                        </div>
+                      ) : (
+                        <details className="group">
+                          <summary className="text-[11px] text-muted-foreground cursor-pointer hover:text-foreground select-none">
+                            View payload
+                          </summary>
+                          <pre className="mt-1 max-w-full rounded-md bg-background border border-border/50 p-2 text-[10px] leading-relaxed whitespace-pre-wrap break-all font-mono text-muted-foreground">
+                            {JSON.stringify(ap.payload, null, 2)}
+                          </pre>
+                        </details>
+                      )}
                     </div>
 
                     <div className="flex border-t border-border">

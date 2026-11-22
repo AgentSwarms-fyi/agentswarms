@@ -1409,6 +1409,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "calculator",
       "catalog",
       "cluster_identifier",
+      "contact",
       "created",
       "customers",
       "data/orders.parquet",
@@ -1417,6 +1418,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "db_user",
       "disable",
       "dt",
+      "email_campaign_id",
       "hive.metastore.uris",
       "host",
       "https://abc.clickhouse.cloud:8443",
@@ -1529,6 +1531,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "dataset-page",
         "text": "A dataset's page",
         "level": 2
+      },
+      {
+        "id": "personal-data",
+        "text": "Personal data",
+        "level": 3
       },
       {
         "id": "workbench",

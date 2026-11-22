@@ -25,10 +25,12 @@ import {
   OriginBlock,
   SampleTable,
   SchemaChanges,
+  SensitiveBlock,
   TrustSummary,
   UsageBlock,
   type AccessGrant,
 } from "@/components/dataset/DatasetSections";
+import { HideColumnsDialog } from "@/components/dataset/HideColumnsDialog";
 import { PageHeader, TitleCount } from "@/components/PageHeader";
 import { StarButton } from "@/components/StarButton";
 import { Button } from "@/components/ui/button";
@@ -51,6 +53,7 @@ import {
   type SchemaChange,
 } from "@/lib/datasetPage";
 import { datasetWindow } from "@/lib/datasetRowReads";
+import { findSensitiveColumns, readersOf } from "@/lib/sensitiveData";
 import { isMissingFunction, readSharedDatasets } from "@/lib/sharedDatasetList";
 import { deleteDataset } from "@/lib/sqlEngine";
 import { datasetDependents } from "@/utils/dataPrep.functions";
@@ -134,6 +137,7 @@ function DatasetPage() {
   const [grantsError, setGrantsError] = useState<string | null>(null);
   const [connectionName, setConnectionName] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<{ id: string; name: string } | null>(null);
+  const [hiding, setHiding] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
   useRecordOpened("dataset", loaded.state === "ok" ? loaded.row.id : null);
@@ -290,10 +294,18 @@ function DatasetPage() {
         .catch(() => undefined);
     }
     setGrants(null);
+    readGrants(id, () => alive);
+    return () => {
+      alive = false;
+    };
+  }, [ok?.row.id, ok?.role, signedIn, reloadKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** The owner's grants, read again after columns are hidden from them. */
+  function readGrants(id: string, alive: () => boolean = () => true) {
     setGrantsMissing(false);
     setGrantsError(null);
     void supabase.rpc("dataset_access", { p_dataset_id: id }).then(({ data, error }) => {
-      if (!alive) return;
+      if (!alive()) return;
       if (error) {
         if (isMissingFunction(error)) setGrantsMissing(true);
         else setGrantsError(error.message);
@@ -301,10 +313,7 @@ function DatasetPage() {
       }
       setGrants((data ?? []) as AccessGrant[]);
     });
-    return () => {
-      alive = false;
-    };
-  }, [ok?.row.id, ok?.role, signedIn, reloadKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }
 
   const columnNames = useMemo(() => {
     if (!ok) return [];
@@ -323,6 +332,21 @@ function DatasetPage() {
   const profiles = useMemo(
     () => (rows ? profileColumns(rows, columnNames, types) : []),
     [rows, columnNames, types],
+  );
+  // From the same sample: a grantee's rows carry only what their grant shows.
+  const findings = useMemo(
+    () => (rows ? findSensitiveColumns(rows, columnNames) : []),
+    [rows, columnNames],
+  );
+  const exposed = useMemo(
+    () =>
+      grants
+        ? readersOf(
+            findings,
+            grants.map((g) => g.column_mask),
+          ).filter((r) => r.readers > 0)
+        : [],
+    [findings, grants],
   );
   const origins = useMemo(
     () =>
@@ -471,6 +495,15 @@ function DatasetPage() {
 
         <TabsContent value="overview" className="space-y-4">
           {trust && <TrustSummary trust={trust} />}
+          {rows && (
+            <SensitiveBlock
+              findings={findings}
+              sampled={rows.length}
+              owner={owner}
+              grants={owner ? grants : null}
+              onHide={() => setHiding(true)}
+            />
+          )}
           <div className="grid gap-4 md:grid-cols-2">
             {role !== "shared" && <OriginBlock origins={origins} />}
             <UsageBlock usage={usage} error={usageError} shared={role === "shared"} />
@@ -489,7 +522,7 @@ function DatasetPage() {
 
         <TabsContent value="columns">
           {rows ? (
-            <ColumnProfiles profiles={profiles} types={types} />
+            <ColumnProfiles profiles={profiles} types={types} findings={findings} />
           ) : (
             <Skeleton className="h-40 w-full" />
           )}
@@ -527,6 +560,18 @@ function DatasetPage() {
           </TabsContent>
         )}
       </Tabs>
+
+      {owner && grants && (
+        <HideColumnsDialog
+          open={hiding}
+          onOpenChange={setHiding}
+          datasetId={row.id}
+          datasetName={row.name}
+          readable={exposed}
+          grants={grants.length}
+          onHidden={() => readGrants(row.id)}
+        />
+      )}
 
       <DeleteDatasetDialog
         target={deleting}

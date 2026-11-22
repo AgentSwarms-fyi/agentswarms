@@ -14,7 +14,14 @@ import {
   type Trust,
 } from "@/lib/datasetPage";
 import { linkToObject, type ObjectKindId } from "@/lib/objectKinds";
+import {
+  readersOf,
+  SENSITIVE_LABEL,
+  type SensitiveBasis,
+  type SensitiveFinding,
+} from "@/lib/sensitiveData";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 const TONE_DOT: Record<Trust["tone"], string> = {
   good: "bg-emerald-500",
@@ -220,14 +227,103 @@ export function SampleTable({
   );
 }
 
+const BASIS: Record<SensitiveBasis, string> = {
+  values: "from its values",
+  "name and values": "from its name and values",
+  name: "from its name",
+  mentions: "mentioned in its text",
+};
+
+/**
+ * Which columns look personal, and for the owner who else can read them. A
+ * grantee sees only the columns their grant shows, and never the grants.
+ */
+export function SensitiveBlock({
+  findings,
+  sampled,
+  owner,
+  grants,
+  onHide,
+}: {
+  findings: SensitiveFinding[];
+  /** Rows the findings were read from. */
+  sampled: number;
+  owner: boolean;
+  /** The owner's grants; null while they are read, or for anyone else. */
+  grants: AccessGrant[] | null;
+  onHide: () => void;
+}) {
+  const readers =
+    owner && grants
+      ? readersOf(
+          findings,
+          grants.map((g) => g.column_mask),
+        )
+      : null;
+  const exposed = readers?.filter((r) => r.readers > 0) ?? [];
+  // Nobody else can read it: said once for the block, not on every column.
+  const unshared = owner && !!grants && grants.length === 0;
+  const status = (column: string): string | null => {
+    if (!owner || unshared) return null;
+    if (!grants) return "Checking who can read it…";
+    const n = readers?.find((r) => r.finding.column === column)?.readers ?? 0;
+    return n === 0
+      ? "Hidden from every grant."
+      : `Readable by ${n} of ${grants.length} grant${grants.length === 1 ? "" : "s"}.`;
+  };
+  return (
+    <section aria-label="Personal data" className="min-w-0 rounded-lg border bg-card p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold">Personal data</h2>
+        {owner && exposed.length > 0 && (
+          <Button variant="outline" size="sm" onClick={onHide}>
+            Hide from shares…
+          </Button>
+        )}
+      </div>
+      {findings.length === 0 ? (
+        <p className="mt-2 text-sm text-muted-foreground">
+          No column looks personal, from its name or its first {sampled} rows.
+        </p>
+      ) : (
+        <ul className="mt-2 divide-y">
+          {findings.map((f) => (
+            <li key={f.column} className="py-2 text-sm first:pt-0 last:pb-0">
+              <p>
+                <span className="font-medium">{f.column}</span>
+                <span className="text-muted-foreground"> · {SENSITIVE_LABEL[f.kind]}</span>
+              </p>
+              <p className="text-xs leading-5 text-muted-foreground">
+                {f.evidence} {status(f.column)}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+      {findings.length > 0 && (
+        <p className="mt-3 text-xs leading-5 text-muted-foreground">
+          {unshared && "Only you can read this dataset, so none of it is shared. "}
+          Read from the first {sampled} rows: the values decide where they can, the name where they
+          cannot.
+          {owner &&
+            " When people it is shared with can read a column like these, you are also asked in your approvals whether to hide it."}
+        </p>
+      )}
+    </section>
+  );
+}
+
 /** What each column holds, from the sample. */
 export function ColumnProfiles({
   profiles,
   types,
+  findings = [],
 }: {
   profiles: ColumnProfile[];
   types: Map<string, string>;
+  findings?: SensitiveFinding[];
 }) {
+  const personal = new Map(findings.map((f) => [f.column, f]));
   if (!profiles.length) return <p className="text-sm text-muted-foreground">It has no columns.</p>;
   const n = profiles[0]?.rows ?? 0;
   return (
@@ -239,7 +335,15 @@ export function ColumnProfiles({
         <table className="w-full border-collapse text-sm">
           <thead className="bg-muted/60">
             <tr className="text-left text-xs">
-              {["Column", "Holds", "Empty", "Different values", "Range", "Most common"].map((h) => (
+              {[
+                "Column",
+                "Holds",
+                "Personal data",
+                "Empty",
+                "Different values",
+                "Range",
+                "Most common",
+              ].map((h) => (
                 <th key={h} className="whitespace-nowrap px-3 py-2 font-medium">
                   {h}
                 </th>
@@ -255,6 +359,18 @@ export function ColumnProfiles({
                   {types.get(p.name) && !p.looks.startsWith(types.get(p.name)!.toLowerCase())
                     ? `${p.looks} (${types.get(p.name)})`
                     : p.looks}
+                </td>
+                <td className="px-3 py-2" title={personal.get(p.name)?.evidence}>
+                  {personal.get(p.name) && (
+                    <>
+                      <span className="whitespace-nowrap">
+                        {SENSITIVE_LABEL[personal.get(p.name)!.kind]}
+                      </span>
+                      <span className="block whitespace-nowrap text-xs text-muted-foreground">
+                        {BASIS[personal.get(p.name)!.basis]}
+                      </span>
+                    </>
+                  )}
                 </td>
                 <td className="px-3 py-2 tabular-nums">{p.empty}</td>
                 <td className="px-3 py-2 tabular-nums">{p.distinct}</td>

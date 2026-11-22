@@ -415,8 +415,9 @@ S3-compatible bucket (AWS S3, GCS, Cloudflare R2, MinIO, Spaces, B2), an
 **Azure Blob Storage / ADLS Gen2** container (account key or SAS token), or an
 **Iceberg REST catalog** — to list every table/object, infer schemas by
 sampling, profile columns (null %, distinct counts, ranges), estimate row
-counts, flag likely-PII columns, and trace which dashboards/prep flows/metrics
-consume each table. Crawls can run on a daily/weekly schedule with
+counts, flag columns that look personal (from their sampled values on the
+tables it profiles, otherwise from their names; R521), and trace which
+dashboards/prep flows/metrics consume each table. Crawls can run on a daily/weekly schedule with
 schema-drift notifications. Object-storage and Iceberg credentials are
 encrypted with the same `PROVIDER_CREDS_SECRET` key.
 

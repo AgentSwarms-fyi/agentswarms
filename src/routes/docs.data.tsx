@@ -908,13 +908,13 @@ function DataPage() {
         rows={[
           [
             "Overview",
-            "The verdict, where its rows come from (an upload, a warehouse copy, a synced connection, or the data-prep flow that writes it and how often that flow refreshes it), and what uses it: dashboards, semantic models, AI analysts and agents that name it, data-prep flows, saved metrics, and how many analysts and agents read every dataset of yours.",
+            "The verdict; which columns look personal and, for the owner, who else can read them; where its rows come from (an upload, a warehouse copy, a synced connection, or the data-prep flow that writes it and how often that flow refreshes it); and what uses it: dashboards, semantic models, AI analysts and agents that name it, data-prep flows, saved metrics, and how many analysts and agents read every dataset of yours.",
             "Everyone who can open it; the source is the owner's",
           ],
           ["Sample", "The first 100 rows, as the reader may see them.", "Everyone"],
           [
             "Columns",
-            "What each column holds, read from the first 500 rows: numbers, dates, text or true/false, how many are empty, how many different values, the range, the most common values.",
+            "What each column holds, read from the first 500 rows: numbers, dates, text or true/false, whether it looks personal, how many are empty, how many different values, the range, the most common values.",
             "Everyone",
           ],
           [
@@ -935,11 +935,41 @@ function DataPage() {
         ]}
       />
       <P>
-        Grants are still made by an administrator under Admin → IAM → Access; the page shows them
-        and changes nothing. <strong>Query</strong> opens the workbench with a first query on the
-        dataset written and run, and the owner&apos;s <strong>Delete</strong> lists what would break
-        first, as everywhere else.
+        Grants are made by an administrator under Admin → IAM → Access; the page shows them, and the
+        one change it makes to them is hiding personal columns (below). <strong>Query</strong> opens
+        the workbench with a first query on the dataset written and run, and the owner&apos;s{" "}
+        <strong>Delete</strong> lists what would break first, as everywhere else.
       </P>
+
+      <H3 id="personal-data">Personal data</H3>
+      <P>
+        The page says which columns look personal, and how it knows. Where a column&apos;s values
+        have a shape, the values decide: email addresses, phone numbers, payment card numbers (with
+        their checksum), ID numbers, bank account numbers (IBAN, with its checksum), IP addresses
+        and keys or tokens. A column named <C>contact</C> full of email addresses is found, and one
+        named <C>email_campaign_id</C> full of numbers is not. Where values have no shape to check
+        (people&apos;s names, postal addresses, dates of birth, pay, gender), the column&apos;s name
+        decides. A text column that only mentions an email address, a card number, an ID or a key
+        now and then is found too. Each finding says what it rests on: &quot;48 of 50 values are
+        email addresses&quot;, or &quot;Its name suggests people&apos;s names&quot;. The patterns
+        are the ones the guardrails redact from chat with.
+      </P>
+      <P>
+        For the owner, each personal column also says how many of the dataset&apos;s grants can read
+        it. <strong>Hide from shares…</strong> hides the columns you choose from every grant on the
+        dataset: the people it is shared with stop seeing them wherever they read it, and you still
+        see everything. It only ever takes something away, which is why the owner may do it to a
+        grant an administrator made; an administrator can show a column again under Admin → IAM →
+        Access. Every change is audited.
+      </P>
+      <Callout title="Asked in your approvals">
+        A few times a day the scheduler looks at every shared dataset. When a personal column can be
+        read through a grant, its owner gets a suggestion in the approvals inbox, and a
+        notification, naming the columns and what they hold. Approving hides them from every grant
+        on the dataset, through the same action as the button, checked against who owns the dataset
+        rather than what the suggestion says. Rejecting leaves the shares as they are, and you are
+        not asked about those columns again.
+      </Callout>
 
       {/* ── WORKBENCH ── */}
       <H2 id="workbench">SQL workbench</H2>

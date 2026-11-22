@@ -13,6 +13,10 @@ export type CatalogColumn = {
   type: string;
   sample?: string;
   pii?: boolean;
+  /** What personal data it looks like it holds (R521), when `pii`. */
+  pii_kind?: string;
+  /** How that is known, in a sentence. */
+  pii_evidence?: string;
   /** Column documentation (AI-generated or hand-written); survives re-crawls. */
   description?: string;
   /** Comment ingested from the external catalog (e.g. Unity Catalog). */

@@ -86,6 +86,7 @@ import { useRecordOpened } from "@/hooks/use-object-marks";
 import { usePageIntent } from "@/hooks/use-page-intent";
 import type { PageIntent } from "@/lib/pageIntent";
 import { useBiModelPref } from "@/components/bi/biModelPref";
+import { classifyColumn, SENSITIVE_LABEL, type SensitiveKind } from "@/lib/sensitiveData";
 import {
   assetLineageKeys,
   fmtBytes,
@@ -144,6 +145,17 @@ import type { QualityRollup } from "@/lib/dataQualityCore";
 
 /** Local tables presented in the same shape as crawled assets. */
 type UnifiedAsset = CatalogAsset & { local?: boolean };
+
+/** "Personal data: email addresses. 48 of 50 values are email addresses." */
+function personalTitle(kind: string | undefined, evidence: string | undefined): string {
+  const label =
+    kind && Object.prototype.hasOwnProperty.call(SENSITIVE_LABEL, kind)
+      ? SENSITIVE_LABEL[kind as SensitiveKind]
+      : null;
+  return [label ? `Personal data: ${label}.` : "Likely personal data.", evidence]
+    .filter(Boolean)
+    .join(" ");
+}
 
 export function CatalogView({
   onQueryAsset,
@@ -309,11 +321,17 @@ export function CatalogView({
       const saasByTable = datasetSourceIds(attribution, conns);
       const providerBySource = new Map(saasList.map((s) => [s.id, s.provider]));
       const mapped: UnifiedAsset[] = tables.map((d) => {
-        const columns = d.columns.map((c) => ({
-          name: c.name,
-          type: c.type,
-          pii: isPiiColumnName(c.name) || undefined,
-        }));
+        const columns = d.columns.map((c) => {
+          // By name here; a dataset's own page also reads its values.
+          const f = isPiiColumnName(c.name) ? classifyColumn(c.name, []) : null;
+          return {
+            name: c.name,
+            type: c.type,
+            pii: f ? true : undefined,
+            pii_kind: f?.kind,
+            pii_evidence: f?.evidence,
+          };
+        });
         const saasSource = saasByTable.get(d.id);
         return {
           id: `local:${d.id}`,
@@ -1921,10 +1939,15 @@ function AssetSheet({
                               <span className="flex items-center gap-1">
                                 {c.name}
                                 {c.pii && (
-                                  <ShieldAlert
-                                    className="h-3 w-3 shrink-0 text-amber-500"
-                                    aria-label="likely PII"
-                                  />
+                                  <span
+                                    className="inline-flex"
+                                    title={personalTitle(c.pii_kind, c.pii_evidence)}
+                                  >
+                                    <ShieldAlert
+                                      className="h-3 w-3 shrink-0 text-amber-500"
+                                      aria-label={personalTitle(c.pii_kind, c.pii_evidence)}
+                                    />
+                                  </span>
                                 )}
                                 {c.partition && (
                                   <Badge

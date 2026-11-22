@@ -605,7 +605,9 @@ describe("the bell", () => {
     const at = inbox.indexOf("const announce = (ap: Approval)");
     expect(at).toBeGreaterThan(-1);
     const handler = inbox.slice(at, inbox.indexOf("const load = async", at));
-    expect(handler).toContain("description: ap.action_title");
+    // The title, or for a suggestion about a dataset (R521) fixed words; never
+    // the sealed description or payload.
+    expect(handler).toMatch(/description: hide \? "[^"]+" : ap\.action_title/);
     expect(handler).not.toMatch(/ap\.description|ap\.payload/);
     expect(inbox).not.toContain("payload.new");
   });

@@ -32,7 +32,7 @@ why that was not built, and the choice it leaves.
 | Lineage               | Table and column level from pipelines and SQL models, BI usage, Unity Catalog system tables, Hive and Glue view SQL | Good    |
 | Search                | In-browser substring match over up to 20,000 assets. No ranking, no server-side index                               | Weak    |
 | Curation              | Descriptions, tags, owner, certified or deprecated, flat glossary, AI-written docs                                  | Fair    |
-| Classification        | PII by column name only                                                                                             | Weak    |
+| Classification        | By column name; since R521 also from sampled values on profiled tables and dataset pages                            | Fair    |
 | Access control        | Read sharing through IAM; row filters, column masks and tag policies on the lakehouse                               | Good    |
 | Data quality          | dbt-style checks and freshness alerts on local datasets; monitors on the lakehouse                                  | Fair    |
 | Change history        | Column changes kept per asset, breaking changes marked                                                              | Good    |
@@ -121,8 +121,9 @@ In order, with a rough size. Each is independent of the others.
    engines.
 4. **Server-side search** (weeks). Postgres full-text is enough to start, and it lifts
    the 20,000-asset ceiling.
-5. **Content-based classification** (days). The crawl already samples rows, and the
-   guardrails already have detectors.
+5. **Content-based classification** (days). Done in R521 for the warehouse tables a
+   crawl profiles and for local datasets on their own page, with the guardrails'
+   detectors. Still by name: tables the crawl does not profile, and lake files.
 6. **Domains, data products and access requests** (weeks). This is what a governance
    team buys a catalog for.
 

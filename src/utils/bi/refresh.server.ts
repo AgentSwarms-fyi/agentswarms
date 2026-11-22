@@ -1768,6 +1768,14 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
       () => import("@/utils/trash.server").then((m) => m.purgeExpiredTrash(force)),
       undefined,
     );
+    // Shared datasets whose shares can read personal data: the owner is asked
+    // in the approvals inbox, a few times a day at most (R521).
+    await step(
+      "sensitive-shares",
+      () =>
+        import("@/utils/data/sensitiveShares.server").then((m) => m.sweepSensitiveShares(force)),
+      undefined,
+    );
     await step(
       "chat-retention",
       () =>

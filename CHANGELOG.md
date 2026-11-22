@@ -264,6 +264,23 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Personal data, found from what a column holds** (R521). A dataset's page
+  says which columns look personal and how it knows: from the values where
+  they have a shape (email addresses, phone numbers, card numbers and IBANs
+  with their checksums, ID numbers, IP addresses, keys), from the name where
+  they do not (people's names, postal addresses, dates of birth, pay), and
+  from free text that mentions one. "48 of 50 values are email addresses."
+  The patterns are the guardrails' own. For the owner each personal column
+  says how many grants can read it, and **Hide from shares…** hides the
+  columns chosen from every grant on the dataset: it only ever narrows a
+  share, so the owner may do it to a grant an administrator made, and it is
+  audited. A few times a day the scheduler looks at every shared dataset and,
+  when a grant can read a personal column, asks the owner in the approvals
+  inbox (and the bell). Approving runs the same action, checked against who
+  owns the dataset, not what the approval row says; rejecting means you are
+  not asked about those columns again. The catalog's crawl classifies the
+  warehouse tables it profiles from their sampled values too, and says why a
+  column is flagged.
 - **Runs: everything that ran for you, in one list** (R520). **Overview →
   Runs** (G then R) lists pipeline, workflow and swarm runs, scheduled report
   and dashboard emails, model training and batch predictions, notebook runs,
@@ -507,6 +524,11 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **The approvals inbox called everything a paused agent** (fixed in R521): a
+  model promotion and a suggestion about a dataset read "paused", with a
+  robot for a face, under "Agents pause here". Each now says what it is
+  (paused, asked, suggested), the platform's own items carry an icon, and a
+  decided item leaves the list at once instead of at the next refresh.
 - **A link followed as the tab went to the background never changed the
   page** (fixed in R520). The browser refuses to animate a page change in a
   hidden document, and the app waited for that animation: the address
