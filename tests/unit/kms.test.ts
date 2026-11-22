@@ -100,6 +100,10 @@ describe("reading the configuration", () => {
   it("defaults to env, and env needs nothing else", () => {
     expect(kmsConfigFromEnv({})).toEqual({ provider: "env" });
     expect(kmsConfigFromEnv({ KMS_PROVIDER: "ENV " })).toEqual({ provider: "env" });
+    // .env.example ships KMS_PROVIDER="" and Docker Compose passes it through
+    // as an empty string, so empty has to mean the default, like unset does.
+    expect(kmsConfigFromEnv({ KMS_PROVIDER: "" })).toEqual({ provider: "env" });
+    expect(kmsConfigFromEnv({ KMS_PROVIDER: "  " })).toEqual({ provider: "env" });
   });
 
   it("refuses an unknown provider and a missing key ref — by name; every listed provider is built", () => {
