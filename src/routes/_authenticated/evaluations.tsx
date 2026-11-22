@@ -12,6 +12,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatPassRate } from "@/lib/evalPassRate";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { usePageIntent } from "@/hooks/use-page-intent";
+import { readPageIntent } from "@/lib/pageIntent";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -70,6 +72,9 @@ import { reportFailure } from "@/lib/silentFailureNet";
 export const Route = createFileRoute("/_authenticated/evaluations")({
   component: EvaluationsPage,
   head: () => ({ meta: [{ title: "Evaluations — AgentSwarms" }] }),
+  // `?new=1` starts a new dataset and `?open=<id>` selects one — how search
+  // results and the "New" menu link here (src/lib/pageIntent.ts).
+  validateSearch: (s: Record<string, unknown>) => readPageIntent(s),
 });
 
 type Dataset = { id: string; name: string; description: string | null; created_at: string };
@@ -152,6 +157,7 @@ function statusBadge(s: ResultRow["status"] | Run["status"]) {
 
 function EvaluationsPage() {
   const { user } = useAuth();
+  const search = Route.useSearch();
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
   const [swarms, setSwarms] = useState<SwarmLite[]>([]);
@@ -200,6 +206,19 @@ function EvaluationsPage() {
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
   const [creating, setCreating] = useState(false);
+
+  // A link here can ask for a new dataset or for one dataset to be selected,
+  // the way clicking it in the list does.
+  usePageIntent(search, {
+    ready: loaded && !loadError,
+    noun: "evaluation set",
+    onNew: () => setNewOpen(true),
+    onOpen: (id) => {
+      if (!datasets.some((d) => d.id === id)) return false;
+      setSel({ kind: "dataset", id });
+    },
+  });
+
   // R214: Enter in the name field skipped the button's in-flight guard.
   const newDataset = useSingleFlight(async () => {
     if (!newName.trim()) return toast.error("Give the dataset a name.");

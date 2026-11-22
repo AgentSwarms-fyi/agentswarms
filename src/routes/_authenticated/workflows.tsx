@@ -80,8 +80,10 @@ import { StepInspector } from "@/components/workflows/StepInspector";
 import { WorkflowPalette } from "@/components/workflows/WorkflowPalette";
 import { KIND_STYLE, stepRunLink } from "@/components/workflows/nodeStyles";
 import { useAuth } from "@/hooks/use-auth";
+import { usePageIntent } from "@/hooks/use-page-intent";
 import { useTokenRef } from "@/hooks/use-token-ref";
 import { useTheme } from "@/hooks/use-theme";
+import { readPageIntent } from "@/lib/pageIntent";
 import { cn } from "@/lib/utils";
 import {
   NODE_KIND_LABEL,
@@ -135,6 +137,9 @@ export const Route = createFileRoute("/_authenticated/workflows")({
     ],
   }),
   component: WorkflowsPage,
+  // `?new=1` starts a new workflow and `?open=<id>` opens one — how search
+  // results and the "New" menu link here (src/lib/pageIntent.ts).
+  validateSearch: (s: Record<string, unknown>) => readPageIntent(s),
 });
 
 /** The run's colours, kept apart from the kind's so both can show at once. */
@@ -200,6 +205,7 @@ function WorkflowsPage() {
   const { session } = useAuth();
   const token = session?.access_token ?? "";
   const { tokenRef, signedIn } = useTokenRef(token);
+  const search = Route.useSearch();
   const listFn = useServerFn(workflowsList);
   const getFn = useServerFn(workflowGet);
   const createFn = useServerFn(workflowCreate);
@@ -270,11 +276,17 @@ function WorkflowsPage() {
     nodes: WorkflowNodeRunDto[];
   } | null>(null);
 
+  // The list was read. A read that failed leaves it unknown, which is not the
+  // same as empty: a link asking for one workflow waits rather than being told
+  // the workflow is gone.
+  const [listed, setListed] = useState(false);
+
   const reload = useCallback(async () => {
     if (!token) return;
     const res = await listFn({ data: { accessToken: token } });
     if (!res.ok) toast.error(res.error);
     else {
+      setListed(true);
       setWorkflows(res.workflows);
       setSelectedId((cur) => cur ?? res.workflows[0]?.id ?? null);
     }
@@ -514,8 +526,13 @@ function WorkflowsPage() {
   // Leaving the page by a link asks as picking another workflow does, and
   // closing or reloading the tab gets the browser's own question. FOUND IN
   // R269 (queued by R268): either one dropped unsaved edits without a word.
+  //
+  // A link that asks this page to open or start a workflow stays on this page,
+  // and so does taking that request out of the address afterwards. Neither is
+  // leaving, so neither asks here: opening and creating ask for themselves.
   useBlocker({
-    shouldBlockFn: async () => !(await mayDiscard("Leaving this page drops them.")),
+    shouldBlockFn: async ({ current, next }) =>
+      current.pathname !== next.pathname && !(await mayDiscard("Leaving this page drops them.")),
     enableBeforeUnload: unsaved,
     disabled: !unsaved,
   });
@@ -525,6 +542,19 @@ function WorkflowsPage() {
     if (!(await mayDiscard("Opening another workflow replaces them."))) return;
     setSelectedId(id);
   }
+
+  // A link here can ask for a new workflow or for one to be opened. Opening
+  // goes the way a click in the list does, so unsaved edits are asked about
+  // before another workflow replaces them.
+  usePageIntent(search, {
+    ready: !loading && listed,
+    noun: "workflow",
+    onNew: () => setCreateOpen(true),
+    onOpen: (id) => {
+      if (!workflows.some((w) => w.id === id)) return false;
+      void pick(id);
+    },
+  });
 
   async function removeWorkflow(w: WorkflowRowDto) {
     const ok = await confirmAsk({

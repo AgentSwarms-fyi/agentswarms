@@ -3,7 +3,7 @@ import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { identityHue } from "@/lib/identityHue";
 // Own projects open in the editor; projects shared via IAM group grants open
 // read-only. Published projects expose a public read-only link.
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
@@ -59,6 +59,8 @@ import { BiWorkspaceManager } from "@/components/bi/BiWorkspaceManager";
 import { BiGitSyncDialog } from "@/components/bi/BiGitSyncDialog";
 import { useAuth } from "@/hooks/use-auth";
 import { useIsSuperadmin } from "@/hooks/use-iam";
+import { usePageIntent } from "@/hooks/use-page-intent";
+import { readPageIntent, type PageIntent } from "@/lib/pageIntent";
 import {
   createDashboard,
   deleteDashboard,
@@ -77,6 +79,10 @@ import {
 } from "@/lib/biWorkspaces";
 import { useSingleFlight } from "@/lib/singleFlight";
 
+const BI_TABS = ["projects", "reports", "prep"] as const;
+type BiTab = (typeof BI_TABS)[number];
+const isBiTab = (v: unknown): v is BiTab => (BI_TABS as readonly unknown[]).includes(v);
+
 export const Route = createFileRoute("/_authenticated/bi")({
   head: () => ({
     meta: [
@@ -88,15 +94,29 @@ export const Route = createFileRoute("/_authenticated/bi")({
     ],
   }),
   component: BiWorkspacePage,
+  // `?new=1` starts a new project, `?tab=reports` lands on that tab, and the
+  // two together start a new report — how the "New" menu links here
+  // (src/lib/pageIntent.ts). Projects and reports have their own pages, so
+  // nothing is opened from this one.
+  validateSearch: (s: Record<string, unknown>) => {
+    const out: PageIntent & { tab?: BiTab } = readPageIntent(s);
+    if (isBiTab(s.tab)) out.tab = s.tab;
+    return out;
+  },
 });
 
 function BiWorkspacePage() {
   const { user } = useAuth();
   const isAdmin = useIsSuperadmin();
-  const navigate = useNavigate();
-  const [tab, setTab] = useState<"projects" | "reports" | "prep">("projects");
+  const navigate = Route.useNavigate();
+  const search = Route.useSearch();
+  const [tab, setTab] = useState<BiTab>("projects");
   const [dashboards, setDashboards] = useState<BiDashboardRow[] | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  // A link asked for a new report. The dialog belongs to the Reports tab, so
+  // the request is held here until that tab has acted on it.
+  const [newReport, setNewReport] = useState(false);
+  const newReportStarted = useCallback(() => setNewReport(false), []);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
@@ -138,6 +158,28 @@ function BiWorkspacePage() {
     reload();
     reloadOrg();
   }, [reload, reloadOrg]);
+
+  // A link here can ask for something new. What that is depends on the tab it
+  // names: a report on Reports, a project otherwise. Data preparation starts
+  // nothing from a link, so there the tab is only selected.
+  usePageIntent(search, {
+    ready: dashboards !== null,
+    noun: "BI project",
+    onNew: () => {
+      if (search.tab === "reports") setNewReport(true);
+      else if (search.tab !== "prep") setCreateOpen(true);
+    },
+  });
+
+  // A link can also name the tab to land on. It is taken out of the address
+  // once acted on, like the rest of the request, so that choosing another tab
+  // and reloading does not jump back to this one.
+  const askedTab = search.tab;
+  useEffect(() => {
+    if (!askedTab) return;
+    setTab(askedTab);
+    void navigate({ search: (prev) => ({ ...prev, tab: undefined }), replace: true });
+  }, [askedTab, navigate]);
 
   // R214: Enter in the name field skipped the button's in-flight guard.
   const submitCreate = useSingleFlight(async () => {
@@ -256,7 +298,7 @@ function BiWorkspacePage() {
         </div>
       </div>
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as "projects" | "reports" | "prep")}>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as BiTab)}>
         <TabsList className="h-auto w-full justify-start gap-6 rounded-none border-b border-border bg-transparent p-0">
           <TabsTrigger
             value="projects"
@@ -279,7 +321,7 @@ function BiWorkspacePage() {
         </TabsList>
 
         <TabsContent value="reports" className="mt-4">
-          {tab === "reports" && <ReportsTab />}
+          {tab === "reports" && <ReportsTab startNew={newReport} onStartedNew={newReportStarted} />}
         </TabsContent>
 
         <TabsContent value="prep" className="mt-4">

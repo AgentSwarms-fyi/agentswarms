@@ -35,6 +35,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { usePageIntent } from "@/hooks/use-page-intent";
 import { useTokenRef } from "@/hooks/use-token-ref";
 import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import { Badge } from "@/components/ui/badge";
@@ -63,12 +64,17 @@ import {
 import { ontologyDraftFromTables, type DraftEvidence } from "@/utils/ontologyAi.functions";
 import { importOssie } from "@/lib/ontology/ossie";
 import { ontologySpecSchema, type OntologySpec } from "@/lib/ontology/spec";
+import { readPageIntent } from "@/lib/pageIntent";
 import { cn } from "@/lib/utils";
 import { parseModelChoice } from "@/utils/providers/modelChoice";
 
 export const Route = createFileRoute("/_authenticated/ontology")({
   head: () => ({ meta: [{ title: "Enterprise Ontology — AgentSwarms" }] }),
   component: OntologyGallery,
+  // `?new=1` starts a new ontology — how the "New" menu links here
+  // (src/lib/pageIntent.ts). One ontology is opened on its own page, so this
+  // list has nothing to do for `?open`.
+  validateSearch: (s: Record<string, unknown>) => readPageIntent(s),
 });
 
 type Mode = null | "blank" | "draft" | "import";
@@ -77,6 +83,7 @@ function OntologyGallery() {
   const { session } = useAuth();
   const { tokenRef, signedIn } = useTokenRef(session?.access_token);
   const navigate = useNavigate();
+  const search = Route.useSearch();
   const listFn = useServerFn(ontologyList);
   const sampleFn = useServerFn(ontologyCreateSample);
 
@@ -106,6 +113,15 @@ function OntologyGallery() {
   useEffect(() => {
     if (signedIn) void load();
   }, [signedIn, load]);
+
+  // A link here can ask for a new ontology. It starts the blank one, the same
+  // dialog the "New ontology" button opens; drafting from tables and importing
+  // stay choices the reader makes on the page.
+  usePageIntent(search, {
+    ready: items !== null,
+    noun: "ontology",
+    onNew: () => setMode("blank"),
+  });
 
   const startSample = async () => {
     setCreatingSample(true);

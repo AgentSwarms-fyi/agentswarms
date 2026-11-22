@@ -291,7 +291,9 @@ describe("the wiring", () => {
   it("reaches the UI: a Reports tab that opens the designer route", () => {
     const bi = rd("src/routes/_authenticated/bi.tsx");
     expect(bi).toContain('value="reports"');
-    expect(bi).toContain("<ReportsTab />");
+    // The tab is told when a link asked for a new report (R513), so it is no
+    // longer written without props.
+    expect(bi).toContain("<ReportsTab startNew={newReport} onStartedNew={newReportStarted} />");
     const tab = rd("src/components/bi/ReportsTab.tsx");
     expect(tab).toContain('to: "/bi/report/$reportId"');
     const designer = rd("src/routes/_authenticated/bi_.report.$reportId.tsx");

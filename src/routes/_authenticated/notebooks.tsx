@@ -14,6 +14,8 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import { useAuth } from "@/hooks/use-auth";
+import { usePageIntent } from "@/hooks/use-page-intent";
+import { readPageIntent } from "@/lib/pageIntent";
 import { newPythonNotebookCells } from "@/lib/pythonNotebookTemplate";
 import { SAMPLE_NOTEBOOKS } from "@/lib/sampleNotebooks";
 import { RunningKernels } from "@/components/notebooks/RunningKernels";
@@ -32,6 +34,10 @@ export const Route = createFileRoute("/_authenticated/notebooks")({
     ],
   }),
   component: NotebooksLayout,
+  // `?new=1` creates a notebook — how the "New" menu links here
+  // (src/lib/pageIntent.ts). Each notebook has its own page, so nothing is
+  // opened from this one.
+  validateSearch: (s: Record<string, unknown>) => readPageIntent(s),
 });
 
 type PyNotebookSummary = { id: string; title: string; updated_at: string };
@@ -106,18 +112,37 @@ function usePyNotebooks(pathname: string) {
     setPyNotebooks((prev) => prev.filter((n) => n.id !== id));
   };
 
-  return { pyNotebooks, loaded, error, createNotebook, deleteNotebook, creating };
+  return {
+    pyNotebooks,
+    loaded,
+    error,
+    createNotebook,
+    deleteNotebook,
+    creating,
+    signedIn: !!user,
+  };
 }
 
 function NotebooksLayout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const hasNotebookSelected =
     pathname.startsWith("/notebooks/py/") || pathname.startsWith("/notebooks/sample/");
-  const { pyNotebooks, loaded, error, createNotebook, deleteNotebook, creating } =
+  const { pyNotebooks, loaded, error, createNotebook, deleteNotebook, creating, signedIn } =
     usePyNotebooks(pathname);
+  const search = Route.useSearch();
   // One verdict, read by the badge, the sidebar note and the catalog — so they
   // cannot drift into disagreeing about whether the account has notebooks.
   const claim = listClaim({ loaded, error, count: pyNotebooks.length });
+
+  // A link here can ask for a new notebook: the same thing the button does.
+  // The request is held back until the signed-in user is known, because
+  // creating needs them and they arrive a moment after the first paint — acted
+  // on sooner, the request would be dropped without a word.
+  usePageIntent(signedIn ? search : {}, {
+    ready: loaded,
+    noun: "notebook",
+    onNew: () => void createNotebook(),
+  });
 
   return (
     <div className="flex h-canvas w-full min-w-0">

@@ -25,7 +25,7 @@ export type ShortcutDef = {
 export const SHORTCUTS: ShortcutDef[] = [
   {
     keys: ["Ctrl/⌘", "K"],
-    description: "Open the command palette — jump to any page or action",
+    description: "Search — find your work by name, start something new, or go to a page",
     category: "General",
   },
   {

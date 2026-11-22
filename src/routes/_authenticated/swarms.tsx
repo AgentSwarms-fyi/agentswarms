@@ -109,6 +109,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { ComponentLibraryDialog } from "@/components/swarms/ComponentLibraryDialog";
 import { bindingFor, type SwarmComponent } from "@/lib/swarmComponents";
 import { useAuth } from "@/hooks/use-auth";
+import { readPageIntent } from "@/lib/pageIntent";
 import { useTheme } from "@/hooks/use-theme";
 import { useLayoutPrefs } from "@/hooks/use-layout-prefs";
 import { type SwarmNodeData, topoLevels } from "@/lib/swarmRuntime";
@@ -149,7 +150,10 @@ export const Route = createFileRoute("/_authenticated/swarms")({
     if (typeof s.template === "string") out.template = s.template;
     if (typeof s.swarm === "string") out.swarm = s.swarm;
     if (s.view === "canvas") out.view = "canvas";
-    if (s.new === 1 || s.new === "1") out.new = 1;
+    // `?new=1` starts a new swarm — how the "New" menu links here, read the
+    // way every page reads it (src/lib/pageIntent.ts). A swarm is opened by
+    // `swarm`, so the `open` half of that is not taken.
+    if (readPageIntent(s).new === 1) out.new = 1;
     return out;
   },
 });
@@ -2502,12 +2506,73 @@ function SwarmsCanvas({
 const LAST_SWARM_ID_KEY = "agentswarms.lastSwarmId";
 
 function SwarmsPage() {
-  const { template, swarm, view } = Route.useSearch();
+  const { template, swarm, view, new: newParam } = Route.useSearch();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { defaultSwarmView } = useLayoutPrefs();
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   const showCanvas = view === "canvas" || !!template || !!swarm;
+  // A new swarm was asked for. A swarm or a template named beside it already
+  // says what to show, and wins here as it does over everything else.
+  const startNew = newParam === 1 && !swarm && !template;
+
+  // A link here can ask for a new swarm (the "New" menu). It is made the way
+  // the gallery's "New Swarm" button makes one — an empty swarm of its own —
+  // and then opened by its id, which takes `new` out of the address and means
+  // a reload comes back to the same swarm. The canvas is not shown until it
+  // exists: with no id it opens the first swarm in the list, or makes "My
+  // First Swarm", and neither is the blank one that was asked for.
+  const userId = user?.id;
+  // Once per request: the page re-renders while the swarm is being made, and
+  // a second insert would be a second swarm.
+  const startingNew = useRef(false);
+  const onPage = useRef(true);
+  useEffect(() => {
+    onPage.current = true;
+    return () => {
+      onPage.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (!startNew) {
+      startingNew.current = false;
+      return;
+    }
+    if (!userId || startingNew.current) return;
+    startingNew.current = true;
+    void (async () => {
+      const { count } = await supabase.from("swarms").select("id", { count: "exact", head: true });
+      const { data: created, error } = await supabase
+        .from("swarms")
+        .insert({
+          user_id: userId,
+          name: typeof count === "number" ? `Swarm ${count + 1}` : "New swarm",
+          nodes: [],
+          edges: [],
+        })
+        .select()
+        .single();
+      if (error || !created) {
+        toast.error("Could not create a swarm", {
+          description: error?.message ?? "no row came back from the insert",
+        });
+        if (onPage.current) {
+          void navigate({ to: "/swarms", search: { view }, replace: true });
+        }
+        return;
+      }
+      toast.success("New swarm created");
+      // Left the page meanwhile: the swarm is in the gallery, and the reader
+      // is not pulled back here to see it.
+      if (!onPage.current) return;
+      void navigate({
+        to: "/swarms",
+        search: { swarm: created.id, view: "canvas" },
+        replace: true,
+      });
+    })();
+  }, [startNew, view, userId, navigate]);
 
   // Remember whichever swarm was actually opened, so "last opened" has
   // something to return to. Only a plain id — no snapshot of its state,
@@ -2526,7 +2591,9 @@ function SwarmsPage() {
   // explicit template/swarm/view in the URL already says what to show and
   // must win (e.g. a link shared from elsewhere in the app).
   useEffect(() => {
-    if (showCanvas || defaultSwarmView !== "last-opened") return;
+    // A request for a new swarm says what to show as well: without this a
+    // bare `?new=1` went back to the last swarm opened instead.
+    if (showCanvas || startNew || defaultSwarmView !== "last-opened") return;
     let lastId: string | null = null;
     try {
       lastId = window.localStorage.getItem(LAST_SWARM_ID_KEY);
@@ -2536,7 +2603,7 @@ function SwarmsPage() {
     if (lastId) {
       void navigate({ to: "/swarms", search: { swarm: lastId, view: "canvas" }, replace: true });
     }
-  }, [showCanvas, defaultSwarmView, navigate]);
+  }, [showCanvas, startNew, defaultSwarmView, navigate]);
 
   const goToGallery = () => {
     setIsFullscreen(false);
@@ -2545,6 +2612,15 @@ function SwarmsPage() {
       search: { template: undefined, swarm: undefined, view: undefined },
     });
   };
+
+  if (startNew) {
+    // The same wait the canvas shows while it loads a swarm.
+    return (
+      <div className="flex h-canvas items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   if (!showCanvas) {
     return <SwarmGallery />;

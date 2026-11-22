@@ -220,6 +220,38 @@ function DashboardDoc() {
         trace — see <DocLink to="/docs/debugging">Logs &amp; traces</DocLink> for how to read one.
       </P>
 
+      <H2 id="search">Finding your work, and starting something new</H2>
+      <P>
+        The search box in the middle of the top bar is on every page; <strong>Ctrl K</strong> (
+        <strong>⌘ K</strong> on a Mac) opens it from the keyboard. Type part of a name and it lists
+        your own work first — agents, swarms, knowledge bases, datasets, lakehouse tables,
+        pipelines, semantic models and their metrics, dashboards, reports, workbooks, notebooks, ML
+        models, workflows, analysts and their saved analyses, and the rest — then the things you
+        could start, then the pages. Choosing a result opens that object, not just the page it lives
+        on.
+      </P>
+      <P>
+        Words match where a name is split: <em>sales</em> finds <code>saas_sales</code>,{" "}
+        <code>SalesByRegion</code> and &ldquo;Q3 sales review&rdquo;. Every word typed has to be
+        found, in the name or failing that in the description; a name that is the query comes first,
+        then names that start with it, and among equals whatever changed most recently. Search reads
+        names and descriptions only, never what is inside an object, and it lists exactly what each
+        page would show you: your own work, what was shared with you (marked{" "}
+        <em>Shared with you</em>) and the bundled samples. Lakehouse tables are listed by their own
+        engine and can arrive a moment after everything else, longer just after a restart; until
+        they do, search says it is still reading them instead of saying nothing matches.
+      </P>
+      <P>
+        <em>See all results</em> opens the search page at <DocLink to="/search">/search</DocLink>,
+        which groups matches by kind, filters to one kind, and can be bookmarked or sent to a
+        colleague. With nothing typed it is an overview of everything you have, one tile per kind.
+      </P>
+      <P>
+        <strong>New</strong>, beside the search box, lists everything that can be started — an
+        agent, a dataset, a dashboard, a report, a pipeline, a workflow and so on — grouped by what
+        it is for. The same list is in search: type <em>new report</em> and press Enter.
+      </P>
+
       <H2 id="first-run">What to do on a new workspace</H2>
       <P>
         A deployment with nothing built and nothing run gets a different page: an ordered checklist

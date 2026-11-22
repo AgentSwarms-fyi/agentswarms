@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { z } from "zod";
 import { useAuth } from "@/hooks/use-auth";
+import { usePageIntent } from "@/hooks/use-page-intent";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -36,6 +37,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { relTime } from "@/components/ml/mlFormat";
+import { readPageIntent } from "@/lib/pageIntent";
 import { cn } from "@/lib/utils";
 import {
   MONITOR_KINDS,
@@ -68,7 +70,16 @@ const searchSchema = z.object({
 });
 
 export const Route = createFileRoute("/_authenticated/data-monitors")({
-  validateSearch: (s) => searchSchema.parse(s),
+  // The page's own keys, plus `?open=<id>` and `?new=1` — how search results
+  // and the "New" menu link here (src/lib/pageIntent.ts).
+  //
+  // `create` is also accepted as the text "true". A link whose search is
+  // written as plain strings arrives that way, and refusing it fails the whole
+  // page rather than the one key.
+  validateSearch: (s: Record<string, unknown>) => ({
+    ...searchSchema.parse(s.create === "true" ? { ...s, create: true } : s),
+    ...readPageIntent(s),
+  }),
   head: () => ({
     meta: [
       { title: "Data monitors — AgentSwarms" },
@@ -191,6 +202,30 @@ function DataMonitorsPage() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // A monitor's history is the one view it has beyond its row in the list, so
+  // it is what the History button and a link to the monitor both open.
+  async function showHistory(monitor: MonitorView) {
+    try {
+      const r = await runsFn({ data: { access_token: token, id: monitor.id } });
+      if (r.ok) setHistory({ monitor, runs: r.runs });
+      else toast.error(r.error);
+    } catch (e) {
+      reportFailure("read that monitor's history", e);
+    }
+  }
+
+  // A link here can ask for one monitor to be opened, or for a new one.
+  usePageIntent(search, {
+    ready: monitors !== null,
+    noun: "monitor",
+    onNew: () => setOpen(true),
+    onOpen: (id) => {
+      const monitor = monitors?.find((m) => m.id === id);
+      if (!monitor) return false;
+      void showHistory(monitor);
+    },
+  });
 
   useEffect(() => {
     if (!token) return;
@@ -435,11 +470,7 @@ function DataMonitorsPage() {
                           size="sm"
                           variant="ghost"
                           title="History"
-                          onClick={() =>
-                            void runsFn({ data: { access_token: token, id: m.id } }).then(
-                              (r) => r.ok && setHistory({ monitor: m, runs: r.runs }),
-                            )
-                          }
+                          onClick={() => void showHistory(m)}
                         >
                           <History className="h-3.5 w-3.5" />
                         </Button>

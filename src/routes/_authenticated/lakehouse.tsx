@@ -88,8 +88,10 @@ import { useSingleFlight } from "@/lib/singleFlight";
 import { pollSparkQuery } from "@/lib/sparkPoll";
 import { matviewBadge } from "@/lib/matviewBadge";
 import { useAuth } from "@/hooks/use-auth";
+import { usePageIntent } from "@/hooks/use-page-intent";
 import { useTokenRef } from "@/hooks/use-token-ref";
 import { supabase } from "@/integrations/supabase/client";
+import { readPageIntent } from "@/lib/pageIntent";
 import { mergeSharedDatasets, readSharedDatasets } from "@/lib/sharedDatasetList";
 import { parseModelChoice } from "@/utils/providers/modelChoice";
 import {
@@ -136,6 +138,9 @@ import type { LakehouseResult } from "@/utils/lakehouse/core.server";
 
 export const Route = createFileRoute("/_authenticated/lakehouse")({
   component: LakehousePage,
+  // `?open=<schema>.<table>` opens one table — how search results link here
+  // (src/lib/pageIntent.ts). A lakehouse table has no id but its name.
+  validateSearch: (s: Record<string, unknown>) => readPageIntent(s),
 });
 
 function fmtBytes(n: number | null): string {
@@ -149,6 +154,7 @@ function fmtBytes(n: number | null): string {
 function LakehousePage() {
   const { session } = useAuth();
   const token = session?.access_token ?? "";
+  const search = Route.useSearch();
   const overviewFn = useServerFn(getLakehouseOverview);
   const integrityFn = useServerFn(getLakehouseIntegrity);
 
@@ -200,6 +206,24 @@ function LakehousePage() {
     setSelected({ schema, table });
     setTab("table");
   };
+
+  // A link here can ask for one table to be opened. It is named schema.table,
+  // cut at the FIRST dot: a schema's name is letters, digits and underscores,
+  // so any later dot belongs to the table. The name is looked up in the
+  // overview before anything opens, so a table that was dropped or is no
+  // longer shared is reported rather than shown as an empty tab.
+  usePageIntent(search, {
+    ready: data !== null,
+    noun: "table",
+    onOpen: (id) => {
+      const dot = id.indexOf(".");
+      const schema = id.slice(0, dot);
+      const table = id.slice(dot + 1);
+      const listed = data?.tables.some((t) => t.schema === schema && t.name === table);
+      if (dot < 1 || !listed) return false;
+      openTable(schema, table);
+    },
+  });
 
   return (
     // Full-height workbench: the explorer is a fixed rail, the working pane
@@ -349,6 +373,15 @@ function SchemaRail({
   const dropFn = useServerFn(dropLakehouseSchema);
   const [filter, setFilter] = useState("");
   const [openSchemas, setOpenSchemas] = useState<Set<string>>(new Set());
+
+  // The schema of the table being shown is opened in the list. A table reached
+  // from a link was never clicked here, so without this its schema would stay
+  // folded and the list would show nothing selected.
+  useEffect(() => {
+    const schema = selected?.schema;
+    if (!schema) return;
+    setOpenSchemas((prev) => (prev.has(schema) ? prev : new Set(prev).add(schema)));
+  }, [selected]);
 
   const bySchema = useMemo(() => {
     const m = new Map<string, LakehouseTableSummary[]>();

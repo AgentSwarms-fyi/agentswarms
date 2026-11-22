@@ -4,7 +4,7 @@
 // token scoped to one resource) plus a domain allow-list enforced
 // server-side in /api/embed* — see src/utils/embed.server.ts for the model.
 import { confirmAsk } from "@/components/ui/confirm-dialog";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   Bot,
@@ -45,6 +45,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SignedViewerDialog } from "@/components/embed/SignedViewerDialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { usePageIntent } from "@/hooks/use-page-intent";
+import type { PageIntent } from "@/lib/pageIntent";
 import { cn } from "@/lib/utils";
 
 type EmbedType = "agent" | "swarm" | "bi_dashboard" | "ai_analyst";
@@ -173,9 +175,24 @@ const { turns, activeTurn, ask, isRunning } =
   return null;
 }
 
-export function EmbedSection() {
+/** No link asked for anything: what the section has when it is inside Settings. */
+const NO_INTENT: PageIntent = {};
+
+export function EmbedSection({
+  intent = NO_INTENT,
+}: {
+  /**
+   * What a link into the page asked for: show one embed, or start a new one.
+   * The /embeds page passes it. Settings does not, because its address is
+   * about another page.
+   */
+  intent?: PageIntent;
+}) {
   const { user } = useAuth();
   const [keys, setKeys] = useState<EmbedKey[]>([]);
+  // The embeds have been read. An empty list and a list not read yet are the
+  // same empty array, and only the first can say an embed is not there.
+  const [loaded, setLoaded] = useState(false);
   const [resources, setResources] = useState<Record<EmbedType, ResourceOption[]>>({
     agent: [],
     swarm: [],
@@ -212,6 +229,7 @@ export function EmbedSection() {
       supabase.from("ai_analysts").select("id, name").eq("user_id", uid).order("name"),
     ]);
     setKeys((k.data ?? []) as EmbedKey[]);
+    if (!k.error) setLoaded(true);
     setResources({
       agent: a.data ?? [],
       swarm: s.data ?? [],
@@ -223,6 +241,35 @@ export function EmbedSection() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // What a link asked to be shown, ringed for a moment: one embed's row, or
+  // the ways to create one. Neither has a dialog to open — a row has only its
+  // buttons, and a new embed starts with choosing which kind to make.
+  const [reveal, setReveal] = useState<{ row: string } | "create" | null>(null);
+  const revealRowRef = useRef<HTMLTableRowElement | null>(null);
+  const createRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!reveal) return;
+    if (reveal === "create") {
+      createRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    } else {
+      revealRowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+    const t = window.setTimeout(() => setReveal(null), 2500);
+    return () => window.clearTimeout(t);
+  }, [reveal]);
+  const revealRowId = reveal !== null && reveal !== "create" ? reveal.row : null;
+
+  // A link here can ask for a new embed or for one embed to be shown.
+  usePageIntent(intent, {
+    ready: loaded,
+    noun: "embed",
+    onNew: () => setReveal("create"),
+    onOpen: (id) => {
+      if (!keys.some((k) => k.id === id)) return false;
+      setReveal({ row: id });
+    },
+  });
 
   const resourceName = useCallback(
     (k: EmbedKey) =>
@@ -255,11 +302,17 @@ export function EmbedSection() {
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div ref={createRef} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {(Object.keys(EMBED_META) as EmbedType[]).map((t) => {
           const meta = EMBED_META[t];
           return (
-            <Card key={t} className="flex flex-col border-border/50">
+            <Card
+              key={t}
+              className={cn(
+                "flex flex-col border-border/50",
+                reveal === "create" && "ring-2 ring-primary",
+              )}
+            >
               <CardHeader className="pb-2">
                 <div className="mb-2 grid h-10 w-10 place-items-center rounded-lg bg-primary/10 text-primary">
                   <meta.icon className="h-5 w-5" strokeWidth={1.6} />
@@ -306,7 +359,16 @@ export function EmbedSection() {
                 </thead>
                 <tbody className="divide-y divide-border/40">
                   {keys.map((k) => (
-                    <tr key={k.id} className={cn(!k.is_active && "opacity-55")}>
+                    <tr
+                      key={k.id}
+                      ref={k.id === revealRowId ? revealRowRef : undefined}
+                      className={cn(
+                        !k.is_active && "opacity-55",
+                        // The tint as well as the ring: a ring is a shadow,
+                        // and not every browser draws one on a table row.
+                        k.id === revealRowId && "bg-primary/10 ring-2 ring-inset ring-primary",
+                      )}
+                    >
                       <td className="px-3 py-2">
                         <div className="font-medium text-foreground">{k.name}</div>
                         <div className="mt-0.5 flex items-center gap-1.5">

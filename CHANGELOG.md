@@ -219,6 +219,24 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Search finds your work, not only pages** (R513). The search box (Ctrl K,
+  or ⌘ K) now lists your agents, swarms, knowledge bases, datasets, lakehouse
+  tables, pipelines, semantic models and metrics, dashboards, reports,
+  workbooks, notebooks, ML models, workflows, analysts and saved analyses by
+  name, and opens the one you choose. _sales_ finds `saas_sales`: words match
+  where a name is split. It reads names and descriptions only, and lists what
+  each page would show you — your own work, what was shared with you, and the
+  samples. **See all results** opens a search page that groups matches by
+  kind and can be bookmarked; with nothing typed it shows everything you
+  have, by kind. Lakehouse tables can arrive after the rest; until they do,
+  search says it is still reading them.
+- **One "New" menu for everything** (R513). **New** in the top bar lists every
+  kind of thing that can be started, grouped by what it is for; search offers
+  the same list (_new report_). It replaces a menu of three and a second list
+  of five that disagreed.
+- **Links that open one object** (R513). Every list page opens one of its
+  objects from `?open=<id>` and starts a new one from `?new=1`, so a result,
+  a bookmark or a link pasted to a colleague lands on the object itself.
 - **Dashboards sent on a schedule** (R510). In a dashboard, **Export**, then
   **Email on a schedule**, emails the dashboard as a PDF, with the same timing,
   recipients, parameter values, Preview PDF and delivery log as a report's

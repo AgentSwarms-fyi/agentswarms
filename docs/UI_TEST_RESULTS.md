@@ -15,6 +15,111 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-20 — R513: search finds your work, one "New" menu, links that open one object
+
+Driven on a dev server built from the worktree (`:8102`), signed in as the owner,
+against the development project: 25 object kinds, 361 objects matching the one-letter
+query `a`. Nothing was created or saved; every create flow was opened and left.
+
+**Before** (the 8080 image built from R512): Ctrl+K, `sales` → "No results found." on an
+account with a dataset `saas_sales`, an analyst named after it and three dashboards with
+"sales" in the name. The palette listed pages only.
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| Top bar | the search field and **New** | The field is centred, reads "Search your work… Ctrl K" and opens the palette; **New** opens a three-column menu of 22 things to start |
+| Palette, nothing typed | Ctrl+K | Six things to create, then every page in its navigation group |
+| Palette, `sales` | Ctrl+K, type | "Your work": Sales performance 2026 (two workbooks, told apart by "2 months ago"), Salesforce, saas_sales analyst, a dashboard, Q1 sales, the Total Sales metric; then "See all results" |
+| Palette → object | ↓ to the analyst, Enter | `/ai-analyst?open=<id>`, the analyst selected, the address back to `/ai-analyst` |
+| `/search?q=a` | the page | 361 results in 24 kinds, each kind's count on its chip, five per kind with "Show all" |
+| `/search` | nothing typed | One tile per kind with its count; a tile lists that kind newest first |
+| `/search?q=sales` | the page | 28 results in 9 kinds; `saas_sales` (Sample), `bi_demo_sales` (lakehouse table, "analytics · 7 columns") |
+| `?open=` on a list page | one real object each: agent, knowledge base, skill, evaluation set, dataset, lakehouse table, pipeline, SQL model, semantic model, metric, data monitor, workflow, MCP server, embed, analyst | Each opened the object the way a click on it does (edit dialog, selected row, detail drawer, editor, History, or the row scrolled to and ringed), no error, and `open` gone from the address |
+| An analysis | `/ai-analyst?open=<analyst>&thread=<id>` | The analyst selected and that analysis open: its question, four steps and 733,948.02 |
+| Own page per object | a swarm, a report, a notebook | Each opened on its own route |
+| A made-up id | `/prompts?open=00000000-…` | "That prompt is not here any more, or is no longer shared with you."; the address tidied |
+| `?new=1` | agent, knowledge base, MCP server, prompt, skill, evaluation set, dataset, pipeline, SQL model, semantic model, ontology, data monitor, analyst, dashboard, report (`tab=reports`), workbook, workflow, MCP connection, embed | Each opened its own create dialog or blank editor; **New dataset** switched to the Workbench and opened "Upload a dataset"; **New embed** ringed the four kinds to choose from; `new` gone from the address |
+
+**Found here and fixed:**
+
+- A saved analysis was listed as `ck1:eef4de9bca22:1Iy0…`. Its title is sealed under
+  the owner's key and the index read the column as stored. Titles are now opened on the
+  server by the same function the analyst page uses, and a value that is still sealed is
+  never listed, for any kind.
+- `sales` put the Salesforce dashboard above the "Sales performance 2026" workbook. A
+  whole word now ranks above the start of a longer one.
+- The palette offered "New ai analyst". Abbreviations keep their capitals.
+- Two workbooks with one name were indistinguishable. Each result shows when it last
+  changed, and an analysis says which analyst it was run with.
+- The highlight on matched words was a coloured block on every row. It is weight only.
+- The **New** menu cut its hints off. They wrap to two lines.
+
+Not driven: **New swarm** and **New notebook** create a row the moment the link is
+followed, as their pages' own buttons do, so they were read in code and left for the
+owner to press. Unit tests: `objectSearch`, `objectKinds` and `objectSearchSources`
+(35 tests), the second of which fails if any search result or **New** entry links to a
+page that does not act on it.
+
+**On the 8080 image built from this round** (2026-11-21), on two accounts:
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| `/search?q=sales`, a small account | the page | 3 results in 3 kinds: the sample knowledge base, `saas_sales`, the sample dashboard |
+| Palette, `sales` → Enter | the first result | `/data-sql?open=<id>`, the dataset's drawer open (9,994 rows, its lineage), `open` gone from the address |
+| **New** | the menu | 22 entries in three columns, no hint cut off; on a 638 px tall window the menu is 510 px and scrolls |
+| `/agents?new=1`, `/bi?new=1`, `/data-sql?new=1` | each link | "Create Agent", "New BI project" and "Upload a dataset" opened; each address tidied; nothing saved |
+| `/agents?open=00000000-…` | a made-up id | "That agent is not here any more, or is no longer shared with you." |
+| `/search?q=a`, the owner | the page | 361 results in 24 kinds, the same as the dev server; 37 analyses, every title readable, none sealed |
+
+**Found on 8080 and fixed:**
+
+- Straight after the container restarted, the lakehouse tables arrived about 40 seconds
+  after everything else: the page read "All 296", then "All 361", and said nothing in
+  between. A table name typed in that gap would have been answered "Nothing matches".
+  Search now says "Still reading lakehouse tables…" in the palette's footer and on the
+  page, and its empty answer reads "Nothing matches … so far" until they arrive.
+- Reading the same code: a refresh (the index is re-read after a minute) dropped the
+  lakehouse tables until their own answer came back. The tables read last time now stay
+  listed until the new list replaces them.
+- An index still being read when its owner signed out could write that person's names
+  after the sign-out. A read that was overtaken now writes nothing.
+- On a dev server that was failing every server call, the palette's footer read
+  "Cannot read properties of undefined (reading 'ok')". An empty answer is now "The
+  server did not answer. Try again in a moment."
+
+**The fixes driven on the dev server** (2026-11-21, the owner's account, once the disk
+had settled after the image build). The two index calls were held back in the page, so
+each state stays on screen long enough to read:
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| Palette, `zzqx` typed at once | the first second | "Searching your work…", never "Nothing matches" |
+| Palette, everything but the tables read | the empty answer | "Nothing matches “zzqx” so far." with a spinner and "Still reading lakehouse tables…" in the footer |
+| Palette, the tables arrive | the same answer | "Nothing matches “zzqx”." and the footer back to "Finds your work by name" |
+| `/search?q=zzqx` | the page | "Nothing matches “zzqx” so far. Your lakehouse tables are still being read. They are added here as soon as they arrive.", then the usual hint 17 seconds later |
+| `/search?q=a` | the page | "Reading your work…", then "All 296" with "Still reading lakehouse tables…" under the results, then "All 361" with the Lakehouse tables filter and no note |
+| `/search?q=a`, the index thrown away in the page (what a change of signed-in person does) | the page | "Reading your work…" at once, then "All 361" again within a second |
+| Both index calls | the network | one of each per read, all 200; two reads on the page above, not more |
+
+**Found in that pass and fixed:**
+
+- The palette said "Still reading lakehouse tables…" twice, in its empty answer and in
+  its footer; the page said it in its notice and again under it. Each now says it once.
+- Reading the code behind it: between opening search and the index starting to read
+  (it first asks who is signed in, which can take a network call when the session has
+  to be renewed), a name typed at once could be answered "Nothing matches". Search now
+  says it is reading from the moment it is asked.
+- An index thrown away because someone else signed in is read again for that person
+  when search is on screen, instead of staying empty until the page is left.
+- With nobody signed in, search asks the server nothing and says "Sign in to search
+  your work."
+
+The index fixes are pinned by the `objectIndexStore` unit tests (12; each fix has a
+test that fails when it is taken out). Saying "still reading" once, and the page
+reading the index again after it is thrown away, were checked in the browser only. A
+second person really signing in on the same tab was not driven. None of this section's
+fixes is in the 8080 image yet.
+
 ## 2026-11-09 — R460: a link records what its source node left
 
 Driven on the 8080 stack, signed in as the owner, first on the R459 image and then on

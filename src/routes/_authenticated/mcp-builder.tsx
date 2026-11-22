@@ -43,7 +43,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { usePageIntent } from "@/hooks/use-page-intent";
 import { MCP_TEMPLATES } from "@/lib/mcpTemplates";
+import { readPageIntent } from "@/lib/pageIntent";
 import { cn } from "@/lib/utils";
 import { useSingleFlight } from "@/lib/singleFlight";
 import {
@@ -55,6 +57,9 @@ import {
 
 export const Route = createFileRoute("/_authenticated/mcp-builder")({
   component: McpBuilderPage,
+  // `?new=1` starts a new server — how the "New" menu links here
+  // (src/lib/pageIntent.ts). A server is opened on its own page, not from here.
+  validateSearch: (s: Record<string, unknown>) => readPageIntent(s),
 });
 
 const STATUS_STYLES: Record<string, string> = {
@@ -67,6 +72,7 @@ const STATUS_STYLES: Record<string, string> = {
 
 function McpBuilderPage() {
   const navigate = useNavigate();
+  const search = Route.useSearch();
   const listFn = useServerFn(mcpAppList);
   const createFn = useServerFn(mcpAppCreate);
   const deleteFn = useServerFn(mcpAppDelete);
@@ -90,6 +96,14 @@ function McpBuilderPage() {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // A link here can ask for a new server. Each server has a page of its own,
+  // so there is nothing on this one to open.
+  usePageIntent(search, {
+    ready: !loading,
+    noun: "MCP server",
+    onNew: () => setNewOpen(true),
+  });
 
   // R214: Enter in the name field skipped the button's in-flight guard, and a
   // call that threw left `creating` set, so the button stayed disabled.

@@ -36,6 +36,7 @@ import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import { useBiModelPref } from "@/components/bi/biModelPref";
 import { AddMetricToDashboardDialog } from "@/components/bi/AddMetricToDashboardDialog";
 import { useAuth } from "@/hooks/use-auth";
+import { usePageIntent } from "@/hooks/use-page-intent";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -103,6 +104,7 @@ import { diffSemanticDefinitions, type SemanticDefinitionDiff } from "@/lib/sema
 import { DbtImportDialog } from "@/components/semantics/DbtImportDialog";
 import { TemplateInsertMenu, type TemplateToken } from "@/components/templates/TemplateInsert";
 import { useInsertAtCaret } from "@/hooks/use-insert-at-caret";
+import { readPageIntent } from "@/lib/pageIntent";
 import { semanticFragmentTokens } from "@/lib/semanticFieldTokens";
 import type { Json } from "@/integrations/supabase/types";
 import { listWarehouseConnections, saveWarehouseConnection } from "@/utils/warehouse.functions";
@@ -123,7 +125,12 @@ const searchSchema = z.object({
 });
 
 export const Route = createFileRoute("/_authenticated/semantics")({
-  validateSearch: (s) => searchSchema.parse(s),
+  // The arrival from a lakehouse table, plus `?open=<id>` and `?new=1` — how
+  // search results and the "New" menu link here (src/lib/pageIntent.ts).
+  validateSearch: (s: Record<string, unknown>) => ({
+    ...searchSchema.parse(s),
+    ...readPageIntent(s),
+  }),
   head: () => ({
     meta: [
       { title: "Semantic Layer — AgentSwarms" },
@@ -343,6 +350,10 @@ function SemanticsPage() {
   const validateFn = useServerFn(semanticValidateModel);
 
   const [loading, setLoading] = useState(true);
+  // The models have been read at least once. `loading` cannot say this: it
+  // also ends when the read fails, and a model missing from a list that never
+  // arrived is not a model that is gone.
+  const [listed, setListed] = useState(false);
   const [models, setModels] = useState<Array<Record<string, unknown>>>([]);
   const [sources, setSources] = useState<LocalSource[]>([]);
   const [whConns, setWhConns] = useState<WhConn[]>([]);
@@ -481,6 +492,7 @@ function SemanticsPage() {
       ]);
       setModels(ms as Array<Record<string, unknown>>);
       setSources(ss as LocalSource[]);
+      setListed(true);
       // Warehouse connections are optional — the local path must never break
       // because a connector call failed.
       try {
@@ -802,6 +814,50 @@ function SemanticsPage() {
     shouldBlockFn: async () => !(await mayDiscard("Leaving the page drops")),
     enableBeforeUnload: unsaved,
     disabled: !unsaved,
+  });
+
+  /** Start a new model with no source chosen: "New model", or a link. */
+  async function startNew() {
+    if (!(await mayDiscard("Starting a new model replaces"))) return;
+    openDraft(emptyDraft());
+    setEditorTab("source");
+    setResult(null);
+  }
+
+  /** Open a model in the editor: a click on it in the list, or a link. */
+  function openModel(m: Record<string, unknown>) {
+    if (m.id === draft?.id) return;
+    void mayDiscard("Opening another model replaces").then((go) => {
+      if (go) editModel(m);
+    });
+  }
+
+  // A link here can ask for a new model or for one model to be opened
+  // (src/lib/pageIntent.ts), and it can arrive while this page is already
+  // open on a draft with unsaved edits. The guard above has asked about those
+  // by then, because it asks before any change of address, and the reader
+  // chose to drop them. So they are dropped here, once, as the request
+  // arrives. Asking a second time would also stop the request being taken out
+  // of the address, which is itself a change of address the guard would hold.
+  const asked = search.new === 1 ? "new" : (search.open ?? null);
+  useEffect(() => {
+    if (asked !== null && unsaved) openDraft(null);
+    // Keyed on the request alone: edits made after it arrived are not its to
+    // drop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [asked]);
+
+  // The request waits while there are unsaved edits, so that it never runs
+  // under the guard. Opening waits for the list as well.
+  usePageIntent(unsaved ? {} : search, {
+    ready: listed && !loading,
+    noun: "semantic model",
+    onNew: () => void startNew(),
+    onOpen: (id) => {
+      const model = models.find((m) => m.id === id);
+      if (!model) return false;
+      openModel(model);
+    },
   });
 
   const save = async (overwrite = false) => {
@@ -1262,16 +1318,7 @@ function SemanticsPage() {
       <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
         {/* Model list */}
         <div className="space-y-2">
-          <Button
-            size="sm"
-            className="w-full"
-            onClick={async () => {
-              if (!(await mayDiscard("Starting a new model replaces"))) return;
-              openDraft(emptyDraft());
-              setEditorTab("source");
-              setResult(null);
-            }}
-          >
+          <Button size="sm" className="w-full" onClick={() => void startNew()}>
             <Plus className="mr-1 h-4 w-4" /> New model
           </Button>
           {/* Offered only with a warehouse connected: a dbt model is a table in
@@ -1305,12 +1352,7 @@ function SemanticsPage() {
                       ? "border-primary bg-primary/[0.03]"
                       : "hover:border-primary/40"
                   }`}
-                  {...clickable(() => {
-                    if (m.id === draft?.id) return;
-                    void mayDiscard("Opening another model replaces").then((go) => {
-                      if (go) editModel(m);
-                    });
-                  }, `Semantic model ${m.name}`)}
+                  {...clickable(() => openModel(m), `Semantic model ${m.name}`)}
                 >
                   <CardContent className="flex items-center justify-between gap-2 p-3">
                     <div

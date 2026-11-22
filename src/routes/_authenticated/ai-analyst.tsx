@@ -71,8 +71,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
+import { usePageIntent } from "@/hooks/use-page-intent";
 import { supabase } from "@/integrations/supabase/client";
 import { saveThread, threadById, threadsOf } from "@/lib/analystThreads";
+import { readPageIntent, type PageIntent } from "@/lib/pageIntent";
 import { clickable } from "@/lib/clickable";
 import { readableCell } from "@/lib/readableNumbers";
 import {
@@ -153,6 +155,16 @@ import { reportFailure } from "@/lib/silentFailureNet";
 
 export const Route = createFileRoute("/_authenticated/ai-analyst")({
   component: AiAnalystPage,
+  // `?new=1` starts a new analyst and `?open=<id>` selects one; `thread=<id>`
+  // beside `open` opens one of that analyst's saved analyses — how search
+  // results and the "New" menu link here (src/lib/pageIntent.ts).
+  validateSearch: (s: Record<string, unknown>) => {
+    const out: PageIntent & { thread?: string } = readPageIntent(s);
+    if (typeof s.thread === "string" && s.thread.trim() && s.thread.length <= 400) {
+      out.thread = s.thread;
+    }
+    return out;
+  },
 });
 
 type AnalystRow = {
@@ -219,6 +231,12 @@ const STATUS_LABEL: Record<AnalystTurn["status"], string> = {
 function AiAnalystPage() {
   const { user, session } = useAuth();
   const token = session?.access_token;
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
+  // The analyst a link asked for, readable by the first load (below) without
+  // that load running again when the address changes.
+  const askedOpen = useRef(search.open);
+  askedOpen.current = search.open;
   const listWarehousesFn = useServerFn(listWarehouseConnections);
   // Compilation happens SERVER-side: that is where the full model, its row
   // filters and its column masks are. The browser only ever sees field names.
@@ -314,6 +332,8 @@ function AiAnalystPage() {
 
   // ── Analysts (RLS owner-only) ───────────────────────────────────────
   const [analysts, setAnalysts] = useState<AnalystRow[] | null>(null);
+  // The list above was read successfully (a failed read leaves it empty).
+  const [analystsRead, setAnalystsRead] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [sharingAnalyst, setSharingAnalyst] = useState<AnalystRow | null>(null);
@@ -335,9 +355,14 @@ function AiAnalystPage() {
           setAnalysts([]);
           return;
         }
+        setAnalystsRead(true);
         const rows = (data ?? []).map((r) => ({ ...r, source: r.source as AnalystSource }));
         setAnalysts(rows as AnalystRow[]);
-        setSelectedId((cur) => cur ?? rows[0]?.id ?? null);
+        // A link that asks for one analyst lands on that one. Landing on the
+        // newest first and then switching would read the wrong analyst's
+        // analyses and have its model write starter questions for nobody.
+        const asked = rows.find((r) => r.id === askedOpen.current)?.id;
+        setSelectedId((cur) => cur ?? asked ?? rows[0]?.id ?? null);
       });
   }, [user?.id]);
 
@@ -354,6 +379,20 @@ function AiAnalystPage() {
   const [thread, setThread] = useState<ThreadRow | null>(null);
   /** This analyst's past analyses, newest first. */
   const [threads, setThreads] = useState<ThreadRow[]>([]);
+  /**
+   * The analyst whose analyses `threads` holds, once they have been read. A
+   * link that asks for one analysis waits for this: an empty list says nothing
+   * about an analysis until it is that analyst's own list.
+   */
+  const [threadsOwner, setThreadsOwner] = useState<string | null>(null);
+  /**
+   * The analysis a link asked for, held until its analyst's analyses are in
+   * (see "Links into this page"). The ref is the same request, for the read
+   * below to see when its reply lands.
+   */
+  const [askedThread, setAskedThread] = useState<{ analyst: string; thread: string } | null>(null);
+  const askedThreadRef = useRef(askedThread);
+  askedThreadRef.current = askedThread;
   const [threadLoading, setThreadLoading] = useState(false);
   const [liveTurn, setLiveTurn] = useState<AnalystTurn | null>(null);
   const [busy, setBusy] = useState(false);
@@ -367,18 +406,35 @@ function AiAnalystPage() {
     setThread(null);
     setLiveTurn(null);
     setThreads([]);
+    setThreadsOwner(null);
     if (!selectedId) return;
     setThreadLoading(true);
+    // A link can select an analyst while another's analyses are still being
+    // read. Whichever reply landed last used to win, which could leave one
+    // analyst's analyses open under another's name — and the next question
+    // saved into them. A reply for an analyst no longer selected is dropped.
+    let live = true;
     // Through the server, which opens the sealed analyses (R447).
     void threadsOf(selectedId, ANALYST_THREAD_HISTORY).then(({ data, error }) => {
+      if (!live) return;
       setThreadLoading(false);
       if (error) return toast.error(error.message);
       const rows = (data ?? []).map(
         (r) => ({ ...r, turns: (r.turns ?? []) as unknown as AnalystTurn[] }) as ThreadRow,
       );
       setThreads(rows);
-      if (rows[0]) setThread(rows[0]);
+      setThreadsOwner(selectedId);
+      // The analysis a link asked for, when it is listed, rather than the
+      // newest for a moment and then that one.
+      const asked = askedThreadRef.current;
+      const wanted =
+        asked?.analyst === selectedId ? rows.find((t) => t.id === asked.thread) : undefined;
+      const first = wanted ?? rows[0];
+      if (first) setThread(first);
     });
+    return () => {
+      live = false;
+    };
   }, [selectedId]);
 
   // Keep the newest content in view while a turn streams in.
@@ -948,6 +1004,67 @@ function AiAnalystPage() {
     setAnalysts((cur) => (cur ?? []).filter((x) => x.id !== id));
     if (selectedId === id) setSelectedId(null);
   }
+
+  // ── Links into this page ────────────────────────────────────────────
+  // A link here can ask for a new analyst, for one analyst to be selected, or
+  // (with `thread`) for one of that analyst's saved analyses to be opened.
+  usePageIntent(search, {
+    // Read, not merely answered: a failed read sets the list to empty, and an
+    // analyst missing from a list that could not be read is not one that is gone.
+    ready: analysts !== null && analystsRead,
+    noun: "analyst",
+    onNew: openCreate,
+    onOpen: (id) => {
+      if (!analysts?.some((a) => a.id === id)) return false;
+      setSelectedId(id);
+      setRailOpen(false);
+      setAskedThread(search.thread ? { analyst: id, thread: search.thread } : null);
+    },
+  });
+
+  // `thread` only means something beside `open`, and the hook above takes
+  // `open` out of the address once it has acted. A `thread` left without it,
+  // or one that arrived on its own, is taken out too.
+  const strayThread = search.thread !== undefined && search.open === undefined;
+  useEffect(() => {
+    if (!strayThread) return;
+    void navigate({ search: (prev) => ({ ...prev, thread: undefined }), replace: true });
+  }, [strayThread, navigate]);
+
+  // Opens the analysis a link asked for, the way picking it from the analyst's
+  // past analyses does, once those have been read.
+  useEffect(() => {
+    if (!askedThread) return;
+    // Another analyst was picked in the meantime: the request is over.
+    if (askedThread.analyst !== selectedId) {
+      setAskedThread(null);
+      return;
+    }
+    if (threadsOwner !== askedThread.analyst) return;
+    const listed = threads.find((t) => t.id === askedThread.thread);
+    if (listed) {
+      setAskedThread(null);
+      setThread(listed);
+      setLiveTurn(null);
+      return;
+    }
+    // Only the newest analyses are listed and search reaches further back, so
+    // one that is not listed is read by itself before it is called missing.
+    let live = true;
+    void threadById(askedThread.thread).then(({ data }) => {
+      if (!live) return;
+      setAskedThread(null);
+      if (!data || data.analyst_id !== askedThread.analyst) {
+        toast.error("That analysis is not here any more.");
+        return;
+      }
+      setThread({ ...data, turns: (data.turns ?? []) as unknown as AnalystTurn[] } as ThreadRow);
+      setLiveTurn(null);
+    });
+    return () => {
+      live = false;
+    };
+  }, [askedThread, selectedId, threadsOwner, threads]);
 
   function newAnalysis() {
     // The next question starts a fresh thread; older threads stay stored.

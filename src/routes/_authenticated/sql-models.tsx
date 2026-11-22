@@ -23,6 +23,7 @@ import {
   X,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { usePageIntent } from "@/hooks/use-page-intent";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -31,6 +32,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { relTime } from "@/components/ml/mlFormat";
+import { readPageIntent } from "@/lib/pageIntent";
 import { cn } from "@/lib/utils";
 import {
   TEST_LABELS,
@@ -71,6 +73,9 @@ export const Route = createFileRoute("/_authenticated/sql-models")({
     ],
   }),
   component: SqlModelsPage,
+  // `?new=1` starts a new model and `?open=<id>` opens one in the editor — how
+  // search results and the "New" menu link here (src/lib/pageIntent.ts).
+  validateSearch: (s: Record<string, unknown>) => readPageIntent(s),
 });
 
 const SCHEDULES = ["manual", "hourly", "daily", "weekly", "cron"] as const;
@@ -253,6 +258,7 @@ function whyLine(m: ModelResult): string {
 function SqlModelsPage() {
   const { session } = useAuth();
   const token = session?.access_token ?? "";
+  const search = Route.useSearch();
   const listFn = useServerFn(sqlModelsList);
   const saveFn = useServerFn(sqlModelSave);
   const deleteFn = useServerFn(sqlModelDelete);
@@ -267,6 +273,10 @@ function SqlModelsPage() {
   const [missing, setMissing] = useState<Record<string, string[]>>({});
   const [runs, setRuns] = useState<SqlModelRunRow[]>([]);
   const [loading, setLoading] = useState(true);
+  // The models and schemas have been read. `loading` cannot say this: it also
+  // ends when the read fails, and a model missing from a list that never
+  // arrived is not a model that is gone.
+  const [listed, setListed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState<"editor" | "graph" | "runs">("editor");
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -304,6 +314,7 @@ function SqlModelsPage() {
       setSchemas(l.schemas);
       setDeps(l.deps);
       setMissing(l.missing);
+      setListed(true);
     } else toast.error(l.error);
     if (r.ok) setRuns(r.runs);
     setLoading(false);
@@ -343,6 +354,55 @@ function SqlModelsPage() {
     shouldBlockFn: async () => !(await mayDiscard("Leaving the page drops")),
     enableBeforeUnload: unsaved,
     disabled: !unsaved,
+  });
+
+  /** Start a new model in the editor: the "New model" button, or a link. */
+  async function startNew() {
+    if (!(await mayDiscard("Starting a new model replaces"))) return;
+    setPreview(null);
+    openDraft(emptyDraft(writable[0]?.name ?? ""));
+    setTab("editor");
+  }
+
+  /** Open a model in the editor: a click on it in the list, or a link. */
+  async function openModel(m: SqlModelListed) {
+    if (!(await mayDiscard("Opening another model replaces"))) return;
+    setPreview(null);
+    openDraft(draftOf(m), m.fingerprint);
+    setTab("editor");
+  }
+
+  // A link here can ask for a new model or for one model to be opened
+  // (src/lib/pageIntent.ts), and it can arrive while this page is already
+  // open on a draft with unsaved edits. The guard above has asked about those
+  // by then, because it asks before any change of address, and the reader
+  // chose to drop them. So they are dropped here, once, as the request
+  // arrives. Asking a second time would also stop the request being taken out
+  // of the address, which is itself a change of address the guard would hold.
+  const asked = search.new === 1 ? "new" : (search.open ?? null);
+  useEffect(() => {
+    if (asked !== null && unsaved) openDraft(null);
+    // Keyed on the request alone: edits made after it arrived are not its to
+    // drop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [asked]);
+
+  // The request waits for the list: a new model starts in the first schema the
+  // reader can write to, which is not known before then. It also waits while
+  // there are unsaved edits, so that it never runs under the guard.
+  usePageIntent(listed && !unsaved ? search : {}, {
+    ready: listed,
+    noun: "SQL model",
+    onNew: () => {
+      // With no schema to build into the button is off, and the page says why.
+      if (writable.length > 0) void startNew();
+    },
+    onOpen: (id) => {
+      const model = models.find((m) => m.id === id);
+      if (!model) return false;
+      if (model.id === draft?.id) setTab("editor");
+      else void openModel(model);
+    },
   });
 
   async function save(overwrite = false) {
@@ -535,16 +595,7 @@ function SqlModelsPage() {
             )}
             Build all
           </Button>
-          <Button
-            size="sm"
-            disabled={writable.length === 0}
-            onClick={async () => {
-              if (!(await mayDiscard("Starting a new model replaces"))) return;
-              setPreview(null);
-              openDraft(emptyDraft(writable[0]?.name ?? ""));
-              setTab("editor");
-            }}
-          >
+          <Button size="sm" disabled={writable.length === 0} onClick={() => void startNew()}>
             <Plus className="mr-1 h-3.5 w-3.5" /> New model
           </Button>
         </div>
@@ -587,12 +638,8 @@ function SqlModelsPage() {
                 <button
                   key={m.id}
                   type="button"
-                  onClick={async () => {
-                    if (m.id === draft?.id) return;
-                    if (!(await mayDiscard("Opening another model replaces"))) return;
-                    setPreview(null);
-                    openDraft(draftOf(m), m.fingerprint);
-                    setTab("editor");
+                  onClick={() => {
+                    if (m.id !== draft?.id) void openModel(m);
                   }}
                   className={cn(
                     "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted",

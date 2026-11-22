@@ -21,7 +21,9 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
+import { usePageIntent } from "@/hooks/use-page-intent";
 import { supabase } from "@/integrations/supabase/client";
+import { readPageIntent } from "@/lib/pageIntent";
 import { selectAllPages, type PagedResult } from "@/lib/pagedSelect";
 import { readSharedDatasets, type SharedDataset } from "@/lib/sharedDatasetList";
 import {
@@ -40,6 +42,10 @@ import {
 export const Route = createFileRoute("/_authenticated/metrics")({
   component: MetricsPage,
   head: () => ({ meta: [{ title: "Metrics — AgentSwarms" }] }),
+  // `?open=<model name>.<metric name>` finds one metric — how search results
+  // link here (src/lib/pageIntent.ts). A metric has no row id of its own, so
+  // the link carries the qualified name the card prints.
+  validateSearch: (s: Record<string, unknown>) => readPageIntent(s),
 });
 
 type DashboardRow = { id: string; name: string; widgets: unknown; pages: unknown };
@@ -47,7 +53,12 @@ type TableRow = { name: string; data_loaded_at: string | null };
 
 function MetricsPage() {
   const { user } = useAuth();
+  const search = Route.useSearch();
   const [models, setModels] = useState<SemanticModelRow[] | null>(null);
+  // The semantic layer was read. `models` cannot say this on its own: a failed
+  // read leaves it empty too, and a metric missing from a list that never
+  // arrived is not a metric that is gone.
+  const [loaded, setLoaded] = useState(false);
   const [dashboards, setDashboards] = useState<DashboardRow[]>([]);
   const [tables, setTables] = useState<TableRow[]>([]);
   const [query, setQuery] = useState("");
@@ -93,6 +104,7 @@ function MetricsPage() {
       return;
     }
     setModels(m.rows);
+    setLoaded(true);
     setDashboards(d.rows);
     const named = new Set(t.rows.map((r) => r.name));
     setTables([
@@ -111,6 +123,21 @@ function MetricsPage() {
   }, [load]);
 
   const metrics = useMemo(() => flattenMetrics(models ?? []), [models]);
+
+  // A link here names one metric. The page has no detail view to open, so the
+  // name goes into the search box, which narrows the list to that metric and
+  // shows the reader why the list is short. Nothing is typed for a name that
+  // matches no metric: that would leave an empty list under a filter the
+  // reader did not write.
+  usePageIntent(search, {
+    ready: loaded,
+    noun: "metric",
+    onOpen: (id) => {
+      if (!metrics.some((m) => qualifiedName(m) === id)) return false;
+      setQuery(id);
+    },
+  });
+
   const shown = useMemo(() => metrics.filter((m) => matchesQuery(m, query)), [metrics, query]);
   const summary = useMemo(() => catalogSummary(metrics), [metrics]);
   const now = Date.now();

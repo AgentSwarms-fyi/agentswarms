@@ -7,6 +7,8 @@ import type { Json, TablesInsert } from "@/integrations/supabase/types";
 import { supabase } from "@/integrations/supabase/client";
 import { scanRows } from "@/lib/cursorScan";
 import { useAuth } from "@/hooks/use-auth";
+import { usePageIntent } from "@/hooks/use-page-intent";
+import { readPageIntent } from "@/lib/pageIntent";
 import { cn } from "@/lib/utils";
 import { clickable } from "@/lib/clickable";
 import { parseFileToText } from "@/lib/fileParsers";
@@ -92,11 +94,9 @@ const CHUNK_SCAN_MAX = 50_000;
 
 export const Route = createFileRoute("/_authenticated/knowledge")({
   component: KnowledgePage,
-  validateSearch: (s: Record<string, unknown>) => {
-    const out: { new?: 1 } = {};
-    if (s.new === 1 || s.new === "1") out.new = 1;
-    return out;
-  },
+  // `?new=1` starts a new knowledge base and `?open=<id>` selects one — how
+  // search results and the "New" menu link here (src/lib/pageIntent.ts).
+  validateSearch: (s: Record<string, unknown>) => readPageIntent(s),
 });
 
 type KnowledgeBase = {
@@ -294,7 +294,6 @@ function KnowledgePage() {
     };
   }, [storeBriefFn]);
   const search = Route.useSearch();
-  const navigate = Route.useNavigate();
   const [bases, setBases] = useState<KnowledgeBase[]>([]);
   const [selectedBase, setSelectedBase] = useState<KnowledgeBase | null>(null);
   const [docs, setDocs] = useState<KnowledgeDoc[]>([]);
@@ -341,13 +340,18 @@ function KnowledgePage() {
   });
   const [backfilling, setBackfilling] = useState(false);
 
-  // Open the Create dialog when navigated to with ?new=1 (Global "+" menu).
-  useEffect(() => {
-    if (search.new === 1) {
-      setCreateOpen(true);
-      navigate({ search: {}, replace: true });
-    }
-  }, [search.new, navigate]);
+  // A link here can ask for a new knowledge base or for one to be selected.
+  // Selecting waits for the list, so a base that is gone is said to be gone.
+  usePageIntent(search, {
+    ready: basesLoaded && !basesError,
+    noun: "knowledge base",
+    onNew: () => setCreateOpen(true),
+    onOpen: (id) => {
+      const base = bases.find((b) => b.id === id);
+      if (!base) return false;
+      setSelectedBase(base);
+    },
+  });
 
   // Create form
   const [newBaseName, setNewBaseName] = useState("");

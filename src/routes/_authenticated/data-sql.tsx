@@ -18,6 +18,8 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useAuth } from "@/hooks/use-auth";
 import { useTokenRef } from "@/hooks/use-token-ref";
+import { usePageIntent } from "@/hooks/use-page-intent";
+import { readPageIntent } from "@/lib/pageIntent";
 import { DeleteDatasetDialog } from "@/components/bi/DeleteDatasetDialog";
 import { datasetDependents, type DatasetDependents } from "@/utils/dataPrep.functions";
 import { supabase } from "@/integrations/supabase/client";
@@ -128,6 +130,9 @@ export const Route = createFileRoute("/_authenticated/data-sql")({
     ],
   }),
   component: DataCatalogRoute,
+  // `?open=<dataset id>` shows one dataset and `?new=1` starts adding data —
+  // how search results and the "New" menu link here (src/lib/pageIntent.ts).
+  validateSearch: (s: Record<string, unknown>) => readPageIntent(s),
 });
 
 // Seed passed from the Catalog's "Query data" into the IDE below.
@@ -140,9 +145,35 @@ type WorkbenchSeed = { sql: string; dataSource: string; autorun?: boolean; nonce
  * chat history and editor state survive switching.
  */
 function DataCatalogRoute() {
+  const search = Route.useSearch();
   const [view, setView] = useState<"catalog" | "workbench">("catalog");
   const [wbMounted, setWbMounted] = useState(false);
   const [seed, setSeed] = useState<WorkbenchSeed | null>(null);
+
+  // A link that asks for one dataset is answered by the Catalog: it holds the
+  // list of datasets. So the Catalog is the pane to show when one arrives, and
+  // the request is handed down to it below rather than acted on here.
+  useEffect(() => {
+    if (search.open !== undefined) setView("catalog");
+  }, [search.open]);
+
+  // A link that asks for a NEW dataset means an upload — that is what makes
+  // one. The upload dialog belongs to the Workbench, so that pane is shown and
+  // told to open it. (The Catalog's own "Add" connects a warehouse or a
+  // bucket, which adds a source, not a dataset.)
+  const [uploadAsk, setUploadAsk] = useState(0);
+  usePageIntent(
+    { new: search.new },
+    {
+      ready: true,
+      noun: "dataset",
+      onNew: () => {
+        setWbMounted(true);
+        setView("workbench");
+        setUploadAsk((n) => n + 1);
+      },
+    },
+  );
 
   const switchBtn = (v: "catalog" | "workbench", icon: React.ReactNode, label: string) => (
     <button
@@ -180,6 +211,7 @@ function DataCatalogRoute() {
               in. */}
           <CatalogView
             active={view === "catalog"}
+            intent={{ open: search.open }}
             onQueryAsset={(s) => {
               setSeed({ ...s, nonce: Date.now() });
               setWbMounted(true);
@@ -189,7 +221,7 @@ function DataCatalogRoute() {
         </div>
         {wbMounted && (
           <div className={view === "workbench" ? "h-full" : "hidden"}>
-            <DataSqlPage seed={seed} />
+            <DataSqlPage seed={seed} uploadAsk={uploadAsk} />
           </div>
         )}
       </div>
@@ -307,7 +339,14 @@ function highlightSql(src: string): string {
   );
 }
 
-function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
+function DataSqlPage({
+  seed,
+  uploadAsk = 0,
+}: {
+  seed?: WorkbenchSeed | null;
+  /** Counts requests to open the upload dialog; each new count opens it. */
+  uploadAsk?: number;
+}) {
   const { user, session } = useAuth();
   const { tokenRef } = useTokenRef(session?.access_token);
   const [datasets, setDatasets] = useState<DatasetMeta[]>([]);
@@ -341,6 +380,9 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
   const [queryError, setQueryError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
+  useEffect(() => {
+    if (uploadAsk > 0) setUploadOpen(true);
+  }, [uploadAsk]);
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatBusy, setChatBusy] = useState(false);

@@ -5,15 +5,22 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Code2 } from "lucide-react";
 
 import { EmbedSection } from "@/components/embed/EmbedSection";
+import { readPageIntent } from "@/lib/pageIntent";
 
 export const Route = createFileRoute("/_authenticated/embeds")({
   head: () => ({
     meta: [{ title: "Web Embedding — AgentSwarms" }],
   }),
   component: EmbedsPage,
+  // `?new=1` starts a new embed and `?open=<id>` shows one — how search
+  // results and the "New" menu link here (src/lib/pageIntent.ts).
+  validateSearch: (s: Record<string, unknown>) => readPageIntent(s),
 });
 
 function EmbedsPage() {
+  // Read here and handed down, because the same section is also shown inside
+  // Settings, where the address belongs to another page.
+  const search = Route.useSearch();
   return (
     <div className="max-w-6xl space-y-6 p-6">
       <div>
@@ -31,7 +38,7 @@ function EmbedsPage() {
           instantly.
         </p>
       </div>
-      <EmbedSection />
+      <EmbedSection intent={search} />
     </div>
   );
 }

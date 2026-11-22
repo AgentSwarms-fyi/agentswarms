@@ -3,8 +3,9 @@
 // of linking out. Self-fetching, no props — same convention as every other
 // credential panel in this app.
 import { Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRefreshOnView } from "@/hooks/use-live-rows";
+import { usePageIntent } from "@/hooks/use-page-intent";
 import { listClaim } from "@/lib/listClaim";
 import { countLabels } from "@/lib/countClaim";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -51,6 +52,8 @@ import { useAuth } from "@/hooks/use-auth";
 import { probeMcpServer } from "@/lib/mcp/probe.functions";
 import { saveMcpServer } from "@/lib/mcp/servers.functions";
 import { SecretSelect } from "@/components/secrets/SecretSelect";
+import type { PageIntent } from "@/lib/pageIntent";
+import { cn } from "@/lib/utils";
 import type { McpTool } from "@/utils/mcpApps/sse";
 
 type McpServerType = "database" | "filesystem" | "git" | "api" | "custom";
@@ -95,7 +98,21 @@ function timeAgo(iso: string | null) {
   return `${h}h ago`;
 }
 
-export function McpServersPanel({ showBuilderLink = true }: { showBuilderLink?: boolean }) {
+/** No link asked for anything: what the panel has when it is inside Settings. */
+const NO_INTENT: PageIntent = {};
+
+export function McpServersPanel({
+  showBuilderLink = true,
+  intent = NO_INTENT,
+}: {
+  showBuilderLink?: boolean;
+  /**
+   * What a link into the page asked for: open one server, or add a new one.
+   * The /mcp page passes it. Settings does not, because its address is about
+   * another page.
+   */
+  intent?: PageIntent;
+}) {
   const { user } = useAuth();
   const [servers, setServers] = useState<McpServer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -133,6 +150,28 @@ export function McpServersPanel({ showBuilderLink = true }: { showBuilderLink?: 
   // auth_token), so no event ever came. The rows change from this panel or a
   // probe it starts; coming back to the tab is the only other time to look.
   useRefreshOnView(() => void load(), !!user);
+
+  // The server a link asked for. A server has no dialog of its own to open,
+  // so its card is scrolled to and ringed for a moment instead.
+  const [revealId, setRevealId] = useState<string | null>(null);
+  const revealRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!revealId) return;
+    revealRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const t = window.setTimeout(() => setRevealId(null), 2500);
+    return () => window.clearTimeout(t);
+  }, [revealId]);
+
+  // A link here can ask for a new connection or for one server to be shown.
+  usePageIntent(intent, {
+    ready: !loading && !loadError,
+    noun: "MCP server",
+    onNew: () => setAddOpen(true),
+    onOpen: (id) => {
+      if (!servers.some((s) => s.id === id)) return false;
+      setRevealId(id);
+    },
+  });
 
   const probeServer = async (id: string, opts?: { silent?: boolean }) => {
     try {
@@ -291,7 +330,11 @@ export function McpServersPanel({ showBuilderLink = true }: { showBuilderLink?: 
             return (
               <Card
                 key={server.id}
-                className="border-border/50 hover:border-border transition-colors group"
+                ref={server.id === revealId ? revealRef : undefined}
+                className={cn(
+                  "border-border/50 hover:border-border transition-colors group",
+                  server.id === revealId && "ring-2 ring-primary",
+                )}
               >
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between gap-2">

@@ -8,6 +8,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { usePageIntent } from "@/hooks/use-page-intent";
+import { readPageIntent } from "@/lib/pageIntent";
 import { toast } from "sonner";
 import {
   BookMarked,
@@ -49,6 +51,9 @@ import { matchesPromptQuery } from "@/lib/promptSearch";
 
 export const Route = createFileRoute("/_authenticated/prompts")({
   component: PromptsPage,
+  // `?new=1` starts a new prompt and `?open=<id>` opens one — how search
+  // results and the "New" menu link here (src/lib/pageIntent.ts).
+  validateSearch: (s: Record<string, unknown>) => readPageIntent(s),
 });
 
 type UserPrompt = {
@@ -72,6 +77,7 @@ const EMPTY_FORM = {
 
 function PromptsPage() {
   const { user } = useAuth();
+  const search = Route.useSearch();
   const [tab, setTab] = useState<"builtin" | "mine">("builtin");
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<PromptCategory | "all">("all");
@@ -130,6 +136,31 @@ function PromptsPage() {
     });
     setDialogOpen(true);
   }
+
+  // A link here can ask for a new prompt or for one prompt to be opened. A
+  // saved prompt opens in its editor, on its own tab so it is the card behind
+  // the dialog; a built-in one cannot be edited, so it opens in the preview.
+  usePageIntent(search, {
+    ready: loaded && !loadError,
+    noun: "prompt",
+    onNew: openNew,
+    onOpen: (id) => {
+      const mine = userPrompts.find((p) => p.id === id);
+      if (mine) {
+        setTab("mine");
+        openEdit(mine);
+        return;
+      }
+      const builtIn = BUILT_IN_PROMPTS.find((p) => p.id === id);
+      if (!builtIn) return false;
+      setTab("builtin");
+      setPreviewPrompt({
+        title: builtIn.title,
+        description: builtIn.description,
+        content: builtIn.content,
+      });
+    },
+  });
 
   async function savePrompt() {
     if (!user) return;

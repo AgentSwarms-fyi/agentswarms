@@ -136,8 +136,10 @@ import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import { parseModelChoice } from "@/utils/providers/modelChoice";
 import { listCatalogSources, type CatalogSource } from "@/lib/dataCatalog";
 import { useAuth } from "@/hooks/use-auth";
+import { usePageIntent } from "@/hooks/use-page-intent";
 import { useTokenRef } from "@/hooks/use-token-ref";
 import { useTheme } from "@/hooks/use-theme";
+import { readPageIntent } from "@/lib/pageIntent";
 import { cn } from "@/lib/utils";
 import {
   AGG_FNS,
@@ -185,6 +187,9 @@ import {
 
 export const Route = createFileRoute("/_authenticated/etl")({
   component: EtlPage,
+  // `?new=1` starts a new pipeline and `?open=<id>` opens one in the editor —
+  // how search results and the "New" menu link here (src/lib/pageIntent.ts).
+  validateSearch: (s: Record<string, unknown>) => readPageIntent(s),
 });
 
 // ── Shared bits ─────────────────────────────────────────────────────────────
@@ -230,6 +235,7 @@ type OverviewPipeline = OverviewData["pipelines"][number];
 function EtlPage() {
   const { session } = useAuth();
   const token = session?.access_token ?? "";
+  const search = Route.useSearch();
 
   const overviewFn = useServerFn(getEtlOverview);
   const [data, setData] = useState<OverviewData | null>(null);
@@ -255,6 +261,35 @@ function EtlPage() {
     const t = setInterval(() => void reload(), 6000);
     return () => clearInterval(t);
   }, [data, reload]);
+
+  // A link here can ask for a new pipeline or for one pipeline to be opened
+  // (src/lib/pageIntent.ts), and it can arrive while another pipeline is in
+  // the editor. The editor is left first, as "← Pipelines" leaves it. Its own
+  // guard has asked about unsaved edits by then, because it asks before any
+  // change of address, so nothing is dropped here that the reader did not
+  // agree to drop.
+  const asked = search.new === 1 ? "new" : (search.open ?? null);
+  useEffect(() => {
+    if (asked === null || !openId) return;
+    setOpenId(null);
+    void reload();
+    // Keyed on the request alone: it must not run again when a pipeline is
+    // opened afterwards, or when the session's token is renewed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [asked]);
+
+  // The request is acted on from the list, once the editor is gone. Taking it
+  // out of the address is a change of address too, and with the editor still
+  // open its guard would hold that and ask a second time.
+  usePageIntent(openId ? {} : search, {
+    ready: data !== null,
+    noun: "pipeline",
+    onNew: () => setCreating(true),
+    onOpen: (id) => {
+      if (!data?.pipelines.some((p) => p.id === id)) return false;
+      setOpenId(id);
+    },
+  });
 
   if (openId) {
     return (

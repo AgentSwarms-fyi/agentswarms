@@ -82,6 +82,8 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
+import { usePageIntent } from "@/hooks/use-page-intent";
+import type { PageIntent } from "@/lib/pageIntent";
 import { useBiModelPref } from "@/components/bi/biModelPref";
 import {
   assetLineageKeys,
@@ -142,6 +144,7 @@ type UnifiedAsset = CatalogAsset & { local?: boolean };
 export function CatalogView({
   onQueryAsset,
   active = true,
+  intent,
 }: {
   /** Open an asset in the Workbench tab with a seeded query (auto-executed). */
   onQueryAsset?: (seed: { sql: string; dataSource: string; autorun?: boolean }) => void;
@@ -151,6 +154,12 @@ export function CatalogView({
    * read when the page first loaded, for as long as the tab stayed open.
    */
   active?: boolean;
+  /**
+   * What a link asked of the page (src/lib/pageIntent.ts): one dataset to
+   * show, by its id, or data to add. The page reads it from the address and
+   * hands it down, because the list a dataset is looked up in lives here.
+   */
+  intent?: PageIntent;
 }) {
   const { session } = useAuth();
   const token = session?.access_token ?? "";
@@ -212,6 +221,21 @@ export function CatalogView({
   /** The same rows, keyed by connection id, for the rail's sync/schedule menu. */
   const [saasConnections, setSaasConnections] = useState<SaasConnectionSummary[]>([]);
   const [syncingConnIds, setSyncingConnIds] = useState<Set<string>>(new Set());
+
+  // A link here can ask for one dataset's details, or for data to be added.
+  // A dataset is one of the local tables, so opening waits for those, and for
+  // a read of them that succeeded: a failed read leaves the list unknown, and
+  // a dataset missing from an unknown list is not a dataset that is gone.
+  usePageIntent(intent ?? {}, {
+    ready: localLoaded && localError === null,
+    noun: "dataset",
+    onNew: () => setWizardOpen(true),
+    onOpen: (id) => {
+      const asset = localAssets.find((a) => a.id === `local:${id}`);
+      if (!asset) return false;
+      setSelected(asset);
+    },
+  });
 
   /**
    * Re-read the LOCAL datasets from Supabase.

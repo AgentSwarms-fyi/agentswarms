@@ -82,8 +82,14 @@ describe("the editor", () => {
   });
 
   it("asks before a link leaves the page, and lets the browser ask before the tab closes (R269)", () => {
+    // "Leaves the page" is meant: a link that opens another workflow here
+    // (R513, ?open=<id>) stays on the page, and is asked about by pick() with
+    // the question that fits — not told it is leaving.
     expect(src).toMatch(
-      /useBlocker\(\{\s*shouldBlockFn: async \(\) => !\(await mayDiscard\("Leaving this page drops them\."\)\),\s*enableBeforeUnload: unsaved,\s*disabled: !unsaved,\s*\}\);/,
+      /useBlocker\(\{\s*shouldBlockFn: async \(\{ current, next \}\) =>\s*current\.pathname !== next\.pathname && !\(await mayDiscard\("Leaving this page drops them\."\)\),\s*enableBeforeUnload: unsaved,\s*disabled: !unsaved,\s*\}\);/,
+    );
+    expect(src).toMatch(
+      /onOpen: \(id\) => \{\s*if \(!workflows\.some\(\(w\) => w\.id === id\)\) return false;\s*void pick\(id\);/,
     );
   });
 

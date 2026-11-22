@@ -35,6 +35,8 @@ import {
 import { ImportFileDialog } from "@/components/sheets/ImportFileDialog";
 import { WorkbookThumb } from "@/components/sheets/WorkbookThumb";
 import { useAuth } from "@/hooks/use-auth";
+import { usePageIntent } from "@/hooks/use-page-intent";
+import { readPageIntent } from "@/lib/pageIntent";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -90,6 +92,10 @@ export const Route = createFileRoute("/_authenticated/sheets")({
     ],
   }),
   component: SheetsPage,
+  // `?new=1` starts a new workbook — how the "New" menu links here
+  // (src/lib/pageIntent.ts). Each workbook has its own page, so nothing is
+  // opened from this one.
+  validateSearch: (s: Record<string, unknown>) => readPageIntent(s),
 });
 
 type View = "grid" | "list";
@@ -121,6 +127,7 @@ function SheetsPage() {
   const { session } = useAuth();
   const token = session?.access_token;
   const navigate = useNavigate();
+  const search = Route.useSearch();
   const listFn = useServerFn(sheetsList);
   const createFn = useServerFn(sheetsCreate);
   const deleteFn = useServerFn(sheetsDelete);
@@ -212,6 +219,13 @@ function SheetsPage() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // A link here can ask for a new workbook: the same dialog the button opens.
+  usePageIntent(search, {
+    ready: loaded,
+    noun: "workbook",
+    onNew: () => setNewOpen(true),
+  });
 
   // Workbooks with grid sheets but no preview yet (made before previews, or
   // never opened since): a few at a time, so the page is drawn first.

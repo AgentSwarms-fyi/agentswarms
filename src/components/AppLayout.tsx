@@ -81,23 +81,38 @@ export function AppLayout() {
               the window, so this changes nothing for them. */}
           <header
             data-app-header
-            className="sticky top-0 z-40 flex h-12 items-center justify-between border-b border-header-border bg-header px-4 text-header-foreground backdrop-blur-md"
+            className="sticky top-0 z-40 flex h-12 items-center gap-3 border-b border-header-border bg-header px-4 text-header-foreground backdrop-blur-md"
           >
             <SidebarTrigger />
-            <div className="flex items-center gap-2">
-              {/* Search-field-shaped trigger: the affordance teaches the
-                  shortcut, and the shortcut makes the affordance optional. */}
+            {/* Search sits in the middle of the bar and is shaped like the
+                field it opens: it is the one control every page shares, so it
+                gets the room, and the affordance teaches the shortcut. */}
+            <div className="flex min-w-0 flex-1 justify-center">
               <button
                 type="button"
                 onClick={() => palette.setOpen(true)}
-                className="hidden h-8 items-center gap-2 rounded-md border border-border/60 bg-card/60 px-3 text-xs text-muted-foreground transition hover:border-primary/40 hover:text-foreground sm:inline-flex"
+                aria-label="Search your work, pages and actions"
+                className="hidden h-8 w-full max-w-md items-center gap-2 rounded-lg border border-border/60 bg-card/60 px-3 text-xs text-muted-foreground transition hover:border-primary/40 hover:text-foreground sm:flex"
               >
-                <Search className="h-3.5 w-3.5" />
-                Search
-                <kbd className="rounded border border-border/60 bg-muted px-1 font-mono text-[10px]">
+                <Search className="h-3.5 w-3.5 shrink-0" />
+                <span className="flex-1 truncate text-left">Search your work…</span>
+                <kbd className="shrink-0 rounded border border-border/60 bg-muted px-1 font-mono text-[10px]">
                   {isMac ? "⌘" : "Ctrl"} K
                 </kbd>
               </button>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {/* Below `sm` the field is hidden; an icon keeps search reachable. */}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label="Search"
+                className="h-8 w-8 sm:hidden"
+                onClick={() => palette.setOpen(true)}
+              >
+                <Search className="h-4 w-4" />
+              </Button>
               <GlobalCreateMenu />
               <Button
                 type="button"

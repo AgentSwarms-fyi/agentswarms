@@ -6,6 +6,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { identityHue } from "@/lib/identityHue";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { usePageIntent } from "@/hooks/use-page-intent";
+import { readPageIntent } from "@/lib/pageIntent";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -60,11 +62,9 @@ import { agentIsGuarded } from "@/lib/agentGuarded";
 
 export const Route = createFileRoute("/_authenticated/agents")({
   component: AgentsPage,
-  validateSearch: (s: Record<string, unknown>) => {
-    const out: { new?: 1 } = {};
-    if (s.new === 1 || s.new === "1") out.new = 1;
-    return out;
-  },
+  // `?new=1` starts a new agent and `?open=<id>` opens one — how search
+  // results and the "New" menu link here (src/lib/pageIntent.ts).
+  validateSearch: (s: Record<string, unknown>) => readPageIntent(s),
 });
 
 const PROVIDERS = [
@@ -84,7 +84,6 @@ const PROVIDERS = [
 function AgentsPage() {
   const { user } = useAuth();
   const search = Route.useSearch();
-  const navigate = Route.useNavigate();
   const [agents, setAgents] = useState<Agent[]>([]);
   // "No agents yet" and "not fetched yet" are different facts and this page
   // had no way to tell them apart, so the first paint always showed the empty
@@ -109,14 +108,23 @@ function AgentsPage() {
   }, []);
   useLangChainExportAnnouncement();
 
-  // Open the New Agent dialog when navigated to with ?new=1 (Global "+" menu).
-  useEffect(() => {
-    if (search.new === 1) {
+  // A link here can ask for a new agent or for one agent to be opened.
+  usePageIntent(search, {
+    // A list that failed to load is not a list the agent is missing from: the
+    // request waits, and is answered once a retry succeeds.
+    ready: loaded && !loadError,
+    noun: "agent",
+    onNew: () => {
       setEditing(null);
       setDialogOpen(true);
-      navigate({ search: {}, replace: true });
-    }
-  }, [search.new, navigate]);
+    },
+    onOpen: (id) => {
+      const agent = agents.find((a) => a.id === id);
+      if (!agent) return false;
+      setEditing(agent);
+      setDialogOpen(true);
+    },
+  });
 
   async function loadAgents() {
     const { data, error } = await supabase

@@ -2,6 +2,8 @@ import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { usePageIntent } from "@/hooks/use-page-intent";
+import { readPageIntent } from "@/lib/pageIntent";
 import { sessionUser } from "@/lib/sessionUser";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -24,9 +26,13 @@ type SkillRow = {
 
 export const Route = createFileRoute("/_authenticated/skills")({
   component: SkillLibraryPage,
+  // `?new=1` starts a new skill and `?open=<id>` opens one — how search
+  // results and the "New" menu link here (src/lib/pageIntent.ts).
+  validateSearch: (s: Record<string, unknown>) => readPageIntent(s),
 });
 
 function SkillLibraryPage() {
+  const search = Route.useSearch();
   const [tab, setTab] = useState<string>("mine");
   const [mine, setMine] = useState<SkillRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -70,6 +76,20 @@ function SkillLibraryPage() {
     setEditing(s);
     setEditorOpen(true);
   };
+
+  // A link here can ask for a new skill or for one skill to be opened in the
+  // editor, the way its pencil button does.
+  usePageIntent(search, {
+    ready: !loading && !loadError,
+    noun: "skill",
+    onNew: handleNew,
+    onOpen: (id) => {
+      const skill = mine.find((s) => s.id === id);
+      if (!skill) return false;
+      setTab("mine");
+      handleEdit(skill);
+    },
+  });
 
   const handleDelete = async (id: string) => {
     if (

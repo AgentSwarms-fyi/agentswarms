@@ -1173,6 +1173,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 2
       },
       {
+        "id": "search",
+        "text": "Finding your work, and starting something new",
+        "level": 2
+      },
+      {
         "id": "first-run",
         "text": "What to do on a new workspace",
         "level": 2

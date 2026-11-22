@@ -36,7 +36,15 @@ import {
 } from "@/utils/biReports.functions";
 import { reportFailure } from "@/lib/silentFailureNet";
 
-export function ReportsTab() {
+export function ReportsTab({
+  startNew = false,
+  onStartedNew,
+}: {
+  /** Open the new-report dialog, as the button does. Set by a link asking for one. */
+  startNew?: boolean;
+  /** Called once that dialog is open, so the same request is not acted on twice. */
+  onStartedNew?: () => void;
+}) {
   const navigate = useNavigate();
   const { session } = useAuth();
   const token = session?.access_token ?? "";
@@ -61,6 +69,16 @@ export function ReportsTab() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // A link to this tab can ask for a new report. The page holds the request
+  // and is told when it has been acted on: this tab is unmounted whenever
+  // another is chosen, so a request left standing would open the dialog again
+  // each time somebody came back to it.
+  useEffect(() => {
+    if (!startNew) return;
+    setCreateOpen(true);
+    onStartedNew?.();
+  }, [startNew, onStartedNew]);
 
   // R214: Enter in the name field skipped the button's in-flight guard.
   const create = useSingleFlight(async () => {
