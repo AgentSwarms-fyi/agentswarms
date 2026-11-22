@@ -19,7 +19,12 @@ export default tseslint.config(
   // node_modules (R321): minified third-party code. Linted, Prettier spent
   // half an hour on pdf.js's 1.4 MB worker. CI lints before it builds, so it
   // never saw them; a local `npm run check` after a build did.
-  { ignores: ["dist", ".output", ".vinxi", ".claude", "public/vendor"] },
+  // `supabase-docker` is the Supabase stack scripts/setup-selfhosted.sh checks
+  // out inside the repo (git-ignored, but ESLint does not read .gitignore). Its
+  // own prettier.config.mjs names prettier-plugin-sql-cst, which this repo does
+  // not install, so linting it crashed `npm run check` on every self-hosted
+  // machine. CI has no such folder, so it never saw it.
+  { ignores: ["dist", ".output", ".vinxi", ".claude", "public/vendor", "supabase-docker"] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],

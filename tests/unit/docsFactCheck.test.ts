@@ -330,7 +330,13 @@ describe("no document promises the removed in-browser runtime", () => {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
       const p = `${dir}/${e.name}`;
       if (e.isDirectory()) {
-        if (["node_modules", ".git", ".claude", "dist", ".output"].includes(e.name)) continue;
+        // supabase-docker is the Supabase stack scripts/setup-selfhosted.sh checks
+        // out inside the repo (git-ignored): not our documents, and its database
+        // folder is owned by the container, so reading it is EACCES.
+        if (
+          ["node_modules", ".git", ".claude", "dist", ".output", "supabase-docker"].includes(e.name)
+        )
+          continue;
         docs(p, out);
       } else if (e.name.endsWith(".md")) out.push(p);
     }
