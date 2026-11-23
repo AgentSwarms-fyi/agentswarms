@@ -8,6 +8,7 @@
 // provider+model picker, so IAM model rules apply here exactly as in BI.
 import { createFileRoute, useBlocker } from "@tanstack/react-router";
 import { PageHeader } from "@/components/PageHeader";
+import { ResultValue } from "@/components/data/ResultValue";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { useServerFn } from "@tanstack/react-start";
 
@@ -1524,12 +1525,8 @@ function NodePreview({
                   {result.rows.map((r, i) => (
                     <tr key={i} className="border-t">
                       {result.columns.map((c) => (
-                        <td key={c.name} className="max-w-56 truncate px-2 py-1 font-mono">
-                          {r[c.name] === null || r[c.name] === undefined ? (
-                            <span className="text-muted-foreground">∅</span>
-                          ) : (
-                            String(r[c.name])
-                          )}
+                        <td key={c.name} className="px-2 py-1 font-mono">
+                          <ResultValue value={r[c.name]} nullLabel="∅" className="max-w-56" />
                         </td>
                       ))}
                     </tr>

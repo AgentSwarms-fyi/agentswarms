@@ -28,6 +28,7 @@ import {
 import type { BiTurn } from "@/lib/biAgent";
 import { BiChartRender } from "@/components/bi/BiChartRender";
 import { fmtBiNumber } from "@/components/bi/biChartData";
+import { ResultValue } from "@/components/data/ResultValue";
 
 function statusLabel(s: BiTurn["status"]): string {
   switch (s) {
@@ -265,13 +266,7 @@ export function BiChatMessage({
                         <TableRow key={i}>
                           {turn.result!.columns.map((c) => (
                             <TableCell key={c} className="text-[10px] font-mono py-1">
-                              {row[c] === null || row[c] === undefined ? (
-                                <span className="text-slate-400">null</span>
-                              ) : typeof row[c] === "number" ? (
-                                fmtBiNumber(row[c])
-                              ) : (
-                                String(row[c])
-                              )}
+                              <ResultValue value={row[c]} formatNumber={fmtBiNumber} />
                             </TableCell>
                           ))}
                         </TableRow>

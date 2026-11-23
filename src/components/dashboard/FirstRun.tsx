@@ -101,6 +101,14 @@ export function FirstRun({ steps }: { steps: Step[] }) {
             </li>
           ))}
         </ol>
+
+        <p className="mt-4 text-xs text-muted-foreground">
+          Rather follow a tutorial on the sample data?{" "}
+          <Link to="/learn" className="text-primary hover:underline">
+            Learn
+          </Link>{" "}
+          has six, each a few minutes long.
+        </p>
       </CardContent>
     </Card>
   );

@@ -4,6 +4,7 @@
 import { BiChartRender } from "@/components/bi/BiChartRender";
 import { WidgetDataTable } from "@/components/bi/BiDataTable";
 import { fmtBiValue } from "@/components/bi/biChartData";
+import { ResultValue } from "@/components/data/ResultValue";
 import type { BiColumnFormat, ChartSpec } from "@/lib/biAgent";
 import { readsAsRatios } from "@/lib/biColumnKinds";
 
@@ -59,11 +60,10 @@ export function BiBuildPreview({
                 <tr key={i} className="border-t border-border/40">
                   {preview.columns.map((c) => (
                     <td key={c} className="px-2 py-1 font-mono text-[10px]">
-                      {row[c] === null || row[c] === undefined
-                        ? "null"
-                        : typeof row[c] === "number"
-                          ? fmtBiValue(row[c], formatFor(c))
-                          : String(row[c])}
+                      <ResultValue
+                        value={row[c]}
+                        formatNumber={(n) => fmtBiValue(n, formatFor(c))}
+                      />
                     </td>
                   ))}
                 </tr>

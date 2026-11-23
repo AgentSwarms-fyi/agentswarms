@@ -77,6 +77,7 @@ import {
   type QueryResult,
 } from "@/lib/sqlEngine";
 import { SqlEngineStatus } from "@/components/data/SqlEngineStatus";
+import { ResultValue } from "@/components/data/ResultValue";
 import { downloadCsv, downloadXlsx } from "@/lib/exportData";
 import { ensureSampleDataset, SAMPLE_TABLE_NAME } from "@/lib/sampleData";
 import { CsvUploadDialog } from "@/components/data-sql/CsvUploadDialog";
@@ -1669,11 +1670,7 @@ function DataSqlPage({
                           key={c}
                           className="text-xs text-slate-700 dark:text-foreground font-mono"
                         >
-                          {row[c] === null || row[c] === undefined ? (
-                            <span className="text-slate-400 dark:text-muted-foreground">null</span>
-                          ) : (
-                            String(row[c])
-                          )}
+                          <ResultValue value={row[c]} />
                         </TableCell>
                       ))}
                     </TableRow>

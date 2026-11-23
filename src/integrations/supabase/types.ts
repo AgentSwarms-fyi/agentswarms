@@ -7034,6 +7034,32 @@ export type Database = {
         };
         Relationships: [];
       };
+      // 20261126000000 (R529): when a person started each tutorial. Steps are
+      // worked out from what they made since, never stored.
+      tutorial_runs: {
+        Row: {
+          finished_at: string | null;
+          hidden: boolean;
+          started_at: string;
+          tutorial_id: string;
+          user_id: string;
+        };
+        Insert: {
+          finished_at?: string | null;
+          hidden?: boolean;
+          started_at?: string;
+          tutorial_id: string;
+          user_id?: string;
+        };
+        Update: {
+          finished_at?: string | null;
+          hidden?: boolean;
+          started_at?: string;
+          tutorial_id?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       otel_export_cursor: {
         Row: {
           last_id: string;

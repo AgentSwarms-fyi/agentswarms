@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-import { nextSyncAt } from "@/utils/saas/sync.server";
+import { nextSyncAt, syncCoversSchedule } from "@/utils/saas/sync.server";
 import { SYNC_SCHEDULES } from "@/utils/saas/types";
 
 const scheduleSrc = readFileSync("src/utils/saas/schedule.server.ts", "utf8");
@@ -145,5 +145,28 @@ describe("the migration", () => {
 
   it("indexes the scheduler's query", () => {
     expect(migrations).toMatch(/CREATE INDEX IF NOT EXISTS idx_saas_connections_due/i);
+  });
+});
+
+describe("a sync run by hand", () => {
+  it("stands in for the scheduled run only when it covers every saved stream", () => {
+    expect(syncCoversSchedule(["releases"], ["releases"])).toBe(true);
+    expect(syncCoversSchedule(["issues", "releases"], ["releases", "issues"])).toBe(true);
+    expect(syncCoversSchedule(["releases"], ["releases", "issues"])).toBe(false);
+    // Nothing saved means nothing scheduled to stand in for.
+    expect(syncCoversSchedule(["releases"], [])).toBe(false);
+  });
+
+  it("moves the scheduled run on before syncing, so Save and sync runs once (R529)", () => {
+    // Measured: a new daily source saved as due now was synced by the button
+    // and again by the scheduler 26 seconds later.
+    const body = functionsSrc.slice(
+      functionsSrc.indexOf("export const syncSaasConnection"),
+      functionsSrc.indexOf("export const saasStreamStates"),
+    );
+    expect(body).toMatch(
+      /if \(next && syncCoversSchedule\(streamIds, conn\.streams\)\)[\s\S]*?\.update\(\{ next_sync_at: next \}\)[\s\S]*?\.eq\("user_id", conn\.ownerUserId\)/,
+    );
+    expect(body.indexOf("syncCoversSchedule(")).toBeLessThan(body.indexOf("runConnectionSync("));
   });
 });

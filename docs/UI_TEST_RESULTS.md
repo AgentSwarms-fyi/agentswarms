@@ -15,6 +15,38 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-23 — R529: Learn, tutorials done in the app, and What's new
+
+Driven on a dev server built from the worktree (`:8102`), signed in as the owner, against the real
+database after migration `20261126000000` was applied, in a fronted tab. Kept for review, as what
+the tutorial made: the source **GitHub cli tutorial** (Any REST API, releases of `cli/cli`, syncs
+every day), its dataset `github_cli_tutorial_releases` and the project **Releases (tutorial)**. The
+empty project made to test the dashboard tutorial is in Trash.
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| Sidebar | Learn, first visit | a dot reading "16 new in What's new"; opening Learn marks all 16 **New** and clears the dot; this browser's seen entry becomes `tutorials` |
+| Learn | the page, migration not yet applied | "Tutorials need a database update first (migration 20261126000000). Every other page works as before."; What's new still listed |
+| Learn | the page, migration applied | six cards: area, minutes, outcome, what each needs ("Uses a model", "Uses the lakehouse"), three steps, **Start** |
+| Bring in data from an API | **Start** | opens Integrations on the **Apps** tab (`?tab=apps`), and the guide: "Step 1 of 3, Connect Any REST API from a template", **Open Apps**, **Check** |
+| The guide | on Apps already | offered **Open Apps** to the page it was on (fixed: no button to the page that is open) |
+| Any REST API | GitHub repository, `cli/cli`, Releases only, Every day, **Save and sync** | the guide went straight to "Every step is done": the form's own default is Every day, so the third step, "Keep it current", was done by the first click (fixed: the steps are now connect, sync it every day, chart it) |
+| The guide | the made list | named the dataset `__upload_b7935da466f54bbfb65cde1b`, a sync's staging row (fixed: staging rows are left out, as every listing does; now `github_cli_tutorial_releases`) |
+| The source | read back | synced twice: by the button at 16:14:12 and by the scheduler at 16:14:38, because the source was saved as due at once (fixed: a sync by hand of every saved stream moves the scheduled run on) |
+| Step 3, chart the releases | **New dashboard** | the dialog is called **New BI project** (fixed: both dashboard tutorials say New BI project and BI Workspace) |
+| BI project | created, empty | the guide still offered a new project to someone inside the one just made (fixed: "The project is made. It counts once a chart on it reads …", and **Go to it** from elsewhere; no button on the project itself) |
+| BI project | Column of `id`, count distinct, by `author_login`, **Add to dashboard**, **Check** | "Every step is done." App source: GitHub cli tutorial; Dataset: github_cli_tutorial_releases; Dashboard: Releases (tutorial) |
+| The guide | fold, unfold | folds to a pill "Bring in data from an API 3/3"; unfolds as it was |
+| The guide | **Close** | gone from every page; Learn shows the tutorial "Done Nov 23. It made: …" with **Do it again** |
+| Build a dashboard that comes to you | **Start**, cancel the dialog, **Close**, then **Resume** on Learn | the card reads "Resume · Start again · 0 of 3 done"; Resume brings the guide back at step 1 |
+| Step notes | a project made but not charted | drawn in amber like a warning (fixed: a step under way is plain; only a problem, such as a failed sync or a schedule with its email off, is amber) |
+| Dialogs | the guide under a confirm dialog | dimmed under the overlay like the rest of the page |
+| SQL workbench (reported by the owner on 8080) | `SELECT * FROM "github_cli_releases" LIMIT 10` | "10 rows" over what looked like an empty grid: the table measured 27,258 px tall, each row 2,607 px, because `assets` (36,751 characters of JSON) and `body` (58 lines) were printed in full and the short values sat centred a screen below (fixed: one line per value; on `:8102` each row is 33 px and the table 367 px) |
+| SQL workbench | a shortened `assets` value, clicked | "36,751 characters", the JSON indented and scrollable; **Copy** reads "Copied" |
+
+**Not driven:** the four other tutorials end to end (their checks are held by
+`tests/unit/tutorialChecks.test.ts`, each on stored row shapes); What's new in a second browser.
+
 ## 2026-11-23 — R528: Any REST API, and a connector toolkit
 
 Driven on a dev server built from the worktree (`:8102`), signed in as the owner, against the real

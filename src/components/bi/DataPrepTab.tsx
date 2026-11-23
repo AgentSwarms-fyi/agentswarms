@@ -94,6 +94,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { useTokenRef } from "@/hooks/use-token-ref";
 import { fmtBiNumber } from "@/components/bi/biChartData";
+import { ResultValue } from "@/components/data/ResultValue";
 import {
   addTableToFlow,
   aggNeedsColumn,
@@ -1830,13 +1831,11 @@ export function DataPrepTab() {
                                   typeof row[c] === "number" ? "text-right tabular-nums" : ""
                                 }`}
                               >
-                                {row[c] === null || row[c] === undefined ? (
-                                  <span className="text-muted-foreground/60">—</span>
-                                ) : typeof row[c] === "number" ? (
-                                  fmtBiNumber(row[c])
-                                ) : (
-                                  String(row[c])
-                                )}
+                                <ResultValue
+                                  value={row[c]}
+                                  formatNumber={fmtBiNumber}
+                                  nullLabel="—"
+                                />
                               </td>
                             ))}
                           </tr>

@@ -350,6 +350,21 @@ export function nextSyncAt(schedule: string, from = new Date()): string | null {
 }
 
 /**
+ * Whether a sync someone ran by hand stands in for the next scheduled one.
+ *
+ * It does when it covers every stream the source keeps: the scheduled run
+ * would only rebuild the same datasets again. A one-off sync of some of them
+ * leaves the source due as it was. Found in R529: Save and sync on a new
+ * daily source synced it, and the scheduler, finding the row due from its
+ * save, synced it again 26 seconds later.
+ */
+export function syncCoversSchedule(run: readonly string[], saved: readonly string[]): boolean {
+  if (saved.length === 0) return false;
+  const ran = new Set(run);
+  return saved.every((s) => ran.has(s));
+}
+
+/**
  * Sync a connection and record the outcome on its row.
  *
  * Shared by the manual button and the scheduler so the two cannot disagree

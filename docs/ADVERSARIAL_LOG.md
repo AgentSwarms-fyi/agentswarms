@@ -109,6 +109,30 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-23 — R529: a tutorial step done before it was asked, and a source synced twice
+
+**Why this round.** R529 adds tutorials whose steps tick from what a person really made. A tick that comes for free, or from someone else's rows, teaches the wrong thing, so the checks were read as an attacker and the first tutorial was walked end to end in the browser.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| Query results looked empty under "10 rows" | S2 | Reported by the owner on 8080. Every result grid printed each value in full: a release's `assets` (36,751 characters of JSON) and `body` (58 lines) made each row 2,607 px tall (**measured**), and the short values sat centred a screen below the header. Six grids printed raw values this way, and an object would have read `[object Object]`. One cell (`ResultValue`, `lib/cellPreview`) now shows one line, objects as JSON, and the whole value, indented, on a click; a test holds all six grids to it |
+| Save and sync on a new scheduled source synced it twice | S2 | The save marks a scheduled source due at once, then the button syncs it; the scheduler found it still due and synced it again 26 s later (**measured**: `next_sync_at` read back as the scheduler's run plus a day). A full replace rebuilt the dataset twice and added a spurious version. A sync by hand of every saved stream now moves the scheduled run on, before it runs; a one-off sync of some streams leaves the schedule alone |
+| The tutorial counted a sync's staging row as its dataset | S2 | A sync writes into `__upload_…` and renames it when the stream is in. The guide named the staging row and ticked "sync" before the sync had finished. The read leaves `__upload_%` out, as every other listing does |
+| "Keep it current" was done by the first click | S3 | The Connect form defaults to Every day, so all three steps ticked together. The third step is now a chart of the synced dataset; the schedule is part of step 2, which says so when a source syncs only by hand |
+| The guide offered a new project to someone inside the one they had just made | S3 | It now goes back to the newest project made since the start, until one counts |
+| The tutorials said "New dashboard" for a button labelled **New BI project** | S4 | Both dashboard tutorials use the page's own words |
+| Every step note was drawn as a warning | S4 | A note says whether it is progress or a problem; only a problem is amber |
+
+**Checked and sound.**
+- **Whose rows count.** Every read names the caller (`.eq("user_id", userId)`) on the caller's own client, the audit-event read included: an administrator's client can see everyone's `lakehouse.import` events, and without the name another person's import would tick this person's step. A recording fake client holds it for every query of every tutorial.
+- **Nothing is ticked by hand.** `tutorial_runs` stores only when a tutorial was started, finished or put away; the steps are worked out on the server each time. The tutorial id is a zod enum on every server function and a CHECK in the table; RLS gives each person their own rows only (an update cannot hand a row to someone else). `finished_at` can be written by its owner, which only changes their own Learn card.
+- **Since the start.** Each step reads what was made after `started_at`, except the shipments table the forecast builds on, which may be older and must still exist.
+
+**What would have been wrong to conclude.**
+
+- *"Step 2 ticked, so the sync worked."* It ticked on a staging row while the sync was still writing; a check has to read what a listing would show, not whatever row carries the source's id.
+- *"Each step ticked in turn in the unit tests, so the tutorial teaches three things."* The tests fed rows one step at a time; the real form wrote all three at once. Only the click-through showed it.
+
 ### 2026-11-23 — R527/R528: a toast that approved what was under it, and an agent sure of a stale fact
 
 **Why this round.** R527 lets an agent propose a model that trains on its owner's yes; R528 lets anyone describe an API as a connector. Both were driven in the browser on real data, on the dev server and on the rebuilt 8080 stack.

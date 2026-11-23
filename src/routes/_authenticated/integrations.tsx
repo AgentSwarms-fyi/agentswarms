@@ -39,8 +39,30 @@ import { SecretSelect } from "@/components/secrets/SecretSelect";
 import { savedSecretField, suggestSecretName } from "@/lib/secretRefs";
 import { FIRECRAWL_API } from "@/utils/providers/integrationHosts";
 
+/**
+ * The tabs a link may open (`/integrations?tab=apps`): a tutorial or a What's
+ * new entry sends people to the Apps tab rather than to LLM providers.
+ */
+const INTEGRATION_TABS = [
+  "llm",
+  "warehouses",
+  "apps",
+  "gateway",
+  "websearch",
+  "notifications",
+  "slack",
+  "teams",
+  "n8n",
+] as const;
+type IntegrationTab = (typeof INTEGRATION_TABS)[number];
+
 export const Route = createFileRoute("/_authenticated/integrations")({
   component: IntegrationsPage,
+  head: () => ({ meta: [{ title: "Integrations — AgentSwarms" }] }),
+  validateSearch: (s: Record<string, unknown>): { tab?: IntegrationTab } =>
+    (INTEGRATION_TABS as readonly unknown[]).includes(s.tab)
+      ? { tab: s.tab as IntegrationTab }
+      : {},
 });
 
 const GATEWAY_PROVIDERS = [
@@ -61,6 +83,12 @@ type Integration = {
 
 function IntegrationsPage() {
   const { user, session } = useAuth();
+  const { tab: askedTab } = Route.useSearch();
+  const [tab, setTab] = useState<string>(askedTab ?? "llm");
+  // A link to another tab while this page is open moves to it.
+  useEffect(() => {
+    if (askedTab) setTab(askedTab);
+  }, [askedTab]);
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [gatewayUrl, setGatewayUrl] = useState("");
   const [gatewayKey, setGatewayKey] = useState("");
@@ -495,7 +523,7 @@ function IntegrationsPage() {
           </div>
         )}
 
-        <Tabs defaultValue="llm" className="space-y-4">
+        <Tabs value={tab} onValueChange={setTab} className="space-y-4">
           <TabsList>
             <TabsTrigger value="llm">LLM providers</TabsTrigger>
             <TabsTrigger value="warehouses">Data sources</TabsTrigger>

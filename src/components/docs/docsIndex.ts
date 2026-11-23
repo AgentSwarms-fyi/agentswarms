@@ -1140,7 +1140,9 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "route": "/docs/dashboard",
     "title": "Dashboard",
     "description": "The dashboard at /dashboard is the screen you land on after signing in. It answers one question first — is this deployment healthy, and what is it costing — and then shows what you are running and what has happened in the last day.",
-    "terms": [],
+    "terms": [
+      "20261126000000"
+    ],
     "headings": [
       {
         "id": "status",
@@ -1221,6 +1223,16 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "trash",
         "text": "Trash",
         "level": 2
+      },
+      {
+        "id": "learn",
+        "text": "Learn: tutorials, and what is new",
+        "level": 2
+      },
+      {
+        "id": "whats-new",
+        "text": "What's new",
+        "level": 3
       },
       {
         "id": "first-run",

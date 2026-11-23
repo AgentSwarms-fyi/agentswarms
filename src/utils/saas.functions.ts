@@ -12,7 +12,12 @@ import type { Database } from "@/integrations/supabase/types";
 import { decryptJson, encryptJson } from "@/utils/providers/crypto.server";
 import { resolveSaasConfig } from "@/utils/saas/credentials.server";
 import { auditEvent } from "@/utils/audit.server";
-import { listSaasStreams, nextSyncAt, runConnectionSync } from "@/utils/saas/sync.server";
+import {
+  listSaasStreams,
+  nextSyncAt,
+  runConnectionSync,
+  syncCoversSchedule,
+} from "@/utils/saas/sync.server";
 import { SYNC_SCHEDULES } from "@/utils/saas/types";
 import { SaasConfigSchema as ConfigSchema } from "@/utils/saas/configSchema";
 import type {
@@ -68,7 +73,13 @@ async function loadConnection(
   userId: string,
   id: string,
   opts: { allowShared?: boolean } = {},
-): Promise<{ name: string; config: SaasConfig; streams: string[]; ownerUserId: string }> {
+): Promise<{
+  name: string;
+  config: SaasConfig;
+  streams: string[];
+  ownerUserId: string;
+  schedule: string;
+}> {
   const granted = opts.allowShared ? await grantedConnectionIds(userId) : new Set<string>();
   const isShared = granted.has(id);
   // A shared row is not readable under the grantee's RLS — by design, since it
@@ -78,7 +89,9 @@ async function loadConnection(
     ? (await import("@/integrations/supabase/client.server")).supabaseAdmin
     : sb;
 
-  let q = client.from("saas_connections").select("name, config, streams, is_active, user_id");
+  let q = client
+    .from("saas_connections")
+    .select("name, config, streams, is_active, user_id, sync_schedule");
   q = q.eq("id", id);
   if (!isShared) q = q.eq("user_id", userId);
 
@@ -99,6 +112,7 @@ async function loadConnection(
     config: await resolveSaasConfig(row.user_id, stored),
     streams: Array.isArray(row.streams) ? (row.streams as string[]) : [],
     ownerUserId: row.user_id,
+    schedule: row.sync_schedule,
   };
 }
 
@@ -440,6 +454,19 @@ export const syncSaasConnection = createServerFn({ method: "POST" })
     // the owner's row or datasets under their own RLS.
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const isShared = conn.ownerUserId !== userId;
+
+    // A sync by hand of every saved stream is this interval's run, so the
+    // scheduled one moves a whole interval on, before running for the same
+    // reason the scheduler claims first. See syncCoversSchedule.
+    const next = nextSyncAt(conn.schedule);
+    if (next && syncCoversSchedule(streamIds, conn.streams)) {
+      await (isShared ? supabaseAdmin : sb)
+        .from("saas_connections")
+        .update({ next_sync_at: next })
+        .eq("id", data.id)
+        .eq("user_id", conn.ownerUserId);
+    }
+
     const result = await runConnectionSync(isShared ? supabaseAdmin : sb, {
       id: data.id,
       userId: conn.ownerUserId,

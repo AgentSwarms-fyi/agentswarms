@@ -337,8 +337,8 @@ function DashboardDoc() {
         rows={[
           [
             "Overview",
-            "Where things stand, your own work, and the handbook",
-            "Dashboard, My work, Runs, Trash, Documentation",
+            "Where things stand, your work, tutorials and the handbook",
+            "Dashboard, My work, Runs, Trash, Learn, Documentation",
           ],
           [
             "Build",
@@ -534,12 +534,79 @@ function DashboardDoc() {
         trash, and comes back to them when you restore it.
       </P>
 
+      <H2 id="learn">Learn: tutorials, and what is new</H2>
+      <P>
+        <strong>Overview → Learn</strong> has short tutorials done in the app itself, on the sample
+        data every workspace has. Starting one opens the page its first step is done on, and from
+        then on a guide sits in the corner of every page: the next step, in the words that page
+        uses, and a button that goes there. A step ticks when what it asks for exists, worked out
+        from what you made since you started the tutorial: an analyst that reads the sample sales, a
+        check on a lakehouse table, a swarm run whose question you answered. Nothing can be ticked
+        by hand, so the list is never ahead of you, and what you make is yours to keep.
+      </P>
+      <Table
+        headers={["Tutorial", "What you have at the end", "Needs"]}
+        rows={[
+          [
+            "Ask your data a question",
+            "An analyst on the sample sales, an answer it checked, and the question asked again every week.",
+            "A model",
+          ],
+          [
+            "Build a dashboard that comes to you",
+            "A dashboard on the sample sales with a KPI and a chart, emailed to you as a PDF every week.",
+            "Nothing",
+          ],
+          [
+            "Bring in data from an API",
+            "An Any REST API source from the GitHub template, a dataset of its releases refreshed every day, and a chart of them.",
+            "Nothing",
+          ],
+          [
+            "Watch a table for problems",
+            "The sample shipments as a lakehouse table, a data monitor on it, and its first result.",
+            "The lakehouse",
+          ],
+          [
+            "Forecast next quarter's orders",
+            "A weekly forecast of order value from the sample shipments, its best version in production.",
+            "The lakehouse",
+          ],
+          [
+            "Run a swarm that asks before it acts",
+            "Your own Support Copilot, a run of it, and its drafted reply approved or rejected by you.",
+            "A model",
+          ],
+        ]}
+      />
+      <P>
+        The guide looks again when you change page, when you come back to the window, and every half
+        minute while the tab is showing. Fold it to a small pill, or close it: closing puts the
+        tutorial away, and <em>Resume</em> on Learn brings it back where it was.{" "}
+        <em>Start again</em> measures from that moment, so what you made before stops counting; it
+        stays yours. A tutorial that needs a model says whether one was found for you (your own key,
+        one shared with you, or the server's), and one that needs the lakehouse cannot be started
+        where the lakehouse is not switched on. Only you see which tutorials you started.
+      </P>
+      <H3 id="whats-new">What&rsquo;s new</H3>
+      <P>
+        Below the tutorials, What&rsquo;s new lists what changed in the app, newest first, each with
+        a link to where it is and, when there is one, the tutorial that walks through it. A dot
+        beside <strong>Learn</strong> in the menu means something was added since the page was last
+        opened in this browser.
+      </P>
+      <Note>
+        Tutorials need migration <C>20261126000000</C> on the database. Until it is applied, Learn
+        says so and nothing else changes.
+      </Note>
+
       <H2 id="first-run">What to do on a new workspace</H2>
       <P>
         A deployment with nothing built and nothing run gets a different page: an ordered checklist
         instead of a console full of zeroes, with each step ticked from real state rather than from
         a flag. Only the next unfinished step carries a button. The order below is the same one, and
-        it is dependency order rather than feature order.
+        it is dependency order rather than feature order. A line under the checklist points to{" "}
+        <a href="#learn">Learn</a> for anyone who would rather follow a tutorial on the sample data.
       </P>
       <Steps
         items={[

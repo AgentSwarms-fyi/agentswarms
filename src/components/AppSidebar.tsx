@@ -33,6 +33,7 @@ import { revealDelta } from "@/lib/railScroll";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useIsSuperadmin } from "@/hooks/use-iam";
+import { useWhatsNewUnseen } from "@/hooks/use-whats-new";
 
 /** Which groups the reader last had open. Per browser, not per account. */
 const STORAGE_KEY = "agentswarms:nav-groups.v1";
@@ -56,6 +57,8 @@ export function AppSidebar() {
   const location = useLocation();
   const { signOut, user } = useAuth();
   const isSuperadmin = useIsSuperadmin();
+  // What's new not yet seen in this browser: a dot beside Learn, no number.
+  const whatsNew = useWhatsNewUnseen();
 
   const groups = useMemo(
     () => (isSuperadmin ? [...NAV_GROUPS, ADMIN_GROUP] : NAV_GROUPS),
@@ -231,6 +234,13 @@ export function AppSidebar() {
                       <Link to={item.url}>
                         <item.icon className="h-4 w-4" />
                         <span className="flex-1">{item.title}</span>
+                        {item.url === "/learn" && whatsNew > 0 && (
+                          <span
+                            className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary"
+                            aria-label={`${whatsNew} new in What's new`}
+                            title="Something new on Learn"
+                          />
+                        )}
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

@@ -18,6 +18,7 @@ import { useSessionRestore } from "@/hooks/use-session-restore";
 import { SessionRestoreBanner } from "@/components/SessionRestoreBanner";
 import { AssistantPanel, AssistantToggle } from "@/components/assistant/AssistantPanel";
 import { useAssistant } from "@/hooks/use-assistant";
+import { TutorialGuide } from "@/components/learn/TutorialGuide";
 
 export function AppLayout() {
   // Route-change motion is the router's defaultViewTransition (see
@@ -140,6 +141,7 @@ export function AppLayout() {
           <div className="flex min-w-0 flex-1">
             <main ref={mainRef} className="flex-1 min-w-0 overflow-hidden">
               <Outlet />
+              <TutorialGuide />
             </main>
             <AssistantPanel state={assistant} />
           </div>

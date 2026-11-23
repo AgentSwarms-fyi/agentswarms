@@ -26,6 +26,7 @@ import {
 import { RestApiSpecField } from "./RestApiSpecField";
 import { previewColumns } from "@/lib/previewColumns";
 import { specReady } from "@/lib/connectorSpec";
+import { announceTutorialChange } from "@/lib/tutorials";
 
 import {
   AlertDialog,
@@ -293,6 +294,9 @@ export function SaasSourcesTab() {
       await refresh();
     } finally {
       setSyncingId(null);
+      // A tutorial step may be waiting on this sync; it can take a while, so
+      // the guide is told rather than left to its next look.
+      announceTutorialChange();
     }
   };
 

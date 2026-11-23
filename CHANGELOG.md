@@ -16,6 +16,9 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Apply migration `20261126000000`** (R529) for tutorials. Until then
+  **Learn** says which migration is missing and shows What's new; every
+  other page works as before.
 - **Apply migration `20261125000000`** (R528) to connect **Any REST API**.
   Until then saving one says which migration is missing; every other app
   source works as before.
@@ -270,6 +273,18 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Learn: tutorials done in the app, and What's new** (R529). Six short
+  tutorials on the sample data, from asking the AI Analyst a question to
+  putting a forecast in production and answering a swarm's approval. A
+  step ticks when what it asks for exists, worked out on the server from
+  what you made since starting the tutorial, so nothing can be ticked by
+  hand. A guide in the corner of every page says the next step in that
+  page's words, with a button that goes there; it folds away, and closing
+  it puts the tutorial away until it is resumed. Each tutorial says what
+  it needs (a model, the lakehouse) before it is started. What's new, on
+  the same page, lists what changed in the app with a link to each, and a
+  dot beside Learn says when there is something not yet seen. A link can
+  now open a given tab of Integrations (`/integrations?tab=apps`).
 - **Any REST API, and a connector toolkit** (R528). A connector can now be
   described instead of written: one https host, where the key goes, and one
   stream per list with its path, its records, how to page and, where the API
@@ -589,6 +604,19 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **A query's results could look empty under "10 rows"** (fixed in R529). A
+  result grid printed every value in full, so a long one (a release's notes,
+  a JSON list of 36,751 characters) made each row thousands of pixels tall and
+  pushed the short values out of sight. Every result grid (the SQL workbench,
+  ETL previews, the BI build and metric previews, data prep, the BI agent's
+  tables) now shows each value on one line, lists and objects as JSON rather
+  than `[object Object]`, and opens the whole value, indented, with a Copy
+  button, from a click on a shortened one.
+- **Save and sync on a new scheduled app source synced it twice** (fixed in
+  R529). The source was saved as due at once, so the scheduler synced it
+  again seconds after the button had. A sync run by hand of every stream a
+  source keeps now counts as that interval's run; a sync of only some of
+  them leaves the schedule as it was.
 - **A toast over an open dialog passed its click to what was beneath it**
   (fixed in R527). With the approvals inbox open, pressing a toast's button
   pressed the inbox card under it instead, and could approve something.
