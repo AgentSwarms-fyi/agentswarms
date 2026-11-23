@@ -67,7 +67,7 @@ function DataPage() {
       <DocsHeader
         eyebrow="Data & analytics"
         title="Data Catalog & SQL"
-        description="Everything tabular: uploaded files, 22 databases and warehouses, 17 app sources, the catalog that describes them, and the workbench that queries them."
+        description="Everything tabular: uploaded files, 22 databases and warehouses, 18 app sources, the catalog that describes them, and the workbench that queries them."
       />
 
       <P>
@@ -739,8 +739,42 @@ function DataPage() {
       </P>
       <P>
         Syncs run on demand or hourly / daily / weekly, and you are notified if one fails or comes
-        back partial.
+        back partial. <strong>Preview</strong> beside each stream shows its first rows before you
+        sync, for every app.
       </P>
+
+      <H3 id="apps-rest">Any REST API</H3>
+      <P>
+        For an API with no connector of its own, describe one in JSON: one https address, where the
+        key goes (bearer, a header, basic or a query parameter, optionally only when there is a
+        key), and one stream per list with its path, where the records are in the response, how to
+        ask for the next page (page numbers, offsets, a cursor, a next URL or a Link header) and,
+        where the API can, how to ask for what changed since the last sync. It then syncs like any
+        app. <strong>Start from</strong> offers templates (GitHub repository, run against the live
+        API; Pipedrive and Mailchimp, built from their published references and not yet run against
+        a live account here), and the form checks the JSON as you type.
+      </P>
+      <UL>
+        <li>
+          <strong>One host.</strong> Every request stays on the connector&apos;s host, including a
+          next page the API names, and the key is sent only there.
+        </li>
+        <li>
+          <strong>No secrets inside it.</strong> The key is picked from your secrets; a connector
+          that puts it in a header or a parameter is refused, and it cannot set Authorization, Host
+          or Cookie itself.
+        </li>
+        <li>
+          <strong>Bounded.</strong> At most <C>max_pages</C> pages per stream per sync (500 by
+          default), and a sync stops if the API hands back the same next page twice.
+        </li>
+        <li>
+          <strong>Adding a template</strong> is two files, no code:{" "}
+          <C>npm run connector:new -- &lt;id&gt;</C>, then <C>npm run connector:check</C> against a
+          real account before it is marked as run live. The database needs migration{" "}
+          <C>20261125000000</C>.
+        </li>
+      </UL>
 
       <H3 id="apps-incremental">Following a source instead of re-reading it</H3>
       <P>
@@ -873,7 +907,7 @@ function DataPage() {
           ],
           [
             "Lineage",
-            "What a dataset came from and what depends on it — prep flows, dashboards, metrics — down to the column: which source columns fed each column of a pipeline's target or a SQL model, with steps the tracer cannot read marked. Check before changing or deleting anything.",
+            "What a dataset came from and what depends on it — prep flows, dashboards, metrics, and the ML models that train on a lakehouse table, score it or write predictions into it — down to the column: which source columns fed each column of a pipeline's target or a SQL model, with steps the tracer cannot read marked. Check before changing or deleting anything.",
           ],
           [
             "Business glossary",

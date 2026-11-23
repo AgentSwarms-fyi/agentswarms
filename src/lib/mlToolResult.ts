@@ -47,7 +47,16 @@ export type MlModelsData = {
 
 export type MlErrorData = { kind: "error"; error: string };
 
-export type MlToolData = MlPredictData | MlModelsData | MlErrorData;
+/** A model an agent proposed (R527): what approving would do, and that it waits. */
+export type MlProposalData = {
+  kind: "proposal";
+  title: string;
+  lines: string[];
+  /** The same model was already waiting; nothing new was filed. */
+  already_waiting: boolean;
+};
+
+export type MlToolData = MlPredictData | MlModelsData | MlErrorData | MlProposalData;
 
 /** Rows the panel will show; the tool itself scores at most fifty. */
 export const ML_RESULT_MAX_ROWS = 50;
@@ -95,7 +104,13 @@ export function formatNumber(v: number): string {
  * one of the two ML tools' or is not JSON — the panel then keeps the preview.
  */
 export function mlToolData(toolName: string, result: string): MlToolData | null {
-  if (toolName !== "ml_predict" && toolName !== "ml_list_models") return null;
+  if (
+    toolName !== "ml_predict" &&
+    toolName !== "ml_list_models" &&
+    toolName !== "ml_propose_model"
+  ) {
+    return null;
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(result);
@@ -105,6 +120,16 @@ export function mlToolData(toolName: string, result: string): MlToolData | null 
   if (!isObj(parsed)) return null;
   const error = str(parsed.error);
   if (error !== null) return { kind: "error", error };
+
+  if (toolName === "ml_propose_model") {
+    if (parsed.proposed !== true) return null;
+    return {
+      kind: "proposal",
+      title: str(parsed.proposal) ?? "A proposed model",
+      lines: strs(parsed.what_approving_does).slice(0, 8),
+      already_waiting: parsed.already_waiting === true,
+    };
+  }
 
   if (toolName === "ml_list_models") {
     const models = Array.isArray(parsed.models) ? parsed.models.filter(isObj) : [];

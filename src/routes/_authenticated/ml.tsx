@@ -36,8 +36,13 @@ import {
   relTime,
 } from "@/components/ml/mlFormat";
 
+type MlTab = "models" | "experiments" | "features";
+
 export const Route = createFileRoute("/_authenticated/ml")({
   component: MlPage,
+  // The tab is in the address, so Experiments can be linked to (R527).
+  validateSearch: (s: Record<string, unknown>): { tab?: "experiments" | "features" } =>
+    s.tab === "experiments" || s.tab === "features" ? { tab: s.tab } : {},
   head: () => ({
     meta: [
       { title: "ML Models — AgentSwarms" },
@@ -59,7 +64,10 @@ function MlPage() {
   const listFn = useServerFn(mlListModels);
   const [data, setData] = useState<ListResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"models" | "experiments" | "features">("models");
+  const search = Route.useSearch();
+  const tab: MlTab = search.tab ?? "models";
+  const setTab = (t: MlTab) =>
+    void navigate({ to: "/ml", search: t === "models" ? {} : { tab: t }, replace: true });
   const [q, setQ] = useState("");
   const [task, setTask] = useState<"all" | MlTask>("all");
 

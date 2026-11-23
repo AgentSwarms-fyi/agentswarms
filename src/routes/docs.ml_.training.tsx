@@ -150,6 +150,21 @@ function MlTrainingPage() {
         </li>
       </UL>
 
+      <H3 id="from-chat">From a conversation</H3>
+      <P>
+        An agent with <strong>Propose ML models</strong> turned on (Agent Builder → Tools) can
+        suggest a model when you ask for one in chat: &quot;train something that predicts churned
+        from crm.customers&quot;. It trains nothing. The proposal is checked against the
+        table&apos;s real columns first, as you (a wrong column name comes back with the
+        table&apos;s columns, so the agent can correct it), and lands in your{" "}
+        <strong>approvals</strong> inbox saying what approving would do: the task, the table, the
+        target, and the columns it reads. <strong>Approve</strong> trains it through the same path
+        as the wizard, after checking the table again, and the model is yours;{" "}
+        <strong>Reject</strong> makes nothing. The same model is asked about once while it waits. On
+        a scheduled or headless run the proposal goes to the run&apos;s owner. The proposal and the
+        approval are audited as <C>ml.train.proposed</C> and <C>ml.train.approved</C>.
+      </P>
+
       <H2 id="results">Read the results</H2>
       <UL>
         <li>
@@ -351,6 +366,19 @@ function MlTrainingPage() {
         row limit and tuning mode.
       </P>
 
+      <H2 id="lineage">Reads and feeds</H2>
+      <P>
+        A model&apos;s <strong>Overview</strong> tab says where its data comes from and where its
+        answers go: the table it trains on and any table its preparation joins in, the tables its
+        batch predictions were written to (from which table, how often, and when last), the
+        dashboards whose charts draw its forecast, the agents that may predict with it (by name, or
+        because they may use any model), its schedules, and the pipelines that start them. Each
+        comes from what that object already records, and only your own objects are listed. The same
+        facts show in the <DocLink to="/docs/data">data catalog</DocLink>: a lakehouse table&apos;s{" "}
+        <strong>Lineage &amp; usage</strong> names the models that train on it, score it, or write
+        predictions into it, and a prediction table is shown as derived from the table it scored.
+      </P>
+
       <H2 id="experiments">Experiments</H2>
       <P>
         Versions record what you <strong>shipped</strong>. Experiments record what you{" "}
@@ -397,6 +425,15 @@ with agentswarms.start_run("churn-v2", params={"lr": 0.01, "depth": 6}) as run:
       <P>
         Find them under <strong>ML Models → Experiments</strong>. Nothing is created there: the
         first <C>start_run()</C> call creates its own experiment.
+      </P>
+      <P>
+        Models trained here are listed there too, one row per version with its settings, scores and
+        training time, so a notebook run and a platform training compare on the same columns. A
+        model with an experiment linked to it shows its versions inside that experiment; any other
+        model that has trained shows as its own, marked <strong>Trained here</strong>. They are read
+        from the versions themselves, so every version is there, including those trained before this
+        view existed. A version opens on its model&apos;s page, where it is promoted or archived; it
+        cannot be deleted from Experiments.
       </P>
 
       <H3 id="experiment-promote">From a run to a version</H3>

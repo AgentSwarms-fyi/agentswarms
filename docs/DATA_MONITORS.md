@@ -47,7 +47,9 @@ scheduler sweep the ETL pipelines and ML schedules already share, claimed by
 clock so several replicas never run one monitor twice. **Run now** runs a
 check on demand; creating a monitor runs it once by default, so the answer
 shows before the schedule takes over. Pausing stops the clock and keeps the
-history; deleting removes both.
+history; deleting removes both. **Edit** (the pencil) changes what a check
+reads, its thresholds, schedule, severity and name; its table and kind
+stay, and a changed rule starts over on the next pass.
 
 The first failing run opens an incident and notifies you (in-app, and on any
 notification channel you connected: Slack, Teams, a webhook). Further

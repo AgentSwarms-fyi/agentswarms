@@ -26,7 +26,7 @@ describe("the period is a choice", () => {
     const sql = rd("supabase/migrations/20260860000000_ml_forecast_period.sql");
     expect(sql).toContain("CHECK (period IN ('auto', 'hour', 'day', 'week', 'month', 'quarter'))");
     expect(rd("src/utils/ml.functions.ts")).toContain("period: z.enum(ML_PERIODS).optional(),");
-    expect(rd("src/utils/ml.functions.ts")).toContain(
+    expect(rd("src/utils/ml/create.server.ts")).toContain(
       'period: data.task === "forecast" ? (data.period ?? "auto") : "auto",',
     );
     expect(rd("src/utils/ml/train.server.ts")).toContain("period: b.model.period,");

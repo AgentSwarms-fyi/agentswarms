@@ -109,6 +109,28 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-23 — R527/R528: a toast that approved what was under it, and an agent sure of a stale fact
+
+**Why this round.** R527 lets an agent propose a model that trains on its owner's yes; R528 lets anyone describe an API as a connector. Both were driven in the browser on real data, on the dev server and on the rebuilt 8080 stack.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| A toast over an open dialog passed its click to the dialog beneath | S1 | While a dialog or sheet is open the page sets `pointer-events: none` on everything outside it, toasts included. A toast drawn over the approvals inbox looked clickable and was not: **measured**, `elementFromPoint` at its Review button returned the inbox card underneath. Pressing Review approved the R238 run-fix suggestion that sat under it, and the server carried it out (the check moved to `placed_at`). Restored by hand: the check is back on `region` through the page's own update action and the suggestion is pending again; the audit keeps `run.fix.applied`, as it must. Every toast now takes its own clicks (`pointer-events-auto` on the toaster and each toast); **measured** after the fix, the same press reached the toast and decided nothing |
+| The agent told the user a rejected proposal was "also still waiting" | S1 | It read the earlier proposal's id in the conversation and assumed. The tool's answer now carries `already_waiting` and says outright that no other proposal for the model is waiting |
+| Experiments offered `holdout_periods` as a score column | S3 | A count, like `backtest_windows`. One list of count metrics is shared by the model page's tiles and Experiments |
+| A failed version said only "Training failed." and was offered for promotion | S2 | The training job held the reason. It is shown, and a failed version points to the Jobs tab instead |
+| An agent sent the target as the only feature | S3 | The refusal said "The feature columns name only the target and its roles"; it now says to leave the list out or name the inputs, and the agent's next call was right |
+| A stream preview's first six columns were all links, and its table pushed Save out of the dialog | S3 | Telling field names first (id, name, title, status, dates), links last; the table is fixed-width inside the dialog |
+| The connector check said "spec" | S4 | The form calls it the connector; the messages do too |
+
+**Measured.**
+- **Train from chat, on 8080:** proposed in chat, approved in the inbox, "Training started", trained in the sandbox in 2 m 33 s, promoted as v1; Experiments tags the version "proposed in chat".
+- **GitHub template, live:** 250 pull requests of `octocat/Hello-World` over three pages with no repeats; 212 releases of `cli/cli` synced into a dataset from the Connect form.
+
+**What would have been wrong to conclude.**
+
+- *"The toast was on top, so the click went to the toast."* What is drawn on top and what receives the click are decided separately; only `elementFromPoint` says which.
+
 ### 2026-11-13 — R462: 46 open Dependabot alerts, and which of them were real
 
 **Why this round.** Started on 2026-11-09 in a session of its own ("Clear the open Dependabot alerts on main") and left uncommitted; landed here, re-validated against today's tree. GitHub showed 46 open alerts. The ask was to sort the stale from the real and fix the real ones, taking only releases at least two weeks old.

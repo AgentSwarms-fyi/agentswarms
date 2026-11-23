@@ -2045,6 +2045,9 @@ async function chatPost(request: Request): Promise<Response> {
         // deployed swarm or a schedule silently lost the tool the agent
         // was given in the builder.
         "ml_predict",
+        // A proposal is filed for scopeUserId, the run's owner, and trains
+        // nothing until that owner approves it; the table is read as them.
+        "ml_train",
       ]);
       const sbForTools = authToken
         ? getServerSupabase(authToken)

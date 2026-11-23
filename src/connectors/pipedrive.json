@@ -1,0 +1,45 @@
+{
+  "id": "pipedrive",
+  "label": "Pipedrive",
+  "description": "Deals, people, organizations and activities.",
+  "checked": "reference",
+  "inputs": [],
+  "credential": "Your personal API token, from Personal preferences → API. It is sent as the api_token parameter, which is how Pipedrive's v1 API takes it.",
+  "spec": {
+    "version": 1,
+    "name": "Pipedrive",
+    "base_url": "https://api.pipedrive.com/v1",
+    "auth": { "kind": "query", "param": "api_token" },
+    "streams": [
+      {
+        "id": "deals",
+        "label": "Deals",
+        "path": "/deals",
+        "records": "data",
+        "pagination": { "kind": "offset", "param": "start", "limit_param": "limit", "limit": 100 }
+      },
+      {
+        "id": "persons",
+        "label": "People",
+        "path": "/persons",
+        "records": "data",
+        "pagination": { "kind": "offset", "param": "start", "limit_param": "limit", "limit": 100 }
+      },
+      {
+        "id": "organizations",
+        "label": "Organizations",
+        "path": "/organizations",
+        "records": "data",
+        "pagination": { "kind": "offset", "param": "start", "limit_param": "limit", "limit": 100 }
+      },
+      {
+        "id": "activities",
+        "label": "Activities",
+        "path": "/activities",
+        "records": "data",
+        "params": { "user_id": "0" },
+        "pagination": { "kind": "offset", "param": "start", "limit_param": "limit", "limit": 100 }
+      }
+    ]
+  }
+}

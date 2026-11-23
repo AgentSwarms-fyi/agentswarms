@@ -19,6 +19,7 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { formatNumber, type MlToolData } from "@/lib/mlToolResult";
+import { openApprovalsInbox } from "@/lib/approvalsInbox";
 import {
   Send,
   Download,
@@ -2116,6 +2117,31 @@ function MlToolResultView({ data }: { data: MlToolData }) {
       <div>
         {label}
         <p className="text-[11px] text-destructive break-words">{data.error}</p>
+      </div>
+    );
+  }
+  if (data.kind === "proposal") {
+    return (
+      <div>
+        <p className="text-[9px] uppercase tracking-wider text-muted-foreground mb-1">
+          {data.already_waiting ? "Already waiting for your yes" : "Proposed, waiting for your yes"}
+        </p>
+        <p className="text-[11px] font-medium break-words">{data.title}</p>
+        <ul className="mt-1 space-y-0.5">
+          {data.lines.map((l) => (
+            <li key={l} className="text-[10px] leading-snug text-muted-foreground break-words">
+              {l}
+            </li>
+          ))}
+        </ul>
+        <Button
+          size="sm"
+          variant="outline"
+          className="mt-2 h-7 text-xs"
+          onClick={() => openApprovalsInbox()}
+        >
+          Review in approvals
+        </Button>
       </div>
     );
   }

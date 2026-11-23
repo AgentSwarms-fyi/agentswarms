@@ -150,31 +150,97 @@ what is in there, choose what to sync. Each stream becomes its own dataset and
 is then indistinguishable from an uploaded CSV — same type inference, same
 version history, same use in BI, prep flows and the semantic layer.
 
-| App                    | Auth                                             | Streams                                                                                                                |
-| ---------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| **Google Sheets**      | Service-account JSON (share the sheet with it)   | One per worksheet                                                                                                      |
-| **Stripe**             | Secret or restricted key                         | Charges, customers, invoices, subscriptions, payment intents, products, prices, refunds, payouts, balance transactions |
-| **Shopify**            | Admin API access token                           | Orders, customers, products, draft orders, price rules                                                                 |
-| **HubSpot**            | Private app token                                | Contacts, companies, deals, tickets, line items, products                                                              |
-| **Jira**               | Email + API token (Jira Cloud)                   | Issues, one dataset per project — summary, status, type, priority, assignee, reporter, dates, labels                   |
-| **Zendesk**            | Email + API token (sent as `email/token`)        | Tickets, users, organizations                                                                                          |
-| **Salesforce**         | Connected app (client credentials)               | Accounts, contacts, leads, opportunities, cases, campaigns, users                                                      |
-| **ServiceNow**         | Basic auth (integration user)                    | Incidents, change requests, problems, catalog requests, requested items, tasks, users, CMDB                            |
-| **Intercom**           | Access token (app in your own workspace)         | Contacts, conversations, admins                                                                                        |
-| **GitHub**             | Personal access token                            | Issues and pull requests, one dataset per repository                                                                   |
-| **Linear**             | Personal API key (sent bare, no `Bearer`)        | Issues, projects, teams, users, cycles                                                                                 |
-| **Asana**              | Personal access token                            | Tasks, one dataset per project                                                                                         |
-| **Freshdesk**          | API key (used as the basic-auth username)        | Tickets, contacts, companies, agents                                                                                   |
-| **Klaviyo**            | Private API key (`Klaviyo-API-Key`)              | Profiles, events, lists, metrics, email campaigns                                                                      |
-| **Notion**             | Internal integration secret, shared per database | One dataset per database                                                                                               |
-| **Airtable**           | Personal access token, scoped per base           | One dataset per table                                                                                                  |
-| **Google Analytics 4** | Service-account JSON + property id               | One dataset per report — traffic, pages, events, countries, devices, key events                                        |
+| App                           | Auth                                             | Streams                                                                                                                |
+| ----------------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| **Google Sheets**             | Service-account JSON (share the sheet with it)   | One per worksheet                                                                                                      |
+| **Stripe**                    | Secret or restricted key                         | Charges, customers, invoices, subscriptions, payment intents, products, prices, refunds, payouts, balance transactions |
+| **Shopify**                   | Admin API access token                           | Orders, customers, products, draft orders, price rules                                                                 |
+| **HubSpot**                   | Private app token                                | Contacts, companies, deals, tickets, line items, products                                                              |
+| **Jira**                      | Email + API token (Jira Cloud)                   | Issues, one dataset per project — summary, status, type, priority, assignee, reporter, dates, labels                   |
+| **Zendesk**                   | Email + API token (sent as `email/token`)        | Tickets, users, organizations                                                                                          |
+| **Salesforce**                | Connected app (client credentials)               | Accounts, contacts, leads, opportunities, cases, campaigns, users                                                      |
+| **ServiceNow**                | Basic auth (integration user)                    | Incidents, change requests, problems, catalog requests, requested items, tasks, users, CMDB                            |
+| **Intercom**                  | Access token (app in your own workspace)         | Contacts, conversations, admins                                                                                        |
+| **GitHub**                    | Personal access token                            | Issues and pull requests, one dataset per repository                                                                   |
+| **Linear**                    | Personal API key (sent bare, no `Bearer`)        | Issues, projects, teams, users, cycles                                                                                 |
+| **Asana**                     | Personal access token                            | Tasks, one dataset per project                                                                                         |
+| **Freshdesk**                 | API key (used as the basic-auth username)        | Tickets, contacts, companies, agents                                                                                   |
+| **Klaviyo**                   | Private API key (`Klaviyo-API-Key`)              | Profiles, events, lists, metrics, email campaigns                                                                      |
+| **Notion**                    | Internal integration secret, shared per database | One dataset per database                                                                                               |
+| **Airtable**                  | Personal access token, scoped per base           | One dataset per table                                                                                                  |
+| **Google Analytics 4**        | Service-account JSON + property id               | One dataset per report — traffic, pages, events, countries, devices, key events                                        |
+| **Any REST API** (`rest_api`) | A key or token, placed where the connector says  | One dataset per stream the connector declares                                                                          |
 
 **Auth is a pasted credential, never OAuth.** A redirect flow needs a public
 callback URL that a self-hosted deployment behind a firewall may not have, so
 every connector uses the vendor's server-to-server credential instead. That is
 a deliberate constraint, and it is why sources offering no such credential are
 not here yet.
+
+### Any REST API
+
+For an API with no connector of its own, describe one. A connector is JSON:
+one https address, where the key goes (`auth`: bearer, a header, basic, or a
+query parameter, optionally only when there is a key), and one stream per
+list, each with its path, where the records are in the response, how to ask
+for the next page (page numbers, offsets, a cursor the response names, a next
+URL, or a `Link` header) and, where the API can, how to ask for what changed
+since the last sync. It then syncs like the built-in apps: datasets,
+schedules, incremental streams, version history.
+
+```json
+{
+  "name": "My API",
+  "base_url": "https://api.example.com/v1",
+  "auth": { "kind": "bearer" },
+  "streams": [
+    {
+      "id": "orders",
+      "label": "Orders",
+      "path": "/orders",
+      "records": "data",
+      "pagination": { "kind": "page", "param": "page", "size_param": "per_page", "size": 100 },
+      "incremental": {
+        "param": "updated_since",
+        "format": "iso",
+        "cursor_field": "updated_at",
+        "primary_key": "id"
+      }
+    }
+  ]
+}
+```
+
+What a connector cannot do is the point of it:
+
+- **One host.** Every request stays on `base_url`'s host, including a next
+  page the API names; a next page elsewhere stops the sync and says so. The
+  key is sent only there, and a secret shared with you resolves only if its
+  owner allowed that host.
+- **No secrets inside it.** The key is a separate field picked from your
+  secrets. A connector that puts `{credential}` in a header or a parameter is
+  refused; it can not set `Authorization`, `Host` or `Cookie` itself.
+- **Checked every time.** The Connect form checks it as you type and lists
+  every problem; the server checks the stored text again before every request.
+- **Bounded.** A stream reads at most `max_pages` pages (500 by default) per
+  sync and fails loudly past it, and stops if the API hands back the same next
+  page twice.
+
+**Start from** offers templates: GitHub repository (issues, pull requests,
+releases; run against the live API), Pipedrive and Mailchimp (built from their
+published API references and recorded responses, not yet run against a live
+account here). Each says which. **Preview** on any stream, for every app,
+shows its first rows before you sync.
+
+**Adding a template** is two files and no code: `npm run connector:new -- <id>`
+writes `src/connectors/<id>.json` and `tests/fixtures/connectors/<id>.json`.
+Fill in the connector and record one or two real responses per stream (with
+anything personal removed); `tests/unit/connectorTemplates.test.ts` then runs
+every stream through the real engine against them. A template is marked
+`"checked": "live"` only after it has been run against a real account with
+`npm run connector:check` (see Verifying a connector).
+
+The database needs migration `20261125000000` for this source.
 
 Syncs run on demand or hourly / daily / weekly, and the owner is notified if
 one fails or comes back partial. Nested API objects are flattened into
@@ -405,7 +471,15 @@ npx vite-node scripts/verify-connectors.ts ./connectors.json
 
 `connectors.json` holds real credentials and is gitignored — never commit it.
 The script prints pass/fail and timings per connector and never echoes secret
-values. This is the recommended way to "live-verify" a connector: it exercises
+values.
+
+For a connector template, the same check runs each stream's first page
+through the engine a sync uses, with the key read from an environment
+variable rather than typed on the command line:
+
+````bash
+CONNECTOR_CREDENTIAL=… npm run connector:check -- github_repo owner=octocat repo=Hello-World
+``` This is the recommended way to "live-verify" a connector: it exercises
 the exact code the app runs, just with credentials only you hold.
 
 ## Cataloging a source
@@ -630,3 +704,4 @@ the form rather than at the first sync.
 - Outbound connectors (Trino, Oracle ORDS, object storage, provider tests) run
   through an SSRF guard that blocks cloud-metadata and link-local targets while
   still allowing private networks where warehouses commonly live.
+````

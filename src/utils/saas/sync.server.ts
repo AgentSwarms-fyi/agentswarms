@@ -38,6 +38,7 @@ import { airtableIncremental, fetchAirtableRows, listAirtableStreams } from "./a
 import { fetchGa4Rows, ga4Incremental, listGa4Streams } from "./ga4.server";
 import { asanaIncremental, fetchAsanaRows, listAsanaStreams } from "./asana.server";
 import { fetchFreshdeskRows, freshdeskIncremental, listFreshdeskStreams } from "./freshdesk.server";
+import { fetchRestRows, listRestStreams, restIncremental } from "./restApi.server";
 import type {
   IncrementalSpec,
   SaasConfig,
@@ -77,7 +78,7 @@ export type SaasConnector = {
    * shape, so re-reading them is simpler and no more expensive. Returning null
    * is a legitimate answer and keeps the full-refresh behaviour.
    */
-  incremental?: (streamId: string) => IncrementalSpec | null;
+  incremental?: (streamId: string, cfg?: SaasConfig) => IncrementalSpec | null;
 };
 
 const CONNECTORS: Record<SaasProvider, SaasConnector> = {
@@ -162,6 +163,13 @@ const CONNECTORS: Record<SaasProvider, SaasConnector> = {
     fetchRows: fetchGa4Rows,
     incremental: ga4Incremental,
   },
+  // Declared, not written (R528): the spec in the config says how it reads,
+  // so whether a stream follows changes depends on the config too.
+  rest_api: {
+    listStreams: listRestStreams,
+    fetchRows: fetchRestRows,
+    incremental: restIncremental,
+  },
 };
 
 export function connectorFor(provider: SaasProvider): SaasConnector {
@@ -219,7 +227,9 @@ export async function syncSaasStream(args: {
   const tableName = datasetNameFor(args.connectionName, args.streamId);
   const label = `${SAAS_LABELS[args.config.provider]} · ${args.streamId}`;
 
-  const spec = args.fullRefresh ? null : (connector.incremental?.(args.streamId) ?? null);
+  const spec = args.fullRefresh
+    ? null
+    : (connector.incremental?.(args.streamId, args.config) ?? null);
   const state = spec ? await readStreamState(args.connectionId, args.streamId) : null;
   // The FIRST incremental pass has no cursor, so it reads everything — and it
   // must therefore replace rather than merge. Merging into a dataset that does

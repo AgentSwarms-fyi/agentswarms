@@ -4,6 +4,7 @@
 // string work, and the credential pickers in the Connect form need the same
 // answer to warn about a shared secret whose owner did not allow the host, so
 // they live here, imported by both. A connector that adds a host adds it here.
+import { checkConnectorSpec, specOrigin } from "@/lib/connectorSpec";
 import type { SaasConfig } from "./types";
 
 /** https://<domain>.freshdesk.com, accepting a pasted full URL too. */
@@ -138,6 +139,12 @@ export function saasCredentialHosts(cfg: Partial<SaasConfig> & { provider: strin
         return [normaliseInstanceUrl(str("instance_url"))];
       case "jira":
         return [jiraSiteOrigin(str("site_url"))];
+      case "rest_api": {
+        // The one host the declared connector talks to (R528).
+        const checked = checkConnectorSpec(str("spec"));
+        const origin = checked.ok ? specOrigin(checked.spec.base_url) : null;
+        return origin ? [origin] : [];
+      }
       default:
         return [];
     }

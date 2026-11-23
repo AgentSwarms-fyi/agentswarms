@@ -182,7 +182,9 @@ describe("the trainer program", () => {
 });
 
 describe("the server functions and the pinned program", () => {
-  const fns = rd("src/utils/ml.functions.ts");
+  // The validator is the server function; the checks and the stored row are
+  // the one create path it shares with an approved proposal (R527).
+  const fns = rd("src/utils/ml.functions.ts") + rd("src/utils/ml/create.server.ts");
   const server = rd("src/utils/ml/train.server.ts");
 
   it("accepts the new fields and validates each task's needs", () => {

@@ -22,6 +22,7 @@ import {
   FileText,
   Folder,
   Gauge,
+  Brain,
   GitBranch,
   HardDrive,
   Layers,
@@ -1757,6 +1758,8 @@ function AssetSheet({
                           <LayoutDashboard className="h-3.5 w-3.5 shrink-0 text-primary" />
                         ) : r.kind === "prep_flow" ? (
                           <GitBranch className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                        ) : r.kind === "ml_model" ? (
+                          <Brain className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                         ) : (
                           <Gauge className="h-3.5 w-3.5 shrink-0 text-teal-600 dark:text-teal-400" />
                         )}
@@ -1769,13 +1772,25 @@ function AssetSheet({
                             >
                               {r.name}
                             </Link>
+                          ) : r.kind === "ml_model" ? (
+                            <Link
+                              to="/ml/$modelId"
+                              params={{ modelId: r.id }}
+                              className="font-medium hover:text-primary hover:underline"
+                            >
+                              {r.name}
+                            </Link>
                           ) : (
                             <span className="font-medium">{r.name}</span>
                           )}
                           {r.detail && <span className="text-muted-foreground"> — {r.detail}</span>}
                         </span>
                         <span className="shrink-0 text-[9px] uppercase tracking-wider text-muted-foreground">
-                          {r.kind === "prep_flow" ? "prep flow" : r.kind}
+                          {r.kind === "prep_flow"
+                            ? "prep flow"
+                            : r.kind === "ml_model"
+                              ? "model"
+                              : r.kind}
                         </span>
                       </div>
                     ))}

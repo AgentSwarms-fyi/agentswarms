@@ -232,7 +232,7 @@ function MlDocsPage() {
           ],
           [
             "Registry, stages, lineage",
-            "Versions, stages, snapshot + decision id per version, artifact digests",
+            "Versions, stages, snapshot + decision id per version, artifact digests; each model says what it reads and what uses it, and the catalog names the models on each lakehouse table",
           ],
           ["Batch scoring", "Into lakehouse tables, scheduled, with drift per run"],
           [
@@ -285,14 +285,17 @@ function MlDocsPage() {
           ],
           [
             "Experiment tracking",
-            "Runs logged from a notebook or a script with params, metrics and curves; a run promotes into the registry",
+            "Runs logged from a notebook or a script with params, metrics and curves, beside every version trained here; a run promotes into the registry",
           ],
           ["Model cards", "Generated from the registry"],
           [
             "Governance",
             "IAM shares, trigger audit, decision ids, result digests, one statement guard for all data",
           ],
-          ["Agents and BI", "Models are agent tools; forecasts and drift live in the BI layer"],
+          [
+            "Agents and BI",
+            "Models are agent tools, and an agent can propose a model to train, trained only on your yes; forecasts and drift live in the BI layer",
+          ],
           ["Cost and residency", "Self-hosted, your infrastructure, no per-call charges"],
         ]}
       />

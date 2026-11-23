@@ -97,7 +97,7 @@ describe("the series reach every surface", () => {
   });
 
   it("a series column is stored only when set, so an older database keeps working", () => {
-    const fns = rd("src/utils/ml.functions.ts");
+    const fns = rd("src/utils/ml/create.server.ts");
     expect(fns).toMatch(
       /data\.task === "forecast" && data\.series_column\s+\? \{ series_column: data\.series_column \}\s+: \{\}/,
     );

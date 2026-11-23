@@ -8,7 +8,9 @@ import { applyApprovedColumnHideFn } from "@/utils/sensitiveData.functions";
 import { HIDE_COLUMNS_ACTION, suggestedColumns, suggestedDatasetId } from "@/lib/sensitiveData";
 import { fixFromPayload, RUN_FIX_ACTION } from "@/lib/runFixes";
 import { applyApprovedRunFixFn } from "@/utils/runFixes.functions";
-import { Link } from "@tanstack/react-router";
+import { ML_TRAIN_ACTION, proposalFromPayload } from "@/lib/mlProposals";
+import { applyApprovedTrainingFn } from "@/utils/mlProposals.functions";
+import { Link, useNavigate } from "@tanstack/react-router";
 import {
   Inbox,
   CheckCircle2,
@@ -22,6 +24,7 @@ import {
   Terminal,
   Globe,
   Wrench,
+  FlaskConical,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { Json } from "@/integrations/supabase/types";
@@ -71,6 +74,7 @@ const ACTION_ICON: Record<string, LucideIcon> = {
   "ml.promote": Rocket,
   [HIDE_COLUMNS_ACTION]: EyeOff,
   [RUN_FIX_ACTION]: Wrench,
+  [ML_TRAIN_ACTION]: FlaskConical,
 };
 
 /** Where a suggested fix's check or pipeline is, built from its checked target. */
@@ -89,6 +93,8 @@ function fixLink(payload: unknown): { to: string; open: string } | null {
 function waitingWord(actionType: string): string {
   if (actionType === "ml.promote") return "asked";
   if (actionType === HIDE_COLUMNS_ACTION || actionType === RUN_FIX_ACTION) return "suggested";
+  // An agent suggested a model in chat (R527); nothing is stuck waiting.
+  if (actionType === ML_TRAIN_ACTION) return "proposed";
   return "paused";
 }
 
@@ -96,7 +102,14 @@ function waitingWord(actionType: string): string {
 const fromAnAgent = (actionType: string) =>
   actionType !== "ml.promote" &&
   actionType !== HIDE_COLUMNS_ACTION &&
-  actionType !== RUN_FIX_ACTION;
+  actionType !== RUN_FIX_ACTION &&
+  actionType !== ML_TRAIN_ACTION;
+
+/** A yes or no that is a suggestion, not a run waiting: fixed words in its toast. */
+const isSuggestion = (actionType: string) =>
+  actionType === HIDE_COLUMNS_ACTION ||
+  actionType === RUN_FIX_ACTION ||
+  actionType === ML_TRAIN_ACTION;
 
 const RISK_COLORS: Record<string, string> = {
   low: "bg-blue-500/10 text-blue-400 border-blue-500/30",
@@ -121,6 +134,8 @@ export function ApprovalInbox() {
   const applyPromotionFn = useServerFn(mlApplyApprovedPromotion);
   const applyHideFn = useServerFn(applyApprovedColumnHideFn);
   const applyRunFixFn = useServerFn(applyApprovedRunFixFn);
+  const applyTrainingFn = useServerFn(applyApprovedTrainingFn);
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [pulse, setPulse] = useState(false);
   const seenIdsRef = useRef<Set<string>>(new Set());
@@ -163,8 +178,7 @@ export function ApprovalInbox() {
 
     const announce = (ap: Approval) => {
       const Icon = ACTION_ICON[ap.action_type] ?? Globe;
-      const suggestion =
-        ap.action_type === HIDE_COLUMNS_ACTION || ap.action_type === RUN_FIX_ACTION;
+      const suggestion = isSuggestion(ap.action_type);
       toast(suggestion ? ap.action_title : `${ap.agent_name} needs your approval`, {
         description: suggestion ? "A suggestion, waiting for your yes or no." : ap.action_title,
         icon: <Icon className="h-4 w-4 text-primary" />,
@@ -258,6 +272,42 @@ export function ApprovalInbox() {
         else toast.warning("Decision saved, but nothing was changed", { description: res.error });
       } catch (e) {
         toast.warning("Decision saved, but nothing was changed", {
+          description: (e as Error).message,
+        });
+      }
+      return;
+    }
+    // A model an agent proposed in chat (R527): a yes trains it, as its
+    // owner, through the same path as the New model wizard.
+    if (item?.action_type === ML_TRAIN_ACTION) {
+      const name = proposalFromPayload(item.payload)?.name ?? "The model";
+      if (status === "rejected") {
+        toast(`Not trained: ${name}`, { description: "Nothing was made." });
+        return;
+      }
+      const openModel = (modelId: string) => ({
+        label: "Open",
+        onClick: () => {
+          setOpen(false);
+          void navigate({ to: "/ml/$modelId", params: { modelId } });
+        },
+      });
+      try {
+        const res = await applyTrainingFn({ data: { approvalId: id } });
+        if (res.ok) {
+          toast.success("Training started", {
+            description: res.message,
+            action: openModel(res.modelId),
+            duration: 10000,
+          });
+        } else {
+          toast.warning("Decision saved, but nothing was trained", {
+            description: res.error,
+            ...(res.modelId ? { action: openModel(res.modelId) } : {}),
+          });
+        }
+      } catch (e) {
+        toast.warning("Decision saved, but nothing was trained", {
           description: (e as Error).message,
         });
       }
@@ -400,8 +450,8 @@ export function ApprovalInbox() {
             )}
           </SheetTitle>
           <SheetDescription className="text-xs">
-            What is waiting for your yes or no: an agent's step, a model going into production, a
-            suggestion about your data.
+            What is waiting for your yes or no: an agent's step, a model to train or to put into
+            production, a suggestion about your data.
           </SheetDescription>
         </SheetHeader>
 
@@ -499,7 +549,8 @@ export function ApprovalInbox() {
                             </Link>
                           )}
                         </div>
-                      ) : ap.action_type === RUN_FIX_ACTION ? (
+                      ) : ap.action_type === ML_TRAIN_ACTION ? null : ap.action_type ===
+                        RUN_FIX_ACTION ? (
                         fixLink(ap.payload) && (
                           <Link
                             to={fixLink(ap.payload)!.to as never}

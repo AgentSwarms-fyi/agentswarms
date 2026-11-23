@@ -216,8 +216,8 @@ describe("a person can actually reach the ordered split", () => {
     // Nothing failed. The version simply came back stratified instead of
     // time-ordered, which is only visible if you read the row back after a
     // real run. So the store is pinned here, one assertion per task that is
-    // allowed to have one.
-    const FUNCTIONS = readFileSync("src/utils/ml.functions.ts", "utf8");
+    // allowed to have one. The row is written by the one create path (R527).
+    const FUNCTIONS = readFileSync("src/utils/ml/create.server.ts", "utf8");
     const insert = FUNCTIONS.slice(
       FUNCTIONS.indexOf("time_column:", FUNCTIONS.indexOf('.from("ml_models")')),
       FUNCTIONS.indexOf('horizon: data.task === "forecast"'),

@@ -332,6 +332,16 @@ export const ML_PERIOD_PLURAL: Record<string, string> = {
 
 export const ML_TARGET_TASKS: readonly MlTask[] = ["classification", "regression", "forecast"];
 
+/**
+ * Metrics that count something rather than score it: no tile, no column to
+ * compare on. One list for the model page and Experiments (R527: the
+ * Experiments table offered holdout_periods as a score).
+ */
+export const ML_COUNT_METRICS: ReadonlySet<string> = new Set([
+  "holdout_periods",
+  "backtest_windows",
+]);
+
 /** The primary metric per task, mirrored from the trainer. */
 export const ML_PRIMARY_METRIC: Record<MlTask, string> = {
   classification: "f1_macro",

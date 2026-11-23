@@ -43,7 +43,9 @@
     "eval:nl2sql": "tsx evals/nl2sql/run.ts",
     "prices:refresh": "tsx scripts/refreshPrices.ts",
     "sheets:samples": "tsx scripts/make-sheets-samples.ts",
-    "check:semantics": "tsx scripts/checkSemantics.ts"
+    "check:semantics": "tsx scripts/checkSemantics.ts",
+    "connector:new": "node scripts/new-connector.mjs",
+    "connector:check": "tsx scripts/check-connector.ts"
   },
   "dependencies": {
     "@codemirror/lang-javascript": "^6.2.5",

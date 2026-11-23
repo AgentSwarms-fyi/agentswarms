@@ -11,7 +11,21 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 
 import { StreamStateDialog } from "./StreamStateDialog";
-import { Check, ListTree, Loader2, Plug2, RefreshCw, Trash2, Unplug, X } from "lucide-react";
+import {
+  Braces,
+  Check,
+  Eye,
+  ListTree,
+  Loader2,
+  Plug2,
+  RefreshCw,
+  Trash2,
+  Unplug,
+  X,
+} from "lucide-react";
+import { RestApiSpecField } from "./RestApiSpecField";
+import { previewColumns } from "@/lib/previewColumns";
+import { specReady } from "@/lib/connectorSpec";
 
 import {
   AlertDialog,
@@ -70,6 +84,7 @@ import {
   deleteSaasConnection,
   discoverSaasStreams,
   listSaasConnections,
+  previewSaasStream,
   saveSaasConnection,
   setSaasSchedule,
   syncSaasConnection,
@@ -90,6 +105,10 @@ const LOGO_FILES = import.meta.glob<{ default: string }>("../../assets/saas/*.sv
 
 /** The logo tile, or the provider's initials when no logo is bundled. */
 function ProviderMark({ provider }: { provider: SaasProvider }) {
+  // Not a vendor: a connector you describe.
+  if (provider === "rest_api") {
+    return <Braces aria-hidden className="h-4 w-4 text-muted-foreground" />;
+  }
   const hit = Object.entries(LOGO_FILES).find(([path]) => path.endsWith(`/${provider}.svg`));
   if (hit) {
     return (
@@ -117,6 +136,7 @@ export function SaasSourcesTab() {
   const discover = useServerFn(discoverSaasStreams);
   const sync = useServerFn(syncSaasConnection);
   const reschedule = useServerFn(setSaasSchedule);
+  const previewFn = useServerFn(previewSaasStream);
 
   const [connections, setConnections] = useState<SaasConnectionSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -135,6 +155,14 @@ export function SaasSourcesTab() {
   const [busy, setBusy] = useState(false);
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<SaasConnectionSummary | null>(null);
+  /** The first rows of one stream, before anything is synced (R528). */
+  const [preview, setPreview] = useState<{
+    stream: string;
+    rows: Record<string, string | number | boolean | null>[];
+    columns: string[];
+    more: boolean;
+  } | null>(null);
+  const [previewing, setPreviewing] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -159,6 +187,7 @@ export function SaasSourcesTab() {
     setSchedule("daily");
     setStreams(null);
     setPicked([]);
+    setPreview(null);
   };
 
   /**
@@ -179,7 +208,22 @@ export function SaasSourcesTab() {
    */
   const fieldsComplete = () =>
     !!dialogProvider &&
-    SAAS_CARDS[dialogProvider].fields.every((f) => f.optional || values[f.key]?.trim());
+    SAAS_CARDS[dialogProvider].fields.every((f) => f.optional || values[f.key]?.trim()) &&
+    // A declared connector must also check out before anything is sent.
+    (dialogProvider !== "rest_api" || specReady(values.spec ?? ""));
+
+  const onPreview = async (stream: string) => {
+    setPreviewing(stream);
+    try {
+      const r = await previewFn({ data: { access_token: token, config: configFor(), stream } });
+      setPreview({ stream, ...r });
+    } catch (e) {
+      setPreview(null);
+      toast.error(e instanceof Error ? e.message : "Could not read that stream");
+    } finally {
+      setPreviewing(null);
+    }
+  };
 
   const onDiscover = async () => {
     setBusy(true);
@@ -507,7 +551,7 @@ export function SaasSourcesTab() {
       </Card>
 
       <Dialog open={!!dialogProvider} onOpenChange={(o) => !o && setDialogProvider(null)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className={dialogProvider === "rest_api" ? "max-w-2xl" : "max-w-lg"}>
           <DialogHeader>
             <DialogTitle>Connect {dialogProvider ? SAAS_LABELS[dialogProvider] : ""}</DialogTitle>
             <DialogDescription>{help?.setup}</DialogDescription>
@@ -535,7 +579,17 @@ export function SaasSourcesTab() {
               SAAS_CARDS[dialogProvider].fields.map((f) => (
                 <div key={f.key} className="space-y-1">
                   <Label className="text-xs">{f.label}</Label>
-                  {f.secret ? (
+                  {dialogProvider === "rest_api" && f.key === "spec" ? (
+                    <RestApiSpecField
+                      value={values.spec ?? ""}
+                      onChange={(v) => {
+                        setValues((cur) => ({ ...cur, spec: v }));
+                        // A changed connector is a different source: list again.
+                        setStreams(null);
+                        setPreview(null);
+                      }}
+                    />
+                  ) : f.secret ? (
                     // One of your secrets, resolved at sync time toward this
                     // source's own hosts (R494).
                     <SecretSelect
@@ -598,11 +652,77 @@ export function SaasSourcesTab() {
                         }
                       />
                       <span className="flex-1 truncate font-mono">{s.label}</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 gap-1 px-1.5 text-[11px] text-muted-foreground"
+                        aria-label={`Preview ${s.label}`}
+                        disabled={previewing !== null}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          void onPreview(s.id);
+                        }}
+                      >
+                        {previewing === s.id ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Eye className="h-3 w-3" />
+                        )}
+                        Preview
+                      </Button>
                     </label>
                   ))}
                 </div>
               </div>
             )}
+
+            {streams && preview ? (
+              <div className="min-w-0 space-y-1" aria-label={`Preview of ${preview.stream}`}>
+                <p className="text-[11px] text-muted-foreground">
+                  {preview.rows.length === 0
+                    ? `${preview.stream} is empty right now.`
+                    : `The first ${preview.rows.length} rows of ${preview.stream}, as a sync reads them${preview.more ? "; there are more" : ""}.`}
+                  {preview.columns.length > 6
+                    ? ` ${preview.columns.length} columns; the first 6 are shown.`
+                    : ""}
+                </p>
+                {preview.rows.length > 0 ? (
+                  <div className="max-h-48 overflow-auto rounded-md border border-border/50">
+                    <table className="w-full table-fixed text-[11px]">
+                      <thead className="bg-muted/40 text-left text-muted-foreground">
+                        <tr>
+                          {previewColumns(preview)
+                            .slice(0, 6)
+                            .map((c) => (
+                              <th key={c} className="px-2 py-1 font-medium">
+                                <span className="block truncate" title={c}>
+                                  {c}
+                                </span>
+                              </th>
+                            ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {preview.rows.map((r, i) => (
+                          <tr key={i} className="border-t border-border/40">
+                            {previewColumns(preview)
+                              .slice(0, 6)
+                              .map((c) => (
+                                <td key={c} className="max-w-40 truncate px-2 py-1 font-mono">
+                                  {r[c] === null || r[c] === undefined
+                                    ? ""
+                                    : String(r[c]).slice(0, 60)}
+                                </td>
+                              ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
             {streams && (
               <div className="space-y-1">

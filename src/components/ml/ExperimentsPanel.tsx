@@ -9,8 +9,10 @@
 // The panel is a table, not a form. Nothing is created here: runs are logged
 // from wherever the training happens. What the UI owns is reading them, seeing
 // which parameter actually differed between two attempts, and promoting the
-// one worth serving.
+// one worth serving. Since R527 a model's own training is read here too, one
+// row per version, beside the runs logged from notebooks: one place to compare.
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { useTokenRef } from "@/hooks/use-token-ref";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
@@ -144,6 +146,8 @@ export function ExperimentsPanel({ token }: { token: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, runsFn, signedIn]);
 
+  const current = experiments.find((e) => e.id === selected) ?? null;
+
   /** Metric columns: the run's scores, not the points of its curves. */
   const metricKeys = useMemo(() => metricColumns(runs), [runs]);
 
@@ -272,6 +276,10 @@ export function ExperimentsPanel({ token }: { token: string }) {
             obvious idea that did not work is visible instead of being tried again. A run that
             recorded an artifact can be registered as a model version from here.
           </p>
+          <p className="max-w-3xl text-xs leading-relaxed text-muted-foreground">
+            Models trained here are listed too, one row per version, so a notebook run and a
+            platform training compare on the same scores.
+          </p>
           <p className="text-xs text-muted-foreground">
             Nothing is created in this panel. Log a run from a notebook or a script:
           </p>
@@ -318,8 +326,15 @@ with agentswarms.start_run("churn-v2", params={"lr": 0.01}) as run:
                   selected === e.id ? "border-primary bg-primary/5" : "hover:bg-muted/50",
                 )}
               >
-                <p className="truncate text-sm font-medium">{e.name}</p>
+                <p className="truncate text-sm font-medium" title={e.name}>
+                  {e.name}
+                </p>
                 <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  {e.from_model
+                    ? "Trained here · "
+                    : e.trained_versions > 0
+                      ? `${e.trained_versions} trained here · `
+                      : ""}
                   {e.runs} run{e.runs === 1 ? "" : "s"}
                   {e.running > 0 ? ` · ${e.running} running` : ""}
                   {e.last_run_at ? ` · ${new Date(e.last_run_at).toLocaleDateString()}` : ""}
@@ -341,14 +356,21 @@ with agentswarms.start_run("churn-v2", params={"lr": 0.01}) as run:
               ) : (
                 <>
                   <div className="border-b p-3">
-                    <input
-                      value={note}
-                      onChange={(ev) => setNote(ev.target.value)}
-                      onBlur={() => void saveNote()}
-                      placeholder="What is this experiment asking?"
-                      aria-label="Experiment description"
-                      className="mb-2 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground/60 focus:underline focus:decoration-dotted"
-                    />
+                    {current?.from_model ? (
+                      <p className="mb-2 text-sm text-muted-foreground">
+                        Every version this model trained, with its settings and scores. Open the
+                        model to promote one or predict with it.
+                      </p>
+                    ) : (
+                      <input
+                        value={note}
+                        onChange={(ev) => setNote(ev.target.value)}
+                        onBlur={() => void saveNote()}
+                        placeholder="What is this experiment asking?"
+                        aria-label="Experiment description"
+                        className="mb-2 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground/60 focus:underline focus:decoration-dotted"
+                      />
+                    )}
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-xs text-muted-foreground">
                         {runs.length} run{runs.length === 1 ? "" : "s"}
@@ -362,19 +384,25 @@ with agentswarms.start_run("churn-v2", params={"lr": 0.01}) as run:
                           </>
                         ) : null}
                       </p>
-                      {selected ? (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={busy}
-                          onClick={() => {
-                            const e = experiments.find((x) => x.id === selected);
-                            if (e) void removeExperiment(e);
-                          }}
-                        >
-                          <Trash2 className="mr-1 h-3.5 w-3.5" /> Delete experiment
-                        </Button>
-                      ) : null}
+                      <div className="flex items-center gap-1">
+                        {current?.model_id ? (
+                          <Button variant="ghost" size="sm" asChild>
+                            <Link to="/ml/$modelId" params={{ modelId: current.model_id }}>
+                              <ArrowUpRight className="mr-1 h-3.5 w-3.5" /> Open the model
+                            </Link>
+                          </Button>
+                        ) : null}
+                        {current && !current.from_model ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={busy}
+                            onClick={() => void removeExperiment(current)}
+                          >
+                            <Trash2 className="mr-1 h-3.5 w-3.5" /> Delete experiment
+                          </Button>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
 
@@ -439,7 +467,13 @@ with agentswarms.start_run("churn-v2", params={"lr": 0.01}) as run:
                                     <span className="truncate font-medium">
                                       {r.name || new Date(r.started_at).toLocaleString()}
                                     </span>
-                                    {r.registered_version_id ? (
+                                    {r.version ? (
+                                      r.version.stage === "production" ? (
+                                        <Badge variant="outline" className="ml-1 text-[10px]">
+                                          production
+                                        </Badge>
+                                      ) : null
+                                    ) : r.registered_version_id ? (
                                       <Badge variant="outline" className="ml-1 text-[10px]">
                                         registered
                                       </Badge>
@@ -465,18 +499,33 @@ with agentswarms.start_run("churn-v2", params={"lr": 0.01}) as run:
                                   {duration(r.duration_ms)}
                                 </td>
                                 <td className="px-3 py-2 text-right">
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    aria-label={
-                                      r.name ? `Delete the run ${r.name}` : "Delete this run"
-                                    }
-                                    title="Delete"
-                                    disabled={busy}
-                                    onClick={() => void removeRun(r)}
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </Button>
+                                  {r.version ? (
+                                    // A version is the model's: it is kept or
+                                    // archived on the model page, not here.
+                                    <Button variant="ghost" size="sm" asChild>
+                                      <Link
+                                        to="/ml/$modelId"
+                                        params={{ modelId: r.version.model_id }}
+                                        aria-label={`Open version ${r.version.number} on its model's page`}
+                                        title="Open on the model's page"
+                                      >
+                                        <ArrowUpRight className="h-3.5 w-3.5" />
+                                      </Link>
+                                    </Button>
+                                  ) : (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      aria-label={
+                                        r.name ? `Delete the run ${r.name}` : "Delete this run"
+                                      }
+                                      title="Delete"
+                                      disabled={busy}
+                                      onClick={() => void removeRun(r)}
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                  )}
                                 </td>
                               </tr>
                               {expanded ? (
@@ -516,7 +565,11 @@ with agentswarms.start_run("churn-v2", params={"lr": 0.01}) as run:
                                           </dl>
                                         )}
                                         <p className="mt-3 text-[11px] text-muted-foreground">
-                                          Logged from {r.source}
+                                          {r.version
+                                            ? r.source === "registered"
+                                              ? `Version ${r.version.number}, registered from outside`
+                                              : `Version ${r.version.number}, ${r.status === "failed" ? "started" : "trained"} here`
+                                            : `Logged from ${r.source}`}
                                           {r.session_id ? " (sandbox session)" : ""} ·{" "}
                                           {new Date(r.started_at).toLocaleString()}
                                         </p>
@@ -571,7 +624,33 @@ with agentswarms.start_run("churn-v2", params={"lr": 0.01}) as run:
                                         </dl>
 
                                         <div className="mt-4 border-t pt-3">
-                                          {r.registered_version_id ? (
+                                          {r.version && r.status === "failed" ? (
+                                            <p className="text-xs text-muted-foreground">
+                                              Version {r.version.number} did not finish training.
+                                              Its log is on the model&apos;s{" "}
+                                              <Link
+                                                to="/ml/$modelId"
+                                                params={{ modelId: r.version.model_id }}
+                                                className="text-primary underline-offset-2 hover:underline"
+                                              >
+                                                Jobs tab
+                                              </Link>
+                                              .
+                                            </p>
+                                          ) : r.version ? (
+                                            <p className="text-xs text-muted-foreground">
+                                              Version {r.version.number} of the model, now{" "}
+                                              {r.version.stage}.{" "}
+                                              <Link
+                                                to="/ml/$modelId"
+                                                params={{ modelId: r.version.model_id }}
+                                                className="text-primary underline-offset-2 hover:underline"
+                                              >
+                                                Open the model
+                                              </Link>{" "}
+                                              to compare it with the others or promote it.
+                                            </p>
+                                          ) : r.registered_version_id ? (
                                             <p className="text-xs text-muted-foreground">
                                               Registered as a model version.
                                             </p>

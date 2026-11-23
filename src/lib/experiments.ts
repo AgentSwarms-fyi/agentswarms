@@ -12,6 +12,8 @@
 // point on a curve, `loss` is the score, and a leaderboard that mixed them
 // would rank steps against runs.
 
+import { ML_COUNT_METRICS } from "@/utils/ml/types";
+
 export type Scalar = string | number | boolean | null;
 export type ScalarMap = Record<string, Scalar>;
 
@@ -162,4 +164,133 @@ export function artifactFileName(raw: string | null | undefined): string {
 export function algorithmOf(params: unknown): string {
   const p = asScalarMap(params).algorithm;
   return typeof p === "string" && p.trim() ? p.trim().slice(0, 120) : "external";
+}
+
+// ── A model's own training, beside the runs (R527) ───────────────────────────
+//
+// Training here and logging a run from a notebook used to land in two places:
+// versions on the model page, runs under Experiments, compared nowhere. Every
+// version a model trained is now also read as a run, at read time, from the
+// version itself: no copy to write or keep in step, and every version ever
+// trained is there, not only those trained after this shipped. A model with
+// an experiment linked to it shows its versions inside that experiment; any
+// other model that trained shows as its own experiment, `model:<id>`.
+
+/** The id of the experiment a model's own training shows as. */
+export const MODEL_EXPERIMENT = "model:";
+export const isModelExperiment = (id: string): boolean => id.startsWith(MODEL_EXPERIMENT);
+/** The id a version has as a run. */
+export const VERSION_RUN = "version:";
+
+/** Metrics that count something rather than score it, so are no column to compare on. */
+const NOT_A_SCORE = ML_COUNT_METRICS;
+
+export type TrainedVersion = {
+  id: string;
+  model_id: string;
+  version: number;
+  status: string;
+  stage: string;
+  algorithm: string | null;
+  metrics: unknown;
+  config: unknown;
+  training_rows: number | null;
+  warnings: unknown;
+  external: boolean | null;
+  created_at: string;
+  trained_at: string | null;
+  /** The training job behind it: what started it, and why it failed. */
+  job?: { trigger: string | null; error: string | null } | null;
+};
+
+/** What started a training, when it was not someone pressing Train. */
+const STARTED_BY: Record<string, string> = {
+  schedule: "scheduled",
+  api: "API",
+  approval: "proposed in chat",
+};
+
+export type VersionRun = {
+  id: string;
+  name: string;
+  status: "running" | "finished" | "failed";
+  params: ScalarMap;
+  metrics: ScalarMap;
+  tags: string[];
+  notes: null;
+  /** "platform": trained here. "registered": brought in from elsewhere. */
+  source: "platform" | "registered";
+  session_id: null;
+  artifact_uri: null;
+  artifact_sha256: null;
+  registered_version_id: string;
+  error: string | null;
+  started_at: string;
+  finished_at: string | null;
+  duration_ms: number | null;
+  version: { id: string; model_id: string; number: number; stage: string };
+};
+
+/** A model version as a row beside the runs: its settings, its scores, how long it took. */
+export function versionAsRun(v: TrainedVersion): VersionRun {
+  const cfg = asScalarMap(v.config);
+  const params: ScalarMap = {};
+  if (v.algorithm) params.algorithm = v.algorithm;
+  for (const k of ["tuning", "max_rows", "time_budget_minutes", "validation_fraction"]) {
+    if (cfg[k] !== undefined && cfg[k] !== null) params[k] = cfg[k];
+  }
+  if (typeof v.training_rows === "number") params.training_rows = v.training_rows;
+  const metrics: ScalarMap = {};
+  for (const [k, val] of Object.entries(asScalarMap(v.metrics))) {
+    if (typeof val === "number" && Number.isFinite(val) && !NOT_A_SCORE.has(k)) metrics[k] = val;
+  }
+  const status = v.status === "training" ? "running" : v.status === "ready" ? "finished" : "failed";
+  const warnings = Array.isArray(v.warnings)
+    ? v.warnings.filter((w): w is string => typeof w === "string")
+    : [];
+  const started = Date.parse(v.created_at);
+  const finished = v.trained_at ? Date.parse(v.trained_at) : NaN;
+  return {
+    id: `${VERSION_RUN}${v.id}`,
+    name: `v${v.version}${v.algorithm ? ` · ${v.algorithm}` : ""}`,
+    status,
+    params,
+    metrics,
+    tags: [
+      v.stage,
+      ...(v.job?.trigger && STARTED_BY[v.job.trigger] ? [STARTED_BY[v.job.trigger]] : []),
+    ],
+    notes: null,
+    source: v.external ? "registered" : "platform",
+    session_id: null,
+    artifact_uri: null,
+    artifact_sha256: null,
+    registered_version_id: v.id,
+    error:
+      v.status === "cancelled"
+        ? "Cancelled before it finished."
+        : v.status === "failed"
+          ? v.job?.error?.trim().slice(0, 600) || warnings[0] || "Training failed."
+          : null,
+    started_at: v.created_at,
+    finished_at: v.trained_at,
+    duration_ms:
+      Number.isFinite(started) && Number.isFinite(finished) && finished >= started
+        ? finished - started
+        : null,
+    version: { id: v.id, model_id: v.model_id, number: v.version, stage: v.stage },
+  };
+}
+
+/**
+ * The runs of one experiment with its model's versions beside them, newest
+ * first. A version a run was registered as is that run already, so it is not
+ * shown twice.
+ */
+export function withVersionRuns<
+  R extends { started_at: string; registered_version_id: string | null },
+>(runs: R[], versions: TrainedVersion[]): Array<R | VersionRun> {
+  const registered = new Set(runs.map((r) => r.registered_version_id).filter(Boolean));
+  const extra = versions.filter((v) => !registered.has(v.id)).map(versionAsRun);
+  return [...runs, ...extra].sort((a, b) => (a.started_at < b.started_at ? 1 : -1));
 }

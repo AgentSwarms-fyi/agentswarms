@@ -52,6 +52,7 @@ import {
 } from "@/utils/ml.functions";
 import type { MlJobRow, MlVersionRow } from "@/utils/ml/access.server";
 import {
+  ML_COUNT_METRICS,
   ML_JOB_LIVE,
   ML_PRIMARY_METRIC,
   ML_TUNINGS,
@@ -89,6 +90,7 @@ import { ModelCardDialog } from "@/components/ml/ModelCardDialog";
 import { DeploymentPanel } from "@/components/ml/DeploymentPanel";
 import { ModelFeatureView } from "@/components/ml/FeatureViewsPanel";
 import { SchedulesPanel } from "@/components/ml/SchedulesPanel";
+import { ModelLineageCard } from "@/components/ml/ModelLineageCard";
 
 // React 19's stricter JSX typing rejects recharts' class components — cast via any.
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -478,6 +480,7 @@ function ModelPage() {
           ) : (
             <VersionOverview version={focus} task={task} primary={primary} model={model} />
           )}
+          <ModelLineageCard modelId={modelId} token={token} />
         </TabsContent>
 
         <TabsContent value="versions" className="mt-4 space-y-4">
@@ -913,7 +916,7 @@ function VersionOverview({
   const ordered = [
     ...scalar.filter(([k]) => k === primary),
     // Counts, not scores: the leaderboard says how many windows (R526).
-    ...scalar.filter(([k]) => k !== primary && k !== "holdout_periods" && k !== "backtest_windows"),
+    ...scalar.filter(([k]) => k !== primary && !ML_COUNT_METRICS.has(k)),
   ].slice(0, 6);
   const cm = metrics.confusion_matrix as { labels: string[]; matrix: number[][] } | undefined;
   const clusters = (Array.isArray(metrics.clusters) ? metrics.clusters : []) as MlClusterProfile[];
@@ -1391,7 +1394,7 @@ function CompareVersions({
           .map(([k]) => k),
       ),
     ),
-  ).filter((k) => k !== "holdout_periods" && k !== "backtest_windows");
+  ).filter((k) => !ML_COUNT_METRICS.has(k));
   const rows = [...keys.filter((k) => k === primary), ...keys.filter((k) => k !== primary)];
   const best = (k: string) => {
     const vals = ordered.map((v) => (v.metrics as Record<string, number | null>)?.[k] ?? null);

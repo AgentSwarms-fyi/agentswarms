@@ -24,7 +24,9 @@ export type SaasProvider =
   | "klaviyo"
   | "notion"
   | "airtable"
-  | "ga4";
+  | "ga4"
+  /** A connector declared as data and run by one engine (R528). */
+  | "rest_api";
 
 export const SAAS_PROVIDERS: SaasProvider[] = [
   "google_sheets",
@@ -44,6 +46,7 @@ export const SAAS_PROVIDERS: SaasProvider[] = [
   "notion",
   "airtable",
   "ga4",
+  "rest_api",
 ];
 
 export const SAAS_LABELS: Record<SaasProvider, string> = {
@@ -64,6 +67,7 @@ export const SAAS_LABELS: Record<SaasProvider, string> = {
   notion: "Notion",
   airtable: "Airtable",
   ga4: "Google Analytics 4",
+  rest_api: "Any REST API",
 };
 
 /**
@@ -204,6 +208,18 @@ export type SaasConfig =
       service_account_json: string;
       /** The numeric property id from Admin → Property settings. */
       property_id: string;
+    }
+  | {
+      provider: "rest_api";
+      /**
+       * The connector, as JSON checked by @/lib/connectorSpec: one https host,
+       * its auth, and its streams. Checked again before every use.
+       */
+      spec: string;
+      /** The key or token, placed only where the spec's auth says. */
+      credential?: string;
+      /** For basic auth that names a user. */
+      username?: string;
     }
   | {
       provider: "zendesk";

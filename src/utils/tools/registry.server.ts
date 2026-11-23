@@ -1664,6 +1664,8 @@ export const TOOLABLE_IDS = [
   "metric_query",
   "ontology_query",
   "data_health",
+  // Proposes a model; training waits for the owner's yes (R527).
+  "ml_train",
   "ml_predict",
   "memory_remember",
   "memory_recall",
@@ -2451,6 +2453,132 @@ export async function resolveAgentTools(
     }
   }
 
+  // Propose a model (R527). The agent suggests; its owner trains it with a yes
+  // in the approvals inbox. The proposal is checked against the table's real
+  // columns as the owner before it is filed, and again when approved. On a
+  // headless run the owner is scopeUserId, so a run can only ever ask them.
+  if (allows("ml_train")) {
+    const { lakehouseEnabled } = await import("@/utils/lakehouse/core.server");
+    if (lakehouseEnabled()) {
+      tools.push({
+        type: "function",
+        function: {
+          name: "ml_propose_model",
+          description:
+            "Propose training a new ML model on a lakehouse table. Nothing is trained by this " +
+            "call: the proposal waits in the user's approvals inbox, and training starts only " +
+            "when they approve it. Use it when the user asks to train, build or make a model. " +
+            "Name the table as schema.table and the columns exactly as the table has them; if a " +
+            "name is wrong the answer lists the table's columns, so correct it and call again. " +
+            "Tasks: classification (predict a category), regression (predict a number), " +
+            "forecast (a number per period along a date column), clustering (group rows), " +
+            "anomaly (find unusual rows), recommendation (items for each user).",
+          parameters: {
+            type: "object",
+            properties: {
+              task: {
+                type: "string",
+                enum: [
+                  "classification",
+                  "regression",
+                  "forecast",
+                  "clustering",
+                  "anomaly",
+                  "recommendation",
+                ],
+              },
+              table: { type: "string", description: "The lakehouse table, as schema.table" },
+              name: {
+                type: "string",
+                description: "A name for the model (optional; one is made from what it does)",
+              },
+              target_column: {
+                type: "string",
+                description: "classification, regression, forecast: the column to predict",
+              },
+              time_column: {
+                type: "string",
+                description:
+                  "forecast: the date column to forecast along (required). classification, " +
+                  "regression: optional, when rows are in time order",
+              },
+              series_column: {
+                type: "string",
+                description: "forecast, optional: one forecast per value of this category column",
+              },
+              period: {
+                type: "string",
+                enum: ["auto", "hour", "day", "week", "month", "quarter"],
+                description: "forecast, optional: the period to forecast per",
+              },
+              horizon: {
+                type: "number",
+                description: "forecast, optional: how many periods ahead (default 12)",
+              },
+              user_column: { type: "string", description: "recommendation: the user column" },
+              item_column: { type: "string", description: "recommendation: the item column" },
+              rating_column: {
+                type: "string",
+                description: "recommendation, optional: a numeric rating column",
+              },
+              n_clusters: {
+                type: "number",
+                description: "clustering, optional: how many groups (2 to 50)",
+              },
+              feature_columns: {
+                type: "array",
+                items: { type: "string" },
+                description: "Optional: only these columns as inputs (default: every other column)",
+              },
+            },
+            required: ["task", "table"],
+          },
+        },
+      });
+      handlers.set("ml_propose_model", async (c, a) => {
+        try {
+          const owner = c.scopeUserId ?? c.userId;
+          let agentName = "Chat";
+          if (c.agentId) {
+            // Only the owner's own agent names the proposal: on a headless run
+            // c.sb is the service role, so the read is pinned to the owner.
+            const { data: agent } = await c.sb
+              .from("agents")
+              .select("name")
+              .eq("id", c.agentId)
+              .eq("user_id", owner)
+              .maybeSingle();
+            if (agent?.name) agentName = agent.name;
+          }
+          const { proposeTraining } = await import("@/utils/ml/proposeTraining.server");
+          const res = await proposeTraining(owner, a, { agentName });
+          if (!res.ok) return JSON.stringify({ proposed: false, error: res.error });
+          return JSON.stringify({
+            proposed: true,
+            approval_id: res.approvalId,
+            already_waiting: res.alreadyWaiting,
+            proposal: res.title,
+            what_approving_does: res.lines,
+            notes: [
+              res.alreadyWaiting
+                ? "This model was already proposed and is still waiting; nothing new was filed."
+                : // FOUND IN THE UI TEST: the agent read an earlier proposal's
+                  // id in the conversation and told the user it was "also still
+                  // waiting" when it had been rejected. The answer says.
+                  "Filed in the user's approvals inbox (the tray icon at the top of every page). No other proposal for this model is waiting: any earlier one in this conversation has been decided.",
+              "Nothing is trained yet. Tell the user it waits for their approval, and that approving starts training; never say it is training or trained.",
+            ],
+          });
+        } catch (e) {
+          return JSON.stringify({
+            proposed: false,
+            error: e instanceof Error ? e.message : "The proposal could not be made",
+          });
+        }
+      });
+    }
+  }
+
   // External warehouse tools — same toggle as sql_query, available when the
   // user has connected at least one warehouse under /integrations. Queries
   // run server-side against the vendor API with decrypted credentials; the
@@ -2637,6 +2765,11 @@ function buildRoutingGuidance(enabled: ResolvedTools["enabled"], tools: ToolDef[
     lines.push(
       "- ml_predict scores rows with a trained model from the registry; call ml_list_models first " +
         "for each model's feature columns and accepted categories, and pass real values, never guessed ones.",
+    );
+  }
+  if (has("ml_propose_model")) {
+    lines.push(
+      "- ml_propose_model proposes training a model on a lakehouse table; it trains nothing until the user approves it in their approvals inbox, so say it waits for their yes, never that it is training.",
     );
   }
   if (has("data_health")) {

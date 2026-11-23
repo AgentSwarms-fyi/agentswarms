@@ -15,6 +15,90 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-23 — R528: Any REST API, and a connector toolkit
+
+Driven on a dev server built from the worktree (`:8102`), signed in as the owner, against the real
+database after migration `20261125000000` was applied, in a fronted tab. Kept for review: the source
+**GitHub cli** (Any REST API, releases of `cli/cli`, syncs only when asked) and its dataset
+`github_cli_releases`.
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| Integrations → Apps | the cards | **Any REST API** beside the other apps, marked `{ }` rather than initials |
+| Connect | the dialog | wider than the other apps' dialogs; **Start from** lists the example, GitHub repository "· run against a live account", Mailchimp and Pipedrive "· from its API reference" |
+| Start from | GitHub repository, owner `cli`, repository `cli`, **Fill in** | the connector JSON written; "Ready: 3 streams on api.github.com, 1 followed by what changed." |
+| The JSON | a stray comma typed at the end | "The spec is not JSON: Unexpected non-whitespace character…" and **Connect** disabled (fixed: "The connector is not JSON…", the form's own word); removed, ready again |
+| Connect and list streams | no key (public repository) | "Found 3 streams", each with **Preview** |
+| Preview | Releases | "The first 10 rows of releases, as a sync reads them; there are more. 50 columns; the first 6 are shown." The six were all links, and the table pushed **Save** out of the dialog (fixed: id, name, tag_name, created_at, updated_at, published_at; the table fits). Previewing left the stream's box as it was |
+| Save and sync | Releases only, only when asked | "Saved. Syncing now…", then "Synced 1 dataset, 212 rows"; the row reads "GitHub cli · Any REST API · Only when I sync"; the dataset `github_cli_releases` exists (read back) |
+| Streams | the source | "releases · Full refresh · Re-read in full each sync — this source offers nothing to follow." |
+
+**Also run:** `npm run connector:check -- github_repo owner=octocat repo=Hello-World` against the
+live API (issues and pull requests answered; the repository has no releases), and 250 pull requests
+read over three pages with no repeats, before the template was marked as run live.
+
+**Not driven:** Pipedrive and Mailchimp against real accounts (none here; they say so in the picker),
+a key picked from secrets for a private API (held by `tests/unit/restApiConnector.test.ts`).
+
+**On the 8080 image rebuilt with R528** (2026-11-23): the source showed **Healthy**, from the
+scheduler's own credential check running the connector; **Sync now** answered "Synced 1 dataset, 212
+rows" from the 8080 server; the toaster carries `pointer-events-auto` (the click-through itself was
+proven on the dev server with the inbox open: the press reached the toast and decided nothing).
+
+## 2026-11-23 — R527: models proposed in chat, where a model reads and feeds, one place to compare
+
+Driven on a dev server built from the worktree (`:8102`), signed in as the owner, against the real
+database, in a fronted tab. For the test the agent **Predictive Analyst** had **Propose ML models**
+turned on (it already had ML predictions and Data health).
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| `/ml?tab=experiments` | the link | opens on Experiments; eleven entries, ten of them models that trained here, one logged from a notebook (`r316_probe`) |
+| Experiments | a forecast model's versions | `holdout_periods` was offered as a score column beside mae, mape and rmse: a count (fixed: one list of count metrics shared with the model page's tiles) |
+| Experiments | the list | the **Trained here** badge beside each name cut it to "revenue_facts plan …" (fixed: the name has its line, "Trained here · 9 runs · 10/3/2026" the next) |
+| Experiments | "revenue_facts plan classifier", nine versions | one row per version with accuracy, f1, log loss, precision, recall and the time it took; v7 marked production; v4 failed |
+| Experiments | v4, opened | said only "Training failed." and offered the version for promotion (fixed: the training job's own reason, "Cancelled during verification: …", and "did not finish training. Its log is on the model's Jobs tab") |
+| Experiments | the intro | the new sentence ("listed too") came before the paragraph it adds to (fixed: after it) |
+| Model page | "revenue_facts net_usd forecast" → **Reads and feeds** | reads `analytics.revenue_facts`; a dashboard draws its forecast (Revenue Command Center · Sample, "Monthly revenue · trend & 3-month forecast"); Predictive Analyst may predict with it (any model) |
+| Data Catalog | `analytics.revenue_facts` | **Lineage & usage**: the dashboard and ten models, each with how it uses the table ("trains on it, scored by it"); a model's name opens its page |
+| Data Catalog | `analytics.revenue_facts_plan_classifier_predictions` | "Derived from: analytics.revenue_facts" and "revenue_facts plan classifier — predictions written here" |
+| Agent Builder | Predictive Analyst → Tools | **Propose ML models** beside ML predictions; turned on and saved (read back: `ml_train: true`) |
+| Agent Chat | "Train a model that predicts which subscription plan a customer is on, from analytics.revenue_facts…" | the agent first sent the target as its only feature and was refused (fixed: the refusal now says to leave the list out or name the inputs); its second call was filed. Answer: "Nothing has been trained yet."; the tool card "Proposed, waiting for your yes" with **Review in approvals**; the inbox toast "A suggestion, waiting for your yes or no." |
+| Approvals inbox | the proposal | flask icon, "Predictive Analyst · proposed", "Train "R527 plan from chat (test)": predict plan", what approving does |
+| Approvals inbox | **Reject** | left the list; the row rejected with no claim, no model made (read back), `ml.train.proposed` audited |
+
+**On the 8080 image rebuilt with R527** (2026-11-23), approving and training, which needs the
+sandbox to call the app back:
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| Agent Chat | the same request to Predictive Analyst | filed; the answer added that the earlier proposal was "also still waiting in your inbox", which was false: it had been rejected, and the inbox held one (fixed: the tool's answer says no other proposal for the model is waiting, and carries `already_waiting`) |
+| Approvals inbox | the toast's **Review**, with the inbox already open | the press went through the toast to the card under it and approved the R238 run-fix suggestion, which was carried out (fixed: toasts take their own clicks; restored: the check back on `region`, the suggestion pending again; see the Adversarial log) |
+| Approvals inbox | **Approve** on the proposal | "Training started … Its page shows the progress." with **Open**; the model "R527 plan from chat (test)" appeared training, trained in 2 m 33 s and became production v1 |
+| Experiments | the new model | "Trained here · 1 run"; v1 tagged **production** and **proposed in chat** |
+
+Kept for review: the model **R527 plan from chat (test)**. Predictive Analyst's **Propose ML models**
+is off again, as before the test.
+
+## 2026-11-23 — Data monitors: change a check after it is made
+
+Driven on a dev server built from the worktree (`:8102`), signed in as the owner, against the real
+database, in a fronted tab. It closes the gap the R525 round found: a check on the wrong column
+could only be deleted and made again.
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| `/data-monitors` | the list | a pencil on every row, named "Edit <monitor>", between History and Pause |
+| Edit | on "R238 freshness on a text column" | "Edit R238 freshness on a text column", "The table and the kind of check stay. Change what it checks, how often, and how loud it is."; the source and the table (`analytics.revenue_facts`) locked, the other five kinds locked, hourly, warning and the name filled, **Save changes** in place of Create, no "Run once now" |
+| Edit | the Column field | opened on "Pick a column…": the check reads `region`, text, and the list offers timestamp columns only, so the field looked empty while `region` sat behind it and would have saved again unseen (fixed: "region · VARCHAR" is shown, with "It reads region, which holds VARCHAR, not a time. Pick a timestamp column."; a column the table no longer has gets its own sentence) |
+| Save changes | `placed_at · DATE` | "Saved. It runs with the new settings on the next pass."; the row reads "not run yet"; the stored rule read back as `{"column":"placed_at","max_age_minutes":1440}`, schedule and severity unchanged |
+| Edit | on "revenue_facts · negative net rows" (custom SQL) | the `SELECT` filled, minimum empty, maximum 0, daily, warning; cancelled without saving |
+
+Cleaned up: the R238 check put back on `region` through the page's own update action (read back).
+
+**Not driven:** a warehouse monitor (none here; the same locked fields, held by
+`tests/unit/dataMonitorEdit.test.ts`).
+
 ## 2026-11-22 — R526: forecasts per series, chosen over backtest windows
 
 Driven on the 8080 stack rebuilt with R526, signed in as the owner, after migration

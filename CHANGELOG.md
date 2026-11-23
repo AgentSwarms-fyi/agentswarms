@@ -16,6 +16,9 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Apply migration `20261125000000`** (R528) to connect **Any REST API**.
+  Until then saving one says which migration is missing; every other app
+  source works as before.
 - **Apply migration `20261124000000`** (R526) for a forecast per series:
   it adds the series column a forecasting model may name. Until then a
   forecast is one series, as before.
@@ -267,6 +270,39 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Any REST API, and a connector toolkit** (R528). A connector can now be
+  described instead of written: one https host, where the key goes, and one
+  stream per list with its path, its records, how to page and, where the API
+  can, how to ask for what changed. It syncs like the built-in apps
+  (datasets, schedules, incremental streams), checked as you type and again
+  before every request, every request on its one host, the key picked from
+  your secrets and never part of the connector. **Start from** offers
+  templates: GitHub repository, run against the live API, and Pipedrive and
+  Mailchimp, built from their published references. A template is two files
+  (`npm run connector:new`), tested against recorded responses through the
+  real engine, and run against a real account with `npm run connector:check`
+  before it is marked as run live. **Preview** on any stream of any app shows
+  its first rows before a sync.
+- **Models proposed in chat, trained on your yes; where a model reads and
+  feeds; one place to compare runs** (R527). An agent with the new
+  **Propose ML models** tool suggests a model when asked; the proposal is
+  checked against the table's real columns as you, waits in the approvals
+  inbox saying what approving would do, and trains through the wizard's own
+  path only when approved, after checking the table again. A model's
+  Overview tab now says what it reads (its table and any table its
+  preparation joins in) and what uses it (prediction tables, dashboards
+  drawing its forecast, agents, schedules, pipelines), and a lakehouse
+  table's catalog entry names the models that train on it, score it or
+  write predictions into it. **ML Models → Experiments** lists every version
+  trained here beside the runs logged from notebooks, on the same score
+  columns, and the tab can be linked to (`/ml?tab=experiments`).
+- **A data monitor can be changed after it is made.** A pencil on each row
+  of Data monitors opens the check with everything filled in: what it
+  reads, its thresholds, schedule, severity and name change; its table and
+  kind stay. A column the list no longer offers (text under a freshness
+  check, or one the table dropped) is shown and named, not hidden behind
+  "Pick a column". Before, a check on the wrong column could only be
+  deleted and made again, losing its history.
 - **Forecasts per series, chosen over three windows** (R526). A forecasting
   model may name a column to **Forecast each** of its values (a region, a
   product): each gets its own winning method beside the total, the 25
@@ -553,6 +589,10 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **A toast over an open dialog passed its click to what was beneath it**
+  (fixed in R527). With the approvals inbox open, pressing a toast's button
+  pressed the inbox card under it instead, and could approve something.
+  Toasts now take their own clicks.
 - **The approvals inbox called everything a paused agent** (fixed in R521): a
   model promotion and a suggestion about a dataset read "paused", with a
   robot for a face, under "Agents pause here". Each now says what it is

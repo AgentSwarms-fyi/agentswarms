@@ -269,7 +269,16 @@ export const saveSaasConnection = createServerFn({ method: "POST" })
       ? sb.from("saas_connections").update(row).eq("id", data.id).eq("user_id", userId).select("id")
       : sb.from("saas_connections").insert(row).select("id");
     const { data: saved, error } = await q.single();
-    if (error) throw new Error(error.message);
+    if (error) {
+      // A database without migration 20261125000000 refuses the new provider
+      // by its constraint name; say what to run, not the constraint.
+      if (data.config.provider === "rest_api" && /provider_check/.test(error.message)) {
+        throw new Error(
+          "Any REST API needs a database update first (migration 20261125000000, for example npx supabase db push --remote).",
+        );
+      }
+      throw new Error(error.message);
+    }
 
     auditEvent({
       userId,
@@ -342,6 +351,65 @@ export const discoverSaasStreams = createServerFn({ method: "POST" })
       : (await loadConnection(sb, userId, data.id!, { allowShared: true })).config;
     return listSaasStreams(config);
   });
+
+type PreviewValue = string | number | boolean | null;
+
+/** Rows a preview shows: enough to see the columns, not a sync. */
+export const PREVIEW_ROWS = 10;
+
+/**
+ * The first rows of one stream, before anything is saved or synced (R528):
+ * the Connect form shows what a stream will hold. Read through the same
+ * connector a sync uses, as the caller, and stopped after the first rows.
+ */
+export const previewSaasStream = createServerFn({ method: "POST" })
+  .validator((input: unknown) =>
+    z
+      .object({
+        access_token: z.string().min(1),
+        config: ConfigSchema.optional(),
+        id: z.string().uuid().optional(),
+        stream: z.string().min(1).max(200),
+      })
+      .refine((v) => !!v.config || !!v.id, { message: "config or id is required" })
+      .parse(input),
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<{ rows: Record<string, PreviewValue>[]; columns: string[]; more: boolean }> => {
+      const { sb, userId } = await requireUser(data.access_token);
+      // Your own source only: a share lets its grantee run a sync into the
+      // owner's datasets, not read the source's rows through the owner's key.
+      const config = data.config
+        ? await resolveSaasConfig(userId, data.config)
+        : (await loadConnection(sb, userId, data.id!, { allowShared: false })).config;
+      const { connectorFor } = await import("@/utils/saas/sync.server");
+      const rows: Record<string, PreviewValue>[] = [];
+      let more = false;
+      for await (const row of connectorFor(config.provider).fetchRows(config, data.stream)) {
+        if (rows.length === PREVIEW_ROWS) {
+          more = true;
+          break;
+        }
+        // Shown, not stored: anything that is not a plain value is shown as JSON.
+        rows.push(
+          Object.fromEntries(
+            Object.entries(row).map(([k, v]) => [
+              k,
+              v === null || typeof v === "string" || typeof v === "number" || typeof v === "boolean"
+                ? v
+                : v === undefined
+                  ? null
+                  : JSON.stringify(v),
+            ]),
+          ),
+        );
+      }
+      const columns = [...new Set(rows.flatMap((r) => Object.keys(r)))];
+      return { rows, columns, more };
+    },
+  );
 
 export const syncSaasConnection = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
@@ -429,7 +497,7 @@ export const saasStreamStates = createServerFn({ method: "POST" })
     const connector = connectorFor(conn.config.provider);
     return {
       states: conn.streams.map((stream) => {
-        const spec = connector.incremental?.(stream) ?? null;
+        const spec = connector.incremental?.(stream, conn.config) ?? null;
         const row = byStream.get(stream);
         return {
           stream,

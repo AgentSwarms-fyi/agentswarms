@@ -44,6 +44,7 @@ import {
   Plug,
   Send,
   Brain,
+  FlaskConical,
   Trash2,
   Boxes,
   HeartPulse,
@@ -163,6 +164,15 @@ const BUILT_IN_TOOLS: BuiltInTool[] = [
     icon: Brain,
     category: "data",
     requiresConfig: true,
+  },
+  {
+    id: "ml_train",
+    name: "Propose ML models",
+    description:
+      "Suggest a model to train on a lakehouse table when asked. Nothing trains until you approve the proposal in your approvals inbox; it is checked against the table's columns first.",
+    icon: FlaskConical,
+    category: "data",
+    requiresConfig: false,
   },
 
   // Utilities — keyless, real implementations.

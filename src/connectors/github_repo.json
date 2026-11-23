@@ -1,0 +1,49 @@
+{
+  "id": "github_repo",
+  "label": "GitHub repository",
+  "description": "Issues, pull requests and releases of one repository.",
+  "checked": "live",
+  "inputs": [
+    { "key": "owner", "label": "Owner", "placeholder": "octocat" },
+    { "key": "repo", "label": "Repository", "placeholder": "hello-world" }
+  ],
+  "credential": "Optional for a public repository (60 requests an hour without one). For a private one, or more requests, pick a token with read access to the repository.",
+  "spec": {
+    "version": 1,
+    "name": "GitHub {owner}/{repo}",
+    "base_url": "https://api.github.com",
+    "auth": { "kind": "bearer", "optional": true },
+    "headers": {
+      "Accept": "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28"
+    },
+    "streams": [
+      {
+        "id": "issues",
+        "label": "Issues and pull requests",
+        "path": "/repos/{owner}/{repo}/issues",
+        "params": { "state": "all" },
+        "pagination": { "kind": "link_header", "size_param": "per_page", "size": 100 },
+        "incremental": {
+          "param": "since",
+          "format": "iso",
+          "cursor_field": "updated_at",
+          "primary_key": "id"
+        }
+      },
+      {
+        "id": "pulls",
+        "label": "Pull requests",
+        "path": "/repos/{owner}/{repo}/pulls",
+        "params": { "state": "all" },
+        "pagination": { "kind": "link_header", "size_param": "per_page", "size": 100 }
+      },
+      {
+        "id": "releases",
+        "label": "Releases",
+        "path": "/repos/{owner}/{repo}/releases",
+        "pagination": { "kind": "link_header", "size_param": "per_page", "size": 100 }
+      }
+    ]
+  }
+}

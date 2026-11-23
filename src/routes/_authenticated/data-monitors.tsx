@@ -11,6 +11,7 @@ import {
   Check,
   HeartPulse,
   History,
+  Pencil,
   Loader2,
   Pause,
   Play,
@@ -193,6 +194,8 @@ function DataMonitorsPage() {
   const [sources, setSources] = useState<Sources | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [open, setOpen] = useState(Boolean(search.create));
+  // The monitor being changed, when the dialog is open on one.
+  const [editing, setEditing] = useState<MonitorView | null>(null);
   const [history, setHistory] = useState<{
     monitor: MonitorView;
     runs: DataMonitorRunRow[];
@@ -492,6 +495,16 @@ function DataMonitorsPage() {
                         <Button
                           size="sm"
                           variant="ghost"
+                          title="Edit"
+                          aria-label={`Edit ${m.name}`}
+                          disabled={busy === m.id}
+                          onClick={() => setEditing(m)}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
                           title={m.is_active ? "Pause" : "Resume"}
                           disabled={busy === m.id}
                           onClick={() =>
@@ -542,11 +555,26 @@ function DataMonitorsPage() {
       </Card>
 
       <NewMonitorDialog
-        open={open}
-        onOpenChange={setOpen}
+        open={open || editing !== null}
+        onOpenChange={(v) => {
+          if (v) return;
+          setOpen(false);
+          setEditing(null);
+        }}
         sources={sources}
         token={token}
         prefill={{ source: search.source, schema: search.schema, table: search.table }}
+        editing={editing}
+        onSave={async (id, input) => {
+          const r = await updateFn({ data: { access_token: token, id, ...input } });
+          if (!r.ok) {
+            toast.error(r.error);
+            return false;
+          }
+          toast.success("Saved. It runs with the new settings on the next pass.");
+          await reload();
+          return true;
+        }}
         onCreate={async (input) => {
           const r = await createFn({ data: { access_token: token, ...input } });
           if (!r.ok) {
@@ -637,6 +665,8 @@ function NewMonitorDialog({
   token,
   prefill,
   onCreate,
+  editing = null,
+  onSave,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -644,6 +674,18 @@ function NewMonitorDialog({
   token: string;
   prefill: { source?: "lakehouse" | "warehouse"; schema?: string; table?: string };
   onCreate: (input: CreateInput) => Promise<boolean>;
+  /** A monitor to change: its table and kind stay, the rest can change. */
+  editing?: MonitorView | null;
+  onSave?: (
+    id: string,
+    input: {
+      name?: string;
+      config: MonitorConfig;
+      schedule: (typeof MONITOR_SCHEDULES)[number];
+      cron_expr: string | null;
+      severity: (typeof MONITOR_SEVERITIES)[number];
+    },
+  ) => Promise<boolean>;
 }) {
   const [sourceKind, setSourceKind] = useState<"lakehouse" | "warehouse">(
     prefill.source ?? "lakehouse",
@@ -674,10 +716,46 @@ function NewMonitorDialog({
   const [saving, setSaving] = useState(false);
   void token;
 
+  useEffect(() => {
+    if (!open || !editing) return;
+    const c = (editing.config ?? {}) as MonitorConfig;
+    const txt = (v: unknown) => (v === null || v === undefined ? "" : String(v));
+    setSourceKind(editing.source_kind === "warehouse" ? "warehouse" : "lakehouse");
+    setLakeTable(`${editing.schema_name}.${editing.table_name}`);
+    setWarehouseId(editing.warehouse_id ?? "");
+    setSchema(editing.schema_name);
+    setTable(editing.table_name);
+    setKind(editing.kind as MonitorKind);
+    setColumn(c.column ?? (c.columns ?? []).join(", "));
+    setColumns(c.columns ?? []);
+    setMaxAge(txt(c.max_age_minutes ?? 1440));
+    setMode(c.mode === "total" ? "total" : "delta");
+    setMinRows(txt(c.min_rows));
+    setMaxRows(txt(c.max_rows));
+    setAnomaly(c.anomaly !== false);
+    setMaxNull(txt(c.max_null_pct ?? 5));
+    setSql(c.sql ?? "");
+    setMin(txt(c.min));
+    setMax(txt(c.max));
+    setSchedule(editing.schedule as (typeof MONITOR_SCHEDULES)[number]);
+    setCron(editing.cron_expr ?? "");
+    setSeverity(editing.severity as (typeof MONITOR_SEVERITIES)[number]);
+    setName(editing.name);
+  }, [open, editing?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const lakeTables = sources?.lakehouse.tables ?? [];
   const selectedLake = lakeTables.find((t) => `${t.schema}.${t.table}` === lakeTable) ?? null;
   const columnOptions = selectedLake?.columns ?? [];
   const timestampColumns = columnOptions.filter((c) => /time|date/i.test(c.type));
+  const offeredColumns =
+    kind === "freshness" && timestampColumns.length ? timestampColumns : columnOptions;
+  // The column a monitor being changed reads, when the list does not offer
+  // it (text under a freshness check, or dropped from the table). Shown, so
+  // the select never pretends nothing is picked while the old column saves.
+  const strayColumn =
+    editing && column && columnOptions.length && !offeredColumns.some((c) => c.name === column)
+      ? { type: columnOptions.find((c) => c.name === column)?.type ?? null }
+      : null;
 
   useEffect(() => {
     if (kind === "freshness" && !column && timestampColumns[0]) setColumn(timestampColumns[0].name);
@@ -712,6 +790,21 @@ function NewMonitorDialog({
                 ? { sql: sql.trim(), min: num(min), max: num(max) }
                 : {};
     setSaving(true);
+    if (editing && onSave) {
+      try {
+        const ok = await onSave(editing.id, {
+          name: name.trim() || undefined,
+          config,
+          schedule,
+          cron_expr: schedule === "cron" ? cron.trim() : null,
+          severity,
+        });
+        if (ok) onOpenChange(false);
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     try {
       const ok = await onCreate({
         name: name.trim() || undefined,
@@ -756,8 +849,12 @@ function NewMonitorDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>New monitor</DialogTitle>
-          <DialogDescription>Pick the table, the check, and how often to ask.</DialogDescription>
+          <DialogTitle>{editing ? `Edit ${editing.name}` : "New monitor"}</DialogTitle>
+          <DialogDescription>
+            {editing
+              ? "The table and the kind of check stay. Change what it checks, how often, and how loud it is."
+              : "Pick the table, the check, and how often to ask."}
+          </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4">
           <div className="grid gap-3 sm:grid-cols-2">
@@ -766,6 +863,7 @@ function NewMonitorDialog({
               <select
                 className={selectClass}
                 value={sourceKind}
+                disabled={!!editing}
                 onChange={(e) => setSourceKind(e.target.value as "lakehouse" | "warehouse")}
               >
                 <option value="lakehouse">Lakehouse</option>
@@ -778,6 +876,7 @@ function NewMonitorDialog({
                 <select
                   className={selectClass}
                   value={lakeTable}
+                  disabled={!!editing}
                   onChange={(e) => {
                     setLakeTable(e.target.value);
                     setColumn("");
@@ -804,6 +903,7 @@ function NewMonitorDialog({
                 <select
                   className={selectClass}
                   value={warehouseId}
+                  disabled={!!editing}
                   onChange={(e) => setWarehouseId(e.target.value)}
                 >
                   <option value="">
@@ -824,6 +924,7 @@ function NewMonitorDialog({
                 <Label>Schema</Label>
                 <Input
                   value={schema}
+                  disabled={!!editing}
                   onChange={(e) => setSchema(e.target.value)}
                   placeholder="public"
                 />
@@ -832,6 +933,7 @@ function NewMonitorDialog({
                 <Label>Table</Label>
                 <Input
                   value={table}
+                  disabled={!!editing}
                   onChange={(e) => setTable(e.target.value)}
                   placeholder="orders"
                 />
@@ -846,6 +948,7 @@ function NewMonitorDialog({
                 <button
                   key={k}
                   type="button"
+                  disabled={!!editing && editing.kind !== k}
                   onClick={() => {
                     setKind(k);
                     // R238: a column chosen for one check can be meaningless
@@ -889,10 +992,12 @@ function NewMonitorDialog({
                     onChange={(e) => setColumn(e.target.value)}
                   >
                     <option value="">Pick a column…</option>
-                    {(kind === "freshness" && timestampColumns.length
-                      ? timestampColumns
-                      : columnOptions
-                    ).map((c) => (
+                    {strayColumn ? (
+                      <option value={column}>
+                        {column} · {strayColumn.type ?? "not in this table"}
+                      </option>
+                    ) : null}
+                    {offeredColumns.map((c) => (
                       <option key={c.name} value={c.name}>
                         {c.name} · {c.type}
                       </option>
@@ -905,6 +1010,13 @@ function NewMonitorDialog({
                     placeholder={kind === "freshness" ? "updated_at" : "customer_id"}
                   />
                 )}
+                {strayColumn ? (
+                  <p className="text-xs text-muted-foreground">
+                    {strayColumn.type
+                      ? `It reads ${column}, which holds ${strayColumn.type}, not a time. Pick a timestamp column.`
+                      : `It reads ${column}, which this table no longer has. Pick a column.`}
+                  </p>
+                ) : null}
               </div>
               {kind === "freshness" ? (
                 <div className="space-y-1">
@@ -1089,7 +1201,7 @@ function NewMonitorDialog({
               />
             </div>
           </div>
-          <label className="flex items-center gap-2 text-sm">
+          <label className={editing ? "hidden" : "flex items-center gap-2 text-sm"}>
             <Checkbox
               aria-label="Run once now"
               checked={runNow}
@@ -1104,7 +1216,7 @@ function NewMonitorDialog({
           </Button>
           <Button onClick={() => void submit()} disabled={saving}>
             {saving ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
-            Create monitor
+            {editing ? "Save changes" : "Create monitor"}
           </Button>
         </DialogFooter>
       </DialogContent>

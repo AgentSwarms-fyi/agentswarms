@@ -180,7 +180,8 @@ describe("predictions are governed", () => {
     expect(api).toContain("export async function validateMlPrep(");
     expect(api).toContain('auditVia: "ml-prep-check"');
     expect(fns).toContain("validateMlPrep as validatePrep");
-    expect(fns).toContain("if (prep.sql || prep.where) {");
+    // On the one create path the wizard shares with an approved proposal (R527).
+    expect(rd("src/utils/ml/create.server.ts")).toContain("if (prep.sql || prep.where) {");
     expect(fns).toContain("export const mlValidatePrep");
   });
 

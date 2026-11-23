@@ -11,6 +11,15 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { capList } from "@/lib/listCap";
+import {
+  agentsUsing,
+  dashboardsDrawing,
+  modelReads,
+  pipelinesStarting,
+  predictionWrites,
+  type MlModelLineage,
+  type PredictionRow,
+} from "@/lib/mlLineage";
 import type { Json } from "@/integrations/supabase/types";
 import { auditEvent } from "@/utils/audit.server";
 import { getPlatformResources } from "@/utils/notebookRuntime/config.server";
@@ -29,6 +38,7 @@ import {
   type MlVersionRow,
 } from "./ml/access.server";
 import { cancelMlJob, refreshMlJob } from "./ml/train.server";
+import { createModelAndTrain, type MlCreateInput, type MlCreateResult } from "./ml/create.server";
 import {
   ML_PROMOTE_ACTION,
   applyApprovedPromotion,
@@ -47,8 +57,6 @@ import {
   type MlRowsPredictResult,
 } from "./ml/predict.server";
 import {
-  createAndTrainVersion,
-  mlTrainConfig as trainConfig,
   pickVersion,
   startBatchPrediction,
   trainNewVersion,
@@ -57,7 +65,6 @@ import {
 import {
   ML_JOB_LIVE,
   ML_PERIODS,
-  ML_TARGET_TASKS,
   ML_TASKS,
   ML_TUNINGS,
   ML_VERSION_STAGES,
@@ -363,94 +370,13 @@ const createSchema = z.object({
 /** Create a model and train its first version. */
 export const mlCreateModel = createServerFn({ method: "POST" })
   .validator((input: unknown) => createSchema.parse(input))
-  .handler(
-    async ({
-      data,
-    }): Promise<
-      | { ok: true; model_id: string; job_id: string }
-      | { ok: false; error: string; model_id?: string }
-    > => {
-      const userId = await resolveCaller(data.access_token);
-      if (data.task === "forecast" && !data.time_column) {
-        return { ok: false, error: "A forecast needs a time column" };
-      }
-      if (ML_TARGET_TASKS.includes(data.task) && !data.target_column) {
-        return { ok: false, error: "Choose the column to predict" };
-      }
-      if (data.task === "recommendation" && (!data.user_column || !data.item_column)) {
-        return { ok: false, error: "A recommendation needs a user column and an item column" };
-      }
-      const allowed = new Set((await accessibleSchemas(userId)).map((s) => s.name));
-      if (!allowed.has(data.source.schema)) {
-        return { ok: false, error: `No access to lakehouse schema "${data.source.schema}"` };
-      }
-      const prep = (data.prep ?? {}) as MlPrepConfig;
-      if (prep.sql || prep.where) {
-        const checked = await validatePrep(userId, data.source, data.target_column, prep);
-        if (!checked.ok) return { ok: false, error: checked.error };
-      }
-      const config = await trainConfig({ ...data, prep });
-      const { data: model, error } = await supabaseAdmin
-        .from("ml_models")
-        .insert({
-          prep: prep as Json,
-          user_id: userId,
-          name: data.name,
-          description: data.description ?? null,
-          task: data.task,
-          source: data.source as Json,
-          target_column: ML_TARGET_TASKS.includes(data.task) ? (data.target_column ?? null) : null,
-          user_column: data.task === "recommendation" ? (data.user_column ?? null) : null,
-          item_column: data.task === "recommendation" ? (data.item_column ?? null) : null,
-          rating_column: data.task === "recommendation" ? (data.rating_column ?? null) : null,
-          n_clusters: data.task === "clustering" ? (data.n_clusters ?? null) : null,
-          contamination: data.task === "anomaly" ? (data.contamination ?? null) : null,
-          // Forecasting REQUIRES one — it is the axis being predicted along.
-          // Classification and regression may have one, and when they do it
-          // means something different: the rows are ordered, so the split and
-          // the folds must respect that order.
-          //
-          // This line used to read `task === "forecast" ? ... : null`, which
-          // silently discarded the column for every other task. The wizard
-          // sent it, the validator accepted it, the review step told the user
-          // "in time, by signed_up_on" — and the model was stored with a null,
-          // so the trainer shuffled the rows anyway. Found by reading the row
-          // back after a real run, not by anything failing.
-          time_column:
-            data.task === "forecast" || data.task === "classification" || data.task === "regression"
-              ? (data.time_column ?? null)
-              : null,
-          horizon: data.task === "forecast" ? (data.horizon ?? 12) : null,
-          aggregation: data.task === "forecast" ? (data.aggregation ?? "sum") : null,
-          period: data.task === "forecast" ? (data.period ?? "auto") : "auto",
-          // Only when set: a database without migration 20261124000000 still
-          // takes a single-series forecast.
-          ...(data.task === "forecast" && data.series_column
-            ? { series_column: data.series_column }
-            : {}),
-          feature_columns: data.feature_columns?.length ? data.feature_columns : null,
-        })
-        .select("*")
-        .single();
-      if (error || !model) {
-        return {
-          ok: false,
-          error:
-            error?.code === "23505"
-              ? `You already have a model called "${data.name}"`
-              : /series_column/.test(error?.message ?? "")
-                ? "A forecast for each series needs a database update first (migration " +
-                  "20261124000000, for example npx supabase db push --remote). Choose " +
-                  '"One series: the total" to train without it.'
-                : (error?.message ?? "Failed to create model"),
-        };
-      }
-      const started = await createAndTrainVersion(model, config, 1);
-      return started.ok
-        ? { ok: true, model_id: model.id, job_id: started.jobId }
-        : { ok: false, error: started.error, model_id: model.id };
-    },
-  );
+  .handler(async ({ data }): Promise<MlCreateResult> => {
+    const userId = await resolveCaller(data.access_token);
+    const { access_token: _token, ...input } = data;
+    void _token;
+    // The one path, shared with a model proposed in chat and approved (R527).
+    return createModelAndTrain(userId, input as MlCreateInput);
+  });
 
 /** Train a new version of an existing model (owner only). */
 export const mlTrainVersion = createServerFn({ method: "POST" })
@@ -569,6 +495,72 @@ export const mlGetModel = createServerFn({ method: "POST" })
       jobs_truncated: jobs.truncated,
       jobs_shown: JOBS_SHOWN,
       limits: await limits(),
+    };
+  });
+
+/**
+ * Where a model's data comes from and where its answers go (R527): the
+ * tables training reads, and the caller's own prediction outputs, dashboards,
+ * agents, schedules and pipelines that use it. Read access to the model is
+ * enough; everything downstream is the caller's own, never the owner's.
+ */
+export const mlModelLineage = createServerFn({ method: "POST" })
+  .validator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), model_id: z.string().uuid() }).parse(input),
+  )
+  .handler(async ({ data }): Promise<MlModelLineage> => {
+    const userId = await resolveCaller(data.access_token);
+    const { model } = await loadModelForUser(data.model_id, userId);
+    const [{ data: versions }, { data: predictions }, { data: agents }, { data: schedules }] =
+      await Promise.all([
+        supabaseAdmin.from("ml_model_versions").select("id").eq("model_id", model.id),
+        supabaseAdmin
+          .from("ml_predictions")
+          .select("model_id, status, input, output, finished_at")
+          .eq("model_id", model.id)
+          .eq("user_id", userId)
+          .eq("status", "succeeded")
+          .not("output", "is", null)
+          .order("finished_at", { ascending: false })
+          .limit(500),
+        supabaseAdmin.from("agents").select("id, name, tools").eq("user_id", userId),
+        supabaseAdmin
+          .from("ml_schedules")
+          .select("id, name, kind, is_active")
+          .eq("model_id", model.id)
+          .eq("user_id", userId),
+      ]);
+    // Only a forecast is drawn on a chart; only a schedule is started by a pipeline.
+    const [{ data: dashboards }, { data: pipelines }] = await Promise.all([
+      model.task === "forecast"
+        ? supabaseAdmin
+            .from("bi_dashboards")
+            .select("id, name, widgets, pages")
+            .eq("user_id", userId)
+        : Promise.resolve({
+            data: [] as Array<{ id: string; name: string; widgets: Json; pages: Json }>,
+          }),
+      schedules?.length
+        ? supabaseAdmin
+            .from("etl_pipelines")
+            .select("id, name, chain_ml_schedules")
+            .eq("user_id", userId)
+        : Promise.resolve({
+            data: [] as Array<{ id: string; name: string; chain_ml_schedules: string[] }>,
+          }),
+    ]);
+    return {
+      reads: modelReads(model),
+      writes: predictionWrites((predictions ?? []) as PredictionRow[]),
+      dashboards: dashboardsDrawing(dashboards ?? [], new Set((versions ?? []).map((v) => v.id))),
+      agents: agentsUsing(agents ?? [], model.name),
+      schedules: (schedules ?? []).map((s) => ({
+        id: s.id,
+        name: s.name,
+        kind: s.kind,
+        is_active: s.is_active,
+      })),
+      pipelines: pipelinesStarting(pipelines ?? [], new Set((schedules ?? []).map((s) => s.id))),
     };
   });
 

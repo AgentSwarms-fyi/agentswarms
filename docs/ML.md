@@ -153,6 +153,21 @@ each row keeps the worker that ran it, and the version's warnings say plainly
 how many workers did not come back and what the ones that failed said. A job is
 only failed when _every_ worker failed.
 
+### From a conversation
+
+An agent with **Propose ML models** turned on (Agent Builder → Tools) can
+suggest a model when you ask for one in chat. It trains nothing. The
+proposal is checked against the table's real columns first, as you (a wrong
+column name comes back with the table's columns, so the agent can correct
+it), and lands in your **approvals** inbox saying what approving would do:
+the task, the table, the target and the columns it reads. **Approve** trains
+it through the same path as the wizard, after checking the table again, and
+the model is yours; **Reject** makes nothing. The same model is asked about
+once while it waits. On a scheduled or headless run the proposal goes to the
+run's owner. The approval text is built from the checked names and fixed
+words only, never from the agent's own prose. Audited as
+`ml.train.proposed` and `ml.train.approved`.
+
 ## Read the results
 
 - **Metric tiles** — the primary metric first (F1 macro, RMSE), then
@@ -318,6 +333,19 @@ candidates. **Train new version** re-reads the table as of the current
 snapshot with the model's saved data preparation, and takes its own budget,
 row limit and tuning mode.
 
+## Reads and feeds
+
+A model's **Overview** tab says where its data comes from and where its
+answers go: the table it trains on and any table its preparation joins in,
+the tables its batch predictions were written to (from which table, how
+often, when last), the dashboards whose charts draw its forecast, the agents
+that may predict with it (by name, or because they may use any model), its
+schedules, and the pipelines that start them. Each comes from what that
+object already records; only your own objects are listed. The same facts
+show in the data catalog: a lakehouse table's **Lineage & usage** names the
+models that train on it, score it, or write predictions into it, and a
+prediction table is shown as derived from the table it scored.
+
 ## Experiments
 
 Versions record what you **shipped**. Experiments record what you **tried**:
@@ -374,6 +402,15 @@ model recorded by `save_model` stays on the run when the `with` block's own
 `finish()` closes it, so the run can be registered later from **ML Models →
 Experiments** (R316). Sending either half of the artifact pair to `finish`
 replaces both halves.
+
+Models trained here are listed in **ML Models → Experiments** too, one row
+per version with its settings, scores and training time, so a notebook run
+and a platform training compare on the same columns. A model with an
+experiment linked to it shows its versions inside that experiment; any other
+model that has trained shows as its own, marked **Trained here**. They are
+read from the versions themselves, so every version is there, including those
+trained before this view existed. A version opens on its model's page, where
+it is promoted or archived; it cannot be deleted from Experiments.
 
 ### From a run to a version
 

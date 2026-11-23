@@ -1,0 +1,31 @@
+{
+  "inputs": { "dc": "us21" },
+  "credential": "test-key-us21",
+  "streams": {
+    "lists": {
+      "pages": [
+        {
+          "body": {
+            "lists": [
+              { "id": "a1b2c3", "name": "Newsletter", "stats": { "member_count": 1820 } },
+              { "id": "d4e5f6", "name": "Customers", "stats": { "member_count": 412 } }
+            ],
+            "total_items": 2
+          }
+        }
+      ],
+      "rows": 2
+    },
+    "campaigns": {
+      "pages": [
+        {
+          "body": {
+            "campaigns": [{ "id": "c1", "type": "regular", "status": "sent", "emails_sent": 1790 }],
+            "total_items": 1
+          }
+        }
+      ],
+      "rows": 1
+    }
+  }
+}

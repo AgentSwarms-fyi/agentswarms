@@ -1,0 +1,66 @@
+{
+  "inputs": {},
+  "credential": "test-token",
+  "streams": {
+    "deals": {
+      "pages": [
+        {
+          "body": {
+            "success": true,
+            "data": [
+              {
+                "id": 1,
+                "title": "Acme renewal",
+                "value": 12000,
+                "currency": "EUR",
+                "status": "open",
+                "update_time": "2026-11-20 10:00:00"
+              },
+              {
+                "id": 2,
+                "title": "Globex pilot",
+                "value": 3000,
+                "currency": "EUR",
+                "status": "won",
+                "update_time": "2026-11-21 09:00:00"
+              }
+            ],
+            "additional_data": {
+              "pagination": { "start": 0, "limit": 100, "more_items_in_collection": false }
+            }
+          }
+        }
+      ],
+      "rows": 2
+    },
+    "persons": {
+      "pages": [
+        {
+          "body": {
+            "success": true,
+            "data": null,
+            "additional_data": {
+              "pagination": { "start": 0, "limit": 100, "more_items_in_collection": false }
+            }
+          }
+        }
+      ],
+      "rows": 0
+    },
+    "organizations": {
+      "pages": [{ "body": { "success": true, "data": [{ "id": 7, "name": "Acme" }] } }],
+      "rows": 1
+    },
+    "activities": {
+      "pages": [
+        {
+          "body": {
+            "success": true,
+            "data": [{ "id": 40, "subject": "Call", "type": "call", "done": false }]
+          }
+        }
+      ],
+      "rows": 1
+    }
+  }
+}

@@ -357,7 +357,7 @@ export async function deleteGlossaryTerm(id: string): Promise<void> {
 // collides with a local "orders" CSV.
 
 export type LineageRef = {
-  kind: "dashboard" | "prep_flow" | "metric";
+  kind: "dashboard" | "prep_flow" | "metric" | "ml_model";
   id: string;
   name: string;
   /** Extra context: widget titles, or "input"/"output" for prep flows. */
@@ -374,6 +374,7 @@ export type AssetLineage = {
 export type LineageIndex = Map<string, AssetLineage>;
 
 export { extractTableRefs } from "@/lib/sqlRefs";
+import { mlTableUses, type PredictionRow } from "@/lib/mlLineage";
 import { extractTableRefs } from "@/lib/sqlRefs";
 
 function entry(index: LineageIndex, key: string): AssetLineage {
@@ -428,16 +429,64 @@ export function addDashboardLineage(
   }
 }
 
-/** Build the lineage index from dashboards, prep flows and saved metrics. */
+/**
+ * ML models on the lakehouse tables they touch (R527): the table a model
+ * trains on (and any its preparation joins in), the table a batch prediction
+ * scored, and the table it wrote, which is then derived from the one scored.
+ * Keyed like any lakehouse asset: by the lakehouse connection the catalog
+ * reads it through.
+ */
+export function addMlLineage(
+  index: LineageIndex,
+  lakeConnectionIds: string[],
+  models: Array<{ id: string; name: string; source: unknown; prep?: unknown }>,
+  predictions: PredictionRow[],
+): void {
+  if (lakeConnectionIds.length === 0) return;
+  for (const [table, uses] of mlTableUses(models, predictions)) {
+    for (const conn of lakeConnectionIds) {
+      const key = `wh:${conn}:${table}`;
+      for (const u of uses) {
+        addRef(index, key, {
+          kind: "ml_model",
+          id: u.modelId,
+          name: u.modelName,
+          detail: u.detail,
+        });
+        if (u.derivedFrom) {
+          const e = entry(index, key);
+          if (!e.derivedFrom.includes(u.derivedFrom)) e.derivedFrom.push(u.derivedFrom);
+        }
+      }
+    }
+  }
+}
+
+/** Build the lineage index from dashboards, prep flows, saved metrics and ML models. */
 export async function loadLineageIndex(): Promise<LineageIndex> {
   const index: LineageIndex = new Map();
-  const [dashRes, flowRes, metricRes] = await Promise.all([
+  const [dashRes, flowRes, metricRes, modelRes, predRes, lakeRes] = await Promise.all([
     supabase.from("bi_dashboards").select("id, name, widgets, pages"),
     supabase.from("user_prep_flows").select("id, name, config, output_table_name"),
     supabase.from("user_saved_metrics").select("id, name, table_id"),
+    supabase.from("ml_models").select("id, name, source, prep"),
+    supabase
+      .from("ml_predictions")
+      .select("model_id, status, input, output, finished_at")
+      .eq("status", "succeeded")
+      .not("output", "is", null)
+      .order("finished_at", { ascending: false })
+      .limit(2000),
+    supabase.from("data_warehouse_connections").select("id").eq("provider", "lakehouse"),
   ]);
 
   addDashboardLineage(index, dashRes.data ?? []);
+  addMlLineage(
+    index,
+    (lakeRes.data ?? []).map((c) => c.id),
+    modelRes.data ?? [],
+    (predRes.data ?? []) as PredictionRow[],
+  );
 
   for (const f of flowRes.data ?? []) {
     const cfg = (f.config ?? {}) as { base?: string | null; joins?: { table?: string }[] };

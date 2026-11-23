@@ -1380,7 +1380,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
   {
     "route": "/docs/data",
     "title": "Data Catalog & SQL",
-    "description": "Everything tabular: uploaded files, 22 databases and warehouses, 17 app sources, the catalog that describes them, and the workbench that queries them.",
+    "description": "Everything tabular: uploaded files, 22 databases and warehouses, 18 app sources, the catalog that describes them, and the workbench that queries them.",
     "terms": [
       ".avro",
       ".csv",
@@ -1389,6 +1389,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       ".xlsx",
       "/data-sql/<id>",
       "2024-03-01",
+      "20261125000000",
       "ANALYZE",
       "AwsDataCatalog",
       "BLOCK_PRIVATE_NETWORK_FETCH",
@@ -1430,6 +1431,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "instance_name",
       "issues:KEY",
       "location",
+      "max_pages",
       "monthly_revenue",
       "myorg-myaccount",
       "orders",
@@ -1511,6 +1513,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "apps",
         "text": "Apps — SaaS sources",
         "level": 2
+      },
+      {
+        "id": "apps-rest",
+        "text": "Any REST API",
+        "level": 3
       },
       {
         "id": "apps-incremental",
@@ -3380,6 +3387,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "key@n",
       "ml-artifacts/",
       "ml.experiment.promote",
+      "ml.train.approved",
+      "ml.train.proposed",
       "ml.version.promote",
       "ml.version.promote.requested",
       "start_run",
@@ -3399,6 +3408,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "search-workers",
         "text": "A search across several sandboxes",
+        "level": 3
+      },
+      {
+        "id": "from-chat",
+        "text": "From a conversation",
         "level": 3
       },
       {
@@ -3439,6 +3453,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "versions",
         "text": "Versions",
+        "level": 2
+      },
+      {
+        "id": "lineage",
+        "text": "Reads and feeds",
         "level": 2
       },
       {

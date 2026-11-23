@@ -110,7 +110,10 @@ function DataMonitorsDocsPage() {
           <strong>Schedules.</strong> Hourly, daily, weekly or a cron expression, on the scheduler
           sweep the ETL pipelines and ML schedules share, claimed by clock so several replicas never
           run one monitor twice. <strong>Run now</strong> runs a check on demand; creating a monitor
-          runs it once by default.
+          runs it once by default. <strong>Edit</strong> (the pencil) changes what a check reads,
+          its thresholds, schedule, severity and name; its table and kind stay, and a changed rule
+          starts over on the next pass. A check that keeps failing the same way may also be fixed
+          from the Runs page (Overview → Runs → Suggest a fix).
         </li>
         <li>
           <strong>Incidents.</strong> The first failing run opens one and notifies you, in-app and

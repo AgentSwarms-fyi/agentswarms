@@ -11,7 +11,16 @@ import { z } from "zod";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
-import { algorithmOf, checkRegistrable, promotableMetrics } from "@/lib/experiments";
+import {
+  algorithmOf,
+  checkRegistrable,
+  isModelExperiment,
+  MODEL_EXPERIMENT,
+  promotableMetrics,
+  withVersionRuns,
+  type TrainedVersion,
+  type VersionRun,
+} from "@/lib/experiments";
 import { auditEvent } from "@/utils/audit.server";
 import { loadModelForUser } from "@/utils/ml/access.server";
 import { registerExternalVersion } from "@/utils/ml/api.server";
@@ -34,6 +43,10 @@ export type ExperimentRow = {
   runs: number;
   running: number;
   last_run_at: string | null;
+  /** Of `runs`, how many are versions the model trained here (R527). */
+  trained_versions: number;
+  /** A model's own training shown as an experiment: nothing to describe or delete. */
+  from_model: boolean;
 };
 
 export type RunRow = {
@@ -53,7 +66,43 @@ export type RunRow = {
   started_at: string;
   finished_at: string | null;
   duration_ms: number | null;
+  /** Set when the row is a model version, not a logged run (R527). */
+  version?: VersionRun["version"];
 };
+
+const VERSION_FIELDS =
+  "id, model_id, version, status, stage, algorithm, metrics, config, training_rows, warnings, external, created_at, trained_at";
+
+/** Every version of these models, the caller's own only. */
+async function versionsOf(userId: string, modelIds: string[]): Promise<TrainedVersion[]> {
+  if (modelIds.length === 0) return [];
+  const { data } = await supabaseAdmin
+    .from("ml_model_versions")
+    .select(VERSION_FIELDS)
+    .eq("user_id", userId)
+    .in("model_id", modelIds)
+    .order("version", { ascending: false })
+    .limit(2000);
+  const versions = (data ?? []) as TrainedVersion[];
+  if (versions.length === 0) return versions;
+  // The job behind each version: what started it, and the error a failed
+  // one ended with (found in the UI test: a failed version said only
+  // "Training failed." while its job held the reason).
+  const { data: jobs } = await supabaseAdmin
+    .from("ml_training_jobs")
+    .select("version_id, trigger, error, created_at")
+    .eq("user_id", userId)
+    .in(
+      "version_id",
+      versions.map((v) => v.id),
+    )
+    .order("created_at", { ascending: true });
+  const jobOf = new Map((jobs ?? []).map((j) => [j.version_id, j]));
+  return versions.map((v) => {
+    const j = jobOf.get(v.id);
+    return j ? { ...v, job: { trigger: j.trigger, error: j.error } } : v;
+  });
+}
 
 export const experimentsList = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ accessToken: z.string().min(1) }).parse(input))
@@ -82,11 +131,31 @@ export const experimentsList = createServerFn({ method: "POST" })
           .eq("user_id", userId),
         supabaseAdmin
           .from("ml_models")
-          .select("id, name, task")
+          .select("id, name, task, created_at")
           .eq("user_id", userId)
           .order("name"),
       ]);
       if (error) return { ok: false, error: error.message };
+      const ownModels = models ?? [];
+      // Light: status and dates only, to count. The runs list reads the rest.
+      const { data: versions } = ownModels.length
+        ? await supabaseAdmin
+            .from("ml_model_versions")
+            .select("model_id, status, created_at")
+            .eq("user_id", userId)
+            .in(
+              "model_id",
+              ownModels.map((m) => m.id),
+            )
+        : { data: [] as { model_id: string; status: string; created_at: string }[] };
+      const byModel = new Map<string, { runs: number; running: number; last: string | null }>();
+      for (const v of versions ?? []) {
+        const agg = byModel.get(v.model_id) ?? { runs: 0, running: 0, last: null };
+        agg.runs += 1;
+        if (v.status === "training") agg.running += 1;
+        if (!agg.last || v.created_at > agg.last) agg.last = v.created_at;
+        byModel.set(v.model_id, agg);
+      }
 
       const byExp = new Map<string, { runs: number; running: number; last: string | null }>();
       for (const r of runs ?? []) {
@@ -97,28 +166,76 @@ export const experimentsList = createServerFn({ method: "POST" })
         byExp.set(r.experiment_id, agg);
       }
 
+      const linked = new Set((exps ?? []).map((e) => e.model_id).filter(Boolean));
+      const latest = (a: string | null, b: string | null) => (!a ? b : !b ? a : a > b ? a : b);
+      const logged: ExperimentRow[] = (exps ?? []).map((e) => {
+        const agg = byExp.get(e.id);
+        const trained = (e.model_id && byModel.get(e.model_id)) || null;
+        return {
+          ...e,
+          runs: (agg?.runs ?? 0) + (trained?.runs ?? 0),
+          running: (agg?.running ?? 0) + (trained?.running ?? 0),
+          last_run_at: latest(agg?.last ?? null, trained?.last ?? null),
+          trained_versions: trained?.runs ?? 0,
+          from_model: false,
+        };
+      });
+      // A model that trained and has no experiment linked to it is one.
+      const trainedHere: ExperimentRow[] = ownModels
+        .filter((m) => !linked.has(m.id) && byModel.has(m.id))
+        .map((m) => {
+          const agg = byModel.get(m.id)!;
+          return {
+            id: `${MODEL_EXPERIMENT}${m.id}`,
+            name: m.name,
+            description: null,
+            model_id: m.id,
+            created_at: m.created_at,
+            runs: agg.runs,
+            running: agg.running,
+            last_run_at: agg.last,
+            trained_versions: agg.runs,
+            from_model: true,
+          };
+        });
+      const when = (e: ExperimentRow) => e.last_run_at ?? e.created_at;
       return {
         ok: true,
-        experiments: (exps ?? []).map((e) => {
-          const agg = byExp.get(e.id);
-          return {
-            ...e,
-            runs: agg?.runs ?? 0,
-            running: agg?.running ?? 0,
-            last_run_at: agg?.last ?? null,
-          };
-        }),
-        models: models ?? [],
+        experiments: [...logged, ...trainedHere].sort((a, b) => (when(a) < when(b) ? 1 : -1)),
+        models: ownModels.map(({ id, name, task }) => ({ id, name, task })),
       };
     },
   );
 
 export const experimentRunsList = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
-    z.object({ accessToken: z.string().min(1), experimentId: z.string().uuid() }).parse(input),
+    z
+      .object({
+        accessToken: z.string().min(1),
+        // An experiment's id, or `model:<id>` for a model's own training (R527).
+        experimentId: z.string().regex(/^(model:)?[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i),
+      })
+      .parse(input),
   )
   .handler(async ({ data }): Promise<Fail | { ok: true; runs: RunRow[] }> => {
     const userId = await resolveCaller(data.accessToken);
+    if (isModelExperiment(data.experimentId)) {
+      const modelId = data.experimentId.slice(MODEL_EXPERIMENT.length);
+      const { data: model } = await supabaseAdmin
+        .from("ml_models")
+        .select("id")
+        .eq("id", modelId)
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (!model) return { ok: false, error: "Model not found" };
+      return { ok: true, runs: withVersionRuns([], await versionsOf(userId, [model.id])) };
+    }
+    const { data: exp } = await supabaseAdmin
+      .from("ml_experiments")
+      .select("model_id")
+      .eq("id", data.experimentId)
+      .eq("user_id", userId)
+      .maybeSingle();
     const { data: runs, error } = await supabaseAdmin
       .from("ml_experiment_runs")
       .select(
@@ -129,7 +246,9 @@ export const experimentRunsList = createServerFn({ method: "POST" })
       .order("started_at", { ascending: false })
       .limit(500);
     if (error) return { ok: false, error: error.message };
-    return { ok: true, runs: (runs ?? []) as RunRow[] };
+    // The model this experiment is about: its versions sit beside the runs.
+    const versions = exp?.model_id ? await versionsOf(userId, [exp.model_id]) : [];
+    return { ok: true, runs: withVersionRuns((runs ?? []) as RunRow[], versions) as RunRow[] };
   });
 
 export const experimentSave = createServerFn({ method: "POST" })

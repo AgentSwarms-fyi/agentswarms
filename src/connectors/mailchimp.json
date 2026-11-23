@@ -1,0 +1,36 @@
+{
+  "id": "mailchimp",
+  "label": "Mailchimp",
+  "description": "Audiences and campaigns.",
+  "checked": "reference",
+  "inputs": [
+    {
+      "key": "dc",
+      "label": "Data center",
+      "placeholder": "us21 (the part after the dash in your API key)"
+    }
+  ],
+  "credential": "An API key from Account → Extras → API keys. It is sent as the basic-auth password with any username, which is Mailchimp's documented scheme.",
+  "spec": {
+    "version": 1,
+    "name": "Mailchimp",
+    "base_url": "https://{dc}.api.mailchimp.com/3.0",
+    "auth": { "kind": "basic", "username": "anystring", "password": "{credential}" },
+    "streams": [
+      {
+        "id": "lists",
+        "label": "Audiences",
+        "path": "/lists",
+        "records": "lists",
+        "pagination": { "kind": "offset", "param": "offset", "limit_param": "count", "limit": 1000 }
+      },
+      {
+        "id": "campaigns",
+        "label": "Campaigns",
+        "path": "/campaigns",
+        "records": "campaigns",
+        "pagination": { "kind": "offset", "param": "offset", "limit_param": "count", "limit": 1000 }
+      }
+    ]
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "inputs": { "owner": "octocat", "repo": "hello-world" },
+  "credential": "",
+  "streams": {
+    "issues": {
+      "pages": [
+        {
+          "body": [
+            {
+              "id": 11,
+              "number": 3,
+              "title": "Add a readme",
+              "state": "open",
+              "updated_at": "2026-11-20T10:00:00Z",
+              "user": { "login": "octocat" }
+            },
+            {
+              "id": 12,
+              "number": 4,
+              "title": "Fix the link",
+              "state": "closed",
+              "updated_at": "2026-11-21T09:00:00Z",
+              "user": { "login": "monalisa" }
+            }
+          ],
+          "link": "<https://api.github.com/repositories/1296269/issues?state=all&per_page=100&page=2>; rel=\"next\", <https://api.github.com/repositories/1296269/issues?state=all&per_page=100&page=2>; rel=\"last\""
+        },
+        {
+          "body": [
+            {
+              "id": 13,
+              "number": 5,
+              "title": "Typo",
+              "state": "open",
+              "updated_at": "2026-11-22T08:00:00Z",
+              "user": { "login": "octocat" }
+            }
+          ],
+          "link": "<https://api.github.com/repositories/1296269/issues?state=all&per_page=100&page=1>; rel=\"prev\""
+        }
+      ],
+      "rows": 3
+    },
+    "pulls": {
+      "pages": [
+        { "body": [{ "id": 21, "number": 4, "title": "Fix the link", "state": "closed" }] }
+      ],
+      "rows": 1
+    },
+    "releases": {
+      "pages": [{ "body": [] }],
+      "rows": 0
+    }
+  }
+}

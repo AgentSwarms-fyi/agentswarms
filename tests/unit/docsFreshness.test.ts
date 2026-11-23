@@ -299,8 +299,9 @@ describe("connector counts in prose match the code", () => {
     // ServiceNow, Intercom and GitHub added the ITSM instance, the customer
     // inbox and the repositories. Hardcoded ON PURPOSE: adding a connector
     // should make somebody look at every number the docs quote, which is what
-    // this failing did.
-    expect(SAAS_PROVIDERS.length).toBe(17);
+    // this failing did. Any REST API made it 18 (R528): README, the data and
+    // integration pages and DATA_SOURCES.md were looked at and say so.
+    expect(SAAS_PROVIDERS.length).toBe(18);
     const readme = readFileSync("README.md", "utf8");
     expect(readme).toContain(`${EXTERNAL_WAREHOUSE_PROVIDERS.length} databases and warehouses`);
     expect(readme).toContain(

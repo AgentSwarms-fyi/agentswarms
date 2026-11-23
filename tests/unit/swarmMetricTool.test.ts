@@ -67,6 +67,10 @@ describe("the headless allow-list stays honest", () => {
       // published to them) and runs every query as that user through the
       // governed lakehouse path (asserted below).
       "ontology_query",
+      // Proposing a model files an approval for scopeUserId and reads the
+      // table as them; nothing trains until that owner says yes (R527,
+      // asserted in mlProposeTraining.test.ts).
+      "ml_train",
     ]);
     for (const id of headlessAllowList()) {
       expect(

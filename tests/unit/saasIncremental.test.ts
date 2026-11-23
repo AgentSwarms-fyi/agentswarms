@@ -9,7 +9,7 @@
 // that moves when it should not skips rows for ever and nothing reports it; a
 // merge without a primary key turns every edit into a duplicate row; a cursor
 // written before the rows are committed loses a whole window on the next run.
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
@@ -155,8 +155,38 @@ describe("what a connector must declare to sync incrementally", () => {
   });
 });
 
+/** A config for a connector whose answers depend on it (R528). */
+const SAMPLE_CFG: Record<string, unknown> = {
+  rest_api: {
+    provider: "rest_api",
+    spec: JSON.stringify({
+      version: 1,
+      name: "Shop",
+      base_url: "https://api.shop.example",
+      auth: { kind: "bearer" },
+      streams: [
+        {
+          id: "orders",
+          label: "Orders",
+          path: "/orders",
+          incremental: {
+            param: "since",
+            format: "iso",
+            cursor_field: "updated_at",
+            primary_key: "id",
+          },
+        },
+      ],
+    }),
+  },
+};
+
 /** The streams each connector offers, for the conformance sweep above. */
 const STREAM_IDS: Record<string, string[]> = {
+  // Declared as data (R528): its streams are whatever the connection's spec
+  // names, and whether one follows changes is read from that spec, so asked
+  // without a config it declares nothing. SAMPLE_CFG below gives it one.
+  rest_api: ["orders"],
   stripe: [
     "charges",
     "customers",
@@ -236,7 +266,11 @@ describe("the runner cannot lose or skip a window", () => {
   it("passes the stored cursor to the connector, and nothing when full", () => {
     const src = runner();
     expect(src).toContain("const since = state?.cursor ?? undefined;");
-    expect(src).toContain("args.fullRefresh ? null : (connector.incremental?.(args.streamId)");
+    // The config too (R528): a declared connector's streams follow changes
+    // only as its spec says.
+    expect(src).toMatch(
+      /args\.fullRefresh\s+\?\s+null\s+:\s+\(connector\.incremental\?\.\(args\.streamId, args\.config\)/,
+    );
   });
 
   it("offers a way to forget the cursor", () => {
@@ -314,7 +348,7 @@ describe("it is operable, and the costly half is the owner's", () => {
     // somebody is looking for when they ask why a sync takes an hour.
     const fns = rd("src/utils/saas.functions.ts");
     expect(fns).toContain("states: conn.streams.map((stream)");
-    expect(fns).toContain("connector.incremental?.(stream)");
+    expect(fns).toContain("connector.incremental?.(stream, conn.config)");
   });
 
   it("lets a grantee look but not spend the owner's quota", () => {
@@ -441,7 +475,9 @@ describe("each connector asks its own API the right question", () => {
     const { SAAS_PROVIDERS } = await import("@/utils/saas/types");
     for (const provider of SAAS_PROVIDERS) {
       const c = connectorFor(provider);
-      const declaresAny = (STREAM_IDS[provider] ?? []).some((s) => c.incremental?.(s));
+      const declaresAny = (STREAM_IDS[provider] ?? []).some((s) =>
+        c.incremental?.(s, SAMPLE_CFG[provider] as never),
+      );
       // fetchRows(cfg, streamId, since?) — three parameters where followed.
       expect(c.fetchRows.length, `${provider} fetchRows arity`).toBe(declaresAny ? 3 : 2);
     }
@@ -467,7 +503,13 @@ describe("adding a provider means wiring every place that knows about one", () =
   };
 
   it("the database CHECK admits exactly the providers the code offers", () => {
-    const sql = rd("supabase/migrations/20260901000000_saas_ga4.sql");
+    // The newest migration that sets the constraint is the one in force.
+    const latest = readdirSync("supabase/migrations")
+      .filter((f) => rd(`supabase/migrations/${f}`).includes("saas_connections_provider_check"))
+      .sort()
+      .at(-1)!;
+    expect(latest).toBe("20261125000000_saas_rest_api.sql");
+    const sql = rd(`supabase/migrations/${latest}`);
     const inCheck = [...sql.matchAll(/'([a-z0-9_]+)'/g)].map((m) => m[1]);
     expect([...inCheck].sort()).toEqual([...providersInCode()].sort());
   });

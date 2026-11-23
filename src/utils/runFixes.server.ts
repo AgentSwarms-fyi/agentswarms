@@ -21,6 +21,7 @@ import {
   type RunFix,
 } from "@/lib/runFixes";
 import { auditEvent } from "@/utils/audit.server";
+import { lakehouseTableColumns } from "@/utils/lakehouse/tableColumns.server";
 import { notifyUser } from "@/utils/notify.server";
 
 /** Past runs read per thing: enough to say "the last N runs failed the same way". */
@@ -28,41 +29,14 @@ const HISTORY = 500;
 /** Things looked at per sweep. */
 const SWEEP_CAP = 100;
 const SWEEP_INTERVAL_MS = 6 * 60 * 60 * 1000;
-/** How long a table's columns are waited for before saying they could not be read. */
-export const COLUMNS_TIMEOUT_MS = 20_000;
+export { COLUMNS_TIMEOUT_MS } from "@/utils/lakehouse/tableColumns.server";
 
 type Fail = { ok: false; error: string };
 type Done = { ok: true; message: string };
 
 /** A lakehouse table's columns, as its owner may see them; null when unreadable. */
-async function lakehouseColumns(
-  userId: string,
-  schema: string,
-  table: string,
-): Promise<Array<{ name: string; type: string }> | null> {
-  try {
-    // FOUND FROM THE UI (R525). This read the whole lakehouse listing, which
-    // attaches every Iceberg mount first; one on an unreachable host held the
-    // fix dialog at "Reading its recent runs…" for over a minute, every time.
-    // One table's columns come from one statement against that table, read
-    // through the same access check, and bounded: unread columns are said,
-    // not waited for.
-    const { runLakehouseStatement } = await import("@/utils/lakehouse/core.server");
-    const { qualifiedTable } = await import("@/utils/dataMonitors/core");
-    const res = await Promise.race([
-      runLakehouseStatement(userId, `SELECT * FROM ${qualifiedTable(schema, table)} LIMIT 0`, {
-        rowCap: 1,
-        timeoutMs: COLUMNS_TIMEOUT_MS,
-        auditVia: "run_fix",
-        useCache: false,
-      }),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), COLUMNS_TIMEOUT_MS)),
-    ]);
-    return res ? res.columns.map((c) => ({ name: c.name, type: c.type })) : null;
-  } catch {
-    return null;
-  }
-}
+const lakehouseColumns = (userId: string, schema: string, table: string) =>
+  lakehouseTableColumns(userId, schema, table, "run_fix");
 
 /** What a fix is proposed from, read for its owner only. Null when it is not theirs. */
 export async function loadFixInput(target: FixTarget, userId: string): Promise<FixInput | null> {

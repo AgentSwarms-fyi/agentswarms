@@ -236,6 +236,38 @@ export const SAAS_CARDS: { [P in SaasProvider]: ProviderCard<P> } = {
       },
     ],
   },
+  rest_api: {
+    description:
+      "Sync any JSON API into datasets: describe where it lives, how it signs in and which lists it has.",
+    setup:
+      "Start from a template or the example, then edit it for your API: its https address, " +
+      "where the key goes (auth), and one stream per list with the path, where the records " +
+      "are in the response, and how to ask for the next page. Every request stays on that " +
+      "one host. Pick the key from your secrets; it is never part of the connector itself.",
+    unit: "stream",
+    units: "streams",
+    fields: [
+      {
+        key: "spec",
+        label: "Connector (JSON)",
+        type: "textarea",
+        hint: "Checked as you type; nothing is sent until you press Connect.",
+      },
+      {
+        key: "credential",
+        secret: true,
+        optional: true,
+        label: "API key or token (optional)",
+        placeholder: "leave blank for an API that needs none",
+      },
+      {
+        key: "username",
+        optional: true,
+        label: "Username (optional)",
+        placeholder: "only for basic auth that names a user",
+      },
+    ],
+  },
   zendesk: {
     description: "Sync tickets, users and organizations into datasets.",
     setup:
