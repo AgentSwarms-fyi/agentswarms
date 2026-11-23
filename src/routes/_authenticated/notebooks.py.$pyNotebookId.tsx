@@ -55,6 +55,7 @@ import { makeSaveQueue, readGuardedSave } from "@/lib/guardedSave";
 
 export const Route = createFileRoute("/_authenticated/notebooks/py/$pyNotebookId")({
   component: PyNotebookPage,
+  head: () => ({ meta: [{ title: "Notebook — AgentSwarms" }] }),
 });
 
 const editorTheme = EditorView.theme({

@@ -37,6 +37,8 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { usePageIntent } from "@/hooks/use-page-intent";
+import { confirmAsk } from "@/components/ui/confirm-dialog";
+import { SAMPLE_NAME, SAMPLE_TEMPLATE_ID } from "@/lib/ontology/sample";
 import { useTokenRef } from "@/hooks/use-token-ref";
 import { FavouritesFilter } from "@/components/FavouritesFilter";
 import { useFavouritesFilter } from "@/hooks/use-favourites-filter";
@@ -124,7 +126,17 @@ function OntologyGallery() {
   usePageIntent(search, {
     ready: items !== null,
     noun: "ontology",
-    onNew: () => setMode("blank"),
+    onNew: (from) => {
+      if (!from) return setMode("blank");
+      if (from !== SAMPLE_TEMPLATE_ID) return false;
+      // The sample makes tables and an ontology at once, so a link only asks;
+      // the button on this page is the same question answered yes.
+      void confirmAsk({
+        title: `Make the ${SAMPLE_NAME} sample?`,
+        body: "Six tables in a new lakehouse schema, and an ontology bound to them. Both are yours to change or delete.",
+        actionLabel: "Make the sample",
+      }).then((ok) => ok && void startSample());
+    },
   });
 
   const startSample = async () => {

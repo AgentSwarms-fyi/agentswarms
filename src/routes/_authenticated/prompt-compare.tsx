@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/prompt-compare")({
   component: PromptComparePage,
+  head: () => ({ meta: [{ title: "Prompt Compare — AgentSwarms" }] }),
 });
 
 /* ── Available models (instance default via OpenRouter) ── */

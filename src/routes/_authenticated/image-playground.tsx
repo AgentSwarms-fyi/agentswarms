@@ -39,6 +39,7 @@ import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/image-playground")({
   component: ImagePlaygroundPage,
+  head: () => ({ meta: [{ title: "Image Playground — AgentSwarms" }] }),
 });
 
 // Providers and models come from the caller's connected integrations —

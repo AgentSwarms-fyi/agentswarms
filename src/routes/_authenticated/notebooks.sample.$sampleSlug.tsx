@@ -27,6 +27,7 @@ import { reportFailure } from "@/lib/silentFailureNet";
 
 export const Route = createFileRoute("/_authenticated/notebooks/sample/$sampleSlug")({
   component: SampleNotebookPage,
+  head: () => ({ meta: [{ title: "Sample notebook — AgentSwarms" }] }),
 });
 
 const editorTheme = EditorView.theme({

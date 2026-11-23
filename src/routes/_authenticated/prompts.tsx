@@ -58,6 +58,7 @@ import { RESTORE_HINT } from "@/lib/trash";
 
 export const Route = createFileRoute("/_authenticated/prompts")({
   component: PromptsPage,
+  head: () => ({ meta: [{ title: "Prompt Library — AgentSwarms" }] }),
   // `?new=1` starts a new prompt and `?open=<id>` opens one — how search
   // results and the "New" menu link here (src/lib/pageIntent.ts).
   validateSearch: (s: Record<string, unknown>) => readPageIntent(s),

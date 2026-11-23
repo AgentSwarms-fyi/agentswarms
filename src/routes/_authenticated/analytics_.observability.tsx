@@ -22,6 +22,7 @@ import { QualityTrends } from "@/components/observability/QualityTrends";
 
 export const Route = createFileRoute("/_authenticated/analytics_/observability")({
   component: ObservabilityList,
+  head: () => ({ meta: [{ title: "Swarm Traces — AgentSwarms" }] }),
 });
 
 type Run = {

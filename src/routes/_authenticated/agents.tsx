@@ -1,6 +1,10 @@
 import { PageHeader, TitleCount } from "@/components/PageHeader";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
+import { confirmAsk } from "@/components/ui/confirm-dialog";
+import { getRealTemplate, TEMPLATE_ID_COLUMN, templateAgentName } from "@/lib/realTemplates";
+import { reportFailure } from "@/lib/silentFailureNet";
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -68,6 +72,7 @@ import { useRecordOpened } from "@/hooks/use-object-marks";
 
 export const Route = createFileRoute("/_authenticated/agents")({
   component: AgentsPage,
+  head: () => ({ meta: [{ title: "Agent Builder — AgentSwarms" }] }),
   // `?new=1` starts a new agent and `?open=<id>` opens one — how search
   // results and the "New" menu link here (src/lib/pageIntent.ts).
   validateSearch: (s: Record<string, unknown>) => readPageIntent(s),
@@ -88,8 +93,9 @@ const PROVIDERS = [
 ];
 
 function AgentsPage() {
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const search = Route.useSearch();
+  const navigate = useNavigate();
   const [agents, setAgents] = useState<Agent[]>([]);
   // "No agents yet" and "not fetched yet" are different facts and this page
   // had no way to tell them apart, so the first paint always showed the empty
@@ -119,13 +125,81 @@ function AgentsPage() {
     agents.map((a) => a.id),
   );
 
+  /**
+   * An agent template from the gallery (R530). It makes rows (the agent, a
+   * knowledge base, an example approval), so it asks first, and a template
+   * already used opens the agent made from it instead of making another.
+   */
+  const startFromTemplate = async (templateId: string) => {
+    const t = getRealTemplate(templateId);
+    if (!t || !user?.id) return;
+    const { data: mine, error } = await supabase
+      .from("agents")
+      .select("id, name")
+      .eq("user_id", user.id)
+      .eq(TEMPLATE_ID_COLUMN as "id", t.id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) return reportFailure("look for an agent made from this template", error);
+    if (mine) {
+      const open = await confirmAsk({
+        title: `You already have “${mine.name}”`,
+        body: "It was made from this template before. Open it to chat with, as you left it.",
+        actionLabel: "Open it",
+      });
+      if (open) void navigate({ to: "/playground", search: { agentId: mine.id } as never });
+      return;
+    }
+    const docs = t.seedDocuments.length;
+    const ok = await confirmAsk({
+      title: `Make “${templateAgentName(t)}”?`,
+      body: [
+        docs
+          ? `This makes the agent in your workspace, with a knowledge base of its ${docs} document${docs === 1 ? "" : "s"}.`
+          : "This makes the agent in your workspace.",
+        t.approvalSeed
+          ? "One example request also waits in your approvals inbox, to approve or refuse; deciding it changes nothing outside the app."
+          : "",
+        `It answers with ${t.modelId}, which you can change afterwards.`,
+      ]
+        .filter(Boolean)
+        .join(" "),
+      actionLabel: "Make the agent",
+    });
+    if (!ok) return;
+    const toastId = `agent-template-${t.id}`;
+    toast.loading(`Making “${templateAgentName(t)}”…`, { id: toastId });
+    try {
+      const res = await fetch("/api/templates/provision", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token ?? ""}`,
+        },
+        body: JSON.stringify({ templateId: t.id }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { agentId?: string; error?: string };
+      if (!res.ok || !body.agentId) throw new Error(body.error || `HTTP ${res.status}`);
+      toast.success(`Made “${templateAgentName(t)}”`, { id: toastId });
+      void navigate({ to: "/playground", search: { agentId: body.agentId } as never });
+    } catch (e) {
+      reportFailure("make the agent", e, { id: toastId });
+    }
+  };
+
   // A link here can ask for a new agent or for one agent to be opened.
   usePageIntent(search, {
     // A list that failed to load is not a list the agent is missing from: the
     // request waits, and is answered once a retry succeeds.
     ready: loaded && !loadError,
     noun: "agent",
-    onNew: () => {
+    onNew: (from) => {
+      if (from) {
+        if (!getRealTemplate(from)) return false;
+        void startFromTemplate(from);
+        return;
+      }
       setEditing(null);
       setDialogOpen(true);
     },

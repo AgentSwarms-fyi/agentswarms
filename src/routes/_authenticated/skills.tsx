@@ -21,6 +21,7 @@ import { useFavouritesFilter } from "@/hooks/use-favourites-filter";
 import { useRecordOpened } from "@/hooks/use-object-marks";
 import { moveToTrash } from "@/hooks/use-trash";
 import { RESTORE_HINT } from "@/lib/trash";
+import { cn } from "@/lib/utils";
 
 type SkillRow = {
   id: string;
@@ -33,6 +34,7 @@ type SkillRow = {
 
 export const Route = createFileRoute("/_authenticated/skills")({
   component: SkillLibraryPage,
+  head: () => ({ meta: [{ title: "Skill Library — AgentSwarms" }] }),
   // `?new=1` starts a new skill and `?open=<id>` opens one — how search
   // results and the "New" menu link here (src/lib/pageIntent.ts).
   validateSearch: (s: Record<string, unknown>) => readPageIntent(s),
@@ -48,6 +50,22 @@ function SkillLibraryPage() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editing, setEditing] = useState<SkillRow | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
+  /** The sample a link asked for, marked and scrolled to once its tab is drawn. */
+  const [linkedSample, setLinkedSample] = useState<string | null>(null);
+  useEffect(() => {
+    if (!linkedSample || tab !== "samples") return;
+    // After the link is taken out of the address: that is a navigation too,
+    // and the router restores the scroll position it had (seen in R530, the
+    // card left at the foot of the screen).
+    const timer = setTimeout(
+      () =>
+        document
+          .getElementById(`sample-skill-${linkedSample}`)
+          ?.scrollIntoView({ block: "start", behavior: "smooth" }),
+      350,
+    );
+    return () => clearTimeout(timer);
+  }, [linkedSample, tab]);
 
   const refresh = async () => {
     setLoading(true);
@@ -95,7 +113,15 @@ function SkillLibraryPage() {
   usePageIntent(search, {
     ready: !loading && !loadError,
     noun: "skill",
-    onNew: handleNew,
+    // From the template gallery: a sample skill is shown, open, on its tab.
+    // Duplicating it stays the reader's choice.
+    onNew: (from) => {
+      if (!from) return handleNew();
+      if (!SAMPLE_SKILLS.some((s) => s.id === from)) return false;
+      setTab("samples");
+      setPreviewId(from);
+      setLinkedSample(from);
+    },
     onOpen: (id) => {
       const skill = mine.find((s) => s.id === id);
       if (!skill) return false;
@@ -278,7 +304,11 @@ function SkillLibraryPage() {
             </p>
             <div className="grid gap-3 lg:grid-cols-2">
               {SAMPLE_SKILLS.map((s) => (
-                <Card key={s.id}>
+                <Card
+                  key={s.id}
+                  id={`sample-skill-${s.id}`}
+                  className={cn("scroll-mt-6", linkedSample === s.id && "ring-2 ring-primary/40")}
+                >
                   <CardHeader className="pb-2">
                     <div className="flex items-start justify-between gap-2">
                       <CardTitle className="text-base">{s.name}</CardTitle>

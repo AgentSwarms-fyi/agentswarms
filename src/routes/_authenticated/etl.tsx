@@ -193,6 +193,7 @@ import {
 
 export const Route = createFileRoute("/_authenticated/etl")({
   component: EtlPage,
+  head: () => ({ meta: [{ title: "ETL Pipelines — AgentSwarms" }] }),
   // `?new=1` starts a new pipeline and `?open=<id>` opens one in the editor —
   // how search results and the "New" menu link here (src/lib/pageIntent.ts).
   validateSearch: (s: Record<string, unknown>) => readPageIntent(s),
@@ -247,6 +248,8 @@ function EtlPage() {
   const [data, setData] = useState<OverviewData | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  /** The template a link asked to start from (the template gallery, R530). */
+  const [creatingFrom, setCreatingFrom] = useState<string | null>(null);
   useRecordOpened("etl_pipeline", openId);
   const favourites = useFavouritesFilter(
     "etl_pipeline",
@@ -295,7 +298,11 @@ function EtlPage() {
   usePageIntent(openId ? {} : search, {
     ready: data !== null,
     noun: "pipeline",
-    onNew: () => setCreating(true),
+    onNew: (from) => {
+      if (from && !ETL_TEMPLATES.some((t) => t.id === from)) return false;
+      setCreatingFrom(from ?? null);
+      setCreating(true);
+    },
     onOpen: (id) => {
       if (!data?.pipelines.some((p) => p.id === id)) return false;
       setOpenId(id);
@@ -432,9 +439,14 @@ function EtlPage() {
 
       <NewPipelineDialog
         open={creating}
-        onClose={() => setCreating(false)}
+        from={creatingFrom}
+        onClose={() => {
+          setCreating(false);
+          setCreatingFrom(null);
+        }}
         onCreated={(id) => {
           setCreating(false);
+          setCreatingFrom(null);
           setOpenId(id);
         }}
       />
@@ -760,10 +772,13 @@ function PipelineRow({
 
 function NewPipelineDialog({
   open,
+  from,
   onClose,
   onCreated,
 }: {
   open: boolean;
+  /** A template to start with chosen, and its name suggested. */
+  from?: string | null;
   onClose: () => void;
   onCreated: (id: string) => void;
 }) {
@@ -773,6 +788,15 @@ function NewPipelineDialog({
   const [mode, setMode] = useState<"visual" | "code">("visual");
   const [templateId, setTemplateId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Opened from a template link: that tile chosen, its name in the field.
+  useEffect(() => {
+    if (!open || !from) return;
+    const t = ETL_TEMPLATES.find((x) => x.id === from);
+    if (!t) return;
+    setTemplateId(t.id);
+    setName((cur) => cur || t.name);
+  }, [open, from]);
 
   // R214: Enter in the name field skipped the button's in-flight guard.
   const create = useSingleFlight(async () => {

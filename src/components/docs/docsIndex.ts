@@ -1141,7 +1141,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "Dashboard",
     "description": "The dashboard at /dashboard is the screen you land on after signing in. It answers one question first — is this deployment healthy, and what is it costing — and then shows what you are running and what has happened in the last day.",
     "terms": [
-      "20261126000000"
+      "20261126000000",
+      "?new=1&template=<id>"
     ],
     "headings": [
       {
@@ -1233,6 +1234,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "whats-new",
         "text": "What's new",
         "level": 3
+      },
+      {
+        "id": "templates",
+        "text": "Templates",
+        "level": 2
       },
       {
         "id": "first-run",

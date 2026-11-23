@@ -273,6 +273,21 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Templates: every ready-made starting point in one place** (R530).
+  Overview → Templates lists the swarm, agent, MCP server, skill, pipeline,
+  API connector, workbook, notebook and ontology templates, read from the
+  lists beside each page, so a template added to a page appears here too.
+  Search it, or filter by kind. Each card says what the template needs and
+  what Use does, and opens it on its own page. Nothing is made until you say
+  so there: a draft to save, a dialog to press Create in, or a question
+  first for the two that make things at once (an agent, the ontology
+  sample). The New menu links to it. Any list page now reads
+  `?new=1&template=<id>` to start a new one from that template.
+- **Agent templates can be used again** (R530). The five agent templates had
+  no page since the old one was removed; Use on one asks first, makes the
+  agent with its knowledge base and documents, and opens it to chat. Using
+  one a second time opens the agent it made, as you left it, instead of
+  writing the template over your changes.
 - **Learn: tutorials done in the app, and What's new** (R529). Six short
   tutorials on the sample data, from asking the AI Analyst a question to
   putting a forecast in production and answering a swarm's approval. A
@@ -604,6 +619,15 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **Twenty-five signed-in pages had no tab title of their own** (fixed in
+  R530). They all read "AgentSwarms — Lab", so open tabs could not be told
+  apart. Every page now names its tab, a page in the menu as the menu names
+  it, and a test keeps it so.
+- **Making an agent from a template looked for "already made" by a name or
+  tag alone** (fixed in R530, before anything called it again). Knowledge
+  bases are readable when they are yours or a sample, so a sample one of the
+  same name would have been reused. Each lookup now names you, and takes the
+  newest match instead of failing on two.
 - **A query's results could look empty under "10 rows"** (fixed in R529). A
   result grid printed every value in full, so a long one (a release's notes,
   a JSON list of 36,751 characters) made each row thousands of pixels tall and

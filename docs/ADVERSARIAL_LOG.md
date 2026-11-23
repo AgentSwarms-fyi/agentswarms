@@ -109,6 +109,26 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-23 — R530: a route nobody called, read before calling it again
+
+**Why this round.** The template gallery links every kind of template to its page, and brings back the agent templates, whose provisioning route had had no caller since the July removal of the old templates page. A route that has sat unused is read as new code before anything calls it.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| "Already made" lookups matched a tag or a name alone | S3 | The route found an existing agent by a description tag and a knowledge base by name, on the caller's client, without naming the caller. Only row-level security kept that right: agents are owner-only today, but knowledge bases are readable when they are yours **or a sample**, so a sample knowledge base of the same name would have been taken as the template's and attached to the new agent. Every lookup now names the caller; a recording client holds it for all five templates |
+| Two matches made a third | S3 | `.maybeSingle()` errors on two rows, the error was ignored, and "none found" made another. Each lookup takes the newest match |
+| Using a template again wrote it over the agent | S3 | The route re-applied the template's prompt, model and tools to the agent it had made, discarding whatever the person had changed. It now opens that agent as it is |
+| The lookup tag showed on every agent card | S4 | "…security issues. [demo:code-reviewer]". The template's id is read from `tools->>templateId`, where it already was |
+| A template link could carry anything into the page | — | Checked and sound: `?template=` is read only beside `new=1` and only in the shape a template id has (`TEMPLATE_ID_RULE`); each page looks it up in its own list and says so when it is not there. Nothing from the address reaches a query |
+
+**Checked and sound.**
+- **Nothing is made by following a link.** Pipelines, MCP servers and API connectors open their own dialog with the template chosen; workbooks ask the tile's question; skills show the sample; the two that make rows at once (an agent, the ontology sample) ask first on their page, so a link pasted anywhere cannot make them.
+- **The example approvals some agent templates seed** ("Issue $50 refund", "Send drafted outreach email") have no handler for their action type: deciding one changes only the approval. The question before making the agent says so.
+
+**What would have been wrong to conclude.**
+
+- *"The route is old and was working, so call it."* It was written for a page that showed one template per person; nothing had read it since a shared-agent model existed.
+
 ### 2026-11-23 — R529: a tutorial step done before it was asked, and a source synced twice
 
 **Why this round.** R529 adds tutorials whose steps tick from what a person really made. A tick that comes for free, or from someone else's rows, teaches the wrong thing, so the checks were read as an attacker and the first tutorial was walked end to end in the browser.

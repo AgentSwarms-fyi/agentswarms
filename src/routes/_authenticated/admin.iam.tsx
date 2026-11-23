@@ -158,6 +158,7 @@ export const Route = createFileRoute("/_authenticated/admin/iam")({
   validateSearch: (s: Record<string, unknown>): { tab?: IamTab } =>
     typeof s.tab === "string" ? { tab: iamTabFrom(s.tab) } : {},
   component: AdminIamPage,
+  head: () => ({ meta: [{ title: "IAM — AgentSwarms" }] }),
 });
 
 function generatePassword(): string {

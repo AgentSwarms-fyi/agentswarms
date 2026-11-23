@@ -12,6 +12,9 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { WarehousesTab } from "@/components/integrations/WarehousesTab";
 import { SaasSourcesTab } from "@/components/integrations/SaasSourcesTab";
+import { usePageIntent } from "@/hooks/use-page-intent";
+import { templateById as connectorTemplateById } from "@/lib/connectorTemplates";
+import { readPageIntent, type PageIntent } from "@/lib/pageIntent";
 import { SlackTab } from "@/components/integrations/SlackTab";
 import { TeamsTab } from "@/components/integrations/TeamsTab";
 import { Badge } from "@/components/ui/badge";
@@ -59,10 +62,14 @@ type IntegrationTab = (typeof INTEGRATION_TABS)[number];
 export const Route = createFileRoute("/_authenticated/integrations")({
   component: IntegrationsPage,
   head: () => ({ meta: [{ title: "Integrations — AgentSwarms" }] }),
-  validateSearch: (s: Record<string, unknown>): { tab?: IntegrationTab } =>
-    (INTEGRATION_TABS as readonly unknown[]).includes(s.tab)
+  // `?tab=apps` opens a tab; `?new=1&template=<id>` with it starts Any REST
+  // API from that connector template (the template gallery, R530).
+  validateSearch: (s: Record<string, unknown>): PageIntent & { tab?: IntegrationTab } => ({
+    ...readPageIntent(s),
+    ...((INTEGRATION_TABS as readonly unknown[]).includes(s.tab)
       ? { tab: s.tab as IntegrationTab }
-      : {},
+      : {}),
+  }),
 });
 
 const GATEWAY_PROVIDERS = [
@@ -83,12 +90,24 @@ type Integration = {
 
 function IntegrationsPage() {
   const { user, session } = useAuth();
-  const { tab: askedTab } = Route.useSearch();
+  const search = Route.useSearch();
+  const askedTab = search.tab;
   const [tab, setTab] = useState<string>(askedTab ?? "llm");
   // A link to another tab while this page is open moves to it.
   useEffect(() => {
     if (askedTab) setTab(askedTab);
   }, [askedTab]);
+  /** A connector template a link asked to start from, until the Apps tab takes it. */
+  const [connectorFrom, setConnectorFrom] = useState<string | null>(null);
+  usePageIntent(search, {
+    ready: true,
+    noun: "connector",
+    onNew: (from) => {
+      if (!from || !connectorTemplateById(from)) return false;
+      setTab("apps");
+      setConnectorFrom(from);
+    },
+  });
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [gatewayUrl, setGatewayUrl] = useState("");
   const [gatewayKey, setGatewayKey] = useState("");
@@ -556,7 +575,7 @@ function IntegrationsPage() {
           {/* Apps are SaaS sources pulled into datasets, as opposed to the
               Data Sources tab's databases, which are queried live. */}
           <TabsContent value="apps" className="space-y-4">
-            <SaasSourcesTab />
+            <SaasSourcesTab startFrom={connectorFrom} onStarted={() => setConnectorFrom(null)} />
           </TabsContent>
 
           <TabsContent value="llm" className="space-y-4">

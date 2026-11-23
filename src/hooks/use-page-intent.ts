@@ -20,8 +20,11 @@ export function usePageIntent(
     ready: boolean;
     /** Open the object with this id. Return false when there is no such one. */
     onOpen?: (id: string) => boolean | void;
-    /** Start a new one. */
-    onNew?: () => void;
+    /**
+     * Start a new one; from `template` when the link names one (the template
+     * gallery's links do). Return false when the page has no such template.
+     */
+    onNew?: (template?: string) => boolean | void;
     /** What one of these is called, for the "not found" message. */
     noun: string;
   },
@@ -44,9 +47,19 @@ export function usePageIntent(
       } as never);
 
     if (intent.new === 1) {
-      if (done.current !== "new") {
-        done.current = "new";
-        latest.current.onNew?.();
+      // A template waits for the page, like opening does: starting from one
+      // can depend on what is already there (a copy already made, the
+      // template list the page loads).
+      if (intent.template && !opts.ready) return;
+      const key = `new:${intent.template ?? ""}`;
+      if (done.current !== key) {
+        done.current = key;
+        const started = latest.current.onNew?.(intent.template);
+        if (started === false && intent.template) {
+          toast.error(
+            `There is no ${latest.current.noun} template called “${intent.template}” any more. Templates lists the ones there are.`,
+          );
+        }
       }
       clear();
       return;
@@ -67,5 +80,5 @@ export function usePageIntent(
       return;
     }
     done.current = null;
-  }, [intent.open, intent.new, opts.ready, navigate]);
+  }, [intent.open, intent.new, intent.template, opts.ready, navigate]);
 }

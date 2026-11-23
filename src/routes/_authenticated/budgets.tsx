@@ -33,6 +33,7 @@ import { saveStatusText, type SaveState } from "@/lib/saveStatus";
 
 export const Route = createFileRoute("/_authenticated/budgets")({
   component: BudgetsPage,
+  head: () => ({ meta: [{ title: "AI Budgets — AgentSwarms" }] }),
 });
 
 type Budget = {

@@ -112,6 +112,7 @@ export const Route = createFileRoute("/_authenticated/playground")({
     agentId: (search.agentId as string) || undefined,
   }),
   component: PlaygroundPage,
+  head: () => ({ meta: [{ title: "Agent Chat — AgentSwarms" }] }),
 });
 
 type Agent = {

@@ -23,6 +23,22 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    id: "templates",
+    date: "2026-11-23",
+    title: "Every template in one place",
+    body: "Templates lists the ready-made swarms, agents, pipelines, MCP servers, API connectors, notebooks, workbooks and skills, each opening on its own page, ready to change.",
+    link: { to: "/templates" },
+    cta: "Open Templates",
+  },
+  {
+    id: "result-values",
+    date: "2026-11-23",
+    title: "Long values in results, one line each",
+    body: "A result row keeps to one line however long its values are. Click a shortened value to read all of it, with JSON indented, and copy it.",
+    link: { to: "/data-sql" },
+    cta: "Open the Data Catalog",
+  },
+  {
     id: "tutorials",
     date: "2026-11-23",
     title: "Tutorials you do in the app",

@@ -6,7 +6,7 @@
 // added there appears in both. Each entry is a link to that kind's page asking
 // it to start a new one; nothing is created by opening the menu.
 import { Link } from "@tanstack/react-router";
-import { Plus } from "lucide-react";
+import { LayoutTemplate, Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -14,6 +14,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { CREATE_SECTIONS, createActions, type CreateSection } from "@/lib/objectKinds";
@@ -86,6 +87,26 @@ export function GlobalCreateMenu() {
             </div>
           ))}
         </div>
+        {/* Starting from something that already works (R530). Plain words,
+            no count: the template lists are large and this menu is on every
+            page. */}
+        <DropdownMenuSeparator className="my-2" />
+        <DropdownMenuItem asChild className="rounded-lg px-2 py-1.5">
+          <Link to="/templates" className="flex cursor-pointer items-center gap-2.5">
+            <span
+              aria-hidden
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted/70 text-muted-foreground"
+            >
+              <LayoutTemplate className="h-4 w-4" />
+            </span>
+            <span className="flex min-w-0 flex-col">
+              <span className="text-sm">Start from a template</span>
+              <span className="text-[11px] leading-snug text-muted-foreground">
+                Swarms, agents, pipelines, notebooks and more, ready to change
+              </span>
+            </span>
+          </Link>
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

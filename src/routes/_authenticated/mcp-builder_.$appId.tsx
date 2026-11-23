@@ -104,6 +104,7 @@ async function reported<T>(call: () => Promise<T>, what: string): Promise<T | nu
 
 export const Route = createFileRoute("/_authenticated/mcp-builder_/$appId")({
   component: McpAppEditor,
+  head: () => ({ meta: [{ title: "MCP server — AgentSwarms" }] }),
 });
 
 type App = McpAppSummary & { source_code: string };

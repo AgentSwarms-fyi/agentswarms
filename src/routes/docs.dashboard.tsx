@@ -337,8 +337,8 @@ function DashboardDoc() {
         rows={[
           [
             "Overview",
-            "Where things stand, your work, tutorials and the handbook",
-            "Dashboard, My work, Runs, Trash, Learn, Documentation",
+            "Where things stand, your work, and where to start",
+            "Dashboard, My work, Runs, Trash, Learn, Templates, Documentation",
           ],
           [
             "Build",
@@ -599,6 +599,49 @@ function DashboardDoc() {
         Tutorials need migration <C>20261126000000</C> on the database. Until it is applied, Learn
         says so and nothing else changes.
       </Note>
+
+      <H2 id="templates">Templates</H2>
+      <P>
+        <strong>Overview → Templates</strong> lists every ready-made starting point in the app, of
+        every kind, with a search and a filter by kind. The same list is at the foot of the{" "}
+        <strong>New</strong> menu. Each card says what the template is for, what it needs, and what
+        pressing <em>Use template</em> does. The template opens on its own page, and nothing is made
+        until you say so there: a draft to save, a dialog to press <em>Create</em> in, or a question
+        to answer first.
+      </P>
+      <Table
+        headers={["Kind", "Where it opens", "What Use does"]}
+        rows={[
+          ["Swarms", "Agent Swarms", "Opens on the canvas as a draft; saved when you save it."],
+          [
+            "Agents",
+            "Agent Builder",
+            "Asks first, then makes the agent and its knowledge base and opens it to chat. A template used before opens the agent it made, as you left it.",
+          ],
+          ["MCP servers", "MCP Builder", "Opens New MCP server with it chosen."],
+          ["Skills", "Skill Library", "Shows its skill.md; Duplicate makes your own copy."],
+          ["Pipelines", "ETL Pipelines", "Opens New pipeline with it chosen."],
+          [
+            "API connectors",
+            "Integrations → Apps",
+            "Opens Any REST API with it chosen; saved when you connect.",
+          ],
+          ["Workbooks", "Sheets", "Opens the import; the workbook is made when you import it."],
+          [
+            "Ontology",
+            "Enterprise Ontology",
+            "Asks first, then makes six lakehouse tables and an ontology bound to them.",
+          ],
+          ["Notebooks", "Developer workspace", "Opens to read; Fork makes a copy you can run."],
+        ]}
+      />
+      <P>
+        A template that needs a model says whether one was found for you, and one that needs the
+        lakehouse cannot be used where it is not switched on. Templates are written beside the page
+        that uses them, so one added to a page appears here too. A link of the form{" "}
+        <C>?new=1&amp;template=&lt;id&gt;</C> on any of these pages starts that template, the way
+        the gallery does.
+      </P>
 
       <H2 id="first-run">What to do on a new workspace</H2>
       <P>

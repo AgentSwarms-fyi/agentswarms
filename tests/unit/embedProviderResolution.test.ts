@@ -29,7 +29,8 @@ const PATHS = {
   "ingest-github": "src/routes/api/kb/ingest-github.ts",
   "ingest-url": "src/routes/api/kb/ingest-url.ts",
   "connector sync": "src/utils/kb/sync.server.ts",
-  "template provisioning": "src/routes/api/templates.provision.ts",
+  // The route checks the caller; what it makes is made here (R530).
+  "template provisioning": "src/utils/templates/provision.server.ts",
   "back-fill button": "src/utils/tools/kbEmbed.functions.ts",
 };
 const src = Object.fromEntries(

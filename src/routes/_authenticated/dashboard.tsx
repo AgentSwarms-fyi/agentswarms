@@ -88,6 +88,7 @@ function warnFor(count: number | null, say: (n: number) => string): string | nul
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   component: DashboardPage,
+  head: () => ({ meta: [{ title: "Dashboard — AgentSwarms" }] }),
 });
 
 type Trace = {

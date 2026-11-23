@@ -1,7 +1,7 @@
 // The connector field of "Any REST API" (R528): start from a template or the
 // example, fill in what the template asks, edit the JSON, and see as you type
 // whether it will run and why not. The server checks it again before every use.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -23,9 +23,12 @@ const EXAMPLE = "example";
 export function RestApiSpecField({
   value,
   onChange,
+  initialFrom,
 }: {
   value: string;
   onChange: (next: string) => void;
+  /** A template to start from as the field opens (a template gallery link, R530). */
+  initialFrom?: string;
 }) {
   const [from, setFrom] = useState<string>("");
   const [inputs, setInputs] = useState<Record<string, string>>({});
@@ -47,6 +50,15 @@ export function RestApiSpecField({
       if (r.ok) write(r.spec);
     }
   };
+
+  // Picked once, as the field opens, as if chosen under Start from.
+  const started = useRef(false);
+  useEffect(() => {
+    if (started.current || !initialFrom || !templateById(initialFrom)) return;
+    started.current = true;
+    pick(initialFrom);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on open
+  }, [initialFrom]);
 
   const fillIn = () => {
     if (!template) return;

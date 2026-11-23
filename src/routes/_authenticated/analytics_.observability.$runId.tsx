@@ -18,6 +18,7 @@ import { ArrowLeft, GitBranch, ListOrdered, Lock } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/analytics_/observability/$runId")({
   component: TraceDetail,
+  head: () => ({ meta: [{ title: "Swarm trace — AgentSwarms" }] }),
 });
 
 type Run = {

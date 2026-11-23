@@ -712,3 +712,15 @@ export const TEMPLATE_CATEGORIES: ("All" | TemplateCategory)[] = [
 export function getRealTemplate(id: string): RealTemplate | undefined {
   return REAL_TEMPLATES.find((t) => t.id === id);
 }
+
+/**
+ * Where an agent made from a template keeps that template's id: its tools
+ * settings, read as `tools->>templateId`. The Agents page looks there before
+ * making a second one, and the server before making one at all. (Agents made
+ * before R530 also carried a `[demo:<id>]` tag in their description, which
+ * every agent card showed; it is no longer written.)
+ */
+export const TEMPLATE_ID_COLUMN = "tools->>templateId";
+
+/** The name an agent made from a template is given. */
+export const templateAgentName = (t: RealTemplate) => `Demo · ${t.title}`;

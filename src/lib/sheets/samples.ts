@@ -13,6 +13,9 @@ export type SheetsSample = {
 
 export const SHEETS_SAMPLES_PATH = "/samples/sheets";
 
+/** What a link calls a sample (`?new=1&template=project-tracker`): its file without `.xlsx`. */
+export const sheetsSampleId = (s: SheetsSample): string => s.file.replace(/\.xlsx$/i, "");
+
 export const SHEETS_SAMPLES: SheetsSample[] = [
   {
     file: "sales-performance-2026.xlsx",

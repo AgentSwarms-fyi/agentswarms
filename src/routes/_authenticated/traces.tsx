@@ -65,6 +65,7 @@ import type { ReplayResult } from "@/utils/provenance/replay.server";
 
 export const Route = createFileRoute("/_authenticated/traces")({
   component: TracesPage,
+  head: () => ({ meta: [{ title: "Traces & Logs — AgentSwarms" }] }),
 });
 
 const TRACES_DESCRIPTION = "Every agent call, with its model, tokens, time and cost.";

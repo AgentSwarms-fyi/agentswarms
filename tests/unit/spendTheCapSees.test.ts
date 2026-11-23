@@ -307,7 +307,8 @@ describe("ingestion embeddings ask the budget first", () => {
     for (const f of [
       "src/routes/api/kb/ingest-url.ts",
       "src/routes/api/kb/ingest-github.ts",
-      "src/routes/api/templates.provision.ts",
+      // Moved out of the route in R530; the route only checks the caller.
+      "src/utils/templates/provision.server.ts",
       "src/utils/kb/sync.server.ts",
     ]) {
       const src = readFileSync(f, "utf8");

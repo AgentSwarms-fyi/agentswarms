@@ -97,6 +97,7 @@ const CHUNK_SCAN_MAX = 50_000;
 
 export const Route = createFileRoute("/_authenticated/knowledge")({
   component: KnowledgePage,
+  head: () => ({ meta: [{ title: "Knowledge Base — AgentSwarms" }] }),
   // `?new=1` starts a new knowledge base and `?open=<id>` selects one — how
   // search results and the "New" menu link here (src/lib/pageIntent.ts).
   validateSearch: (s: Record<string, unknown>) => readPageIntent(s),

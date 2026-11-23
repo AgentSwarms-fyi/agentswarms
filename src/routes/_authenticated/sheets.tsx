@@ -16,7 +16,12 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { ROLE_LABEL } from "@/lib/sheets/share";
-import { SHEETS_SAMPLES, SHEETS_SAMPLES_PATH, type SheetsSample } from "@/lib/sheets/samples";
+import {
+  SHEETS_SAMPLES,
+  SHEETS_SAMPLES_PATH,
+  sheetsSampleId,
+  type SheetsSample,
+} from "@/lib/sheets/samples";
 import {
   ArrowUpRight,
   Database,
@@ -226,11 +231,17 @@ function SheetsPage() {
     void reload();
   }, [reload]);
 
-  // A link here can ask for a new workbook: the same dialog the button opens.
+  // A link here can ask for a new workbook: the same dialog the button opens,
+  // or, from the template gallery, one sample's import, as its tile does.
   usePageIntent(search, {
     ready: loaded,
     noun: "workbook",
-    onNew: () => setNewOpen(true),
+    onNew: (from) => {
+      if (!from) return setNewOpen(true);
+      const s = SHEETS_SAMPLES.find((x) => sheetsSampleId(x) === from);
+      if (!s) return false;
+      void openSample(s);
+    },
   });
 
   // Workbooks with grid sheets but no preview yet (made before previews, or

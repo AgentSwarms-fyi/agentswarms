@@ -5,6 +5,7 @@ import { readPageIntent } from "@/lib/pageIntent";
 
 export const Route = createFileRoute("/_authenticated/mcp")({
   component: McpPage,
+  head: () => ({ meta: [{ title: "MCP Servers — AgentSwarms" }] }),
   // `?new=1` starts a new connection and `?open=<id>` shows one server — how
   // search results and the "New" menu link here (src/lib/pageIntent.ts).
   validateSearch: (s: Record<string, unknown>) => readPageIntent(s),

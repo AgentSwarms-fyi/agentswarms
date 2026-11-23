@@ -104,6 +104,7 @@ import { reportFailure } from "@/lib/silentFailureNet";
 
 export const Route = createFileRoute("/_authenticated/bi_/report/$reportId")({
   component: ReportDesigner,
+  head: () => ({ meta: [{ title: "Report — AgentSwarms" }] }),
 });
 
 function ReportDesigner() {

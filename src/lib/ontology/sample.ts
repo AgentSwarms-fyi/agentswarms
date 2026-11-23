@@ -18,6 +18,8 @@ import { ONTOLOGY_SPEC_VERSION, type OntologySpec } from "@/lib/ontology/spec";
 
 export const SAMPLE_NAME = "Northwind Outfitters";
 export const SAMPLE_SCHEMA_BASE = "ontology_sample";
+/** What a link calls the sample (`/ontology?new=1&template=northwind`). */
+export const SAMPLE_TEMPLATE_ID = "northwind";
 
 const FIRST = [
   "Ava",

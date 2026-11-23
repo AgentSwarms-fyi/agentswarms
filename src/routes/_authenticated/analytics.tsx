@@ -72,6 +72,7 @@ const PRESETS: { id: RangePreset; label: string }[] = [
 
 export const Route = createFileRoute("/_authenticated/analytics")({
   component: AnalyticsPage,
+  head: () => ({ meta: [{ title: "Analytics — AgentSwarms" }] }),
 });
 
 // One line for all three headers (data, no data yet, a failed read), so the

@@ -46,6 +46,7 @@ import {
   KeyRound,
   Layers,
   LayoutDashboard,
+  LayoutTemplate,
   LifeBuoy,
   MessageSquare,
   Network,
@@ -90,7 +91,7 @@ export type NavGroup = {
 export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Overview",
-    hint: "Where things stand, your work, tutorials and the handbook",
+    hint: "Where things stand, your work, and where to start",
     items: [
       { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
       // Everything of yours across every page: what you opened last, what you
@@ -103,6 +104,9 @@ export const NAV_GROUPS: NavGroup[] = [
       // Tutorials done in the app on the sample data, and what is new: the
       // handbook explains a page, this walks through using several.
       { title: "Learn", url: "/learn", icon: GraduationCap },
+      // Every ready-made starting point, of every kind, each opening on its
+      // own page (R530).
+      { title: "Templates", url: "/templates", icon: LayoutTemplate },
       // The handbook was reachable from the marketing site only, which is the
       // one place you are NOT standing when you get stuck using the product.
       { title: "Documentation", url: "/docs", icon: LifeBuoy },

@@ -6,7 +6,9 @@ import { usePrefetchProviderModels } from "@/hooks/use-provider-models";
 export const Route = createFileRoute("/_authenticated")({
   head: () => ({
     meta: [
-      { title: "AgentSwarms — Lab" },
+      // What a page without a title of its own shows. Every page under here
+      // names itself (tests/unit/pageTitles.test.ts); this is the fallback.
+      { title: "AgentSwarms" },
       {
         name: "description",
         content:

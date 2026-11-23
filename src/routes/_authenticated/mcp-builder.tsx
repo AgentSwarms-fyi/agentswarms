@@ -61,6 +61,7 @@ import {
 
 export const Route = createFileRoute("/_authenticated/mcp-builder")({
   component: McpBuilderPage,
+  head: () => ({ meta: [{ title: "MCP Builder — AgentSwarms" }] }),
   // `?new=1` starts a new server — how the "New" menu links here
   // (src/lib/pageIntent.ts). A server is opened on its own page, not from here.
   validateSearch: (s: Record<string, unknown>) => readPageIntent(s),
@@ -106,12 +107,21 @@ function McpBuilderPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // A link here can ask for a new server. Each server has a page of its own,
-  // so there is nothing on this one to open.
+  // A link here can ask for a new server, from one template (the template
+  // gallery's links). Each server has a page of its own, so there is nothing on
+  // this one to open.
   usePageIntent(search, {
     ready: !loading,
     noun: "MCP server",
-    onNew: () => setNewOpen(true),
+    onNew: (from) => {
+      if (from) {
+        const t = MCP_TEMPLATES.find((x) => x.id === from);
+        if (!t) return false;
+        setTemplate(t.id);
+        setName((cur) => cur || t.title);
+      }
+      setNewOpen(true);
+    },
   });
 
   // R214: Enter in the name field skipped the button's in-flight guard, and a

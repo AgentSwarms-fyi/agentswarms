@@ -127,7 +127,14 @@ function ProviderMark({ provider }: { provider: SaasProvider }) {
   );
 }
 
-export function SaasSourcesTab() {
+export function SaasSourcesTab({
+  startFrom = null,
+  onStarted,
+}: {
+  /** A connector template to open Any REST API with (a template gallery link, R530). */
+  startFrom?: string | null;
+  onStarted?: () => void;
+} = {}) {
   const { session } = useAuth();
   const token = session?.access_token ?? "";
 
@@ -180,6 +187,19 @@ export function SaasSourcesTab() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  /** The template the Any REST API dialog opens with; cleared when it closes. */
+  const [specFrom, setSpecFrom] = useState<string | null>(null);
+  useEffect(() => {
+    if (!startFrom) return;
+    openDialog("rest_api");
+    setSpecFrom(startFrom);
+    onStarted?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per link
+  }, [startFrom]);
+  useEffect(() => {
+    if (!dialogProvider) setSpecFrom(null);
+  }, [dialogProvider]);
 
   const openDialog = (p: SaasProvider) => {
     setDialogProvider(p);
@@ -585,6 +605,7 @@ export function SaasSourcesTab() {
                   <Label className="text-xs">{f.label}</Label>
                   {dialogProvider === "rest_api" && f.key === "spec" ? (
                     <RestApiSpecField
+                      initialFrom={specFrom ?? undefined}
                       value={values.spec ?? ""}
                       onChange={(v) => {
                         setValues((cur) => ({ ...cur, spec: v }));

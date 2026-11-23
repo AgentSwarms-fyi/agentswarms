@@ -149,6 +149,7 @@ import { RESTORE_HINT } from "@/lib/trash";
 
 export const Route = createFileRoute("/_authenticated/swarms")({
   component: SwarmsPage,
+  head: () => ({ meta: [{ title: "Agent Swarms — AgentSwarms" }] }),
   validateSearch: (s: Record<string, unknown>) => {
     const out: { template?: string; swarm?: string; view?: "canvas"; new?: 1 } = {};
     if (typeof s.template === "string") out.template = s.template;

@@ -140,6 +140,7 @@ import type { LakehouseResult } from "@/utils/lakehouse/core.server";
 
 export const Route = createFileRoute("/_authenticated/lakehouse")({
   component: LakehousePage,
+  head: () => ({ meta: [{ title: "Lakehouse — AgentSwarms" }] }),
   // `?open=<schema>.<table>` opens one table — how search results link here
   // (src/lib/pageIntent.ts). A lakehouse table has no id but its name.
   validateSearch: (s: Record<string, unknown>) => readPageIntent(s),

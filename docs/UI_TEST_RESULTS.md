@@ -15,6 +15,37 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-23 — R530: Templates, every starting point in one place
+
+Driven on a dev server built from the worktree (`:8102`), signed in as the owner, against the real
+database, in a fronted tab. Kept for review: the agent **Demo · Code Review Assistant**, made from
+its template (one agent row, no knowledge base, no approval). An earlier copy made before the
+description fix is in Trash. Nothing else was made: every other template was opened and cancelled.
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| Sidebar | Overview | **Templates** under Learn; the Learn dot counts the two new What's new entries |
+| Templates | the page | 44 templates; chips All 44, Swarms 13, Agents 5, MCP servers 3, Skills 6, Pipelines 6, API connectors 3, Workbooks 3, Ontologies 1, Notebooks 4; sections Agents, Data engineering, Analysis, Data science; "Uses a model" ticked (a key was found) |
+| Search | `github` | "2 templates" (a swarm and the GitHub connector), `?q=github` in the address; the chips still counted every template, "Swarms 13" beside one swarm found (fixed: they count what the search leaves, and a kind with none is dimmed) |
+| Filter | `?kind=pipeline` | Pipelines chip pressed, 6 templates |
+| API connector | GitHub repository, **Use template** | Integrations on Apps, **Connect Any REST API** open with GitHub repository chosen and its owner and repository fields; the address tidied to `?tab=apps`; closed unsaved |
+| Pipeline | Medallion branch-out | **New pipeline** with "Medallion branch-out" in the name and its tile chosen; cancelled |
+| MCP server | Wrap an HTTP API | **New MCP server** with it chosen and named; cancelled |
+| Skill | JSON-Only Output, the fifth | Sample skills tab, its skill.md open and the card outlined, but left at the foot of the screen: the scroll ran before the router tidied the address and restored the old position (fixed: it scrolls after; measured at the bottom of the page with the card in view) |
+| Workbook | Project tracker | the tile's own question: "You already have "Project tracker"" |
+| Ontology | Northwind Outfitters | "Make the Northwind Outfitters sample?" asked first; cancelled |
+| Notebook | LangGraph | the read-only sample with **Fork to my notebooks** |
+| Agent | Code Review Assistant | "Make "Demo · Code Review Assistant"?" (the body read only "The agent."; fixed: "This makes the agent in your workspace."); made, and Agent Chat opened on it with its guided tour. Asked to review `def add(a, b): return a - b`, it answered in the template's Bugs/Risks/Style form and named the subtraction |
+| Agent card | Agent Builder | the description ended "[demo:code-reviewer]", the lookup tag (fixed: the template's id is read from `tools->>templateId`, which agents made before July also carry; the description is the template's own words) |
+| Agent, again | **Use template** a second time | "You already have "Demo · Code Review Assistant"", **Open it**: nothing made twice; after the copy was moved to Trash, Use made a fresh one |
+| New menu | the foot | **Start from a template**, which opens Templates |
+| Page titles | ETL, MCP Builder, Skills, Agent Builder | the tab read "AgentSwarms — Lab", as did 21 other signed-in pages (fixed: every page names itself, a page in the menu as the menu does; read back after clicking Dashboard → Agent Swarms → Agent Chat: "Agent Swarms — AgentSwarms", "Agent Chat — AgentSwarms"; Swarm Traces and a sample notebook by address; one `<title>` each) |
+
+**Not driven:** the four other agent templates (held by `tests/unit/templateProvision.test.ts`,
+which makes each one against a recording client), the ontology sample confirmed (it makes six
+tables; its button on the page is unchanged), a swarm template (its link is the one R529's
+tutorial already drove).
+
 ## 2026-11-23 — R529: Learn, tutorials done in the app, and What's new
 
 Driven on a dev server built from the worktree (`:8102`), signed in as the owner, against the real

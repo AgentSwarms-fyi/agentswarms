@@ -159,6 +159,7 @@ import { RESTORE_HINT } from "@/lib/trash";
 
 export const Route = createFileRoute("/_authenticated/ai-analyst")({
   component: AiAnalystPage,
+  head: () => ({ meta: [{ title: "AI Analyst — AgentSwarms" }] }),
   // `?new=1` starts a new analyst and `?open=<id>` selects one; `thread=<id>`
   // beside `open` opens one of that analyst's saved analyses — how search
   // results and the "New" menu link here (src/lib/pageIntent.ts).

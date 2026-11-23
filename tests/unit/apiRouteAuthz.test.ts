@@ -105,6 +105,12 @@ describe("templates.provision writes as the caller", () => {
     expect(src, "provisioning now uses the service role").not.toContain("supabaseAdmin");
     expect(src).toMatch(/function getUserSupabase\(authToken: string\)/);
     expect(src).toMatch(/getUserSupabase\(token\)/);
+    // What it makes is made in provision.server.ts (R530), with the client
+    // the route hands it and never one of its own.
+    expect(src).toMatch(/provisionAgentTemplate\(sb, claimsData\.claims\.sub, body\.templateId\)/);
+    const made = readFileSync("src/utils/templates/provision.server.ts", "utf8");
+    expect(made).not.toContain("supabaseAdmin");
+    expect(made).not.toContain("createClient(");
   });
 });
 

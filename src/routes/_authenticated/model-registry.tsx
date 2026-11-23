@@ -87,6 +87,7 @@ function timeAgo(iso: string | null): string {
 
 export const Route = createFileRoute("/_authenticated/model-registry")({
   component: ModelRegistryPage,
+  head: () => ({ meta: [{ title: "AI Model Catalog — AgentSwarms" }] }),
 });
 
 // One noun for the catalogue, so the headline and the caveat cannot drift.
