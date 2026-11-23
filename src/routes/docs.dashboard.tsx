@@ -354,7 +354,7 @@ function DashboardDoc() {
           [
             "Data engineering",
             "Bring data in, shape it, run it on a schedule, watch it",
-            "Data Catalog, ETL Pipelines, Lakehouse, SQL Models, Workflows, Data monitors",
+            "Data Catalog, ETL Pipelines, Lakehouse, SQL Models, Workflows, Data monitors, Query history",
           ],
           [
             "Analysis",

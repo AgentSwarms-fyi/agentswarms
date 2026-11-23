@@ -68,7 +68,7 @@ export const Route = createFileRoute("/api/warehouse/query")({
             conn.config,
             body.sql,
             typeof body.max_rows === "number" ? body.max_rows : undefined,
-            { userId },
+            { userId, log: { via: "workbench", connection: conn } },
           );
           auditEvent({
             userId,

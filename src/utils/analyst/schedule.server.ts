@@ -46,14 +46,17 @@ async function runStepSql(userId: string, source: AnalystSource, sql: string): P
         { connectionId: source.connection_id },
         userId,
       );
-      const res = await executeWarehouseQuery(conn.config, sql, ROW_CAP, { userId });
+      const res = await executeWarehouseQuery(conn.config, sql, ROW_CAP, {
+        userId,
+        log: { via: "schedule", connection: conn },
+      });
       return {
         columns: res.columns.map((c) => c.name),
         rows: res.rows,
         rowCount: res.rows.length,
       };
     }
-    const res = await runLocalSqlForUser(userId, sql);
+    const res = await runLocalSqlForUser(userId, sql, { via: "schedule" });
     return { columns: res.columns, rows: res.rows, rowCount: res.rows.length };
   } catch (e) {
     return { error: (e as Error).message.slice(0, 300) };

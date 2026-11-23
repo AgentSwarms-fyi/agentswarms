@@ -8,6 +8,7 @@ import {
   H2,
   H3,
   NextPrev,
+  Note,
   P,
   Steps,
   Table,
@@ -1086,6 +1087,54 @@ ORDER  BY 1;`}</Code>
         which build your browser selected, which is normally enough for whoever administers the
         policy to fix it.
       </Callout>
+
+      <H2 id="query-history">Query history</H2>
+      <P>
+        <strong>Data engineering → Query history</strong> lists every query run for you, not only
+        the ones you typed: the workbench, and the dashboards, agents, the AI Analyst, schedules,
+        data monitors, metrics, sheets and data prep that ran one on your behalf. Each says what it
+        was for, which engine and connection ran it, how long it took, how many rows came back, how
+        much data the engine read where it says, and what it cost. Totals for the period sit at the
+        top; filter by source, engine or failed queries, search the SQL, or sort by cost, time or
+        data read. <em>Open in workbench</em> writes a query into the editor with its source chosen,
+        without running it, since running a warehouse query again costs again.
+      </P>
+      <Table
+        headers={["Engine", "What is recorded about cost"]}
+        rows={[
+          [
+            "Athena",
+            "Bytes scanned, priced at $5 per TB with a 10 MB minimum, unless your server sets QUERY_COST_ATHENA_USD_PER_TB",
+          ],
+          [
+            "BigQuery",
+            "Bytes processed, and the bytes billed priced at $6.25 per TiB on demand (QUERY_COST_BIGQUERY_USD_PER_TIB); a cached answer bills nothing",
+          ],
+          [
+            "Trino",
+            "Bytes processed, and the engine's query id; no amount, as Trino has no price per query",
+          ],
+          [
+            "Lakehouse",
+            "Time and rows, and the model cost of any ai_* functions the statement called",
+          ],
+          [
+            "Other warehouses, the local engine, your browser",
+            "Time and rows; these are billed by the hour or not at all, so no amount is made up",
+          ],
+        ]}
+      />
+      <P>
+        An amount is an estimate at the price shown beside it, and the price used is kept with the
+        query, so a later change of price does not rewrite last month. The server alone writes the
+        history: you can read yours, and no one can edit or delete what a query cost. A query that
+        runs for nobody in particular (a catalog crawl, a connection test) is not in anyone&apos;s.
+        It is kept as long as runs and traces are (Admin → IAM → Settings, trace retention).
+      </P>
+      <Note>
+        Query history needs migrations <C>20261127000000</C> and <C>20261128000000</C> on the
+        database. Until they are applied, the page says so and nothing else changes.
+      </Note>
 
       {/* ── AGENTS ── */}
       <H2 id="agent-access">Giving an agent access</H2>

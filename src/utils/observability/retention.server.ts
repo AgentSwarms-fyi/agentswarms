@@ -3,7 +3,8 @@
 //
 // Controlled by iam_settings.trace_retention_days:
 //   0 (default) → keep forever, purge disabled (no behaviour change).
-//   N > 0       → delete execution_traces and swarm_runs older than N days.
+//   N > 0       → delete execution_traces, swarm_runs and query_log (R531)
+//                 rows older than N days.
 //                 swarm_run_steps is removed automatically (ON DELETE CASCADE
 //                 from swarm_runs).
 //
@@ -31,7 +32,7 @@ let lastPurge = 0;
  * provenance, so the two halves can expire on different clocks.
  */
 async function purgeOlderThan(
-  table: "execution_traces" | "swarm_runs",
+  table: "execution_traces" | "swarm_runs" | "query_log",
   cutoff: string,
   carriesDecision?: boolean,
 ) {
@@ -97,6 +98,8 @@ export async function purgeTraces(force = false): Promise<{ traces: number; runs
       (await purgeOlderThan("execution_traces", cutoff, false)) +
       (await purgeOlderThan("execution_traces", evidenceCutoff, true));
     const runs = await purgeOlderThan("swarm_runs", cutoff);
+    // The query log keeps to the same window: one rule for what ran.
+    await purgeOlderThan("query_log", cutoff);
 
     // Decisions expire with the evidence they point at, never before it: a
     // decision row whose chain had been deleted would render as an answer with

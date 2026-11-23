@@ -1408,6 +1408,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "/data-sql/<id>",
       "2024-03-01",
       "20261125000000",
+      "20261127000000",
+      "20261128000000",
       "ANALYZE",
       "AwsDataCatalog",
       "BLOCK_PRIVATE_NETWORK_FETCH",
@@ -1581,6 +1583,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "workbench-first-query",
         "text": "The first query in a session is slower",
         "level": 3
+      },
+      {
+        "id": "query-history",
+        "text": "Query history",
+        "level": 2
       },
       {
         "id": "agent-access",
@@ -5093,6 +5100,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "QDRANT_REPLICATION",
       "QDRANT_SHARDS",
       "QDRANT_URL",
+      "QUERY_COST_ATHENA_USD_PER_TB",
+      "QUERY_COST_BIGQUERY_USD_PER_TIB",
       "REPORT_EMAIL_DOMAINS",
       "RESEND_API_KEY",
       "SCHEDULER_LEASE_TTL_MS",

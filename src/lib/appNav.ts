@@ -42,6 +42,7 @@ import {
   FlaskConical,
   GraduationCap,
   HeartPulse,
+  History,
   Image as ImageIcon,
   KeyRound,
   Layers,
@@ -165,6 +166,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { title: "Workflows", url: "/workflows", icon: Workflow },
       // 6. Watch it, once it is all running.
       { title: "Data monitors", url: "/data-monitors", icon: HeartPulse },
+      // 7. See every query that ran, for whom and at what cost (R531).
+      { title: "Query history", url: "/query-history", icon: History },
     ],
   },
   {

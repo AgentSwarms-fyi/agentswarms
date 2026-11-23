@@ -44,6 +44,8 @@ import type { DuckDBConnection, DuckDBInstance } from "@duckdb/node-api";
 import { ENGINE_TIME_ZONE } from "@/lib/duckdbValues";
 import { usesAiSqlFunctions } from "@/utils/aiSql/core";
 import { runWithAiSql, type AiSqlStats } from "@/utils/aiSql/run.server";
+import { viaFromAuditLabel, type QueryVia } from "@/lib/queryLog";
+import { recordQueryRun } from "@/utils/queryLog/record.server";
 import {
   credentialStamp,
   knownLakeSecrets,
@@ -1314,6 +1316,12 @@ export async function runLakehouseStatement(
     useCache?: boolean;
     /** Read the lake as it was at this snapshot instead of as it is now. */
     asOfSnapshot?: string | null;
+    /**
+     * For the query log (R531): what the statement was for, when the caller
+     * knows better than its audit label, and who caused it when that is not
+     * `userId`.
+     */
+    log?: { via?: QueryVia; actorUserId?: string };
   },
 ): Promise<LakehouseResult> {
   const started = Date.now();
@@ -1333,8 +1341,24 @@ export async function runLakehouseStatement(
     status: string,
     rowCount: number | null,
     error?: string,
-    extra?: { cached?: boolean; retries?: number },
+    extra?: { cached?: boolean; retries?: number; aiCostUsd?: number | null },
   ) => {
+    // Every statement, whoever ran it, into its owner's query log (R531); a
+    // cached answer ran nothing, so it is not a query.
+    if (!extra?.cached) {
+      recordQueryRun({
+        userId,
+        actorUserId: opts?.log?.actorUserId,
+        via: opts?.log?.via ?? viaFromAuditLabel(opts?.auditVia),
+        engine: "lakehouse",
+        sql,
+        ok: status === "ok",
+        error: error ?? null,
+        rowCount,
+        durationMs: Date.now() - started,
+        aiCostUsd: extra?.aiCostUsd ?? null,
+      });
+    }
     void supabaseAdmin
       .from("lakehouse_query_history")
       .insert({
@@ -1578,7 +1602,10 @@ export async function runLakehouseStatement(
           ai: ai ?? undefined,
         };
         if (cacheSlot) cachePut(cacheSlot.key, cacheSlot.snapshot, result);
-        record("ok", rows.length, undefined, { retries: attempt });
+        record("ok", rows.length, undefined, {
+          retries: attempt,
+          aiCostUsd: ai?.cost_usd ?? null,
+        });
         if (classified.verb === "DROP TABLE") {
           // A dropped table's view definition goes with it (R458), or a
           // schedule rebuilds what was just dropped.

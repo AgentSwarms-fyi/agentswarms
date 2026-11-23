@@ -23,6 +23,14 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    id: "query-history",
+    date: "2026-11-24",
+    title: "Every query run for you, and what it cost",
+    body: "Query history lists the queries you ran and those dashboards, agents and schedules ran for you, with the time, rows and data read, and a price where the engine charges by the query.",
+    link: { to: "/query-history" },
+    cta: "Open Query history",
+  },
+  {
     id: "templates",
     date: "2026-11-23",
     title: "Every template in one place",

@@ -21,6 +21,7 @@ import { restrictSharedDataset } from "@/utils/data/sharedDatasets.server";
 import type { ToolDef, AgentToolContext } from "./registry.server";
 import { scanDatasetRows } from "@/utils/data/datasetRows.server";
 import { namesMentioned } from "@/lib/sqlRefs";
+import { recordQueryRun } from "@/utils/queryLog/record.server";
 
 const ROW_CAP = 50;
 
@@ -259,11 +260,30 @@ export async function runSqlQuery(
   // filtering and readUserTable shared-dataset masking. The engine only ever
   // sees rows this caller may read.
   let result: Row[];
+  const started = Date.now();
   try {
     const { runLocalSelect } = await import("@/utils/data/localEngine.server");
     const res = await runLocalSelect(sql, tables);
     result = res.rows;
+    recordQueryRun({
+      userId: ctx.userId,
+      via: "agent",
+      engine: "local",
+      sql,
+      ok: true,
+      rowCount: result.length,
+      durationMs: Date.now() - started,
+    });
   } catch (e) {
+    recordQueryRun({
+      userId: ctx.userId,
+      via: "agent",
+      engine: "local",
+      sql,
+      ok: false,
+      error: (e as Error).message,
+      durationMs: Date.now() - started,
+    });
     // The agent needs the real reason so it can rewrite the query. A real
     // engine's binder error ("no such column: regoin") is far more useful than
     // the old interpreter's blanket "unsupported".

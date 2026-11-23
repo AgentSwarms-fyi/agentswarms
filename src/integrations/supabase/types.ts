@@ -7174,6 +7174,70 @@ export type Database = {
         };
         Relationships: [];
       };
+      // 20261127000000 (R531): one row per query, written by the server only.
+      query_log: {
+        Row: {
+          id: string;
+          user_id: string;
+          actor_user_id: string | null;
+          via: string;
+          engine: string;
+          connection_id: string | null;
+          connection_name: string | null;
+          sql: string;
+          status: string;
+          error: string | null;
+          row_count: number | null;
+          duration_ms: number | null;
+          bytes_scanned: number | null;
+          engine_query_id: string | null;
+          cost_usd: number | null;
+          cost_basis: string | null;
+          ai_cost_usd: number | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          actor_user_id?: string | null;
+          via: string;
+          engine: string;
+          connection_id?: string | null;
+          connection_name?: string | null;
+          sql: string;
+          status: string;
+          error?: string | null;
+          row_count?: number | null;
+          duration_ms?: number | null;
+          bytes_scanned?: number | null;
+          engine_query_id?: string | null;
+          cost_usd?: number | null;
+          cost_basis?: string | null;
+          ai_cost_usd?: number | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          actor_user_id?: string | null;
+          via?: string;
+          engine?: string;
+          connection_id?: string | null;
+          connection_name?: string | null;
+          sql?: string;
+          status?: string;
+          error?: string | null;
+          row_count?: number | null;
+          duration_ms?: number | null;
+          bytes_scanned?: number | null;
+          engine_query_id?: string | null;
+          cost_usd?: number | null;
+          cost_basis?: string | null;
+          ai_cost_usd?: number | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       rate_limit_hits: {
         Row: {
           at: string;
@@ -9295,6 +9359,20 @@ export type Database = {
       empty_trash: {
         Args: { p_trash_id?: string | null };
         Returns: number;
+      };
+      // 20261127000000 (R531): the caller's queries since a time, by source and engine.
+      query_log_summary: {
+        Args: { p_since: string };
+        Returns: {
+          via: string;
+          engine: string;
+          queries: number;
+          failed: number;
+          bytes_scanned: number;
+          cost_usd: number;
+          ai_cost_usd: number;
+          duration_ms: number;
+        }[];
       };
       purge_expired_trash: {
         Args: never;

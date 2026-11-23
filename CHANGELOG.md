@@ -16,6 +16,10 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Apply migrations `20261127000000` and `20261128000000`** (R531) for Query
+  history; the second keeps every digit of a query's cost. Until then
+  the page says so, and queries run and are audited as before (their
+  records are not kept).
 - **Apply migration `20261126000000`** (R529) for tutorials. Until then
   **Learn** says which migration is missing and shows What's new; every
   other page works as before.
@@ -273,6 +277,19 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Query history: every query run for you, and what it cost** (R531). Data
+  engineering → Query history lists the queries you ran and those run on
+  your behalf (dashboards, agents, the AI Analyst, schedules, data monitors,
+  metrics, sheets, data prep), each with what it was for, the engine and
+  connection, time, rows, the data the engine read where it says, and a
+  cost. Athena and BigQuery are priced from the bytes they report, at list
+  price unless `QUERY_COST_ATHENA_USD_PER_TB` or
+  `QUERY_COST_BIGQUERY_USD_PER_TIB` is set; the lakehouse adds the model cost
+  of its `ai_*` functions; engines billed by the hour show no amount. Totals
+  for the period, filters, search, sorting by cost, time or data read, and
+  "Open in workbench", which writes the query in without running it. The
+  server alone writes the history, at the places every query passes, so no
+  one can edit or delete what a query cost.
 - **Templates: every ready-made starting point in one place** (R530).
   Overview → Templates lists the swarm, agent, MCP server, skill, pipeline,
   API connector, workbook, notebook and ontology templates, read from the
@@ -619,6 +636,13 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **A warehouse query's time included its wait for a free slot** (fixed in
+  R531). The time a query spent queued behind others counted as its own,
+  against the comment that said it must not.
+- **Workbench queries on an object-store source never reached Recent
+  queries** (fixed in R531): the source's id did not fit the history's
+  connection column, and the insert failed in silence. They are kept, named
+  by the bucket. A query the Catalog started and ran was missing too.
 - **Twenty-five signed-in pages had no tab title of their own** (fixed in
   R530). They all read "AgentSwarms — Lab", so open tabs could not be told
   apart. Every page now names its tab, a page in the menu as the menu names

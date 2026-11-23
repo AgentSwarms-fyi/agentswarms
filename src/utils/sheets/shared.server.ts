@@ -290,7 +290,10 @@ export async function readConnection(
   const cap = warehouseAbsMaxRows();
   let res;
   try {
-    res = await executeWarehouseQuery(conn.config, query, cap, { userId });
+    res = await executeWarehouseQuery(conn.config, query, cap, {
+      userId,
+      log: { via: "sheet", connection: conn },
+    });
   } catch (e) {
     return { ok: false, error: `${conn.name}: ${(e as Error).message}` };
   }

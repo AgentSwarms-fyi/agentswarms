@@ -17,6 +17,7 @@ import { auditEvent } from "@/utils/audit.server";
 import { runObjectStoreQuery } from "@/utils/catalog/objectStoreQuery.server";
 import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
 import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
+import { recordQueryRun } from "@/utils/queryLog/record.server";
 
 function getServerSupabase(authToken: string) {
   const url = process.env.SUPABASE_URL;
@@ -66,6 +67,28 @@ export const Route = createFileRoute("/api/objectstore/query")({
         const sql = String(body.sql ?? "");
         if (!sourceId || !sql.trim()) return json(400, { error: "source_id and sql are required" });
 
+        const started = Date.now();
+        // Into the query log (R531), with the source as the workbench names it.
+        // Read with the caller's own client: their source, or no name at all.
+        const { data: named } = await sb
+          .from("catalog_sources")
+          .select("name")
+          .eq("id", sourceId)
+          .eq("user_id", auth_.user.id)
+          .maybeSingle();
+        const log = (ok: boolean, extra: { rows?: number; error?: string }) =>
+          recordQueryRun({
+            userId: auth_.user.id,
+            via: "workbench",
+            engine: "objectstore",
+            connectionId: `storage:${sourceId}`,
+            connectionName: named?.name ?? null,
+            sql,
+            ok,
+            error: extra.error ?? null,
+            rowCount: extra.rows ?? null,
+            durationMs: Date.now() - started,
+          });
         try {
           const res = await runObjectStoreQuery({
             userId: auth_.user.id,
@@ -73,6 +96,7 @@ export const Route = createFileRoute("/api/objectstore/query")({
             sql,
             maxRows: body.max_rows,
           });
+          log(true, { rows: res.rows.length });
           // Audited like every other query path — a refused one below too, so
           // an attempted write against a bucket appears in the log.
           auditEvent({
@@ -90,6 +114,7 @@ export const Route = createFileRoute("/api/objectstore/query")({
           return json(200, res);
         } catch (e) {
           const message = e instanceof Error ? e.message : "Query failed";
+          log(false, { error: message });
           auditEvent({
             userId: auth_.user.id,
             action: "data.objectstore_query_refused",

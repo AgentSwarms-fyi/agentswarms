@@ -333,7 +333,8 @@ function OntologyDocsPage() {
         rule runs, drafts, questions asked (with the plan that answered), verified questions,
         evaluations and every action requested, approved, rejected or failed are recorded in{" "}
         <strong>Observability → Audit Log</strong>. Every query the ontology runs is also in the
-        asker&apos;s <strong>Lakehouse → History</strong> as the SQL it compiled to, and its audit
+        asker&apos;s <strong>Data engineering → Query history</strong> and on the Lakehouse
+        page&apos;s History tab, as the SQL it compiled to, and its audit
         entry says where it came from in <C>via</C> — for example <C>ontology:explore</C>,{" "}
         <C>ontology:rule</C>, <C>ontology:ask</C> or <C>ontology:action</C>.
       </P>

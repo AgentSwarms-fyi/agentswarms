@@ -177,7 +177,10 @@ async function runCurrentOnWarehouse(
       { name: connectionName },
       userId,
     );
-    const res = await executeWarehouseQuery(conn.config, sql, rowCap, { userId });
+    const res = await executeWarehouseQuery(conn.config, sql, rowCap, {
+      userId,
+      log: { via: "replay", connection: conn },
+    });
     const digest = resultDigest(
       res.columns.map((c) => c.name),
       res.rows,

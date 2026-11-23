@@ -300,6 +300,7 @@ export const Route = createFileRoute("/api/bi/direct-query")({
           // people must not be able to spend fifty tenants' query slots.
           const result = await executeWarehouseQuery(conn.config, effectiveSql, effectiveRowCap, {
             userId: ownerId,
+            log: { via: "dashboard", connection: conn, actorUserId: userId },
           });
           auditEvent({
             userId,

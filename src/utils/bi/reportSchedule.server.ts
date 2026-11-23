@@ -152,7 +152,10 @@ async function runBlockWidget(
       { connectionId: source.connection_id },
       userId,
     );
-    const out = await executeWarehouseQuery(conn.config, sql, rowCap, { userId });
+    const out = await executeWarehouseQuery(conn.config, sql, rowCap, {
+      userId,
+      log: { via: "report", connection: conn },
+    });
     res = { columns: out.columns.map((c) => c.name), rows: out.rows };
   } else if (source.kind === "semantic") {
     throw new Error("a governed source is not run on a schedule; open the report to refresh it");

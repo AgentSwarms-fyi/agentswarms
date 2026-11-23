@@ -53,6 +53,29 @@ import type {
   WarehouseQueryResult,
   WarehouseTable,
 } from "./types";
+import type { QueryVia } from "@/lib/queryLog";
+import { recordQueryRun, scanCostHere } from "@/utils/queryLog/record.server";
+
+/**
+ * What one driver returns. `stats` is what the engine itself said about the
+ * query, where it says anything: its id, what it read, and (BigQuery) what it
+ * billed after its own minimums. Read for the query log (R531).
+ */
+type DriverResult = {
+  columns: WarehouseColumn[];
+  data: unknown[][];
+  truncated: boolean;
+  stats?: { queryId?: string; bytesScanned?: number; bytesBilled?: number };
+};
+
+/** What a caller says about its query, for the query log (R531). */
+export type WarehouseQueryLog = {
+  via: QueryVia;
+  /** The connection, by its id and name, as the person knows it. */
+  connection?: { id: string; name: string };
+  /** Who caused the query, when that is not `userId` (a shared dashboard's viewer). */
+  actorUserId?: string;
+};
 
 /**
  * @deprecated Read `warehouseMaxRows()` instead — the limit is configurable
@@ -295,7 +318,7 @@ async function bigqueryQuery(
   cfg: BigQueryConfig,
   sql: string,
   maxRows: number,
-): Promise<{ columns: WarehouseColumn[]; data: unknown[][]; truncated: boolean }> {
+): Promise<DriverResult> {
   const base = warehouseApiOrigin(cfg);
   const token = await googleAccessToken(cfg.service_account_json, cfg.endpoint);
   const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
@@ -305,6 +328,9 @@ async function bigqueryQuery(
     schema?: { fields?: { name: string; type: string }[] };
     rows?: { f: { v: unknown }[] }[];
     totalRows?: string;
+    /** What it read, and what it billed after its minimums (0 when cached). */
+    totalBytesProcessed?: string;
+    totalBytesBilled?: string;
     error?: { message?: string };
   };
   let body: BqResponse;
@@ -342,7 +368,17 @@ async function bigqueryQuery(
   const columns = (body.schema?.fields ?? []).map((f) => ({ name: f.name, type: f.type }));
   const data = (body.rows ?? []).map((r) => r.f.map((cell) => cell.v));
   const truncated = Number(body.totalRows ?? 0) > data.length;
-  return { columns, data, truncated };
+  const bytes = (v: string | undefined) => (v !== undefined && v !== "" ? Number(v) : undefined);
+  return {
+    columns,
+    data,
+    truncated,
+    stats: {
+      queryId: body.jobReference?.jobId,
+      bytesScanned: bytes(body.totalBytesProcessed),
+      bytesBilled: bytes(body.totalBytesBilled),
+    },
+  };
 }
 
 // ── Redshift (Data API, SigV4) ───────────────────────────────────────────────
@@ -522,11 +558,7 @@ async function athenaApi(
   return (await res.json()) as Record<string, unknown>;
 }
 
-async function athenaQuery(
-  cfg: AthenaConfig,
-  sql: string,
-  maxRows: number,
-): Promise<{ columns: WarehouseColumn[]; data: unknown[][]; truncated: boolean }> {
+async function athenaQuery(cfg: AthenaConfig, sql: string, maxRows: number): Promise<DriverResult> {
   const start = await athenaApi(cfg, "StartQueryExecution", {
     QueryString: sql,
     QueryExecutionContext: {
@@ -542,11 +574,18 @@ async function athenaQuery(
   if (!id) throw new Error("Athena: no query execution id returned");
 
   const deadline = Date.now() + POLL_TIMEOUT_MS;
+  // What Athena says it scanned: what it bills (R531, read for the query log).
+  let scanned: number | undefined;
   for (;;) {
     const desc = (await athenaApi(cfg, "GetQueryExecution", { QueryExecutionId: id })) as {
-      QueryExecution?: { Status?: { State?: string; StateChangeReason?: string } };
+      QueryExecution?: {
+        Status?: { State?: string; StateChangeReason?: string };
+        Statistics?: { DataScannedInBytes?: number };
+      };
     };
     const state = desc.QueryExecution?.Status?.State;
+    const bytes = desc.QueryExecution?.Statistics?.DataScannedInBytes;
+    if (typeof bytes === "number") scanned = bytes;
     if (state === "SUCCEEDED") break;
     if (state === "FAILED" || state === "CANCELLED") {
       throw new Error(`Athena: ${desc.QueryExecution?.Status?.StateChangeReason ?? state}`);
@@ -595,7 +634,7 @@ async function athenaQuery(
     if (!nextToken) break;
   }
   if (nextToken) truncated = true;
-  return { columns, data, truncated };
+  return { columns, data, truncated, stats: { queryId: id, bytesScanned: scanned } };
 }
 
 // ── Azure Synapse (TDS via tedious — Node runtimes only) ─────────────────────
@@ -911,7 +950,7 @@ type TrinoResponse = {
   columns?: { name: string; type: string }[];
   data?: unknown[][];
   error?: { message?: string; errorName?: string };
-  stats?: { state?: string };
+  stats?: { state?: string; processedBytes?: number };
 };
 
 function trinoBaseUrl(cfg: TrinoConfig): { base: string; host: string } {
@@ -937,11 +976,7 @@ function trinoHeaders(cfg: TrinoConfig): Record<string, string> {
   return headers;
 }
 
-async function trinoQuery(
-  cfg: TrinoConfig,
-  sql: string,
-  maxRows: number,
-): Promise<{ columns: WarehouseColumn[]; data: unknown[][]; truncated: boolean }> {
+async function trinoQuery(cfg: TrinoConfig, sql: string, maxRows: number): Promise<DriverResult> {
   const { base, host } = trinoBaseUrl(cfg);
   // SSRF: refuse cloud metadata / link-local targets (private networks stay
   // allowed — a Trino coordinator commonly lives inside the customer's VPC).
@@ -954,6 +989,9 @@ async function trinoQuery(
   const data: unknown[][] = [];
   let truncated = false;
   const deadline = Date.now() + POLL_TIMEOUT_MS;
+  // The latest figures Trino gave: each page carries the running totals.
+  let queryId: string | undefined;
+  let processed: number | undefined;
 
   let res = await connectorFetch(`${base}/v1/statement`, {
     method: "POST",
@@ -969,6 +1007,8 @@ async function trinoQuery(
     if (body.error) {
       throw new Error(`Trino: ${body.error.message ?? body.error.errorName ?? "query failed"}`);
     }
+    queryId = body.id ?? queryId;
+    if (typeof body.stats?.processedBytes === "number") processed = body.stats.processedBytes;
     if (body.columns && !cols) {
       cols = body.columns.map((c) => ({ name: c.name, type: c.type }));
     }
@@ -992,7 +1032,12 @@ async function trinoQuery(
     res = await connectorFetch(body.nextUri, { method: "GET", headers });
   }
 
-  return { columns: cols ?? [], data, truncated };
+  return {
+    columns: cols ?? [],
+    data,
+    truncated,
+    stats: { queryId, bytesScanned: processed },
+  };
 }
 
 // ── Oracle (ORDS REST SQL — Autonomous DB & any ORDS-enabled database) ────────
@@ -1077,12 +1122,16 @@ async function lakehouseDriverQuery(
   config: Extract<WarehouseConfig, { provider: "lakehouse" }>,
   sql: string,
   maxRows: number,
-): Promise<{ columns: WarehouseColumn[]; data: unknown[][]; truncated: boolean }> {
+  log?: WarehouseQueryLog,
+): Promise<DriverResult> {
   if (!config.user_id) throw new Error("Lakehouse connection is missing its owner — re-save it");
   const { runLakehouseStatement } = await import("@/utils/lakehouse/core.server");
   const res = await runLakehouseStatement(config.user_id, sql, {
     rowCap: maxRows,
     auditVia: "warehouse-connection",
+    // The lakehouse records its own statements (what its ai_* calls cost is
+    // known there); it is told what this one was for.
+    log: { via: log?.via ?? "app", actorUserId: log?.actorUserId },
   });
   return {
     columns: res.columns.map((c) => ({ name: c.name, type: c.type })),
@@ -1100,22 +1149,25 @@ export async function executeWarehouseQuery(
   /**
    * `userId` is the tenant this query is billed to — for a shared dashboard
    * that is the OWNER, not the viewer, so one popular dashboard cannot consume
-   * every other tenant's concurrency budget.
+   * every other tenant's concurrency budget. It is also whose query history
+   * the query goes into, with `log` saying what it was for (R531). A query
+   * with no `userId` (a catalog crawl, a connection test) is housekeeping and
+   * goes into nobody's.
    */
-  opts: { userId?: string; timeoutMs?: number } = {},
+  opts: { userId?: string; timeoutMs?: number; log?: WarehouseQueryLog } = {},
 ): Promise<WarehouseQueryResult> {
   const safeSql = assertReadOnlySql(sql);
   const cappedRows = Math.min(Math.max(1, maxRows ?? warehouseMaxRows()), warehouseAbsMaxRows());
-  const started = Date.now();
+  // Reset once a slot is held: time queued behind other queries is not this
+  // query's time (it used to be counted, against the comment below).
+  let started = Date.now();
 
-  const run = async (): Promise<{
-    columns: WarehouseColumn[];
-    data: unknown[][];
-    truncated: boolean;
-  }> => {
+  const run = async (): Promise<DriverResult> => {
     // The built-in lakehouse routes through its own governed chokepoint —
     // schema grants, audit and history apply to BI exactly as to the UI.
-    if (config.provider === "lakehouse") return lakehouseDriverQuery(config, safeSql, cappedRows);
+    if (config.provider === "lakehouse") {
+      return lakehouseDriverQuery(config, safeSql, cappedRows, opts.log);
+    }
     // Before any connection is opened: the always-refused addresses for a wire
     // protocol (its driver bypasses safeFetch), and the connection's own
     // require-private rule (R424). Queries, tests and table listings all pass here.
@@ -1156,12 +1208,47 @@ export async function executeWarehouseQuery(
     }
   };
 
+  // The lakehouse records its own statements; every other engine is recorded
+  // here, where every caller passes.
+  const record = (outcome: { ok: true; raw: DriverResult } | { ok: false; error: string }) => {
+    if (!opts.userId || config.provider === "lakehouse") return;
+    const stats = outcome.ok ? outcome.raw.stats : undefined;
+    const cost = outcome.ok
+      ? scanCostHere(config.provider, stats?.bytesBilled ?? stats?.bytesScanned)
+      : null;
+    recordQueryRun({
+      userId: opts.userId,
+      actorUserId: opts.log?.actorUserId,
+      via: opts.log?.via,
+      engine: config.provider,
+      connectionId: opts.log?.connection?.id,
+      connectionName: opts.log?.connection?.name,
+      sql: safeSql,
+      ok: outcome.ok,
+      error: outcome.ok ? null : outcome.error,
+      rowCount: outcome.ok ? outcome.raw.data.length : null,
+      durationMs: Date.now() - started,
+      bytesScanned: stats?.bytesScanned,
+      engineQueryId: stats?.queryId,
+      costUsd: cost?.usd,
+      costBasis: cost?.basis,
+    });
+  };
+
   // Slot first, then the clock: time spent queueing behind other queries is
   // not the warehouse being slow, so it must not count against the query's
   // own time budget.
-  const raw = await withWarehouseSlot(opts.userId, () =>
-    withWarehouseTimeout(opts.timeoutMs ?? warehouseTimeoutMs(), () => run()),
-  );
+  let raw: DriverResult;
+  try {
+    raw = await withWarehouseSlot(opts.userId, () => {
+      started = Date.now();
+      return withWarehouseTimeout(opts.timeoutMs ?? warehouseTimeoutMs(), () => run());
+    });
+  } catch (e) {
+    record({ ok: false, error: (e as Error)?.message ?? String(e) });
+    throw e;
+  }
+  record({ ok: true, raw });
 
   return {
     columns: raw.columns,

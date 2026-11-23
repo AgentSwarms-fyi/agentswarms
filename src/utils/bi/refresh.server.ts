@@ -57,6 +57,8 @@ import { STAGING_PREFIX } from "@/lib/datasetParse";
 import { kpiHeadlineValue } from "@/lib/biPeriods";
 import { localEngineName } from "@/utils/data/localEngine.server";
 import { scanDatasetRows } from "@/utils/data/datasetRows.server";
+import type { QueryVia } from "@/lib/queryLog";
+import { recordQueryRun } from "@/utils/queryLog/record.server";
 
 // One definition, shared with the client that creates the snapshot in the
 // first place — a second copy here is how the two silently drift apart.
@@ -283,12 +285,38 @@ async function loadLocalTable(t: LocalDataset, userId: string): Promise<LocalTab
 export async function runLocalSqlForUser(
   userId: string,
   sql: string,
+  /** What the query was for, for the query log (R531). */
+  log?: { via: QueryVia },
 ): Promise<{ columns: string[]; rows: Record<string, unknown>[] }> {
-  const visible = await visibleLocalDatasets(userId);
-  return runLocalSqlOnTables(
-    sql,
-    await loadTablesReadBy(sql, visible, (t) => loadLocalTable(t, userId)),
-  );
+  const started = Date.now();
+  try {
+    const visible = await visibleLocalDatasets(userId);
+    const res = await runLocalSqlOnTables(
+      sql,
+      await loadTablesReadBy(sql, visible, (t) => loadLocalTable(t, userId)),
+    );
+    recordQueryRun({
+      userId,
+      via: log?.via,
+      engine: "local",
+      sql,
+      ok: true,
+      rowCount: res.rows.length,
+      durationMs: Date.now() - started,
+    });
+    return res;
+  } catch (e) {
+    recordQueryRun({
+      userId,
+      via: log?.via,
+      engine: "local",
+      sql,
+      ok: false,
+      error: (e as Error)?.message ?? String(e),
+      durationMs: Date.now() - started,
+    });
+    throw e;
+  }
 }
 
 /**
@@ -566,7 +594,10 @@ export async function runDashboardWidgets(args: {
           conn.config.provider as SqlDialect,
           inc,
         );
-        const res = await executeWarehouseQuery(conn.config, sql, WIDGET_ROW_CAP, { userId });
+        const res = await executeWarehouseQuery(conn.config, sql, WIDGET_ROW_CAP, {
+          userId,
+          log: { via: "dashboard", connection: conn },
+        });
         result = { columns: res.columns.map((c) => c.name), rows: res.rows };
       } else {
         // The dialect MUST match the engine that will run it. Pushdown and
@@ -578,6 +609,7 @@ export async function runDashboardWidgets(args: {
         result = await runLocalSqlForUser(
           userId,
           widgetQuerySql(withParams(w), preserve, localDialect, inc),
+          { via: "dashboard" },
         );
       }
       applyResult(w, result, inc);
@@ -1111,7 +1143,10 @@ async function exactAlertValue(
       );
       const sql = alertAggregateSql(w, columnName, aggregation, conn.config.provider as SqlDialect);
       if (!sql) return null;
-      const res = await executeWarehouseQuery(conn.config, sql, 1, { userId });
+      const res = await executeWarehouseQuery(conn.config, sql, 1, {
+        userId,
+        log: { via: "dashboard", connection: conn },
+      });
       return scalarFrom(res.rows);
     }
     // A semantic-source widget has no SQL of its own to aggregate over; it is
@@ -1121,7 +1156,7 @@ async function exactAlertValue(
     const dialect = await localEngineName();
     const sql = alertAggregateSql(w, columnName, aggregation, dialect as SqlDialect);
     if (!sql) return null;
-    const res = await runLocalSqlForUser(userId, sql);
+    const res = await runLocalSqlForUser(userId, sql, { via: "dashboard" });
     return scalarFrom(res.rows);
   } catch (e) {
     console.warn(`[bi-alert] exact aggregate failed: ${(e as Error).message}`);

@@ -111,6 +111,7 @@ async function measure(m: DataMonitorRow): Promise<Measured> {
     const res = await executeWarehouseQuery(conn.config, sql, kind === "schema" ? 2000 : 1, {
       userId: m.user_id,
       timeoutMs: CHECK_TIMEOUT_MS,
+      log: { via: "monitor", connection: conn },
     });
     rows = res.rows;
   }

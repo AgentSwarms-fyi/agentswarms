@@ -238,6 +238,7 @@ export async function runSemanticQuery(opts: {
     // (`userId ? gateFor(userId) : null`), only the global one.
     const res = await executeWarehouseQuery(conn.config, compiled.sql, plan.fetch, {
       userId: ownerId,
+      log: { via: "metric", connection: conn },
     });
     const cut = semanticTrim(res.rows, plan.cap);
     return {
@@ -259,7 +260,7 @@ export async function runSemanticQuery(opts: {
   // columns, both of which DuckDB rejects outright.
   const { localEngineName } = await import("@/utils/data/localEngine.server");
   const compiled = compileSemanticQuery(model, query, { dialect: await localEngineName() });
-  const res = await runLocalSqlForUser(ownerId, compiled.sql);
+  const res = await runLocalSqlForUser(ownerId, compiled.sql, { via: "metric" });
   const cut = semanticTrim(res.rows, plan.cap);
   return {
     model: model.name,

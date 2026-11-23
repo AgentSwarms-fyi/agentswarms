@@ -1834,6 +1834,26 @@ export const SETTINGS_REFERENCE: SettingsTier[] = [
           {
             "settings": [
               {
+                "name": "QUERY_COST_ATHENA_USD_PER_TB",
+                "line": "QUERY_COST_ATHENA_USD_PER_TB=\"\"",
+                "note": "5     — dollars per TB scanned"
+              },
+              {
+                "name": "QUERY_COST_BIGQUERY_USD_PER_TIB",
+                "line": "QUERY_COST_BIGQUERY_USD_PER_TIB=\"\"",
+                "note": "6.25  — dollars per TiB billed"
+              }
+            ],
+            "body": [
+              {
+                "kind": "text",
+                "text": "What a query cost, in Query history. Engines that bill by the data a query reads are priced at their on-demand list price unless set here (a negotiated rate, another region); the price used is kept with each query. Other engines show what was read and no amount."
+              }
+            ]
+          },
+          {
+            "settings": [
+              {
                 "name": "WAREHOUSE_POOL",
                 "line": "WAREHOUSE_POOL=\"\"",
                 "note": "on"

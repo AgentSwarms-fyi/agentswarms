@@ -1,6 +1,6 @@
 // Main IDE route for /data-sql.
 // 3-pane layout: Database Explorer · SQL Editor (light) + Results · Agent Chat
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, useRouterState } from "@tanstack/react-router";
 import { summarizeTablesForPrompt } from "@/lib/sqlSchemaSummary";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -83,6 +83,7 @@ import { ensureSampleDataset, SAMPLE_TABLE_NAME } from "@/lib/sampleData";
 import { CsvUploadDialog } from "@/components/data-sql/CsvUploadDialog";
 import { QueryHistoryPanel } from "@/components/data-sql/QueryHistoryPanel";
 import { recordQuery } from "@/lib/queryHistory";
+import { recordBrowserQuery } from "@/utils/queryLog.functions";
 import { useSingleFlight } from "@/lib/singleFlight";
 import { readChatStream } from "@/lib/chatStream";
 import { settledToolCalls, withToolEvent, type ChatToolCall } from "@/lib/chatToolCalls";
@@ -146,6 +147,9 @@ export const Route = createFileRoute("/_authenticated/data-sql")({
 // Seed passed from the Catalog's "Query data" into the IDE below.
 type WorkbenchSeed = { sql: string; dataSource: string; autorun?: boolean; nonce: number };
 
+/** SQL another page hands the workbench to open, unrun (Query history, R531). */
+export type WorkbenchDraft = { sql: string; source: string };
+
 /**
  * Page shell: Catalog (sources, crawled assets, governance) and the
  * original Data & SQL workbench (database explorer + SQL editor + BI
@@ -158,6 +162,32 @@ function DataCatalogRoute() {
   const [wbMounted, setWbMounted] = useState(false);
   const [seed, setSeed] = useState<WorkbenchSeed | null>(null);
   const navigateData = useNavigate();
+
+  // Query history's "Open in workbench" (R531) hands the SQL over in the
+  // navigation's state: SQL can be long, and the address is no place for it.
+  // It is written into the editor with its source chosen and NOT run, since
+  // running a warehouse query again costs again. Then the state is cleared,
+  // so coming back to the page does not write it in a second time.
+  const handedDraft = useRouterState({
+    select: (st) => (st.location.state as { workbenchDraft?: WorkbenchDraft }).workbenchDraft,
+  });
+  useEffect(() => {
+    if (!handedDraft?.sql) return;
+    setSeed({
+      sql: handedDraft.sql,
+      dataSource: handedDraft.source || "local",
+      autorun: false,
+      nonce: Date.now(),
+    });
+    setWbMounted(true);
+    setView("workbench");
+    void navigateData({
+      to: "/data-sql",
+      search: (prev: Record<string, unknown>) => prev,
+      state: {},
+      replace: true,
+    } as never);
+  }, [handedDraft]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A dataset's page sends "Query" here: the Workbench, with a first query on
   // that dataset written and run, as the Catalog's own "Query" does. Then the
@@ -465,6 +495,7 @@ function DataSqlPage({
   // dataSource: "local" (in-browser AlaSQL) or a warehouse connection id.
   const listWarehousesFn = useServerFn(listWarehouseConnections);
   const listStorageTablesFn = useServerFn(catalogListStorageTables);
+  const recordBrowserFn = useServerFn(recordBrowserQuery);
   const dependentsFn = useServerFn(datasetDependents);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [warehouses, setWarehouses] = useState<WarehouseConnectionSummary[]>([]);
@@ -650,6 +681,7 @@ function DataSqlPage({
       setRunning(true);
       setQueryError(null);
       setResult(null);
+      const started = Date.now();
       try {
         let r: QueryResult;
         if (seed.dataSource === "local") {
@@ -665,8 +697,20 @@ function DataSqlPage({
             : await runWarehouseSql(seed.dataSource, seed.sql);
         }
         setResult(r);
+        // A run the Catalog started is a run like any other: it was missing
+        // from Recent queries (found in R531).
+        remember(
+          seed.sql,
+          { rowCount: r.row_count, durationMs: r.duration_ms ?? Date.now() - started },
+          seed.dataSource,
+        );
       } catch (e) {
         setQueryError((e as Error).message);
+        remember(
+          seed.sql,
+          { durationMs: Date.now() - started, error: (e as Error).message },
+          seed.dataSource,
+        );
       } finally {
         setRunning(false);
       }
@@ -789,17 +833,39 @@ function DataSqlPage({
   function remember(
     sqlText: string,
     outcome: { rowCount?: number | null; durationMs?: number | null; error?: string | null },
+    /** The source it ran on, when the state has not caught up (a seeded run). */
+    source: string = dataSource,
   ) {
     if (!user?.id) return;
+    const bucket = bucketIdOf(source);
     void recordQuery(user.id, {
-      source: dataSource === "local" ? "local" : "warehouse",
-      connectionId: dataSource === "local" ? null : dataSource,
-      connectionName: activeWarehouse?.name ?? null,
+      source: source === "local" ? "local" : "warehouse",
+      // An object-store source is not a warehouse connection, and its id
+      // ("storage:<id>") does not fit this column, a uuid: the insert failed
+      // in silence and those runs never showed here (found in R531). It is
+      // named instead of linked.
+      connectionId: source === "local" || bucket ? null : source,
+      connectionName:
+        warehouses.find((w) => w.id === source)?.name ??
+        (bucket ? (buckets.find((b) => b.id === bucket)?.name ?? null) : null),
       sql: sqlText,
       ...outcome,
     })
       .then(() => setHistoryNonce((n) => n + 1))
       .catch(() => {});
+    // The server never sees a query the browser runs; it is told, so the
+    // query log (R531) holds every query, not only the ones it ran.
+    if (source === "local") {
+      void recordBrowserFn({
+        data: {
+          sql: sqlText.slice(0, 20_000),
+          ok: !outcome.error,
+          error: outcome.error ? outcome.error.slice(0, 2_000) : null,
+          rowCount: outcome.rowCount ?? null,
+          durationMs: outcome.durationMs == null ? null : Math.round(outcome.durationMs),
+        },
+      }).catch(() => {});
+    }
   }
 
   // R213: Run Query was disabled={running}, but Ctrl+Enter in the editor

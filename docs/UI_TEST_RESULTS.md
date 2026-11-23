@@ -15,6 +15,30 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-24 — R531: Query history, every query run for you and what it cost
+
+Driven on a dev server built from the worktree (`:8102`), signed in as the owner, against the real
+database, before and after migration `20261127000000` was applied, in a fronted tab. The queries
+run are the record; nothing else was made. Read back from `query_log` itself as well as on the page.
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| Query history | before the migration | "Query history needs a database update first (migration 20261127000000)…", over zero totals and "No queries in this period", which read as "nothing ran" (fixed: only the message); the app's own schema check names `query_log` |
+| Sidebar | Data engineering | **Query history** last, after Data monitors |
+| Workbench | `SELECT "Region", COUNT(*) …` on `saas_sales`, in the browser | 3 rows, 662 ms; read back as `workbench / browser / ok` |
+| Workbench | the same SQL shape on **R424 private Postgres** (a fixture that does not resolve) | "r424-pg does not resolve from this server"; recorded as `workbench / postgres / error` with that reason, and in Recent queries as failed |
+| Workbench | `SELECT count(*) … FROM analytics.kafka_orders` on **Lakehouse · AgentSwarms** | 110, 1.1 s; one row, `workbench / lakehouse`: the seam left it to the lakehouse, which recorded it with the workbench as its purpose |
+| Workbench | the MinIO bucket, a missing file, then `SELECT count(*) AS n FROM orders` | failed, then 900 rows in 6.1 s; both in Recent queries named "MinIO local etl demo", where before R531 a bucket run never appeared; both in the log as `workbench / objectstore` (they named no bucket: fixed, the route reads the source's name) |
+| Query history | the page | totals Queries 5, Failed 2, Time running 10 s; the SQL column squeezed to "SEL…" (fixed: it takes the width the figures leave); Data read "0 B" where no engine had said (fixed: "—") |
+| Query history | expand the browser query, **Open in workbench** | the full SQL; the workbench opens on it with **Local (in-browser)** chosen and "Press Run query": written in, not run |
+| Query history | **Failed only** | the two failures |
+| Query history | order **Slowest** | 42 s, 5.7 s, 2.3 s, 1.1 s, 662 ms, 332 ms; the 42 s one a lakehouse statement the server ran by itself, recorded as `lakehouse` |
+
+**Not driven:** an Athena or BigQuery query with a real account (none here; the cost from their
+reported bytes is held by `tests/unit/queryLogSeam.test.ts` through the real seam and drivers with
+the network faked), a dashboard viewer's query on its owner's connection (the `actor_user_id` path,
+held by the same test).
+
 ## 2026-11-23 — R530: Templates, every starting point in one place
 
 Driven on a dev server built from the worktree (`:8102`), signed in as the owner, against the real

@@ -111,7 +111,7 @@ async function executorFor(
     // Local datasets: the same server-side engine the scheduled refresh uses.
     return {
       execute: async (sql: string) => {
-        const res = await runLocalSqlForUser(ownerId, sql);
+        const res = await runLocalSqlForUser(ownerId, sql, { via: "analyst" });
         // The same cap as a warehouse step's, with the true count (R512).
         const rows = res.rows.slice(0, ROW_CAP);
         return {
@@ -135,7 +135,10 @@ async function executorFor(
   return {
     dialect: conn.config.provider,
     execute: async (sql: string) => {
-      const res = await executeWarehouseQuery(conn.config, sql, ROW_CAP, { userId: ownerId });
+      const res = await executeWarehouseQuery(conn.config, sql, ROW_CAP, {
+        userId: ownerId,
+        log: { via: "analyst", connection: conn },
+      });
       return {
         columns: res.columns.map((c) => c.name),
         rows: res.rows,

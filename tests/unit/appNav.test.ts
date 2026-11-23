@@ -152,6 +152,8 @@ describe("the rail the docs checker reads", () => {
       // you draw once the pieces exist.
       "Workflows",
       "Data monitors",
+      // What ran, for whom and at what cost: read once the rest is running (R531).
+      "Query history",
     ]);
     // A model produces a table, so it sits straight after the Lakehouse.
     expect(engineering.indexOf("SQL Models")).toBe(engineering.indexOf("Lakehouse") + 1);

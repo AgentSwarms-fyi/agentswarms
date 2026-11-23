@@ -41,6 +41,7 @@ import {
   type IcebergMaintenance,
 } from "./icebergSpark";
 import { sparkRunToken } from "@/utils/etl/sparkConnectClient";
+import { recordQueryRun } from "@/utils/queryLog/record.server";
 
 /** The key a Spark query session carries in its runtime session inputs. */
 export const SPARK_QUERY_KEY = "__lakehouse_spark_query";
@@ -584,6 +585,17 @@ async function recordHistory(
 ): Promise<void> {
   const userId = row.user_id;
   const job = maintenanceOf(row.tables);
+  // Into the owner's query log too (R531), as the lakehouse's own runs are.
+  recordQueryRun({
+    userId,
+    via: "lakehouse",
+    engine: "spark",
+    sql: row.sql,
+    ok: status === "ok",
+    error: error ? redactLakehouseSecrets(error) : null,
+    rowCount,
+    durationMs,
+  });
   await supabaseAdmin
     .from("lakehouse_query_history")
     .insert({

@@ -109,6 +109,32 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-24 — R531: a record of cost that nobody can edit, and the queries that were never recorded
+
+**Why this round.** Query history keeps what each query cost. A cost record its owner can edit is not a record, and one that misses the queries run on someone's behalf undercounts exactly where cost hides (a popular dashboard, a schedule). So the table was designed against both before the page was.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| Most queries were never recorded anywhere | S2 | The workbench kept its own list and the lakehouse its own; a dashboard refresh, a schedule, the analyst, an agent's query, a metric or a sheet kept nothing, and nothing kept what a warehouse said a query scanned. Every query is now recorded where every caller passes (the warehouse seam, the lakehouse runner, the server's local engine, the object-store reader, the agent's SQL tool, and the browser's own report), and a test fails when a call names a person without saying what its query was for |
+| Object-store runs never reached Recent queries | S3 | The source id `storage:<id>` was written into a uuid column; the insert failed and `.catch(() => {})` hid it. **Measured** before and after: the bucket run now appears, named by the bucket |
+| A Catalog-started run was not in Recent queries | S4 | The seeded autorun never called the history writer |
+| A warehouse query's time counted its wait for a slot | S4 | The clock started before the slot, against the comment beside it |
+| "0 B" and zero totals where nothing had been read | S4 | No engine reporting bytes is not zero bytes, and an unreadable history is not an empty one; both now say so |
+| The new money columns were `numeric(14,6)`, and the code rounded to six places | S3 | The R318 mistake again: a cost below a millionth of a dollar rounds, and every total carries it. Caught by `tests/unit/costPrecision.test.ts` in the full suite, after the first migration had been applied here. The columns are unconstrained `numeric` (and `20261128000000` changes a database that applied the first version); the code keeps the digits, trimming only float noise |
+
+**Checked and sound.**
+- **Nobody can edit a cost.** The table has row-level security with one owner SELECT policy and no INSERT, UPDATE or DELETE policy; the migration refuses to apply if any client write policy exists. The server writes with the service role. (The same lesson as VA-2026-10-25-13, where `execution_traces` could be zeroed from the browser.)
+- **Totals are the caller's.** `query_log_summary` is SECURITY INVOKER and filters `user_id = auth.uid()`; anon cannot execute it.
+- **The browser's report cannot write for anyone else.** `recordBrowserQuery` takes the caller from the session and records only `workbench / browser` rows, which cost nothing; inputs are bounded by zod.
+- **A shared dashboard's query is its owner's cost.** It goes into the owner's history (whose connection and quota it used), with the viewer kept as `actor_user_id` and shown only as "someone you share this with".
+- **Recording never fails a query.** The writer never throws, never waits on the caller, and writes nothing for a query nobody is attached to (catalog crawls, connection tests).
+- **Prices are estimates and say so.** Only engines that bill by data read are priced, at list price or the server's own; the price used is stored with the row.
+
+**What would have been wrong to conclude.**
+
+- *"Recent queries is query history."* It held what one person typed in one page, could be edited, and lost bucket runs in silence.
+- *"No bytes, so nothing was read."* Most engines never say; the figure is "—", not zero.
+
 ### 2026-11-23 — R530: a route nobody called, read before calling it again
 
 **Why this round.** The template gallery links every kind of template to its page, and brings back the agent templates, whose provisioning route had had no caller since the July removal of the old templates page. A route that has sat unused is read as new code before anything calls it.

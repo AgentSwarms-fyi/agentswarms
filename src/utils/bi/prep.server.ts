@@ -186,7 +186,7 @@ async function loadFlowTables(
         conn.config,
         `SELECT * FROM ${binding.ref}`,
         sourceCap,
-        { userId },
+        { userId, log: { via: "data_prep", connection: conn } },
       );
       if (res.rows.length >= sourceCap) truncated.push(name);
       // A buffered warehouse table has no locally declared schema; the column
@@ -296,13 +296,17 @@ async function tryFoldToWarehouse(
   try {
     await executeWarehouseQuery(conn.config, `SELECT * FROM (${sql}) AS _fold_check`, 1, {
       userId,
+      log: { via: "data_prep", connection: conn },
     });
   } catch (e) {
     return { skip: `the warehouse rejected the pushed-down query (${(e as Error).message})` };
   }
 
   const outputCap = rowLimit ?? prepOutputRowsCap();
-  const res = await executeWarehouseQuery(conn.config, sql, outputCap, { userId });
+  const res = await executeWarehouseQuery(conn.config, sql, outputCap, {
+    userId,
+    log: { via: "data_prep", connection: conn },
+  });
   const cast = castRows(res.rows, cfg);
   return {
     execution: {

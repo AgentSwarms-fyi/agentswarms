@@ -2661,6 +2661,7 @@ export async function resolveAgentTools(
           // budget while every interactive user waited.
           const result = await executeWarehouseQuery(conn.config, sqlText, WAREHOUSE_TOOL_ROW_CAP, {
             userId: c.userId,
+            log: { via: "agent", connection: conn },
           });
           // The UI path records every warehouse query. This one did not, which
           // left the automated queries — the ones nobody is watching as they
