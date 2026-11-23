@@ -339,7 +339,7 @@ services:
     # A release opens storage from the previous minor only: moving this pin
     # across minors needs `node scripts/upgrade-qdrant.mjs` first (the
     # installers run it), and the minor it leaves added to that script's path.
-    image: qdrant/qdrant:v1.20.0@sha256:9bfc89f9914fc14876a88c05270685921a55b8877b254a98bcc1cc2f0a424cd2
+    image: qdrant/qdrant:v1.20.2@sha256:d277592721d2e3b73f9b797b53cf05e6a5bb2134f6d13fdbda4ca51782afbcac
     # Loopback only, so `scripts/setup.sh --dev` (app on the host) reaches the
     # same service the containerised app does rather than running without it.
     ports:
