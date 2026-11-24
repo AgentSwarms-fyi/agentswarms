@@ -105,6 +105,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { chooseInitialSwarm } from "@/lib/swarmInitialLoad";
+import { hasVisibleName } from "@/lib/visibleName";
 import { supabase } from "@/integrations/supabase/client";
 import { ComponentLibraryDialog } from "@/components/swarms/ComponentLibraryDialog";
 import { bindingFor, type SwarmComponent } from "@/lib/swarmComponents";
@@ -1424,6 +1425,12 @@ function SwarmsCanvas({
 
   const handleSave = async (overwrite = false) => {
     if (!user) return;
+    // This one handler both creates the row (first save) and updates it. A
+    // name of only spaces was saved by both and then listed as a blank swarm.
+    if (!hasVisibleName(swarmName)) {
+      toast.error("Give the swarm a name");
+      return;
+    }
     setSaving(true);
     // `label` IS NOT DECORATION — it is how the runtime picks a branch.
     //

@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { hasVisibleName } from "@/lib/visibleName";
 import {
   diffSnapshots,
   snapshotAgentVersion,
@@ -115,7 +116,9 @@ export function AgentVersionsDialog({
       const { error } = await supabase
         .from("agents")
         .update({
-          name: v.config.name,
+          // A version saved while a name of only spaces got through keeps
+          // the current name: the database no longer accepts a blank one.
+          name: hasVisibleName(v.config.name) ? v.config.name : current.name,
           description: v.config.description,
           system_prompt: v.config.system_prompt,
           llm_provider: v.config.llm_provider ?? undefined,
