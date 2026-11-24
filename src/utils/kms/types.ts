@@ -65,7 +65,9 @@ export class KmsConfigError extends Error {}
  * when they are not.
  */
 export function kmsConfigFromEnv(env: Record<string, string | undefined> = process.env): KmsConfig {
-  const raw = (env.KMS_PROVIDER ?? "env").trim().toLowerCase();
+  // Empty means unset: .env.example ships KMS_PROVIDER="", documented as the
+  // env default. A real typo (KMS_PROVIDER=kms) still throws below.
+  const raw = (env.KMS_PROVIDER?.trim() || "env").toLowerCase();
   if (!(KMS_PROVIDERS as readonly string[]).includes(raw)) {
     throw new KmsConfigError(
       `KMS_PROVIDER=${raw} is not a key provider; use one of ${KMS_PROVIDERS.join(", ")}`,
