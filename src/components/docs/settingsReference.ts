@@ -3927,6 +3927,156 @@ export const SETTINGS_REFERENCE: SettingsTier[] = [
           {
             "settings": [
               {
+                "name": "ML_SERVING_BACKEND",
+                "line": "# ML_SERVING_BACKEND=sandbox",
+                "note": ""
+              }
+            ],
+            "body": [
+              {
+                "kind": "text",
+                "text": "Environment only. Warm model endpoints on KServe (Kubernetes). \"kserve\" serves each deployed model as a KServe InferenceService and leaves its pods to the cluster's autoscaler; \"sandbox\" (the default) starts and scales sandboxes itself, as above. Needs KServe in the cluster and the Helm chart's serving.kserve.enabled (which sets these). A predictor pod asks the app for its model with its endpoint's token and holds no storage credential."
+              }
+            ]
+          },
+          {
+            "settings": [
+              {
+                "name": "KSERVE_NAMESPACE",
+                "line": "# KSERVE_NAMESPACE=agentswarms-serving",
+                "note": ""
+              },
+              {
+                "name": "KSERVE_ACCESS",
+                "line": "# KSERVE_ACCESS=direct",
+                "note": ""
+              }
+            ],
+            "body": [
+              {
+                "kind": "text",
+                "text": "The namespace InferenceServices are made in, and how the app reaches them: \"direct\" (the in-cluster Service, when the app runs in the cluster) or \"apiserver\" (through the API server's service proxy, for an app outside it)."
+              }
+            ]
+          },
+          {
+            "settings": [
+              {
+                "name": "KSERVE_MODE",
+                "line": "# KSERVE_MODE=Standard",
+                "note": ""
+              },
+              {
+                "name": "KSERVE_SCALE_METRIC",
+                "line": "# KSERVE_SCALE_METRIC=cpu",
+                "note": ""
+              },
+              {
+                "name": "KSERVE_SCALE_TARGET",
+                "line": "# KSERVE_SCALE_TARGET=60",
+                "note": ""
+              }
+            ],
+            "body": [
+              {
+                "kind": "text",
+                "text": "Standard (an HPA on CPU or memory, at least one pod) or Knative (scales on requests, and to zero; needs Knative Serving). The metric and the level the autoscaler holds: cpu/memory in percent of the request, or for Knative also concurrency (requests in flight per pod) and rps."
+              }
+            ]
+          },
+          {
+            "settings": [
+              {
+                "name": "KSERVE_APP_URL",
+                "line": "# KSERVE_APP_URL=",
+                "note": ""
+              }
+            ],
+            "body": [
+              {
+                "kind": "text",
+                "text": "The app as a predictor pod reaches it, for its model (defaults to NOTEBOOK_APP_INTERNAL_URL, the in-cluster web Service the chart sets)."
+              }
+            ]
+          },
+          {
+            "settings": [
+              {
+                "name": "KSERVE_SCORER_IMAGE",
+                "line": "# KSERVE_SCORER_IMAGE=",
+                "note": ""
+              },
+              {
+                "name": "KSERVE_SERVICE_ACCOUNT",
+                "line": "# KSERVE_SERVICE_ACCOUNT=",
+                "note": ""
+              },
+              {
+                "name": "KSERVE_CPU_REQUEST",
+                "line": "# KSERVE_CPU_REQUEST=250m",
+                "note": ""
+              },
+              {
+                "name": "KSERVE_CPU_LIMIT",
+                "line": "# KSERVE_CPU_LIMIT=1",
+                "note": ""
+              },
+              {
+                "name": "KSERVE_MEMORY_REQUEST",
+                "line": "# KSERVE_MEMORY_REQUEST=1Gi",
+                "note": ""
+              },
+              {
+                "name": "KSERVE_MEMORY_LIMIT",
+                "line": "# KSERVE_MEMORY_LIMIT=2Gi",
+                "note": ""
+              }
+            ],
+            "body": [
+              {
+                "kind": "text",
+                "text": "The scorer image (defaults to NOTEBOOK_RUNTIME_IMAGE, which holds score_server.py), the service account predictor pods run as (it needs no permissions), and each pod's requests and limits."
+              }
+            ]
+          },
+          {
+            "settings": [
+              {
+                "name": "KSERVE_READY_TIMEOUT_SECONDS",
+                "line": "# KSERVE_READY_TIMEOUT_SECONDS=300",
+                "note": ""
+              }
+            ],
+            "body": [
+              {
+                "kind": "text",
+                "text": "How long a deploy waits for the first pod to serve, in seconds (30-3600): a new node may have to pull the scorer image first."
+              }
+            ]
+          },
+          {
+            "settings": [
+              {
+                "name": "KUBERNETES_API_URL",
+                "line": "# KUBERNETES_API_URL=",
+                "note": ""
+              },
+              {
+                "name": "KUBERNETES_TOKEN_FILE",
+                "line": "# KUBERNETES_TOKEN_FILE=",
+                "note": ""
+              }
+            ],
+            "body": [
+              {
+                "kind": "text",
+                "text": "An app outside the cluster (a developer machine and a kind cluster): the API server's URL and a file holding a service-account token. Unset in a pod, which uses its own mounted account. Trust the API server's CA through NODE_EXTRA_CA_CERTS."
+              }
+            ]
+          },
+          {
+            "settings": [
+              {
                 "name": "AI_GATEWAY_RATE_LIMIT_PER_MIN",
                 "line": "AI_GATEWAY_RATE_LIMIT_PER_MIN=\"\"",
                 "note": "60 — calls a minute one gateway key may make (a key can set its own)"

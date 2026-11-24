@@ -16,6 +16,10 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Apply migration `20261201000000`** (R532) before turning on
+  `ML_SERVING_BACKEND=kserve`: it records which InferenceService a warm
+  endpoint is. Sandbox endpoints, the default, need nothing new and work as
+  before.
 - **Apply migrations `20261127000000` and `20261128000000`** (R531) for Query
   history; the second keeps every digit of a query's cost. Until then
   the page says so, and queries run and are audited as before (their
@@ -277,6 +281,25 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Warm model endpoints scaled by Kubernetes, on KServe** (R532). With
+  `ML_SERVING_BACKEND=kserve` (the Helm chart's `serving.kserve.enabled`) a
+  deployed model is a KServe InferenceService, and the cluster scales its
+  pods: an HPA on CPU or memory in Standard mode, requests and scale to zero
+  in Knative mode, the node autoscaler underneath. Pods run the same scorer
+  and ask the app for their own model (`/api/ml/serving/bundle` and
+  `/artifact`), proving which endpoint they are with that endpoint's port
+  token, kept in a Secret beside it; they hold no storage credential, cloud
+  role or Kubernetes access, since a pod runs the model's own code. The chart
+  lets predictors reach the app and nothing else. Each installer turns it
+  on: `SERVING=kserve bash scripts/setup-k8s.sh` and the EKS root's
+  `serving_kserve = true` also install cert-manager and KServe v0.21.0;
+  the Helm chart takes `serving.kserve.enabled=true`. The
+  Deployment panel shows the pods serving and why others are not
+  (no node with room, an image not pulled, a model that would not load, in
+  the scorer's own words); min and max become the pod range at once. A sweep
+  deletes any InferenceService a failed delete left behind, limited by a
+  label to the installation that made it. `deploy/kind/kserve/run.sh` tries
+  it all on a laptop. Works the same on EKS, GKE, AKS and OKE.
 - **Query history: every query run for you, and what it cost** (R531). Data
   engineering → Query history lists the queries you ran and those run on
   your behalf (dashboards, agents, the AI Analyst, schedules, data monitors,
@@ -635,6 +658,16 @@ development branch and may be ahead of the latest tag.
   difference, two of them open emulator issues (aws/aws-emulator#46, #56).
 
 ### Fixed
+
+- **A warm endpoint scaled to a minimum of 0 never came back** (R532). With
+  no copy up, a prediction went the slow way and was not counted, so the
+  scaler read no demand and never started a copy however busy the endpoint
+  was. A request that finds no copy now counts.
+- **A refused request could break the next one on the same connection**
+  (R532). The scorer answered a refused or malformed POST without reading
+  its body, and on a kept-alive connection that body was read as the next
+  request (a 501 for whoever reused it). Such an answer now closes the
+  connection.
 
 - **A warehouse query's time included its wait for a free slot** (fixed in
   R531). The time a query spent queued behind others counted as its own,

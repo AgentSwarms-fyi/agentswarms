@@ -126,6 +126,8 @@ for you.
 > cluster from the community Helm chart, applies the schema, creates your admin
 > user and starts the app and every service alongside it. See
 > [DEPLOYMENT.md § D1](./DEPLOYMENT.md#d1-fully-self-hosted-one-command).
+> Add `SERVING=kserve` to serve deployed models on KServe, scaled by the
+> cluster ([Warm endpoints on KServe](./DEPLOYMENT.md#warm-endpoints-on-kserve)).
 
 ### Option B — self-hosted Supabase (Docker, no account needed)
 

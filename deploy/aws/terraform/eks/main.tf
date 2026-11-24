@@ -383,6 +383,53 @@ resource "helm_release" "cluster_autoscaler" {
   depends_on = [aws_eks_pod_identity_association.this, aws_eks_addon.this]
 }
 
+# ── KServe, for warm model endpoints (serving_kserve) ──────────────────────
+#
+# cert-manager for KServe's webhooks, then KServe in Standard mode with no
+# ingress: the app calls each predictor's Service, and an HPA scales its pods.
+# Predictors get their model from the app, so they need no IAM role at all.
+
+resource "helm_release" "cert_manager" {
+  count            = var.serving_kserve ? 1 : 0
+  name             = "cert-manager"
+  namespace        = "cert-manager"
+  create_namespace = true
+  repository       = "https://charts.jetstack.io"
+  chart            = "cert-manager"
+  version          = "v1.21.3"
+  values           = [yamlencode({ crds = { enabled = true } })]
+  depends_on       = [aws_eks_addon.this]
+}
+
+resource "helm_release" "kserve_crd" {
+  count            = var.serving_kserve ? 1 : 0
+  name             = "kserve-crd"
+  namespace        = "kserve"
+  create_namespace = true
+  repository       = "oci://ghcr.io/kserve/charts"
+  chart            = "kserve-crd"
+  version          = "v0.21.0"
+  depends_on       = [helm_release.cert_manager]
+}
+
+resource "helm_release" "kserve" {
+  count      = var.serving_kserve ? 1 : 0
+  name       = "kserve"
+  namespace  = "kserve"
+  repository = "oci://ghcr.io/kserve/charts"
+  chart      = "kserve-resources"
+  version    = "v0.21.0"
+  values = [yamlencode({
+    kserve = {
+      controller = {
+        deploymentMode = "Standard"
+        gateway        = { disableIngressCreation = true }
+      }
+    }
+  })]
+  depends_on = [helm_release.kserve_crd]
+}
+
 # ── AgentSwarms ─────────────────────────────────────────────────────────────
 
 resource "helm_release" "agentswarms" {
@@ -433,6 +480,9 @@ resource "helm_release" "agentswarms" {
       tolerations  = [{ key = local.sbx_tag, operator = "Exists", effect = "NoSchedule" }]
       egressProxy  = { replicas = local.tier.ecs.egress_count }
     }
+    serving = {
+      kserve = { enabled = var.serving_kserve }
+    }
     ingress = { enabled = false }
     targetGroupBindings = {
       enabled            = true
@@ -450,6 +500,7 @@ resource "helm_release" "agentswarms" {
     helm_release.load_balancer_controller,
     helm_release.external_secrets,
     helm_release.metrics_server,
+    helm_release.kserve,
     aws_eks_node_group.sandboxes,
     aws_eks_pod_identity_association.this,
   ]

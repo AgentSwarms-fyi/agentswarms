@@ -43,7 +43,16 @@
 # AGENTSWARMS_VERSION, AGENTSWARMS_REGISTRY,
 # AGENTSWARMS_IMAGE, DOCGEN_IMAGE, JS_SANDBOX_IMAGE, NOTEBOOK_GATEWAY_IMAGE,
 # NOTEBOOK_RUNTIME_IMAGE, ADMIN_EMAIL, ADMIN_PASSWORD, INTERNAL_RUN_SECRET,
-# PROVIDER_CREDS_SECRET, SKIP_IMAGE_CHECK, PUBLIC_SUPABASE_URL.
+# PROVIDER_CREDS_SECRET, SKIP_IMAGE_CHECK, PUBLIC_SUPABASE_URL, SERVING.
+#
+# SERVING=kserve serves deployed models' warm endpoints on KServe: it installs
+# cert-manager and KServe (pinned below), applies the Helm chart's serving
+# objects (a namespace, its quota, the app's role there, an account with no
+# permissions for predictors, and a network policy), and tells the app. The
+# cluster then scales each endpoint's pods. Without it (the default) warm
+# endpoints are sandboxes the app scales itself, as before. KServe installs
+# cluster-wide resources, which is why it is the one thing here that is asked
+# for rather than assumed.
 #
 # PUBLIC_SUPABASE_URL is where a BROWSER reaches Supabase's API gateway. The
 # default, http://localhost:8000, is the port-forward printed at the end; set
@@ -86,12 +95,17 @@ NOTEBOOK_RUNTIME_IMAGE="${NOTEBOOK_RUNTIME_IMAGE:-$REGISTRY/notebook-runtime:$RE
 ADMIN_EMAIL="${ADMIN_EMAIL:-}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-}"
 PUBLIC_SUPABASE_URL="${PUBLIC_SUPABASE_URL:-http://localhost:8000}"
+SERVING="${SERVING:-sandbox}"
+# The versions deploy/kind/kserve/run.sh and the EKS Terraform root pin too.
+CERT_MANAGER_VERSION=v1.21.3
+KSERVE_VERSION=v0.21.0
 
 say() { printf '\n\033[1;36m==>\033[0m %s\n' "$1"; }
 die() { printf '\n\033[1;31mERROR:\033[0m %s\n' "$1" >&2; exit 1; }
 
 # ── 1. preflight ────────────────────────────────────────────────────────────
 say "Checking prerequisites"
+case "$SERVING" in sandbox | kserve) ;; *) die "SERVING must be sandbox or kserve, not \"$SERVING\"" ;; esac
 command -v kubectl >/dev/null || die "kubectl is not installed."
 command -v helm >/dev/null || die "helm is not installed — see https://helm.sh/docs/intro/install/"
 command -v openssl >/dev/null || die "openssl is required to generate keys."
@@ -333,6 +347,19 @@ fi
 
 # ── 6. the app and its services ─────────────────────────────────────────────
 say "Configuring and starting AgentSwarms"
+# On KServe the app makes InferenceServices in agentswarms-serving, and a
+# predictor pod asks it for its model at NOTEBOOK_APP_INTERNAL_URL (set in
+# deploy/k8s/app/agentswarms.yaml). The `+` form keeps an empty list safe
+# under `set -u` on bash 3.2 (macOS).
+SERVING_ENV=()
+if [ "$SERVING" = kserve ]; then
+  SERVING_ENV=(
+    --from-literal=ML_SERVING_BACKEND=kserve
+    --from-literal=KSERVE_NAMESPACE=agentswarms-serving
+    --from-literal=KSERVE_SERVICE_ACCOUNT=agentswarms-predictor
+    --from-literal=KSERVE_SCORER_IMAGE="$NOTEBOOK_RUNTIME_IMAGE"
+  )
+fi
 # Both k8s backends are on. What they need beside these two values (the
 # sandbox namespace, the cluster CA, the URL sandboxes call back on, and the
 # ServiceAccount with its token) is in deploy/k8s/app/agentswarms.yaml, next
@@ -364,6 +391,7 @@ kubectl -n "$NS" create secret generic agentswarms-env \
   --from-literal=NOTEBOOK_RUNTIME_BACKEND="k8s" \
   --from-literal=NOTEBOOK_RUNTIME_IMAGE="$NOTEBOOK_RUNTIME_IMAGE" \
   --from-literal=SPARK_PROVIDER="k8s" \
+  ${SERVING_ENV[@]+"${SERVING_ENV[@]}"} \
   --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
 # SUBSTITUTE THE IMAGE REFERENCES ON THE WAY IN.
@@ -390,6 +418,28 @@ with_images "$REPO_ROOT/deploy/k8s/notebooks/notebook-runtime.yaml" | kubectl ap
 kubectl apply -f "$REPO_ROOT/deploy/k8s/spark/spark-runtime.yaml" >/dev/null
 kubectl -n "$NS" rollout status deployment/agentswarms-web --timeout=600s
 
+# ── 7. warm model endpoints on KServe (SERVING=kserve) ──────────────────────
+if [ "$SERVING" = kserve ]; then
+  say "Installing cert-manager $CERT_MANAGER_VERSION and KServe $KSERVE_VERSION (Standard mode)"
+  helm repo add jetstack https://charts.jetstack.io >/dev/null 2>&1 || true
+  helm repo update jetstack >/dev/null
+  helm upgrade --install cert-manager jetstack/cert-manager --version "$CERT_MANAGER_VERSION" \
+    --namespace cert-manager --create-namespace --set crds.enabled=true --wait --timeout 10m >/dev/null
+  helm upgrade --install kserve-crd oci://ghcr.io/kserve/charts/kserve-crd --version "$KSERVE_VERSION" \
+    --namespace kserve --create-namespace --wait >/dev/null
+  # No ingress: the app calls each predictor's Service in the cluster.
+  helm upgrade --install kserve oci://ghcr.io/kserve/charts/kserve-resources --version "$KSERVE_VERSION" \
+    --namespace kserve \
+    --set kserve.controller.deploymentMode=Standard \
+    --set kserve.controller.gateway.disableIngressCreation=true \
+    --wait --timeout 10m >/dev/null
+  # The chart's own serving objects, not a copy that could drift from them.
+  helm template agentswarms "$REPO_ROOT/deploy/helm/agentswarms" --namespace "$NS" \
+    --show-only templates/serving.yaml \
+    --set serving.kserve.enabled=true --set serviceAccount.name=agentswarms |
+    kubectl apply -f - >/dev/null
+fi
+
 cat <<EOF
 
   AgentSwarms is running in namespace "$NS".
@@ -403,6 +453,8 @@ cat <<EOF
 
   For a real address, point an Ingress at the "agentswarms" Service and one at
   "${KONG_SVC}", then re-run with PUBLIC_SUPABASE_URL set to the second.
+
+  Warm model endpoints: $( [ "$SERVING" = kserve ] && echo "on KServe, in namespace agentswarms-serving" || echo "sandboxes (SERVING=kserve serves them on KServe)")
 
   Keep PROVIDER_CREDS_SECRET safe — it encrypts every stored credential and is
   not recoverable:

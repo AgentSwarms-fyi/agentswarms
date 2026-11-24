@@ -23,6 +23,14 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    id: "kserve-endpoints",
+    date: "2026-11-24",
+    title: "Model endpoints Kubernetes scales",
+    body: "On Kubernetes with KServe, a deployed model's pods are added and removed by the cluster as load changes, and the Deployment panel shows how many are serving and why any are not.",
+    link: { to: "/docs/ml/serving" },
+    cta: "Read how it works",
+  },
+  {
     id: "query-history",
     date: "2026-11-24",
     title: "Every query run for you, and what it cost",

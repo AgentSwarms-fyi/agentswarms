@@ -39,6 +39,7 @@ import {
   type MlCanaryTotals,
 } from "@/lib/mlCanary";
 import { reportFailure } from "@/lib/silentFailureNet";
+import { scaleRuleText } from "@/lib/kserve";
 
 /** The share a canary starts at when somebody picks one without saying. */
 const DEFAULT_SHARE = 5;
@@ -297,14 +298,27 @@ export function DeploymentPanel({
         {live && dep ? (
           <div className="space-y-2 border-t pt-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-xs font-medium">
-                {dep.replicas.filter((r) => r.status === "ready").length} of {dep.replicas.length}{" "}
-                {dep.replicas.length === 1 ? "copy" : "copies"} answering
-              </p>
+              {dep.kubernetes ? (
+                <p className="flex flex-wrap items-center gap-2 text-xs font-medium">
+                  {dep.kubernetes.pods
+                    ? `${dep.kubernetes.pods.ready} of ${dep.kubernetes.pods.total} ${
+                        dep.kubernetes.pods.total === 1 ? "pod" : "pods"
+                      } serving`
+                    : "Pods could not be read from the cluster just now"}
+                  <Badge variant="outline" className="text-[10px] font-normal">
+                    Kubernetes · KServe {dep.kubernetes.mode}
+                  </Badge>
+                </p>
+              ) : (
+                <p className="text-xs font-medium">
+                  {dep.replicas.filter((r) => r.status === "ready").length} of {dep.replicas.length}{" "}
+                  {dep.replicas.length === 1 ? "copy" : "copies"} answering
+                </p>
+              )}
               {!shared ? (
                 <span className="flex items-center gap-2 text-xs">
                   <Label htmlFor="dep-min" className="text-xs text-muted-foreground">
-                    Copies
+                    {dep.kubernetes ? "Pods" : "Copies"}
                   </Label>
                   <Input
                     id="dep-min"
@@ -325,6 +339,7 @@ export function DeploymentPanel({
                   <span className="text-muted-foreground">to</span>
                   <Input
                     id="dep-max"
+                    aria-label={dep.kubernetes ? "Most pods" : "Most copies"}
                     type="number"
                     min={1}
                     max={64}
@@ -343,7 +358,20 @@ export function DeploymentPanel({
               ) : null}
             </div>
 
-            {dep.replicas.length > 0 ? (
+            {dep.kubernetes ? (
+              <div className="space-y-1 text-[11px]">
+                <p className="text-muted-foreground">
+                  InferenceService{" "}
+                  <span className="font-mono text-foreground">{dep.kubernetes.name}</span> in{" "}
+                  <span className="font-mono text-foreground">{dep.kubernetes.namespace}</span>
+                </p>
+                {dep.kubernetes.pods?.reason ? (
+                  <p className="text-amber-700 dark:text-amber-400">
+                    Not serving yet: {dep.kubernetes.pods.reason}
+                  </p>
+                ) : null}
+              </div>
+            ) : dep.replicas.length > 0 ? (
               <ul className="space-y-1">
                 {dep.replicas.map((r, i) => (
                   <li key={r.id} className="flex flex-wrap items-center gap-2 text-[11px]">
@@ -367,7 +395,21 @@ export function DeploymentPanel({
             ) : null}
 
             <p className="text-[11px] leading-relaxed text-muted-foreground">
-              {dep.max_replicas > dep.min_replicas ? (
+              {dep.kubernetes ? (
+                <>
+                  Kubernetes scales this endpoint. It adds a pod when{" "}
+                  {scaleRuleText(dep.kubernetes.scaleMetric, dep.kubernetes.scaleTarget)}, and
+                  removes one when load falls —{" "}
+                  {dep.kubernetes.mode === "Knative" && dep.min_replicas === 0
+                    ? "down to none when nobody calls, so the first call after a quiet spell waits for a pod to start"
+                    : `never below ${Math.max(dep.kubernetes.mode === "Knative" ? 0 : 1, dep.min_replicas)}`}
+                  , never above {dep.max_replicas}. When the pods need more room than the nodes
+                  have, the cluster&apos;s node autoscaler adds machines.
+                  {dep.kubernetes.mode === "Standard" && dep.min_replicas === 0
+                    ? " A minimum of 0 is held at 1 here: only Knative mode scales to zero."
+                    : null}
+                </>
+              ) : dep.max_replicas > dep.min_replicas ? (
                 <>
                   Copies are added when the endpoint is busier than one can carry and removed when
                   it is quiet — never below {dep.min_replicas}, never above {dep.max_replicas}.

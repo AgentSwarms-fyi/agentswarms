@@ -313,6 +313,19 @@ export type MlDeploymentView = {
    * old version needs to find out why from the endpoint.
    */
   rollback: { at: string; reason: string | null } | null;
+  /**
+   * Set when Kubernetes serves the endpoint through KServe (R532): the one
+   * InferenceService the app made, and the pods the cluster runs behind it
+   * right now. `pods` is null when the cluster could not be read just now.
+   */
+  kubernetes: {
+    namespace: string;
+    name: string;
+    mode: "Standard" | "Knative";
+    scaleMetric: string;
+    scaleTarget: number;
+    pods: { ready: number; total: number; reason: string | null } | null;
+  } | null;
   /** One entry per copy actually running, quietest first. */
   replicas: {
     id: string;
@@ -341,6 +354,24 @@ export const mlDeploymentGet = createServerFn({ method: "POST" })
     // other, and the wrong half was the one a person counts containers with.
     // The candidate is reported by the shadow block below, as what it is.
     const replicas = await listReplicas(dep.id, true, "primary");
+
+    // KServe (R532): what the cluster is running behind the endpoint, read
+    // now, since only the cluster knows how many pods its autoscaler holds.
+    let kubernetes: MlDeploymentView["kubernetes"] = null;
+    const isvc = replicas.find((r) => r.isvc_name && r.isvc_namespace);
+    if (isvc) {
+      const { kserveSettings, readInferenceService } = await import("@/utils/ml/kserve.server");
+      const { config } = kserveSettings();
+      const read = await readInferenceService(isvc.isvc_namespace!, isvc.isvc_name!);
+      kubernetes = {
+        namespace: isvc.isvc_namespace!,
+        name: isvc.isvc_name!,
+        mode: config.mode,
+        scaleMetric: config.scaleMetric,
+        scaleTarget: config.scaleTarget,
+        pods: "exists" in read && read.exists ? read.pods : null,
+      };
+    }
 
     // The candidate's own version number and the rows it disagreed on. Only
     // fetched when something is actually being shadowed — the overwhelming
@@ -415,6 +446,7 @@ export const mlDeploymentGet = createServerFn({ method: "POST" })
           : null,
         last_scale_reason: dep.last_scale_reason,
         last_scaled_at: dep.last_scaled_at,
+        kubernetes,
         // Quietest first, the order the scorer picks in and the scaler stops
         // in — so what a reader sees is the order things will happen.
         replicas: [...replicas]
@@ -578,5 +610,17 @@ export const mlDeploymentUpdate = createServerFn({ method: "POST" })
       .eq("model_id", model.id)
       .eq("user_id", userId);
     if (error) return { ok: false, error: error.message };
+    // On KServe the cluster scales, and knows only what its InferenceService
+    // says (R532): the new range goes to it now, not on some later pass.
+    if (patch.min_replicas !== undefined || patch.max_replicas !== undefined) {
+      const { resizeKserveEndpoint } = await import("@/utils/ml/serve.server");
+      const resizeErr = await resizeKserveEndpoint(model.id);
+      if (resizeErr) {
+        return {
+          ok: false,
+          error: `Saved, but Kubernetes could not be given the new range: ${resizeErr}. It keeps the old one until the endpoint is deployed again.`,
+        };
+      }
+    }
     return { ok: true };
   });

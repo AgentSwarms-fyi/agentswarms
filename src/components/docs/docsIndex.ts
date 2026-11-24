@@ -3333,20 +3333,29 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "ML Models · Serving",
     "description": "Warm endpoints for low-latency prediction: copies and autoscaling, what a copy can and cannot do, trying a version on real traffic as a shadow or a canary, and training past what one container holds.",
     "terms": [
+      "KSERVE_ACCESS",
+      "KSERVE_MODE",
+      "KSERVE_NAMESPACE",
+      "KSERVE_SCALE_METRIC",
+      "KSERVE_SCALE_TARGET",
       "LimitRange",
       "ML_ARTIFACT_MAX_MB",
       "ML_SERVE_MEM_LIMIT_MB",
       "ML_SERVE_SCALE_COOLDOWN_SECONDS",
       "ML_SERVE_TARGET_RPM_PER_REPLICA",
+      "ML_SERVING_BACKEND=kserve",
       "ML_TRAIN_MEM_LIMIT_MB",
       "Pending",
       "PodScheduled",
       "ResourceQuota",
+      "SERVING=kserve",
       "_predict",
       "limits.memory",
       "ml.predict_query",
       "ml.scale",
-      "served"
+      "scripts/setup-k8s.sh",
+      "served",
+      "serving.kserve.enabled"
     ],
     "headings": [
       {
@@ -3367,6 +3376,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "replicas-limits",
         "text": "What a copy actually is, and how far it gets you",
+        "level": 3
+      },
+      {
+        "id": "kserve",
+        "text": "Serving on Kubernetes with KServe",
         "level": 3
       },
       {
@@ -4705,16 +4719,19 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "LAKEHOUSE_SSE_KMS",
       "LoadBalancer",
       "ManagedCertificate",
+      "NOTEBOOK_APP_INTERNAL_URL",
       "NOTEBOOK_RUNTIME_IMAGE",
       "NetworkPolicy",
       "PUBLIC_APP_URL",
       "Provisioning",
+      "SERVING=kserve",
       "SUPABASE_CHART_VERSION",
       "SUPABASE_URL",
       "Service",
       "StatefulSet",
       "StorageClass",
       "agentswarms-docgen",
+      "agentswarms-serving",
       "anon",
       "authenticator",
       "auto",
@@ -4738,6 +4755,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "resources.limits.cpu",
       "restricted",
       "runAsNonRoot",
+      "scripts/setup-k8s.sh",
+      "serving.kserve.enabled=true",
       "storage.googleapis.com",
       "supabase/postgres",
       "supabase_auth_admin",
@@ -4778,6 +4797,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "k8s-oke",
         "text": "Oracle OKE, step by step",
+        "level": 3
+      },
+      {
+        "id": "k8s-serving",
+        "text": "Warm model endpoints on KServe",
         "level": 3
       },
       {
@@ -4961,6 +4985,21 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "KMS_KEY_REF",
       "KMS_PROVIDER",
       "KMS_REQUIRE_PRIVATE",
+      "KSERVE_ACCESS",
+      "KSERVE_APP_URL",
+      "KSERVE_CPU_LIMIT",
+      "KSERVE_CPU_REQUEST",
+      "KSERVE_MEMORY_LIMIT",
+      "KSERVE_MEMORY_REQUEST",
+      "KSERVE_MODE",
+      "KSERVE_NAMESPACE",
+      "KSERVE_READY_TIMEOUT_SECONDS",
+      "KSERVE_SCALE_METRIC",
+      "KSERVE_SCALE_TARGET",
+      "KSERVE_SCORER_IMAGE",
+      "KSERVE_SERVICE_ACCOUNT",
+      "KUBERNETES_API_URL",
+      "KUBERNETES_TOKEN_FILE",
       "LAKEHOUSE_CATALOG_CONNECTIONS",
       "LAKEHOUSE_CATALOG_PASSWORD",
       "LAKEHOUSE_CATALOG_URL",
@@ -5017,6 +5056,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "ML_SERVE_MEM_LIMIT_MB",
       "ML_SERVE_SCALE_COOLDOWN_SECONDS",
       "ML_SERVE_TARGET_RPM_PER_REPLICA",
+      "ML_SERVING_BACKEND",
       "ML_TRAIN_GPUS",
       "ML_TRAIN_MAX_ROWS",
       "ML_TRAIN_MEM_LIMIT_MB",

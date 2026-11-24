@@ -361,6 +361,52 @@ oci os bucket create --compartment-id "$COMPARTMENT" --name agentswarms-lake`}</
         <C>NetworkPolicy</C>, and the policy applies cleanly and does nothing without it.
       </P>
 
+      <H3 id="k8s-serving">Warm model endpoints on KServe</H3>
+      <P>
+        A deployed model&apos;s warm endpoint is sandboxes the app starts and scales itself, unless
+        the cluster runs <strong>KServe</strong>. Then each endpoint is one InferenceService and the
+        cluster scales its pods: a HorizontalPodAutoscaler on CPU or memory in Standard mode,
+        Knative on requests (and to zero) in Knative mode, and the node autoscaler underneath. It is
+        the one part of an install that is asked for, because KServe adds cluster-wide resources:
+      </P>
+      <Table
+        headers={["Install", "How"]}
+        rows={[
+          [
+            <C key="s">scripts/setup-k8s.sh</C>,
+            <>
+              <C>SERVING=kserve</C>: installs cert-manager v1.21.3 and KServe v0.21.0, applies the
+              chart&apos;s serving objects, and sets the app&apos;s settings
+            </>,
+          ],
+          [
+            "The Helm chart",
+            <>
+              <C>serving.kserve.enabled=true</C>, with KServe and cert-manager installed first
+            </>,
+          ],
+          [
+            "EKS (Terraform)",
+            <>
+              <C>serving_kserve = true</C>: installs both and turns on the chart&apos;s serving
+            </>,
+          ],
+        ]}
+      />
+      <Code lang="bash">{`SERVING=kserve ADMIN_EMAIL=you@corp.com ADMIN_PASSWORD='...' bash scripts/setup-k8s.sh`}</Code>
+      <P>
+        It adds the namespace <C>agentswarms-serving</C>: a quota (the ceiling on every
+        endpoint&apos;s pods together), a Role that lets the app apply and delete InferenceServices
+        and their Secrets and read their pods, a predictor account with no permissions, and a
+        NetworkPolicy that lets predictors be reached by the app and reach only the app.{" "}
+        <strong>Predictors hold no credential:</strong> a pod runs the model&apos;s own code, so it
+        proves which endpoint it is with that endpoint&apos;s token and asks the app for its model
+        at <C>NOTEBOOK_APP_INTERNAL_URL</C>. It needs no storage credential, no cloud role and no
+        route to the object store. What an owner sees is in{" "}
+        <DocLink to="/docs/ml/serving#kserve">ML Models · Serving</DocLink>; to try it on a laptop,
+        run <C>bash deploy/kind/kserve/run.sh up</C>.
+      </P>
+
       <H3 id="k8s-verify">After any of them</H3>
       <P>
         Seven checks catch every decision above. The one worth running first is the sandbox, because

@@ -132,7 +132,10 @@ describe("a missing endpoint is slower, never wrong", () => {
     // is now two conditions: no endpoint at all, and no COPY of it that is
     // ready. The property is unchanged — every one of these returns null.
     expect(warm).toContain('if (!dep || dep.status !== "ready") return null;');
-    expect(warm).toContain("if (!replica?.endpoint) return null;");
+    // No copy to score on (R532: the miss is counted first, so the scaler
+    // sees demand an endpoint at zero copies could not serve).
+    const noCopy = warm.slice(warm.indexOf("if (!replica?.endpoint) {"));
+    expect(noCopy.slice(0, noCopy.indexOf("}") + 1)).toContain("return null;");
     expect(warm).toContain("if (res.status === 503) return null;");
     expect(PREDICT).toContain("const warm = await scoreOnDeployment(args);");
     expect(PREDICT).toContain("if (warm) return warm;");
@@ -261,8 +264,11 @@ describe("an endpoint nobody calls is stopped", () => {
     expect(SERVE).toContain("endpoint: ready.endpoint,");
     // A stale address must not stay remembered: retiring the copy clears it.
     expect(SERVE).toContain("endpoint: null,");
-    const retire = SERVE.slice(SERVE.indexOf("async function retireReplica"));
-    expect(retire.slice(0, 600)).toContain("endpoint: null,");
+    const retire = SERVE.slice(
+      SERVE.indexOf("async function retireReplica"),
+      SERVE.indexOf("async function replicaHeaders"),
+    );
+    expect(retire).toContain("endpoint: null,");
   });
 
   it("one dead copy does not take the whole endpoint down", () => {

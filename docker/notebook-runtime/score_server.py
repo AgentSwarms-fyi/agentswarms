@@ -29,9 +29,9 @@ import sys
 import threading
 import time
 import traceback
+import urllib.error
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-
-import httpx
 
 ORIGIN = os.environ.get("AGENTSWARMS_ORIGIN", "").rstrip("/")
 TOKEN = os.environ.get("AGENTSWARMS_TOKEN", "")
@@ -42,6 +42,15 @@ PORT = int(os.environ.get("KG_PORT", "8888"))
 # exposes this port" never stopped a neighbouring sandbox from calling it.
 # Taken out of the environment before the model's code runs.
 PORT_TOKEN = os.environ.pop("KG_AUTH_TOKEN", "")
+# KServe (R532): this pod is one of an InferenceService's, started and stopped
+# by the cluster's autoscaler, with no session. It asks the app for its own
+# model, proving which endpoint it is with that endpoint's port token, and the
+# app answers with that endpoint's model and no other. No storage credential
+# is in the pod: the model's own code runs here, and a credential the pod held
+# could read every other endpoint's model too.
+SERVING_URL = os.environ.get("AGENTSWARMS_SERVING_URL", "").rstrip("/")
+ENDPOINT = os.environ.get("AGENTSWARMS_ENDPOINT", "")
+KSERVE = bool(SERVING_URL)
 
 # Bounded so a malformed or hostile request cannot exhaust the sandbox before
 # the pandas frame is even built. The app enforces its own row cap too; this is
@@ -64,8 +73,47 @@ def _log(msg):
     print(msg, flush=True)
 
 
+def _serving_headers():
+    return {"X-Port-Token": PORT_TOKEN, "X-Endpoint": ENDPOINT}
+
+
+def _from_app(path, timeout):
+    """GET from the app's serving API, retried while the app cannot be reached.
+
+    A pod can start while the app is restarting or scaling, and one that gave
+    up would sit unready until somebody deleted it. A refusal (4xx) is final:
+    retrying a wrong token or a stopped endpoint changes nothing.
+    """
+    delay = 2.0
+    # No proxy: the app is in the cluster, and a proxy set for other traffic
+    # must not see this pod's token.
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    while True:
+        req = urllib.request.Request(SERVING_URL + path, headers=_serving_headers())
+        try:
+            with opener.open(req, timeout=timeout) as r:
+                return r.read()
+        except urllib.error.HTTPError as e:
+            if e.code < 500:
+                body = e.read().decode("utf-8", "replace")
+                try:
+                    why = json.loads(body).get("error") or body
+                except Exception:  # noqa: BLE001
+                    why = body
+                raise RuntimeError("The app refused this endpoint (%s): %s" % (e.code, why)) from None
+            _log("[score] the app answered %s for %s; trying again" % (e.code, path))
+        except (urllib.error.URLError, OSError) as e:
+            _log("[score] cannot reach the app for %s (%s); trying again" % (path, type(e).__name__))
+        time.sleep(delay)
+        delay = min(delay * 2, 30.0)
+
+
 def fetch_bundle():
     """The program, its config and the artifact's credentials, in one call."""
+    if KSERVE:
+        return json.loads(_from_app("/bundle", 60))
+    import httpx  # the sandbox path only; a KServe pod needs nothing beyond the standard library
+
     with httpx.Client(timeout=60, trust_env=True) as c:
         r = c.post(
             ORIGIN + "/api/notebook/runtime/source",
@@ -100,6 +148,11 @@ def load_model():
         # batch runner executes it.
         ns = {"__name__": "__ml_program__"}
         exec(compile(code, "<ml_program>", "exec"), ns)  # noqa: S102
+        if KSERVE:
+            # The artifact comes from the app too. Only HOW it is read changes:
+            # _download_artifact still checks its digest against the one the
+            # registry recorded, and refuses a file that differs.
+            ns["_fetch_artifact"] = lambda _uri: _from_app("/artifact", 600)
         ns["_ensure_packages"]()
 
         art = ns["_download_artifact"](cfg)
@@ -182,10 +235,18 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send(self, status, payload):
         body = json.dumps(payload).encode("utf-8")
+        # A POST answered before its body was read leaves that body on the
+        # connection, where it would be parsed as the next request (a 501 for
+        # whoever reuses the socket). Such an answer closes the connection.
+        unread = self.command == "POST" and not getattr(self, "_body_read", False)
+        if unread:
+            self.close_connection = True
         try:
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
+            if unread:
+                self.send_header("Connection", "close")
             self.end_headers()
             self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError):
@@ -194,17 +255,39 @@ class Handler(BaseHTTPRequestHandler):
             # bury the one log line that matters.
             pass
 
+    def _token_ok(self):
+        """The port token, as `Authorization: token …` or as `X-Port-Token`.
+
+        The second form is for an app outside the cluster that reaches the
+        predictor through the Kubernetes API server's service proxy: the API
+        server takes `Authorization` for itself and does not pass it on.
+        Both are compared in constant time.
+        """
+        if not PORT_TOKEN:
+            return False
+        auth = (self.headers.get("Authorization") or "").encode()
+        if hmac.compare_digest(auth, ("token " + PORT_TOKEN).encode()):
+            return True
+        port = (self.headers.get("X-Port-Token") or "").encode()
+        return hmac.compare_digest(port, PORT_TOKEN.encode())
+
     def _authorized(self):
         """This sandbox's port token, or 401 (R466). No token set: open, as before."""
-        if not PORT_TOKEN:
-            return True
-        got = (self.headers.get("Authorization") or "").encode()
-        if hmac.compare_digest(got, ("token " + PORT_TOKEN).encode()):
+        if not PORT_TOKEN or self._token_ok():
             return True
         self._send(401, {"error": "unauthorized"})
         return False
 
     def do_GET(self):  # noqa: N802 — BaseHTTPRequestHandler's contract
+        # Kubernetes probes cannot carry the token (it lives in a Secret), so
+        # under KServe an unauthenticated health check is answered, with
+        # ready or not and nothing else. Everything else still needs the token.
+        if KSERVE and self.path.rstrip("/") == "/healthz":
+            if not self._token_ok():
+                with _lock:
+                    ready = _state["ready"]
+                self._send(200 if ready else 503, {"ready": ready})
+                return
         if not self._authorized():
             return
         if self.path.rstrip("/") in ("/healthz", ""):
@@ -214,6 +297,7 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, {"error": "not found"})
 
     def do_POST(self):  # noqa: N802
+        self._body_read = False
         if not self._authorized():
             return
         if self.path.rstrip("/") != "/score":
@@ -233,8 +317,10 @@ class Handler(BaseHTTPRequestHandler):
         if length <= 0 or length > MAX_BODY_BYTES:
             self._send(413, {"error": "body too large"})
             return
+        raw = self.rfile.read(length)
+        self._body_read = True
         try:
-            body = json.loads(self.rfile.read(length) or b"{}")
+            body = json.loads(raw or b"{}")
         except Exception:  # noqa: BLE001
             self._send(400, {"error": "body is not JSON"})
             return
@@ -256,7 +342,10 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    if not ORIGIN or not TOKEN:
+    if KSERVE and (not PORT_TOKEN or not ENDPOINT):
+        _log("[score] on KServe, KG_AUTH_TOKEN and AGENTSWARMS_ENDPOINT are required")
+        sys.exit(2)
+    if not KSERVE and (not ORIGIN or not TOKEN):
         _log("[score] AGENTSWARMS_ORIGIN and AGENTSWARMS_TOKEN are required")
         sys.exit(2)
     threading.Thread(target=load_model, daemon=True).start()

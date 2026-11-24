@@ -1,0 +1,33 @@
+# One node is enough to see the HPA add and remove pods; the API server on a
+# fixed local port so the app's settings stay the same between runs.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  apiServerAddress: "127.0.0.1"
+  apiServerPort: 6445
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      # On a slow disk (a laptop's spinning or SMR drive under Docker Desktop)
+      # the first container start unpacks the control plane's images and can
+      # take longer than kubeadm's four-minute wait. Measured: about four
+      # minutes for the API server alone, right after a multi-GB image build;
+      # and the first API call after it (the admin's ClusterRoleBinding) has
+      # its own one-minute clock.
+      - |
+        kind: InitConfiguration
+        timeouts:
+          controlPlaneComponentHealthCheck: 15m0s
+          kubeletHealthCheck: 10m0s
+          kubernetesAPICall: 15m0s
+          etcdAPICall: 15m0s
+          tlsBootstrap: 15m0s
+      # A throwaway cluster: etcd need not fsync every write. Never do this
+      # on a cluster whose state matters.
+      - |
+        kind: ClusterConfiguration
+        etcd:
+          local:
+            extraArgs:
+              - name: unsafe-no-fsync
+                value: "true"

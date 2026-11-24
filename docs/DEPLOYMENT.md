@@ -460,6 +460,16 @@ certain to fall behind. The chart tracks upstream; we track the chart version.
 Our own components stay as plain manifests below, because they are four
 Deployments we control.
 
+**Warm model endpoints on KServe are the one thing asked for.** With
+`SERVING=kserve` the script also installs cert-manager and KServe (pinned), applies
+the Helm chart's serving objects, and tells the app, so Kubernetes scales each
+deployed model's pods (see [Warm endpoints on KServe](#warm-endpoints-on-kserve)).
+KServe adds cluster-wide resources, which is why it is not on by default:
+
+```bash
+SERVING=kserve ADMIN_EMAIL=you@corp.com ADMIN_PASSWORD='...' bash scripts/setup-k8s.sh
+```
+
 ### D1a. Going to a cloud cluster: a release, or push the images first
 
 **A release needs nothing pushed.** `AGENTSWARMS_VERSION=1.7.0 bash
@@ -1620,6 +1630,40 @@ ML_TRAIN_GPUS=1
 NOTEBOOK_K8S_GPU_NODE_SELECTOR='{"cloud.google.com/gke-accelerator":"nvidia-l4"}'
 NOTEBOOK_K8S_GPU_TOLERATIONS='[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]'
 ```
+
+#### Warm endpoints on KServe
+
+A deployed model's warm endpoint is a set of scoring sandboxes the app starts
+and scales itself, unless the cluster runs **KServe**. With
+`ML_SERVING_BACKEND=kserve` each endpoint is one InferenceService, and the
+cluster scales its pods: a HorizontalPodAutoscaler in Standard mode (CPU or
+memory, at least one pod), Knative in Knative mode (requests, and to zero), and
+the node autoscaler underneath either. It works the same on EKS, GKE, AKS and
+OKE. Three ways to turn it on, each of which sets the app's settings for you:
+
+| Install                | How                                                                                                            |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `scripts/setup-k8s.sh` | `SERVING=kserve`: installs cert-manager v1.21.3 and KServe v0.21.0, applies the chart's serving objects        |
+| Helm chart             | `serving.kserve.enabled=true`, with KServe and cert-manager installed in the cluster first                     |
+| EKS Terraform root     | `serving_kserve = true`: installs both and turns on the chart's serving (see [deploy/AWS.md](./deploy/AWS.md)) |
+
+What it adds, in `agentswarms-serving`: a `ResourceQuota` (the ceiling on every
+endpoint's pods together; size it like the notebook namespace), a Role letting
+the app's account apply and delete InferenceServices and their Secrets and read
+their pods, a predictor service account with no permissions at all, and a
+`NetworkPolicy` (Standard mode) that lets predictors be reached by the app and
+reach only the app.
+
+**Predictors hold no credential.** A pod runs the model's own code (a fitted
+pipeline is a pickle), so it gets nothing that reaches beyond its own model: it
+proves which endpoint it is with that endpoint's port token and asks the app
+for its model at `NOTEBOOK_APP_INTERNAL_URL` (or `KSERVE_APP_URL`). It needs no
+storage credential, no IAM role and no route to the object store. A new pod
+needs the app reachable to start; pods already serving are unaffected.
+
+The settings are listed in `.env.example` and in the app under Docs → Self-hosting → All settings, under
+`ML_SERVING_BACKEND` and `KSERVE_*`; the [ML guide](./ML.md#warm-endpoints-on-kserve)
+describes what an owner sees. To try it on a laptop: `bash deploy/kind/kserve/run.sh up`.
 
 ## Self-hosted Supabase (complete data residency)
 

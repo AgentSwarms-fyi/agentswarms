@@ -5337,6 +5337,8 @@ export type Database = {
           deployment_id: string;
           endpoint: string | null;
           id: string;
+          isvc_name: string | null;
+          isvc_namespace: string | null;
           last_error: string | null;
           last_started_at: string | null;
           last_used_at: string | null;
@@ -5353,6 +5355,8 @@ export type Database = {
           deployment_id: string;
           endpoint?: string | null;
           id?: string;
+          isvc_name?: string | null;
+          isvc_namespace?: string | null;
           last_error?: string | null;
           last_started_at?: string | null;
           last_used_at?: string | null;
@@ -5369,6 +5373,8 @@ export type Database = {
           deployment_id?: string;
           endpoint?: string | null;
           id?: string;
+          isvc_name?: string | null;
+          isvc_namespace?: string | null;
           last_error?: string | null;
           last_started_at?: string | null;
           last_used_at?: string | null;

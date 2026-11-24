@@ -1,0 +1,115 @@
+{{- /*
+Warm model endpoints on KServe (R532). With serving.kserve.enabled the app
+serves a deployed model as an InferenceService in its own namespace instead of
+a sandbox per copy, and the cluster scales its pods: a HorizontalPodAutoscaler
+in Standard mode, Knative in Knative mode, and the node autoscaler (Karpenter,
+Cluster Autoscaler) underneath either. KServe itself, and cert-manager, are
+installed outside this chart (deploy/aws/terraform/eks does both when
+serving_kserve is set; deploy/kind/kserve does it on a laptop).
+*/ -}}
+{{- if .Values.serving.kserve.enabled }}
+{{- $k := .Values.serving.kserve }}
+{{- $ns := $k.namespace }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $ns }}
+  labels:
+    {{- include "as.labels" . | nindent 4 }}
+    # The scorer runs as uid 1000, non-root, every capability dropped.
+    # KServe's storage initializer is its own image, so "restricted" warns.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: restricted
+---
+# The ceiling on what endpoints may hold, all of them together: the app
+# leaves pod counts to the autoscaler, and this is where they stop.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: serving
+  namespace: {{ $ns }}
+spec:
+  hard:
+    pods: {{ $k.quota.pods | quote }}
+    limits.cpu: {{ $k.quota.cpu | quote }}
+    limits.memory: {{ $k.quota.memory | quote }}
+---
+# The app applies and deletes InferenceServices and their token Secrets here,
+# and reads their pods (and a failing pod's log, to say why it fails).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: agentswarms-serving
+  namespace: {{ $ns }}
+rules:
+  - apiGroups: ["serving.kserve.io"]
+    resources: ["inferenceservices"]
+    verbs: ["get", "list", "watch", "create", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: agentswarms-serving
+  namespace: {{ $ns }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.serviceAccount.name }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: agentswarms-serving
+---
+# What predictor pods run as: nothing. A pod asks the app for its own model
+# with its endpoint's port token, so it needs no Kubernetes API, no storage
+# credential and no cloud role; it runs the model's own code, and anything it
+# held would be reachable from there.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $k.predictor.serviceAccount }}
+  namespace: {{ $ns }}
+  labels: {{- include "as.labels" . | nindent 4 }}
+  {{- with $k.predictor.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+automountServiceAccountToken: false
+{{- if eq $k.mode "Standard" }}
+---
+# Predictors answer the app alone, on 8080, and reach DNS and the app (for
+# their model) and nothing else: no storage, no internet. Standard mode only:
+# in Knative mode requests arrive through Knative's activator, whose namespace
+# and labels are the cluster's choice, not this chart's.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: predictors
+  namespace: {{ $ns }}
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: serving.kserve.io/inferenceservice, operator: Exists }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: {{ .Release.Namespace }} } }
+          podSelector:
+            matchExpressions:
+              - { key: app.kubernetes.io/component, operator: In, values: [web, analytics] }
+      ports: [{ protocol: TCP, port: 8080 }]
+  egress:
+    - ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: {{ .Release.Namespace }} } }
+          podSelector: { matchLabels: { app.kubernetes.io/component: web } }
+      ports: [{ protocol: TCP, port: 8080 }]
+{{- end }}
+{{- end }}

@@ -272,6 +272,20 @@ terraform output -raw admin_password_command | sh     # the admin's password`}</
             ),
           },
           {
+            name: "Model serving",
+            body: (
+              <>
+                By default a warm endpoint is sandboxes the app scales. On EKS,{" "}
+                <C>serving_kserve = true</C> installs cert-manager and KServe v0.21.0 and makes each
+                endpoint an InferenceService that a HorizontalPodAutoscaler scales, with the Cluster
+                Autoscaler adding nodes. Predictor pods have no IAM role and no route to S3: each
+                asks the app for its own model with its endpoint&apos;s token, because it runs the
+                model&apos;s own code. See{" "}
+                <DocLink to="/docs/ml/serving#kserve">ML Models · Serving</DocLink>.
+              </>
+            ),
+          },
+          {
             name: "Egress",
             body: (
               <>

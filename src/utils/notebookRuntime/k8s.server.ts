@@ -31,8 +31,17 @@ function readMaybe(path: string): string | null {
   }
 }
 
-/** The app pod's ServiceAccount token, or null when none is mounted. */
+/**
+ * The app pod's ServiceAccount token, or null when none is mounted.
+ *
+ * OUT OF CLUSTER (R532), opt-in: KUBERNETES_TOKEN_FILE names a file holding a
+ * token, for an app that drives a cluster it does not run in (a developer's
+ * machine and a kind cluster, the KServe rig). Read on every call, as the
+ * mounted token is, so a rotated token is picked up. Unset, nothing changes.
+ */
 export function k8sServiceAccountToken(): string | null {
+  const file = process.env.KUBERNETES_TOKEN_FILE?.trim();
+  if (file) return readMaybe(file);
   return readMaybe(`${SA_DIR}/token`);
 }
 
@@ -65,7 +74,12 @@ function namespace(): string {
   return k8sSandboxNamespace().name;
 }
 
-function apiBase(): string {
+/** The API server's base URL: in-cluster, or KUBERNETES_API_URL when set. */
+export function k8sApiBase(): string {
+  // Out of cluster (R532, opt-in): the API server's address as given, with its
+  // CA trusted through NODE_EXTRA_CA_CERTS like the in-cluster one.
+  const outside = process.env.KUBERNETES_API_URL?.trim();
+  if (outside) return outside.replace(/\/+$/, "");
   const host = process.env.KUBERNETES_SERVICE_HOST || "kubernetes.default.svc";
   const port = process.env.KUBERNETES_SERVICE_PORT || "443";
   return `https://${host}:${port}`;
@@ -77,7 +91,7 @@ function apiBase(): string {
  * (src/utils/etl/sparkCluster.server.ts) creates its own objects through it.
  */
 export async function k8sFetch(path: string, init?: RequestInit): Promise<Response> {
-  return fetch(`${apiBase()}${path}`, {
+  return fetch(`${k8sApiBase()}${path}`, {
     ...init,
     headers: {
       Authorization: `Bearer ${saToken()}`,

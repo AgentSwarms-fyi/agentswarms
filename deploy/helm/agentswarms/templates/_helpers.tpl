@@ -68,6 +68,15 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 - { name: LAKEHOUSE_SSE_KMS, value: {{ .Values.aws.kmsKeyArn | quote }} }
 - { name: AWS_REGION, value: {{ .Values.aws.region | quote }} }
 - { name: HTTP_KEEPALIVE_TIMEOUT_MS, value: "125000" }
+{{- if .Values.serving.kserve.enabled }}
+- { name: ML_SERVING_BACKEND, value: kserve }
+- { name: KSERVE_NAMESPACE, value: {{ .Values.serving.kserve.namespace | quote }} }
+- { name: KSERVE_MODE, value: {{ .Values.serving.kserve.mode | quote }} }
+- { name: KSERVE_SCALE_METRIC, value: {{ .Values.serving.kserve.scaleMetric | quote }} }
+- { name: KSERVE_SCALE_TARGET, value: {{ .Values.serving.kserve.scaleTarget | quote }} }
+- { name: KSERVE_SERVICE_ACCOUNT, value: {{ .Values.serving.kserve.predictor.serviceAccount | quote }} }
+- { name: KSERVE_SCORER_IMAGE, value: {{ include "as.image" (dict "root" . "name" "notebook-runtime") | quote }} }
+{{- end }}
 {{ include "as.secretEnv" (dict "root" . "env" "SUPABASE_PUBLISHABLE_KEY" "key" "anon_key") }}
 {{ include "as.secretEnv" (dict "root" . "env" "PUBLIC_SUPABASE_PUBLISHABLE_KEY" "key" "anon_key") }}
 {{ include "as.secretEnv" (dict "root" . "env" "SUPABASE_SERVICE_ROLE_KEY" "key" "service_role_key") }}

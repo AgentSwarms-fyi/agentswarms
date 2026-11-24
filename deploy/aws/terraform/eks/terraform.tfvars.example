@@ -18,3 +18,7 @@ monthly_budget_usd = 500
 
 # For the Glue catalog and Athena connectors, through the app's own role:
 # app_policy_arns = ["arn:aws:iam::aws:policy/AWSGlueConsoleFullAccess"]
+
+# Warm model endpoints on KServe: installs cert-manager and KServe and turns
+# on the chart's serving.kserve, so Kubernetes scales each endpoint's pods.
+# serving_kserve = true

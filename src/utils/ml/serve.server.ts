@@ -40,6 +40,7 @@ import {
 } from "@/lib/mlAutoscale";
 import { compareAnswers, type MlShadowTask } from "@/lib/mlShadow";
 import { clampPercent, rollbackDecision, routeToCandidate } from "@/lib/mlCanary";
+import { isvcName, kserveConfigFrom } from "@/lib/kserve";
 import type { MlModelRow, MlVersionRow } from "./access.server";
 
 /** The stash a score session carries, so the source route can recognise it. */
@@ -63,10 +64,16 @@ export function mlScoreStashOf(inputs: unknown): MlScoreStash | null {
  *
  * Scoped to the session's user, like every other bundle: a sandbox can only
  * ever read the thing it was started for.
+ *
+ * `standalone` (R532) is the bundle a KServe pod loads from storage: the same
+ * program without the prelude that asks the app for the run's environment,
+ * since such a pod asks the app for nothing. The prelude defines nothing the
+ * program uses; the environment it would fetch is in the bundle instead.
  */
 export async function mlScoreBundleFor(
   stash: MlScoreStash,
   userId: string,
+  opts: { standalone?: boolean } = {},
 ): Promise<
   | {
       code: string;
@@ -111,7 +118,7 @@ export async function mlScoreBundleFor(
   const { TRAIN_PY } = await import("@/utils/ml/pyTrain");
   const b64 = Buffer.from(JSON.stringify(config), "utf8").toString("base64");
   const code =
-    etlPrelude() +
+    (opts.standalone ? "" : etlPrelude()) +
     lakeGatewayFn() +
     "\n" +
     TRAIN_PY +
@@ -212,6 +219,13 @@ export type MlReplicaRow = {
    */
   version_id: string | null;
   role: "primary" | "candidate";
+  /**
+   * Set when this copy is a KServe InferenceService (R532) rather than a
+   * sandbox: one row for the object, however many pods Kubernetes runs behind
+   * it. The app applies and deletes the object; the platform scales its pods.
+   */
+  isvc_name: string | null;
+  isvc_namespace: string | null;
 };
 
 const LIVE_REPLICA = ["starting", "ready"] as const;
@@ -487,7 +501,7 @@ export async function ensureDeployment(args: {
     // version nobody approved — the one thing shadowing promises cannot happen.
     for (const replica of await listReplicas(dep.id, true, "primary")) {
       if (replica.status !== "ready" || !replica.endpoint) continue;
-      if (await healthy(replica.endpoint, replica.session_id)) {
+      if (await replicaAlive(replica)) {
         return { ok: true, endpoint: replica.endpoint, deployment: dep };
       }
       // This one has gone. Retire it and keep looking; the endpoint as a
@@ -610,7 +624,12 @@ export async function ensureDeployment(args: {
   // caller has a working endpoint the moment the first one answers; making
   // them wait another twenty seconds each for copies two and three would be
   // charging them for headroom they have not asked to use yet.
-  const wantMore = Math.max(0, Math.min(dep.min_replicas, dep.max_replicas) - 1);
+  //
+  // Not on KServe (R532): there the one InferenceService IS the endpoint's
+  // copies, and Kubernetes already holds its minimum.
+  const wantMore = first.replica.isvc_name
+    ? 0
+    : Math.max(0, Math.min(dep.min_replicas, dep.max_replicas) - 1);
   if (wantMore > 0) {
     void (async () => {
       for (let i = 0; i < wantMore; i++) {
@@ -659,10 +678,19 @@ async function startReplica(args: {
   waitMs: number;
   /** Defaults to the side that answers callers. */
   role?: "primary" | "candidate";
+  /**
+   * What the copy runs on. Defaults to the server's setting (R532); the
+   * scaler says "sandbox", since it only ever adds copies to sandbox endpoints.
+   */
+  backend?: "sandbox" | "kserve";
 }): Promise<
   | { ok: true; endpoint: string; replicaId: string; replica: MlReplicaRow }
   | { ok: false; error: string }
 > {
+  const kserveOn = kserveConfigFrom(process.env).config.enabled;
+  if ((args.backend ?? (kserveOn ? "kserve" : "sandbox")) === "kserve") {
+    return startKserveReplica(args);
+  }
   const nowIso = new Date().toISOString();
   const { data: row, error: insErr } = await supabaseAdmin
     .from("ml_deployment_replicas")
@@ -787,7 +815,32 @@ async function startReplica(args: {
 
 /** Stop one copy's sandbox and mark the row, whichever way round it goes. */
 async function retireReplica(replica: MlReplicaRow, reason: string): Promise<string | null> {
-  if (replica.session_id) await stopQuietly(replica.user_id, replica.session_id);
+  let why = reason;
+  if (replica.isvc_name && replica.isvc_namespace) {
+    // A KServe copy is an object in the cluster, deleted rather than stopped,
+    // and only when no other live copy names it: a redeploy applies the same
+    // name, and this retirement must not take the new one down with it.
+    const { data: others } = await supabaseAdmin
+      .from("ml_deployment_replicas")
+      .select("id")
+      .eq("isvc_namespace", replica.isvc_namespace)
+      .eq("isvc_name", replica.isvc_name)
+      .in("status", [...LIVE_REPLICA])
+      .neq("id", replica.id)
+      .limit(1);
+    if ((others ?? []).length === 0) {
+      const { deleteInferenceService } = await import("./kserve.server");
+      const err = await deleteInferenceService(replica.isvc_namespace, replica.isvc_name);
+      if (err) {
+        // Recorded, and the orphan sweep deletes it on a later pass: an object
+        // no live copy names is one nothing else would ever remove.
+        console.warn(`[ml-serve] ${err}`);
+        why = `${reason} (${err})`;
+      }
+    }
+  } else if (replica.session_id) {
+    await stopQuietly(replica.user_id, replica.session_id);
+  }
   // The sandbox is gone whatever the row says now. A row still "ready" is
   // picked by the round-robin and fails the request; the next health check
   // retires it again, and the caller is told (R77).
@@ -796,7 +849,7 @@ async function retireReplica(replica: MlReplicaRow, reason: string): Promise<str
     {
       status: "stopped",
       endpoint: null,
-      last_error: reason.slice(0, 2000),
+      last_error: why.slice(0, 2000),
       updated_at: new Date().toISOString(),
     },
     "stopped",
@@ -804,25 +857,219 @@ async function retireReplica(replica: MlReplicaRow, reason: string): Promise<str
 }
 
 /**
- * The scorer sandbox's port token (R466). Every request to it carries one; a
- * replica with no session cannot be reached, and its request goes without, to
- * be refused like any other.
+ * The port token every request to a scorer carries (R466): the sandbox's,
+ * from its session, or the InferenceService's (R532). A copy with neither
+ * cannot be reached, and its request goes without, to be refused like any
+ * other.
  */
-async function scorerHeaders(sessionId: string | null): Promise<Record<string, string>> {
-  return sessionId ? sandboxAuthHeaders(sessionId) : {};
+async function replicaHeaders(
+  replica: Pick<MlReplicaRow, "session_id" | "isvc_name" | "isvc_namespace">,
+): Promise<Record<string, string>> {
+  if (replica.isvc_name && replica.isvc_namespace) {
+    const { predictorHeaders } = await import("./kserve.server");
+    return predictorHeaders(replica.isvc_namespace, replica.isvc_name);
+  }
+  return replica.session_id ? sandboxAuthHeaders(replica.session_id) : {};
 }
 
 /** Is the scorer listening AND finished loading its model? */
-async function healthy(endpoint: string, sessionId: string | null): Promise<boolean> {
+async function healthy(replica: MlReplicaRow): Promise<boolean> {
+  if (!replica.endpoint) return false;
   try {
-    const res = await fetch(`${endpoint}${HEALTH_PATH}`, {
-      headers: await scorerHeaders(sessionId),
+    const res = await fetch(`${replica.endpoint}${HEALTH_PATH}`, {
+      headers: await replicaHeaders(replica),
       signal: AbortSignal.timeout(3000),
     });
     return res.ok;
   } catch {
     return false;
   }
+}
+
+/**
+ * Is this copy still there to answer?
+ *
+ * A sandbox: its scorer answers its health check. An InferenceService: the
+ * cluster reports it Ready. Not a call to the pod: in Knative mode an endpoint
+ * at zero pods is Ready and serving, and a three-second probe would wake it,
+ * time out, and have the endpoint replaced for being idle.
+ */
+async function replicaAlive(replica: MlReplicaRow): Promise<boolean> {
+  if (replica.isvc_name && replica.isvc_namespace) {
+    const { readInferenceService } = await import("./kserve.server");
+    const read = await readInferenceService(replica.isvc_namespace, replica.isvc_name);
+    // A failed read is no evidence it has gone; the API may be briefly away.
+    if ("error" in read) return true;
+    return read.exists && read.ready;
+  }
+  return healthy(replica);
+}
+
+/**
+ * Start one side of an endpoint as a KServe InferenceService (R532).
+ *
+ * The same contract as a sandbox copy, and the same row discipline: written
+ * "starting" before anything is created, settled held to "starting", and
+ * taken down again when a Stop or another Deploy got there first. What
+ * differs is what is made: the token Secret and the InferenceService are
+ * applied, and the wait is for the cluster to report it Ready and for the
+ * scorer to answer through the address the app will use. Each pod asks the app
+ * for this copy's model (servingCaller). The pods are Kubernetes' to add and
+ * remove from then on.
+ */
+async function startKserveReplica(args: {
+  deployment: MlDeploymentRow;
+  model: MlModelRow;
+  version: MlVersionRow;
+  userId: string;
+  waitMs: number;
+  role?: "primary" | "candidate";
+}): Promise<
+  | { ok: true; endpoint: string; replicaId: string; replica: MlReplicaRow }
+  | { ok: false; error: string }
+> {
+  const { kserveSettings, applyInferenceService, predictorEndpoint, deleteInferenceService } =
+    await import("./kserve.server");
+  const { config, problems } = kserveSettings();
+  if (problems.length > 0) {
+    return { ok: false, error: `Serving on KServe is not set up right: ${problems.join("; ")}` };
+  }
+  const role = args.role ?? "primary";
+  const name = isvcName(args.model.id, role);
+  const ns = config.namespace;
+
+  const { data: row, error: insErr } = await supabaseAdmin
+    .from("ml_deployment_replicas")
+    .insert({
+      deployment_id: args.deployment.id,
+      user_id: args.userId,
+      status: "starting",
+      last_started_at: new Date().toISOString(),
+      version_id: args.version.id,
+      role,
+      isvc_name: name,
+      isvc_namespace: ns,
+    })
+    .select("*")
+    .single();
+  if (insErr || !row) return { ok: false, error: insErr?.message ?? "Could not record the copy" };
+  const replica = row as MlReplicaRow;
+
+  const fail = async (error: string, created: boolean) => {
+    const failed = await settleReplica(
+      replica.id,
+      { status: "failed", last_error: error.slice(0, 2000), updated_at: new Date().toISOString() },
+      "failed",
+    );
+    // Nothing is left running that no copy names: a pod that never became
+    // ready still holds its requests on a node.
+    if (created) {
+      const err = await deleteInferenceService(ns, name);
+      if (err) console.warn(`[ml-serve] ${err}`);
+    }
+    if (!failed.landed && !failed.error)
+      return { ok: false as const, error: STOPPED_WHILE_STARTING };
+    return { ok: false as const, error };
+  };
+
+  try {
+    // What every pod will ask for, checked once before any pod exists: a
+    // model that cannot be served is a deploy that fails here, in words,
+    // not in every pod minutes later.
+    const bundle = await mlScoreBundleFor(
+      { model_id: args.model.id, version_id: args.version.id },
+      args.userId,
+      { standalone: true },
+    );
+    if ("error" in bundle) return await fail(bundle.error, false);
+
+    const dep = args.deployment;
+    const applied = await applyInferenceService({
+      config,
+      name,
+      // A candidate holds at least one pod: the mirror and the canary need a
+      // copy that answers now, not one woken by the request.
+      minReplicas: role === "candidate" ? Math.max(1, dep.min_replicas) : dep.min_replicas,
+      maxReplicas: dep.max_replicas,
+      labels: {
+        "agentswarms.dev/model": args.model.id,
+        "agentswarms.dev/version": String(args.version.version),
+        "agentswarms.dev/role": role,
+      },
+    });
+    if (applied) return await fail(applied, true);
+
+    const endpoint = predictorEndpoint(config, name);
+    const ready = await waitKserveReady(
+      { ...replica, endpoint },
+      Math.max(args.waitMs, config.readyTimeoutSeconds * 1000),
+    );
+    if (!ready.ok) return await fail(ready.error, true);
+
+    const { landed, error: readyErr } = await settleReplica(
+      replica.id,
+      { status: "ready", endpoint, last_error: null, updated_at: new Date().toISOString() },
+      "ready",
+    );
+    const copy: MlReplicaRow = { ...replica, endpoint, status: "ready" };
+    if (readyErr) {
+      await retireReplica(copy, `could not be marked ready: ${readyErr}`);
+      return {
+        ok: false,
+        error: `The endpoint is up but could not be marked ready: ${readyErr}; it was taken down again.`,
+      };
+    }
+    if (!landed || !(await stillStarted(args.deployment))) {
+      await retireReplica(copy, "the endpoint was stopped while this copy started");
+      return { ok: false, error: STOPPED_WHILE_STARTING };
+    }
+    return { ok: true, endpoint, replicaId: replica.id, replica: copy };
+  } catch (e) {
+    return await fail((e as Error).message, true);
+  }
+}
+
+/**
+ * Wait for an InferenceService to be Ready and for its scorer to answer
+ * through the address the app will use. While waiting, the most useful thing
+ * known about why it is not ready yet: a pod that cannot be placed or pulled,
+ * the controller's reason, or the scorer's own words from its log.
+ */
+async function waitKserveReady(
+  replica: MlReplicaRow,
+  waitMs: number,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { readInferenceService, predictorLogLine } = await import("./kserve.server");
+  const ns = replica.isvc_namespace!;
+  const name = replica.isvc_name!;
+  const deadline = Date.now() + waitMs;
+  let lastError = "The endpoint did not become ready";
+  let polls = 0;
+  while (Date.now() < deadline) {
+    const read = await readInferenceService(ns, name);
+    if ("error" in read) {
+      lastError = `Could not read the endpoint from the cluster: ${read.error}`;
+    } else if (!read.exists) {
+      return { ok: false, error: STOPPED_WHILE_STARTING };
+    } else {
+      if (read.pods?.reason) lastError = read.pods.reason;
+      else if (read.reason) lastError = read.reason;
+      if (read.ready) {
+        if (await healthy(replica)) return { ok: true };
+        lastError = "The cluster reports the endpoint ready, but its scorer does not answer";
+      } else if (++polls % 10 === 0 && read.pods && read.pods.total > 0) {
+        // Running but not ready for a while: the scorer has usually said why.
+        const said = await predictorLogLine(ns, name);
+        if (said) lastError = said;
+      }
+    }
+    await new Promise((r) => setTimeout(r, POLL_MS * 2));
+  }
+  const said = await predictorLogLine(ns, name);
+  return {
+    ok: false,
+    error: said && !lastError.includes(said) ? `${lastError}. ${said}` : lastError,
+  };
 }
 
 /**
@@ -854,7 +1101,7 @@ async function waitReady(
     if (endpoint) {
       try {
         const res = await fetch(`${endpoint}${HEALTH_PATH}`, {
-          headers: await scorerHeaders(session.id),
+          headers: await sandboxAuthHeaders(session.id),
           signal: AbortSignal.timeout(3000),
         });
         if (res.ok) return { ok: true, endpoint };
@@ -947,14 +1194,22 @@ export async function scoreWarm(args: {
     );
   }
   const replica = replicaToScore(ready);
-  if (!replica?.endpoint) return null;
+  if (!replica?.endpoint) {
+    // DEMAND WITH NOTHING TO SERVE IT IS STILL DEMAND (R532). An endpoint
+    // scaled to its minimum of 0 answers this request on the cold path, and
+    // the scaler reads its rate from the counter served requests bump. Not
+    // counting the miss left the rate at zero forever: the endpoint never
+    // scaled back up, however busy it was.
+    if (side === "primary") void countDemand(dep.id);
+    return null;
+  }
   const endpoint = replica.endpoint;
   const servedVersionId = replica.version_id ?? dep.version_id;
 
   try {
     const res = await fetch(`${endpoint}${SCORE_PATH}`, {
       method: "POST",
-      headers: { ...(await scorerHeaders(replica.session_id)), "Content-Type": "application/json" },
+      headers: { ...(await replicaHeaders(replica)), "Content-Type": "application/json" },
       // THE DECISION LINE RIDES WITH THE REQUEST, not with the deployment.
       //
       // It was sent with neither. The batch path puts decision_threshold and
@@ -1033,7 +1288,13 @@ export async function scoreWarm(args: {
     // Retire THIS COPY rather than the endpoint. With one sandbox the two were
     // the same thing; with several, forgetting the whole endpoint's address
     // because one container went would throw away the copies still answering.
-    void retireReplica(replica, `transport failure: ${(e as Error).message}`.slice(0, 200));
+    //
+    // Never an InferenceService (R532): one request failing says nothing
+    // about the object, whose pods Kubernetes replaces itself, and a Knative
+    // endpoint waking from zero can outlast this request's timeout.
+    if (!replica.isvc_name) {
+      void retireReplica(replica, `transport failure: ${(e as Error).message}`.slice(0, 200));
+    }
     console.warn("[ml-serve] warm score failed:", (e as Error).message);
     await recordCanary(dep, side, true, (e as Error).message);
     return null;
@@ -1180,6 +1441,20 @@ async function touch(deploymentId: string, replicaId: string): Promise<void> {
   }
 }
 
+/**
+ * Count a request that found no warm copy, so the scaler sees the demand.
+ * The same counter a served request bumps; no copy's own clock is touched,
+ * since no copy answered.
+ */
+async function countDemand(deploymentId: string): Promise<void> {
+  const { error } = await supabaseAdmin.rpc("increment_ml_deployment_use", { p_id: deploymentId });
+  if (error) {
+    console.warn(
+      `[ml-serve] could not count a request deployment ${deploymentId} had no warm copy for: ${error.message}`,
+    );
+  }
+}
+
 async function stopQuietly(userId: string, sessionId: string): Promise<void> {
   try {
     const session = await getSession(userId, sessionId);
@@ -1321,6 +1596,84 @@ export async function reapIdleDeployments(): Promise<number> {
   return stopped;
 }
 
+/** How long an InferenceService no live copy names is left before it is swept. */
+const ORPHAN_GRACE_MS = 10 * 60_000;
+
+/**
+ * Delete the InferenceServices this installation made that no live copy
+ * names (R532).
+ *
+ * Retiring a copy deletes its object, and a delete can fail: the API server
+ * away, a permission taken back. The copy is marked stopped either way, so
+ * the object is then one nothing points at, holding pods on nodes for nobody.
+ * This finds those. Only objects older than the grace: a start writes its row
+ * before it applies, so a young object without one is mid-start, not lost.
+ */
+export async function reapOrphanInferenceServices(): Promise<number> {
+  const { config } = kserveConfigFrom(process.env);
+  if (!config.enabled) return 0;
+  const { listManagedInferenceServices, deleteInferenceService } = await import("./kserve.server");
+  const ns = config.namespace;
+  const listed = await listManagedInferenceServices(ns);
+  if ("error" in listed) {
+    console.warn(`[ml-serve] could not list InferenceServices in ${ns}: ${listed.error}`);
+    return 0;
+  }
+  const cutoff = Date.now() - ORPHAN_GRACE_MS;
+  const old = listed.filter((i) => i.createdAt && new Date(i.createdAt).getTime() < cutoff);
+  if (old.length === 0) return 0;
+  const { data: live, error } = await supabaseAdmin
+    .from("ml_deployment_replicas")
+    .select("isvc_name")
+    .eq("isvc_namespace", ns)
+    .in(
+      "isvc_name",
+      old.map((o) => o.name),
+    )
+    .in("status", [...LIVE_REPLICA]);
+  // A read that failed is no evidence an object is orphaned.
+  if (error) {
+    console.warn(`[ml-serve] orphan sweep skipped: ${error.message}`);
+    return 0;
+  }
+  const named = new Set((live ?? []).map((r) => r.isvc_name));
+  let deleted = 0;
+  for (const o of old) {
+    if (named.has(o.name)) continue;
+    const err = await deleteInferenceService(ns, o.name, 0);
+    if (err) console.warn(`[ml-serve] ${err}`);
+    else deleted++;
+  }
+  if (deleted > 0)
+    console.info(`[ml-serve] deleted ${deleted} InferenceService(s) no endpoint named`);
+  return deleted;
+}
+
+/**
+ * Tell Kubernetes an endpoint's new minimum and maximum (R532). The sandbox
+ * scaler reads them from the row on its next pass; KServe's autoscaler only
+ * knows what its InferenceService says. Returns what went wrong, or null.
+ */
+export async function resizeKserveEndpoint(modelId: string): Promise<string | null> {
+  const dep = await getDeployment(modelId);
+  if (!dep) return null;
+  const live = (await listReplicas(dep.id)).filter((r) => r.isvc_name && r.isvc_namespace);
+  if (live.length === 0) return null;
+  const { kserveSettings, resizeInferenceService } = await import("./kserve.server");
+  const { config } = kserveSettings();
+  for (const r of live) {
+    const err = await resizeInferenceService({
+      config,
+      ns: r.isvc_namespace!,
+      name: r.isvc_name!,
+      min: r.role === "candidate" ? Math.max(1, dep.min_replicas) : dep.min_replicas,
+      max: dep.max_replicas,
+    });
+    if (err) return err;
+  }
+  return null;
+}
+
 /**
  * How hard one copy is expected to work, and how reluctant the scaler is.
  *
@@ -1391,6 +1744,15 @@ export async function autoscaleDeployments(): Promise<{ scaled: number }> {
     // whose only warm copy is one the scorer refuses to use. The candidate is
     // not spare capacity — it answers nobody.
     const replicas = await listReplicas(dep.id, true, "primary");
+    // Kubernetes scales a KServe endpoint (R532). The reading is still taken,
+    // so the rate stays honest if it is ever served by sandboxes again.
+    if (replicas.some((r) => r.isvc_name)) {
+      await supabaseAdmin
+        .from("ml_deployments")
+        .update({ ...reading, last_scale_reason: null })
+        .eq("id", dep.id);
+      continue;
+    }
     const ready = replicas.filter((r) => r.status === "ready");
     const starting = replicas.filter((r) => r.status === "starting");
     const quietest = replicaToStop(ready);
@@ -1452,6 +1814,9 @@ export async function autoscaleDeployments(): Promise<{ scaled: number }> {
         userId: dep.user_id,
         memLimitMb: (await getPlatformResources()).mlServeMemLimitMb,
         waitMs: READY_TIMEOUT_MS,
+        // This endpoint's copies are sandboxes (a KServe one was skipped
+        // above), so another copy is one too, whatever new endpoints use.
+        backend: "sandbox",
       });
       await supabaseAdmin
         .from("ml_deployments")
@@ -1571,7 +1936,7 @@ async function mirrorToCandidate(
   try {
     const res = await fetch(`${target.endpoint}${SCORE_PATH}`, {
       method: "POST",
-      headers: { ...(await scorerHeaders(target.session_id)), "Content-Type": "application/json" },
+      headers: { ...(await replicaHeaders(target)), "Content-Type": "application/json" },
       // THE SAME DECISION LINE THE PRIMARY USED, deliberately.
       //
       // The mirror exists to answer "would this version have said something

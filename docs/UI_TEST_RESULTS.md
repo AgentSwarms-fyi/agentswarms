@@ -15,6 +15,37 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-24 — R532: warm endpoints that Kubernetes scales, on KServe
+
+Driven on a dev server built from the worktree (`:8102`), signed in as the owner, against the real
+database, with the replicas migration applied (then numbered `20261129000000`; it is `20261201000000`, see the Adversarial log), in a fronted tab; the cluster was a kind cluster
+on this machine (`deploy/kind/kserve/run.sh`: Kubernetes v1.37.0, cert-manager v1.21.3,
+metrics-server v0.9.1, KServe v0.21.0 in Standard mode, the chart's own serving objects), reached
+through the API server's proxy with the app's account and the chart's Role. Model: **threshold_probe
+(payment_rows)**, a classification test model, production v1. Read back from the cluster
+(`kubectl`) and from `ml_deployments` / `ml_deployment_replicas` as well as on the page. The
+cluster was deleted afterwards; the endpoint's record is as it was (stopped, Keep warm off, 1–1).
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| The app's account | `kubectl auth can-i` as `agentswarms:agentswarms` | yes: create, patch, delete InferenceServices, create Secrets, list pods, read pod logs, in `agentswarms-serving` only; no: list Secrets, create pods, anything in `default` or `kube-system` |
+| Deployment panel | **Deploy**, first design (KServe's storage initializer reads a published bundle) | the initializer was refused: `HeadBucket` 403. KServe calls HeadBucket before listing, which S3 and MinIO authorize as bucket-wide `s3:ListBucket`. Reading why led to finding 1 (cross-tenant). The deploy failed after its 5 minutes with the reason on the panel (too raw: fixed, last line only), and the InferenceService and its Secret were deleted |
+| Deployment panel | **Deploy**, the design shipped (the pod asks the app for its own model) | **serving v1**; the pod pulled nothing from storage, asked `/api/ml/serving/bundle` and `/artifact` with its token, loaded LightGBM v1 and passed its warm-up: ready in 100 s (32 s to start the container on this disk) |
+| Network policy | a pod with the predictor label, in the serving namespace | the app: 200; the lake store and the internet: both timed out |
+| Deployment panel | the Kubernetes view | "1 of 1 pod serving · Kubernetes · KServe Standard", `ml-3476e695e02544999315` in `agentswarms-serving`, and the rule: "It adds a pod when pods use more than 60% of the CPU each one asks for, on average…" |
+| Deployment panel | Pods maximum 1 → **3** | the InferenceService read min 1, max 3 at once; the HPA `cpu: 0%/60%, 1–3` |
+| Predictions | **Predict** one row | `1`, 100.0% confidence, scored in 0.10 s, the whole request 1 s (a cold sandbox takes about 20 s); the run audited with its digest |
+| Load | 16 workers for 240 s from inside the cluster, 200 rows a request (`run.sh load`) | CPU 103% → 344% of the request in 15 s; the HPA went 1 → 2 → 3 pods, each new pod loading its model from the app; at 3 ready, CPU 124–280%; 667 requests answered by the last reading, 0 refused, 0 failed |
+| Load | after it ended | CPU 0% at +301 s; **1 pod at +605 s** ("All metrics below target", after KServe's 300 s window) |
+| Deployment panel | Pods maximum 3 → 1, Keep warm off, **Stop** | "Endpoint stopped", **off**; the InferenceService, its Deployment, HPA, Service, Secret and pods all gone in 36 s; the copy's row `stopped: undeployed` |
+
+**Not driven:** Knative mode and scale to zero (needs Knative Serving; the object it would get is
+held by `tests/unit/kserve.test.ts`); a shadow or canary candidate on KServe (same code path with
+`role: candidate`, held by `tests/unit/mlServeKserve.test.ts`); the orphan sweep against a real
+cluster (held by the same file); an app inside the cluster calling predictors directly (the chart's
+`direct` access; here the app was outside, so the rig granted `services/proxy`); EKS (the Terraform
+`serving_kserve` path is held by `tests/unit/kserveDeploy.test.ts` until an AWS apply).
+
 ## 2026-11-24 — R531: Query history, every query run for you and what it cost
 
 Driven on a dev server built from the worktree (`:8102`), signed in as the owner, against the real

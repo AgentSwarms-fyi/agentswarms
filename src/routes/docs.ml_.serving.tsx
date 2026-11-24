@@ -144,6 +144,12 @@ function MlServingPage() {
         Every decision is recorded on the endpoint in plain words — the panel shows the last one —
         and every change is audited as <C>ml.scale</C> with the rate that caused it.
       </P>
+      <P>
+        <strong>A minimum of 0 comes back up.</strong> With no copy running, a prediction is
+        answered the slow way, by a one-off sandbox, and still counts as a request on the endpoint.
+        The next pass sees the rate and starts a copy, so an endpoint that went quiet overnight is
+        warm again a minute after its first caller.
+      </P>
       <H3 id="replicas-limits">What a copy actually is, and how far it gets you</H3>
       <P>
         A copy is a sandbox, started the same way every other sandbox is — so what it lands on
@@ -155,6 +161,11 @@ function MlServingPage() {
         rows={[
           ["Docker", "Another container on this machine."],
           ["Kubernetes", "Another Pod, which the scheduler may place on any node."],
+          ["AWS ECS", "Another Fargate task, in its own microVM."],
+          [
+            "Kubernetes with KServe",
+            "Not a copy the app starts: pods of one InferenceService, which Kubernetes scales (below).",
+          ],
         ]}
       />
       <P>
@@ -175,6 +186,87 @@ function MlServingPage() {
       <P>
         Either way the warm-container limits still apply, and they count copies rather than
         endpoints, because the thing being bounded is resident memory.
+      </P>
+
+      <H3 id="kserve">Serving on Kubernetes with KServe</H3>
+      <P>
+        On a Kubernetes cluster (EKS, GKE, AKS or OKE) a warm endpoint can be served by{" "}
+        <strong>KServe</strong> instead. Set <C>ML_SERVING_BACKEND=kserve</C>; each installer sets
+        it with the rest: <C>SERVING=kserve</C> for <C>scripts/setup-k8s.sh</C>,{" "}
+        <C>serving.kserve.enabled</C> in the Helm chart, <C>serving_kserve = true</C> on EKS (see{" "}
+        <DocLink to="/docs/self-hosting/kubernetes#k8s-serving">Kubernetes</DocLink>). Each deployed
+        model becomes one InferenceService, and the cluster does the scaling: a
+        HorizontalPodAutoscaler adds and removes pods, and the cloud&apos;s node autoscaler adds
+        machines when the pods need room. The app&apos;s own scaler stands aside for these
+        endpoints.
+      </P>
+      <P>
+        <strong>The scorer is the same.</strong> A pod runs the same image and the same scoring
+        program as a sandbox copy, so a prediction is computed the same way on every path. What
+        changes is who starts it: the cluster does, whenever load needs another pod. A new pod asks
+        the app for its model, as a sandbox copy does, and checks the artifact&apos;s digest before
+        loading it. If the app cannot be reached just then, the pod keeps asking; pods already
+        serving are not affected.
+      </P>
+      <Table
+        headers={["Setting", "Default", "What it decides"]}
+        rows={[
+          [
+            <C key="m">KSERVE_MODE</C>,
+            "Standard",
+            "Standard: an HPA on CPU or memory, always at least one pod. Knative: scales on requests, and to zero when nobody calls; needs Knative Serving.",
+          ],
+          [
+            <C key="s">KSERVE_SCALE_METRIC</C>,
+            "cpu",
+            "What the autoscaler watches: cpu or memory (percent of each pod's request); on Knative also concurrency or rps.",
+          ],
+          [<C key="t">KSERVE_SCALE_TARGET</C>, "60", "The level it holds that metric at."],
+          [
+            <C key="a">KSERVE_ACCESS</C>,
+            "direct",
+            "direct: the predictor's Service, when the app runs in the cluster. apiserver: through the API server's proxy, for an app outside it.",
+          ],
+          [
+            <C key="n">KSERVE_NAMESPACE</C>,
+            "agentswarms-serving",
+            "Where InferenceServices are made. Its ResourceQuota is the ceiling on every endpoint's pods together.",
+          ],
+        ]}
+      />
+      <P>
+        The minimum and maximum on the deployment panel become the InferenceService&apos;s pod
+        range, and changing them changes it at once. A minimum of 0 is held at 1 in Standard mode,
+        since only Knative scales to zero. Stop after an idle time still applies: an endpoint nobody
+        calls is deleted from the cluster like a sandbox copy is stopped.
+      </P>
+      <P>
+        The panel shows how many pods are serving, read from the cluster when it opens, and why the
+        others are not, in Kubernetes&apos; words: no node with room, an image that cannot be
+        pulled, a model that would not load. A model that fails to load says so from the
+        scorer&apos;s own log, and the deploy ends with that reason rather than a timeout.
+      </P>
+      <Callout kind="info" title="A predictor holds no credential, on purpose">
+        A pod runs the model&apos;s own code: a fitted pipeline is a pickle, and loading one can run
+        anything in it. So a pod is given nothing that reaches beyond its own model. It has no
+        storage credential, no cloud role and no Kubernetes access. It proves which endpoint it is
+        with that endpoint&apos;s port token (kept in a Secret beside it, and never the same for two
+        endpoints), and the app answers with the model that endpoint was started for. KServe could
+        instead copy models in from storage, but every predictor would then read with one shared
+        identity, and one endpoint&apos;s code could read every other&apos;s model. The chart&apos;s
+        network policy lets predictors reach the app and nothing else.
+      </Callout>
+      <P>
+        Every object the app makes is labelled with the installation that made it, so two
+        installations sharing a namespace never touch each other&apos;s endpoints. If deleting one
+        fails (the API server away, a permission withdrawn), a sweep on the platform clock deletes
+        it later: an InferenceService no endpoint names is never left holding pods.
+      </P>
+      <P>
+        To try it on a laptop, <C>bash deploy/kind/kserve/run.sh up</C> builds a kind cluster with
+        cert-manager, metrics-server, KServe and the chart&apos;s serving objects, and{" "}
+        <C>run.sh load</C> drives a deployed endpoint hard enough to watch the HPA add pods and take
+        them away again. The script&apos;s header has the steps.
       </P>
 
       <H3 id="shadow">Trying a version on real traffic</H3>

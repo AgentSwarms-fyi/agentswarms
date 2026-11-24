@@ -124,6 +124,30 @@ sandboxes:
   egressProxy:
     replicas: 2
 
+# Warm model endpoints on KServe (templates/serving.yaml). Off, a deployed
+# model is served by sandboxes the app starts and scales itself, as before.
+# On, each endpoint is a KServe InferenceService and the cluster scales its
+# pods. Needs KServe and cert-manager in the cluster.
+serving:
+  kserve:
+    enabled: false
+    namespace: agentswarms-serving
+    # Standard: an HPA scales pods on CPU or memory, never below one.
+    # Knative: scales on requests and to zero; needs Knative Serving.
+    mode: Standard
+    scaleMetric: cpu
+    scaleTarget: 60
+    # Every endpoint's pods together stop here.
+    quota:
+      pods: "40"
+      cpu: "40"
+      memory: 80Gi
+    # Predictor pods get their model from the app, so they need no
+    # permissions: no API access, no storage credential, no cloud role.
+    predictor:
+      serviceAccount: agentswarms-predictor
+      annotations: {}
+
 # An AWS Load Balancer Controller Ingress: /auth/v1, /rest/v1 and
 # /storage/v1 to Supabase's gateway, /nbgw to the notebook gateway, the rest
 # to the app.

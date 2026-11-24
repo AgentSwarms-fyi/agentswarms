@@ -136,8 +136,16 @@ describe("every request into a sandbox carries it", () => {
       "...(await sandboxAuthHeaders(started.session.id)),",
     );
     const ml = rd("src/utils/ml/serve.server.ts");
-    // Two health checks and two score calls.
-    expect(ml.match(/await scorerHeaders\(/g)).toHaveLength(4);
+    // A copy's health check and its two score calls (the answer and the
+    // shadow's mirror) name the copy's token, a sandbox's or, on KServe
+    // (R532), the InferenceService's; the wait for a new sandbox names its
+    // session's.
+    expect(ml.match(/await replicaHeaders\(/g)).toHaveLength(3);
+    expect(ml).toContain("headers: await sandboxAuthHeaders(session.id),");
+    const pick = ml.slice(ml.indexOf("async function replicaHeaders("));
+    expect(pick.slice(0, pick.indexOf("\n}\n"))).toContain(
+      "return replica.session_id ? sandboxAuthHeaders(replica.session_id) : {};",
+    );
     expect(ml).toContain("token: await sandboxToken(session.id),");
   });
 

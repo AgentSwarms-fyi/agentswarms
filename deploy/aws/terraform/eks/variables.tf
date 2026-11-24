@@ -125,6 +125,12 @@ variable "kubernetes_version" {
   default     = "1.35"
 }
 
+variable "serving_kserve" {
+  description = "Serve warm model endpoints on KServe: installs cert-manager and KServe (Standard mode) and turns on the chart's serving.kserve. Predictor pods get their model from the app and hold no IAM role."
+  type        = bool
+  default     = false
+}
+
 variable "api_allowed_cidrs" {
   description = "Who may reach the cluster's API endpoint from the internet (kubectl, Terraform's Helm releases). Narrow it to your own address."
   type        = list(string)

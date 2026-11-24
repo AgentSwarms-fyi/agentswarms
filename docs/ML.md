@@ -1475,15 +1475,22 @@ Every decision is recorded on the endpoint in plain words — the panel shows th
 last one — and every change is audited as `ml.scale` with the rate that caused
 it.
 
+**A minimum of 0 comes back up.** With no copy running, a prediction is
+answered the slow way, by a one-off sandbox, and still counts as a request on
+the endpoint. The next pass sees the rate and starts a copy, so an endpoint
+that went quiet overnight is warm again a minute after its first caller.
+
 ### What a copy actually is, and how far it gets you
 
 A copy is a sandbox, started the same way every other sandbox is — so what it
 lands on depends entirely on the runtime backend:
 
-| Backend    | A copy is                                                   |
-| ---------- | ----------------------------------------------------------- |
-| Docker     | Another container on this machine.                          |
-| Kubernetes | Another **Pod**, which the scheduler may place on any node. |
+| Backend                | A copy is                                                                                     |
+| ---------------------- | --------------------------------------------------------------------------------------------- |
+| Docker                 | Another container on this machine.                                                            |
+| Kubernetes             | Another **Pod**, which the scheduler may place on any node.                                   |
+| AWS ECS                | Another Fargate task, in its own microVM.                                                     |
+| Kubernetes with KServe | Not a copy the app starts: pods of one InferenceService, which Kubernetes scales (see below). |
 
 Nothing in the scaling code mentions either. It asks the orchestrator for a
 scoring sandbox and gets back an address.
@@ -1511,6 +1518,61 @@ nodes to spread across, not by default.
 
 Either way the warm-container limits still apply, and they count copies rather
 than endpoints, because the thing being bounded is resident memory.
+
+### Warm endpoints on KServe
+
+On a Kubernetes cluster (EKS, GKE, AKS or OKE) a warm endpoint can be served by
+**KServe** instead. Turn it on with `ML_SERVING_BACKEND=kserve`, which each
+installer sets for you:
+
+- **Helm chart:** `serving.kserve.enabled=true`.
+- **`scripts/setup-k8s.sh`:** `SERVING=kserve`.
+- **EKS Terraform root:** `serving_kserve = true`. It also installs cert-manager
+  and KServe v0.21.0.
+
+Each deployed model becomes one InferenceService, and the cluster does the
+scaling: a HorizontalPodAutoscaler adds and removes pods, and the cloud's node
+autoscaler adds machines when the pods need room. The app's own scaler, above,
+stands aside for these endpoints.
+
+| Setting               | Default               | What it decides                                                                                                                                    |
+| --------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `KSERVE_MODE`         | `Standard`            | `Standard`: an HPA on CPU or memory, always at least one pod. `Knative`: scales on requests, and to zero when nobody calls; needs Knative Serving. |
+| `KSERVE_SCALE_METRIC` | `cpu`                 | `cpu` or `memory` (percent of each pod's request); on Knative also `concurrency` or `rps`.                                                         |
+| `KSERVE_SCALE_TARGET` | `60`                  | The level the autoscaler holds that metric at.                                                                                                     |
+| `KSERVE_ACCESS`       | `direct`              | `direct`: the predictor's Service, for an app in the cluster. `apiserver`: through the API server's proxy, for an app outside it.                  |
+| `KSERVE_NAMESPACE`    | `agentswarms-serving` | Where InferenceServices are made. Its `ResourceQuota` is the ceiling on every endpoint's pods together.                                            |
+
+The minimum and maximum on the deployment panel become the InferenceService's
+pod range at once. A minimum of 0 is held at 1 in Standard mode. Stop after an
+idle time still applies: an endpoint nobody calls is deleted from the cluster.
+The panel shows how many pods are serving, read from the cluster, and why the
+others are not, in Kubernetes' words.
+
+**A predictor pod holds no credential, on purpose.** It runs the same scorer as
+a sandbox copy, and the model's own code with it: a fitted pipeline is a
+pickle, and loading one can run anything in it. So a pod is given nothing that
+reaches beyond its own model: no storage credential, no cloud role, no
+Kubernetes access. A new pod proves which endpoint it is with that endpoint's
+port token (kept in a Secret beside it) and asks the app for the model that
+endpoint was started for, at `/api/ml/serving/bundle` and `/artifact`; it
+checks the artifact's digest before loading it. KServe could instead copy
+models in from storage, but every predictor would then read with one shared
+identity, and one endpoint's code could read every other's model. The chart's
+network policy lets predictors reach the app and nothing else. The trade: a new
+pod needs the app reachable to start, and keeps asking until it is; pods
+already serving are unaffected.
+
+Every object the app makes is labelled with the installation that made it, so
+two installations sharing a namespace never touch each other's endpoints, and a
+sweep on the platform clock deletes any InferenceService a failed delete left
+behind.
+
+To try it on a laptop, `bash deploy/kind/kserve/run.sh up` builds a kind
+cluster with cert-manager, metrics-server, KServe and the chart's serving
+objects; `run.sh app-env` writes the settings for a dev server outside the
+cluster; and `run.sh load` drives a deployed endpoint hard enough to watch the
+HPA add pods and take them away again.
 
 ### Trying a version on real traffic
 

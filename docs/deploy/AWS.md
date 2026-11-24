@@ -137,6 +137,23 @@ and the VPC endpoints for ECR, Logs and S3, which is how it starts.
   - A NetworkPolicy, enforced by the VPC CNI, lets them reach DNS, the egress
     proxy and the app, and nothing else.
 
+### Model serving
+
+A deployed model's warm endpoint is, by default, sandboxes the app starts and
+scales: Fargate tasks on VM and ECS, pods on EKS. On EKS,
+`serving_kserve = true` installs cert-manager and KServe v0.21.0 (Standard
+mode, no ingress) and turns on the chart's `serving.kserve`. Each endpoint is
+then an InferenceService whose pods a HorizontalPodAutoscaler scales on CPU,
+with the Cluster Autoscaler adding nodes underneath.
+
+- Predictor pods have no IAM role and no route to S3. A pod asks the app for
+  its own model, proving which endpoint it is with that endpoint's port token,
+  because it runs the model's own code.
+- The `agentswarms-serving` namespace has a quota, and a NetworkPolicy lets
+  predictors be reached by the app and reach only the app.
+
+See [Warm endpoints on KServe](../DEPLOYMENT.md#warm-endpoints-on-kserve).
+
 ### Egress
 
 The proxy fetches the allow-list from the app (`NOTEBOOK_EGRESS_MODE=pull`).

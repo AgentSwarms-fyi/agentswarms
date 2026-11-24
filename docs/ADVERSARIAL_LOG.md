@@ -109,6 +109,39 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-24 — R532: a model's code next to a storage key, and a scorer that read the next request wrong
+
+**Why this round.** R532 lets Kubernetes run warm endpoints through KServe, so a pod the app never
+starts runs a model it never sees loaded. Whatever that pod can reach, the model's own code can
+reach: a fitted pipeline is a pickle, and loading one runs what is in it. So the pod was read as
+the attacker, on a real cluster.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| A shared storage identity would have let any endpoint read every other endpoint's model | S2 | The first design had KServe's storage initializer copy a published bundle in, reading with one service account for all predictors. Any endpoint's pickle could then read every other owner's model, and on EKS Pod Identity hands that role to every container in the pod, not only the initializer. **Found on kind**, reading why the initializer was refused. Pods now ask the app for their own model (`/api/ml/serving/bundle`, `/artifact`), proving which endpoint they are with that endpoint's port token. The app answers with the model the live copy naming that endpoint holds, and nothing in the request can name another. Pods hold no storage credential, cloud role or Kubernetes access, and the chart lets them reach the app only (**measured**: the lake store and the internet time out from a predictor) |
+| The read-only bundle key could not be made read-only | S3 | KServe's initializer calls `HeadBucket` before it lists, and S3 and MinIO authorize that as bucket-wide `s3:ListBucket`: every key name in the lake bucket, all owners' table names among them. MinIO has no `…IfExists` operator to narrow it, and on AWS the `Null` form allows full listings. Gone with the storage identity |
+| A refused request broke the next one on the same connection | S3 | The scorer answered a POST it refused (no token, wrong path, still loading) without reading the body, and on a kept-alive connection that body was parsed as the next request: a 501 for whoever reused the socket. **Measured** in the new test. Such an answer now closes the connection |
+| A failure reason was a page of log | S4 | Kubernetes puts a container's log tail in its termination message, and the panel showed all of it. Only the last line now |
+| The pods maximum had no name | S4 | Screen readers read it as "1". It is "Most pods" (or "Most copies") |
+| An endpoint at a minimum of 0 never came back | S3 | Pre-existing, on the sandbox path: with no copy up, a prediction went the slow way and was not counted, so the scaler read no demand. A request that finds no copy now counts |
+| Two migrations had the same version | S2 | This round's replicas migration was written as `20261129000000`, and a contributor's `20261129000000_agent_swarm_names_not_blank.sql` reached `main` meanwhile. `db push` records versions, not names: a database with either applied silently skips the other, a trap this project has fallen into before. Found when rebasing, before anything was pushed. The replicas migration is `20261201000000`, after both of the contributor's, and is idempotent, so a database that applied it under the old number can be repaired and pushed again |
+
+**Checked and sound.**
+- **One endpoint cannot ask as another.** `servingCaller` compares the token in constant time against the one derived for the endpoint the pod names, then takes the model from the live copy naming it: A's token naming B is refused, a stopped endpoint gets nothing (`tests/unit/kserveServingCaller.test.ts`).
+- **The app's account is small.** InferenceServices and their Secrets in one namespace, and reading pods; it cannot list Secrets or create pods (**measured** with `kubectl auth can-i`).
+- **Through the API server, the token is not the API server's.** The proxy takes `Authorization` for itself and drops it after authenticating, so the port token travels in `X-Port-Token`.
+- **Installations sharing a namespace leave each other alone.** Every object carries an install label derived from the runtime secret, and the orphan sweep lists only its own.
+- **A single failed request never takes an endpoint down.** A transport error retires a sandbox copy, never an InferenceService, whose pods Kubernetes replaces.
+- **Owners cannot point the app at someone else's object.** The InferenceService's name lives only on the replicas table, which no client may read or write; `ml_deployments` is owner-writable under RLS and holds none of it.
+
+**What would have been wrong to conclude.**
+
+- *"Least privilege is a narrow IAM policy."* The narrowest policy KServe could use still served
+  every tenant's models to every tenant's code. The isolation has to be per endpoint, and only
+  the app knows which endpoint is whose.
+- *"The deploy failed because of permissions."* It failed because of permissions, and it showed a
+  design that was wrong with or without them.
+
 ### 2026-11-24 — R531: a record of cost that nobody can edit, and the queries that were never recorded
 
 **Why this round.** Query history keeps what each query cost. A cost record its owner can edit is not a record, and one that misses the queries run on someone's behalf undercounts exactly where cost hides (a popular dashboard, a schedule). So the table was designed against both before the page was.
