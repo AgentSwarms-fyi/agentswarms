@@ -105,7 +105,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { chooseInitialSwarm } from "@/lib/swarmInitialLoad";
-import { hasVisibleName } from "@/lib/visibleName";
+import { NAME_MAX_LENGTH, nameProblem } from "@/lib/visibleName";
 import { supabase } from "@/integrations/supabase/client";
 import { ComponentLibraryDialog } from "@/components/swarms/ComponentLibraryDialog";
 import { bindingFor, type SwarmComponent } from "@/lib/swarmComponents";
@@ -1425,10 +1425,12 @@ function SwarmsCanvas({
 
   const handleSave = async (overwrite = false) => {
     if (!user) return;
-    // This one handler both creates the row (first save) and updates it. A
-    // name of only spaces was saved by both and then listed as a blank swarm.
-    if (!hasVisibleName(swarmName)) {
-      toast.error("Give the swarm a name");
+    // This one handler both creates the row (first save) and updates it, so
+    // the name is checked here for both: blank, or longer than the limit (a
+    // template's title or a loaded swarm's old name skips the input's maxLength).
+    const nameError = nameProblem(swarmName, "swarm");
+    if (nameError) {
+      toast.error(nameError);
       return;
     }
     setSaving(true);
@@ -2128,6 +2130,7 @@ function SwarmsCanvas({
               <Input
                 value={swarmName}
                 onChange={(e) => setSwarmName(e.target.value)}
+                maxLength={NAME_MAX_LENGTH}
                 className="h-8 w-64 text-sm font-semibold bg-card/80 backdrop-blur"
                 placeholder="Swarm name"
               />

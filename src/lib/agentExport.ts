@@ -1,6 +1,7 @@
 import yaml from "js-yaml";
 import { parseGuardrails, type Guardrails } from "@/utils/guardrails";
 import { isRecord, recordOf } from "@/lib/jsonRecord";
+import { clampName } from "@/lib/visibleName";
 import type { Agent } from "@/components/agents/AgentForm";
 import {
   cleanModelId,
@@ -842,7 +843,8 @@ export function parseImportedAgent(
       const [provider, ...modelParts] = llm.split("/");
       const { flags, count } = toolFlags(a.tools);
       return {
-        name: str(a.role, str(key, "Imported Agent", 200), 200),
+        // The same limit as the agent form and the agents table.
+        name: clampName(str(a.role, str(key, "Imported Agent"))),
         description: optStr(a.goal),
         system_prompt: optStr(a.backstory),
         llm_provider: str(provider, "openrouter", 60),
@@ -862,7 +864,8 @@ export function parseImportedAgent(
   const model = recordOf(parsed.model);
   const { flags, count } = toolFlags(recordOf(parsed.tools).built_in);
   return {
-    name: str(parsed.name, "Imported Agent", 200),
+    // The same limit as the agent form and the agents table.
+    name: clampName(str(parsed.name, "Imported Agent")),
     description: optStr(parsed.description),
     system_prompt: optStr(parsed.system_prompt),
     llm_provider: str(model.provider, "openrouter", 60),

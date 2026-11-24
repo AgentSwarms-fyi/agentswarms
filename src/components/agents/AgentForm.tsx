@@ -25,7 +25,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { hasVisibleName } from "@/lib/visibleName";
+import { NAME_MAX_LENGTH, nameProblem } from "@/lib/visibleName";
 import {
   Shield,
   Zap,
@@ -1263,10 +1263,11 @@ export function AgentForm({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     // The Name input's `required` stops an empty box, not one of only spaces,
-    // and this one handler both creates and updates. Such a name was saved and
-    // then showed as a blank row in every list and picker.
-    if (!hasVisibleName(name)) {
-      toast.error("Give the agent a name");
+    // and its maxLength does not cover a restored draft. This one handler both
+    // creates and updates, so the name is checked here for both.
+    const nameError = nameProblem(name, "agent");
+    if (nameError) {
+      toast.error(nameError);
       return;
     }
     setLoading(true);
@@ -1503,6 +1504,7 @@ export function AgentForm({
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
+              maxLength={NAME_MAX_LENGTH}
               placeholder="My Agent"
             />
           </div>

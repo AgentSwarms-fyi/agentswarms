@@ -11,6 +11,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { usePageIntent } from "@/hooks/use-page-intent";
 import { readPageIntent } from "@/lib/pageIntent";
 import { cn } from "@/lib/utils";
+import { NAME_MAX_LENGTH, nameProblem } from "@/lib/visibleName";
 import { clickable } from "@/lib/clickable";
 import { parseFileToText } from "@/lib/fileParsers";
 import { isUploadedFile, kbSourceBadge } from "@/lib/kbSourceLabel";
@@ -861,6 +862,13 @@ function KnowledgePage() {
 
   async function createBase() {
     if (!user) return;
+    // The button stops a blank name; the length is checked here too, for a
+    // pasted name the input's maxLength does not get to see.
+    const nameError = nameProblem(newBaseName, "knowledge base");
+    if (nameError) {
+      toast.error(nameError);
+      return;
+    }
     const { error } = await supabase.from("knowledge_bases").insert({
       user_id: user.id,
       name: newBaseName,
@@ -1699,6 +1707,7 @@ function KnowledgePage() {
                       <Input
                         value={newBaseName}
                         onChange={(e) => setNewBaseName(e.target.value)}
+                        maxLength={NAME_MAX_LENGTH}
                         placeholder="e.g. Product docs"
                       />
                     </div>
