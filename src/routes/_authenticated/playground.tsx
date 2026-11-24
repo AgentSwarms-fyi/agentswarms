@@ -1633,15 +1633,25 @@ function PlaygroundPage() {
                 setMessages([]);
               }}
             >
-              <SelectTrigger className="h-9 w-auto min-w-[170px] max-w-[260px] gap-1.5 rounded-lg border-border/70 bg-card/60 px-3 font-semibold shadow-sm hover:bg-card">
+              <SelectTrigger
+                title={currentAgent?.name}
+                className="h-9 w-auto min-w-[170px] max-w-[260px] gap-1.5 rounded-lg border-border/70 bg-card/60 px-3 font-semibold shadow-sm hover:bg-card"
+              >
                 <SelectValue placeholder="Select an agent…" />
               </SelectTrigger>
-              <SelectContent>
+              {/* A long name would otherwise widen the list to its full length. */}
+              <SelectContent className="max-w-[min(26rem,calc(100vw-2rem))]">
                 {agents.map((a) => (
-                  <SelectItem key={a.id} value={a.id}>
-                    <div className="flex items-center gap-2">
-                      <Bot className="h-3.5 w-3.5 text-primary" />
-                      {a.name}
+                  <SelectItem
+                    key={a.id}
+                    value={a.id}
+                    title={a.name}
+                    // Lets Radix's ItemText span shrink, so the name can be cut.
+                    className="[&>span]:min-w-0"
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Bot className="h-3.5 w-3.5 shrink-0 text-primary" />
+                      <span className="truncate">{a.name}</span>
                     </div>
                   </SelectItem>
                 ))}
@@ -1730,7 +1740,10 @@ function PlaygroundPage() {
                   <div className="mb-5 grid h-14 w-14 place-items-center rounded-xl bg-primary/10 text-primary">
                     <Bot className="h-8 w-8" />
                   </div>
-                  <h2 className="text-2xl font-semibold tracking-tight">
+                  <h2
+                    className="line-clamp-2 max-w-full text-2xl font-semibold tracking-tight wrap-anywhere"
+                    title={currentAgent?.name}
+                  >
                     {currentAgent
                       ? `Chat with ${currentAgent.name}`
                       : agentsError
@@ -3527,13 +3540,13 @@ function ThinkingIndicator({ agent }: { agent?: Agent | null }) {
       <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
         <Bot className="h-4 w-4" />
       </div>
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <span className="flex gap-1">
+      <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
+        <span className="flex shrink-0 gap-1">
           <span className="thinking-dot h-1.5 w-1.5 rounded-full bg-primary" />
           <span className="thinking-dot h-1.5 w-1.5 rounded-full bg-primary" />
           <span className="thinking-dot h-1.5 w-1.5 rounded-full bg-primary" />
         </span>
-        <span className="text-xs">{agent?.name || "Agent"} is thinking...</span>
+        <span className="min-w-0 truncate text-xs">{agent?.name || "Agent"} is thinking...</span>
       </div>
     </div>
   );

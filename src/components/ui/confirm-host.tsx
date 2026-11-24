@@ -97,8 +97,13 @@ export function ConfirmHost() {
         }}
       >
         <AlertDialogHeader>
-          <AlertDialogTitle>{title}</AlertDialogTitle>
-          <AlertDialogDescription>{body}</AlertDialogDescription>
+          {/* Titles name what is being deleted, and a name can be one long
+              unbroken word: without these it widened the dialog past the
+              screen and took the buttons with it. */}
+          <AlertDialogTitle className="line-clamp-3 wrap-anywhere" title={title}>
+            {title}
+          </AlertDialogTitle>
+          <AlertDialogDescription className="wrap-anywhere">{body}</AlertDialogDescription>
         </AlertDialogHeader>
         {wantsText && (
           <Input
