@@ -4,11 +4,14 @@
 # (macOS / Linux / WSL / Git Bash — Windows users run this under WSL or Git Bash
 #  with Docker Desktop running.)
 #
-#   bash scripts/setup-selfhosted.sh              # Supabase + core app  → :8080
-#   bash scripts/setup-selfhosted.sh --all        # Supabase + EVERY service
-#   bash scripts/setup-selfhosted.sh --dev        # Supabase + local dev server
+#   bash scripts/setup-selfhosted.sh              # Supabase + EVERY service  → :8080
+#   bash scripts/setup-selfhosted.sh --dev        # the same, with the app on the host (npm run dev)
 #   bash scripts/setup-selfhosted.sh --yes        # unattended: nobody to confirm migrations
-#   ADMIN_EMAIL=you@corp.com ADMIN_PASSWORD='...' bash scripts/setup-selfhosted.sh --all
+#   ADMIN_EMAIL=you@corp.com ADMIN_PASSWORD='...' bash scripts/setup-selfhosted.sh --yes
+#
+# There is nothing to opt into: every service is always installed (see
+# scripts/setup.sh). The old per-service flags (--all, --docgen, ...) are still
+# accepted and do nothing.
 #
 # What it does, in order — the scripted version of
 # docs/DEPLOYMENT.md § "Self-hosted Supabase":
