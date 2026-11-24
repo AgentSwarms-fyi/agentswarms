@@ -12,6 +12,8 @@ import { usePageIntent } from "@/hooks/use-page-intent";
 import { readPageIntent } from "@/lib/pageIntent";
 import { cn } from "@/lib/utils";
 import { NAME_MAX_LENGTH, nameProblem } from "@/lib/visibleName";
+import { DESCRIPTION_MAX_LENGTH, lengthProblem } from "@/lib/textLimits";
+import { CharCount } from "@/components/ui/char-count";
 import { clickable } from "@/lib/clickable";
 import { parseFileToText } from "@/lib/fileParsers";
 import { isUploadedFile, kbSourceBadge } from "@/lib/kbSourceLabel";
@@ -864,9 +866,11 @@ function KnowledgePage() {
     if (!user) return;
     // The button stops a blank name; the length is checked here too, for a
     // pasted name the input's maxLength does not get to see.
-    const nameError = nameProblem(newBaseName, "knowledge base");
-    if (nameError) {
-      toast.error(nameError);
+    const formError =
+      nameProblem(newBaseName, "knowledge base") ??
+      lengthProblem(newBaseDesc, DESCRIPTION_MAX_LENGTH, "description");
+    if (formError) {
+      toast.error(formError);
       return;
     }
     const { error } = await supabase.from("knowledge_bases").insert({
@@ -1531,12 +1535,16 @@ function KnowledgePage() {
                           <Button
                             size="sm"
                             variant="outline"
+                            className="max-w-full"
+                            title={`Re-index \u201C${selectedBase.name}\u201D with these settings`}
                             disabled={reindexing}
                             onClick={reindexWithCurrentSettings}
                           >
-                            {reindexing
-                              ? "Re-indexing\u2026"
-                              : `Re-index \u201C${selectedBase.name}\u201D with these settings`}
+                            <span className="truncate">
+                              {reindexing
+                                ? "Re-indexing\u2026"
+                                : `Re-index \u201C${selectedBase.name}\u201D with these settings`}
+                            </span>
                           </Button>
                         )}
                       </div>
@@ -1713,7 +1721,12 @@ function KnowledgePage() {
                     </div>
                     <div className="space-y-2">
                       <Label>Description</Label>
-                      <Input value={newBaseDesc} onChange={(e) => setNewBaseDesc(e.target.value)} />
+                      <Input
+                        value={newBaseDesc}
+                        onChange={(e) => setNewBaseDesc(e.target.value)}
+                        maxLength={DESCRIPTION_MAX_LENGTH}
+                      />
+                      <CharCount value={newBaseDesc} max={DESCRIPTION_MAX_LENGTH} />
                     </div>
                     <Button onClick={createBase} disabled={!newBaseName.trim()}>
                       Create
@@ -1812,7 +1825,12 @@ function KnowledgePage() {
                 </CardHeader>
                 {base.description && (
                   <CardContent className="px-4 pb-3 pt-0">
-                    <p className="text-xs text-muted-foreground">{base.description}</p>
+                    <p
+                      className="line-clamp-2 text-xs text-muted-foreground wrap-anywhere"
+                      title={base.description}
+                    >
+                      {base.description}
+                    </p>
                   </CardContent>
                 )}
               </Card>
@@ -1836,12 +1854,24 @@ function KnowledgePage() {
           <div className="lg:col-span-2 space-y-4">
             {selectedBase ? (
               <>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-lg font-semibold">{selectedBase.name}</h2>
-                    {selectedBase.is_sample && <Badge variant="secondary">Sample</Badge>}
+                {/* A long name takes its own line and is cut there; the buttons wrap below it. */}
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                  <div className="flex min-w-0 flex-auto items-center gap-2">
+                    <h2
+                      className="min-w-0 truncate text-lg font-semibold"
+                      title={selectedBase.name}
+                    >
+                      {selectedBase.name}
+                    </h2>
+                    {selectedBase.is_sample && (
+                      <Badge variant="secondary" className="shrink-0">
+                        Sample
+                      </Badge>
+                    )}
                     {!selectedBase.is_sample && selectedBase.user_id !== user?.id && (
-                      <Badge variant="outline">Shared</Badge>
+                      <Badge variant="outline" className="shrink-0">
+                        Shared
+                      </Badge>
                     )}
                   </div>
                   {selectedBase.is_sample ? (

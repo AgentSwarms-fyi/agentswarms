@@ -27,6 +27,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { NAME_MAX_LENGTH, nameProblem } from "@/lib/visibleName";
 import {
+  DESCRIPTION_MAX_LENGTH,
+  LIST_MAX_LENGTH,
+  PROMPT_MAX_LENGTH,
+  SHORT_TEXT_MAX_LENGTH,
+  URL_MAX_LENGTH,
+  lengthProblem,
+} from "@/lib/textLimits";
+import { CharCount } from "@/components/ui/char-count";
+import {
   Shield,
   Zap,
   Search,
@@ -1270,6 +1279,40 @@ export function AgentForm({
       toast.error(nameError);
       return;
     }
+    // Same reason as the name: maxLength does not see a restored draft or a
+    // Prompt Library pick. A description or prompt saved before these limits
+    // is let through while it is unedited — the sample agents' descriptions
+    // carry a [skill-sample:…] tag that puts them over 120.
+    const edited = (value: string, saved: string | null | undefined) => value !== (saved || "");
+    const lengthError =
+      (edited(description, agent?.description)
+        ? lengthProblem(description, DESCRIPTION_MAX_LENGTH, "description")
+        : null) ??
+      (edited(systemPrompt, agent?.system_prompt)
+        ? lengthProblem(systemPrompt, PROMPT_MAX_LENGTH, "system prompt")
+        : null) ??
+      lengthProblem(
+        guardrails.customFilterPrompt,
+        PROMPT_MAX_LENGTH,
+        "custom output filter prompt",
+      ) ??
+      lengthProblem(guardrails.blockedPatterns, LIST_MAX_LENGTH, "blocked input patterns") ??
+      lengthProblem(guardrails.allowedTopics, LIST_MAX_LENGTH, "allowed topics") ??
+      lengthProblem(guardrails.topicRestrictions, LIST_MAX_LENGTH, "restricted topics") ??
+      lengthProblem(rerankModel, SHORT_TEXT_MAX_LENGTH, "reranker model name") ??
+      lengthProblem(n8nWebhook, URL_MAX_LENGTH, "n8n webhook URL") ??
+      Object.values(toolConfigs)
+        .map((cfg) => lengthProblem(cfg?.api_key, URL_MAX_LENGTH, "tool API key / endpoint"))
+        .find(Boolean) ??
+      Object.values(workflowConfigs)
+        .flatMap((cfg) => Object.values(cfg ?? {}))
+        .map((v) => lengthProblem(v, URL_MAX_LENGTH, "workflow setting"))
+        .find(Boolean) ??
+      null;
+    if (lengthError) {
+      toast.error(lengthError);
+      return;
+    }
     setLoading(true);
 
     const kbIds = Array.from(selectedKbIds);
@@ -1513,8 +1556,10 @@ export function AgentForm({
             <Input
               value={description}
               onChange={(e) => setDescription(e.target.value)}
+              maxLength={DESCRIPTION_MAX_LENGTH}
               placeholder="A helpful assistant for..."
             />
+            <CharCount value={description} max={DESCRIPTION_MAX_LENGTH} />
           </div>
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
@@ -1522,7 +1567,10 @@ export function AgentForm({
               <PromptLibraryPicker
                 onPick={(p) => {
                   setSystemPrompt(p.content);
-                  toast.success(`Loaded "${p.title}" from Prompt Library`);
+                  const tooLong = lengthProblem(p.content, PROMPT_MAX_LENGTH, "system prompt");
+                  if (tooLong)
+                    toast.warning(`Loaded "${p.title}", but it is too long. ${tooLong}.`);
+                  else toast.success(`Loaded "${p.title}" from Prompt Library`);
                 }}
               />
             </div>
@@ -1530,12 +1578,16 @@ export function AgentForm({
               rows={5}
               value={systemPrompt}
               onChange={(e) => setSystemPrompt(e.target.value)}
+              maxLength={PROMPT_MAX_LENGTH}
               placeholder="You are a helpful assistant that..."
             />
-            <p className="text-xs text-muted-foreground">
-              Define the agent's personality, capabilities, and constraints — or pick a
-              battle-tested prompt from the Library above.
-            </p>
+            <div className="flex items-start justify-between gap-3">
+              <p className="text-xs text-muted-foreground">
+                Define the agent's personality, capabilities, and constraints — or pick a
+                battle-tested prompt from the Library above.
+              </p>
+              <CharCount value={systemPrompt} max={PROMPT_MAX_LENGTH} className="shrink-0" />
+            </div>
             <div className="mt-6 border-t border-border/60 pt-4">
               <SkillPicker value={skillIds} onChange={setSkillIds} />
             </div>
@@ -1779,7 +1831,10 @@ export function AgentForm({
           </div>
           <div className="space-y-2">
             <Label>Stop sequences</Label>
-            <Input placeholder="e.g. \n\n, END, ###  (comma-separated)" />
+            <Input
+              placeholder="e.g. \n\n, END, ###  (comma-separated)"
+              maxLength={SHORT_TEXT_MAX_LENGTH}
+            />
             <p className="text-xs text-muted-foreground">
               Sequences where the model will stop generating.
             </p>
@@ -1872,6 +1927,7 @@ export function AgentForm({
                             <Input
                               value={rerankModel}
                               onChange={(e) => setRerankModel(e.target.value)}
+                              maxLength={SHORT_TEXT_MAX_LENGTH}
                               placeholder="llama-nemotron-rerank-vl-1b-v2"
                               className="h-9"
                             />
@@ -2392,6 +2448,7 @@ export function AgentForm({
                   rows={3}
                   value={guardrails.blockedPatterns}
                   onChange={(e) => updateGuardrail("blockedPatterns", e.target.value)}
+                  maxLength={LIST_MAX_LENGTH}
                   placeholder={"ignore previous instructions\nact as.*DAN\njailbreak"}
                 />
                 <p className="text-xs text-muted-foreground">
@@ -2443,6 +2500,7 @@ export function AgentForm({
                   rows={3}
                   value={guardrails.customFilterPrompt}
                   onChange={(e) => updateGuardrail("customFilterPrompt", e.target.value)}
+                  maxLength={PROMPT_MAX_LENGTH}
                   placeholder="Check the response for accuracy and..."
                 />
                 <p className="text-xs text-muted-foreground">
@@ -2509,6 +2567,7 @@ export function AgentForm({
                   rows={3}
                   value={guardrails.allowedTopics}
                   onChange={(e) => updateGuardrail("allowedTopics", e.target.value)}
+                  maxLength={LIST_MAX_LENGTH}
                   placeholder={"customer support\nproduct information\ntechnical help"}
                 />
                 <p className="text-xs text-muted-foreground">
@@ -2521,6 +2580,7 @@ export function AgentForm({
                   rows={3}
                   value={guardrails.topicRestrictions}
                   onChange={(e) => updateGuardrail("topicRestrictions", e.target.value)}
+                  maxLength={LIST_MAX_LENGTH}
                   placeholder={"politics\nmedical advice\nlegal advice"}
                 />
                 <p className="text-xs text-muted-foreground">
@@ -3025,6 +3085,7 @@ export function AgentForm({
                                       onChange={(e) =>
                                         updateToolConfig(tool.id, "api_key", e.target.value)
                                       }
+                                      maxLength={URL_MAX_LENGTH}
                                     />
                                   </div>
                                 )}
@@ -3102,6 +3163,7 @@ export function AgentForm({
                               placeholder={f.placeholder}
                               value={workflowConfigs[wf.id]?.[f.key] || ""}
                               onChange={(e) => updateWorkflowConfig(wf.id, f.key, e.target.value)}
+                              maxLength={URL_MAX_LENGTH}
                             />
                           </div>
                         ))}
@@ -3128,6 +3190,7 @@ export function AgentForm({
                 <Input
                   value={n8nWebhook}
                   onChange={(e) => setN8nWebhook(e.target.value)}
+                  maxLength={URL_MAX_LENGTH}
                   placeholder="https://n8n.example.com/webhook/..."
                 />
                 <p className="text-xs text-muted-foreground">
