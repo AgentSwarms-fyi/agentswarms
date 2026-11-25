@@ -417,6 +417,10 @@ export type SwarmRunOptions = {
   // DB run id (swarm_runs.id) so approval rows can link back to this run and
   // show up under "Recent runs" while the swarm is paused on a human step.
   dbRunId?: string;
+  // The saved swarm being run, so each node's model call is named after it
+  // on its trace ("Swarm: <name>", read by the server). Omitted for a swarm
+  // never saved: its calls read "Swarm".
+  swarmId?: string | null;
   // Extra flow-state seeded before the run — used by the typed input form so
   // each named field is available as {{fieldName}} from the first node onward.
   initialState?: Record<string, string>;
@@ -653,6 +657,8 @@ async function callAgentImpl(
    * one run replay another's transcript.
    */
   history: SwarmChatTurn[] = [],
+  /** The saved swarm this run belongs to; names the call's trace. */
+  swarmId?: string | null,
 ): Promise<string> {
   // Combine user-level abort signal with a per-node timeout so hung calls
   // don't block the swarm forever.
@@ -792,6 +798,10 @@ async function callAgentImpl(
         // Memory wiring — see comment at top of callAgent for semantics.
         conversationId,
         memoryOverrides,
+        // Names the trace after the swarm ("Swarm: <name>"), not "Playground"
+        // like a turn typed in Agent Chat. The server reads the name itself.
+        surface: "swarm" as const,
+        swarmId: swarmId || undefined,
       };
 
   let resp = await fetch(endpoint, {
@@ -970,7 +980,15 @@ export async function runSwarm(
   edges: Edge[],
   opts: SwarmRunOptions,
 ): Promise<void> {
-  const { initialInput, onEvent: rawOnEvent, signal, tracer, dbRunId, initialState } = opts;
+  const {
+    initialInput,
+    onEvent: rawOnEvent,
+    signal,
+    tracer,
+    dbRunId,
+    initialState,
+    swarmId,
+  } = opts;
   const depth = opts.depth ?? 0;
   // Install this run's chat history (chat mode) and remember the previous value
   // so a nested Execute-Swarm run restores it on the way out.
@@ -990,7 +1008,18 @@ export async function runSwarm(
     onMeta,
     onThinking,
   ) =>
-    callAgentImpl(node, userMessage, onToken, sig, runId, onUsage, onMeta, onThinking, runHistory);
+    callAgentImpl(
+      node,
+      userMessage,
+      onToken,
+      sig,
+      runId,
+      onUsage,
+      onMeta,
+      onThinking,
+      runHistory,
+      swarmId,
+    );
   // Stable id for the entire run — used as a synthetic conversation key for
   // any node that opts into "swarm-scoped" memory so STM/scratchpad persists
   // across nodes within this single execution.
@@ -1877,6 +1906,8 @@ export async function runSwarm(
               initialInput: subInput,
               signal,
               depth: depth + 1,
+              // Its nodes' calls are named after the swarm they belong to.
+              swarmId: subId,
               onEvent: (e) => {
                 if (e.type === "node_token") {
                   onEvent({ type: "node_token", nodeId: node.id, token: e.token });

@@ -329,6 +329,7 @@ export function SwarmChatDialog({
         initialInput: text,
         history: priorHistory,
         initialState: carriedState,
+        swarmId,
         signal: controller.signal,
         onEvent: (e) => {
           switch (e.type) {

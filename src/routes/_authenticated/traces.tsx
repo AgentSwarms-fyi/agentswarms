@@ -68,7 +68,10 @@ export const Route = createFileRoute("/_authenticated/traces")({
   head: () => ({ meta: [{ title: "Traces & Logs — AgentSwarms" }] }),
 });
 
-const TRACES_DESCRIPTION = "Every agent call, with its model, tokens, time and cost.";
+// "Source", not "Agent": a row is any AI call, and most are not an agent's:
+// Agent Chat ("Playground"), a swarm ("Swarm: <name>"), the assistant, a
+// knowledge base ("KB: Embedding"), the gateway ("Gateway: <key>").
+const TRACES_DESCRIPTION = "Every AI call, with its source, model, tokens, time and cost.";
 
 type Trace = ExecutionTraceRow;
 
@@ -369,7 +372,7 @@ function TracesPage() {
           <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
-              placeholder="Search prompt, agent, model..."
+              placeholder="Search prompt, source, model..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-8 h-9"
@@ -377,10 +380,10 @@ function TracesPage() {
           </div>
           <Select value={agentFilter} onValueChange={setAgentFilter}>
             <SelectTrigger className="h-9 w-40">
-              <SelectValue placeholder="Agent" />
+              <SelectValue placeholder="Source" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All agents</SelectItem>
+              <SelectItem value="all">All sources</SelectItem>
               {agents.map((a) => (
                 <SelectItem key={a} value={a}>
                   {a}
@@ -436,7 +439,7 @@ function TracesPage() {
           <TableHeader>
             <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:h-9 [&_th]:text-[11px] [&_th]:font-semibold [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
               <TableHead className="w-[140px]">Timestamp</TableHead>
-              <TableHead>Agent</TableHead>
+              <TableHead>Source</TableHead>
               <TableHead>Model</TableHead>
               <TableHead className="text-right">Latency</TableHead>
               <TableHead className="text-right">Tokens</TableHead>

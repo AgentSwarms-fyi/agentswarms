@@ -172,6 +172,7 @@ export async function startRun(params: StartRunParams): Promise<string> {
       signal: abort.signal,
       tracer,
       dbRunId: tracer?.runId,
+      swarmId: params.swarmId,
       initialState: params.initialState,
       onEvent: (e) => {
         applyEvent(run, e);
