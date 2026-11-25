@@ -56,6 +56,12 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 - { name: NOTEBOOK_GATEWAY_URL, value: {{ printf "wss://%s/nbgw" (include "as.publicHost" .) | quote }} }
 - { name: NOTEBOOK_K8S_NODE_SELECTOR, value: {{ .Values.sandboxes.nodeSelector | toJson | quote }} }
 - { name: NOTEBOOK_K8S_TOLERATIONS, value: {{ .Values.sandboxes.tolerations | toJson | quote }} }
+{{- if .Values.sandboxes.gpu.enabled }}
+# GPU training (R537): what a GPU sandbox asks for, and where it goes.
+- { name: ML_TRAIN_GPUS, value: {{ .Values.sandboxes.gpu.trainGpus | quote }} }
+- { name: NOTEBOOK_K8S_GPU_NODE_SELECTOR, value: {{ .Values.sandboxes.gpu.nodeSelector | toJson | quote }} }
+- { name: NOTEBOOK_K8S_GPU_TOLERATIONS, value: {{ .Values.sandboxes.gpu.tolerations | toJson | quote }} }
+{{- end }}
 # The API server's certificate, for the k8s backend's calls.
 - { name: NODE_EXTRA_CA_CERTS, value: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt }
 - { name: DOCGEN_SERVICE_URL, value: "http://docgen:8099" }

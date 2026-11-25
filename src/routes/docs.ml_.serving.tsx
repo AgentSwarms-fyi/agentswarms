@@ -50,6 +50,20 @@ function MlServingPage() {
         copies they scale across, and how a candidate version is tried on real traffic before it is
         promoted.
       </P>
+      <P>
+        <strong>Data science → Model serving</strong> lists every endpoint across the models you can
+        see, and puts the ones that need a look first. Each row gives:
+      </P>
+      <UL>
+        <li>the version the endpoint serves, and whether it is behind production;</li>
+        <li>how its traffic splits between versions, shadow or canary;</li>
+        <li>how many copies run, and where they run (sandboxes or KServe);</li>
+        <li>its requests, and when it was last called.</li>
+      </UL>
+      <P>
+        Below them it names the production versions with no endpoint. A row opens the model on its
+        Automation tab, where the endpoint is run.
+      </P>
 
       <H2 id="warm">Warm endpoints</H2>
       <P>

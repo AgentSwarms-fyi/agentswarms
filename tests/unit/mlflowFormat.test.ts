@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   MLFLOW_LOADER_MODULE,
+  askedTypes,
   dtypeFromMlflow,
   mlmodelYaml,
   pythonEnvYaml,
@@ -13,7 +14,7 @@ import {
   safeModelPath,
   signatureInputs,
 } from "@/lib/mlflowFormat";
-import { MLFLOW_TASKS, importedFlavor } from "@/lib/mlflowTasks";
+import { MLFLOW_TASKS, importedFlavor, importedSkops } from "@/lib/mlflowTasks";
 
 const SCHEMA = [
   { name: "net_usd", dtype: "numeric", role: "feature" },
@@ -137,8 +138,58 @@ utc_time_created: '2026-11-01 09:00:00.000000'
           { name: "seats", dtype: "numeric" },
         ],
         flavor: "sklearn",
+        skopsAsked: null,
       },
     });
+  });
+
+  // As MLflow 3.18 writes it by default (serialization_format skops), here for
+  // a forest, which cannot be saved without naming the tree type (R536).
+  const SKOPS = `flavors:
+  python_function:
+    loader_module: mlflow.sklearn
+    model_path: model.skops
+    predict_fn: predict
+  sklearn:
+    code: null
+    pickled_model: model.skops
+    serialization_format: skops
+    sklearn_version: 1.9.1
+    skops_trusted_types:
+    - sklearn.tree._tree.Tree
+mlflow_version: 3.18.0
+signature:
+  inputs: '[{"type": "double", "name": "net_usd", "required": true}]'
+  outputs: '[{"type": "tensor", "tensor-spec": {"dtype": "int64", "shape": [-1]}}]'
+`;
+
+  it("takes a skops model, MLflow 3's default, keeping only as a record what it asks to trust", () => {
+    expect(readMlmodel(SKOPS)).toEqual({
+      ok: true,
+      plan: {
+        kind: "sklearn",
+        modelFile: "model.skops",
+        serialization: "skops",
+        sklearnVersion: "1.9.1",
+        features: [{ name: "net_usd", dtype: "numeric" }],
+        flavor: "sklearn, skops",
+        skopsAsked: ["sklearn.tree._tree.Tree"],
+      },
+    });
+    // The file writes that list, so it is bounded and kept to dotted names.
+    expect(
+      askedTypes([
+        "builtins.eval",
+        "builtins.eval",
+        "os.system; rm",
+        42,
+        "x".repeat(300),
+        "sklearn.tree._tree.Tree",
+      ]),
+    ).toEqual(["builtins.eval", "sklearn.tree._tree.Tree"]);
+    expect(askedTypes(null)).toBe(null);
+    expect(askedTypes("builtins.eval")).toBe(null);
+    expect(askedTypes(Array.from({ length: 80 }, (_, i) => `m.T${i}`))).toHaveLength(50);
   });
 
   it("takes one loading through mlflow.sklearn even without the sklearn flavor block", () => {
@@ -157,11 +208,14 @@ utc_time_created: '2026-11-01 09:00:00.000000'
     expect(r.ok).toBe(false);
     expect(!r.ok && r.error).toMatch(/flavor is pytorch.*mlflow\.sklearn/);
 
-    const skops = SKLEARN.replace(
+    const other = SKLEARN.replace(
       "serialization_format: cloudpickle",
-      "serialization_format: skops",
+      "serialization_format: onnx",
     );
-    expect(readMlmodel(skops)).toMatchObject({ ok: false });
+    expect(readMlmodel(other)).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/saved as "onnx".*skops, pickle or cloudpickle/),
+    });
 
     const tensor = SKLEARN.replace(
       /inputs: '[^']*'/s,
@@ -217,5 +271,21 @@ utc_time_created: '2026-11-01 09:00:00.000000'
     expect(importedFlavor({ runtime: { python: "3.12" } })).toBeNull();
     expect(importedFlavor({ import: { format: "onnx", flavor: "x" } })).toBeNull();
     expect(importedFlavor(null)).toBeNull();
+  });
+
+  it("says which types a skops import was opened with, once its job has said (R536)", () => {
+    const imp = { format: "mlflow", serialization: "skops" };
+    expect(
+      importedSkops({ import: { ...imp, skops_trusted: ["sklearn.tree._tree.Tree", 7] } }),
+    ).toEqual(["sklearn.tree._tree.Tree"]);
+    expect(importedSkops({ import: { ...imp, skops_trusted: [] } })).toEqual([]);
+    // Not finished yet, or not skops: nothing to say.
+    expect(importedSkops({ import: imp })).toBeNull();
+    expect(
+      importedSkops({
+        import: { format: "mlflow", serialization: "cloudpickle", skops_trusted: [] },
+      }),
+    ).toBeNull();
+    expect(importedSkops(null)).toBeNull();
   });
 });

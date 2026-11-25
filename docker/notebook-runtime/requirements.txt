@@ -49,6 +49,11 @@ boto3==1.43.56  # the botocore version s3fs/aiobotocore pin in this image; bump 
 google-cloud-pubsub>=2.21
 joblib>=1.3
 scipy>=1.11
+# scikit-learn models as MLflow 3 saves them by default (R536): a skops file
+# is opened type by type, never unpickled. Exactly this version, because the
+# types skops trusts on its own change between releases, and the import's
+# own check (_SKOPS_PIN in src/utils/ml/pyTrain.ts) is written against it.
+skops==0.16.0
 
 # Spark engine: the pure-Python Spark Connect client (no JVM, ~1.5 MB).
 # Pinned to the server's exact version, Spark 4.1.4 (src/utils/etl/sparkVersions.ts

@@ -15,6 +15,90 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-25 — R538: Data science menu, Model serving and ML operations
+
+Driven on the 8080 stack rebuilt from the worktree, signed in as the owner, in a fronted tab. Then the app was rebuilt again with the four fixes the test found, and those were driven again. Kept: nothing new. The endpoint deployed for the test was stopped again.
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| The rail | Data science | ML Models (active on /ml), Experiments, Feature views, Model serving, ML operations, Developer workspace, each with its own icon |
+| ML Models | /ml | Models only; no tab strip |
+| `/ml?tab=experiments` | the old link | lands on /ml/experiments; the rail marks Experiments; "Data science" above the title |
+| Experiments, Feature views | from the rail | the panels as before, under page titles. Their cards repeated the title ("Experiments" under "Experiments"): now "How it works" (see below) |
+| Model serving | from the rail, nothing deployed | tiles 0, 0, 6 requests (stopped endpoints' history), 0; "Nothing is served yet"; "In production without an endpoint" lists eleven models. Three of them were also listed under "Stopped" (see below) |
+| Model serving → Stopped → threshold_probe | the link | the model page opens on its **Automation** tab (`?tab=automation`) |
+| Automation → **Deploy** | | a second tab on Model serving, as it started: **Starting**, "Loading the model into its first copy.", "v1 takes every request", "1 starting (1 to 1)", 6 requests, last 35h ago. Without a reload it then read **Serving**, "1 running (1 to 1)"; tiles 1 serving, 1 copy |
+| Predictions → Try it → **Predict** | | 1 at 100.0% in 0.1188 s (the warm endpoint); Model serving then read 7 requests, last 13 s ago |
+| ML operations | from the rail | Needs a look 3 · Training 0 · Predicting 0 · Scheduled 1. The R537 GPU failure and the R536 skops refusal with their reasons; v17's row read only "Traceback (most recent call last):" (see below). Coming up: "Next run 0s ago", "kept 7h ago" (see below). Recently finished: fifteen rows with durations. The compute line: "Training runs in sandboxes, up to 2 at a time per person, each for up to 30 minutes. No GPUs: every candidate trains on CPUs." |
+| ML operations → R527 plan from chat (test) | the link | the model page opens on its **Jobs** tab |
+| Automation → **Stop** | cleanup | "Warm endpoint off" |
+| After the rebuild with the fixes | ML operations; Model serving; Experiments | v17's row: "The model file needs types this platform does not open: posix.system …" (read from the end of its old traceback). Coming up: "in 17 h", "kept the production version 7h ago". Model serving: the three stopped models are listed once, under Stopped. Experiments' card: "How it works" |
+
+## 2026-11-25 — R537: GPU training, made ready to test on AWS
+
+There is no NVIDIA GPU on this machine. What was driven is everything up to the GPU, plus the trainer's GPU path with the real libraries. A fit on a real GPU, the device plugin and scaling from zero are the checklist in docs/deploy/AWS.md ("Testing GPU training").
+
+**The runtime image** (`4d8a628d3ee1`, built from the worktree; 2.69 GB, up from 2.47 GB):
+
+- The build printed `xgboost 3.4.1 CUDA [12, 9]`.
+- `pip show nvidia-nccl-cu12`: not installed.
+- `NVIDIA_DRIVER_CAPABILITIES=compute,utility`, and no `NVIDIA_VISIBLE_DEVICES`.
+
+**The trainer, with real scikit-learn and XGBoost in that image** (`e2e_gpu.py`, in the session scratchpad):
+
+| What was run | Result |
+| --- | --- |
+| The GPU check, no driver mounted | device none; "nvidia-smi is not in the sandbox, so no NVIDIA driver was mounted into it" |
+| A classification search asked for 1 GPU it cannot use | XGBoost joins on the CPU (leaderboard row `device: cpu`); random forest won |
+| The same search told it HAS a GPU, XGBoost only | XGBoost built with `device='cuda'`, row `device: gpu`. The saved model's parameter and its booster's config both say `cpu`; the log says "xgboost trained on the GPU; saved to answer on the CPU"; its probabilities equal those of the same model put back on `cuda` |
+| Regression, told it has a GPU | trained; saved `device` `cpu` |
+| Balanced weights, two classes | `scale_pos_weight` 3.29, the inverse-frequency ratio |
+| Balanced weights, three classes | no XGBoost row; the log says why |
+| The whole entrypoint, asked for 1 GPU | `gpu` on the result: requested 1, seen none, the note; the warning "1 GPU requested for this sandbox, but training could not use one: …. It trained on the CPU."; `runtime.xgboost` 3.4.1 |
+
+**On 8080** (rebuilt from the worktree: the runtime image and the app; Docker backend, no NVIDIA runtime), signed in as the owner, in a fronted tab:
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| Admin → Developer runtime → Machine learning | Training GPUs | The new hint: "GPUs for a classification or regression search, where XGBoost joins the candidates and trains on them. Only the sandbox that runs XGBoost asks for one…" |
+| Same | Training GPUs = 1, **Save settings** | `notebook_runtime_settings.ml_train_gpus` = 1 |
+| R527 plan from chat (test), classification | **Train new version** → Train | v2 failed: the Jobs row reads "The sandbox asked for 1 GPU, but this Docker host cannot give it one: the NVIDIA driver and the NVIDIA Container Toolkit must be installed on the host. Install them, or set Training GPUs to 0 under Ad". Cut at 200 characters before where the setting is: fixed (see below) |
+| revenue_facts net_usd forecast | **Train new version** → Train, Training GPUs still 1 | The sandbox started on this GPU-less host (`HostConfig.DeviceRequests` null): a forecast asks for no GPU. v2 ready in 20 s; no `gpu` on its config, no XGBoost in its runtime |
+| Admin | Training GPUs back to 0, **Save settings** | `ml_train_gpus` = 0 |
+| After the rebuild with the fix: Training GPUs 1, R527 plan from chat (test) → **Train new version** | | v3 failed. The toast and the Jobs row: "This Docker host cannot give a sandbox a GPU (it asked for 1): install the NVIDIA driver and Container Toolkit, or set Training GPUs to 0 in Admin → Developer runtime. Docker said: failed to create task …". Docker Desktop has an NVIDIA hook but no GPU behind it ("nvidia-container-cli: initia…"), which the wording covers too. Training GPUs back to 0 |
+
+**Infrastructure, without AWS:**
+
+- `terraform fmt -check -recursive deploy/aws/terraform`: clean.
+- `terraform validate` (eks root, providers from the R484 cache): "Success! The configuration is valid."
+- `helm template` with `sandboxes.gpu.enabled=true` renders `ML_TRAIN_GPUS`, `NOTEBOOK_K8S_GPU_NODE_SELECTOR` and `NOTEBOOK_K8S_GPU_TOLERATIONS`; with it off, none.
+- `deploy/aws/scripts/gpu-preflight.sh` was run against a stand-in AWS CLI:
+  - a quota of 0 fails and prints the increase request;
+  - with the quota it passes and names the zones that offer the type;
+  - it refuses an Arm type, a type with no NVIDIA GPU, and a type the cluster's zones lack.
+
+## 2026-11-25 — R536: models saved as skops import
+
+Driven on the 8080 stack rebuilt from the worktree (the runtime image with skops 0.16.0, and the app), signed in as the owner, in a fronted tab. Then the app was rebuilt again with the two fixes the test found, and those were driven again. The zips were made with MLflow 3.18.0's own `mlflow.sklearn.save_model`, its default format (skops). The server was a throwaway MLflow 3.18.0 container on `127.0.0.1:15050`, reached as `http://host.docker.internal:15050`, holding `payment_rows_forest`, a forest logged and registered the default way, `@production` on v1. Model: **threshold_probe (payment_rows)**, production v1, classes the numbers 1 and 2. Read back from `ml_model_versions`, `ml_training_jobs` and MLflow's REST API as well as on the page. Kept: v16–v19 and their jobs; v1 is production again.
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| Versions tab | the MLflow strip | "…a scikit-learn model logged with MLflow (saved as skops, MLflow's default, or as a pickle)…" |
+| Import MLflow model | a zip whose `MLmodel` says skops and whose `model.skops` is a pickle | toast "MLmodel says the model is saved as skops, but its file is not a skops archive."; HTTP 400; no version made |
+| Import MLflow model | `forest-skops.zip` (a forest, `skops_trusted_types: [sklearn.tree._tree.Tree]`) | "Importing it as v16. It is ready when its job finishes."; the job: "skops: admitted sklearn.tree._tree.Tree beyond its own trusted types", succeeded. It took 97.6 s, the first container from the freshly built image reading cold from this disk; the imports after it took 9–12 s |
+| `ml_model_versions` | v16 | ready; `serialization` skops; `skops_asked` and `skops_trusted` both `[sklearn.tree._tree.Tree]`; no training rows, no snapshot |
+| Overview | v16 promoted | "Imported from MLflow (sklearn (skops)) … Saved as skops, so it was opened type by type rather than unpickled: beyond the types skops trusts itself, this platform checked and admitted sklearn.tree._tree.Tree." (the label was fixed: see below) |
+| Try-it | 35.5, AMER, free | **1, 70.0%** (2 at 30.0%); scikit-learn: [0.7, 0.3] |
+| Import MLflow model | `crafted-system.zip`: a real skops archive whose `FunctionTransformer` points at `posix.system`, its `MLmodel` asking for `posix.system` and `builtins.eval` | the app staged it (it is a skops archive) and started v17; the job failed in 9 s with "The model file needs types this platform does not open: posix.system…"; `skops_asked` recorded, nothing admitted. But the Jobs row read "Traceback (most recent call last): File "/opt/agentswarms/batch_runner.py"…" (fixed: see below) |
+| Integrations → MLflow | **Add an MLflow server**, **Test and save** | "Reached MLflow 3.18.0 … It stores artifacts itself…" |
+| From an MLflow server | the dialog | "payment_rows_forest @production → 1"; picked: "Version 1 · @production · 11/25/2026" preselected |
+| From an MLflow server | **Import** | "Importing payment_rows_forest v1 as v18…"; the job succeeded in 12 s, admitting `sklearn.tree._tree.Tree` |
+| `ml_model_versions` | v18 | ready; `config.import.source` = the server, `payment_rows_forest`, version 1, its run id; staged SHA-256 `19bfa48a…`, **the same as MLflow's own `model.skops`** (fetched over REST) |
+| Try-it | v18 → production; 1250, EMEA, enterprise | **2, 86.3%** (1 at 13.7%); scikit-learn: 0.863476 |
+| After the second build | `crafted-system.zip` again (v19) | the job failed with the same refusal, and the Jobs row now reads "The model file needs types this platform does not open: posix.system. A skops file is opened type by type…"; its log leads with that sentence and keeps the traceback under it; v17's row, stored before the fix, still starts "Traceback (most recent call last)" |
+| After the second build | v19's log | "[ml] importing an MLflow model (sklearn, skops) as v19": the label no longer nests parentheses |
+| Cleanup | v1 → production; **Remove** on the connection | "v1 is now in production"; "No MLflow server connected yet."; the MLflow container deleted |
+
 ## 2026-11-25 — R535: import from an MLflow server
 
 Driven on the 8080 stack rebuilt from the worktree (twice: as built, and with the alias labels), signed in as the owner, in a fronted tab, after Docker Desktop was started again. The server was a fresh throwaway MLflow 3.18.0 container on `127.0.0.1:15050` (reached as `http://host.docker.internal:15050`), holding `payment_rows_lr`, a scikit-learn pipeline logged and registered the ordinary way (`mlflow.sklearn.log_model(..., registered_model_name=...)`, MLflow 3's logged-model form, three versions, `@production` on 3; classes the numbers 1 and 2), and two models left by the real-server test. Model: **threshold_probe (payment_rows)**, production v1. Read back from `ml_model_versions` and the MLflow REST API as well as on the page. Kept: v15 and its job; v1 is production again.

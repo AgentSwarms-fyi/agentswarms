@@ -181,7 +181,7 @@ export async function buildMlflowFolder(
 
   const runtime = ((version.config as { runtime?: TrainedRuntime | null } | null)?.runtime ??
     null) as TrainedRuntime | null;
-  const req = requirementsFor(runtime);
+  const req = requirementsFor(runtime, { algorithm: version.algorithm });
   const python =
     runtime?.python && /^\d+\.\d+(\.\d+)?$/.test(runtime.python)
       ? runtime.python
@@ -339,6 +339,26 @@ export function zipEntry(bytes: Uint8Array, entry: ZipEntry): Uint8Array | null 
   return data && data.length === entry.size ? data : null;
 }
 
+/**
+ * Why a file said to be skops is not one, or null when it is (R536). A skops
+ * file is a zip whose schema.json describes the objects and whose arrays are
+ * .npy entries; a pickle renamed model.skops is not, and is refused here
+ * before anything is staged. Only the listing is read: the sandbox, where
+ * skops itself checks every type, is what opens it.
+ */
+export function skopsArchiveProblem(file: Uint8Array): string | null {
+  let entries: ZipEntry[];
+  try {
+    entries = zipListing(file);
+  } catch {
+    return "MLmodel says the model is saved as skops, but its file is not a skops archive.";
+  }
+  if (!entries.some((e) => e.name === "schema.json")) {
+    return "MLmodel says the model is saved as skops, but its file has no schema.json, so it is not a skops archive.";
+  }
+  return null;
+}
+
 /** Where the MLmodel file is: at the top, or in the one folder the zip holds. */
 export function findMlmodel(entries: ZipEntry[]): ZipEntry | null {
   const found = entries
@@ -430,6 +450,10 @@ export async function importMlflowZip(args: {
   }
   const file = zipEntry(args.bytes, fileEntry);
   if (!file) return { ok: false, status: 400, error: `${plan.modelFile} in the zip is damaged.` };
+  if (plan.kind === "sklearn" && plan.serialization === "skops") {
+    const problem = skopsArchiveProblem(file);
+    if (problem) return { ok: false, status: 400, error: problem };
+  }
   const sha256 = createHash("sha256").update(file).digest("hex");
 
   // Staged under the model's own prefix; only this import's job may read it
@@ -472,7 +496,11 @@ export async function importMlflowZip(args: {
     file_name: args.fileName.slice(0, 200),
     ...(args.source ? { source: args.source } : {}),
     ...(plan.kind === "sklearn"
-      ? { serialization: plan.serialization, sklearn_version: plan.sklearnVersion }
+      ? {
+          serialization: plan.serialization,
+          sklearn_version: plan.sklearnVersion,
+          ...(plan.serialization === "skops" ? { skops_asked: plan.skopsAsked } : {}),
+        }
       : {}),
   };
   const { createAndTrainVersion } = await import("./api.server");
@@ -518,6 +546,7 @@ export async function importMlflowZip(args: {
     detail: {
       format: "mlflow",
       flavor: plan.flavor,
+      ...(plan.kind === "sklearn" ? { serialization: plan.serialization } : {}),
       version,
       version_id: started.versionId,
       file_sha256: sha256,

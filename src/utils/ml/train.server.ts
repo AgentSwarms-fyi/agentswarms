@@ -27,8 +27,9 @@ import {
 import { notifyUser } from "@/utils/notify.server";
 import { ensurePlatformEgress } from "@/utils/notebookRuntime/egressApply.server";
 import {
-  ML_CANDIDATES,
   candidateCount,
+  candidatesFor,
+  gpusForSandbox,
   isShardableTask,
   mergeLeaderboards,
   pickWinner,
@@ -54,6 +55,7 @@ import {
   type MlJobStash,
   type MlSource,
   type MlImportConfig,
+  type MlGpuInfo,
   type MlTrainConfig,
   type MlTrainResult,
 } from "./types";
@@ -193,12 +195,18 @@ export async function mlBundleFor(
     tuning: cfg.tuning ?? "none",
     prep: cfg.prep ?? (b.model as { prep?: unknown }).prep ?? {},
     mode: "train",
+    // What this sandbox was given (R537): the trainer reports whether it saw it.
+    gpus_requested: stash.gpus ?? 0,
     // A distributed search deals the candidate names round-robin; a
     // single-container job sends none and the trainer tries them all, which
     // is what it did before any of this existed.
     ...(stash.shards && stash.shards > 1 && stash.phase !== "parallel_fit"
       ? {
-          candidates: shardOf(ML_CANDIDATES[b.model.task] ?? [], stash.shard ?? 0, stash.shards),
+          candidates: shardOf(
+            candidatesFor(b.model.task, stash.gpu_search === true),
+            stash.shard ?? 0,
+            stash.shards,
+          ),
           shard_index: stash.shard ?? 0,
           shard_count: stash.shards,
         }
@@ -368,10 +376,18 @@ export async function startTrainingJob(args: {
     .select("id", { count: "exact", head: true })
     .eq("user_id", model.user_id)
     .in("status", ["starting", "ready", "running"]);
+  // A search with GPUs to use tries the GPU candidates too (R537). An
+  // import opens a file, so it never asks for one.
+  const gpuSearch =
+    gpusForSandbox({
+      configured: limits.mlTrainGpus,
+      task: model.task,
+      importing: Boolean(importOf(version)),
+    }) > 0;
   const plan = planShards({
     // An import opens one file in one container (R533).
     requested: isShardableTask(model.task) && !importOf(version) ? limits.mlTrainWorkers : 1,
-    candidates: candidateCount(model.task),
+    candidates: candidateCount(model.task, gpuSearch),
     sessionsPerUser: runtime.maxSessionsPerUser,
     sessionsInUse: sessionsInUse ?? 0,
   });
@@ -380,6 +396,14 @@ export async function startTrainingJob(args: {
   const started: string[] = [];
   let startError: string | null = null;
   for (let shard = 0; shard < plan.shards; shard++) {
+    // Only the worker dealt a GPU candidate asks for a GPU (R537): with four
+    // workers, one GPU node rather than four.
+    const gpus = gpusForSandbox({
+      configured: limits.mlTrainGpus,
+      task: model.task,
+      importing: Boolean(importOf(version)),
+      candidates: shardOf(candidatesFor(model.task, gpuSearch), shard, plan.shards),
+    });
     try {
       const { session } = await startSession({
         userId: model.user_id,
@@ -389,10 +413,12 @@ export async function startTrainingJob(args: {
           [ML_JOB_KEY]: {
             job_id: job.id,
             ...(plan.shards > 1 ? { shard, shards: plan.shards } : {}),
+            ...(gpus > 0 ? { gpus } : {}),
+            ...(gpuSearch ? { gpu_search: true } : {}),
           },
         },
         memLimitMb: limits.mlTrainMemLimitMb,
-        gpus: limits.mlTrainGpus || undefined,
+        gpus: gpus || undefined,
         // The sandbox outlives the budget by a margin: the trainer stops picking
         // new candidates at 85% of the budget, then evaluates and uploads.
         maxMinutes: Math.max(budget + 15, 20),
@@ -509,7 +535,31 @@ export function mlErrorMessage(raw: string): string {
       raw.slice(-1200)
     );
   }
-  return raw;
+  const lead = pythonFailureLead(raw);
+  return lead ? `${lead}\n\n${raw}` : raw;
+}
+
+/**
+ * What a Python traceback says went wrong, which it says LAST: the stack
+ * comes first, and the Jobs table shows an error's first 200 characters, so a
+ * refused import read "Traceback (most recent call last): File …" there
+ * (R536 UI test). A RuntimeError is the program's own sentence, written for
+ * the person reading, so it goes without its class name; any other
+ * exception keeps it ("KeyError: 'region'" says more than "'region'").
+ */
+export function pythonFailureLead(raw: string): string | null {
+  if (!raw.startsWith("Traceback (most recent call last):")) return null;
+  const lines = raw.trimEnd().split("\n");
+  // The exception line is the last one at the left margin that names an
+  // exception; a message may run on over the lines after it.
+  for (let i = lines.length - 1; i > 0; i--) {
+    const m = /^([A-Za-z_][\w.]*(?:Error|Exception|Exit|Interrupt)):\s?(.*)$/.exec(lines[i]);
+    if (!m) continue;
+    const message = [m[2], ...lines.slice(i + 1)].join("\n").trim();
+    if (!message) return m[1];
+    return (m[1] === "RuntimeError" ? message : `${m[1]}: ${message}`).slice(0, 1000);
+  }
+  return null;
 }
 
 async function markJobFailed(jobId: string, error: string, logs: string): Promise<void> {
@@ -725,6 +775,16 @@ async function recordShardResult(
 
   // The winner's result IS the job's result, with two changes: the leaderboard
   // is every worker's rows, and the warnings say what the search missed.
+  //
+  // THE GPU IS THE GPU WORKER'S (R537). Only the worker dealt a GPU candidate
+  // asked for one, so what the version says about its GPU comes from that
+  // worker, and so does a warning that it could not use it, which would be
+  // lost whenever another worker's model won.
+  const gpuEntry = entries.find((e) => (e.result?.gpu?.requested ?? 0) > 0);
+  const gpuWarnings =
+    gpuEntry && gpuEntry !== winner
+      ? (gpuEntry.result?.warnings ?? []).filter((w) => /\bGPU/.test(w))
+      : [];
   const merged: MlTrainResult = {
     ...winner.result,
     leaderboard: mergeLeaderboards(
@@ -732,7 +792,10 @@ async function recordShardResult(
         .filter((e) => e.result?.leaderboard)
         .map((e) => ({ shard: e.shard, rows: e.result!.leaderboard })),
     ) as MlTrainResult["leaderboard"],
-    warnings: [...(winner.result.warnings ?? []), ...shardWarnings(entries, total)],
+    warnings: [...(winner.result.warnings ?? []), ...gpuWarnings, ...shardWarnings(entries, total)],
+    ...(gpuEntry?.result?.gpu || winner.result.gpu
+      ? { gpu: gpuEntry?.result?.gpu ?? winner.result.gpu }
+      : {}),
   };
 
   // ── The search sampled: refit its winner across the rows instead ────────
@@ -757,7 +820,13 @@ async function recordShardResult(
           count: plan.workers,
           budget: (await getPlatformResources()).mlTrainTimeBudgetMinutes,
           memLimitMb: limits.mlTrainMemLimitMb,
-          gpus: limits.mlTrainGpus || 0,
+          // A refit asks for a GPU only when the chosen algorithm runs on one.
+          gpus: gpusForSandbox({
+            configured: limits.mlTrainGpus,
+            task: bundle.model.task,
+            phase: "parallel_fit",
+            algorithm: merged.algorithm,
+          }),
         });
         if (started.length > 0) {
           await supabaseAdmin
@@ -932,6 +1001,7 @@ async function startPhaseWorkers(args: {
             job_id: args.job.id,
             phase: args.phase,
             ...(args.count > 1 ? { shard, shards: args.count } : { shard: 0, shards: 1 }),
+            ...(args.gpus > 0 ? { gpus: args.gpus } : {}),
           },
         },
         memLimitMb: args.memLimitMb,
@@ -1160,6 +1230,37 @@ async function finishAssemble(jobId: string, entries: ShardEntry[], logs: string
  * a search split across workers cannot record a version differently from one
  * that ran in a single container.
  */
+/**
+ * The GPU report as the version keeps it (R537): what the sandbox said,
+ * bounded, because it is the sandbox's own JSON and lands on a row the page
+ * renders.
+ */
+export function boundedGpu(g: MlGpuInfo): MlGpuInfo {
+  const str = (v: unknown, n: number) => (typeof v === "string" ? v.slice(0, n) : undefined);
+  const seen = (Array.isArray(g.seen) ? g.seen : []).slice(0, 16).map((x) => ({
+    name: str(x?.name, 80) ?? "GPU",
+    memory_mb:
+      typeof x?.memory_mb === "number" && Number.isFinite(x.memory_mb) ? x.memory_mb : null,
+    driver: str(x?.driver, 40) ?? "",
+  }));
+  const requested =
+    Number.isInteger(g.requested) && g.requested >= 0 ? Math.min(g.requested, 64) : 0;
+  const out: MlGpuInfo = { requested, seen, device: g.device === "cuda" ? "cuda" : null };
+  const note = str(g.note, 400);
+  if (note) out.note = note;
+  const cuda = str(g.cuda, 20);
+  if (cuda) out.cuda = cuda;
+  const xgb = str(g.xgboost, 20);
+  if (xgb) out.xgboost = xgb;
+  if (Array.isArray(g.used_by)) {
+    out.used_by = g.used_by
+      .filter((u): u is string => typeof u === "string")
+      .slice(0, 8)
+      .map((u) => u.slice(0, 40));
+  }
+  return out;
+}
+
 async function writeTrainOutcome(jobId: string, r: MlTrainResult, logs: string): Promise<void> {
   const { data: job } = await supabaseAdmin
     .from("ml_training_jobs")
@@ -1181,6 +1282,13 @@ async function writeTrainOutcome(jobId: string, r: MlTrainResult, logs: string):
     .maybeSingle();
   const priorConfig = (versionRow?.config ?? {}) as Record<string, unknown>;
   const imported = r.mode === "import";
+  const skopsTrusted =
+    imported && priorConfig.import && Array.isArray(r.skops_trusted)
+      ? r.skops_trusted
+          .filter((t): t is string => typeof t === "string")
+          .map((t) => t.slice(0, 200))
+          .slice(0, 100)
+      : null;
   const now = new Date().toISOString();
   const { data: claimed } = await supabaseAdmin
     .from("ml_training_jobs")
@@ -1224,7 +1332,26 @@ async function writeTrainOutcome(jobId: string, r: MlTrainResult, logs: string):
         training_rows: imported ? null : r.training_rows,
         training_total_rows: imported ? null : r.training_total_rows,
         training_sampled: r.training_sampled,
-        ...(r.runtime ? { config: { ...priorConfig, runtime: r.runtime } as Json } : {}),
+        ...(r.runtime || skopsTrusted || r.gpu
+          ? {
+              config: {
+                ...priorConfig,
+                ...(r.runtime ? { runtime: r.runtime } : {}),
+                // The GPU the sandbox had and what used it (R537).
+                ...(r.gpu ? { gpu: boundedGpu(r.gpu) } : {}),
+                // What the sandbox admitted to open a skops file (R536),
+                // beside what the file asked for.
+                ...(skopsTrusted
+                  ? {
+                      import: {
+                        ...(priorConfig.import as Record<string, unknown>),
+                        skops_trusted: skopsTrusted,
+                      },
+                    }
+                  : {}),
+              } as Json,
+            }
+          : {}),
         warnings: (r.warnings ?? []) as Json,
         forecast: (r.forecast
           ? {
@@ -1445,6 +1572,13 @@ export async function refreshMlJob(jobId: string): Promise<MlJobRow | null> {
             "The sandbox ended without reporting a result.",
         },
         shard,
+      );
+    } else if (fresh.pending_reason && !(job.logs ?? "").includes(fresh.pending_reason)) {
+      // Not started yet, and the runtime knows why: say so where the job's
+      // log is read (R537). A GPU trainer waits minutes for its node.
+      await appendMlPartialLogs(
+        job.id,
+        `${job.logs ? `${job.logs}\n` : ""}── waiting to start: ${fresh.pending_reason} ──\n`,
       );
     } else if (typeof fresh.logs === "string" && fresh.logs && fresh.logs !== job.logs) {
       await appendMlPartialLogs(job.id, fresh.logs);

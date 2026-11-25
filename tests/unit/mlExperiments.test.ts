@@ -234,10 +234,11 @@ describe("the wiring", () => {
     expect(client).toContain('return self.log_metrics({key: value, f"{key}@{int(step)}": value})');
   });
 
-  it("is reachable where the models are, without another sidebar item", () => {
-    const page = rd("src/routes/_authenticated/ml.tsx");
-    expect(page).toContain("ExperimentsPanel");
-    expect(page).toContain('["experiments", "Experiments"]');
+  it("has a page of its own in Data science (R538)", () => {
+    const page = rd("src/routes/_authenticated/ml_.experiments.tsx");
+    expect(page).toContain("<ExperimentsPanel");
+    expect(page).toContain('title="Experiments"');
+    expect(rd("src/lib/appNav.ts")).toContain('{ title: "Experiments", url: "/ml/experiments"');
   });
 
   it("is documented in both doc sets", () => {

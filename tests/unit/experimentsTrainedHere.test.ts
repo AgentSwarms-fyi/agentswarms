@@ -150,9 +150,12 @@ describe("the wiring", () => {
     expect(panel).toContain('? "Trained here · "');
   });
 
-  it("the tab can be linked to", () => {
+  it("can be linked to, and the old tab link still lands (R538)", () => {
     const page = rd("src/routes/_authenticated/ml.tsx");
     expect(page).toContain('s.tab === "experiments" || s.tab === "features" ? { tab: s.tab } : {}');
-    expect(page).toContain('const tab: MlTab = search.tab ?? "models";');
+    expect(page).toContain(
+      'if (search.tab === "experiments") throw redirect({ to: "/ml/experiments" });',
+    );
+    expect(rd("src/lib/whatsNew.ts")).toContain('link: { to: "/ml/experiments" },');
   });
 });

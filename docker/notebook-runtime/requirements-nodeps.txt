@@ -1,0 +1,17 @@
+# Installed with --no-deps, after requirements.txt (R537).
+#
+# XGBoost's CUDA 12 build: the trainer's GPU candidate. One build for both
+# kinds of sandbox: on a GPU it trains there, on a CPU it is an ordinary
+# XGBoost, so a model trained on a GPU is served by the same image without
+# one. CUDA 12 rather than XGBoost's default CUDA 13 build, because it runs on
+# NVIDIA drivers from 525 up, and the GPU nodes' driver is whatever the
+# cloud's GPU image ships.
+#
+# --no-deps leaves out nvidia-nccl-cu12 (336 MB). This build loads NCCL only
+# to train across several GPUs (USE_DLOPEN_NCCL), which the trainer never
+# does; numpy and scipy, its other two dependencies, come from requirements.txt.
+#
+# Exactly this version: the trainer installs the same pin (_XGB_PIN in
+# src/utils/ml/pyTrain.ts) into an older image, and a pickled model loads
+# reliably only under the XGBoost that wrote it. Move both together.
+xgboost-cu12==3.4.1

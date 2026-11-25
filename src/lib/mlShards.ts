@@ -172,6 +172,53 @@ export const ML_CANDIDATES: Record<string, string[]> = {
 };
 
 /**
+ * The candidates that run on a GPU, tried only when the search was given one
+ * (R537). Last in the list, so a search on a CPU deals and orders exactly as
+ * before. Pinned to the trainer's _GPU_NAMES by the same kind of test.
+ */
+export const ML_GPU_CANDIDATES: Record<string, string[]> = {
+  classification: ["xgboost"],
+  regression: ["xgboost"],
+};
+
+/** Every candidate a search tries, with the GPU ones when it has a GPU. */
+export function candidatesFor(task: string, gpu = false): string[] {
+  return [...(ML_CANDIDATES[task] ?? []), ...(gpu ? (ML_GPU_CANDIDATES[task] ?? []) : [])];
+}
+
+/** Whether an algorithm is one that trains on a GPU. */
+export function isGpuCandidate(name: string | null | undefined): boolean {
+  return Boolean(name) && Object.values(ML_GPU_CANDIDATES).some((l) => l.includes(name as string));
+}
+
+/**
+ * The GPUs one sandbox of a training job asks for (R537).
+ *
+ * A GPU node costs ten times a CPU one, so a sandbox asks for one only when
+ * something in it runs on a GPU: the search worker dealt a GPU candidate (all
+ * of them, for a single-container search), or a refit of an algorithm that
+ * is one. Never an import, which opens a file; never a forecast, clustering,
+ * anomaly or recommendation model, none of which has a GPU candidate; never
+ * the assemble step, which averages models already fitted.
+ */
+export function gpusForSandbox(opts: {
+  configured: number;
+  task: string;
+  importing?: boolean;
+  phase?: "search" | "parallel_fit" | "assemble";
+  /** search: this worker's candidates; parallel_fit: the chosen algorithm. */
+  candidates?: string[];
+  algorithm?: string | null;
+}): number {
+  const n = Math.max(0, Math.floor(opts.configured) || 0);
+  if (n === 0 || opts.importing || !isShardableTask(opts.task)) return 0;
+  const phase = opts.phase ?? "search";
+  if (phase === "assemble") return 0;
+  if (phase === "parallel_fit") return isGpuCandidate(opts.algorithm) ? n : 0;
+  return (opts.candidates ?? candidatesFor(opts.task, true)).some(isGpuCandidate) ? n : 0;
+}
+
+/**
  * Whether a task's search can be split at all.
  *
  * Only these two enumerate their candidates up front. Clustering picks its k
@@ -186,6 +233,6 @@ export function isShardableTask(task: string): boolean {
 }
 
 /** Candidate count a task's search will try, for planning workers. */
-export function candidateCount(task: string): number {
-  return ML_CANDIDATES[task]?.length ?? 1;
+export function candidateCount(task: string, gpu = false): number {
+  return isShardableTask(task) ? candidatesFor(task, gpu).length : 1;
 }

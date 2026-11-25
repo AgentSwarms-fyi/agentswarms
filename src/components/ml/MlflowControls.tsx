@@ -61,8 +61,9 @@ export function MlflowImport({
       <p className="max-w-2xl text-xs leading-relaxed text-muted-foreground">
         <span className="font-medium text-foreground">MLflow.</span> Export a ready version as an
         MLflow model, to load anywhere MLflow models load. Or import one, a scikit-learn model
-        logged with MLflow or a model exported from here, as the next version: a zip, or straight
-        from a registered model on your MLflow server.
+        logged with MLflow (saved as skops, MLflow's default, or as a pickle) or a model exported
+        from here, as the next version: a zip, or straight from a registered model on your MLflow
+        server.
       </p>
       <input
         ref={input}

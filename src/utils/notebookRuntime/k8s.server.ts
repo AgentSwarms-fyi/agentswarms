@@ -226,6 +226,30 @@ function podSpec(spec: KernelSpec) {
   };
 }
 
+/**
+ * What a pod the scheduler cannot place is waiting for, as a sentence.
+ *
+ * A GPU pod gets its own (R537): the usual cause is that no GPU node is up
+ * yet, and a cluster autoscaler bringing one up from zero takes minutes, then
+ * the NVIDIA device plugin has to start on it before the node offers any
+ * GPU. The scheduler's own words follow either way.
+ */
+export function unschedulableMessage(said: string | undefined): string {
+  const why = said ?? "no node can take this pod";
+  if (/nvidia\.com\/gpu/.test(why)) {
+    return (
+      `Waiting for a node with a free GPU: ${why}. A cluster autoscaler adds one from the GPU ` +
+      `node pool, which takes a few minutes from zero. If none arrives, check the pool's maximum ` +
+      `size, the account's GPU instance quota, and that the NVIDIA device plugin runs on the GPU nodes.`
+    );
+  }
+  return (
+    `Waiting for room in the cluster: ${why}. ` +
+    `A cluster autoscaler adds a node for a pending pod; without one, free capacity or ` +
+    `lower the sandbox's memory (Admin → Developer runtime).`
+  );
+}
+
 function labels(spec: KernelSpec) {
   return {
     "app.kubernetes.io/managed-by": "agentswarms",
@@ -285,9 +309,20 @@ export class K8sOrchestrator implements NotebookOrchestrator {
       const res = await k8sFetch(`/apis/batch/v1/namespaces/${ns}/jobs/${name}`);
       if (res.status === 404) return { state: "gone" };
       if (!res.ok) return { state: "error", message: `k8s get job ${res.status}` };
-      const job = (await res.json()) as { status?: { succeeded?: number; failed?: number } };
+      const job = (await res.json()) as {
+        status?: { succeeded?: number; failed?: number; ready?: number };
+      };
       if (job.status?.succeeded) return { state: "succeeded" };
       if (job.status?.failed) return { state: "error" };
+      // A JOB WAITING FOR A NODE SAYS SO (R537). The Job counts as active
+      // while its pod is Pending, so a GPU trainer waiting for the cluster
+      // autoscaler to bring up a GPU node (minutes, from zero) looked exactly
+      // like one training. Its pod's condition says which; the state stays
+      // "running", because it will run the moment a node joins.
+      if (!job.status?.ready) {
+        const waiting = await this.jobPodWaiting(name).catch(() => null);
+        if (waiting) return { state: "running", message: waiting };
+      }
       return { state: "running" };
     }
     const res = await k8sFetch(`/api/v1/namespaces/${ns}/pods/${name}`);
@@ -319,13 +354,7 @@ export class K8sOrchestrator implements NotebookOrchestrator {
     // changes is that it can say why.
     const scheduled = pod.status?.conditions?.find((c) => c.type === "PodScheduled");
     if (scheduled?.status === "False" && scheduled.reason === "Unschedulable") {
-      return {
-        state: "starting",
-        message:
-          `Waiting for room in the cluster: ${scheduled.message ?? "no node can take this pod"}. ` +
-          `A cluster autoscaler adds a node for a pending pod; without one, free capacity or ` +
-          `lower the sandbox's memory (Admin → Developer runtime).`,
-      };
+      return { state: "starting", message: unschedulableMessage(scheduled.message) };
     }
 
     if (phase === "Running" && pod.status?.podIP) {
@@ -335,6 +364,28 @@ export class K8sOrchestrator implements NotebookOrchestrator {
       return { state: "running", endpoint };
     }
     return { state: "starting" };
+  }
+
+  /** A batch Job's pod the scheduler cannot place, and why; null otherwise. */
+  private async jobPodWaiting(jobName: string): Promise<string | null> {
+    const ns = namespace();
+    const res = await k8sFetch(
+      `/api/v1/namespaces/${ns}/pods?labelSelector=${encodeURIComponent(`job-name=${jobName}`)}`,
+    );
+    if (!res.ok) return null;
+    const list = (await res.json()) as {
+      items?: {
+        status?: {
+          conditions?: { type?: string; status?: string; reason?: string; message?: string }[];
+        };
+      }[];
+    };
+    for (const pod of list.items ?? []) {
+      const c = pod.status?.conditions?.find((x) => x.type === "PodScheduled");
+      if (c?.status === "False" && c.reason === "Unschedulable")
+        return unschedulableMessage(c.message);
+    }
+    return null;
   }
 
   async stop(ref: string): Promise<TeardownResult> {

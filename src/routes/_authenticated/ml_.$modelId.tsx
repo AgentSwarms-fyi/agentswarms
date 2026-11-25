@@ -95,7 +95,8 @@ import { ModelLineageCard } from "@/components/ml/ModelLineageCard";
 import { MlflowExportButton, MlflowImport } from "@/components/ml/MlflowControls";
 import { MlflowTrackingStrip, MlflowVersionCell } from "@/components/ml/MlflowTracking";
 import { parseModelTracking } from "@/lib/mlflowTracking";
-import { MLFLOW_TASKS, importedFlavor } from "@/lib/mlflowTasks";
+import { MLFLOW_TASKS, importedFlavor, importedSkops } from "@/lib/mlflowTasks";
+import { gpuLine, gpuReportOf } from "@/lib/mlGpu";
 
 // React 19's stricter JSX typing rejects recharts' class components — cast via any.
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -111,8 +112,22 @@ const CartesianGrid = Recharts.CartesianGrid as any;
 const Legend = Recharts.Legend as any;
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
+const MODEL_TABS = [
+  "overview",
+  "versions",
+  "predictions",
+  "accuracy",
+  "jobs",
+  "automation",
+] as const;
+type ModelTabName = (typeof MODEL_TABS)[number];
+
 export const Route = createFileRoute("/_authenticated/ml_/$modelId")({
   component: ModelPage,
+  // Model serving and ML operations link straight to the tab that holds a
+  // row's detail (R538): ?tab=automation for an endpoint, jobs for a job.
+  validateSearch: (s: Record<string, unknown>): { tab?: ModelTabName } =>
+    MODEL_TABS.includes(s.tab as ModelTabName) ? { tab: s.tab as ModelTabName } : {},
   head: () => ({ meta: [{ title: "Model — AgentSwarms" }] }),
 });
 
@@ -174,7 +189,8 @@ function ModelPage() {
 
   const [detail, setDetail] = useState<MlModelDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState("overview");
+  const search = Route.useSearch();
+  const [tab, setTab] = useState<string>(search.tab ?? "overview");
   const [trainOpen, setTrainOpen] = useState(false);
   const [apiOpen, setApiOpen] = useState(false);
   const [cardOpen, setCardOpen] = useState(false);
@@ -996,6 +1012,8 @@ function VersionOverview({
   // happened (the evidence card even said it was "trained before selection
   // and reporting were separated"; found in the R533 UI test).
   const imported = importedFlavor(version.config);
+  const skopsTrusted = importedSkops(version.config);
+  const gpu = gpuReportOf(version.config);
 
   return (
     <>
@@ -1028,6 +1046,15 @@ function VersionOverview({
               Imported from MLflow ({imported}): it was trained somewhere else, so it has no
               leaderboard or held-out score here. The Accuracy tab checks its answers against real
               outcomes as they arrive.
+              {skopsTrusted ? (
+                <>
+                  {" "}
+                  Saved as skops, so it was opened type by type rather than unpickled:{" "}
+                  {skopsTrusted.length === 0
+                    ? "it needed none beyond the types skops trusts itself."
+                    : `beyond the types skops trusts itself, this platform checked and admitted ${skopsTrusted.join(", ")}.`}
+                </>
+              ) : null}
             </span>
           </CardContent>
         </Card>
@@ -1104,6 +1131,18 @@ function VersionOverview({
                     >
                       <td className="py-1">
                         {r.algorithm}
+                        {r.device ? (
+                          <span
+                            className="ml-1.5 rounded border px-1 py-px text-[10px] font-normal uppercase tracking-wide text-muted-foreground"
+                            title={
+                              r.device === "gpu"
+                                ? "Trained on the sandbox's GPU"
+                                : "A GPU candidate that trained on the CPU"
+                            }
+                          >
+                            {r.device}
+                          </span>
+                        ) : null}
                         {r.algorithm === version.algorithm ? " ★" : ""}
                       </td>
                       <td className="py-1 text-right tabular-nums">
@@ -1136,6 +1175,7 @@ function VersionOverview({
                 v={`${fmtInt(version.training_rows)} rows${version.training_sampled ? ` (sampled from ${fmtInt(version.training_total_rows)})` : ""}`}
               />
             )}
+            {gpu ? <Detail k="GPU" v={gpuLine(gpu)} /> : null}
             <Detail
               k="Features"
               v={

@@ -3178,8 +3178,10 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "ML_TRAIN_MAX_ROWS",
       "ML_TRAIN_MEM_LIMIT_MB",
       "ML_TRAIN_TIME_BUDGET_MINUTES",
-      "NOTEBOOK_RUNTIME_IMAGE",
+      "NOTEBOOK_K8S_GPU_NODE_SELECTOR",
+      "NOTEBOOK_K8S_GPU_TOLERATIONS",
       "ResourceQuota",
+      "gpu_node_max",
       "ml-artifacts/",
       "ml.predict_query",
       "ml.train.start",
@@ -3188,7 +3190,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "ml_model.create",
       "ml_model.delete",
       "ml_model.update",
-      "nvidia.com/gpu"
+      "nvidia-smi"
     ],
     "headings": [
       {
@@ -3199,6 +3201,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "limits",
         "text": "Limits",
+        "level": 2
+      },
+      {
+        "id": "ml-operations",
+        "text": "ML operations",
         "level": 2
       },
       {
@@ -3231,6 +3238,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "ML_IMPORT_MAX_MB",
       "ML_PREDICT_MAX_ROWS",
       "MLmodel",
+      "TreePredictor",
       "VALKEY_PASSWORD",
       "_model_version",
       "_predicted_at",
@@ -3272,6 +3280,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "runMlPredict",
       "s3://",
       "series",
+      "sklearn.tree._tree.Tree",
+      "skops_trusted_types",
       "task",
       "tool",
       "train",
@@ -3316,6 +3326,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "mlflow",
         "text": "MLflow: export and import",
+        "level": 3
+      },
+      {
+        "id": "skops",
+        "text": "A skops file is opened type by type",
         "level": 3
       },
       {

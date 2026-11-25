@@ -79,6 +79,28 @@ export type MlLeaderboardRow = {
   fit_seconds: number;
   status: "ok" | "skipped" | "failed";
   note?: string;
+  /** A GPU candidate (R537): where it trained. */
+  device?: "gpu" | "cpu";
+};
+
+/**
+ * What a training sandbox was given and what used it (R537), on the
+ * version's config as `gpu`. Absent when no GPU was asked for or seen.
+ */
+export type MlGpuInfo = {
+  /** GPUs the app asked for for this sandbox. */
+  requested: number;
+  /** What the NVIDIA driver listed inside it. */
+  seen: { name: string; memory_mb: number | null; driver: string }[];
+  /** "cuda" when training could use a GPU; null when it trained on the CPU. */
+  device: "cuda" | null;
+  /** Why it could not, when it could not. */
+  note?: string;
+  /** XGBoost's own CUDA build and version. */
+  cuda?: string;
+  xgboost?: string;
+  /** The candidates that trained on the GPU. */
+  used_by?: string[];
 };
 
 export type MlFeatureImportance = { feature: string; importance: number; std?: number };
@@ -200,6 +222,13 @@ export type MlTrainResult = {
   mode?: string;
   /** The library versions it ran under (R533), recorded on the version's config. */
   runtime?: Record<string, string>;
+  /**
+   * A skops import (R536): the types beyond skops' own defaults that the
+   * sandbox checked and admitted, recorded on the version's import config.
+   */
+  skops_trusted?: string[];
+  /** The GPU the sandbox had and what used it (R537). */
+  gpu?: MlGpuInfo;
 };
 
 /**
@@ -214,8 +243,15 @@ export type MlImportConfig = {
   /** The staged model file, and its digest as it arrived. */
   uri: string;
   sha256: string;
-  serialization?: "pickle" | "cloudpickle";
+  serialization?: "pickle" | "cloudpickle" | "skops";
   sklearn_version?: string | null;
+  /**
+   * A skops file (R536): the types its MLmodel asks to be trusted, kept to
+   * say what it asked. Never used to load it: the sandbox checks every type
+   * itself, and records what it admitted as `skops_trusted`.
+   */
+  skops_asked?: string[] | null;
+  skops_trusted?: string[];
   /** From the signature; null means the sandbox reads the estimator's own. */
   features: { name: string; dtype: string }[] | null;
   file_name: string;
@@ -255,6 +291,17 @@ export type MlJobStash = {
    * because a container that guesses its phase would read the wrong rows.
    */
   phase?: "parallel_fit" | "assemble";
+  /**
+   * GPUs this sandbox was given (R537), so the trainer can say whether it
+   * saw them. Absent when none.
+   */
+  gpus?: number;
+  /**
+   * Whether the search includes the GPU candidates (R537). Every worker of a
+   * distributed search must deal from the same list, including the ones
+   * started without a GPU, or two workers would train the same candidate.
+   */
+  gpu_search?: boolean;
 };
 
 /** Pull the job id out of a session's inputs, or null for any other session. */
@@ -274,6 +321,8 @@ export function mlJobStashOf(inputs: unknown): MlJobStash | null {
   // containers long gone.
   const phase = (raw as { phase?: unknown }).phase;
   const known = phase === "parallel_fit" || phase === "assemble";
+  const gpus = (raw as { gpus?: unknown }).gpus;
+  const gpuSearch = (raw as { gpu_search?: unknown }).gpu_search;
   return {
     job_id: j,
     kind: k === "predict" ? "predict" : "train",
@@ -284,6 +333,8 @@ export function mlJobStashOf(inputs: unknown): MlJobStash | null {
     // single-container job byte-identical to what it was.
     ...(typeof shards === "number" && (known ? shards >= 1 : shards > 1) ? { shards } : {}),
     ...(known ? { phase } : {}),
+    ...(typeof gpus === "number" && Number.isInteger(gpus) && gpus > 0 ? { gpus } : {}),
+    ...(gpuSearch === true ? { gpu_search: true } : {}),
   };
 }
 

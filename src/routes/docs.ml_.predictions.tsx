@@ -308,9 +308,10 @@ model.predict(rows, params={"decision_threshold": 0.5})       # move the line`}<
       <P>
         <strong>Import</strong> brings an MLflow model in as the next version (Versions tab →{" "}
         <strong>Import MLflow model</strong>, owner only): a scikit-learn model logged with{" "}
-        <C>mlflow.sklearn</C>, or a model exported from here, zipped. Its input columns come from
-        the signature (or the estimator&apos;s <C>feature_names_in_</C>); a classifier&apos;s labels
-        stay its own. Other flavors are refused, naming the flavor.
+        <C>mlflow.sklearn</C> (saved as skops, MLflow 3&apos;s default, or as a pickle), or a model
+        exported from here, zipped. Its input columns come from the signature (or the
+        estimator&apos;s <C>feature_names_in_</C>); a classifier&apos;s labels stay its own. Other
+        flavors are refused, naming the flavor.
       </P>
       <Callout kind="info" title="An imported model is opened in a sandbox, never in the app">
         Loading a pickle runs whatever it holds. The app reads only the zip&apos;s listing and the{" "}
@@ -324,6 +325,17 @@ model.predict(rows, params={"decision_threshold": 0.5})       # move the line`}<
         for). An imported model records no lake snapshot, since it was not trained on this lake. The
         zip may weigh up to <C>ML_IMPORT_MAX_MB</C> (500).
       </Callout>
+      <H3 id="skops">A skops file is opened type by type</H3>
+      <P>
+        skops builds a model from a description of its objects, and only from types it trusts:
+        scikit-learn&apos;s estimators, numpy, scipy and plain Python types. For anything else, the
+        platform decides. It admits classes scikit-learn itself defines, looked up and checked to be
+        the class named. A forest or boosted model needs <C>sklearn.tree._tree.Tree</C> or the
+        histogram booster&apos;s <C>TreePredictor</C>. It also admits LightGBM&apos;s scikit-learn
+        estimators. It refuses everything else by name, functions included. The file&apos;s own{" "}
+        <C>skops_trusted_types</C> is recorded and never used, because the file wrote it. The
+        version&apos;s page says the model was opened this way and names what was admitted.
+      </P>
 
       <H3 id="mlflow-tracking">Tracking on an MLflow server</H3>
       <P>
@@ -424,7 +436,7 @@ model.predict(rows, params={"decision_threshold": 0.5})       # move the line`}<
         A <strong>feature view</strong> removes the caller&apos;s arithmetic. It names a table, the
         column(s) that identify a row, and which columns are features; serving then takes a{" "}
         <strong>key</strong> and reads the values from the same table training read. Under{" "}
-        <strong>ML Models → Feature views</strong>, attached to a model under{" "}
+        <strong>Data science → Feature views</strong>, attached to a model under{" "}
         <strong>Automation → Input</strong>.
       </P>
       <Code>{`curl <origin>/api/ml/predict \\

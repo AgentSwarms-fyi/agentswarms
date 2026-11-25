@@ -267,7 +267,7 @@ export function ExperimentsPanel({ token }: { token: string }) {
       <Card>
         <CardContent className="space-y-2 p-4">
           <p className="flex items-center gap-2 text-sm font-medium">
-            <FlaskConical className="h-4 w-4 text-primary" /> Experiments
+            <FlaskConical className="h-4 w-4 text-primary" /> How it works
           </p>
           <p className="max-w-3xl text-xs leading-relaxed text-muted-foreground">
             The registry keeps what you <strong>shipped</strong>. This keeps what you{" "}

@@ -301,6 +301,9 @@ const REVIEWED: Record<string, number> = {
   "src/routes/_authenticated/ml.tsx": 1,
   "src/routes/_authenticated/ml_.$modelId.tsx": 2,
   "src/routes/_authenticated/ml_.new.tsx": 2,
+  // R538: two read-only overviews; a refresh re-reads them and holds no edit.
+  "src/routes/_authenticated/ml_.operations.tsx": 1,
+  "src/routes/_authenticated/ml_.serving.tsx": 1,
   "src/routes/_authenticated/model-registry.tsx": 1,
   "src/routes/_authenticated/monitoring.tsx": 2,
   "src/routes/_authenticated/notebooks.py.$pyNotebookId.tsx": 1,

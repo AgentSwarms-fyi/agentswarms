@@ -1,4 +1,4 @@
-// Server functions behind ML Models → Experiments: read what was tried, and
+// Server functions behind Data science → Experiments: read what was tried, and
 // promote the attempt worth keeping into the registry.
 //
 // Writing runs is NOT here. A run is logged from wherever the training happens

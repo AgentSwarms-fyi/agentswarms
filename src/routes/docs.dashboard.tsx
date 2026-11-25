@@ -364,7 +364,7 @@ function DashboardDoc() {
           [
             "Data science",
             "Train models and write code against your data",
-            "ML Models, Developer workspace",
+            "ML Models, Experiments, Feature views, Model serving, ML operations, Developer workspace",
           ],
           [
             "Integrations",

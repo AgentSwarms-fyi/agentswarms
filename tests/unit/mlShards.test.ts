@@ -12,7 +12,11 @@ import path from "node:path";
 
 import {
   ML_CANDIDATES,
+  ML_GPU_CANDIDATES,
   candidateCount,
+  candidatesFor,
+  gpusForSandbox,
+  isGpuCandidate,
   isShardableTask,
   mergeLeaderboards,
   pickWinner,
@@ -209,6 +213,64 @@ describe("which searches can be split at all", () => {
   });
 });
 
+describe("GPU candidates (R537)", () => {
+  it("are the trainer's _GPU_NAMES, tried last, and only with a GPU", () => {
+    const py = rd("src/utils/ml/pyTrain.ts");
+    const names = /^_GPU_NAMES = \(([^)]*)\)/m.exec(py)?.[1] ?? "";
+    const pyNames = [...names.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort();
+    const block = py.slice(py.indexOf("def _gpu_candidate("), py.indexOf("def _xgb_to_cpu("));
+    const appended = [
+      ...new Set([...block.matchAll(/out\.append\(\('([a-z_]+)'/g)].map((m) => m[1])),
+    ];
+    for (const task of ["classification", "regression"]) {
+      expect([...ML_GPU_CANDIDATES[task]].sort()).toEqual(pyNames);
+      expect(appended.sort()).toEqual(pyNames);
+      // A search on a CPU deals exactly what it did before; a GPU adds at the end.
+      expect(candidatesFor(task, false)).toEqual(ML_CANDIDATES[task]);
+      expect(candidatesFor(task, true)).toEqual([
+        ...ML_CANDIDATES[task],
+        ...ML_GPU_CANDIDATES[task],
+      ]);
+      expect(candidateCount(task, true)).toBe(
+        candidateCount(task) + ML_GPU_CANDIDATES[task].length,
+      );
+    }
+    expect(isGpuCandidate("xgboost")).toBe(true);
+    expect(isGpuCandidate("lightgbm")).toBe(false);
+    expect(isGpuCandidate(null)).toBe(false);
+    expect(candidateCount("forecast", true)).toBe(1);
+  });
+
+  it("asks for a GPU only in a sandbox that will run something on it", () => {
+    const base = { configured: 1, task: "classification" };
+    // One container: it runs every candidate, XGBoost included.
+    expect(gpusForSandbox(base)).toBe(1);
+    expect(gpusForSandbox({ ...base, configured: 0 })).toBe(0);
+    expect(gpusForSandbox({ ...base, configured: 2 })).toBe(2);
+    // Never an import, never a task with no GPU candidate.
+    expect(gpusForSandbox({ ...base, importing: true })).toBe(0);
+    for (const task of ["forecast", "clustering", "anomaly", "recommendation"]) {
+      expect(gpusForSandbox({ ...base, task }), task).toBe(0);
+    }
+    // A distributed search: only the worker dealt XGBoost.
+    const all = candidatesFor("classification", true);
+    const dealt = [0, 1, 2].map((i) => gpusForSandbox({ ...base, candidates: shardOf(all, i, 3) }));
+    expect(dealt.filter((n) => n > 0)).toHaveLength(1);
+    // A refit: only when the search chose a GPU candidate. The assemble: never.
+    expect(gpusForSandbox({ ...base, phase: "parallel_fit", algorithm: "xgboost" })).toBe(1);
+    expect(gpusForSandbox({ ...base, phase: "parallel_fit", algorithm: "lightgbm" })).toBe(0);
+    expect(gpusForSandbox({ ...base, phase: "assemble" })).toBe(0);
+  });
+
+  it("deals every worker from the same list, the ones without a GPU too", () => {
+    const train = rd("src/utils/ml/train.server.ts");
+    expect(train).toContain("candidates: candidateCount(model.task, gpuSearch)");
+    expect(train).toContain("...(gpuSearch ? { gpu_search: true } : {})");
+    expect(train).toContain("candidatesFor(b.model.task, stash.gpu_search === true)");
+    expect(train).toContain("gpus_requested: stash.gpus ?? 0");
+  });
+});
+
 describe("the wiring", () => {
   const train = rd("src/utils/ml/train.server.ts");
   const py = rd("src/utils/ml/pyTrain.ts");
@@ -284,8 +346,10 @@ describe("the wiring", () => {
     // the artifact path is unchanged — so nothing about the common case moved.
     expect(train).toContain("...(plan.shards > 1 ? { shard, shards: plan.shards } : {})");
     expect(train).toContain("stash.shards && stash.shards > 1");
-    expect(py).toContain("_candidates(task, prep, cfg.get('candidates'))");
-    expect(py).toContain("def _candidates(task, prep, only=None):");
+    expect(py).toContain(
+      "_candidates(task, prep, cfg.get('candidates'), gpu=gpu, pos_weight=pos_weight)",
+    );
+    expect(py).toContain("def _candidates(task, prep, only=None, gpu=None, pos_weight=None):");
   });
 
   it("is a setting, not a constant, with the operator's other limits", () => {

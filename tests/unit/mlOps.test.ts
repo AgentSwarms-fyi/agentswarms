@@ -232,7 +232,8 @@ describe("settings", () => {
   });
 
   it("carry GPUs from the training job through both orchestrators", () => {
-    expect(rd("src/utils/ml/train.server.ts")).toContain("gpus: limits.mlTrainGpus || undefined,");
+    // Only the sandbox that runs a GPU candidate asks (R537, gpusForSandbox).
+    expect(rd("src/utils/ml/train.server.ts")).toContain("gpus: gpus || undefined,");
     expect(rd("src/utils/notebookRuntime/service.server.ts")).toContain(
       "gpus: batch ? opts.gpus || 0 : 0,",
     );

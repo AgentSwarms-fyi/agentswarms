@@ -1,7 +1,8 @@
 # AgentSwarms on Amazon EKS: the Helm chart (deploy/helm/agentswarms) on a
 # cluster with two node pools (the app's, and a tainted one users' code runs
 # on), RDS PostgreSQL and S3 underneath, and the same load balancer, HTTPS and
-# secrets as the ECS and VM targets. See docs/deploy/AWS.md.
+# secrets as the ECS and VM targets. See docs/deploy/AWS.md. With
+# gpu_node_max above 0, a third pool of GPU nodes for training, from zero.
 #
 #   terraform init
 #   terraform apply -var admin_email=you@example.com -var release=1.7.0
@@ -187,6 +188,115 @@ resource "aws_eks_node_group" "sandboxes" {
     ignore_changes = [scaling_config[0].desired_size]
   }
   depends_on = [aws_iam_role_policy_attachment.node]
+}
+
+# ── GPU training (gpu_node_max > 0) ─────────────────────────────────────────
+#
+# Sandboxes that run a GPU candidate (R537), and nothing else: the sandbox
+# taint keeps every other pod off, the nvidia.com/gpu taint keeps sandboxes
+# that asked for no GPU off. EKS's NVIDIA AMI brings the driver and the
+# container toolkit; the device plugin below makes the GPUs schedulable.
+#
+# FROM ZERO. Nothing runs here until a training job asks for a GPU; Cluster
+# Autoscaler then adds a node, which takes a few minutes, and the job's log
+# says it is waiting (k8s.server.ts reads the pod's Unschedulable reason).
+# Scaling from zero needs the autoscaler to know, before any node exists,
+# that a node from this pool would have a GPU and these labels and taints:
+# the ASG tags below tell it, since EKS does not copy a node group's labels
+# and taints onto its Auto Scaling group.
+
+data "aws_ec2_instance_type" "gpu" {
+  count         = var.gpu_node_max > 0 ? 1 : 0
+  instance_type = var.gpu_instance_types[0]
+}
+
+locals {
+  gpus_per_node = var.gpu_node_max > 0 ? sum([for g in data.aws_ec2_instance_type.gpu[0].gpus : g.count]) : 0
+  gpu_taints = {
+    (local.sbx_tag)  = "true:NoSchedule"
+    "nvidia.com/gpu" = "true:NoSchedule"
+  }
+  gpu_labels = {
+    "agentswarms.io/pool" = "gpu"
+    # The device plugin's chart schedules onto nodes with this label (or the
+    # ones node-feature-discovery would add, which this cluster does not run).
+    "nvidia.com/gpu.present" = "true"
+    # Cluster Autoscaler's AWS GPU label: a new node whose GPUs the plugin has
+    # not advertised yet is counted as coming, rather than as one more to add.
+    "k8s.amazonaws.com/accelerator" = "nvidia"
+  }
+}
+
+resource "aws_eks_node_group" "gpu" {
+  count           = var.gpu_node_max > 0 ? 1 : 0
+  cluster_name    = aws_eks_cluster.this.name
+  node_group_name = "gpu"
+  node_role_arn   = aws_iam_role.node.arn
+  subnet_ids      = module.network.app_subnet_ids
+  ami_type        = "AL2023_x86_64_NVIDIA"
+  instance_types  = var.gpu_instance_types
+  capacity_type   = var.gpu_capacity_type
+  # The runtime image and XGBoost's CUDA build, with room for a job's files.
+  disk_size = 100
+  scaling_config {
+    min_size     = 0
+    max_size     = var.gpu_node_max
+    desired_size = 0
+  }
+  update_config {
+    max_unavailable = 1
+  }
+  labels = local.gpu_labels
+  dynamic "taint" {
+    for_each = local.gpu_taints
+    content {
+      key    = taint.key
+      value  = split(":", taint.value)[0]
+      effect = "NO_SCHEDULE"
+    }
+  }
+  tags = local.tags
+  lifecycle {
+    ignore_changes = [scaling_config[0].desired_size]
+    precondition {
+      condition     = var.train_gpus >= 1 && var.train_gpus <= local.gpus_per_node
+      error_message = "train_gpus (${var.train_gpus}) must be between 1 and the GPUs one ${var.gpu_instance_types[0]} has (${local.gpus_per_node}); a sandbox asking for more would never be placed."
+    }
+  }
+  depends_on = [aws_iam_role_policy_attachment.node]
+}
+
+resource "aws_autoscaling_group_tag" "gpu" {
+  for_each = var.gpu_node_max > 0 ? merge(
+    { "k8s.io/cluster-autoscaler/node-template/resources/nvidia.com/gpu" = tostring(local.gpus_per_node) },
+    { for k, v in local.gpu_labels : "k8s.io/cluster-autoscaler/node-template/label/${k}" => v },
+    { for k, v in local.gpu_taints : "k8s.io/cluster-autoscaler/node-template/taint/${k}" => v },
+  ) : {}
+  autoscaling_group_name = aws_eks_node_group.gpu[0].resources[0].autoscaling_groups[0].name
+  tag {
+    key                 = each.key
+    value               = each.value
+    propagate_at_launch = false
+  }
+}
+
+# The NVIDIA device plugin, on the GPU pool only. 0.20.1 and not 0.20.2: the
+# newer one is not yet two weeks old.
+resource "helm_release" "nvidia_device_plugin" {
+  count      = var.gpu_node_max > 0 ? 1 : 0
+  name       = "nvidia-device-plugin"
+  namespace  = "kube-system"
+  repository = "https://nvidia.github.io/k8s-device-plugin"
+  chart      = "nvidia-device-plugin"
+  version    = "0.20.1"
+  values = [yamlencode({
+    nodeSelector = { "agentswarms.io/pool" = "gpu" }
+    tolerations = [
+      { key = "nvidia.com/gpu", operator = "Exists", effect = "NoSchedule" },
+      { key = local.sbx_tag, operator = "Exists", effect = "NoSchedule" },
+    ]
+  })]
+  depends_on = [aws_eks_addon.this]
 }
 
 # The VPC CNI enforces NetworkPolicy: the sandboxes' namespace relies on it.
@@ -479,6 +589,13 @@ resource "helm_release" "agentswarms" {
       nodeSelector = { "agentswarms.io/pool" = "sandboxes" }
       tolerations  = [{ key = local.sbx_tag, operator = "Exists", effect = "NoSchedule" }]
       egressProxy  = { replicas = local.tier.ecs.egress_count }
+      # GPU training (R537): where a sandbox that asks for a GPU goes.
+      gpu = {
+        enabled      = var.gpu_node_max > 0
+        trainGpus    = var.train_gpus
+        nodeSelector = { "agentswarms.io/pool" = "gpu" }
+        tolerations  = [{ key = "nvidia.com/gpu", operator = "Exists", effect = "NoSchedule" }]
+      }
     }
     serving = {
       kserve = { enabled = var.serving_kserve }
@@ -501,6 +618,7 @@ resource "helm_release" "agentswarms" {
     helm_release.external_secrets,
     helm_release.metrics_server,
     helm_release.kserve,
+    helm_release.nvidia_device_plugin,
     aws_eks_node_group.sandboxes,
     aws_eks_pod_identity_association.this,
   ]

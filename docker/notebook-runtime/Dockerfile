@@ -30,6 +30,11 @@ WORKDIR /opt/agentswarms
 RUN pip install --no-cache-dir --upgrade "pip>=26.2"
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+# The GPU candidate (R537), without the multi-GPU library it would pull in:
+# requirements-nodeps.txt says why.
+COPY requirements-nodeps.txt .
+RUN pip install --no-cache-dir --no-deps -r requirements-nodeps.txt \
+    && python -c "import xgboost; assert xgboost.build_info()['USE_CUDA']; print('xgboost', xgboost.__version__, 'CUDA', xgboost.build_info().get('CUDA_VERSION'))"
 
 # DuckDB extensions for lakehouse pipeline nodes, installed at build time into
 # a read-only directory the generated code prefers. Without this every run
@@ -49,7 +54,16 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # `import agentswarms` resolves to our helper; runtime pip installs go to the
 # writable per-session ~/.local so the root fs can stay read-only.
-ENV PYTHONPATH=/opt/agentswarms \
+#
+# NVIDIA_DRIVER_CAPABILITIES: what the NVIDIA runtime mounts into a sandbox
+# that WAS given a GPU: the CUDA driver (compute) and nvidia-smi (utility),
+# which the trainer reads to say what it saw (R537). NVIDIA_VISIBLE_DEVICES is
+# deliberately NOT set. CUDA base images set it to "all", and on a node whose
+# default runtime is NVIDIA's that hands every GPU on the node to any
+# container from the image, whether or not it asked for one. Here only the
+# device plugin, or Docker's own GPU request, decides which GPUs a sandbox gets.
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+    PYTHONPATH=/opt/agentswarms \
     PYTHONUNBUFFERED=1 \
     PIP_USER=1 \
     PIP_NO_CACHE_DIR=1 \

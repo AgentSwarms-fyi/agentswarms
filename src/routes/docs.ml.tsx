@@ -55,6 +55,25 @@ function MlDocsPage() {
           whether something is training right now.
         </li>
         <li>
+          <strong>Data science</strong> also holds the rest of a model&apos;s life:
+          <UL>
+            <li>
+              <strong>Experiments:</strong> every run, compared on the same metrics.
+            </li>
+            <li>
+              <strong>Feature views:</strong> named feature sets, built point in time and served
+              online.
+            </li>
+            <li>
+              <strong>Model serving:</strong> every endpoint, its traffic split and how busy it is.
+            </li>
+            <li>
+              <strong>ML operations:</strong> what failed, what is running and what is due, across
+              your models.
+            </li>
+          </UL>
+        </li>
+        <li>
           <strong>Training</strong> — a four-step wizard drives a batch sandbox of the notebook
           runtime that profiles the table, tries several algorithms under a time budget and keeps
           the best one with its metrics, leaderboard and feature importance. The sandbox holds no
@@ -124,13 +143,13 @@ function MlDocsPage() {
           [
             "Classification",
             "category, boolean, small domain",
-            "logistic regression, random forest, histogram gradient boosting, LightGBM",
+            "logistic regression, random forest, histogram gradient boosting, LightGBM; XGBoost with a GPU",
             "F1 (macro)",
           ],
           [
             "Regression",
             "number",
-            "ridge, random forest, histogram gradient boosting, LightGBM",
+            "ridge, random forest, histogram gradient boosting, LightGBM; XGBoost with a GPU",
             "RMSE",
           ],
           [
@@ -285,7 +304,7 @@ function MlDocsPage() {
           ],
           [
             "Distributed / GPU training",
-            "The algorithm search spreads across several sandboxes, and a dataset too large for one container is refit across several — disjoint hashed slices, averaged into one model, instead of a sample; GPUs requestable",
+            "The algorithm search spreads across several sandboxes, and a dataset too large for one container is refit across several — disjoint hashed slices, averaged into one model, instead of a sample; XGBoost on a GPU when the sandbox has one",
           ],
           [
             "Experiment tracking",

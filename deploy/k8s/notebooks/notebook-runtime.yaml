@@ -341,10 +341,10 @@ spec:
 # handler: runsc
 ---
 # Optional: GPU training. Set ML_TRAIN_GPUS (or Admin -> Developer runtime) to
-# the GPUs each training sandbox should request; the Job then carries an
-# nvidia.com/gpu limit. Your cluster needs the NVIDIA device plugin, a node
-# pool that advertises the resource, and - because the built-in runtime image
-# is CPU-only - NOTEBOOK_RUNTIME_IMAGE pointed at a CUDA build of it. If the
+# the GPUs a training sandbox should request; a classification or regression
+# search then adds XGBoost (the runtime image carries its CUDA build) and only
+# the Job that runs it carries an nvidia.com/gpu limit. Your cluster needs the
+# NVIDIA device plugin and a node pool that advertises the resource. If the
 # pool is labelled or tainted, tell the orchestrator where to place GPU pods:
 #   NOTEBOOK_K8S_GPU_NODE_SELECTOR='{"cloud.google.com/gke-accelerator":"nvidia-l4"}'
 #   NOTEBOOK_K8S_GPU_TOLERATIONS='[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]'

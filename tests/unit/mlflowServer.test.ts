@@ -403,6 +403,59 @@ describe("import", () => {
     });
   });
 
+  // MLflow 3's default (R536): the model file is itself a zip, schema.json
+  // describing the objects and .npy entries holding the arrays.
+  const SKOPS_MLMODEL = SKLEARN_MLMODEL.replaceAll("model.pkl", "model.skops")
+    .replace("serialization_format: cloudpickle", "serialization_format: skops")
+    .replace(
+      "sklearn_version: 1.5.2",
+      "sklearn_version: 1.9.1\n    skops_trusted_types:\n    - sklearn.tree._tree.Tree\n    - builtins.eval",
+    );
+  const skopsFile = () =>
+    zipSync({
+      "schema.json": strToU8('{"__class__": "Pipeline", "__module__": "sklearn.pipeline"}'),
+      "1.npy": new Uint8Array([0x93, 0x4e, 0x55, 0x4d, 0x50, 0x59]),
+    });
+
+  it("stages a skops file as it is, keeping what it asked to trust only as a record", async () => {
+    const file = skopsFile();
+    const out = await go(mlflowZip({ "churn/MLmodel": SKOPS_MLMODEL, "churn/model.skops": file }));
+    expect(out.ok).toBe(true);
+    expect(db.puts[0].key).toMatch(/\/imports\/[0-9a-f-]{36}\/model\.skops$/);
+    expect(Buffer.from(db.puts[0].bytes)).toEqual(Buffer.from(file));
+    expect(db.started[0].config).toMatchObject({
+      import: {
+        kind: "sklearn",
+        flavor: "sklearn, skops",
+        serialization: "skops",
+        sklearn_version: "1.9.1",
+        // What the file says; the sandbox never loads with it.
+        skops_asked: ["sklearn.tree._tree.Tree", "builtins.eval"],
+        sha256: sha(Buffer.from(file)),
+      },
+    });
+    expect(db.audits.at(-1)).toMatchObject({
+      action: "ml.import.started",
+      detail: { flavor: "sklearn, skops", serialization: "skops" },
+    });
+  });
+
+  it("refuses a file that says skops and is not, before staging it", async () => {
+    for (const [file, why] of [
+      // A pickle renamed model.skops. The sandbox would never unpickle it
+      // (it opens a skops file only with skops); this says so before staging.
+      [strToU8("\x80\x04\x95pickled"), /not a skops archive/],
+      [zipSync({ "1.npy": new Uint8Array([1]) }), /no schema\.json/],
+    ] as [Uint8Array, RegExp][]) {
+      const out = await go(
+        mlflowZip({ "churn/MLmodel": SKOPS_MLMODEL, "churn/model.skops": file }),
+      );
+      expect(out).toMatchObject({ ok: false, status: 400, error: expect.stringMatching(why) });
+    }
+    expect(db.puts).toEqual([]);
+    expect(db.started).toEqual([]);
+  });
+
   it("takes a model folder at the top of the zip too", async () => {
     const out = await go(mlflowZip({ MLmodel: SKLEARN_MLMODEL, "model.pkl": "p" }));
     expect(out.ok).toBe(true);

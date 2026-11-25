@@ -109,6 +109,87 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-25 — R538: the pages for serving and operating models were not in the menu
+
+**Why this round.** The user asked: no model serving or MLOps under Data science? The platform had every part: endpoints with shadow and canary versions, schedules, drift and accuracy checks, Experiments, Feature views. But each part lived one model at a time, on a model page's tab, or as a tab of ML Models. Nobody could see all endpoints, or everything that failed, at once. Read as the person on call for the models, who has to find the one that broke.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| No view across models of what serves or what failed | S2 | **Found by the user.** Data science listed ML Models and the Developer workspace. Now it has **Model serving** (every endpoint: state, traffic split, copies, requests) and **ML operations** (failures with reasons, endpoints in trouble, failed schedules, drift and accuracy alerts, what is running and due). Experiments and Feature views are pages of their own. |
+| An old failure's reason read "Traceback (most recent call last):" | S3 | **Found in the UI test.** Jobs that failed before R536 stored the bare traceback, whose reason is its last line. The page reads it from there now, and from the server's side, so a long traceback cut to fit is never what is shown. |
+| A due schedule read "Next run 0s ago", and its last run "kept 7h ago" | S3 | **Found in the UI test.** Now "due now" (or "in 5 h"), and "kept the production version 7h ago". |
+| A model with a stopped endpoint was listed twice | S3 | **Found in the UI test.** It appeared under "In production without an endpoint" and under "Stopped". It is listed once now, as stopped. |
+| Experiments and Feature views said their own name twice | S3 | **Found in the UI test.** A card titled "Experiments" sat under the page titled "Experiments". The cards now say "How it works". |
+| An endpoint's row opened on a click and not from the keyboard | S3 | **Found by the keyboard test** (`keyboardOperable.test.ts`) in the full suite. Each Model serving row was clickable, around a link that already went to the same place. The link is the row's one control now, reached with Tab. |
+
+**Checked and sound.**
+- **Only the models you can open.** Both pages start from the model page's own access check (owned or granted). Every read of an `ml_` table after it is narrowed to those ids; a test reads each query and fails one that is not.
+- **Every row goes to the detail.** The model page takes `?tab=` (overview, versions, predictions, accuracy, jobs, automation). An endpoint opens Automation, a job opens Jobs, a prediction opens Predictions, and an alert opens Accuracy.
+- **Old links still land.** `/ml?tab=experiments` and `?tab=features` redirect, and a What's new entry that linked the tab now links the page.
+- **The rail, the palette and the handbook's table agree.** The handbook table is read back word for word by a test.
+- **Live, not polled forever.** Model serving refreshes every 5 s only while an endpoint is starting, and ML operations every 10 s only while something runs (measured: Starting turned into Serving without a reload).
+
+**What would have been wrong to conclude.**
+
+- *"It exists, so it can be found."* Endpoints, shadows, canaries, drift and schedules all existed, each on one model's page. A person looking for the endpoint that failed had to open every model.
+
+### 2026-11-25 — R537: asking for a GPU bought a GPU node nothing used
+
+**Why this round.** GPU training is to be tested on AWS, so the round makes it ready to test there. Read first, the setting `ML_TRAIN_GPUS` turned out to be all cost and no effect. The runtime image was CPU-only, and every candidate ran on the CPU. So a GPU node per sandbox was paid for and sat idle. Read as the operator paying for GPU nodes, and as the user whose job waits for one.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| Every training sandbox asked for a GPU, and nothing in it could use one | S2 | **Found reading the code.** `mlTrainGpus` went on every training sandbox: imports, forecasts, clustering, every worker of a distributed search, and the assemble step. The image had no GPU library, and the docs said "bring a CUDA build". Now XGBoost's CUDA build is in the image, and a classification or regression search adds it when it has a GPU. Only the sandbox that runs XGBoost asks for one (`gpusForSandbox`). |
+| A Job waiting for a GPU node looked like a job training | S2 | **Found reading the code.** On Kubernetes a batch Job counts as active while its pod is Pending. So a trainer waiting minutes for Cluster Autoscaler to bring a GPU node up from zero showed as running, with an empty log. The pod's Unschedulable condition is now read, and the job's log says it is waiting for a node with a free GPU, quoting the scheduler. A pod that is only pulling its image says nothing new. |
+| A GPU request on a Docker host without the NVIDIA runtime failed in Docker's own words | S3 | **Found reading the code, then in the UI test.** It was `docker start failed (500): {"message":"could not select device driver \"nvidia\"…"}`. Now it says what to install, or to set Training GPUs to 0, with Docker's words after. The first wording was too long: the Jobs table shows an error's first 200 characters and cut it at "set Training GPUs to 0 under Ad". It is shorter now, with the fix inside 200 characters (a test holds it there). |
+
+**Checked and sound.**
+- **A fit that succeeds is not proof of a GPU.** XGBoost falls back to the CPU on its own, with only a warning (**measured**: "No visible GPU is found, setting device to CPU"). The sandbox's check reads that warning, and a stand-in that falls back is refused (unit-tested).
+- **Saved for the CPU, and it answers the same.** XGBoost keeps `device='cuda'` in its parameters. Every XGBoost estimator in the saved model is moved to the CPU, through pipelines and calibration, before any metric. **Measured with the real libraries:**
+  - the saved parameter and the booster's own config are `cpu`;
+  - its probabilities equal those of the same model put back on `cuda`.
+- **The image cannot hand out GPUs on its own.** It sets `NVIDIA_DRIVER_CAPABILITIES` and never `NVIDIA_VISIBLE_DEVICES` (a test pins both). CUDA base images set that one to "all", and on a node whose default runtime is NVIDIA's it gives every GPU to any container from the image, whether it asked or not.
+- **NCCL left out on purpose.** `xgboost-cu12` 3.4.1 loads NCCL with dlopen only for training across several GPUs (`USE_DLOPEN_NCCL`, **measured** in the image). `--no-deps` saves 336 MB, and a single-GPU fit never touches NCCL.
+- **CUDA 12, not 13.** XGBoost's default wheel is built for CUDA 13 and needs NVIDIA driver 580 or later. The CUDA 12 build needs 525 or later, so it runs whatever driver EKS's NVIDIA AMI ships.
+- **Balanced weights.** XGBoost has no `class_weight`. Two classes are weighted with `scale_pos_weight`, the same inverse-frequency ratio. With three or more classes, XGBoost sits the search out and the log says so, rather than training it unbalanced among balanced candidates (**measured**).
+- **On EKS the pool is GPU-only and scales from zero.**
+  - The sandbox taint and an `nvidia.com/gpu` taint keep the app and CPU sandboxes off it.
+  - The device plugin is pinned to 0.20.1, two weeks before 0.20.2.
+  - Its chart schedules only onto nodes labelled `nvidia.com/gpu.present=true`, so the pool carries that label.
+  - Cluster Autoscaler gets the node-template tags it needs at zero nodes.
+  - A `train_gpus` above what one node has is refused at plan time.
+  - `terraform validate` passes.
+- **The preflight is read-only.** It makes describe and get calls only, and the quota increase is printed, not sent (a test reads every `aws` call it makes).
+
+**What would have been wrong to conclude.**
+
+- *"Training GPUs above 0 means training uses a GPU."* Until this round it meant paying for a GPU node per training sandbox while every candidate ran on its CPU.
+- *"XGBoost trained, so the GPU works."* XGBoost trains on the CPU when it cannot use the GPU, and says so only in a warning.
+- *"It is tested."* Without a GPU here, everything up to the GPU is tested. A fit on a real GPU, the device plugin and scaling from zero are the checklist for the first AWS apply (docs/deploy/AWS.md, "Testing GPU training").
+
+### 2026-11-25 — R536: a model logged the usual way could not be imported, and a refused file said only "Traceback"
+
+**Why this round.** MLflow 3.18 saves a scikit-learn model as **skops** unless told otherwise (cloudpickle only on one hosted platform; read in its source), and the R533 import took only pickles, so a model a team logged the ordinary way was refused. skops is a format built to be opened without running code, but only if the reader decides what to trust. The file's own `MLmodel` carries a `skops_trusted_types` list, and the file wrote it. So the round was read as the person who crafts the file.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| A scikit-learn model logged with MLflow 3's defaults was refused | S2 | **Found reading MLflow 3.18's source.** `mlflow.sklearn.log_model` writes `model.skops` with `serialization_format: skops`; import answered "Import takes pickle or cloudpickle". It now takes skops, opened type by type in the sandbox |
+| A failed ML job showed the start of a Python traceback, never the reason | S2 | **Found in the UI test.** A refused import was stored as the batch runner's traceback, and the Jobs table shows an error's first 200 characters: "Traceback (most recent call last): File …/batch_runner.py …". The reason was on the last line. This held for every training and prediction failure raised in the sandbox, not only imports. The exception's message now leads the stored error (a RuntimeError, the program's own sentence, without its class name), with the traceback kept under it for the log; the Runs view, which already read a traceback's last line, is unchanged |
+| The page said "Imported from MLflow (sklearn (skops))" | S3 | **Found in the UI test.** The flavor is now "sklearn, skops" |
+
+**Checked and sound.**
+- **The file's own trust list is never used.** It is recorded as `skops_asked` and the sandbox decides each type itself. A crafted `MLmodel` asking for `posix.system` and `builtins.eval` changed nothing (**measured**, v17).
+- **What is admitted, beyond skops' own:** classes scikit-learn itself defines and LightGBM's scikit-learn estimators. A scikit-learn class is looked up and must be the class it is named as (`__module__` + `__qualname__`), so `sklearn.utils._joblib.Memory`, which resolves to joblib's class, is refused. No function or method is admitted: a function runs when it is called, and the file chose what it is called with. Vendored code and test helpers under `sklearn` are refused too (unit-tested against a stand-in scikit-learn with each shape).
+- **Hostile files, with the real libraries** (runtime image, skops 0.16.0, scikit-learn 1.9.1). Three were refused by name and never built: a `FunctionTransformer` pointed at `posix.system`, a class renamed to joblib's `Memory`, and a class claimed to be `builtins.eval`. A pickle renamed `model.skops` is refused by the app before anything is staged ("not a skops archive"), and the sandbox would only have called skops on it anyway.
+- **Real models import and answer the same.** Logistic regression needed nothing beyond skops' own types, and so did logistic regression behind a `log1p`. A random forest needed `sklearn.tree._tree.Tree`, a histogram booster its `TreePredictor`, and a LightGBM pipeline `collections.OrderedDict`, `lightgbm.basic.Booster` and `LGBMClassifier`. Each imported artifact gave the original's predictions and probabilities (**measured**), and on 8080 Try-it matched scikit-learn: 1 at 70.0%, and 2 at 86.3% (0.863476).
+- **Byte for byte from a registry.** A forest registered on MLflow 3.18 the default way imported by its `@production` version; the staged file's SHA-256 was MLflow's own `model.skops` (`19bfa48a…`).
+- **skops is pinned** (`==0.16.0`, released 2026-09-24): the types skops trusts on its own change between releases, and the platform's check is written against them. An older runtime image installs it when a skops import first needs it.
+
+**What would have been wrong to conclude.**
+
+- *"skops is the safe format, so a skops file can be opened in the app."* skops is only as safe as the trust list it is given, and MLflow hands it one the file wrote. The file is still opened only in the sandbox, with a list the platform wrote.
+- *"MLflow's own gate covers it."* MLflow 3.18 gates every load behind `MLFLOW_ALLOW_MODEL_CODE_EXECUTION`, saying the skops list "is read from the model itself", but the gate defaults to on.
+
 ### 2026-11-25 — R535: a version picked by default for an alias it did not have, and a search that dropped underscores
 
 **Why this round.** R535 reads a model out of a server the user names and makes it a version here, so the server was read as the attacker (its MLmodel, its paths, its sizes, its ids) and as merely different from the fake (a real MLflow 3.18, with a model a team logged the ordinary way).

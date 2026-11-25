@@ -73,7 +73,10 @@ export function signatureInputs(schema: SchemaField[]): string {
 
 /** The library versions a version was trained with, when it recorded them. */
 export type TrainedRuntime = Partial<
-  Record<"python" | "scikit-learn" | "lightgbm" | "numpy" | "pandas" | "joblib" | "scipy", string>
+  Record<
+    "python" | "scikit-learn" | "lightgbm" | "numpy" | "pandas" | "joblib" | "scipy" | "xgboost",
+    string
+  >
 >;
 
 /** Lower bounds when a version did not record what it was trained with. */
@@ -94,13 +97,21 @@ const VERSION_RE = /^\d+(\.\d+){0,3}([a-z]+\d*)?$/i;
  * only under the scikit-learn that wrote it); otherwise the runtime image's
  * floors, and `exact` false so the export can say so.
  */
-export function requirementsFor(runtime: TrainedRuntime | null | undefined): {
+export function requirementsFor(
+  runtime: TrainedRuntime | null | undefined,
+  opts: { algorithm?: string | null } = {},
+): {
   text: string;
   exact: boolean;
 } {
   const lines: string[] = [];
   let exact = Boolean(runtime && Object.keys(runtime).length > 0);
-  for (const [pkg, floor] of Object.entries(RUNTIME_FLOORS)) {
+  // XGBoost only for a model that holds an XGBoost estimator (R537), which a
+  // search with a GPU can choose. Its CPU build answers the same, and this
+  // name installs whichever build pip picks for the platform.
+  const floors: Record<string, string> =
+    opts.algorithm === "xgboost" ? { ...RUNTIME_FLOORS, xgboost: ">=3.4" } : RUNTIME_FLOORS;
+  for (const [pkg, floor] of Object.entries(floors)) {
     const v = runtime?.[pkg as keyof TrainedRuntime];
     if (v && VERSION_RE.test(v)) lines.push(`${pkg}==${v}`);
     else {
@@ -194,13 +205,18 @@ export function mlmodelYaml(a: MlmodelArgs): string {
 export type ImportPlan =
   | {
       kind: "sklearn";
-      /** The pickled estimator, relative to the model folder. */
+      /** The saved estimator, relative to the model folder. */
       modelFile: string;
-      serialization: "pickle" | "cloudpickle";
+      serialization: "pickle" | "cloudpickle" | "skops";
       sklearnVersion: string | null;
       /** From the signature; null when it has none (the sandbox reads the estimator's). */
       features: { name: string; dtype: string }[] | null;
       flavor: string;
+      /**
+       * A skops file's own `skops_trusted_types`: what it asks to be trusted.
+       * Kept to say so, never used to load it (the file wrote the list).
+       */
+      skopsAsked: string[] | null;
     }
   | {
       kind: "agentswarms";
@@ -242,6 +258,20 @@ export function signatureDecision(
   const l = byName.get("positive_label");
   const label = typeof l === "string" && l.trim() && l.trim().length <= 200 ? l.trim() : null;
   return { threshold: t, positiveLabel: label };
+}
+
+/**
+ * The types a skops file's MLmodel asks to be trusted, as dotted names, for
+ * the record only. A crafted file can ask for anything (`builtins.eval`), so
+ * this list never reaches the loader; the sandbox decides type by type.
+ */
+export function askedTypes(raw: unknown): string[] | null {
+  if (!Array.isArray(raw)) return null;
+  const out = raw
+    .filter((t): t is string => typeof t === "string")
+    .map((t) => t.trim())
+    .filter((t) => /^[A-Za-z_][A-Za-z0-9_.]{0,199}$/.test(t));
+  return [...new Set(out)].slice(0, 50);
 }
 
 const SAFE_PATH = /^(?!\/)(?!.*(^|\/)\.\.(\/|$))[A-Za-z0-9._\-/]{1,200}$/;
@@ -331,11 +361,14 @@ export function readMlmodel(
         ok: false,
         error: "The model's pickled file is not a plain file inside the folder.",
       };
+    // MLflow 3 saves a scikit-learn model as skops unless told otherwise
+    // (R536): a refused skops file was a refused default. A file without the
+    // key predates skops, when cloudpickle was the default.
     const ser = String(sk?.serialization_format ?? "cloudpickle");
-    if (ser !== "pickle" && ser !== "cloudpickle") {
+    if (ser !== "pickle" && ser !== "cloudpickle" && ser !== "skops") {
       return {
         ok: false,
-        error: `This model is saved as "${ser}". Import takes pickle or cloudpickle; save it again with mlflow.sklearn and serialization_format="cloudpickle".`,
+        error: `This model is saved as "${ser.slice(0, 40)}". Import takes skops, pickle or cloudpickle, the formats mlflow.sklearn writes.`,
       };
     }
     return {
@@ -346,7 +379,8 @@ export function readMlmodel(
         serialization: ser,
         sklearnVersion: typeof sk?.sklearn_version === "string" ? sk.sklearn_version : null,
         features,
-        flavor: "sklearn",
+        flavor: ser === "skops" ? "sklearn, skops" : "sklearn",
+        skopsAsked: ser === "skops" ? askedTypes(sk?.skops_trusted_types) : null,
       },
     };
   }

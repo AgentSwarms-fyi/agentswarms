@@ -296,8 +296,10 @@ export async function refreshSession(row: SessionRow): Promise<SessionRow> {
     patch.status = row.kind === "batch" ? "running" : "ready";
     if (st.endpoint) patch.endpoint = st.endpoint;
     if (!row.started_at) patch.started_at = new Date().toISOString();
-    // Whatever it was waiting for, it is not waiting any more.
-    patch.pending_reason = null;
+    // Whatever it was waiting for, it is not waiting any more, unless it is
+    // a batch Job the cluster has not placed yet: running to Kubernetes,
+    // waiting for a node in fact (R537).
+    patch.pending_reason = st.message ?? null;
   } else if (st.state === "starting") {
     patch.status = "starting";
     // WHY it is still starting, when the runtime knows — an unschedulable pod

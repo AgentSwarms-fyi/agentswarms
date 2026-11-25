@@ -3,11 +3,11 @@
 Three ways to run AgentSwarms on AWS, from the same Terraform modules under
 [`deploy/aws/terraform`](../../deploy/aws/terraform):
 
-| Target | Directory | The app runs on | Users' code runs on | Pick it when |
-| --- | --- | --- | --- | --- |
-| **VMs behind a load balancer** | `vm/` | An Auto Scaling group of EC2 instances, every service on each with Docker | Fargate, one task per sandbox | You want plain VMs you can SSH into (through SSM) |
-| **Amazon ECS** | `ecs/` | ECS services on an EC2 Auto Scaling group; docgen and js-sandbox on Fargate | Fargate, one task per sandbox | You want AWS to run and roll the containers |
-| **Amazon EKS** | `eks/` | Kubernetes, from the Helm chart [`deploy/helm/agentswarms`](../../deploy/helm/agentswarms) | Pods on a tainted node pool of their own | You run Kubernetes, or want the same chart elsewhere later |
+| Target                         | Directory | The app runs on                                                                            | Users' code runs on                      | Pick it when                                               |
+| ------------------------------ | --------- | ------------------------------------------------------------------------------------------ | ---------------------------------------- | ---------------------------------------------------------- |
+| **VMs behind a load balancer** | `vm/`     | An Auto Scaling group of EC2 instances, every service on each with Docker                  | Fargate, one task per sandbox            | You want plain VMs you can SSH into (through SSM)          |
+| **Amazon ECS**                 | `ecs/`    | ECS services on an EC2 Auto Scaling group; docgen and js-sandbox on Fargate                | Fargate, one task per sandbox            | You want AWS to run and roll the containers                |
+| **Amazon EKS**                 | `eks/`    | Kubernetes, from the Helm chart [`deploy/helm/agentswarms`](../../deploy/helm/agentswarms) | Pods on a tainted node pool of their own | You run Kubernetes, or want the same chart elsewhere later |
 
 All three share:
 
@@ -42,12 +42,12 @@ terraform apply -var release=1.7.0 -var admin_email=you@example.com -var size=de
 
 `size` picks a tier from [`deploy/aws/spec/sizes.json`](../../deploy/aws/spec/sizes.json):
 
-| Size | For | Highly available | Base cost, a month (us-east-1) |
-| --- | --- | --- | --- |
-| `dev` | trying it out | no: one NAT, single-AZ database | about $260 (vm), $300 (ecs), $400 (eks) |
-| `small` | 10 to 50 users | yes, 2 AZs | about $500 to $650 |
-| `medium` | 50 to 250 users | yes, 3 AZs | about $1,200 to $1,400 |
-| `large` | 250 to 1,000 users | yes, 3 AZs | about $3,800 to $4,100 |
+| Size     | For                | Highly available                | Base cost, a month (us-east-1)          |
+| -------- | ------------------ | ------------------------------- | --------------------------------------- |
+| `dev`    | trying it out      | no: one NAT, single-AZ database | about $260 (vm), $300 (ecs), $400 (eks) |
+| `small`  | 10 to 50 users     | yes, 2 AZs                      | about $500 to $650                      |
+| `medium` | 50 to 250 users    | yes, 3 AZs                      | about $1,200 to $1,400                  |
+| `large`  | 250 to 1,000 users | yes, 3 AZs                      | about $3,800 to $4,100                  |
 
 Sandboxes, data through the NAT, logs and S3 come on top. Every value in a tier
 can be overridden; `monthly_budget_usd` adds an AWS Budget that e-mails
@@ -154,6 +154,35 @@ with the Cluster Autoscaler adding nodes underneath.
 
 See [Warm endpoints on KServe](../DEPLOYMENT.md#warm-endpoints-on-kserve).
 
+### GPU training
+
+On EKS, `gpu_node_max = 2` (any number above 0) adds a third node pool, of GPU
+instances (`gpu_instance_types`, default `g6.xlarge`: one NVIDIA L4, 24 GB).
+Fargate has no GPUs, so the VM and ECS targets train on CPUs only.
+
+- **It scales from zero.** No GPU node runs until a training job asks for a
+  GPU. Cluster Autoscaler then adds one, which takes a few minutes. The job's
+  log says it is waiting for a node with a free GPU, quoting the scheduler.
+  The pool's Auto Scaling group carries the autoscaler's node-template tags,
+  because from zero there is no node for the autoscaler to read.
+- **Only GPU work lands there.** The pool carries the sandbox taint and an
+  `nvidia.com/gpu` taint, so the app and CPU sandboxes stay off it.
+- **The NVIDIA device plugin** (chart 0.20.1) runs on the pool only. EKS's
+  NVIDIA AMI (`AL2023_x86_64_NVIDIA`) brings the driver and the container
+  toolkit.
+- **What uses the GPU.** A classification or regression search adds XGBoost as
+  a candidate, trained on the GPU.
+  - With the search spread over several workers, only the worker dealt XGBoost
+    asks for a GPU.
+  - Imports, forecasts, predictions and the other candidates never ask for one.
+  - The model is saved to answer on a CPU, so warm endpoints, KServe and batch
+    predictions need no GPU.
+- **`train_gpus`** (default 1) is how many GPUs that sandbox asks for. Admin →
+  Developer runtime → Training GPUs overrides it.
+
+[Testing GPU training](#testing-gpu-training) is the checklist for a first
+apply.
+
 ### Egress
 
 The proxy fetches the allow-list from the app (`NOTEBOOK_EGRESS_MODE=pull`).
@@ -213,16 +242,16 @@ Kubernetes. On `eks` it applies only the AWS resources, not the Helm releases.
 The emulator is not AWS either, and where it differs, the work copy bends
 instead of the roots. Each override is in `deploy/aws/emulator`:
 
-| Difference | What the rehearsal does |
-| --- | --- |
-| Revoking a new security group's default egress rule fails ([aws/aws-emulator#46](https://github.com/aws/aws-emulator/issues/46)) | `shim.py`, a local proxy, drops the ports AWS ignores |
-| S3 bucket tags go to an unresolvable host ([aws/aws-emulator#56](https://github.com/aws/aws-emulator/issues/56)) | Terraform reaches the emulator only through that proxy |
-| No AWS-managed CloudFront prefix list | `seed.tf.tmpl` makes a stand-in, and the edge module reads it |
-| Cloud Map answers health-check settings empty, so every plan would replace the services | `overrides/` ignores that drift |
-| A Lambda cannot call ECS, and no container runs | The deploy task's Lambda is a stand-in that checks its input and answers success |
-| RDS does not report log exports or the Performance Insights key | Nothing: every plan shows one in-place change to the database |
-| ECS cannot delete a capacity provider | Nothing: an `ecs` destroy stops there, with the cluster, its instances' group and the VPC left |
-| Auto Scaling cannot delete a scaling policy | Nothing: a `vm` destroy stops there. `terraform state rm module.app.aws_autoscaling_policy.cpu` in the work copy, then destroy again |
+| Difference                                                                                                                       | What the rehearsal does                                                                                                              |
+| -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Revoking a new security group's default egress rule fails ([aws/aws-emulator#46](https://github.com/aws/aws-emulator/issues/46)) | `shim.py`, a local proxy, drops the ports AWS ignores                                                                                |
+| S3 bucket tags go to an unresolvable host ([aws/aws-emulator#56](https://github.com/aws/aws-emulator/issues/56))                 | Terraform reaches the emulator only through that proxy                                                                               |
+| No AWS-managed CloudFront prefix list                                                                                            | `seed.tf.tmpl` makes a stand-in, and the edge module reads it                                                                        |
+| Cloud Map answers health-check settings empty, so every plan would replace the services                                          | `overrides/` ignores that drift                                                                                                      |
+| A Lambda cannot call ECS, and no container runs                                                                                  | The deploy task's Lambda is a stand-in that checks its input and answers success                                                     |
+| RDS does not report log exports or the Performance Insights key                                                                  | Nothing: every plan shows one in-place change to the database                                                                        |
+| ECS cannot delete a capacity provider                                                                                            | Nothing: an `ecs` destroy stops there, with the cluster, its instances' group and the VPC left                                       |
+| Auto Scaling cannot delete a scaling policy                                                                                      | Nothing: a `vm` destroy stops there. `terraform state rm module.app.aws_autoscaling_policy.cpu` in the work copy, then destroy again |
 
 The proxy changes signed requests, so the emulator runs with request signing
 checks off. Delete each override when the emulator fixes what it is for.
@@ -241,3 +270,61 @@ What to check after an apply:
    - Watch new instances or nodes arrive when tasks or pods cannot be placed.
 5. **Failover.** Reboot RDS with failover (Multi-AZ sizes). Sign-ins resume
    within about two minutes, and no task is replaced.
+
+## Testing GPU training
+
+GPU training is unit-tested and driven without a GPU: on Docker with no NVIDIA
+runtime, and with XGBoost's CUDA build on a CPU. That shows what happens when
+there is no GPU. Only a real GPU node shows the rest, so on the first EKS apply
+with a GPU pool, check each of these. Expect about $1 an hour while a
+`g6.xlarge` runs, and nothing while the pool is at zero.
+
+1. **Quota first.** A new account's GPU quota is often 0, and a node group with
+   no quota applies fine and then never starts a node:
+
+   ```bash
+   bash deploy/aws/scripts/gpu-preflight.sh us-east-1 g6.xlarge 2
+   ```
+
+   It checks the type (an NVIDIA GPU, x86), that the cluster's zones offer it,
+   and the "Running On-Demand G and VT instances" vCPU quota. When the quota is
+   short, it prints the increase request to send.
+
+2. **Apply** with `gpu_node_max = 2` (and `gpu_capacity_type = "SPOT"` to pay
+   less). Then
+   `kubectl get nodes -l agentswarms.io/pool=gpu` lists no nodes, and
+   `kubectl -n kube-system get ds nvidia-device-plugin` shows 0 desired.
+3. **A training job.** Train a classification model on a few thousand rows of
+   a sample dataset (Machine learning → New model).
+   - The job's log says `waiting to start: Waiting for a node with a free GPU`
+     for a few minutes while a node joins.
+   - `kubectl get nodes -l agentswarms.io/pool=gpu` shows it, and once the
+     device plugin is up, `.status.allocatable` lists `nvidia.com/gpu: 1`.
+4. **The log names the GPU.** For example:
+   `GPU: 1 requested, 1x NVIDIA L4 (22 GiB each, driver 580.xx); training uses it`.
+   - The leaderboard has an `xgboost` row marked **GPU**.
+   - The version's Lineage card shows the GPU, and which candidate trained on it.
+5. **It answers on a CPU.** Promote the version if XGBoost won, then:
+   - Try it on the Overview tab;
+   - deploy a warm endpoint;
+   - run a batch prediction.
+
+   None of them runs on the GPU pool:
+   `kubectl get pods -n agentswarms-sandboxes -o wide` shows them on the sandbox
+   nodes.
+
+6. **The pool empties.** 10 to 20 minutes after the job (Cluster Autoscaler's
+   scale-down delays), the GPU node goes, and the pool is back to zero.
+7. **Waiting ends cleanly.**
+   - **Cancel a job while it waits:** its pending pod goes, and no GPU node
+     stays up for it.
+   - **Ask for more GPUs than there is quota for:** run two training jobs at
+     once with `gpu_node_max` above what the quota allows. The second job's
+     log keeps saying it is waiting, and the node group's Auto Scaling activity
+     names the quota.
+
+If step 4 says the GPU was not usable, the note after it is XGBoost's or
+nvidia-smi's own words. The usual causes:
+
+- the device plugin is not running on the node;
+- the AMI's driver is older than 525, which XGBoost's CUDA 12 build needs.

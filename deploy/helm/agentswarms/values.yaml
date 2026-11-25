@@ -123,6 +123,19 @@ sandboxes:
     memory: 256Gi
   egressProxy:
     replicas: 2
+  # GPU training (R537): a training sandbox that runs a GPU candidate asks for
+  # trainGpus GPUs and goes to the pool these name, instead of the one above.
+  # The cluster needs GPU nodes and the NVIDIA device plugin on them
+  # (deploy/aws/terraform/eks makes both when gpu_node_max is above 0). The
+  # pool's maximum size is what bounds the GPUs sandboxes use.
+  gpu:
+    enabled: false
+    # ML_TRAIN_GPUS; Admin -> Developer runtime overrides it.
+    trainGpus: 1
+    # The GPU pool's label, and its GPU taint. A sandbox tolerates the
+    # sandbox pool's taint as well, so a GPU pool can carry both.
+    nodeSelector: {}
+    tolerations: []
 
 # Warm model endpoints on KServe (templates/serving.yaml). Off, a deployed
 # model is served by sandboxes the app starts and scales itself, as before.

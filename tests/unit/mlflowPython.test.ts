@@ -7,7 +7,7 @@
 // real libraries and real MLflow, is driven end to end in the runtime image
 // (docs/UI_TEST_RESULTS.md, R533).
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -229,5 +229,135 @@ print(json.dumps({
     expect(out.own.same_bytes).toBe(true);
     expect(out.own.result.artifact_sha256).toBe(out.own.uploaded_sha);
     expect(out.own_wrong_task.error).toMatch(/exported from a regression model/);
+  }, 60_000);
+});
+
+// A stand-in scikit-learn with the shapes the skops check has to tell apart
+// (R536): a real class where it says, a class re-exported under another
+// module's name, a function, vendored code and a test helper.
+const STUB_SKLEARN: Record<string, string> = {
+  "sklearn/__init__.py": "",
+  "sklearn/tree/__init__.py": "",
+  "sklearn/tree/_tree.py": "class Tree:\n    pass\n",
+  "sklearn/pipeline.py": "class Pipeline:\n    class Inner:\n        pass\n",
+  "sklearn/utils/__init__.py": "",
+  "sklearn/utils/_joblib.py":
+    "from json import JSONDecoder as Memory\n\ndef load(f):\n    raise RuntimeError('the file chose to call this')\n",
+  "sklearn/utils/_testing.py": "class Helper:\n    pass\n",
+  "sklearn/externals/__init__.py": "",
+  "sklearn/externals/vendored.py": "class Thing:\n    pass\n",
+};
+
+// skops, stood in: it names the types a file needs and builds the object.
+const STUB_SKOPS: Record<string, string> = {
+  "skops/__init__.py": "",
+  "skops/io.py": `
+CALLS = []
+NEEDED = []
+def get_untrusted_types(data=None, file=None):
+    CALLS.append(["types", None])
+    return list(NEEDED)
+def loads(data, trusted=None):
+    CALLS.append(["loads", trusted])
+    import stubest
+    return stubest.Clf()
+`,
+};
+
+describe.skipIf(!python)("a skops import (R536)", () => {
+  it("admits only scikit-learn's own classes and a short list, never the file's say", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "mlflow-skops-"));
+    for (const [f, text] of Object.entries({ ...STUB_SKLEARN, ...STUB_SKOPS })) {
+      mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });
+      writeFileSync(path.join(dir, f), text);
+    }
+    writeFileSync(path.join(dir, "joblib.py"), STUB_JOBLIB);
+    writeFileSync(path.join(dir, "stubest.py"), STUB_ESTIMATORS);
+    writeFileSync(path.join(dir, "prog.py"), TRAIN_PY);
+    const out = run(
+      dir,
+      `
+import hashlib, json, pickle
+import prog
+import skops.io as sio
+uploaded = []
+prog._fetch_artifact = lambda uri: BLOB
+prog._upload = lambda blob: uploaded.append(blob) or "s3://lake/ml-artifacts/m/v2/model.joblib"
+prog._log = lambda m: None
+# Not a pickle: had the import unpickled it, it would fail.
+BLOB = b"PK\\x03\\x04 a skops archive, never unpickled"
+
+names = ["sklearn.tree._tree.Tree", "sklearn.utils._joblib.Memory", "sklearn.utils._joblib.load",
+         "sklearn.externals.vendored.Thing", "sklearn.utils._testing.Helper", "sklearn.pipeline.Pipeline.Inner",
+         "sklearn.nope.Missing", "sklearn.tree._tree.Tree; import os", "builtins.eval", "os.system",
+         "collections.OrderedDict", "lightgbm.basic.Booster", "lightgbm.sklearn.LGBMClassifier", "", None]
+trustable = {str(n): prog._skops_trustable(n) for n in names}
+
+def attempt(needed):
+    sio.NEEDED[:] = needed
+    sio.CALLS[:] = []
+    imp = {"uri": "s3://lake/staged", "kind": "sklearn", "flavor": "sklearn, skops",
+           "sha256": hashlib.sha256(BLOB).hexdigest(), "serialization": "skops",
+           # What the file asked for; it must make no difference.
+           "skops_asked": ["builtins.eval", "os.system"],
+           "features": [{"name": "a", "dtype": "numeric"}]}
+    try:
+        r = prog._import_model({"task": "classification", "version": 2, "import": imp}, [])
+    except RuntimeError as e:
+        return {"error": str(e), "calls": sio.CALLS[:]}
+    art = pickle.loads(uploaded[-1])
+    return {"trusted": r.get("skops_trusted"), "calls": sio.CALLS[:], "algorithm": r["algorithm"],
+            "imported": art["imported"], "classes": art["classes"]}
+
+print(json.dumps({
+    "trustable": trustable,
+    "tree": attempt(["sklearn.tree._tree.Tree"]),
+    "none": attempt([]),
+    "crafted": attempt(["sklearn.tree._tree.Tree", "builtins.eval", "sklearn.utils._joblib.Memory"]),
+}))
+`,
+    );
+    expect(out.trustable).toEqual({
+      "sklearn.tree._tree.Tree": true,
+      // joblib's class, importable under a scikit-learn name.
+      "sklearn.utils._joblib.Memory": false,
+      // A function runs when called, and the file chose what it is called with.
+      "sklearn.utils._joblib.load": false,
+      "sklearn.externals.vendored.Thing": false,
+      "sklearn.utils._testing.Helper": false,
+      "sklearn.pipeline.Pipeline.Inner": false,
+      "sklearn.nope.Missing": false,
+      "sklearn.tree._tree.Tree; import os": false,
+      "builtins.eval": false,
+      "os.system": false,
+      "collections.OrderedDict": true,
+      "lightgbm.basic.Booster": true,
+      "lightgbm.sklearn.LGBMClassifier": true,
+      "": false,
+      None: false,
+    });
+    expect(out.tree).toMatchObject({
+      trusted: ["sklearn.tree._tree.Tree"],
+      calls: [
+        ["types", null],
+        ["loads", ["sklearn.tree._tree.Tree"]],
+      ],
+      algorithm: "mlflow:Clf",
+      imported: { format: "mlflow", serialization: "skops" },
+      classes: ["1", "2", "3"],
+    });
+    // Nothing beyond skops' own: loaded with its defaults alone.
+    expect(out.none).toMatchObject({
+      trusted: [],
+      calls: [
+        ["types", null],
+        ["loads", null],
+      ],
+    });
+    // Refused naming what it needed, and never built.
+    expect(out.crafted.error).toMatch(
+      /does not open: builtins\.eval, sklearn\.utils\._joblib\.Memory\./,
+    );
+    expect(out.crafted.calls).toEqual([["types", null]]);
   }, 60_000);
 });

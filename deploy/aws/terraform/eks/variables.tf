@@ -136,3 +136,39 @@ variable "api_allowed_cidrs" {
   type        = list(string)
   default     = ["0.0.0.0/0"]
 }
+
+variable "gpu_node_max" {
+  description = "GPU training (R537): the most GPU nodes the cluster autoscaler may run at once. 0 means no GPU pool. The pool scales from zero, so it costs nothing while no training job asks for a GPU. Check the account's \"Running On-Demand G and VT instances\" vCPU quota first: deploy/aws/scripts/gpu-preflight.sh."
+  type        = number
+  default     = 0
+  validation {
+    condition     = var.gpu_node_max >= 0 && var.gpu_node_max <= 50
+    error_message = "gpu_node_max is between 0 (no GPU pool) and 50."
+  }
+}
+
+variable "gpu_instance_types" {
+  description = "The GPU pool's instance types, every one with the same GPU count. g6.xlarge: 1x NVIDIA L4 (24 GB), 4 vCPU, 16 GiB. g5.xlarge (1x A10G) or g4dn.xlarge (1x T4, the cheapest) also work; x86 only, which is what the pool's NVIDIA AMI is built for."
+  type        = list(string)
+  default     = ["g6.xlarge"]
+  validation {
+    condition     = length(var.gpu_instance_types) > 0
+    error_message = "Name at least one GPU instance type."
+  }
+}
+
+variable "gpu_capacity_type" {
+  description = "ON_DEMAND, or SPOT for up to ~70% less: a training job whose node is reclaimed fails and is trained again."
+  type        = string
+  default     = "ON_DEMAND"
+  validation {
+    condition     = contains(["ON_DEMAND", "SPOT"], var.gpu_capacity_type)
+    error_message = "gpu_capacity_type is ON_DEMAND or SPOT."
+  }
+}
+
+variable "train_gpus" {
+  description = "GPUs each training sandbox that runs a GPU candidate asks for (ML_TRAIN_GPUS; Admin -> Developer runtime overrides it). At most the GPUs one node of gpu_instance_types has."
+  type        = number
+  default     = 1
+}

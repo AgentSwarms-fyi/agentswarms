@@ -36,3 +36,14 @@ output "monthly_usd_estimate" {
 output "secrets_added" {
   value = module.secrets.added
 }
+
+output "gpu_pool" {
+  description = "The GPU node pool (R537), when gpu_node_max is above 0: what to check while testing GPU training (docs/deploy/AWS.md, \"GPU training\")."
+  value = var.gpu_node_max > 0 ? {
+    node_group     = aws_eks_node_group.gpu[0].node_group_name
+    instance_types = var.gpu_instance_types
+    max_nodes      = var.gpu_node_max
+    gpus_per_node  = local.gpus_per_node
+    nodes_command  = "kubectl get nodes -l agentswarms.io/pool=gpu -o custom-columns=NAME:.metadata.name,GPUS:.status.allocatable.nvidia\\.com/gpu"
+  } : null
+}

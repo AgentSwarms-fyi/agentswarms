@@ -15,6 +15,25 @@ IAM, audited by trigger, with a decision id and a passport.
 - **Registry** — `ML Models` under **Data science**: every model you own or were
   granted, its production version's headline metric, what it predicts from,
   and whether something is training right now.
+- **The rest of a model's life** is under **Data science** too:
+  - **Experiments:** every training run and logged notebook run, compared on
+    the same metrics.
+  - **Feature views:** named feature sets, built point in time and served
+    online.
+  - **Model serving:** every endpoint across your models, with the version
+    it serves, how its traffic splits between versions, how many copies run
+    and how busy it is. Production versions with no endpoint are listed
+    under them.
+  - **ML operations:** what needs a look, what is running, what is scheduled
+    and what just finished, across your models. Each row opens the model on
+    the tab with its detail.
+
+  "Needs a look" lists:
+  - failures from the last seven days, with their reasons;
+  - endpoints that are failing, behind production or rolled back;
+  - schedules whose last run failed;
+  - drift and accuracy alerts.
+
 - **Training** — a four-step wizard (data, goal, options, review) drives a
   batch sandbox that profiles the table, tries several algorithms under a
   time budget and keeps the best one with its metrics, leaderboard and
@@ -33,8 +52,8 @@ IAM, audited by trigger, with a decision id and a passport.
 
 | Task              | What it needs                                    | Candidates tried                                                                                          | Primary metric |
 | ----------------- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------- | -------------- |
-| Classification    | category, boolean, small-domain target           | logistic regression, random forest, histogram gradient boosting, LightGBM                                 | F1 (macro)     |
-| Regression        | number target                                    | ridge, random forest, histogram gradient boosting, LightGBM                                               | RMSE           |
+| Classification    | category, boolean, small-domain target           | logistic regression, random forest, histogram gradient boosting, LightGBM; XGBoost with a GPU             | F1 (macro)     |
+| Regression        | number target                                    | ridge, random forest, histogram gradient boosting, LightGBM; XGBoost with a GPU                           | RMSE           |
 | Forecast          | number target over a date column, a period       | last value, moving average, seasonal naive, Holt-Winters (statsmodels), gradient boosting on lag features | RMSE           |
 | Clustering        | feature columns only                             | k-means for two to ten groups (or a fixed k), kept by silhouette                                          | Silhouette     |
 | Anomaly detection | feature columns only                             | isolation forest (200 trees); 2% flagged unless a share is given                                          | Anomaly rate   |
@@ -376,7 +395,7 @@ traceback as the failure when training raises.
 
 `log_metric(key, value, step=n)` keeps the point as `key@n` **and** updates the
 bare `key` to the latest value, so the curve survives and "what did this run
-score" still has one answer. **ML Models → Experiments** draws those points as
+score" still has one answer. **Data science → Experiments** draws those points as
 a sparkline beside the metric, and marks in the parameter list which parameters
 actually differed between the runs shown — in a list of twenty, the ones held
 constant are noise and the one that moved is the experiment.
@@ -399,11 +418,11 @@ Each call is one locked statement in the database (`ml_experiment_run_write`),
 so calls that arrive together are merged one after another: a loop logging
 from several threads keeps every key. `finish` writes only what it is sent. A
 model recorded by `save_model` stays on the run when the `with` block's own
-`finish()` closes it, so the run can be registered later from **ML Models →
+`finish()` closes it, so the run can be registered later from **Data science →
 Experiments** (R316). Sending either half of the artifact pair to `finish`
 replaces both halves.
 
-Models trained here are listed in **ML Models → Experiments** too, one row
+Models trained here are listed in **Data science → Experiments** too, one row
 per version with its settings, scores and training time, so a notebook run
 and a platform training compare on the same columns. A model with an
 experiment linked to it shows its versions inside that experiment; any other
@@ -1161,10 +1180,11 @@ and with pandas 3 it refuses date text (measured with MLflow 3.18 and pandas
 
 **Import** brings an MLflow model in as the next version (Versions tab →
 **Import MLflow model**, owner only): a scikit-learn model logged with
-`mlflow.sklearn` (pickle or cloudpickle), or a model exported from here,
-zipped. Its input columns come from the signature, or from the estimator's
-`feature_names_in_`; a classifier's labels stay its own, numbers included.
-Other flavors are refused, naming the flavor.
+`mlflow.sklearn` (skops, which MLflow 3 writes by default, or pickle or
+cloudpickle), or a model exported from here, zipped. Its input columns come
+from the signature, or from the estimator's `feature_names_in_`; a
+classifier's labels stay its own, numbers included. Other flavors are refused,
+naming the flavor.
 
 An imported model is opened in a sandbox, never in the app: loading a pickle
 runs whatever it holds. The app reads only the zip's listing and the
@@ -1179,6 +1199,42 @@ version by itself: it is the artifact the line was drawn for, so the
 probabilities mean the same thing. An imported version records no lake
 snapshot, since it was not trained on this lake. The zip may weigh up to
 `ML_IMPORT_MAX_MB` (500).
+
+### A skops file is opened type by type
+
+A pickle is a program: loading one runs whatever it holds, which is why it is
+opened only in a sandbox. A **skops** file is data. It is a zip whose
+`schema.json` describes each object by its type, and skops builds the objects
+from that description. It builds only types it trusts unless it is told to
+trust more. skops trusts scikit-learn's estimators, numpy, scipy and plain
+Python types on its own. For anything else it names the type, and the
+platform decides:
+
+- **Admitted:** a class scikit-learn itself defines. Forests and boosted
+  models need two of these that skops leaves off its list,
+  `sklearn.tree._tree.Tree` and the histogram booster's `TreePredictor`. The
+  class is looked up and has to be the class it is named as; a name another
+  module's object is importable under is not enough (joblib's `Memory`, as
+  `sklearn.utils._joblib.Memory`).
+- **Admitted:** LightGBM's scikit-learn estimators (`LGBMClassifier`,
+  `LGBMRegressor`, their `Booster`), which the trainer here uses too.
+- **Refused, naming the type:** everything else, including any function or
+  method, and code scikit-learn vendors or keeps for its tests. A function
+  runs when it is called, and the file chose what it is called with.
+
+The file's own `skops_trusted_types`, which MLflow writes into `MLmodel` when a
+model is saved with it, is kept as a record of what it asked for and never
+used. The file wrote that list, and a crafted one asks for `builtins.eval`.
+The app first checks that a file said to be skops is a skops archive, so a
+renamed pickle is refused before anything is staged. The sandbox still opens
+the file: skops is one more check there, not a reason to open it in the app.
+The version's page says the model was opened type by type and names any types
+admitted beyond skops' own. Tested with the real libraries: logistic
+regression needs none; a forest, a histogram booster and a LightGBM pipeline
+needed exactly the types above, and each imported model predicted what the
+original did. A transformer pointed at `posix.system`, a class renamed to
+joblib's `Memory`, and a class claimed to be `builtins.eval` were each refused
+by name, and none was built.
 
 ## Tracking on an MLflow server
 
@@ -1282,7 +1338,7 @@ curl <origin>/api/ml/predict \
 }
 ```
 
-Find them under **ML Models → Feature views**, and attach one to a model under
+Find them under **Data science → Feature views**, and attach one to a model under
 **Automation → Input** on the model page. Without one, nothing changes: the
 caller keeps sending whole rows and keeps owning them.
 
@@ -1395,7 +1451,7 @@ touch and which is now the larger half. Quoting the 2 ms as though it were the
 whole request would be a measurement of the component sold as a measurement of
 the system.
 
-Turn it on per view under **ML Models → Feature views → Serve online**, then
+Turn it on per view under **Data science → Feature views → Serve online**, then
 **Refresh** to fill it. Refreshing reads the view's table through the same
 governed chokepoint as everything else — the owner's access, the row-level
 policies and the audit row all still apply — and copies one row per key into
@@ -2053,7 +2109,7 @@ them. A large VM or a Kubernetes node pool is allowed to use itself.
 | `ML_MAX_CONCURRENT_TRAININGS_PER_USER` | 2         | Training jobs one user may have live at once           |
 | `ML_PREDICT_MAX_ROWS`                  | 5,000,000 | Rows one batch prediction may score                    |
 | `ML_API_RATE_LIMIT_PER_MIN`            | 60        | Calls a minute one ML API key may make                 |
-| `ML_TRAIN_GPUS`                        | 0         | GPUs requested per training sandbox                    |
+| `ML_TRAIN_GPUS`                        | 0         | GPUs a training sandbox that runs XGBoost asks for     |
 | `ML_DRIFT_ALERT_PSI`                   | 0.25      | PSI above which a prediction run raises a drift alert  |
 | `ML_ARTIFACT_MAX_MB`                   | 512       | Largest model a notebook run may save through the app  |
 | `ML_MAX_DEPLOYMENTS_PER_USER`          | 2         | Warm endpoints one person may hold open                |
@@ -2065,8 +2121,8 @@ See [SCALE_AND_LIMITS.md](./SCALE_AND_LIMITS.md#machine-learning--srcutilsnotebo
 
 - Training and inference need the notebook runtime services:
   `docker compose up -d`. The runtime image bakes the ML
-  stack (scikit-learn, LightGBM, statsmodels, DuckDB, pyarrow, s3fs); an
-  older image installs it at job start.
+  stack (scikit-learn, LightGBM, XGBoost, statsmodels, DuckDB, pyarrow,
+  s3fs); an older image installs it at job start.
 - The sandbox reads Parquet through the egress proxy. The proxy's allow-list
   is brought up to date with the lake endpoint automatically before a job
   starts, so a lakehouse configured after the last runtime-settings save
@@ -2081,11 +2137,74 @@ See [SCALE_AND_LIMITS.md](./SCALE_AND_LIMITS.md#machine-learning--srcutilsnotebo
   deployment guide's
   [ML platform on Kubernetes](./DEPLOYMENT.md#the-ml-platform-on-kubernetes)
   section has the three settings that matter.
-- **GPUs.** `ML_TRAIN_GPUS` (or the Admin setting) requests that many GPUs
-  for every training sandbox: a Docker device request on a single host, an
-  `nvidia.com/gpu` limit on Kubernetes. The baked runtime image is CPU-only
-  (scikit-learn, LightGBM); point `NOTEBOOK_RUNTIME_IMAGE` at a CUDA-capable
-  build of it when the trainer's candidates or your own notebooks need one.
+- **GPUs.** `ML_TRAIN_GPUS` (or the Admin setting Training GPUs) is how
+  many GPUs a training sandbox asks for: a Docker device request on a single
+  host, an `nvidia.com/gpu` limit on Kubernetes. See
+  [GPU training](#gpu-training).
+
+## GPU training
+
+With a GPU, a classification or regression search tries one more candidate,
+XGBoost, trained on the GPU. Nothing else changes: the other candidates,
+selection, the holdout, calibration and every metric work as they do on a CPU.
+
+- **Who asks for a GPU.** A GPU node costs about ten times a CPU one, so a
+  sandbox asks for one only when it will run something there:
+  - a single-container search asks for one, because it runs every candidate;
+  - in a distributed search, only the worker dealt XGBoost asks;
+  - a refit of an XGBoost model across slices of the rows asks for one.
+
+  Imports, forecasts, clustering, anomaly and recommendation models, the
+  assemble step and batch predictions never ask (`gpusForSandbox` in
+  `src/lib/mlShards.ts`).
+
+- **What the sandbox makes of it.** Before reading any rows, the trainer
+  checks, in order:
+  - what `nvidia-smi` lists;
+  - that the image's XGBoost was built with CUDA;
+  - that XGBoost can fit a tiny model on the GPU without falling back.
+
+  XGBoost falls back to the CPU on its own with only a warning, so a fit that
+  succeeded proves nothing; the check reads the warning. The log says what it
+  found, e.g. `GPU: 1 requested, 1x NVIDIA L4 (22 GiB each, driver 580.95.05);
+training uses it`.
+
+- **When it cannot use one.** Training still runs: XGBoost trains on the CPU,
+  and the version warns with the reason in the driver's or XGBoost's own
+  words.
+- **Saved for the CPU.** XGBoost keeps the device it was fitted on in its
+  parameters. Every XGBoost estimator in the saved model is moved back to the
+  CPU after calibration and before any metric. So the version is measured on
+  the CPU it is served on: Try-it, warm endpoints, KServe and batch predictions
+  never need a GPU.
+- **On the page.**
+  - The leaderboard marks the XGBoost row GPU or CPU.
+  - The Lineage card says what the sandbox had and which candidate trained on
+    it.
+  - An export lists `xgboost` in its requirements only for a model that holds
+    one.
+- **The image.** The runtime image carries XGBoost's CUDA 12 build,
+  `xgboost-cu12==3.4.1`, installed without NCCL
+  (`docker/notebook-runtime/requirements-nodeps.txt` says why). It is one image
+  for both kinds of sandbox. On a CPU it is an ordinary XGBoost, and the CUDA
+  12 build runs on NVIDIA drivers from 525 up.
+  - The image never sets `NVIDIA_VISIBLE_DEVICES`. Set to "all" in an image,
+    it hands every GPU on a node to any container from it, whether or not it
+    asked for one.
+- **Where it runs.**
+  - **Docker:** a host with the NVIDIA driver and the NVIDIA Container Toolkit.
+    Without them, the sandbox does not start, and the job says what to install.
+  - **Kubernetes:** a GPU node pool with the NVIDIA device plugin. A pod
+    waiting for a GPU node says so in the job's log.
+    `NOTEBOOK_K8S_GPU_NODE_SELECTOR` and `NOTEBOOK_K8S_GPU_TOLERATIONS` place
+    it on the pool.
+  - **EKS:** the Terraform root makes the pool, scaling from zero, and the
+    plugin ([AWS: GPU training](./deploy/AWS.md#gpu-training)).
+  - **Fargate:** has no GPUs.
+- **Balanced classes.** XGBoost has no `class_weight`. Two classes are
+  balanced by weighting the positive one; with more than two, balanced
+  weighting would need a weight per row, so XGBoost sits that search out and
+  the log says so.
 
 ## What it covers
 
@@ -2110,7 +2229,7 @@ Capability by capability, what the ML module does today and where it stops:
 | Public API                 | Per-model scoped keys, rate limits, audited denials, BYO registration                                                                                                                                                                                                                                                                                                     |
 | Bring your own model       | Any joblib pipeline under a small contract                                                                                                                                                                                                                                                                                                                                |
 | Feature store              | Feature views: score by key, read from the table training read, with an online store serving the latest row per key in ~2 ms                                                                                                                                                                                                                                              |
-| Distributed / GPU training | The algorithm search spreads across several sandboxes, and a dataset too large for one container is refit across several — disjoint hashed slices, averaged into one model, instead of a sample; GPUs requestable                                                                                                                                                         |
+| Distributed / GPU training | The algorithm search spreads across several sandboxes, and a dataset too large for one container is refit across several — disjoint hashed slices, averaged into one model, instead of a sample; XGBoost on a GPU when the sandbox has one                                                                                                                                |
 | Experiment tracking        | Runs logged from a notebook or a script with params, metrics and curves; a run promotes into the registry                                                                                                                                                                                                                                                                 |
 | Model cards                | Generated from the registry                                                                                                                                                                                                                                                                                                                                               |
 | Governance                 | IAM shares, trigger audit, decision ids, result digests, one statement guard for all data                                                                                                                                                                                                                                                                                 |

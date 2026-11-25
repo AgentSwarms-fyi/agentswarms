@@ -108,7 +108,12 @@ describe("a pod the cluster cannot place", () => {
     // explanation for something still STARTING was thrown away — which is
     // exactly the case this is about.
     expect(SERVICE).toContain("patch.pending_reason = st.message ?? null;");
-    expect(SERVICE).toContain("patch.pending_reason = null;");
+    // Ready clears it: a ready sandbox carries no message. A batch Job still
+    // waiting for a node is "running" with one, and keeps it (R537).
+    const running = SERVICE.slice(SERVICE.indexOf('if (st.state === "running")'));
+    expect(running.slice(0, running.indexOf("} else if"))).toContain(
+      "patch.pending_reason = st.message ?? null;",
+    );
   });
 
   it("so the readiness wait can say why instead of blaming the scorer", () => {

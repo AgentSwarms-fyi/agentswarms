@@ -990,15 +990,18 @@ kubectl -n agentswarms-notebooks edit configmap notebook-egress
 kubectl -n agentswarms-notebooks rollout restart deploy/notebook-egress
 ```
 
-**12. GPUs, only if you bring a CUDA runtime image.** The built-in trainers
-are CPU-only, so this buys nothing on its own:
+**12. GPUs, for training.** A classification or regression search adds
+XGBoost when its sandbox has a GPU, and trains it there; the runtime image
+already carries XGBoost's CUDA build ([GPU training](./ML.md#gpu-training)).
+With Terraform, `deploy/aws/terraform/eks` makes a pool that scales from zero
+instead ([AWS: GPU training](./deploy/AWS.md#gpu-training)). By hand:
 
 ```bash
 eksctl create nodegroup --cluster "$CLUSTER" --region "$AWS_REGION" --name gpu --node-type g5.xlarge --nodes 1 --node-labels accelerator=nvidia
 ```
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.17.0/deployments/static/nvidia-device-plugin.yml
+kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.20.1/deployments/static/nvidia-device-plugin.yml
 ```
 
 ```bash
@@ -1373,7 +1376,7 @@ az aks nodepool add --resource-group "$RG" --cluster-name "$CLUSTER" --name gpu 
 ```
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.17.0/deployments/static/nvidia-device-plugin.yml
+kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.20.1/deployments/static/nvidia-device-plugin.yml
 ```
 
 Then set `ML_TRAIN_GPUS`, `NOTEBOOK_K8S_GPU_NODE_SELECTOR` and
@@ -1604,7 +1607,7 @@ cluster gives you; nothing is Compose-only. What runs where:
 | Data in and out                                   | Lakehouse tables through the statement guard; the sandbox reads Parquet via the egress proxy                                    | Add the object-store host to the `notebook-egress` ConfigMap (the app names the host in its log if it is missing)                                                                       |
 | Schedules, drift evaluation, materialized views   | The one sweep: the BI `CronJob` (web pods run `DISABLE_INPROCESS_SCHEDULER=1`) under the fleet-wide lease                       | Does not multiply with replicas — by design; raise the sweep's per-pass limits instead                                                                                                  |
 | The public ML API, the wizard, predictions try-it | The web tier, behind the Service and HPA                                                                                        | Replicas; rate limits are global (`ML_API_RATE_LIMIT_PER_MIN` is per key across replicas)                                                                                               |
-| GPUs                                              | `ML_TRAIN_GPUS` puts an `nvidia.com/gpu` limit on each training Job                                                             | A GPU node pool with the NVIDIA device plugin; `NOTEBOOK_K8S_GPU_NODE_SELECTOR` / `NOTEBOOK_K8S_GPU_TOLERATIONS` (JSON) place the pods; a CUDA build of the runtime image               |
+| GPUs                                              | `ML_TRAIN_GPUS` puts an `nvidia.com/gpu` limit on each training Job                                                             | A GPU node pool with the NVIDIA device plugin; `NOTEBOOK_K8S_GPU_NODE_SELECTOR` / `NOTEBOOK_K8S_GPU_TOLERATIONS` (JSON) place the pods; only the Job that runs XGBoost asks for one     |
 
 Three things to set for a cluster that trains:
 
@@ -1620,8 +1623,8 @@ Three things to set for a cluster that trains:
    (cluster-wide ceiling), `LimitRange.max.memory` ≥ `ML_TRAIN_MEM_LIMIT_MB`, and
    `ML_MAX_CONCURRENT_TRAININGS_PER_USER`. A training on a few hundred thousand
    rows fits the 8 GiB default; tens of millions of rows want 32–64 GiB, or
-   `ML_TRAIN_MAX_ROWS` to sample. The built-in trainers are CPU-only, so no GPU
-   pool is needed unless you bring your own CUDA image.
+   `ML_TRAIN_MAX_ROWS` to sample. No GPU pool is needed: without one the
+   search runs its CPU candidates, and with one it adds XGBoost on the GPU.
 
 The GPU placement knobs, like every other limit, come from the environment:
 

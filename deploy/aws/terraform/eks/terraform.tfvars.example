@@ -22,3 +22,10 @@ monthly_budget_usd = 500
 # Warm model endpoints on KServe: installs cert-manager and KServe and turns
 # on the chart's serving.kserve, so Kubernetes scales each endpoint's pods.
 # serving_kserve = true
+
+# GPU training: a pool of GPU nodes that scales from zero, and the NVIDIA
+# device plugin on it. A training job's XGBoost runs there. Run
+# deploy/aws/scripts/gpu-preflight.sh first: a new account's GPU quota is often 0.
+# gpu_node_max       = 2
+# gpu_instance_types = ["g6.xlarge"]
+# gpu_capacity_type  = "ON_DEMAND"

@@ -285,6 +285,56 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Model serving and ML operations, and a full Data science menu** (R538).
+  Data science lists ML Models, Experiments, Feature views, Model serving,
+  ML operations and the Developer workspace. Experiments and Feature views
+  were tabs of ML Models, and an old `?tab=` link lands on their pages.
+  - **Model serving:** every endpoint across the models you can see. The
+    version it serves (and whether it is behind production), how its traffic
+    splits between versions, its copies and where they run, its requests and
+    when it was last called. The ones that need a look come first, and
+    production versions with no endpoint are named.
+  - **ML operations:**
+    - failures from the last seven days, with their reasons;
+    - endpoints in trouble and schedules that failed;
+    - drift and accuracy alerts;
+    - what is running, including a job waiting for a GPU node;
+    - what is scheduled, and what just finished.
+  - A model page opens on the tab a row links to (`?tab=`).
+- **GPU training** (R537). With Training GPUs above 0, a classification or
+  regression search adds XGBoost and trains it on the sandbox's GPU. Only the
+  sandbox that runs XGBoost asks for a GPU. Imports, forecasts, the other
+  candidates and predictions never do; before, every training sandbox asked
+  for one and nothing used it.
+  - Before reading a row, the sandbox checks what it was given: what
+    `nvidia-smi` lists, then a tiny fit on the GPU, because XGBoost falls back
+    to the CPU with only a warning. The log names the GPU.
+  - When the GPU cannot be used, training runs on the CPU and the version
+    says why.
+  - The model is saved to answer on a CPU, so serving needs no GPU. The
+    leaderboard marks the XGBoost row GPU or CPU, and the Lineage card says
+    what the sandbox had.
+  - The runtime image carries XGBoost's CUDA 12 build (3.4.1, without NCCL,
+    which only multi-GPU training loads), so one image serves both kinds of
+    sandbox.
+  - On EKS, `gpu_node_max` adds a GPU node pool that scales from zero, with
+    the NVIDIA device plugin. `deploy/aws/scripts/gpu-preflight.sh` checks the
+    account's GPU quota first. A Kubernetes job waiting for a GPU node says
+    so in its log, and a Docker host without an NVIDIA runtime says what to
+    install. On a real GPU it is still untested; docs/deploy/AWS.md has the
+    checklist.
+- **Models saved as skops import** (R536). MLflow 3 saves a scikit-learn
+  model as skops unless told otherwise, and import took only pickles, so a
+  model logged the usual way was refused. A skops file is now opened type by
+  type in the sandbox, never unpickled. Beyond the types skops trusts itself,
+  the platform admits classes scikit-learn defines (looked up and checked to
+  be the class named, so a re-exported name is not enough) and LightGBM's
+  scikit-learn estimators. It refuses anything else by name, functions
+  included. The file's own `skops_trusted_types` is recorded and never used.
+  A file said to be skops that is not a skops archive is refused before it is
+  staged. The version's page names the types admitted. The runtime image
+  installs `skops` 0.16.0; an older image installs it when a skops import
+  first needs it.
 - **Import from an MLflow server** (R535). **From an MLflow server** on a
   model's Versions tab takes a registered model's version (chosen by number or
   shown by alias) from one of your MLflow connections and imports it as the
@@ -698,6 +748,11 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **A failed model job showed a traceback instead of the reason** (R536).
+  Training, prediction and import failures raised in the sandbox were stored
+  as the full Python traceback, and the Jobs table shows an error's first 200
+  characters, which were all call stack. The exception's message now comes
+  first, with the traceback kept under it in the log.
 - **A registered model with numeric classes answered the wrong class**
   (R533). Scoring read a numeric prediction from a model registered from
   outside as a position in its class list, so a classifier whose classes are

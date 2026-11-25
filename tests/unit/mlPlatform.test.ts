@@ -11,7 +11,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { ML_JOB_KEY, ML_PRIMARY_METRIC, ML_TASKS, mlJobStashOf } from "@/utils/ml/types";
 import { TRAIN_PY } from "@/utils/ml/pyTrain";
-import { mlArtifactUri, mlErrorMessage, ML_REQUIREMENTS } from "@/utils/ml/train.server";
+import {
+  mlArtifactUri,
+  mlErrorMessage,
+  ML_REQUIREMENTS,
+  pythonFailureLead,
+} from "@/utils/ml/train.server";
 
 const REPO = path.resolve(__dirname, "../..");
 const rd = (p: string) => readFileSync(path.join(REPO, p), "utf8");
@@ -160,6 +165,44 @@ describe("the runtime carries a training job end to end", () => {
     expect(msg).toContain("credentials are fine");
     expect(msg).toContain("Authentication Failure"); // the raw tail is kept
     expect(mlErrorMessage("ValueError: nope")).toBe("ValueError: nope");
+  });
+
+  it("leads with what a Python traceback says went wrong, not its first frame (R536 UI test)", () => {
+    // As the batch runner reported a refused skops import: the Jobs table
+    // shows an error's first 200 characters, which were all call stack.
+    const tb = (last: string) =>
+      [
+        "Traceback (most recent call last):",
+        '  File "/opt/agentswarms/batch_runner.py", line 167, in main',
+        "    result = asyncio.run(_run(compiled, ns))",
+        "             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+        '  File "<notebook>", line 2241, in _skops_load',
+        last,
+        "",
+      ].join("\n");
+    const refused = tb(
+      "RuntimeError: The model file needs types this platform does not open: posix.system. A skops file is opened type by type.",
+    );
+    const msg = mlErrorMessage(refused);
+    expect(msg.slice(0, 200)).toMatch(
+      /^The model file needs types this platform does not open: posix\.system\./,
+    );
+    // The traceback stays under it, for the log.
+    expect(msg).toContain(refused);
+    // Another exception keeps its name; a message over several lines stays whole.
+    expect(pythonFailureLead(tb("KeyError: 'region'"))).toBe("KeyError: 'region'");
+    expect(pythonFailureLead(tb("ValueError: bad shape\n  expected (3,)"))).toBe(
+      "ValueError: bad shape\n  expected (3,)",
+    );
+    expect(pythonFailureLead(tb("duckdb.duckdb.IOException: IO Error: no file"))).toBe(
+      "duckdb.duckdb.IOException: IO Error: no file",
+    );
+    // Not a traceback, or one without an exception line: left as it was.
+    expect(pythonFailureLead("The training job was cancelled.")).toBeNull();
+    expect(mlErrorMessage("The training job was cancelled.")).toBe(
+      "The training job was cancelled.",
+    );
+    expect(pythonFailureLead("Traceback (most recent call last):\n  File x\n")).toBeNull();
   });
 
   it("orphaned jobs are swept with the ETL runs", () => {

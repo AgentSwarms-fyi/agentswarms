@@ -423,7 +423,7 @@ with agentswarms.start_run("churn-v2", params={"lr": 0.01, "depth": 6}) as run:
         </li>
       </UL>
       <P>
-        Find them under <strong>ML Models → Experiments</strong>. Nothing is created there: the
+        Find them under <strong>Data science → Experiments</strong>. Nothing is created there: the
         first <C>start_run()</C> call creates its own experiment.
       </P>
       <P>

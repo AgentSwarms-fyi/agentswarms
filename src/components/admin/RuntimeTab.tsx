@@ -975,7 +975,11 @@ export function RuntimeTab({
                 label="Training GPUs"
                 value={form.ml_train_gpus}
                 onChange={(n) => set("ml_train_gpus", n)}
-                hint="Requested per training sandbox: a Docker device request, or nvidia.com/gpu on Kubernetes. Needs a CUDA-capable runtime image."
+                hint={
+                  form.backend === "ecs"
+                    ? "Fargate has no GPUs, so on this backend keep this at 0; GPU training runs on the Kubernetes backend (EKS) or a single GPU host with Docker."
+                    : "GPUs for a classification or regression search, where XGBoost joins the candidates and trains on them. Only the sandbox that runs XGBoost asks for one; imports, forecasts and predictions never do. A Docker device request, or nvidia.com/gpu on Kubernetes."
+                }
               />
               <NumberField
                 label="Notebook artifact size (MB)"

@@ -23,6 +23,30 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    id: "data-science-menu",
+    date: "2026-11-25",
+    title: "Model serving and ML operations",
+    body: "Data science lists every page of a model's life now. Model serving shows every endpoint and how its traffic splits; ML operations shows what failed, what runs and what is due, across your models.",
+    link: { to: "/ml/operations" },
+    cta: "Open ML operations",
+  },
+  {
+    id: "ml-gpu-training",
+    date: "2026-11-25",
+    title: "Training on a GPU",
+    body: "Give training a GPU and the search adds XGBoost, trained on it. Only that sandbox asks for one, the log names the GPU it got, and the model is saved to answer on a CPU.",
+    link: { to: "/docs/ml/operations" },
+    cta: "Read how it works",
+  },
+  {
+    id: "mlflow-skops-import",
+    date: "2026-11-25",
+    title: "Models saved as skops import too",
+    body: "A scikit-learn model saved as skops, MLflow 3's default, now imports. It is opened type by type: past skops' own list, only scikit-learn classes and LightGBM models get in, and the rest is refused by name.",
+    link: { to: "/docs/ml/predictions" },
+    cta: "Read how it works",
+  },
+  {
     id: "mlflow-registry-import",
     date: "2026-11-25",
     title: "Import straight from your MLflow server",
@@ -116,7 +140,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     date: "2026-11-23",
     title: "Every training run in one place",
     body: "Experiments lists each version trained here beside the runs logged from notebooks, on the same scores, with what started it.",
-    link: { to: "/ml", search: { tab: "experiments" } },
+    link: { to: "/ml/experiments" },
     cta: "Open Experiments",
   },
   {

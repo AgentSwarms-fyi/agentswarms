@@ -40,6 +40,7 @@ import {
   FileClock,
   FileSpreadsheet,
   FlaskConical,
+  Gauge,
   GraduationCap,
   HeartPulse,
   History,
@@ -55,6 +56,7 @@ import {
   PieChart,
   Plug,
   Puzzle,
+  Rocket,
   ScrollText,
   Server,
   Settings,
@@ -62,6 +64,8 @@ import {
   ShieldCheck,
   Sigma,
   Star,
+  TableProperties,
+  TestTubes,
   Timer,
   Trash2,
   type LucideIcon,
@@ -196,8 +200,16 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Data science",
     hint: "Train models and write code against your data",
+    // The registry first, the page most people open; then a model's life
+    // around it: what was tried, what it learns from, how it answers, and
+    // what is happening to all of them (R538). Experiments and Feature views
+    // were tabs of ML Models, where nobody looking for them found them.
     items: [
       { title: "ML Models", url: "/ml", icon: Brain },
+      { title: "Experiments", url: "/ml/experiments", icon: TestTubes },
+      { title: "Feature views", url: "/ml/features", icon: TableProperties },
+      { title: "Model serving", url: "/ml/serving", icon: Rocket },
+      { title: "ML operations", url: "/ml/operations", icon: Gauge, formerly: "MLOps" },
       // The escape hatch, last, for when no page above fits: notebooks.
       { title: "Developer workspace", url: "/notebooks", icon: NotebookPen },
     ],

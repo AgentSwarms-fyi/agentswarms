@@ -302,8 +302,189 @@ def _build_preprocessor(schema, features, prep, df=None, compact=False):
     return prepro, dt_cols, num_all, cat, text
 
 
+# ── GPUs (R537) ──────────────────────────────────────────────────────────────
+# XGBoost's CUDA 12 build, installed without its NCCL dependency: NCCL is
+# loaded only for training across several GPUs, which this trainer never does,
+# and it would add 336 MB to every sandbox. The runtime image bakes the same
+# pin (docker/notebook-runtime/requirements-nodeps.txt); an older image
+# installs it the first time a sandbox with a GPU needs it.
+_XGB_PIN = 'xgboost-cu12==3.4.1'
+# The candidates that run on a GPU. mlShards.ts lists them too
+# (ML_GPU_CANDIDATES), and a test holds the two to the same names.
+_GPU_NAMES = ('xgboost',)
+
+
+def _nvidia_smi():
+    # The GPUs this container can see, as the NVIDIA driver reports them. The
+    # NVIDIA container runtime mounts nvidia-smi only into a container that
+    # was given a GPU, so "not found" is the plainest "no GPU here" there is.
+    try:
+        p = subprocess.run(['nvidia-smi', '--query-gpu=name,memory.total,driver_version',
+                            '--format=csv,noheader,nounits'], capture_output=True, text=True, timeout=30)
+    except FileNotFoundError:
+        return [], 'nvidia-smi is not in the sandbox, so no NVIDIA driver was mounted into it'
+    except Exception as e:
+        return [], 'nvidia-smi did not answer (%s)' % str(e)[:160]
+    if p.returncode != 0:
+        said = (p.stderr or p.stdout or '').strip()[:240]
+        return [], 'nvidia-smi failed: %s' % (said or 'exit code %d' % p.returncode)
+    seen = []
+    for line in (p.stdout or '').strip().splitlines():
+        parts = [x.strip() for x in line.split(',')]
+        if len(parts) < 3 or not parts[0]:
+            continue
+        try:
+            mem = int(float(parts[1]))
+        except Exception:
+            mem = None
+        seen.append({'name': parts[0][:80], 'memory_mb': mem, 'driver': parts[2][:40]})
+    return seen, (None if seen else 'nvidia-smi listed no GPUs')
+
+
+def _xgboost():
+    try:
+        import xgboost
+        return xgboost
+    except Exception:
+        pass
+    _log('installing XGBoost (this runtime image predates it)')
+    p = subprocess.run([sys.executable, '-m', 'pip', 'install', '--user', '--no-input', '-q', '--no-deps', _XGB_PIN],
+                       capture_output=True, text=True)
+    if p.returncode != 0:
+        print(p.stdout[-1000:], p.stderr[-1000:])
+        raise RuntimeError('installing %s failed (see the output above)' % _XGB_PIN)
+    import site as _site
+    _site.addsitedir(_site.getusersitepackages())
+    import importlib as _il
+    _il.invalidate_caches()
+    import xgboost
+    return xgboost
+
+
+def _gpu_context(cfg):
+    """What this sandbox was given, and whether training can use it.
+
+    Asked: the GPUs the app requested for this sandbox (0 when none). Seen:
+    what the driver lists. Usable: XGBoost fitted a tiny model on the GPU
+    without falling back. XGBoost does fall back to the CPU on its own, with
+    only a warning, so the check reads its warnings rather than trusting a
+    fit that succeeded: a fit that quietly ran on the CPU succeeds too.
+    """
+    asked = int(cfg.get('gpus_requested') or 0)
+    seen, why = _nvidia_smi()
+    ctx = {'requested': asked, 'seen': seen, 'device': None}
+    if not seen:
+        if asked:
+            ctx['note'] = why
+        return ctx
+    try:
+        xgboost = _xgboost()
+        info = xgboost.build_info()
+        ctx['xgboost'] = str(xgboost.__version__)
+        if info.get('CUDA_VERSION'):
+            ctx['cuda'] = '.'.join(str(x) for x in info['CUDA_VERSION'])
+        if not info.get('USE_CUDA'):
+            ctx['note'] = 'XGBoost %s in this image was built without CUDA' % xgboost.__version__
+            return ctx
+        import numpy as np
+        X = np.random.RandomState(0).rand(256, 4)
+        t0 = time.time()
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            xgboost.XGBRegressor(n_estimators=2, device='cuda', tree_method='hist').fit(X, X[:, 0])
+        fell_back = [str(w.message) for w in caught if 'to CPU' in str(w.message)]
+        if fell_back:
+            ctx['note'] = 'XGBoost could not use the GPU: %s' % fell_back[0].strip()[-200:]
+            return ctx
+        ctx['device'] = 'cuda'
+        ctx['probe_seconds'] = round(time.time() - t0, 2)
+    except Exception as e:
+        ctx['note'] = 'XGBoost could not use the GPU: %s' % str(e).strip()[:240]
+    return ctx
+
+
+def _gpu_summary(ctx):
+    seen = ctx.get('seen') or []
+    if not seen:
+        return 'none visible'
+    names = {}
+    for g in seen:
+        names[g['name']] = names.get(g['name'], 0) + 1
+    out = ', '.join('%dx %s' % (n, name) for name, n in names.items())
+    mem = seen[0].get('memory_mb')
+    return out + (' (%.0f GiB each, driver %s)' % (mem / 1024.0, seen[0].get('driver')) if mem else '')
+
+
+def _gpu_candidate(task, gpu, only, balanced, pos_weight):
+    # The candidate that runs on a GPU (R537). It joins the search when the
+    # app asked for a GPU for this sandbox, or found one, or dealt it to this
+    # worker by name. Device: the GPU when the check above could use one,
+    # otherwise the CPU, with the reason on the version: a sandbox that asked
+    # for a GPU and could not use one still trains, but it must say so.
+    gpu = gpu or {}
+    if not (gpu.get('requested') or gpu.get('device') or (only and 'xgboost' in only)):
+        return []
+    if task not in ('classification', 'regression'):
+        return []
+    if task == 'classification' and balanced and pos_weight is None:
+        _log('xgboost skipped: balanced weights over more than two classes need a weight per row, '
+             'which this search does not pass to its candidates')
+        return []
+    device = gpu.get('device') or 'cpu'
+    try:
+        if not gpu.get('device'):
+            import xgboost  # no install just to run on the CPU
+        else:
+            _xgboost()
+        out = []
+        if task == 'classification':
+            from xgboost import XGBClassifier
+            extra = {'scale_pos_weight': pos_weight} if pos_weight else {}
+            out.append(('xgboost', lambda: XGBClassifier(n_estimators=400, learning_rate=0.05, max_depth=6, tree_method='hist',
+                                                         device=device, random_state=42, verbosity=0, **extra)))
+        else:
+            from xgboost import XGBRegressor
+            out.append(('xgboost', lambda: XGBRegressor(n_estimators=400, learning_rate=0.05, max_depth=6, tree_method='hist',
+                                                        device=device, random_state=42, verbosity=0)))
+        return out
+    except Exception as e:
+        _log('xgboost unavailable (%s); continuing without it' % str(e)[:120])
+        return []
+
+
+def _xgb_to_cpu(obj, _depth=0):
+    # A model trained on a GPU is SAVED for the CPU (R537). Warm endpoints,
+    # batch predictions and exports have no GPU, and XGBoost keeps the device
+    # it was fitted on in its parameters: a model left on 'cuda' answers on a
+    # CPU only by falling back, with a warning on every call. Every XGBoost
+    # estimator inside the saved object is moved back, through pipelines and
+    # calibration wrappers alike. Returns how many were moved.
+    if obj is None or _depth > 6:
+        return 0
+    if (type(obj).__module__ or '').startswith('xgboost') and hasattr(obj, 'set_params'):
+        try:
+            if obj.get_params().get('device') not in (None, 'cpu'):
+                obj.set_params(device='cpu')
+                return 1
+        except Exception as e:
+            _log('could not move %s to the CPU: %s' % (type(obj).__name__, str(e)[:120]))
+        return 0
+    if isinstance(obj, (list, tuple)):
+        return sum(_xgb_to_cpu(x, _depth + 1) for x in obj)
+    moved = 0
+    for attr in ('steps', 'estimator', 'calibrated_classifiers_', 'estimators_', 'final_estimator_'):
+        v = getattr(obj, attr, None)
+        if v is None or v is obj:
+            continue
+        if attr == 'steps':
+            moved += sum(_xgb_to_cpu(s[1], _depth + 1) for s in v if isinstance(s, tuple) and len(s) > 1)
+        else:
+            moved += _xgb_to_cpu(v, _depth + 1)
+    return moved
+
+
 # ── Candidates and tuning ────────────────────────────────────────────────────
-def _candidates(task, prep, only=None):
+def _candidates(task, prep, only=None, gpu=None, pos_weight=None):
     # 'only' is this worker's slice of a distributed search: the server deals
     # the candidate names round-robin and each sandbox trains just its own.
     # Absent (the single-container case) every candidate is tried, exactly as
@@ -333,6 +514,9 @@ def _candidates(task, prep, only=None):
             cands.append(('lightgbm', lambda: LGBMRegressor(n_estimators=400, learning_rate=0.05, random_state=42, verbose=-1)))
         except Exception as e:
             _log('lightgbm unavailable (%s); continuing without it' % str(e)[:120])
+    # Last, so a search on a CPU deals and orders its candidates exactly as
+    # it did before GPUs (R537).
+    cands.extend(_gpu_candidate(task, gpu, only, balanced, pos_weight))
     if only:
         wanted = set(only)
         cands = [c for c in cands if c[0] in wanted]
@@ -355,6 +539,10 @@ def _search_space(name):
     if name == 'lightgbm':
         return {'model__n_estimators': [200, 400, 800], 'model__num_leaves': [15, 31, 63],
                 'model__learning_rate': [0.02, 0.05, 0.1], 'model__min_child_samples': [10, 20, 40],
+                'model__subsample': [0.7, 1.0], 'model__colsample_bytree': [0.7, 1.0]}
+    if name == 'xgboost':
+        return {'model__n_estimators': [200, 400, 800], 'model__max_depth': [4, 6, 8],
+                'model__learning_rate': [0.02, 0.05, 0.1], 'model__min_child_weight': [1, 5, 10],
                 'model__subsample': [0.7, 1.0], 'model__colsample_bytree': [0.7, 1.0]}
     if name == 'logistic_regression':
         return {'model__C': [0.1, 0.3, 1.0, 3.0, 10.0]}
@@ -952,7 +1140,14 @@ def _train_tabular(df, cfg, warnings_):
     leaderboard, ranked = [], []
     higher = task == 'classification'
     metric = 'f1_macro' if higher else 'rmse'
-    for name, make in _candidates(task, prep, cfg.get('candidates')):
+    gpu = cfg.get('_gpu') or {}
+    # XGBoost has no class_weight: two classes are balanced by weighting the
+    # positive one, the same inverse-frequency ratio 'balanced' means.
+    pos_weight = None
+    if task == 'classification' and prep.get('class_weight') == 'balanced' and len(classes or []) == 2:
+        n_pos = int((ytr == 1).sum())
+        pos_weight = float(len(ytr) - n_pos) / n_pos if n_pos else None
+    for name, make in _candidates(task, prep, cfg.get('candidates'), gpu=gpu, pos_weight=pos_weight):
         if leaderboard and _elapsed() > budget * 0.85:
             leaderboard.append({'algorithm': name, 'metric': metric, 'value': None, 'higher_is_better': higher,
                                 'fit_seconds': 0.0, 'status': 'skipped', 'note': 'time budget spent'})
@@ -969,6 +1164,9 @@ def _train_tabular(df, cfg, warnings_):
             pipe.fit(Xtr, ytr)
             row = {'algorithm': name, 'metric': metric, 'value': _safe_float(score), 'higher_is_better': higher,
                    'fit_seconds': round(time.time() - t0, 2), 'status': 'ok'}
+            if name in _GPU_NAMES:
+                # Where it trained, so its fit time reads against the others'.
+                row['device'] = 'gpu' if gpu.get('device') else 'cpu'
             if len(cvres['scores']) > 1:
                 row['spread'] = cvres['std']
                 row['folds'] = len(cvres['scores'])
@@ -998,6 +1196,9 @@ def _train_tabular(df, cfg, warnings_):
     calibration = None
     if task == 'classification':
         best, calibration = _calibrate(best, Xtr, ytr, splits, Xva, yva, classes or [], warnings_)
+    # Saved for the CPU it will be served on, and measured there too (R537).
+    if _xgb_to_cpu(best):
+        _log('%s trained on the GPU; saved to answer on the CPU' % best_name)
     # Reported from the holdout, which nothing above was allowed to read.
     metrics = _full_metrics(task, best, Xva, yva, classes or [])
     metrics['tuning_trials'] = float(tuning_info['trials'])
@@ -2050,6 +2251,13 @@ def _runtime():
             out[name] = str(__import__(mod).__version__)
         except Exception:
             pass
+    # Only when the search loaded it (a GPU sandbox, R537); an export then
+    # lists it only for a model that holds an XGBoost estimator.
+    if 'xgboost' in sys.modules:
+        try:
+            out['xgboost'] = str(sys.modules['xgboost'].__version__)
+        except Exception:
+            pass
     return out
 
 
@@ -2059,6 +2267,96 @@ def _estimator_name(est):
     if steps:
         return type(steps[-1][1]).__name__
     return type(est).__name__
+
+
+# A skops file is opened type by type (R536). skops trusts a set of types of
+# its own (scikit-learn's estimators, numpy, scipy, builtins) and names any
+# other type the file needs. Beyond that set, this platform admits:
+#   - classes scikit-learn itself defines. Its trees (sklearn.tree._tree.Tree)
+#     and histogram predictors are not on skops' list, so no forest or boosted
+#     model loads without them;
+#   - LightGBM's scikit-learn estimators, which the trainer here uses too.
+# Never the file's own skops_trusted_types: a crafted file lists builtins.eval.
+_SKOPS_PIN = 'skops==0.16.0'
+_SKOPS_ALSO = frozenset(('collections.OrderedDict', 'lightgbm.basic.Booster',
+                         'lightgbm.sklearn.LGBMClassifier', 'lightgbm.sklearn.LGBMRegressor'))
+_SKOPS_NEVER = ('sklearn.externals.', 'sklearn.utils._testing', 'sklearn.utils._mocking',
+                'sklearn.conftest', 'sklearn.tests.')
+_DOTTED = _re.compile(r'[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+')
+
+
+def _skops_trustable(name):
+    """Whether this platform admits one type a skops file needs (R536).
+
+    A scikit-learn class is looked up and has to BE the class it is named as:
+    a name another module's object is re-exported under (joblib's Memory is
+    importable as sklearn.utils._joblib.Memory) is refused, as is anything
+    that is not a class (a function or a method runs when it is called, and
+    the file chose what it is called with). Vendored code and test helpers
+    are refused even though they live under sklearn.
+    """
+    import importlib
+    import inspect
+    if not isinstance(name, str) or len(name) > 200 or not _DOTTED.fullmatch(name):
+        return False
+    if name in _SKOPS_ALSO:
+        return True
+    if not name.startswith('sklearn.') or '.tests.' in name:
+        return False
+    if any(name.startswith(p) for p in _SKOPS_NEVER):
+        return False
+    mod, _, attr = name.rpartition('.')
+    try:
+        obj = getattr(importlib.import_module(mod), attr)
+    except Exception:
+        return False
+    return inspect.isclass(obj) and '%s.%s' % (getattr(obj, '__module__', ''), getattr(obj, '__qualname__', '')) == name
+
+
+def _skops_io():
+    try:
+        import skops.io as sio
+        return sio
+    except Exception:
+        pass
+    _log('installing skops (this runtime image predates it)')
+    p = subprocess.run([sys.executable, '-m', 'pip', 'install', '--user', '--no-input', '-q', _SKOPS_PIN],
+                       capture_output=True, text=True)
+    if p.returncode != 0:
+        print(p.stdout[-1000:], p.stderr[-1000:])
+        raise RuntimeError('This runtime has no skops, and installing it failed (see the output above). '
+                           'Rebuild the runtime image, or save the model with serialization_format="cloudpickle".')
+    import site as _site
+    _site.addsitedir(_site.getusersitepackages())
+    import importlib as _il
+    _il.invalidate_caches()
+    import skops.io as sio
+    return sio
+
+
+def _skops_load(blob):
+    """The estimator in a skops file, and the types admitted to open it (R536)."""
+    sio = _skops_io()
+    try:
+        needed = [str(t) for t in sio.get_untrusted_types(data=blob)]
+    except Exception as e:
+        raise RuntimeError('The model file could not be read as skops: %s' % str(e)[:300])
+    admitted = sorted(t for t in set(needed) if _skops_trustable(t))
+    refused = sorted(t for t in set(needed) if t not in admitted)
+    if refused:
+        more = (' and %d more' % (len(refused) - 10)) if len(refused) > 10 else ''
+        raise RuntimeError(
+            'The model file needs types this platform does not open: %s%s. A skops file is opened type by '
+            'type, and only scikit-learn classes and LightGBM estimators are admitted beyond skops\' own. '
+            'Saved with serialization_format="cloudpickle" instead, it imports as a pickle, which is opened '
+            'only in a sandbox.' % (', '.join(refused[:10]), more))
+    try:
+        est = sio.loads(blob, trusted=admitted or None)
+    except Exception as e:
+        raise RuntimeError('The skops file could not be opened: %s' % str(e)[:300])
+    if admitted:
+        _log('skops: admitted %s beyond its own trusted types' % ', '.join(admitted))
+    return est, admitted
 
 
 def _import_model(cfg, warnings_):
@@ -2076,6 +2374,7 @@ def _import_model(cfg, warnings_):
     import joblib
     imp = cfg['import']
     task = cfg['task']
+    skops_trusted = None
     blob = _fetch_artifact(imp['uri'])
     if hashlib.sha256(blob).hexdigest() != imp['sha256']:
         raise RuntimeError('The uploaded model file is not the one that was checked when it arrived. Import it again.')
@@ -2093,7 +2392,8 @@ def _import_model(cfg, warnings_):
         dtypes = dict((f['name'], f['dtype']) for f in (sig or []))
         schema = [{'name': f, 'dtype': dtypes.get(f, 'numeric'), 'role': 'feature'} for f in features]
     else:
-        if imp.get('serialization') == 'cloudpickle':
+        serialization = imp.get('serialization') or 'cloudpickle'
+        if serialization == 'cloudpickle':
             # cloudpickle writes ordinary pickles; only a model holding a
             # lambda or a class defined in a notebook needs it to load.
             try:
@@ -2107,7 +2407,12 @@ def _import_model(cfg, warnings_):
         import warnings as _w
         with _w.catch_warnings(record=True) as caught:
             _w.simplefilter('always')
-            est = pickle.loads(blob)
+            if serialization == 'skops':
+                # Never a pickle: skops builds the objects from its schema,
+                # and only from types checked here (R536).
+                est, skops_trusted = _skops_load(blob)
+            else:
+                est = pickle.loads(blob)
         for w in caught:
             text = str(w.message)
             if 'version' in text.lower():
@@ -2135,6 +2440,7 @@ def _import_model(cfg, warnings_):
         payload = {'task': task, 'algorithm': algorithm, 'pipeline': est, 'features': features,
                    'classes': classes, 'external': True,
                    'imported': {'format': 'mlflow', 'flavor': imp.get('flavor'),
+                                'serialization': serialization,
                                 'sklearn_version': imp.get('sklearn_version')}}
         buf = io.BytesIO()
         joblib.dump(payload, buf, compress=3)
@@ -2144,10 +2450,13 @@ def _import_model(cfg, warnings_):
     uri = _upload(out)
     # 'metrics' empty but present, as an assembled model's: an imported model
     # has no score of its own here until it is evaluated.
-    return {'ok': True, 'mode': 'import', 'algorithm': algorithm, 'primary_metric': None, 'metrics': {},
+    out_ = {'ok': True, 'mode': 'import', 'algorithm': algorithm, 'primary_metric': None, 'metrics': {},
             'leaderboard': [], 'feature_importance': [], 'feature_schema': schema, 'feature_stats': None,
             'artifact_uri': uri, 'artifact_sha256': sha, 'artifact_bytes': len(out),
             'training_rows': 0, 'training_total_rows': 0, 'training_sampled': False}
+    if skops_trusted is not None:
+        out_['skops_trusted'] = skops_trusted
+    return out_
 
 
 # ── Prediction ───────────────────────────────────────────────────────────────
@@ -2397,6 +2706,11 @@ def entrypoint(inputs):
         _log('done in %.1fs' % _elapsed())
         return result
     _log('job %s: %s on %s.%s -> %s' % (cfg['job_id'][:8], cfg['task'], cfg['source']['schema'], cfg['source']['table'], cfg.get('target_column') or cfg.get('item_column') or '(no target)'))
+    gpu = _gpu_context(cfg)
+    cfg['_gpu'] = gpu
+    if gpu['requested'] or gpu['seen']:
+        _log('GPU: %d requested, %s%s' % (gpu['requested'], _gpu_summary(gpu),
+             '; training uses it' if gpu.get('device') else '; ' + (gpu.get('note') or 'not usable') + ', so training runs on the CPU'))
     df, total, sampled = _read_frame(cfg)
     if sampled:
         warnings_.append('Trained on a %d-row sample of %d rows.' % (len(df), total))
@@ -2410,6 +2724,15 @@ def entrypoint(inputs):
         result = _train_recommendation(df, cfg, warnings_)
     else:
         result = _train_tabular(df, cfg, warnings_)
+    if gpu['requested'] or gpu['seen']:
+        # What the sandbox was given and what used it, for the version (R537).
+        used = [r['algorithm'] for r in (result.get('leaderboard') or [])
+                if r.get('device') == 'gpu' and r.get('status') == 'ok']
+        result['gpu'] = {k: v for k, v in gpu.items() if k in ('requested', 'seen', 'device', 'note', 'cuda', 'xgboost')}
+        result['gpu']['used_by'] = used
+        if gpu['requested'] and not gpu.get('device'):
+            warnings_.append('%d GPU%s requested for this sandbox, but training could not use one: %s. It trained on the CPU.'
+                             % (gpu['requested'], '' if gpu['requested'] == 1 else 's', gpu.get('note') or 'none was visible'))
     blob = result.pop('_artifact')
     sha = hashlib.sha256(blob).hexdigest()
     _log('uploading artifact (%d bytes)' % len(blob))

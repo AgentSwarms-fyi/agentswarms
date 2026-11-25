@@ -382,7 +382,7 @@ export function FeatureViewsPanel({ token }: { token: string }) {
         <CardContent className="flex flex-wrap items-start justify-between gap-3 p-4">
           <div className="max-w-3xl space-y-1">
             <p className="flex items-center gap-2 text-sm font-medium">
-              <KeyRound className="h-4 w-4 text-primary" /> Feature views
+              <KeyRound className="h-4 w-4 text-primary" /> How it works
             </p>
             <p className="text-xs leading-relaxed text-muted-foreground">
               A model trained on a table whose columns were built by SQL is normally scored by

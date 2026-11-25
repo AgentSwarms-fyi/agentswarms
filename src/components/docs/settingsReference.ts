@@ -3744,7 +3744,7 @@ export const SETTINGS_REFERENCE: SettingsTier[] = [
               {
                 "name": "ML_TRAIN_GPUS",
                 "line": "ML_TRAIN_GPUS=\"\"",
-                "note": "0 — GPUs requested per training sandbox (needs a CUDA runtime image)"
+                "note": "0 — GPUs a training sandbox asks for when it runs XGBoost, the GPU candidate (classification and regression searches only)"
               },
               {
                 "name": "ML_DRIFT_ALERT_PSI",

@@ -74,7 +74,7 @@ function MlOperationsPage() {
             "60",
             "Calls a minute one ML API key may make",
           ],
-          [<C key="g">ML_TRAIN_GPUS</C>, "0", "GPUs requested per training sandbox"],
+          [<C key="g">ML_TRAIN_GPUS</C>, "0", "GPUs a training sandbox that runs XGBoost asks for"],
           [
             <C key="h">ML_DRIFT_ALERT_PSI</C>,
             "0.25",
@@ -83,12 +83,42 @@ function MlOperationsPage() {
         ]}
       />
 
+      <H2 id="ml-operations">ML operations</H2>
+      <P>
+        <strong>Data science → ML operations</strong> is the view across every model you can see, in
+        four parts. Each row opens the model on the tab that holds its detail.
+      </P>
+      <UL>
+        <li>
+          <strong>Needs a look</strong> comes first:
+          <UL>
+            <li>
+              training and batch predictions that failed in the last seven days, each with its
+              reason;
+            </li>
+            <li>endpoints that are failing, behind production or rolled back;</li>
+            <li>schedules whose last run failed;</li>
+            <li>production versions whose inputs drifted or whose accuracy fell.</li>
+          </UL>
+        </li>
+        <li>
+          <strong>Running now</strong> lists the training, imports and batch predictions in
+          progress. A job waiting for room says so, such as a GPU job waiting for a node.
+        </li>
+        <li>
+          <strong>Coming up</strong> lists the scheduled retraining and batch predictions.
+        </li>
+        <li>
+          <strong>Recently finished</strong> lists the last runs, with how long each took.
+        </li>
+      </UL>
+
       <H2 id="operations">Operations</H2>
       <UL>
         <li>
           Training and inference need the notebook runtime services: <C>docker compose up -d</C>.
-          The runtime image bakes scikit-learn, LightGBM, statsmodels, DuckDB, pyarrow and s3fs; an
-          older image installs them at job start.
+          The runtime image bakes scikit-learn, LightGBM, XGBoost, statsmodels, DuckDB, pyarrow and
+          s3fs; an older image installs them at job start.
         </li>
         <li>
           The sandbox reads Parquet through the egress proxy; its allow-list is brought up to date
@@ -102,10 +132,25 @@ function MlOperationsPage() {
           settings that matter.
         </li>
         <li>
-          <strong>GPUs:</strong> <C>ML_TRAIN_GPUS</C> (or the Admin setting) requests that many GPUs
-          for every training sandbox — a Docker device request on a single host, an{" "}
-          <C>nvidia.com/gpu</C> limit on Kubernetes. The baked runtime image is CPU-only; point{" "}
-          <C>NOTEBOOK_RUNTIME_IMAGE</C> at a CUDA-capable build when you need one.
+          <strong>GPUs:</strong> with <C>ML_TRAIN_GPUS</C> (Admin → Developer runtime → Training
+          GPUs) above 0, a classification or regression search adds XGBoost and trains it on the
+          GPU. Only the sandbox that runs XGBoost asks for one: imports, forecasts, the other
+          candidates and predictions never do. The model is saved to answer on a CPU, so serving
+          needs no GPU.
+        </li>
+        <li>
+          The sandbox checks what it was given before reading a row: what <C>nvidia-smi</C> lists,
+          then a tiny fit on the GPU, since XGBoost falls back to the CPU with only a warning. The
+          log names the GPU; the leaderboard marks the XGBoost row GPU or CPU; the Lineage card says
+          which candidate trained on it. When the GPU cannot be used, training still runs on the CPU
+          and the version says why.
+        </li>
+        <li>
+          Docker needs the NVIDIA driver and the NVIDIA Container Toolkit on the host. Kubernetes
+          needs a GPU node pool with the NVIDIA device plugin, named by{" "}
+          <C>NOTEBOOK_K8S_GPU_NODE_SELECTOR</C> and <C>NOTEBOOK_K8S_GPU_TOLERATIONS</C>; a pod
+          waiting for a GPU node says so in the job&apos;s log. On EKS the Terraform root makes the
+          pool, scaling from zero, with <C>gpu_node_max</C>. Fargate has no GPUs.
         </li>
         <li>
           Artifacts live under <C>ml-artifacts/</C> in the lake bucket. <C>npm run backup</C>{" "}

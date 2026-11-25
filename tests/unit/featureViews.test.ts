@@ -307,10 +307,14 @@ describe("the wiring", () => {
     expect(rd("src/components/ml/FeatureViewsPanel.tsx")).toContain("needs whole rows again");
   });
 
-  it("is reachable where the models are, without a twelfth sidebar item", () => {
-    const page = rd("src/routes/_authenticated/ml.tsx");
-    expect(page).toContain("FeatureViewsPanel");
-    expect(page).toContain("Feature views");
+  it("has a page of its own in Data science, and the old tab link lands there (R538)", () => {
+    const page = rd("src/routes/_authenticated/ml_.features.tsx");
+    expect(page).toContain("<FeatureViewsPanel");
+    expect(page).toContain('title="Feature views"');
+    expect(rd("src/lib/appNav.ts")).toContain('{ title: "Feature views", url: "/ml/features"');
+    expect(rd("src/routes/_authenticated/ml.tsx")).toContain(
+      'if (search.tab === "features") throw redirect({ to: "/ml/features" });',
+    );
     expect(rd("src/routes/_authenticated/ml_.$modelId.tsx")).toContain("ModelFeatureView");
   });
 

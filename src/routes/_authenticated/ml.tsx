@@ -5,7 +5,7 @@ import { FavouritesFilter } from "@/components/FavouritesFilter";
 import { useFavouritesFilter } from "@/hooks/use-favourites-filter";
 import { PageHeader } from "@/components/PageHeader";
 import { StarButton } from "@/components/StarButton";
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Brain, Plus, RefreshCw, Search, Share2 } from "lucide-react";
@@ -15,8 +15,6 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useAuth } from "@/hooks/use-auth";
-import { ExperimentsPanel } from "@/components/ml/ExperimentsPanel";
-import { FeatureViewsPanel } from "@/components/ml/FeatureViewsPanel";
 import { cn } from "@/lib/utils";
 import { mlListModels, type MlModelSummary } from "@/utils/ml.functions";
 import {
@@ -36,13 +34,17 @@ import {
   relTime,
 } from "@/components/ml/mlFormat";
 
-type MlTab = "models" | "experiments" | "features";
-
 export const Route = createFileRoute("/_authenticated/ml")({
   component: MlPage,
-  // The tab is in the address, so Experiments can be linked to (R527).
+  // Experiments and Feature views were tabs here, linked as ?tab= (R527);
+  // they are pages of their own in Data science now (R538), and an old link
+  // lands on them.
   validateSearch: (s: Record<string, unknown>): { tab?: "experiments" | "features" } =>
     s.tab === "experiments" || s.tab === "features" ? { tab: s.tab } : {},
+  beforeLoad: ({ search }) => {
+    if (search.tab === "experiments") throw redirect({ to: "/ml/experiments" });
+    if (search.tab === "features") throw redirect({ to: "/ml/features" });
+  },
   head: () => ({
     meta: [
       { title: "ML Models — AgentSwarms" },
@@ -64,10 +66,6 @@ function MlPage() {
   const listFn = useServerFn(mlListModels);
   const [data, setData] = useState<ListResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const search = Route.useSearch();
-  const tab: MlTab = search.tab ?? "models";
-  const setTab = (t: MlTab) =>
-    void navigate({ to: "/ml", search: t === "models" ? {} : { tab: t }, replace: true });
   const [q, setQ] = useState("");
   const [task, setTask] = useState<"all" | MlTask>("all");
 
@@ -140,34 +138,7 @@ function MlPage() {
         }
       />
 
-      <div className="flex items-center gap-1 border-b">
-        {(
-          [
-            ["models", "Models"],
-            ["experiments", "Experiments"],
-            ["features", "Feature views"],
-          ] as const
-        ).map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setTab(key)}
-            className={cn(
-              "border-b-2 px-3 py-2 text-sm",
-              tab === key
-                ? "border-primary font-medium"
-                : "border-transparent text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {tab === "experiments" ? <ExperimentsPanel token={token} /> : null}
-      {tab === "features" ? <FeatureViewsPanel token={token} /> : null}
-
-      {tab === "models" && stats ? (
+      {stats ? (
         <div className="grid gap-3 sm:grid-cols-4">
           <Stat label="Models" value={fmtInt(stats.total)} />
           <Stat label="In production" value={fmtInt(stats.production)} />
@@ -180,7 +151,7 @@ function MlPage() {
         </div>
       ) : null}
 
-      <div className={cn("flex flex-wrap items-center gap-2", tab !== "models" && "hidden")}>
+      <div className="flex flex-wrap items-center gap-2">
         <div className="relative w-full max-w-sm">
           <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
@@ -210,7 +181,7 @@ function MlPage() {
         <FavouritesFilter filter={favourites} />
       </div>
 
-      {tab !== "models" ? null : data === null && error !== null ? (
+      {data === null && error !== null ? (
         <Card>
           <CardContent className="space-y-3 p-6">
             <p className="text-sm font-medium">Could not load models</p>

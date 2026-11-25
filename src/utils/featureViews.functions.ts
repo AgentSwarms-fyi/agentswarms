@@ -1,4 +1,4 @@
-// Server functions behind ML Models → Feature views: define a view over a
+// Server functions behind Data science → Feature views: define a view over a
 // table, check it against that table, and attach it to a model.
 //
 // A view is owner-only in every direction. It names a table the owner can

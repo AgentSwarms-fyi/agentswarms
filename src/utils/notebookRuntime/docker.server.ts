@@ -127,6 +127,39 @@ export function kernelNetwork(): string {
 /** The runner uid:gid baked into the image (non-root). */
 const RUN_USER = process.env.NOTEBOOK_RUN_USER || "1000:1000";
 
+/**
+ * A GPU sandbox the host could not start, said as what to do (R537).
+ *
+ * Docker accepts a GPU request at create and refuses it at start, with the
+ * NVIDIA runtime's own words: `could not select device driver "nvidia"` when
+ * the NVIDIA Container Toolkit is not installed, `nvidia-container-cli: …`
+ * when it is but the driver is not loaded. Repeated verbatim after the
+ * sentence that says what they mean. Null for any other failure.
+ */
+export function dockerGpuProblem(detail: string, gpus: number): string | null {
+  if (
+    !/could not select device driver|nvidia-container-cli|unknown or invalid runtime name: nvidia|nvidia-container-runtime/i.test(
+      detail,
+    )
+  ) {
+    return null;
+  }
+  let said = detail.trim();
+  try {
+    const parsed = JSON.parse(said) as { message?: unknown };
+    if (typeof parsed.message === "string") said = parsed.message;
+  } catch {
+    /* plain text */
+  }
+  // What to do fits in the first 200 characters, which is all the Jobs table
+  // shows of an error (found in the R537 UI test: it was cut at "under Ad").
+  return (
+    `This Docker host cannot give a sandbox a GPU (it asked for ${gpus}): install the NVIDIA ` +
+    `driver and Container Toolkit, or set Training GPUs to 0 in Admin → Developer runtime. ` +
+    `Docker said: ${said.slice(0, 300)}`
+  );
+}
+
 type InspectResult = {
   State: { Running: boolean; ExitCode: number; Status: string; Error?: string };
   NetworkSettings?: {
@@ -241,8 +274,9 @@ export class DockerOrchestrator implements NotebookOrchestrator {
         removed: false,
         error: (e as Error).message,
       }));
+      const gpu = spec.gpus ? dockerGpuProblem(detail, spec.gpus) : null;
       throw new Error(
-        `docker start failed (${start.status}): ${detail}` +
+        (gpu ?? `docker start failed (${start.status}): ${detail}`) +
           (teardown.removed
             ? ""
             : `; its container ${name} could not be removed either (${teardown.error}), so it is still on this host and has to be taken away by hand`),
