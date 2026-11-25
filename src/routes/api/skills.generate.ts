@@ -218,6 +218,7 @@ export const Route = createFileRoute("/api/skills/generate")({
               latencyMs: Date.now() - startedAt,
               status: "error",
               errorMessage: `HTTP ${resp.status}`,
+              notBilled: true,
             });
           }
           if (resp.status === 429) {

@@ -276,6 +276,7 @@ async function llmJsonOnce(
         latencyMs: Date.now() - startedAt,
         status: "error",
         errorMessage: `Gateway ${r.status}: ${errText.slice(0, 200)}`,
+        notBilled: true,
         modelFallback,
       });
       // The provider does not know this model: the choice is unavailable,
