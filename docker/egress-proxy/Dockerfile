@@ -12,7 +12,7 @@
 # Alpine, pinned by digest, as db-migrate is; Alpine 3.24.3, released
 # 2026-10-23. squid from Alpine's own packages, with Alpine's security fixes
 # since the base was published (R406).
-FROM alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
+FROM alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 
 RUN apk upgrade --no-cache \
  && apk add --no-cache squid curl ca-certificates \
