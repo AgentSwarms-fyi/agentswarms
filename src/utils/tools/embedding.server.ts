@@ -133,6 +133,7 @@ export async function embedTexts(
           latencyMs: Date.now() - tStart,
           status: "error",
           errorMessage: `${res.status}: ${body.slice(0, 200)}`,
+          notBilled: true,
         });
       }
       throw new Error(`embeddings ${res.status}: ${body.slice(0, 300)}`);

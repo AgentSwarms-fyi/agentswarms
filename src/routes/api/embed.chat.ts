@@ -479,6 +479,8 @@ export const Route = createFileRoute("/api/embed/chat")({
             latencyMs: Date.now() - startedAt,
             status: "error",
             errorMessage: `Upstream ${upstream.status}: ${errText.slice(0, 200)}`,
+            // An error status billed nothing; an OK answer with no body may have.
+            notBilled: !upstream.ok,
           });
           return json({ error: `Model provider error (${upstream.status}).` }, 502);
         }

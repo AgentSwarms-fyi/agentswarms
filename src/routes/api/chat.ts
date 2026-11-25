@@ -507,6 +507,7 @@ import {
 } from "@/utils/observability/traceSanitize";
 
 import { approxTokens, estimateImageCost, isImageModel } from "@/utils/observability/pricing";
+import { traceUsage } from "@/utils/observability/traceUsage";
 import { priceCall } from "@/utils/observability/priceResolver";
 import { providerReportedCost } from "@/utils/observability/providerCost";
 import { CallerCheckFailed, checkFailed } from "@/utils/callerLookup.server";
@@ -569,6 +570,15 @@ async function recordTrace(opts: {
    */
   replayedFinal?: boolean;
   /**
+   * The provider produced nothing for this turn and billed nothing: a
+   * guardrail refused it before any call, or the provider answered with an
+   * error before a single token. The row records zero tokens and zero cost.
+   * Without it, a refused call (a 429 for exhausted credits, say) recorded the
+   * chars/4 estimate of its prompt and that estimate's price — spend that
+   * budget_spend() then counted, though the provider charged nothing.
+   */
+  notBilled?: boolean;
+  /**
    * Aggregate usage across the turn's tool rounds (from the loop's
    * x-agentswarms-loop-usage-* headers). Never added to this row's BILLING
    * columns — the child traces already carry it — but stored in the payload
@@ -610,27 +620,25 @@ async function recordTrace(opts: {
     return;
   }
   const isImg = isImageModel(trace.model) || (opts.imageCount ?? 0) > 0;
-  const tokensIn = opts.replayedFinal ? 0 : (opts.upstreamTokensIn ?? trace.promptTokensApprox);
-  const tokensOut =
-    isImg || opts.replayedFinal ? 0 : (opts.upstreamTokensOut ?? approxTokens(assistantText));
-  // Whether the numbers above are measured (provider-reported usage) or the
-  // chars/4 fallback. Recorded so spend precision is knowable after the fact
+  // Tokens and cost, by one rule (src/utils/observability/traceUsage.ts):
+  // provider-reported first, zero for a turn that was not billed or whose
+  // final answer was replayed, else the chars/4 estimate and the price table.
+  // tokensEstimated says which, so spend precision is knowable after the fact
   // instead of every row looking equally authoritative.
-  const tokensEstimated =
-    !opts.replayedFinal && (opts.upstreamTokensIn == null || opts.upstreamTokensOut == null);
+  const { tokensIn, tokensOut, tokensEstimated, providerCost, costUsd } = traceUsage({
+    provider: trace.provider,
+    model: trace.model,
+    isImage: isImg,
+    imageCount: opts.imageCount,
+    promptTokensApprox: trace.promptTokensApprox,
+    assistantText,
+    upstreamTokensIn: opts.upstreamTokensIn,
+    upstreamTokensOut: opts.upstreamTokensOut,
+    upstreamCostUsd: opts.upstreamCostUsd,
+    replayedFinal: opts.replayedFinal,
+    notBilled: opts.notBilled,
+  });
   const latencyMs = Date.now() - trace.startedAt;
-  // A provider-reported figure wins outright, including when it is 0 — the
-  // free-model router really does charge nothing, and recording that as a
-  // MEASURED zero is what stops it looking like a gap in the price table.
-  // `?? ` rather than a truthiness check for exactly that reason.
-  const providerCost = opts.replayedFinal ? null : (opts.upstreamCostUsd ?? null);
-  const costUsd =
-    providerCost ??
-    (opts.replayedFinal
-      ? 0
-      : isImg
-        ? estimateImageCost(trace.model, Math.max(1, opts.imageCount ?? 1))
-        : estimateCost(trace.provider, trace.model, tokensIn, tokensOut));
 
   // Build request_payload defensively. Some keys (like full message arrays)
   // can be very large — truncate per-message content so we don't blow up
@@ -640,6 +648,8 @@ async function recordTrace(opts: {
   const safePayload = sanitizeTraceValue(rawPayload) as Record<string, unknown>;
   if (tokensEstimated) safePayload.tokens_estimated = true;
   if (opts.replayedFinal) safePayload.replayed_final = true;
+  // Says why a failed turn reads $0, so it is not mistaken for a pricing gap.
+  if (opts.notBilled) safePayload.not_billed = true;
   // Same marker recordGatewayCall stamps: a $0 that means "no known rate" must
   // be distinguishable from a real zero, and the reprice sweep finds rows by
   // exactly this flag once a rate exists. Replayed finals are $0 by design.
@@ -650,7 +660,12 @@ async function recordTrace(opts: {
   // number in a spend report can be traced back to how it was arrived at.
   if (providerCost !== null) {
     safePayload.price_source = "provider";
-  } else if (!opts.replayedFinal && !isImg && costUnpriced(trace.provider, trace.model)) {
+  } else if (
+    !opts.replayedFinal &&
+    !opts.notBilled &&
+    !isImg &&
+    costUnpriced(trace.provider, trace.model)
+  ) {
     safePayload.pricing_missing = true;
   }
   // Whole-turn totals (this row + the tool-round children), for display.
@@ -1664,6 +1679,8 @@ async function chatPost(request: Request): Promise<Response> {
           status: "error",
           errorMessage: `Guardrail: ${decision.reason}`,
           assistantText: "",
+          // Refused before any model call: nothing ran, nothing was billed.
+          notBilled: true,
         });
         return new Response(
           JSON.stringify({
@@ -2162,7 +2179,14 @@ async function chatPost(request: Request): Promise<Response> {
                 if (errText.trim()) errorMessage = errText.trim().slice(0, 300);
               }
             }
-            await recordTrace({ trace, status: "error", errorMessage, assistantText: "" });
+            // The gateway answered with an error: no image, nothing billed.
+            await recordTrace({
+              trace,
+              status: "error",
+              errorMessage,
+              assistantText: "",
+              notBilled: true,
+            });
             const status =
               upstream.status === 429 || upstream.status === 402 ? upstream.status : 500;
             return new Response(JSON.stringify({ error: errorMessage }), {
@@ -2538,11 +2562,16 @@ async function chatPost(request: Request): Promise<Response> {
       }
       const message = err instanceof Error ? err.message : "Provider error";
       console.error(`Provider ${provider} error:`, err);
+      // Everything that reaches here failed before an answer streamed: the
+      // provider refused the request (a 429 for exhausted credits, a 401, a
+      // 5xx) or never answered. It billed nothing for this row; a tool round
+      // that did run carries its own cost on its own row.
       await recordTrace({
         trace,
         status: "error",
         errorMessage: message,
         assistantText: "",
+        notBilled: true,
       });
       return new Response(JSON.stringify({ error: message }), {
         status: 502,

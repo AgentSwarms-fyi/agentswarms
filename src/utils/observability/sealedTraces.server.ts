@@ -49,6 +49,8 @@ export const TRACE_CLEAR_KEYS: ReadonlySet<string> = new Set([
   "model_fallback",
   "image_count",
   "replayed_final",
+  // Why a failed call reads $0: the provider refused it and billed nothing.
+  "not_billed",
   "turn_tokens_in",
   "turn_tokens_out",
   "turn_cost_usd",

@@ -50,6 +50,15 @@ export type RecordGatewayCallArgs = {
   latencyMs?: number;
   status?: "success" | "error";
   errorMessage?: string | null;
+  /**
+   * The provider answered with an error before producing anything (a 429 for
+   * exhausted credits, a 401, a 5xx): it billed nothing, so the row records
+   * zero tokens and zero cost rather than the chars/4 estimate of a prompt
+   * nobody ran. Set by the caller that saw the failed response, because a
+   * failure AFTER output (unparseable JSON, a timeout mid-answer) was billed
+   * and keeps its estimate. Same rule as the chat route's (traceUsage.ts).
+   */
+  notBilled?: boolean;
   kind?: UsageKind; // defaults: image if model is image; embedding via callers; else text
   parentTraceId?: string | null;
   requestPreview?: unknown;
@@ -89,8 +98,9 @@ export async function recordGatewayCall(args: RecordGatewayCallArgs): Promise<vo
   try {
     if (!args.userId) return;
     const kind: UsageKind = args.kind ?? (isImageModel(args.model) ? "image" : "text");
-    const tokensIn = args.tokensIn ?? tokensFromText(args.promptText);
-    const tokensOut = args.tokensOut ?? tokensFromText(args.responseText);
+    const notBilled = args.notBilled === true;
+    const tokensIn = notBilled ? 0 : (args.tokensIn ?? tokensFromText(args.promptText));
+    const tokensOut = notBilled ? 0 : (args.tokensOut ?? tokensFromText(args.responseText));
     const status = args.status ?? "success";
 
     // Priced through the resolver so the PROVIDER counts. The trace has always
@@ -109,7 +119,7 @@ export async function recordGatewayCall(args: RecordGatewayCallArgs): Promise<vo
     // `??` and not `||`: a reported 0 is a measurement (a free route really
     // charged nothing) and must not fall through to the table, which would
     // report it as unpriced.
-    const costUsd = args.providerCostUsd ?? priced.costUsd;
+    const costUsd = notBilled ? 0 : (args.providerCostUsd ?? priced.costUsd);
 
     const requestPayload: Record<string, unknown> = {
       surface: args.surface,
@@ -117,7 +127,9 @@ export async function recordGatewayCall(args: RecordGatewayCallArgs): Promise<vo
     };
     // Same measured-vs-estimated marker as the chat path: absent explicit
     // token counts mean the chars/4 fallback produced these numbers.
-    if (args.tokensIn == null || args.tokensOut == null) requestPayload.tokens_estimated = true;
+    if (!notBilled && (args.tokensIn == null || args.tokensOut == null)) {
+      requestPayload.tokens_estimated = true;
+    }
     // A model with no entry in the price table costs 0, and 0 is
     // indistinguishable from "cheap" once it reaches a report or a budget
     // comparison. getBudgetDecision sums cost_usd, so an unpriced model never
@@ -127,7 +139,10 @@ export async function recordGatewayCall(args: RecordGatewayCallArgs): Promise<vo
     // A provider-reported figure wins outright, INCLUDING when it is 0 — a
     // free route really does charge nothing, and recording that as measured is
     // what stops it looking like a hole in the price table.
-    if (args.providerCostUsd != null) requestPayload.price_source = "provider";
+    // A not-billed row's $0 is a fact, not a pricing gap: never flag it for the
+    // reprice sweep, and say why it reads $0.
+    if (notBilled) requestPayload.not_billed = true;
+    else if (args.providerCostUsd != null) requestPayload.price_source = "provider";
     else if (!priced.priced) requestPayload.pricing_missing = true;
     else requestPayload.price_source = priced.source;
     if (args.parentTraceId) requestPayload.parent_trace_id = args.parentTraceId;
