@@ -45,6 +45,7 @@ import { summarizeIfNeeded } from "@/utils/memory/summarize.server";
 import { extractMemoriesFromTurn } from "@/utils/memory/extract.server";
 import type { RecalledItem } from "@/utils/memory/types";
 import { isImageModelId } from "@/lib/providerSupport";
+import { swarmTraceNameFor } from "@/lib/swarmTraceName";
 import { getEffectiveModelRules, isModelAllowed } from "@/utils/iam.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import {
@@ -1152,7 +1153,10 @@ async function chatPost(request: Request): Promise<Response> {
       agentName?: string;
       // Which of the app's own surfaces is asking, from a fixed list, so a
       // browser call is named honestly on its trace without naming it freely.
-      surface?: "assistant";
+      surface?: "assistant" | "swarm";
+      // surface "swarm" only: the canvas swarm the node belongs to. Its name
+      // is read here, as the caller, never taken from the request.
+      swarmId?: string;
       // Internal channel only: keep image_url parts for a vision-capable
       // model (document OCR). Everything else flattens them to text.
       vision?: boolean;
@@ -1321,6 +1325,16 @@ async function chatPost(request: Request): Promise<Response> {
       // fixed list: the assistant's answers read "Assistant" in Analytics
       // rather than passing for Agent Chat.
       agentName = "Assistant";
+    } else if (!body.agentId && body.surface === "swarm") {
+      // A canvas swarm's node: named after its swarm, read as the caller
+      // (src/lib/swarmTraceName.ts). It used to read "Playground", like Agent Chat.
+      const sb = authToken ? getServerSupabase(authToken) : null;
+      agentName = await swarmTraceNameFor(
+        body.swarmId,
+        sb &&
+          (async (id) =>
+            (await sb.from("swarms").select("name").eq("id", id).maybeSingle()).data?.name),
+      );
     }
     let agentRouteThroughGateway = false;
     let agentN8nWebhookUrl: string | null = null;

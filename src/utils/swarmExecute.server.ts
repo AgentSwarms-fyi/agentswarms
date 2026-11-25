@@ -64,6 +64,7 @@ import {
 } from "@/utils/jsSandbox.server";
 import { coerceParams, missingRequired } from "@/lib/swarmComponents";
 import { resolveDeployedGraph } from "@/lib/swarmPublish";
+import { swarmTraceName } from "@/lib/swarmTraceName";
 import { safeStringify } from "@/lib/sandbox/jsSandbox";
 import { envInt } from "@/utils/rateLimit.server";
 
@@ -133,6 +134,8 @@ async function serverChat(args: {
   userId: string;
   /** The run this turn belongs to; becomes the turn's decision id. */
   runId?: string | null;
+  /** The turn's name on its trace: "Swarm: <name>" (src/lib/swarmTraceName.ts). */
+  traceName?: string;
   node: Node<SwarmNodeData>;
   systemPrompt: string;
   userMessage: string;
@@ -170,6 +173,9 @@ async function serverChat(args: {
       // Every node turn joins the run's decision, so the run's provenance is
       // one id rather than one per node.
       decisionId: args.runId ?? undefined,
+      // Named after its swarm, not "Playground" like a turn typed in Agent
+      // Chat: the internal channel is the one that may name a turn.
+      agentName: args.traceName,
       // No model on the node: the chat route runs it on the instance default.
       provider: d.provider || undefined,
       model: d.model || undefined,
@@ -362,6 +368,7 @@ export async function executeSwarmServer(opts: {
         // The run is the decision; `runId` is assigned once the tracer exists,
         // before any node executes, so the closure sees it.
         runId,
+        traceName: swarmTraceName(opts.swarm.name),
         history: opts.history,
         signal: ac.signal,
         onUsage: (u) => {
