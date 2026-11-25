@@ -15,7 +15,10 @@ IAM, audited by trigger, with a decision id and a passport.
 - **Registry** — `ML Models` under **Data science**: every model you own or were
   granted, its production version's headline metric, what it predicts from,
   and whether something is training right now.
-- **The rest of a model's life** is under **Data science** too:
+- **The rest of a model's life** is under **Data science** too, in the order
+  it happens. The rail names three steps: **Develop** (Developer workspace,
+  Feature views, Experiments), **Deploy** (ML Models, Model serving) and
+  **Monitor** (ML operations).
   - **Experiments:** every training run and logged notebook run, compared on
     the same metrics.
   - **Feature views:** named feature sets, built point in time and served

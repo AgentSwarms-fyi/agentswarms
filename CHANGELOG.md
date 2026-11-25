@@ -84,6 +84,15 @@ development branch and may be ahead of the latest tag.
 
 ### Changed
 
+- **Data science follows the work** (R539). The menu reads in the order a
+  model is made, under three named steps:
+  - **Develop:** Developer workspace, Feature views, Experiments.
+  - **Deploy:** ML Models, Model serving.
+  - **Monitor:** ML operations.
+
+  Model serving has a **Deploy a model** button. It lists the production
+  versions with no endpoint and the stopped ones, and opens the one picked
+  where it is deployed.
 - **A calmer look** (R517). Every page opens the same way: where you are, a
   title that matches its name in the menu, one sentence on what the page is
   for, and its own buttons on the right. Titles were in three sizes and two

@@ -55,21 +55,22 @@ function MlDocsPage() {
           whether something is training right now.
         </li>
         <li>
-          <strong>Data science</strong> also holds the rest of a model&apos;s life:
+          <strong>Data science</strong> lists a model&apos;s whole life in the order it happens, in
+          three steps:
           <UL>
             <li>
-              <strong>Experiments:</strong> every run, compared on the same metrics.
+              <strong>Develop:</strong> the Developer workspace for code; Feature views, named
+              feature sets built point in time and served online; Experiments, every run compared on
+              the same metrics.
             </li>
             <li>
-              <strong>Feature views:</strong> named feature sets, built point in time and served
-              online.
+              <strong>Deploy:</strong> ML Models, the registry; Model serving, every endpoint, its
+              traffic split and how busy it is. <strong>Deploy a model</strong> there lists the
+              production versions with no endpoint.
             </li>
             <li>
-              <strong>Model serving:</strong> every endpoint, its traffic split and how busy it is.
-            </li>
-            <li>
-              <strong>ML operations:</strong> what failed, what is running and what is due, across
-              your models.
+              <strong>Monitor:</strong> ML operations, what failed, what is running and what is due,
+              across your models.
             </li>
           </UL>
         </li>

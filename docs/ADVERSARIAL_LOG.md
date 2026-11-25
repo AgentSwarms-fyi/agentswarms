@@ -109,6 +109,20 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-26 — R539: a menu that listed a model's pages without saying in what order they come
+
+**Why this round.** The user asked that Data science read as logically as the ML consoles people already know. R538 had put every page of a model's life in the menu, but with the registry first and the workspace last. Read top to bottom it said nothing about the path a model takes. Read as someone new to the section, asking where to start and what comes next.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| The menu's order did not follow the work | S3 | **Found by the user.** It runs in the order a model is made, under three steps the rail names: **Develop** (workspace, feature views, experiments), **Deploy** (models, serving), **Monitor** (operations). |
+| Starting an endpoint meant knowing it lives on a model's Automation tab | S3 | **Found reading the page.** Model serving has **Deploy a model** now. It lists the production versions with no endpoint and the stopped ones, and opens the one picked where it deploys. |
+
+**Checked and sound.**
+- **A step is one run of pages.** The rail prints a caption where the step changes. A test fails a step split in two, which would be named twice, and fails any other group that starts naming steps.
+- **The handbook's table, the in-app docs and the rail agree,** read back by a test.
+- **The captions are not read out.** They are `aria-hidden`; the pages keep their own names.
+
 ### 2026-11-25 — R538: the pages for serving and operating models were not in the menu
 
 **Why this round.** The user asked: no model serving or MLOps under Data science? The platform had every part: endpoints with shadow and canary versions, schedules, drift and accuracy checks, Experiments, Feature views. But each part lived one model at a time, on a model page's tab, or as a tab of ML Models. Nobody could see all endpoints, or everything that failed, at once. Read as the person on call for the models, who has to find the one that broke.

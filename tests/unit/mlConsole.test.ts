@@ -252,15 +252,42 @@ describe("what ML operations puts first", () => {
 describe("the Data science menu", () => {
   const ds = NAV_GROUPS.find((g) => g.label === "Data science")!;
 
-  it("holds the whole model lifecycle, the workspace last", () => {
-    expect(ds.items.map((i) => [i.title, i.url])).toEqual([
-      ["ML Models", "/ml"],
-      ["Experiments", "/ml/experiments"],
-      ["Feature views", "/ml/features"],
-      ["Model serving", "/ml/serving"],
-      ["ML operations", "/ml/operations"],
-      ["Developer workspace", "/notebooks"],
+  it("lists the work in the order it happens, as three named steps (R539)", () => {
+    expect(ds.items.map((i) => [i.stage, i.title, i.url])).toEqual([
+      ["Develop", "Developer workspace", "/notebooks"],
+      ["Develop", "Feature views", "/ml/features"],
+      ["Develop", "Experiments", "/ml/experiments"],
+      ["Deploy", "ML Models", "/ml"],
+      ["Deploy", "Model serving", "/ml/serving"],
+      ["Monitor", "ML operations", "/ml/operations"],
     ]);
+    // Every page of the group has a step, and each step is one run of pages:
+    // a caption is printed where the step changes, so a step split in two
+    // would be named twice.
+    const stages = ds.items.map((i) => i.stage);
+    expect(stages.every(Boolean)).toBe(true);
+    expect(stages.filter((s, k) => s !== stages[k - 1])).toEqual(["Develop", "Deploy", "Monitor"]);
+    // Only a group that is a sequence names steps.
+    for (const g of NAV_GROUPS.filter((g) => g !== ds)) {
+      expect(
+        g.items.some((i) => i.stage),
+        g.label,
+      ).toBe(false);
+    }
+  });
+
+  it("names each step once in the rail, and not when it is folded to icons", () => {
+    const rail = rd("src/components/AppSidebar.tsx");
+    expect(rail).toContain("item.stage && item.stage !== group.items[i - 1]?.stage");
+    expect(rail).toContain("group-data-[collapsible=icon]:hidden");
+    expect(rail).toContain('aria-hidden="true"');
+  });
+
+  it("starts a new endpoint from Model serving", () => {
+    const page = rd("src/routes/_authenticated/ml_.serving.tsx");
+    expect(page).toContain("Deploy a model");
+    expect(page).toContain('"In production, never deployed"');
+    expect(page).toContain('search: { tab: "automation" }');
   });
 
   it("marks the page you are on, and a model page under ML Models", () => {

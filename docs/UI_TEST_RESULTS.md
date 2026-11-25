@@ -15,6 +15,17 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-26 — R539: Data science in the order the work happens
+
+Driven on the 8080 stack rebuilt from the worktree, signed in as the owner, in a fronted tab. Nothing was written.
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| The rail, Data science | read from the DOM | captions **Develop** (Developer workspace, Feature views, Experiments), **Deploy** (ML Models, Model serving), **Monitor** (ML operations); the group's hint "Develop, deploy and monitor models on your data"; Model serving active on /ml/serving |
+| Model serving | **Deploy a model** | a menu: "In production, never deployed" (eight models, each with its production version), "Stopped" (three), then "Browse ML Models…" |
+| Same | Stopped → revenue_facts · groups | the model page on its **Automation** tab, its warm endpoint "off" beside **Deploy**; the rail marks ML Models under Deploy |
+| The rail | folded and unfolded | at this width the rail folds away entirely, captions with it, and comes back as it was; folded to icons, the captions are hidden by their own rule |
+
 ## 2026-11-25 — R538: Data science menu, Model serving and ML operations
 
 Driven on the 8080 stack rebuilt from the worktree, signed in as the owner, in a fronted tab. Then the app was rebuilt again with the four fixes the test found, and those were driven again. Kept: nothing new. The endpoint deployed for the test was stopped again.

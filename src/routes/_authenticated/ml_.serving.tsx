@@ -1,14 +1,22 @@
 // Model serving (R538): every model that answers requests, in one place. A
 // model's own Automation tab runs its endpoint; this page is where to see all
 // of them at once, and which one wants a look.
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { RefreshCw, Rocket } from "lucide-react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { ChevronDown, RefreshCw, Rocket } from "lucide-react";
 
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Chip, TaskBadge } from "@/components/ml/mlUi";
@@ -42,6 +50,7 @@ const TONE_STYLE: Record<Tone, string> = {
 function ServingPage() {
   const { session } = useAuth();
   const token = session?.access_token ?? "";
+  const navigate = useNavigate();
   const load = useServerFn(mlServingOverview);
   const [data, setData] = useState<MlServingOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -87,9 +96,72 @@ function ServingPage() {
         title="Model serving"
         description="Every model that answers requests: the version it serves, how traffic splits between versions, and how busy it is."
         actions={
-          <Button variant="outline" size="sm" onClick={() => void reload()}>
-            <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Refresh
-          </Button>
+          <>
+            <Button variant="outline" size="sm" onClick={() => void reload()}>
+              <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Refresh
+            </Button>
+            {/* Where a new endpoint starts (R539): the production versions
+                with none, each opening on the tab that deploys it. */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" disabled={!data}>
+                  <Rocket className="mr-1.5 h-3.5 w-3.5" /> Deploy a model
+                  <ChevronDown className="ml-1 h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-72">
+                {(
+                  [
+                    [
+                      "In production, never deployed",
+                      (data?.undeployed ?? []).map((m) => ({
+                        id: m.id,
+                        name: m.name,
+                        version: m.production_version,
+                      })),
+                    ],
+                    [
+                      "Stopped",
+                      stopped.map((e) => ({
+                        id: e.model.id,
+                        name: e.model.name,
+                        version: e.version,
+                      })),
+                    ],
+                  ] as const
+                ).map(([label, models]) =>
+                  models.length ? (
+                    <Fragment key={label}>
+                      <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                        {label}
+                      </DropdownMenuLabel>
+                      {models.map((m) => (
+                        <DropdownMenuItem
+                          key={m.id}
+                          onSelect={() =>
+                            void navigate({
+                              to: "/ml/$modelId",
+                              params: { modelId: m.id },
+                              search: { tab: "automation" },
+                            })
+                          }
+                        >
+                          <span className="flex-1 truncate">{m.name}</span>
+                          {m.version !== null ? (
+                            <span className="text-xs text-muted-foreground">v{m.version}</span>
+                          ) : null}
+                        </DropdownMenuItem>
+                      ))}
+                      <DropdownMenuSeparator />
+                    </Fragment>
+                  ) : null,
+                )}
+                <DropdownMenuItem onSelect={() => void navigate({ to: "/ml" })}>
+                  Browse ML Models…
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>
         }
       />
 

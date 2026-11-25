@@ -7,7 +7,7 @@
 // open is remembered per browser, and the group holding the page you are on
 // opens itself and is scrolled into view, so the rail always shows where you
 // are without being asked.
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { ChevronRight, LogOut } from "lucide-react";
 
 import { Link, useLocation, useRouter } from "@tanstack/react-router";
@@ -224,26 +224,39 @@ export function AppSidebar() {
           <CollapsibleContent className="nav-group-content overflow-hidden">
             <SidebarGroupContent className="pt-1">
               <SidebarMenu>
-                {group.items.map((item) => (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={item.url === activeUrl}
-                      tooltip={item.title}
-                    >
-                      <Link to={item.url}>
-                        <item.icon className="h-4 w-4" />
-                        <span className="flex-1">{item.title}</span>
-                        {item.url === "/learn" && whatsNew > 0 && (
-                          <span
-                            className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary"
-                            aria-label={`${whatsNew} new in What's new`}
-                            title="Something new on Learn"
-                          />
-                        )}
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
+                {group.items.map((item, i) => (
+                  <Fragment key={item.title}>
+                    {/* A group that is a sequence names its steps (R539),
+                        once, above the first page of each; hidden when the
+                        rail is folded to icons, where a word has no room. */}
+                    {item.stage && item.stage !== group.items[i - 1]?.stage ? (
+                      <li
+                        className="nav-stage px-2 pb-0.5 pt-2 text-[10px] font-medium text-sidebar-foreground/45 first:pt-0.5 group-data-[collapsible=icon]:hidden"
+                        aria-hidden="true"
+                      >
+                        {item.stage}
+                      </li>
+                    ) : null}
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={item.url === activeUrl}
+                        tooltip={item.title}
+                      >
+                        <Link to={item.url}>
+                          <item.icon className="h-4 w-4" />
+                          <span className="flex-1">{item.title}</span>
+                          {item.url === "/learn" && whatsNew > 0 && (
+                            <span
+                              className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary"
+                              aria-label={`${whatsNew} new in What's new`}
+                              title="Something new on Learn"
+                            />
+                          )}
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  </Fragment>
                 ))}
               </SidebarMenu>
             </SidebarGroupContent>

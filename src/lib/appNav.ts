@@ -85,6 +85,12 @@ export type NavItem = {
    * rename does not strand the people who learned the old word.
    */
   formerly?: string;
+  /**
+   * The step of the group's work this page is for, when the group is a
+   * sequence (R539: Data science's Develop, Deploy, Monitor). The rail prints
+   * it once above the first page of each step.
+   */
+  stage?: string;
 };
 export type NavGroup = {
   label: string;
@@ -199,19 +205,26 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: "Data science",
-    hint: "Train models and write code against your data",
-    // The registry first, the page most people open; then a model's life
-    // around it: what was tried, what it learns from, how it answers, and
-    // what is happening to all of them (R538). Experiments and Feature views
-    // were tabs of ML Models, where nobody looking for them found them.
+    hint: "Develop, deploy and monitor models on your data",
+    // In the order the work happens, as three steps the rail names (R539):
+    // DEVELOP: write code, shape the features a model learns from, compare
+    // what was tried; DEPLOY: keep the versions worth keeping and promote
+    // one, then let it answer requests; MONITOR: watch every model run,
+    // drift and fail. Read top to bottom it is the path a model takes, which
+    // is what a person new to the section needs the menu to show them.
     items: [
-      { title: "ML Models", url: "/ml", icon: Brain },
-      { title: "Experiments", url: "/ml/experiments", icon: TestTubes },
-      { title: "Feature views", url: "/ml/features", icon: TableProperties },
-      { title: "Model serving", url: "/ml/serving", icon: Rocket },
-      { title: "ML operations", url: "/ml/operations", icon: Gauge, formerly: "MLOps" },
-      // The escape hatch, last, for when no page above fits: notebooks.
-      { title: "Developer workspace", url: "/notebooks", icon: NotebookPen },
+      { title: "Developer workspace", url: "/notebooks", icon: NotebookPen, stage: "Develop" },
+      { title: "Feature views", url: "/ml/features", icon: TableProperties, stage: "Develop" },
+      { title: "Experiments", url: "/ml/experiments", icon: TestTubes, stage: "Develop" },
+      { title: "ML Models", url: "/ml", icon: Brain, stage: "Deploy" },
+      { title: "Model serving", url: "/ml/serving", icon: Rocket, stage: "Deploy" },
+      {
+        title: "ML operations",
+        url: "/ml/operations",
+        icon: Gauge,
+        formerly: "MLOps",
+        stage: "Monitor",
+      },
     ],
   },
   {

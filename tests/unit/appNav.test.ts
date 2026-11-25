@@ -171,14 +171,15 @@ describe("the rail the docs checker reads", () => {
       "BI Workspace",
     ]);
 
-    // A model's whole life, the registry first, the workspace last (R538).
+    // A model's whole life in the order it happens, as three named steps
+    // (R538, ordered R539).
     expect(titlesOf("Data science")).toEqual([
-      "ML Models",
-      "Experiments",
+      "Developer workspace",
       "Feature views",
+      "Experiments",
+      "ML Models",
       "Model serving",
       "ML operations",
-      "Developer workspace",
     ]);
 
     // And the three read in that order down the rail: shape the table, say
