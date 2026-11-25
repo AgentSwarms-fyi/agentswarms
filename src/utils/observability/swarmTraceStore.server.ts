@@ -28,6 +28,7 @@ import { z } from "zod";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
 import { bodyJson, bodyText } from "@/utils/observability/redaction.server";
+import { beginDecision } from "@/utils/provenance/decision.server";
 import {
   sealEdgePreview,
   sealRunInput,
@@ -76,6 +77,11 @@ export async function startRun(userId: string, data: z.infer<typeof startRunSche
     .select("id")
     .single();
   if (error || !row) throw new Error(error?.message ?? "Could not start the run");
+  // The run is a decision, as a server run is (executeSwarmServer): the canvas
+  // sends this id with each node's call, so its model calls, the data its
+  // tools read and its cost key off one value. Without the row, a call that
+  // carried the id would find no decision, and Traces would show no chain.
+  beginDecision({ userId, kind: "swarm_run", id: row.id, rootRef: row.id });
   return { runId: row.id };
 }
 
