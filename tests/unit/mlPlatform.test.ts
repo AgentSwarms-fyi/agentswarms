@@ -231,15 +231,23 @@ describe("governance", () => {
     expect(train).toContain('const TRAINING_DECISION_KIND: DecisionKind = "ml_training";');
     expect(train).toContain("kind: TRAINING_DECISION_KIND,");
     expect(train).toContain("lakehouseSnapshotId()");
+    // An imported model was not trained on this lake: no snapshot (R533),
+    // and no row count rather than 0.
+    expect(train).toContain("importOf(version) ? null : await lakehouseSnapshotId()");
+    expect(train).toContain("training_rows: imported ? null : r.training_rows,");
   });
 
   it("every explicit audit action follows the dotted convention", () => {
     const train = rd("src/utils/ml/train.server.ts") + rd("src/utils/ml.functions.ts");
-    const actions = [...train.matchAll(/action: "([^"]+)"/g)].map((m) => m[1]);
+    // A literal, or both arms of a ternary (an import's success is its own, R533).
+    const actions = [...train.matchAll(/action: (?:\w+ \? )?"([^"]+)"(?: : "([^"]+)")?/g)].flatMap(
+      (m) => [m[1], m[2]].filter(Boolean),
+    );
     expect(actions.length).toBeGreaterThanOrEqual(5);
     for (const a of actions) expect(a).toMatch(/^ml\.[a-z_]+(\.[a-z_]+)?$/);
     expect(actions).toContain("ml.train.start");
     expect(actions).toContain("ml.train.succeeded");
+    expect(actions).toContain("ml.import.succeeded");
     expect(actions).toContain("ml.train.failed");
     expect(actions).toContain("ml.version.promote");
   });

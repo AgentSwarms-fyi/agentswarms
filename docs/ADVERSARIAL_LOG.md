@@ -109,6 +109,85 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-25 — R535: a version picked by default for an alias it did not have, and a search that dropped underscores
+
+**Why this round.** R535 reads a model out of a server the user names and makes it a version here, so the server was read as the attacker (its MLmodel, its paths, its sizes, its ids) and as merely different from the fake (a real MLflow 3.18, with a model a team logged the ordinary way).
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| The version list never showed an alias, so the default pick could be the wrong version | S2 | **Found in the UI test.** MLflow's version search leaves the aliases out, so `@production` showed on the registered model and on none of its versions, and the dialog's default ("production first, else the newest") always fell to the newest. Here the newest was production; with a newer candidate registered it would have preselected the candidate under a model labelled `@production → 3`. The aliases now come from the registered model and are merged onto its versions |
+| A search for a name with an underscore found nothing | S3 | **Found by the real-server test.** The search stripped `_` and `%` as LIKE wildcards, and model names are full of underscores: "probe_…" matched no model. Only quotes, backslashes and control characters can leave the filter string, so only those go; `_` and `%` only widen the search |
+
+**Checked and sound.**
+- **Two files, nothing else.** The import reads the version's `MLmodel` and the one model file it names; every other file in the folder is left alone (the requests are asserted). The `MLmodel` is parsed like any import's (YAML core schema), and a model path outside the folder is refused before anything else is read.
+- **Byte for byte.** The file staged for v15 had the SHA-256 of MLflow's own `model.pkl` (`bde1462c…`, **measured**), and then went through the R533 zip import unchanged: the same checks, the same sandbox job.
+- **Bounded as it arrives.** The model file is counted against `ML_IMPORT_MAX_MB` while it downloads, not trusted from a declared length, and the read stops at the limit.
+- **Refused in words, before any download:** a version MLflow has not finished registering; a server that keeps models in its own store (`s3://`, `dbfs:/`), naming the store and the zip route instead.
+- **The caller's own connection, and the filter stays a string.** A connection id that is not the caller's MLflow connection is not found; a quote in the search cannot end the filter (both unit-tested).
+- **MLflow 3's own paths.** A model logged with `mlflow.sklearn.log_model` is registered from `models:/m-…`; its download URI (`…/models/m-…/artifacts`) resolved and imported (**measured**), and the imported version answered as scikit-learn does: 2 at 72.8% (0.727868).
+
+**What would have been wrong to conclude.**
+
+- *"The fake server returns aliases, so the dialog shows them."* The fake was written from the API reference; the real server's search does not send them. The fake now answers as MLflow 3.18 does.
+
+### 2026-11-25 — R534: an alias that stayed behind without a word, and a server's credential that must go nowhere else
+
+**Why this round.** R534 sends models to a server the user names, with a credential the user picks, every time a version is trained or promoted. So the round was read three ways: as the server (whatever it answers, it must not steer the credential or the page), as the person a model is shared with (a link they click is built from columns the owner can write), and as the owner on a bad day (the server is down exactly when a promotion lands).
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| A promotion whose alias move failed said nothing | S2 | **Found reading the sync before the UI test.** Moving the registered model's alias runs after the promotion, in the background; when the server could not be reached it was only logged, so MLflow kept serving the old version under `production` and the page still said the alias followed production. Where the alias points, or why it could not be moved, is now on the model's link; the strip says it and offers **Move the alias again**, and the failure is audited (`ml.mlflow.alias_failed`). **Measured** on 8080 with the server stopped, both ways: a promotion of a version never sent ("v14 could not be sent, so the alias was not moved to it") and of one already registered (the strip kept "on registered version 10", which is where MLflow still had it); each recovered with one press once the server was back |
+| The alias was said to be waiting for a version that had been sent | S1 | Found in the UI test, right after the fix above landed: the alias had been moved by the build before it, which kept no record of where, and the strip read a missing record as "set once v1, production here, is sent", while v1 was sent and the alias on it. With no record it now says what production's own version says, and "set once sent" only when that version was never sent |
+| The connection test's verdict disappeared on save | S3 | Test and save says whether the server stores artifacts itself, which decides whether a version's model can be sent at all, but the line lived in the form, and the form closes when the save succeeds: nobody saw it. It now stays under the list |
+| The MLflow tab ran off the edge of the tab strip | S3 | At 1,200 px the tenth tab was cut to "MLflo"; the strip now wraps |
+| "The credential is sent only to…" with no credential | S4 | Shown under No sign-in; now only with a token or password |
+| A version's actions took three lines | S4 | The stage buttons and the icons are now two rows, the buttons wrapping only where the table is narrow (keeping them on one line cut the Actions column off at 1,200 px: caught in the third build) |
+| A stopped server read "fetch failed" | S4 | The version said "Could not reach the MLflow server: fetch failed", run into "Send it again." with no full stop. It now names the cause ("Nothing is answering at host:port: the MLflow server is not running there", a name that does not resolve, a timeout) and ends its sentence |
+| A new place a credential is sent | — | Not a defect: the guard that lists every file naming a credential's destination (`sharedSecretSinks.test.ts`) failed on the new sync, as it should. It is now on the list, with a test that it resolves the MLflow credential toward the connection's tracking URL only |
+
+**Checked and sound.**
+- **The credential goes to the saved address and nowhere else.** It is resolved toward the tracking URL only (a secret shared with the owner fills it only if its owner allowed that host); every call goes through the outbound URL guard; none follows a redirect, so a server answering 302 cannot take the token elsewhere; an address with a username or password in it is refused before anything is called (**driven** in the browser).
+- **Only the owner, with their own connection.** The link is owner-writable, so the sync loads the connection by the model owner's id and type, whatever id the link holds. Removing that filter fails the test (**mutation-checked**).
+- **Nothing the server answers reaches a path or a link unchecked.** Experiment, run and version ids must be plain ids; links are built from an http(s) address and those ids, so a `javascript:` address written into a version's tracking by its owner never becomes a link a viewer clicks.
+- **No person in MLflow.** Runs are tagged `mlflow.user = agentswarms`, never the owner's email (**measured** on the server).
+- **Sending again changes nothing.** The run, the uploaded model and the registered version are reused; params are logged once (MLflow refuses to change them), so the decision line, which can move here, is a tag (**measured** against MLflow 3.18: `tests/integration/mlflowTracking.test.ts`).
+- **The alias serves what production serves here.** Real MLflow loading `models:/threshold_probe (payment_rows)@production` answered Customer 058 with "2" at 0.3549 and `threshold_applied` 0.3, the app's own answer (**measured**).
+
+**What would have been wrong to conclude.**
+
+- *"The user said the migrations were done, so they were."* The database's own history showed none of the three applied: the instructions given had left out `--remote` (Supabase CLI 3 otherwise targets a local stack) and pointed at a checkout without the files. Checked before building on them; the corrected commands applied all four.
+- *"Test connection timed out, so the address is wrong."* The first call took 20.5 s and the next 127 ms: the server's workers had been restarted while this machine was finishing an image build. The 20 s bound stays; a server that slow on a quiet machine is one to fix, not to wait for.
+
+### 2026-11-24 — R533: an exported model that answered a different question, and labels read as positions
+
+**Why this round.** R533 moves models across the platform's edge both ways. Going out, the promise is that a row gets the same answer in MLflow as here, so the export was loaded with real MLflow (3.18, in the runtime image) and compared with the app row by row. Coming in, the file is a pickle someone else made, and loading one runs what is in it, so the import was read as the attacker.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| An exported classifier answered at argmax where the app answered at the owner's line | S1 | The app applies a version's decision threshold on each request (a setting, not part of the artifact), so the scorer's config never holds it, and the export was built from that config. On threshold_probe (line 0.3 for class "2") a row the app answers "2" at 35.5% would come out of MLflow as "1". **Found in the UI test**, by a column the app's answer had and the export's lacked (`threshold_applied`). The export now carries the line in its config and as the signature's params. **Measured** after: MLflow answers "2" at 0.3549, as the app does |
+| Moving the line per call did nothing | S1 | The loader read `decision_threshold` from `params`, and docs/ML.md said a caller could pass it, but MLflow drops params a signature does not declare (**measured**, 3.18), and the signature declared none. Now declared, with the version's line as the default: `params={"decision_threshold": 0.5}` turns the same row to "1" (**measured**) |
+| A model exported and imported again lost its line | S2 | The import made the next version with no threshold, so the round trip answered at argmax. An import now takes the line its file's signature declares. It is the one place a line arrives on a new version by itself, and deliberately: the app never copies a line between versions because their probabilities may mean different things, but this is the artifact the line was drawn for (same digest). v9 (imported before the fix) has none; v10 (after) has 0.3 for "2" |
+| An imported model's class labels were read as positions | S1 | For a model that keeps its own labels, a predicted `1` was taken as index 1 into the classes `[1, 2]`, so it answered `2`: every external model with numeric classes answered wrong. **Measured** after, through the UI: the imported scikit-learn model answers 1 at 77.6% and 2 at 72.8%, scikit-learn's own 0.776497 and 0.727868 |
+| An import recorded a lake snapshot it was never trained on | S1 | The version said "trained as of snapshot 786", which lineage reads as "the training set can be re-read as of then"; an imported model was trained somewhere else. Opening the lake engine for it was also the slowest step of a cold import. No snapshot now (v9: 786, v10: none) |
+| The first `predict` failed on date columns | S3 | Under pandas 3 text columns are `str`, and MLflow refuses date text for a `datetime` column ("Can not safely convert str to datetime64[ns]"). The signature is right (MLflow's scoring server parses JSON dates into it); the README and docs now name the date columns and show `pd.to_datetime` |
+| An imported version's overview described a training run that never happened | S1 | In production, its overview said it "was trained before selection and reporting were separated … Retrain to get a score nothing optimised against", over an empty leaderboard captioned "Every candidate tried". Nothing was selected or scored here. **Found in the UI test**, after the first fixes. It now says it was imported from MLflow and trained elsewhere, so it has no leaderboard or held-out score here, and points to the Accuracy tab; the leaderboard is not shown, and its date reads "Imported" |
+| An imported version said it was trained on 0 rows | S4 | The versions table and the comparison showed "0", Lineage "Trained on 0 rows". Now "—" and "Imported from MLflow (sklearn)", and no row count is stored |
+| An import's log was titled "Training logs" | S4 | "Import log" |
+
+**Checked and sound.**
+- **No pickle is opened in the app.** The app reads the zip's directory and the `MLmodel` text only (YAML core schema: no tags that build objects). The model file goes to the lake under the model's own prefix with the owner's KMS key, and only the sandbox loads it, after checking its digest (`tests/unit/mlflowServer.test.ts`, `tests/unit/mlflowPython.test.ts`).
+- **A zip bomb is bounded.** fflate inflates into a buffer of the size the zip declares: an entry declaring 1,000 bytes that inflates to 5 MB yields 1,000 bytes and fails its checks (**measured**).
+- **Paths and flavors are refused in words, before anything is staged:** `../`, absolute and drive paths, tensor signatures, skops, and every flavor but scikit-learn and our own, naming it. Driven in the browser too: a CSV named `.zip` ("That file is not a zip…") and an ONNX model ("This model's flavor is onnx…"); no version was made for either.
+- **Only the owner exports or imports.** Anyone else gets 404, and nothing is audited for them.
+- **The digest holds three times:** on export (the artifact read back against the version's digest), on load in MLflow, and on import (the sandbox checks the staged file). v1 went out and came back as `eba42ce2…` both times.
+- **Requirement pins cannot carry text.** A recorded library version is pinned only if it is a version string; anything else falls back to the floors.
+
+**What would have been wrong to conclude.**
+
+- *"Same artifact, same program, so same answer."* The answer also depends on a setting that lives beside the artifact. An export is the artifact plus every setting the app applies when it answers.
+- *"The loader handles params, so callers can move the line."* MLflow decides which params reach the loader, from the signature.
+- *"An imported version is just a version with no metrics."* Every card that explains a trained version (the selection evidence, the leaderboard, "trained on N rows", the snapshot) makes a claim about how it was trained. Empty, each one still made its claim.
+
 ### 2026-11-24 — R532: a model's code next to a storage key, and a scorer that read the next request wrong
 
 **Why this round.** R532 lets Kubernetes run warm endpoints through KServe, so a pod the app never

@@ -90,7 +90,7 @@ export async function createAndTrainVersion(
   model: MlModelRow,
   config: MlTrainConfig,
   version: number,
-  opts: { apiKeyId?: string | null; trigger?: string } = {},
+  opts: { apiKeyId?: string | null; trigger?: string; external?: boolean } = {},
 ): Promise<{ ok: true; jobId: string; versionId: string } | { ok: false; error: string }> {
   const { data: v, error } = await supabaseAdmin
     .from("ml_model_versions")
@@ -100,6 +100,8 @@ export async function createAndTrainVersion(
       version,
       status: "training",
       config: config as unknown as Json,
+      // A model brought in from outside (R533) says so, as a registered one does.
+      ...(opts.external ? { external: true } : {}),
     })
     .select("*")
     .single();

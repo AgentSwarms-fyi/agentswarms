@@ -28,6 +28,7 @@ import {
   runProviderTest,
   testFirecrawlCore,
   testGatewayCore,
+  testMlflowCore,
   testN8nCore,
   type TestResult,
 } from "./testAdapters.server";
@@ -89,6 +90,14 @@ async function runHealthTest(row: CandidateRow): Promise<TestResult> {
       });
     case "firecrawl":
       return testFirecrawlCore(cfg.api_key ?? "");
+    case "mlflow":
+      return testMlflowCore({
+        tracking_uri: cfg.tracking_uri ?? "",
+        auth: cfg.auth,
+        username: cfg.username,
+        token: cfg.token,
+        password: cfg.password,
+      });
     default:
       return { ok: false, detail: `No health test for type ${row.type}` };
   }
@@ -168,7 +177,7 @@ export async function checkIntegrationHealth(
     .from("integrations")
     .select("id, user_id, type, provider, name, config")
     .eq("is_active", true)
-    .in("type", ["llm_provider", "llm_gateway", "n8n", "firecrawl"]);
+    .in("type", ["llm_provider", "llm_gateway", "n8n", "firecrawl", "mlflow"]);
   if (opts.onlyUserId) scan = scan.eq("user_id", opts.onlyUserId);
   const { data: rows, error } = await scan;
   if (error) {
@@ -239,7 +248,7 @@ export async function checkIntegrationHealth(
 
 let lastSweep = 0;
 const SWEEP_INTERVAL_MS = 24 * 3_600_000;
-const SWEEP_TYPES = ["llm_provider", "llm_gateway", "n8n", "firecrawl", "notification"];
+const SWEEP_TYPES = ["llm_provider", "llm_gateway", "n8n", "firecrawl", "notification", "mlflow"];
 
 export async function sweepPlaintextSecrets(force = false): Promise<number> {
   const now = Date.now();

@@ -315,6 +315,12 @@ describe("the destination-naming sinks", () => {
     expect(ice).toMatch(/sendTo: \[key === "token" \? cfg\.endpoint : tokenServer\]/);
   });
 
+  it("the MLflow sync: the token or password toward the connection's tracking URL", () => {
+    const sync = rd("src/utils/ml/mlflowTracking.server.ts");
+    expect(sync).toMatch(/resolveIntegrationConfig\(\s*model\.user_id,\s*"mlflow",/);
+    expect(sync).toMatch(/sendTo: integrationHosts\("mlflow"\)/);
+  });
+
   it("only these files name a destination: a new one is a decision, not an accident", () => {
     const out = execFileSync(
       "git",
@@ -342,6 +348,8 @@ describe("the destination-naming sinks", () => {
         "src/utils/integrations.functions.ts",
         "src/utils/integrations/health.server.ts",
         "src/utils/lakehouse/iceberg.server.ts",
+        // R534: the MLflow token or password, toward the tracking URL only.
+        "src/utils/ml/mlflowTracking.server.ts",
         "src/utils/providers/credentials.server.ts",
         "src/utils/providers/integrationConfig.server.ts",
         "src/utils/providers/integrationHosts.ts",

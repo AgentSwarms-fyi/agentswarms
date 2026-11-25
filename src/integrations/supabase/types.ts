@@ -5756,6 +5756,7 @@ export type Database = {
           positive_label: string | null;
           stage: string;
           status: string;
+          tracking: Json | null;
           trained_at: string | null;
           training_rows: number | null;
           training_sampled: boolean;
@@ -5785,6 +5786,7 @@ export type Database = {
           model_id: string;
           stage?: string;
           status?: string;
+          tracking?: Json | null;
           trained_at?: string | null;
           training_rows?: number | null;
           training_sampled?: boolean;
@@ -5815,6 +5817,7 @@ export type Database = {
           positive_label?: string | null;
           stage?: string;
           status?: string;
+          tracking?: Json | null;
           trained_at?: string | null;
           training_rows?: number | null;
           training_sampled?: boolean;
@@ -5937,6 +5940,7 @@ export type Database = {
           target_column: string | null;
           task: string;
           time_column: string | null;
+          tracking: Json | null;
           updated_at: string;
           user_column: string | null;
           user_id: string;
@@ -5966,6 +5970,7 @@ export type Database = {
           target_column?: string | null;
           task: string;
           time_column?: string | null;
+          tracking?: Json | null;
           updated_at?: string;
           user_column?: string | null;
           user_id: string;
@@ -5995,6 +6000,7 @@ export type Database = {
           target_column?: string | null;
           task?: string;
           time_column?: string | null;
+          tracking?: Json | null;
           updated_at?: string;
           user_column?: string | null;
           user_id?: string;

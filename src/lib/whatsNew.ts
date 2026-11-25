@@ -23,6 +23,30 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    id: "mlflow-registry-import",
+    date: "2026-11-25",
+    title: "Import straight from your MLflow server",
+    body: "Pick a registered model's version on your MLflow server, by its number or its alias, and it becomes the next version of a model here, checked and opened in a sandbox like any import.",
+    link: { to: "/docs/ml/predictions" },
+    cta: "Read how it works",
+  },
+  {
+    id: "mlflow-tracking",
+    date: "2026-11-25",
+    title: "Models tracked on your MLflow server",
+    body: "Connect an MLflow tracking server and each new version of a model is sent there as a run with its model, registered, with an alias that follows production here.",
+    link: { to: "/docs/ml/predictions" },
+    cta: "Read how it works",
+  },
+  {
+    id: "mlflow",
+    date: "2026-11-24",
+    title: "Models in and out, as MLflow",
+    body: "Export any version of a model as an MLflow model that scores the same way anywhere MLflow models load, or import a scikit-learn MLflow model as a new version.",
+    link: { to: "/ml" },
+    cta: "Open ML Models",
+  },
+  {
     id: "kserve-endpoints",
     date: "2026-11-24",
     title: "Model endpoints Kubernetes scales",

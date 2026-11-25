@@ -472,6 +472,62 @@ export async function testN8nCore(cfg: {
   }
 }
 
+/**
+ * Live-test an MLflow tracking server (R534): an authenticated list of one
+ * experiment proves the URL and the credentials, and a list of the artifact
+ * root says whether the server stores artifacts itself, which decides whether
+ * a version's model can be sent or only its run.
+ */
+export async function testMlflowCore(cfg: {
+  tracking_uri: string;
+  auth?: string;
+  username?: string;
+  token?: string;
+  password?: string;
+}): Promise<TestResult & { version?: string | null; artifacts?: boolean }> {
+  const { mlflowBase, mlflowCall, mlflowVersion, MlflowError } =
+    await import("@/utils/ml/mlflowClient.server");
+  const base = mlflowBase(cfg.tracking_uri);
+  if (!base) {
+    return {
+      ok: false,
+      detail: "Enter the tracking server's http(s) address, with no username or password in it.",
+    };
+  }
+  const conn = { ...cfg, token: clean(cfg.token), tracking_uri: base };
+  try {
+    await mlflowCall(conn, "POST", "/api/2.0/mlflow/experiments/search", { max_results: 1 });
+  } catch (e) {
+    const err = e as InstanceType<typeof MlflowError>;
+    return {
+      ok: false,
+      status: err.status,
+      detail:
+        err.status === 404
+          ? `${base} does not answer MLflow's API. Check the address (it is the one the MLflow UI opens at).`
+          : err.message,
+    };
+  }
+  const version = await mlflowVersion(conn);
+  let artifacts = false;
+  try {
+    await mlflowCall(conn, "GET", "/api/2.0/mlflow-artifacts/artifacts");
+    artifacts = true;
+  } catch {
+    artifacts = false;
+  }
+  return {
+    ok: true,
+    version,
+    artifacts,
+    detail: `Reached MLflow${version ? ` ${version}` : ""} at ${base}. ${
+      artifacts
+        ? "It stores artifacts itself, so each version is sent with its model and can be registered."
+        : "It does not serve artifacts, so versions are sent as runs (parameters and metrics) without their model, and are not registered."
+    }`,
+  };
+}
+
 /** Live-test a Firecrawl key with a cheap 1-result search. Fixed host — no SSRF surface. */
 export async function testFirecrawlCore(apiKey: string): Promise<TestResult> {
   const key = clean(apiKey);

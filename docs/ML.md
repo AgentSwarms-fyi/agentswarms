@@ -1127,6 +1127,130 @@ with s3fs.S3FileSystem().open(uri, "wb") as f: f.write(blob)
 # POST /api/ml/models/register with artifact_uri=uri, artifact_sha256=hashlib.sha256(blob).hexdigest()
 ```
 
+## MLflow: export and import
+
+**Export** any ready version from the model's Versions tab (the download
+button in its row) as a zip of the folder MLflow loads:
+
+- `MLmodel`, with the input signature (the feature columns, none required)
+  and, for a classifier, the decision line as the signature's
+  `decision_threshold` and `positive_label` params (MLflow drops params a
+  signature does not declare);
+- the version's own artifact, its digest checked on the way out and again on
+  load;
+- a loader module (`code/agentswarms_mlflow.py`) and the scoring program it
+  calls, so a row gets the same answer from `mlflow.pyfunc.load_model` as it
+  does here, at the version's decision line;
+- `requirements.txt`, `python_env.yaml` and `conda.yaml`, pinned to the
+  libraries the version was trained with. A version trained before those were
+  recorded says so, and gives the runtime image's minimums;
+- a README naming the date columns and the line.
+
+```python
+import mlflow.pyfunc, pandas as pd
+model = mlflow.pyfunc.load_model("churn-v3")          # the unzipped folder
+rows = pd.DataFrame([{"tenure": 7, "plan": "pro", "signed_up_on": "2026-03-14"}])
+rows["signed_up_on"] = pd.to_datetime(rows["signed_up_on"])   # dates as datetimes
+model.predict(rows)
+model.predict(rows, params={"decision_threshold": 0.5})       # move the line
+```
+
+Date columns take datetimes: MLflow checks each column against the signature,
+and with pandas 3 it refuses date text (measured with MLflow 3.18 and pandas
+3.1).
+
+**Import** brings an MLflow model in as the next version (Versions tab →
+**Import MLflow model**, owner only): a scikit-learn model logged with
+`mlflow.sklearn` (pickle or cloudpickle), or a model exported from here,
+zipped. Its input columns come from the signature, or from the estimator's
+`feature_names_in_`; a classifier's labels stay its own, numbers included.
+Other flavors are refused, naming the flavor.
+
+An imported model is opened in a sandbox, never in the app: loading a pickle
+runs whatever it holds. The app reads only the zip's listing and the
+`MLmodel` file, stages the model file in the lake under the model's own
+prefix, and starts a job. The sandbox checks the file is the one staged,
+loads it, checks it can do what the task needs (a classifier knows its
+classes, an anomaly model scores rows), and writes the version's artifact.
+The job is on the Jobs tab like a training run. A model exported from here
+comes back byte for byte, with the digest it left with, and with the decision
+line its signature declares. That is the one place a line arrives on a new
+version by itself: it is the artifact the line was drawn for, so the
+probabilities mean the same thing. An imported version records no lake
+snapshot, since it was not trained on this lake. The zip may weigh up to
+`ML_IMPORT_MAX_MB` (500).
+
+## Tracking on an MLflow server
+
+A model can be tracked on an MLflow server a team already runs:
+
+1. Connect the server under **Integrations → MLflow**: its address, and a
+   token or a username and password picked from Secrets. **Test and save**
+   signs in, reads the server's version and says whether it stores artifacts
+   itself.
+2. On the model's Versions tab, **Track on MLflow** chooses the server, the
+   experiment, the registered model and the alias that follows production
+   (`production` unless named otherwise), and can send the ready versions now.
+
+Each version that becomes ready afterwards is sent there:
+
+- a run named after the version (`v12`), with the version's parameters
+  (algorithm, source table, training rows, budget, tuning, validation
+  fraction), its scalar metrics, and its provenance as tags (model and version
+  ids, the artifact's SHA-256, the lake snapshot, the decision line);
+- the version's model folder (the same one the export downloads) as the run's
+  `model` artifact;
+- a version of the registered model, made from that artifact.
+
+Promoting a version here moves the alias to its registered version, so
+`mlflow.pyfunc.load_model("models:/<name>@production")` loads what the model
+serves. When production has nothing registered, the alias is taken away
+rather than left on an older version. The strip says which registered version
+the alias is on; when a move fails (the server was down during the
+promotion), it says why and offers **Move the alias again**. The versions table links each version to
+its run, or says why it was not sent and sends it again; the strip sends every
+ready version not yet sent (at most 50 at a time).
+
+How it is sent:
+
+- **From the app, never from a sandbox.** The credential is never in model
+  code, and no egress allow-list entry is needed. Every call goes through the
+  outbound URL guard (cloud metadata and link-local addresses refused; private
+  networks as the deployment allows) and none follows a redirect, so the token
+  only ever goes to the address saved.
+- **Never at the cost of training or a promotion.** A sync runs after the job
+  or the promotion has finished. One that does not finish records why on the
+  version and keeps the run it made; sending again finishes that run. A version
+  is sent by one sync at a time.
+- **Once.** Sending a version again reuses its run and its registered version;
+  parameters are logged once (MLflow refuses to change them), and the decision
+  line, which can move here, is a tag.
+- **Where the server can take the model.** A server that serves artifacts
+  (`mlflow server`'s default) gets the model. One that keeps them in its own
+  store (`s3://`, `dbfs:/`) gets the run with its parameters and metrics but
+  not the model, and the version is not registered; the version says so.
+- **Owner only.** Only the model's owner can track it, with one of their own
+  MLflow connections: the server loads the connection by the owner's id,
+  whatever the stored link names, and checks every id MLflow returns before it
+  is used in a path or a link.
+
+**Importing from the server.** **From an MLflow server**, beside Import
+MLflow model on the Versions tab, takes a registered model's version from one
+of your MLflow connections: search the registered models, choose a version
+(its aliases are beside it), and it becomes the next version here. Only two
+files are read: the version's `MLmodel` (parsed like any import's) and the
+model file it names, counted as it arrives against `ML_IMPORT_MAX_MB`. Both go
+through the zip import unchanged, so the same checks apply and the model is
+opened only in a sandbox. The version records the server, the registered
+model, the version and the alias it was picked by. A server that keeps models
+in its own store (`s3://`, `dbfs:/`) is refused in words: download the folder
+from MLflow and import it as a zip. A version MLflow has not finished
+registering is refused too.
+
+Audited as `ml.mlflow.linked`, `ml.mlflow.unlinked`, `ml.mlflow.synced`,
+`ml.mlflow.sync_failed`, `ml.mlflow.alias` and `ml.mlflow.alias_failed`. Needs migration
+`20261202000000_mlflow_tracking.sql`.
+
 ## Feature views
 
 A model trained on a table whose columns were built by SQL — `orders_30d`,

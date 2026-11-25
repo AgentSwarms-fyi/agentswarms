@@ -45,6 +45,17 @@ const N8nTestSchema = z.object({
   auth_type: z.enum(["header", "basic", "none"]).default("header"),
 });
 
+const MlflowTestSchema = z.object({
+  access_token: z.string().min(1).max(10000),
+  /** The saved connection being edited, whose stored secret a blank field keeps. */
+  id: z.string().uuid().optional(),
+  tracking_uri: z.string().min(1).max(500),
+  auth: z.enum(["none", "token", "basic"]).default("none"),
+  username: z.string().max(200).default(""),
+  token: z.string().max(4000).default(""),
+  password: z.string().max(4000).default(""),
+});
+
 const FirecrawlTestSchema = z.object({
   access_token: z.string().min(1).max(10000),
   api_key: z.string().min(1).max(2000),
@@ -304,6 +315,68 @@ export const testN8nInstance = createServerFn({ method: "POST" })
     });
   });
 
+// Live-test an MLflow tracking server (R534) before its connection is saved.
+export const testMlflowServer = createServerFn({ method: "POST" })
+  .validator((input: unknown) => MlflowTestSchema.parse(input))
+  .handler(
+    async ({ data }): Promise<TestResult & { version?: string | null; artifacts?: boolean }> => {
+      const auth = await validateAccessToken(data.access_token);
+      if (!auth.ok) return { ok: false, detail: auth.detail };
+      const limited = await integrationTestGate(auth.userId);
+      if (limited) return limited;
+      const { integrationHosts } = await import("./providers/integrationHosts");
+      const sendTo = integrationHosts("mlflow");
+      let typed: Record<string, string>;
+      try {
+        typed = await resolveTypedConfig(auth.userId, "mlflow", "mlflow", {
+          tracking_uri: data.tracking_uri,
+          token: data.token,
+          password: data.password,
+        });
+      } catch (e) {
+        return resolveFailure(e);
+      }
+      const secretField =
+        data.auth === "token" ? "token" : data.auth === "basic" ? "password" : null;
+      if (secretField && !(typed[secretField] ?? "").trim() && data.id) {
+        // Blank = the saved secret, which is never sent back to the page. It
+        // goes to the URL being tested, so a shared secret in it resolves only
+        // if its owner allowed that host.
+        const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        const { resolveIntegrationConfig } = await import("./providers/integrationConfig.server");
+        const { data: row } = await supabaseAdmin
+          .from("integrations")
+          .select("config")
+          .eq("id", data.id)
+          .eq("user_id", auth.userId)
+          .eq("type", "mlflow")
+          .maybeSingle();
+        if (row?.config) {
+          try {
+            const cfg = (await resolveIntegrationConfig(
+              auth.userId,
+              "mlflow",
+              row.config as Record<string, unknown>,
+              { sendTo: () => sendTo({ tracking_uri: typed.tracking_uri }) },
+            )) as Record<string, unknown>;
+            typed[secretField] =
+              typeof cfg[secretField] === "string" ? (cfg[secretField] as string) : "";
+          } catch (e) {
+            return resolveFailure(e);
+          }
+        }
+      }
+      const { testMlflowCore } = await import("./integrations/testAdapters.server");
+      return testMlflowCore({
+        tracking_uri: typed.tracking_uri,
+        auth: data.auth,
+        username: data.username,
+        token: typed.token,
+        password: typed.password,
+      });
+    },
+  );
+
 // Live-test a Firecrawl API key with a cheap 1-result search so the user knows
 // the key works before we mark the connector active.
 export const testFirecrawlKey = createServerFn({ method: "POST" })
@@ -551,7 +624,14 @@ function auditDetailFor(
   secretFields: string[],
 ): Record<string, unknown> {
   const detail: Record<string, unknown> = {};
-  for (const k of ["base_url", "instance_url", "endpoint", "provider", "auth_type"]) {
+  for (const k of [
+    "base_url",
+    "instance_url",
+    "endpoint",
+    "tracking_uri",
+    "provider",
+    "auth_type",
+  ]) {
     const v = config[k];
     if (typeof v === "string" && v) detail[k] = v.slice(0, 300);
   }

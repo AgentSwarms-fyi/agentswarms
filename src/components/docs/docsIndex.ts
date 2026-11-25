@@ -2460,6 +2460,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 2
       },
       {
+        "id": "mlflow",
+        "text": "MLflow tracking servers",
+        "level": 2
+      },
+      {
         "id": "mcp",
         "text": "MCP servers",
         "level": 2
@@ -3223,11 +3228,16 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "FEATURE_STORE_URL",
       "ML_API_RATE_LIMIT_PER_MIN",
       "ML_DRIFT_ALERT_PSI",
+      "ML_IMPORT_MAX_MB",
       "ML_PREDICT_MAX_ROWS",
+      "MLmodel",
       "VALKEY_PASSWORD",
       "_model_version",
       "_predicted_at",
       "classes",
+      "dbfs:/",
+      "decision_threshold",
+      "feature_names_in_",
       "feature_view",
       "features",
       "features_served_from",
@@ -3242,18 +3252,25 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "ml.schedule.run",
       "ml_list_models",
       "ml_predict",
+      "mlflow.pyfunc.load_model",
+      "mlflow.sklearn",
       "mlk_…",
+      "model",
       "online",
       "pipeline",
+      "positive_label",
       "predict",
       "predict_proba",
       "prediction",
       "proba_<class>",
       "probability",
+      "production",
       "read",
       "redis://:PASSWORD@host:6379",
+      "requirements.txt",
       "rows",
       "runMlPredict",
+      "s3://",
       "series",
       "task",
       "tool",
@@ -3294,6 +3311,16 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "external-models",
         "text": "Bring your own model",
+        "level": 3
+      },
+      {
+        "id": "mlflow",
+        "text": "MLflow: export and import",
+        "level": 3
+      },
+      {
+        "id": "mlflow-tracking",
+        "text": "Tracking on an MLflow server",
         "level": 3
       },
       {
@@ -5048,6 +5075,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "ML_EXPLAIN_MAX_ROWS",
       "ML_EXPLAIN_TOP_K",
       "ML_FAIRNESS_MIN_RATIO",
+      "ML_IMPORT_MAX_MB",
       "ML_MAX_CONCURRENT_TRAININGS_PER_USER",
       "ML_MAX_DEPLOYMENTS_PER_USER",
       "ML_MAX_DEPLOYMENTS_TOTAL",

@@ -142,6 +142,10 @@ export async function applyPromotion(
       gated: Boolean(decidedBy),
     },
   });
+  // The MLflow alias follows production (R534), in the background.
+  void import("./mlflowTracking.server")
+    .then((m) => m.afterPromotion(model.id))
+    .catch((e) => console.warn(`[ml-mlflow] ${(e as Error).message}`));
   return { ok: true };
 }
 

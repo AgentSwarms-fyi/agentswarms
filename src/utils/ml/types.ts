@@ -196,6 +196,41 @@ export type MlTrainResult = {
   /** One forecast per series when the model names a series column (R526). */
   series_forecasts?: MlSeriesForecast[];
   tuning?: { mode: string; trials: number; best_params?: Record<string, unknown> };
+  /** "import" for a model brought in from MLflow (R533); training otherwise. */
+  mode?: string;
+  /** The library versions it ran under (R533), recorded on the version's config. */
+  runtime?: Record<string, string>;
+};
+
+/**
+ * An MLflow model being imported as a version (R533), on the version's
+ * config. The app wrote it from the MLmodel file and the upload it staged;
+ * the sandbox's import mode reads it.
+ */
+export type MlImportConfig = {
+  format: "mlflow";
+  kind: "sklearn" | "agentswarms";
+  flavor: string;
+  /** The staged model file, and its digest as it arrived. */
+  uri: string;
+  sha256: string;
+  serialization?: "pickle" | "cloudpickle";
+  sklearn_version?: string | null;
+  /** From the signature; null means the sandbox reads the estimator's own. */
+  features: { name: string; dtype: string }[] | null;
+  file_name: string;
+  /** Where it came from, when it was taken from an MLflow server (R535). */
+  source?: MlImportSource;
+};
+
+export type MlImportSource = {
+  /** The tracking server's address. */
+  server: string;
+  registered_model: string;
+  version: string;
+  /** The alias it was picked by, when it was. */
+  alias?: string;
+  run_id?: string | null;
 };
 
 /** The key a training session carries in its runtime session inputs. */

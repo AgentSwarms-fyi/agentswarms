@@ -3927,6 +3927,21 @@ export const SETTINGS_REFERENCE: SettingsTier[] = [
           {
             "settings": [
               {
+                "name": "ML_IMPORT_MAX_MB",
+                "line": "# ML_IMPORT_MAX_MB=500",
+                "note": ""
+              }
+            ],
+            "body": [
+              {
+                "kind": "text",
+                "text": "Environment only. The most a zipped MLflow model brought in as a version may weigh, in MB (1-4096). The upload is held in memory while its MLmodel file is read and its model file staged in the lake."
+              }
+            ]
+          },
+          {
+            "settings": [
+              {
                 "name": "ML_SERVING_BACKEND",
                 "line": "# ML_SERVING_BACKEND=sandbox",
                 "note": ""

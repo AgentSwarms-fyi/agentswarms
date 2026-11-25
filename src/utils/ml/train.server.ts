@@ -53,6 +53,7 @@ import {
   mlJobStashOf,
   type MlJobStash,
   type MlSource,
+  type MlImportConfig,
   type MlTrainConfig,
   type MlTrainResult,
 } from "./types";
@@ -81,6 +82,12 @@ const TRAINING_DECISION_KIND: DecisionKind = "ml_training";
 const LIVE = [...ML_JOB_LIVE];
 
 /** Where a version's artifact lives: beside the lake, never inside its data path. */
+/** The MLflow model a version is being imported from (R533), if it is. */
+export function importOf(version: { config: unknown }): MlImportConfig | null {
+  const imp = (version.config as { import?: MlImportConfig } | null)?.import;
+  return imp && imp.format === "mlflow" && typeof imp.uri === "string" ? imp : null;
+}
+
 export function mlArtifactUri(dataUrl: string, modelId: string, version: number): string {
   const m = /^s3:\/\/([^/]+)/.exec(dataUrl);
   if (!m) throw new Error("LAKEHOUSE_DATA_URL is not an s3:// URL");
@@ -215,6 +222,9 @@ export async function mlBundleFor(
     // ASSEMBLING is not a fit at all: one container loads what the workers
     // uploaded and averages them into a single model.
     ...(stash.phase === "assemble" ? { mode: "assemble", parts: assembleParts(b.job) } : {}),
+    // IMPORTING is not a fit either: one container opens the MLflow model the
+    // app staged and checked, and writes it as this version's artifact (R533).
+    ...(importOf(b.version) ? { mode: "import", import: importOf(b.version) } : {}),
   };
   // The configuration is a base64 literal, not interpolated code: a column
   // named `'); import os` is a column name and nothing else.
@@ -261,6 +271,7 @@ export async function mlEnvFor(
       partUris: assembling
         ? assembleParts(b.job).map((p) => (p as { artifact_uri: string }).artifact_uri)
         : [],
+      importUri: importOf(b.version)?.uri ?? null,
     });
     // The program checks its imports and installs the stack only if the image
     // lacks it; sending the list here would cost a pip round-trip every job.
@@ -323,7 +334,10 @@ export async function startTrainingJob(args: {
     id: version.id,
     rootRef: model.id,
   });
-  const snapshot = await lakehouseSnapshotId().catch(() => null);
+  // Not for an import: it was trained somewhere else, on data this lake never
+  // held, so a snapshot would say "trained as of" something it was not. It
+  // also cost the import its slowest step (opening the lake engine).
+  const snapshot = importOf(version) ? null : await lakehouseSnapshotId().catch(() => null);
   const { error: snapErr } = await supabaseAdmin
     .from("ml_model_versions")
     .update({
@@ -355,7 +369,8 @@ export async function startTrainingJob(args: {
     .eq("user_id", model.user_id)
     .in("status", ["starting", "ready", "running"]);
   const plan = planShards({
-    requested: isShardableTask(model.task) ? limits.mlTrainWorkers : 1,
+    // An import opens one file in one container (R533).
+    requested: isShardableTask(model.task) && !importOf(version) ? limits.mlTrainWorkers : 1,
     candidates: candidateCount(model.task),
     sessionsPerUser: runtime.maxSessionsPerUser,
     sessionsInUse: sessionsInUse ?? 0,
@@ -1157,6 +1172,15 @@ async function writeTrainOutcome(jobId: string, r: MlTrainResult, logs: string):
     .select("*")
     .eq("id", job.model_id)
     .maybeSingle();
+  // What it ran under goes on the version's config beside how it was made
+  // (R533): an MLflow export pins exactly these libraries.
+  const { data: versionRow } = await supabaseAdmin
+    .from("ml_model_versions")
+    .select("config")
+    .eq("id", job.version_id)
+    .maybeSingle();
+  const priorConfig = (versionRow?.config ?? {}) as Record<string, unknown>;
+  const imported = r.mode === "import";
   const now = new Date().toISOString();
   const { data: claimed } = await supabaseAdmin
     .from("ml_training_jobs")
@@ -1195,9 +1219,12 @@ async function writeTrainOutcome(jobId: string, r: MlTrainResult, logs: string):
         artifact_uri: r.artifact_uri,
         artifact_sha256: r.artifact_sha256,
         artifact_bytes: r.artifact_bytes,
-        training_rows: r.training_rows,
-        training_total_rows: r.training_total_rows,
+        // An import was trained elsewhere: no row count rather than 0, which
+        // the versions table showed as "trained on nothing" (R533 UI test).
+        training_rows: imported ? null : r.training_rows,
+        training_total_rows: imported ? null : r.training_total_rows,
         training_sampled: r.training_sampled,
+        ...(r.runtime ? { config: { ...priorConfig, runtime: r.runtime } as Json } : {}),
         warnings: (r.warnings ?? []) as Json,
         forecast: (r.forecast
           ? {
@@ -1253,10 +1280,10 @@ async function writeTrainOutcome(jobId: string, r: MlTrainResult, logs: string):
       );
     }
   }
-  const value = r.metrics[r.primary_metric] ?? null;
+  const value = r.primary_metric ? (r.metrics[r.primary_metric] ?? null) : null;
   auditEvent({
     userId: job.user_id,
-    action: "ml.train.succeeded",
+    action: imported ? "ml.import.succeeded" : "ml.train.succeeded",
     resourceType: "ml_model",
     resourceId: job.model_id,
     resourceName: model?.name ?? undefined,
@@ -1282,6 +1309,14 @@ async function writeTrainOutcome(jobId: string, r: MlTrainResult, logs: string):
       decisionId: job.version_id,
       detail: { version_id: job.version_id, stage: "production", automatic: true },
     });
+  }
+  // A model tracked on an MLflow server sends the new version there (R534),
+  // in the background: a slow or refusing server never holds up the job.
+  if (job.version_id) {
+    const versionId = job.version_id;
+    void import("./mlflowTracking.server")
+      .then((m) => m.afterVersionReady(versionId))
+      .catch((e) => console.warn(`[ml-mlflow] ${(e as Error).message}`));
   }
   // One structured line per finished job: the greppable correlation point
   // between logs, the audit trail and the version row.

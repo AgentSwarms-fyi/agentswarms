@@ -17,6 +17,7 @@ import { templateById as connectorTemplateById } from "@/lib/connectorTemplates"
 import { readPageIntent, type PageIntent } from "@/lib/pageIntent";
 import { SlackTab } from "@/components/integrations/SlackTab";
 import { TeamsTab } from "@/components/integrations/TeamsTab";
+import { MlflowConnectionsPanel } from "@/components/integrations/MlflowConnectionsPanel";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -56,6 +57,7 @@ const INTEGRATION_TABS = [
   "slack",
   "teams",
   "n8n",
+  "mlflow",
 ] as const;
 type IntegrationTab = (typeof INTEGRATION_TABS)[number];
 
@@ -543,7 +545,7 @@ function IntegrationsPage() {
         )}
 
         <Tabs value={tab} onValueChange={setTab} className="space-y-4">
-          <TabsList>
+          <TabsList className="h-auto flex-wrap justify-start">
             <TabsTrigger value="llm">LLM providers</TabsTrigger>
             <TabsTrigger value="warehouses">Data sources</TabsTrigger>
             <TabsTrigger value="apps">Apps</TabsTrigger>
@@ -558,7 +560,12 @@ function IntegrationsPage() {
                 surface, authenticated a completely different way. */}
             <TabsTrigger value="teams">Teams</TabsTrigger>
             <TabsTrigger value="n8n">n8n workflows</TabsTrigger>
+            <TabsTrigger value="mlflow">MLflow</TabsTrigger>
           </TabsList>
+
+          <TabsContent value="mlflow" className="space-y-4">
+            <MlflowConnectionsPanel />
+          </TabsContent>
 
           <TabsContent value="slack" className="space-y-4">
             <SlackTab />

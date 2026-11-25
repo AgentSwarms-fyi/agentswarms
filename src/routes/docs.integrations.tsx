@@ -332,6 +332,20 @@ function IntegrationsDoc() {
         Temporal, Airflow, Zapier, Make, or a plain webhook).
       </P>
 
+      <H2 id="mlflow">MLflow tracking servers</H2>
+      <P>
+        The <em>MLflow</em> tab connects the MLflow tracking servers your models can be tracked on:
+        each one&apos;s address and how to sign in to it (nothing, a token, or a username and
+        password, the secret picked from Secrets and sent only to that address).{" "}
+        <strong>Test and save</strong> signs in, reads the server&apos;s version and says whether it
+        stores artifacts itself, which decides whether a version&apos;s model can be sent with its
+        run. Which models are tracked where is chosen on each model; see{" "}
+        <DocLink to="/docs/ml/predictions" hash="mlflow-tracking">
+          Tracking on an MLflow server
+        </DocLink>
+        .
+      </P>
+
       <H2 id="mcp">MCP servers</H2>
       <P>
         <DocLink to="/mcp">/mcp</DocLink> attaches Model Context Protocol servers to your workspace.
@@ -368,6 +382,13 @@ function IntegrationsDoc() {
             "Firecrawl (built in), Brave, Tavily, SerpAPI; ScrapingBee for page fetching",
             <DocLink key="c" to="/docs/agents">
               Agent Builder → Tools
+            </DocLink>,
+          ],
+          [
+            "MLOps",
+            "MLflow tracking servers: runs, models and a registered version per model version",
+            <DocLink key="m" to="/docs/ml/predictions" hash="mlflow-tracking">
+              ML Models → MLflow
             </DocLink>,
           ],
           [

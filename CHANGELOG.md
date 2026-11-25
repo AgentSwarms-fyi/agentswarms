@@ -16,6 +16,10 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Apply migration `20261202000000`** (R534) to connect an MLflow server: it
+  adds the `mlflow` connection type and the `tracking` columns that record
+  what was sent. Until then Integrations → MLflow says the migration is
+  missing; export and import of zipped MLflow models (R533) need nothing new.
 - **Apply migration `20261201000000`** (R532) before turning on
   `ML_SERVING_BACKEND=kserve`: it records which InferenceService a warm
   endpoint is. Sandbox endpoints, the default, need nothing new and work as
@@ -281,6 +285,41 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Import from an MLflow server** (R535). **From an MLflow server** on a
+  model's Versions tab takes a registered model's version (chosen by number or
+  shown by alias) from one of your MLflow connections and imports it as the
+  next version. Only its `MLmodel` and the model file it names are read,
+  counted against `ML_IMPORT_MAX_MB`, and they go through the R533 zip import
+  unchanged (the model is opened only in a sandbox). The version records where
+  it came from. A model kept in a store the app does not read is refused in
+  words.
+- **Models tracked on an MLflow server** (R534). An MLflow tracking server is
+  a connection under Integrations → MLflow (no sign-in, a token, or a username
+  and password from Secrets). A model tracked on one sends each version that
+  becomes ready as a run with its parameters, metrics and provenance tags, its
+  model folder as the run's `model` artifact, and a version of a registered
+  model whose alias follows production here. Sent by the app, never by model
+  code, through the outbound URL guard and without following redirects; a
+  sync that does not finish never fails training or a promotion, says why on
+  the version and is retried in the same run. Owner only; audited as
+  `ml.mlflow.*`. Migration `20261202000000_mlflow_tracking.sql` (the
+  `mlflow` connection type and the `tracking` columns).
+- **MLflow export and import** (R533). Any ready version of a model that
+  scores rows exports, from its Versions tab, as a zipped MLflow model:
+  `MLmodel` with the input signature, the version's own artifact (its digest
+  checked out and on load), a loader that scores through the same program
+  this platform runs, and `requirements.txt` pinned to the libraries the
+  version was trained with. A scikit-learn MLflow model (or one exported from
+  here) imports as the next version: the app reads only the zip's listing and
+  `MLmodel`, stages the model file in the lake, and a job opens it in a
+  sandbox, checks it, and writes the version's artifact. A classifier's
+  decision line travels both ways, as the signature's `decision_threshold`
+  and `positive_label` params, so an exported model answers at the same line
+  as here and a call can move it. A model exported from here comes back byte
+  for byte, line included. Training now records the Python and
+  library versions on every version (`config.runtime`). Owner only, both
+  ways; audited as `ml.export` and `ml.import.*`. `ML_IMPORT_MAX_MB` (500)
+  bounds an upload.
 - **Warm model endpoints scaled by Kubernetes, on KServe** (R532). With
   `ML_SERVING_BACKEND=kserve` (the Helm chart's `serving.kserve.enabled`) a
   deployed model is a KServe InferenceService, and the cluster scales its
@@ -659,6 +698,11 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **A registered model with numeric classes answered the wrong class**
+  (R533). Scoring read a numeric prediction from a model registered from
+  outside as a position in its class list, so a classifier whose classes are
+  1, 2 and 3 answered 2 for a predicted 1. Such a model's labels are now its
+  own.
 - **A warm endpoint scaled to a minimum of 0 never came back** (R532). With
   no copy up, a prediction went the slow way and was not counted, so the
   scaler read no demand and never started a copy however busy the endpoint

@@ -23,6 +23,9 @@ const SECRET_FIELDS: Record<string, string[]> = {
   llm_gateway: ["api_key"],
   n8n: ["webhook_token"],
   firecrawl: ["api_key"],
+  // An MLflow tracking server (R534): a bearer token, or a password with a
+  // username (MLflow's basic auth). The tracking URL is not a secret.
+  mlflow: ["token", "password"],
   // The webhook URL IS the secret for notification channels — possession of a
   // Slack/Teams/Discord incoming-webhook URL is permission to post to it.
   notification: ["webhook_url"],
@@ -38,6 +41,7 @@ const SHAREABLE_FIELDS: Record<string, string[]> = {
   llm_gateway: ["api_key"],
   n8n: ["webhook_token"],
   firecrawl: ["api_key"],
+  mlflow: ["token", "password"],
 };
 
 type EncBlob = { ciphertext?: string; iv?: string; kid?: string };

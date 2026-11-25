@@ -54,8 +54,10 @@ export function mlTrainManifest(args: {
   artifactUri: string;
   /** An assemble step reads what the workers wrote instead of training. */
   partUris?: string[];
+  /** An import reads the model file it was given (R533), and no table. */
+  importUri?: string | null;
 }): LakeManifest {
-  const assembling = Boolean(args.partUris?.length);
+  const assembling = Boolean(args.partUris?.length) || Boolean(args.importUri);
   const max = args.maxRows && args.maxRows > 0 ? Math.floor(args.maxRows) : 0;
   return {
     reads: assembling
@@ -85,7 +87,9 @@ export function mlTrainManifest(args: {
     writes: {},
     artifacts: {
       put: artifactKeyOf(args.artifactUri),
-      get: (args.partUris ?? []).map(artifactKeyOf),
+      get: [...(args.partUris ?? []), ...(args.importUri ? [args.importUri] : [])].map(
+        artifactKeyOf,
+      ),
     },
   };
 }

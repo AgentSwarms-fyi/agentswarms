@@ -281,6 +281,91 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
         external versions; the first one is promoted when the model has no production version.
       </P>
 
+      <H3 id="mlflow">MLflow: export and import</H3>
+      <P>
+        <strong>Export</strong> any ready version from the model&apos;s Versions tab (the download
+        button in its row): a zip of the folder MLflow loads. It holds the <C>MLmodel</C> file with
+        the input signature, the version&apos;s own artifact (its digest checked on the way out and
+        again on load), and a small loader that scores through the same program this platform runs.
+        A row therefore gets the same answer from <C>mlflow.pyfunc.load_model</C> as it does here.{" "}
+        <C>requirements.txt</C> pins the libraries the version was trained with; a version trained
+        before those were recorded says so and gives the runtime&apos;s minimums.
+      </P>
+      <Code lang="python">{`import mlflow.pyfunc, pandas as pd
+model = mlflow.pyfunc.load_model("churn-v3")          # the unzipped folder
+rows = pd.DataFrame([{"tenure": 7, "plan": "pro", "signed_up_on": "2026-03-14"}])
+rows["signed_up_on"] = pd.to_datetime(rows["signed_up_on"])   # dates as datetimes
+model.predict(rows)
+model.predict(rows, params={"decision_threshold": 0.5})       # move the line`}</Code>
+      <P>
+        Date columns take datetimes: MLflow checks each column against the signature and refuses
+        date text. A classifier with a{" "}
+        <DocLink to="/docs/ml/trust#threshold">decision line</DocLink> answers at that line, as it
+        does here; the line is the signature&apos;s <C>decision_threshold</C> and{" "}
+        <C>positive_label</C> params, so a call can move it. The zip&apos;s README names the date
+        columns and the line.
+      </P>
+      <P>
+        <strong>Import</strong> brings an MLflow model in as the next version (Versions tab →{" "}
+        <strong>Import MLflow model</strong>, owner only): a scikit-learn model logged with{" "}
+        <C>mlflow.sklearn</C>, or a model exported from here, zipped. Its input columns come from
+        the signature (or the estimator&apos;s <C>feature_names_in_</C>); a classifier&apos;s labels
+        stay its own. Other flavors are refused, naming the flavor.
+      </P>
+      <Callout kind="info" title="An imported model is opened in a sandbox, never in the app">
+        Loading a pickle runs whatever it holds. The app reads only the zip&apos;s listing and the{" "}
+        <C>MLmodel</C> file, stages the model file in the lake under the model&apos;s own prefix,
+        and starts a job: the sandbox checks the file is the one staged, loads it, checks it can do
+        what the model&apos;s task needs (a classifier knows its classes, an anomaly model scores
+        rows), and writes the version&apos;s artifact. The job is on the Jobs tab like a training
+        run, and its log says why when it fails. A model exported from here comes back byte for
+        byte, with the digest it left with, and with the decision line its file declares (the one
+        place a line arrives on a new version by itself: it is the same artifact the line was drawn
+        for). An imported model records no lake snapshot, since it was not trained on this lake. The
+        zip may weigh up to <C>ML_IMPORT_MAX_MB</C> (500).
+      </Callout>
+
+      <H3 id="mlflow-tracking">Tracking on an MLflow server</H3>
+      <P>
+        A model can be tracked on an MLflow server your team already runs. Connect the server once
+        under <DocLink to="/integrations">Integrations → MLflow</DocLink> (its address, and a token
+        or a username and password picked from Secrets), then press <strong>Track on MLflow</strong>{" "}
+        on the model&apos;s Versions tab and choose the experiment, the registered model and the
+        alias that follows production (<C>production</C> unless you name another).
+      </P>
+      <P>
+        From then on, each version that becomes ready is sent there: a run named after the version
+        with its parameters (algorithm, source table, training rows, budget, tuning), its metrics
+        and its provenance as tags (the model and version ids, the artifact&apos;s digest, the lake
+        snapshot, the decision line); the version&apos;s model, the same folder the export
+        downloads, as the run&apos;s <C>model</C> artifact; and a version of the registered model.
+        Promoting a version here moves the alias to it in MLflow, so{" "}
+        <C>mlflow.pyfunc.load_model(&quot;models:/churn@production&quot;)</C> always loads what this
+        model serves. A row in the versions table links to its run, or says why it was not sent and
+        sends it again; the strip sends the ready versions not yet sent, says which registered
+        version the alias is on, and, when a move failed because the server could not be reached,
+        says why and offers <strong>Move the alias again</strong>.
+      </P>
+      <P>
+        <strong>From an MLflow server</strong>, beside Import MLflow model, works the other way:
+        choose one of your MLflow connections, search its registered models, pick a version (its
+        aliases are shown beside it), and it becomes the next version here. Only the version&apos;s{" "}
+        <C>MLmodel</C> and the model file it names are read, counted against <C>ML_IMPORT_MAX_MB</C>
+        , and they go through the same checks and sandbox job as a zip. The version records the
+        server, registered model, version and alias it came from.
+      </P>
+      <Callout kind="info" title="Sent by this server, never by model code">
+        The sync runs in the app, not in a sandbox: the credential stays out of every model&apos;s
+        code and goes only to the server&apos;s address, every call is checked like any other
+        outbound call (cloud metadata addresses are always refused), and a redirect is not followed.
+        A sync that does not finish never fails the training run or the promotion: the version says
+        why, keeps the run it made, and sending it again finishes that run. Each sync, failure and
+        alias move is in the audit log. A server that keeps artifacts in its own store (an{" "}
+        <C>s3://</C> or <C>dbfs:/</C> location instead of serving them) gets the run with its
+        parameters and metrics but not the model, and the version is not registered; the row says
+        so. Only the model&apos;s owner can track it, with one of their own connections.
+      </Callout>
+
       <H3 id="forecast-period">What a forecast period is</H3>
       <P>
         A forecast is one value per period: the total (or average) of the target over every hour,

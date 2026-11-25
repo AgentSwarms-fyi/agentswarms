@@ -276,6 +276,10 @@ function MlDocsPage() {
           ["Public API", "Per-model scoped keys, rate limits, audited denials, BYO registration"],
           ["Bring your own model", "Any joblib pipeline under a small contract"],
           [
+            "MLflow",
+            "Any version exported as an MLflow model that scores the same way; scikit-learn MLflow models imported as versions, opened in a sandbox",
+          ],
+          [
             "Feature store",
             "Feature views: score by key, read from the table training read, with an online store serving the latest row per key in ~2 ms",
           ],

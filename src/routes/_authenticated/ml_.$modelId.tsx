@@ -20,6 +20,7 @@ import {
   XCircle,
   KeyRound,
   FileText,
+  Info,
 } from "lucide-react";
 import { StarButton } from "@/components/StarButton";
 import { Button } from "@/components/ui/button";
@@ -91,6 +92,10 @@ import { DeploymentPanel } from "@/components/ml/DeploymentPanel";
 import { ModelFeatureView } from "@/components/ml/FeatureViewsPanel";
 import { SchedulesPanel } from "@/components/ml/SchedulesPanel";
 import { ModelLineageCard } from "@/components/ml/ModelLineageCard";
+import { MlflowExportButton, MlflowImport } from "@/components/ml/MlflowControls";
+import { MlflowTrackingStrip, MlflowVersionCell } from "@/components/ml/MlflowTracking";
+import { parseModelTracking } from "@/lib/mlflowTracking";
+import { MLFLOW_TASKS, importedFlavor } from "@/lib/mlflowTasks";
 
 // React 19's stricter JSX typing rejects recharts' class components — cast via any.
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -501,6 +506,25 @@ function ModelPage() {
               Tick two or more trained versions to compare them side by side.
             </p>
           )}
+          {!shared && (MLFLOW_TASKS as readonly string[]).includes(model.task) ? (
+            <MlflowImport
+              token={token}
+              modelId={model.id}
+              onStarted={() => {
+                void reload();
+                setTab("jobs");
+              }}
+            />
+          ) : null}
+          {!shared && (MLFLOW_TASKS as readonly string[]).includes(model.task) ? (
+            <MlflowTrackingStrip
+              token={token}
+              model={model}
+              versions={versions}
+              productionVersionId={model.production_version_id}
+              onChanged={() => void reload()}
+            />
+          ) : null}
           <div className="overflow-hidden rounded-lg border bg-card">
             <table className="w-full text-sm">
               <thead className="bg-muted text-left text-xs">
@@ -549,7 +573,7 @@ function ModelPage() {
                           {fmtMetric(primary, value)}
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">
-                          {fmtInt(v.training_rows)}
+                          {importedFlavor(v.config) ? "—" : fmtInt(v.training_rows)}
                         </td>
                         <td className="px-3 py-2 text-muted-foreground">
                           {v.trained_at ? relTime(v.trained_at) : "—"}
@@ -580,36 +604,64 @@ function ModelPage() {
                         </td>
                         {!shared ? (
                           <td className="px-3 py-2 text-right">
-                            {v.status === "ready" && v.stage !== "production" ? (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => void promote(v, "production")}
-                              >
-                                Promote
-                              </Button>
-                            ) : null}
-                            {v.status === "ready" &&
-                            v.stage !== "archived" &&
-                            v.stage !== "production" ? (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="ml-1"
-                                onClick={() => void promote(v, "archived")}
-                              >
-                                Archive
-                              </Button>
-                            ) : null}
-                            {v.status === "ready" && v.stage === "archived" ? (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => void promote(v, "candidate")}
-                              >
-                                Restore
-                              </Button>
-                            ) : null}
+                            {/* Two rows at most: the stage buttons, then the icons
+                                (R534 UI test: the cell took three lines; the buttons still wrap
+                                where the table is narrow, rather than being cut off). */}
+                            <div className="flex flex-col items-end gap-1">
+                              <div className="flex flex-wrap items-center justify-end gap-1">
+                                {v.status === "ready" && v.stage !== "production" ? (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => void promote(v, "production")}
+                                  >
+                                    Promote
+                                  </Button>
+                                ) : null}
+                                {v.status === "ready" &&
+                                v.stage !== "archived" &&
+                                v.stage !== "production" ? (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => void promote(v, "archived")}
+                                  >
+                                    Archive
+                                  </Button>
+                                ) : null}
+                                {v.status === "ready" && v.stage === "archived" ? (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => void promote(v, "candidate")}
+                                  >
+                                    Restore
+                                  </Button>
+                                ) : null}
+                              </div>
+                              {(MLFLOW_TASKS as readonly string[]).includes(model.task) ? (
+                                <span className="inline-flex items-center whitespace-nowrap">
+                                  {v.status === "ready" && v.artifact_uri ? (
+                                    <MlflowExportButton
+                                      token={token}
+                                      modelId={model.id}
+                                      versionId={v.id}
+                                      version={v.version}
+                                    />
+                                  ) : null}
+                                  <MlflowVersionCell
+                                    token={token}
+                                    modelId={model.id}
+                                    version={v}
+                                    canSend={
+                                      !shared &&
+                                      Boolean(parseModelTracking(model.tracking)?.enabled)
+                                    }
+                                    onChanged={() => void reload()}
+                                  />
+                                </span>
+                              ) : null}
+                            </div>
                           </td>
                         ) : null}
                       </tr>
@@ -715,6 +767,9 @@ function ModelPage() {
                             <span className="text-red-600 dark:text-red-400">
                               {j.error.slice(0, 200)}
                             </span>
+                          ) : r?.algorithm && j.trigger === "import" ? (
+                            // An import has no score of its own (R533).
+                            <span>Imported from MLflow · {r.algorithm}</span>
                           ) : r?.algorithm ? (
                             <span>
                               {r.algorithm} · {metricLabel(r.primary_metric ?? "")}{" "}
@@ -839,7 +894,9 @@ function ModelPage() {
       <Dialog open={logsFor !== null} onOpenChange={(o) => !o && setLogsFor(null)}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle>Training logs</DialogTitle>
+            <DialogTitle>
+              {logsFor?.trigger === "import" ? "Import log" : "Training logs"}
+            </DialogTitle>
             <DialogDescription>
               {logsFor
                 ? `${logsFor.status} · started ${relTime(logsFor.started_at ?? logsFor.created_at)}`
@@ -934,6 +991,11 @@ function VersionOverview({
   // selection score — there is no target to be right about — so the evidence
   // card would be describing a split that did not happen.
   const selected = task === "classification" || task === "regression";
+  // Trained somewhere else: nothing was selected or held out here, so the
+  // selection evidence and the leaderboard would describe runs that never
+  // happened (the evidence card even said it was "trained before selection
+  // and reporting were separated"; found in the R533 UI test).
+  const imported = importedFlavor(version.config);
 
   return (
     <>
@@ -958,7 +1020,20 @@ function VersionOverview({
       {/* Directly under the tiles, because the tiles are the claim and this is
           the evidence for it. A score read without its spread invites a
           precision nobody measured. */}
-      {selected ? <SelectionEvidence metrics={version.metrics} /> : null}
+      {imported ? (
+        <Card className="border-dashed">
+          <CardContent className="flex items-start gap-2 py-3 text-xs text-muted-foreground">
+            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>
+              Imported from MLflow ({imported}): it was trained somewhere else, so it has no
+              leaderboard or held-out score here. The Accuracy tab checks its answers against real
+              outcomes as they arrive.
+            </span>
+          </CardContent>
+        </Card>
+      ) : selected ? (
+        <SelectionEvidence metrics={version.metrics} />
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-2">
         {task === "forecast" && forecast ? <ForecastCard forecast={forecast} /> : null}
@@ -1001,58 +1076,66 @@ function VersionOverview({
           </Card>
         ) : null}
 
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-sm font-medium">Leaderboard</p>
-            <p className="mb-3 text-xs text-muted-foreground">
-              {typeof metrics.backtest_windows === "number"
-                ? `Every candidate tried, scored over the same ${metrics.backtest_windows} backtest window${metrics.backtest_windows === 1 ? "" : "s"} of the most recent periods.`
-                : "Every candidate tried, scored on the same holdout."}
-            </p>
-            <table className="w-full text-xs">
-              <thead className="text-left text-muted-foreground">
-                <tr>
-                  <th className="py-1 font-medium">Algorithm</th>
-                  <th className="py-1 text-right font-medium">
-                    {leaderboard[0] ? metricLabel(leaderboard[0].metric) : "Score"}
-                  </th>
-                  <th className="py-1 text-right font-medium">Fit</th>
-                  <th className="py-1 text-right font-medium">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {leaderboard.map((r) => (
-                  <tr
-                    key={r.algorithm}
-                    className={cn("border-t", r.algorithm === version.algorithm && "font-medium")}
-                  >
-                    <td className="py-1">
-                      {r.algorithm}
-                      {r.algorithm === version.algorithm ? " ★" : ""}
-                    </td>
-                    <td className="py-1 text-right tabular-nums">{fmtMetric(r.metric, r.value)}</td>
-                    <td className="py-1 text-right tabular-nums">
-                      {r.fit_seconds ? `${r.fit_seconds}s` : "—"}
-                    </td>
-                    <td className="py-1 text-right text-muted-foreground">
-                      {r.status}
-                      {r.note ? ` · ${r.note}` : ""}
-                    </td>
+        {imported ? null : (
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-sm font-medium">Leaderboard</p>
+              <p className="mb-3 text-xs text-muted-foreground">
+                {typeof metrics.backtest_windows === "number"
+                  ? `Every candidate tried, scored over the same ${metrics.backtest_windows} backtest window${metrics.backtest_windows === 1 ? "" : "s"} of the most recent periods.`
+                  : "Every candidate tried, scored on the same holdout."}
+              </p>
+              <table className="w-full text-xs">
+                <thead className="text-left text-muted-foreground">
+                  <tr>
+                    <th className="py-1 font-medium">Algorithm</th>
+                    <th className="py-1 text-right font-medium">
+                      {leaderboard[0] ? metricLabel(leaderboard[0].metric) : "Score"}
+                    </th>
+                    <th className="py-1 text-right font-medium">Fit</th>
+                    <th className="py-1 text-right font-medium">Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
+                </thead>
+                <tbody>
+                  {leaderboard.map((r) => (
+                    <tr
+                      key={r.algorithm}
+                      className={cn("border-t", r.algorithm === version.algorithm && "font-medium")}
+                    >
+                      <td className="py-1">
+                        {r.algorithm}
+                        {r.algorithm === version.algorithm ? " ★" : ""}
+                      </td>
+                      <td className="py-1 text-right tabular-nums">
+                        {fmtMetric(r.metric, r.value)}
+                      </td>
+                      <td className="py-1 text-right tabular-nums">
+                        {r.fit_seconds ? `${r.fit_seconds}s` : "—"}
+                      </td>
+                      <td className="py-1 text-right text-muted-foreground">
+                        {r.status}
+                        {r.note ? ` · ${r.note}` : ""}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardContent className="space-y-2 p-4 text-sm">
             <p className="font-medium">Lineage</p>
             <Detail k="Algorithm" v={version.algorithm ?? "—"} />
-            <Detail
-              k="Trained on"
-              v={`${fmtInt(version.training_rows)} rows${version.training_sampled ? ` (sampled from ${fmtInt(version.training_total_rows)})` : ""}`}
-            />
+            {imported ? (
+              <Detail k="Imported from" v={`MLflow (${imported})`} />
+            ) : (
+              <Detail
+                k="Trained on"
+                v={`${fmtInt(version.training_rows)} rows${version.training_sampled ? ` (sampled from ${fmtInt(version.training_total_rows)})` : ""}`}
+              />
+            )}
             <Detail
               k="Features"
               v={
@@ -1108,7 +1191,7 @@ function VersionOverview({
               }
             />
             <Detail
-              k="Trained"
+              k={imported ? "Imported" : "Trained"}
               v={version.trained_at ? new Date(version.trained_at).toLocaleString() : "—"}
             />
             {warnings.length ? (
@@ -1464,7 +1547,7 @@ function CompareVersions({
                 <td className="py-1.5 pr-3 text-muted-foreground">Rows</td>
                 {ordered.map((v) => (
                   <td key={v.id} className="py-1.5 pr-3 tabular-nums">
-                    {fmtInt(v.training_rows)}
+                    {importedFlavor(v.config) ? "—" : fmtInt(v.training_rows)}
                   </td>
                 ))}
               </tr>

@@ -2034,6 +2034,122 @@ def _paste(pipes, task):
     return SimpleNamespace(predict=_pred, predict_proba=_proba, classes_=seen, parts=parts)
 
 
+# ── What this ran under ──────────────────────────────────────────────────────
+def _runtime():
+    """The library versions this program ran under (R533).
+
+    Recorded with every version it makes, because a pickled pipeline loads
+    reliably only under the scikit-learn that wrote it: an MLflow export pins
+    exactly these.
+    """
+    import platform
+    out = {'python': platform.python_version()}
+    for name, mod in (('scikit-learn', 'sklearn'), ('lightgbm', 'lightgbm'), ('numpy', 'numpy'),
+                      ('pandas', 'pandas'), ('joblib', 'joblib'), ('scipy', 'scipy')):
+        try:
+            out[name] = str(__import__(mod).__version__)
+        except Exception:
+            pass
+    return out
+
+
+# ── Importing a model trained elsewhere (MLflow) ─────────────────────────────
+def _estimator_name(est):
+    steps = getattr(est, 'steps', None)
+    if steps:
+        return type(steps[-1][1]).__name__
+    return type(est).__name__
+
+
+def _import_model(cfg, warnings_):
+    """An MLflow model trained elsewhere, made a version of this model (R533).
+
+    Opened HERE, in the sandbox, and never in the app: loading a pickle runs
+    whatever it holds. The app read only the MLmodel file and staged the
+    model file in the lake; this checks it is that file, loads it, checks it
+    can do what this model's task needs, and writes the version's artifact.
+
+    A model AgentSwarms exported comes back byte for byte: its data file IS
+    an artifact, so the version it becomes has the digest it left with.
+    """
+    import pickle
+    import joblib
+    imp = cfg['import']
+    task = cfg['task']
+    blob = _fetch_artifact(imp['uri'])
+    if hashlib.sha256(blob).hexdigest() != imp['sha256']:
+        raise RuntimeError('The uploaded model file is not the one that was checked when it arrived. Import it again.')
+    sig = imp.get('features') or None
+    if imp['kind'] == 'agentswarms':
+        art = joblib.load(io.BytesIO(blob))
+        if not isinstance(art, dict) or 'pipeline' not in art or 'features' not in art:
+            raise RuntimeError('This MLflow model says it came from AgentSwarms, but its data file is not a model artifact.')
+        if art.get('task') != task:
+            raise RuntimeError('This model was exported from a %s model, so it can only be imported into a %s model, not this %s one.'
+                               % (art.get('task'), art.get('task'), task))
+        out = blob
+        algorithm = str(art.get('algorithm') or 'imported')
+        features = [str(f) for f in art['features']]
+        dtypes = dict((f['name'], f['dtype']) for f in (sig or []))
+        schema = [{'name': f, 'dtype': dtypes.get(f, 'numeric'), 'role': 'feature'} for f in features]
+    else:
+        if imp.get('serialization') == 'cloudpickle':
+            # cloudpickle writes ordinary pickles; only a model holding a
+            # lambda or a class defined in a notebook needs it to load.
+            try:
+                import cloudpickle  # noqa: F401
+            except Exception:
+                try:
+                    from joblib.externals import cloudpickle as _cp
+                    sys.modules.setdefault('cloudpickle', _cp)
+                except Exception:
+                    pass
+        import warnings as _w
+        with _w.catch_warnings(record=True) as caught:
+            _w.simplefilter('always')
+            est = pickle.loads(blob)
+        for w in caught:
+            text = str(w.message)
+            if 'version' in text.lower():
+                warnings_.append('Loaded under a different scikit-learn than it was saved with: %s' % text[:300])
+        if not hasattr(est, 'predict'):
+            raise RuntimeError('The model file holds a %s, which cannot predict.' % type(est).__name__)
+        if sig:
+            features = [str(f['name']) for f in sig]
+            schema = [{'name': str(f['name']), 'dtype': f['dtype'], 'role': 'feature'} for f in sig]
+        else:
+            names = getattr(est, 'feature_names_in_', None)
+            if names is None:
+                raise RuntimeError('The model has no signature and does not name its input columns. Log it again with a signature (mlflow.models.infer_signature).')
+            features = [str(n) for n in names]
+            schema = [{'name': n, 'dtype': 'numeric', 'role': 'feature'} for n in features]
+        classes = None
+        if task == 'classification':
+            cls = getattr(est, 'classes_', None)
+            if cls is None:
+                raise RuntimeError('A classification model has to know its classes (classes_), and this one does not.')
+            classes = [str(c) for c in list(cls)]
+        if task == 'anomaly' and not hasattr(est, 'decision_function'):
+            raise RuntimeError('An anomaly model has to score how unusual a row is (decision_function), and this one cannot.')
+        algorithm = 'mlflow:' + _estimator_name(est)
+        payload = {'task': task, 'algorithm': algorithm, 'pipeline': est, 'features': features,
+                   'classes': classes, 'external': True,
+                   'imported': {'format': 'mlflow', 'flavor': imp.get('flavor'),
+                                'sklearn_version': imp.get('sklearn_version')}}
+        buf = io.BytesIO()
+        joblib.dump(payload, buf, compress=3)
+        out = buf.getvalue()
+    sha = hashlib.sha256(out).hexdigest()
+    _log('uploading the imported model (%d bytes)' % len(out))
+    uri = _upload(out)
+    # 'metrics' empty but present, as an assembled model's: an imported model
+    # has no score of its own here until it is evaluated.
+    return {'ok': True, 'mode': 'import', 'algorithm': algorithm, 'primary_metric': None, 'metrics': {},
+            'leaderboard': [], 'feature_importance': [], 'feature_schema': schema, 'feature_stats': None,
+            'artifact_uri': uri, 'artifact_sha256': sha, 'artifact_bytes': len(out),
+            'training_rows': 0, 'training_total_rows': 0, 'training_sampled': False}
+
+
 # ── Prediction ───────────────────────────────────────────────────────────────
 def _predict(cfg, warnings_):
     import numpy as np
@@ -2090,7 +2206,13 @@ def _predict(cfg, warnings_):
         # registered from outside predicts the LABEL itself, because that is
         # what sklearn's predict() returns. Accept both rather than making the
         # author encode indices nothing else in their notebook uses.
+        # A model from outside whose classes ARE numbers (1, 2, 3) predicts
+        # the label, and reading it as an index would answer 2 for 1 (R533).
+        own = set(str(c) for c in classes) if art.get('external') else set()
+
         def _label(i):
+            if str(i) in own:
+                return str(i)
             try:
                 k = int(i)
             except (TypeError, ValueError):
@@ -2262,6 +2384,12 @@ def entrypoint(inputs):
         result.update({'elapsed_seconds': round(_elapsed(), 1), 'warnings': warnings_})
         _log('done in %.1fs' % _elapsed())
         return result
+    if cfg.get('mode') == 'import':
+        _log('importing an MLflow model (%s) as v%d' % (cfg['import'].get('flavor'), int(cfg['version'])))
+        result = _import_model(cfg, warnings_)
+        result.update({'elapsed_seconds': round(_elapsed(), 1), 'warnings': warnings_, 'runtime': _runtime()})
+        _log('done in %.1fs: %s' % (_elapsed(), result['algorithm']))
+        return result
     if cfg.get('mode') == 'predict':
         _log('prediction %s: %s v%d' % (cfg['prediction_id'][:8], cfg['task'], int(cfg['version'])))
         result = _predict(cfg, warnings_)
@@ -2290,6 +2418,7 @@ def entrypoint(inputs):
         'ok': True, 'mode': 'train', 'artifact_uri': uri, 'artifact_sha256': sha, 'artifact_bytes': len(blob),
         'training_total_rows': int(total), 'training_sampled': bool(sampled),
         'elapsed_seconds': round(_elapsed(), 1), 'warnings': warnings_,
+        'runtime': _runtime(),
     })
     _log('done in %.1fs: %s, %s=%s' % (_elapsed(), result['algorithm'], result['primary_metric'], result['metrics'].get(result['primary_metric'])))
     return result

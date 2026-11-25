@@ -59,6 +59,7 @@ export const PAGE_TABS = {
     "Slack",
     "Teams",
     "n8n Workflows",
+    "MLflow",
   ],
   IAM: ["Users", "Groups", "Access", "Attributes", "Budgets", "SSO", "Settings"],
   "Knowledge Base": ["Vector Store", "Embedding", "Chunking", "Retrieval", "Documents", "Sources"],

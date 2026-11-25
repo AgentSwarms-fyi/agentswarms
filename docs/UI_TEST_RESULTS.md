@@ -15,6 +15,75 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-25 — R535: import from an MLflow server
+
+Driven on the 8080 stack rebuilt from the worktree (twice: as built, and with the alias labels), signed in as the owner, in a fronted tab, after Docker Desktop was started again. The server was a fresh throwaway MLflow 3.18.0 container on `127.0.0.1:15050` (reached as `http://host.docker.internal:15050`), holding `payment_rows_lr`, a scikit-learn pipeline logged and registered the ordinary way (`mlflow.sklearn.log_model(..., registered_model_name=...)`, MLflow 3's logged-model form, three versions, `@production` on 3; classes the numbers 1 and 2), and two models left by the real-server test. Model: **threshold_probe (payment_rows)**, production v1. Read back from `ml_model_versions` and the MLflow REST API as well as on the page. Kept: v15 and its job; v1 is production again.
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| Integrations → MLflow | **Add an MLflow server**, **Test and save** | "MLflow connection added"; the verdict stays under the list: "Reached MLflow 3.18.0 … It stores artifacts itself…" |
+| Versions tab | the MLflow strip | **From an MLflow server** beside Import MLflow model; the strip names both routes |
+| Import dialog | open it | the server preselected; the three registered models with their aliases ("payment_rows_lr · latest 1", "threshold_probe_… · @production → 2"); the first while its registration was still landing |
+| Import dialog | search `payment_rows` | one match: "payment_rows_lr @production → 3" (the underscore kept: see the Adversarial log) |
+| Import dialog | pick it | "Version 3 · 11/25/2026", "Version 2 · …", "Version 1 · …", version 3 preselected, but no version showed `@production` (fixed for the second build: aliases come from the registered model) |
+| Import dialog | **Import** | "Importing payment_rows_lr v3 as v15. It is ready when its job finishes."; the page moved to Jobs |
+| Jobs | the job | "Imported from MLflow · mlflow:LogisticRegression", 18 s |
+| `ml_model_versions` | v15 | ready; `config.import.source` = the server, `payment_rows_lr`, version 3, its run id; no training rows, no lake snapshot; the staged file's SHA-256 `bde1462c…`, **the same as MLflow's own `model.pkl`** (fetched over REST) |
+| Promote, Try-it | v15 → production; 1250, EMEA, enterprise | **2, 72.8%** (scikit-learn: 0.727868); v1 restored to production |
+| After the second build | the dialog, `payment_rows_lr` | "Version 3 · @production · 11/25/2026" preselected, then versions 2 and 1 without alias: the alias now comes from the registered model |
+| Cleanup | **Cancel**; **Remove** on the connection | nothing imported; "Team MLflow (test) removed"; the MLflow container deleted |
+
+## 2026-11-25 — R534: models tracked on an MLflow server
+
+Driven on the 8080 stack rebuilt from the worktree (three builds: as built, with the alias record and the first page fixes, with the last page fixes), signed in as the owner, against the real database after migrations `20261129000000`–`20261202000000` were applied, in a fronted tab. The MLflow server was a throwaway MLflow 3.18.0 container (`ghcr.io/mlflow/mlflow:v3.18.0`, SQLite, serving artifacts itself) on `127.0.0.1:15050`, which the app reached as `http://host.docker.internal:15050`. Model: **threshold_probe (payment_rows)**, production v1 (decision line 0.3 for class "2"). Read back from MLflow's own REST API and a real MLflow client, and from `ml_model_versions`, `ml_models` and `audit_events`, as well as on the page. Kept for review: v13 and v14, the versions' tracking records, the promotions (v1 is production again) and the audit trail. Tracking was stopped, the connection removed and the MLflow container deleted afterwards (below), so the run links now point at a server that is gone.
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| Integrations → MLflow | the tab | the tenth tab; at 1,200 px it was cut to "MLflo" (fixed: the strip wraps); "No MLflow server connected yet." |
+| Integrations → MLflow | **Add an MLflow server**, `http://ann:secret@host.docker.internal:15050`, **Test and save** | "Enter the tracking server's http(s) address, with no username or password in it." Nothing was called |
+| Integrations → MLflow | the address alone, No sign-in | first: "The MLflow server did not answer within 20 s." (its workers had just been restarted while this machine finished a build: the next calls took 127 ms); again: "MLflow connection added", listed with its address. The test's verdict, which says whether models can be sent, was never visible (fixed: it stays under the list: "Reached MLflow 3.18.0 … It stores artifacts itself, so each version is sent with its model and can be registered."); "The credential is sent only to…" was shown with No sign-in (fixed). Audited `integration.create` with the tracking URL, `secret_rotated: false` |
+| Versions tab | **Track on MLflow** | the dialog offered the server, `agentswarms/threshold_probe (payment_rows)`, registered model `threshold_probe (payment_rows)`, alias `production`, and "Send the 8 ready versions now"; **Save**: "Tracked on MLflow. Sending 8 ready versions." |
+| Versions tab | about 50 s later | every ready version linked to its run, oldest first: v1, v4, v5, v6, v9, v10, v11 (the imported scikit-learn model), v12 as registered versions 1–8; the strip: "alias production on registered version 1 (v1, production here)". The actions took three lines (fixed: two) |
+| MLflow, over REST | the experiment | eight FINISHED runs named v1…v12, params (11 for trained versions, 7 with `imported_from` for imports), metrics (7, none for imports), tags `agentswarms.version`, the artifact digest, `agentswarms.decision_threshold` 0.3 on v1 and v10, `mlflow.user` `agentswarms`; the alias `production` → 1 |
+| Real MLflow client | `mlflow.pyfunc.load_model("models:/threshold_probe (payment_rows)@production")` on Customer 058's row | registered version 1, v1's run, loaded through the app's loader: **2** at 0.3549, `threshold_applied` 0.3, the app's own answer |
+| Train | **Train new version** | v13, F1 58.8%, sent by itself, registered as version 9 |
+| Promote | v13, then v1 | MLflow's alias → 9, then → 1; the strip followed both |
+| With the server stopped | **Train new version** | v14 trained (137 s); its row: a warning, "v14 was not sent to MLflow: Could not reach the MLflow server: fetch failed Send it again." (fixed: the cause in words, and a full stop); audited `ml.mlflow.sync_failed` |
+| With the server stopped | Promote v14 | the strip: "At the last promotion the alias could not be moved: v14 could not be sent, so the alias was not moved to it: …", with **Move the alias again**; it also said the alias would be "set once v1 … is sent" though v1 was sent and the alias on it (fixed: no record now reads production's own); audited `ml.mlflow.alias_failed` |
+| Server back | **Move the alias again** | "The alias is on the production version": v14 sent (registered as 10), the alias on 10, the warning gone from its row and the strip |
+| With the server stopped | Promote v1 | "alias production on registered version 10. At the last promotion the alias could not be moved: …", true to what MLflow held |
+| Server back | **Move the alias again** | the alias on 1 (v1); MLflow agreed |
+| After the third build | Test and save against `:15051`, where nothing listens | "Nothing is answering at host.docker.internal:15051: the MLflow server is not running there." Not saved. The saved connection carried **Not reachable**: the scheduled health check had run while the server was stopped, as it should |
+| After the third build | the versions table | two rows of actions at 1,440 px; at 1,200 px the table was 17 px wider than its box and the Actions column was cut off (fixed for the last build: the buttons wrap where the table is narrow, three lines there, nothing hidden) |
+| Cleanup | **Stop** on the strip, then **Remove** on the connection | "No longer tracked on MLflow" (the strip offers tracking again; v1 still links to its run); "Team MLflow (test) removed"; the MLflow container deleted |
+
+**Not driven:** sign-in by token or username and password (an MLflow server without its auth app ignores them; the headers are held by `tests/unit/mlflowTracking.test.ts` and Test connection's refusal by `tests/unit/mlflowConnection.test.ts`); a server that keeps artifacts in its own store (`s3://`), held by the unit file; a person the model is shared with (they see no strip and no actions: the row's cell is owner-only, as before); managed MLflow services, each of which signs requests its own way.
+
+## 2026-11-24 — R533: MLflow export and import
+
+Driven on the 8080 stack rebuilt from the worktree (three times: as built, with the first fixes, with the page fixes), signed in as the owner, against the real database, in a fronted tab. Model: **threshold_probe (payment_rows)**, a classification test model, production v1 (LightGBM, decision line 0.3 for class "2"). The other side was real MLflow: `mlflow-skinny` 3.18.0 in the runtime image (Python 3.12, scikit-learn 1.9.1, pandas 3.1.1). A file server on 127.0.0.1 took the download the page made and handed zips to the page's file input, since a native file chooser cannot be driven. Read back from `ml_model_versions` (read-only) and the job logs as well as on the page. **Kept for review, as asked:** versions v9 to v12 and their jobs, the Try-it runs, the promotions (v1 is production again, its line unchanged), and the exported zips in the session's scratch folder.
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| Versions tab | the page | an **MLflow** strip above the table with **Import MLflow model**; a download icon ("Export vN as an MLflow model") on the four ready versions only, none on failed or cancelled ones |
+| Export | v1's icon, first build | a 495,293-byte zip, 17.6 s cold after the restart and 1.07 s warm: `MLmodel`, README, requirements, `python_env.yaml`, `conda.yaml`, `model.joblib` (stored, not recompressed), `code/` with the loader, the program and its config. v1 predates recorded library versions, so the requirements are the image's minimums, and the README says so |
+| MLflow | `mlflow.pyfunc.load_model` on that zip, three rows | refused: "Incompatible input types for column placed_at. Can not safely convert str to datetime64[ns]" (finding: date text under pandas 3). With the dates as datetimes, row 1 → `1`, p 0.9999842573; the app's Try-it on the same row → `1`, 0.9999842573255029. But the app's answer carried `threshold_applied: 0.3` and the export's did not (finding: the line was not exported) |
+| Import | v1's zip through **Import MLflow model**, first build | v9: "Imported from MLflow · lightgbm" in 10 s; digest `eba42ce2…`, v1's. No decision line, and lake snapshot 786 (findings). The request took 44.9 s: a cold lake engine and the sandbox start |
+| Export | v1 again, after the fixes | 495,577 bytes, 1.08 s; `MLmodel` declares the params `decision_threshold` 0.3 and `positive_label` "2", and the README names the date columns and the line |
+| MLflow | Customer 058's row (AMER, pro, net 0), where the line decides | `2` at 0.3549, `threshold_applied` 0.3; with `params={"decision_threshold": 0.5}` → `1` at 0.6451 |
+| Try-it | the same row, in the app | **2**, 35.5% confidence (bars 64.5% / 35.5%): the same answer as MLflow |
+| Import | that zip | toast "Importing it as v10. It is ready when its job finishes."; the page moved to Jobs; v10 ready in 10 s with v1's digest, **line 0.3 for "2"**, and no snapshot. The request takes as long as a sandbox start here (16–21 s): the button shows it is busy |
+| Import | `payment-rows-sklearn.zip` (2,860 bytes: a scikit-learn pipeline logged with `mlflow.sklearn`, cloudpickle, on net_usd, region and plan, classes the numbers 1 and 2) | v11 in 6 s. The log: "importing an MLflow model (sklearn) as v11 · uploading the imported model (1653 bytes) · done in 5.4s: mlflow:LogisticRegression"; the dialog was titled "Training logs" (fixed: "Import log") |
+| Promote | v11 → production (the confirm dialog), then Try-it | "v11 is now in production", v1 archived; Try-it asks for v11's three inputs. 476.80, APAC, enterprise → **1, 77.6%**; 1250, EMEA, enterprise → **2, 72.8%**: scikit-learn's own 0.776497 and 0.727868 (the label finding, measured fixed) |
+| Promote | v1 → production | "v1 is now in production" |
+| Train | **Train new version**, 3-minute budget | v12, LightGBM, F1 58.8%, in 46 s |
+| Export | v12 | 495,481 bytes; requirements pinned exactly: `scikit-learn==1.9.1`, `lightgbm==4.7.0`, `numpy==2.5.5`, `pandas==3.1.1`, `joblib==1.6.0`, `scipy==1.18.1`, Python 3.12.16. The README says it answers the most probable class; MLflow loads it: Customer 058 → `1` at 0.6451, and a line passed per call is applied |
+| Versions tab | the imported versions | Rows read "0", as if trained on nothing (fixed: "—", and no row count is stored); the comparison of v11 with v12 reads Rows — / 668 |
+| Import | a CSV named `orders.zip`; an ONNX model's zip | "That file is not a zip. Zip the folder MLflow saved the model in, and upload that."; "This model's flavor is onnx. Import takes scikit-learn models (logged with mlflow.sklearn) and models exported from AgentSwarms." No version made |
+| Overview | v11 in production again, to read its overview | Lineage "Imported from MLflow (sklearn)", "Lakehouse snapshot: not recorded"; but the page said it "was trained before selection and reporting were separated", over an empty leaderboard (fixed: a note that it was imported and trained elsewhere, no leaderboard, its date reads "Imported"). v1 restored to production |
+
+**Not driven:** importing into a regression, clustering or anomaly model (held by `tests/unit/mlflowPython.test.ts` and `tests/unit/mlflowServer.test.ts`); unsafe paths, tensor signatures, skops and a zip bomb in the browser (held by the same files; the zip bomb's bound was measured directly); a non-owner exporting or importing (404, `tests/unit/mlflowServer.test.ts`); MLflow's own REST serving (`mlflow models serve` needs full MLflow, not `mlflow-skinny`).
+
 ## 2026-11-24 — R532: warm endpoints that Kubernetes scales, on KServe
 
 Driven on a dev server built from the worktree (`:8102`), signed in as the owner, against the real
