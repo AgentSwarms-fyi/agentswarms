@@ -23,6 +23,14 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    id: "live-traffic-drift",
+    date: "2026-11-26",
+    title: "Drift on live traffic",
+    body: "A model answering requests online is now checked for drift too: the last day of requests is measured against the training data every hour, and only counts are kept, never the values sent.",
+    link: { to: "/ml" },
+    cta: "Open ML models",
+  },
+  {
     id: "pipelines-on-model-alerts",
     date: "2026-11-26",
     title: "Pipelines that start when a model alerts",

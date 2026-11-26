@@ -3570,6 +3570,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "description": "Whether a model can be believed today: drift, per-row explanations and reason codes, accuracy against outcomes that arrived later, calibration, the decision threshold, and how groups are treated.",
     "terms": [
       "/api/ml/predict/status",
+      "20261207000000",
       "CalibratedClassifierCV",
       "ML_DECAY_ALERT_RATIO",
       "ML_DRIFT_ALERT_PSI",
@@ -3600,6 +3601,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "drift",
         "text": "Drift",
         "level": 2
+      },
+      {
+        "id": "live-traffic",
+        "text": "Live traffic",
+        "level": 3
       },
       {
         "id": "explain",

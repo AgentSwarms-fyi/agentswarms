@@ -662,3 +662,118 @@ export const mlPipelineCreate = createServerFn({ method: "POST" })
     if (error || !row) return { ok: false, error: error?.message ?? "Could not create it" };
     return { ok: true, id: String(row.id) };
   });
+
+// ── Live traffic (R545) ──────────────────────────────────────────────────────
+
+export type LiveTrafficVersion = {
+  versionId: string;
+  version: number | null;
+  production: boolean;
+  requests: number;
+  rows: number;
+  /** Null below the window's minimum rows. */
+  score: number | null;
+  features: Record<string, number>;
+  ownerRows: number;
+  ownerScore: number | null;
+  truncated: boolean;
+};
+
+export type LiveTrafficView = {
+  windowHours: number;
+  minRows: number;
+  threshold: number;
+  versions: LiveTrafficVersion[];
+  /** When the hourly check last looked, if it has (needs migration 20261207000000). */
+  checkedAt: string | null;
+  /**
+   * The production version's number when it holds no training distribution
+   * (trained before drift was recorded, or imported): its traffic cannot be
+   * measured. FOUND FROM THE UI (R545): the card said "no online requests" for
+   * a model that had just answered one.
+   */
+  productionUnmeasured: number | null;
+};
+
+/**
+ * A model's online traffic over the last day, measured against its training
+ * data, for the model page. Its OWNER only: the window sums every caller's
+ * requests, and a person the model is shared with is not shown how other
+ * callers' inputs are distributed.
+ */
+export const mlLiveTraffic = createServerFn({ method: "POST" })
+  .validator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), modelId: z.string().uuid() }).parse(input),
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<{ ok: true; traffic: LiveTrafficView | null } | { ok: false; error: string }> => {
+      const userId = await resolveCaller(data.access_token);
+      const { data: model } = await supabaseAdmin
+        .from("ml_models")
+        .select("id, user_id, production_version_id")
+        .eq("id", data.modelId)
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (!model) return { ok: true, traffic: null };
+      const { liveTraffic } = await import("@/utils/ml/traffic.server");
+      const { TRAFFIC_MIN_ROWS, TRAFFIC_WINDOW_HOURS } = await import("@/lib/mlTraffic");
+      const { getPlatformResources } = await import("@/utils/notebookRuntime/config.server");
+      let traffic: Awaited<ReturnType<typeof liveTraffic>>;
+      try {
+        traffic = await liveTraffic(model);
+      } catch (e) {
+        return { ok: false, error: (e as Error).message };
+      }
+      const ids = [
+        ...new Set([
+          ...traffic.map((t) => t.versionId),
+          ...(model.production_version_id ? [model.production_version_id] : []),
+        ]),
+      ];
+      const [{ data: versions }, checks, limits] = await Promise.all([
+        ids.length
+          ? supabaseAdmin
+              .from("ml_model_versions")
+              .select("id, version, has_stats:feature_stats")
+              .in("id", ids)
+          : Promise.resolve({
+              data: [] as { id: string; version: number; has_stats: unknown }[],
+            }),
+        // Before the migration there is no table: the page still measures.
+        supabaseAdmin
+          .from("ml_traffic_checks")
+          .select("checked_at")
+          .in("model_id", [model.id])
+          .order("checked_at", { ascending: false })
+          .limit(1),
+        getPlatformResources(),
+      ]);
+      const number = new Map((versions ?? []).map((v) => [v.id, v.version]));
+      const production = (versions ?? []).find((v) => v.id === model.production_version_id);
+      return {
+        ok: true,
+        traffic: {
+          windowHours: TRAFFIC_WINDOW_HOURS,
+          minRows: TRAFFIC_MIN_ROWS,
+          threshold: limits.mlDriftAlertPsi,
+          checkedAt: checks.error ? null : (checks.data?.[0]?.checked_at ?? null),
+          productionUnmeasured:
+            production && !production.has_stats ? (production.version ?? null) : null,
+          versions: traffic.map((t) => ({
+            versionId: t.versionId,
+            version: number.get(t.versionId) ?? null,
+            production: t.versionId === model.production_version_id,
+            requests: t.requests,
+            rows: t.rows,
+            score: t.drift?.score ?? null,
+            features: t.drift?.features ?? {},
+            ownerRows: t.ownerRows,
+            ownerScore: t.ownerDrift?.score ?? null,
+            truncated: t.truncated,
+          })),
+        },
+      };
+    },
+  );

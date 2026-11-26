@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-26 — R545: drift on live traffic (and R544 after its migration)
+
+Driven on the 8080 stack rebuilt from the worktree, signed in as the owner, in a fronted tab, after the user applied migrations 20261203000000 to 20261207000000 (checked with a read-only query first).
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| A clustering model → Predictions | the new card | **Live traffic** above "Try it": "No online requests in the last 24 hours", true at the time |
+| Same | **Predict** on the example row | the run succeeded (1 min 36 s, a cold sandbox start); the card still said "No online requests". Its production version predates recorded training distributions, so the request rightly kept no counts, but the card said there had been none (fixed: it now says version 1 holds no record of its training distribution, so its traffic cannot be measured, and that a new version records one) |
+| A classification model → Predictions | **Predict** on the example row | succeeded (1 min 53 s cold); the card reads "Version 1 (production): 1 row from 1 request. Drift is measured from 200 rows." |
+| The stored request | read-only query | `input.profile` holds counts per training bin and value index only, beside `count` and `kind`; none of the values sent appear |
+| R544: the test pipeline's Settings | switched **Also start when a model alerts** on, Save | **Saved**; reopened, it reads back as saved |
+| R544: ML pipelines | the pipeline's row | "Also: When "revenue_facts · groups" drifts or scores worse than training" |
+| R544: the model → Automation | **When this model alerts** | "ML pipeline · on drift or scoring worse than training, at most once every 24 hours" |
+| R544: restore | switched off, Save | **Saved**; both saves audited as `workflow.update` |
+
 ## 2026-11-26 — R544: pipelines that start when a model alerts
 
 Driven on the 8080 stack rebuilt from the worktree, signed in as the owner, in a fronted tab. Migration 20261206000000 is not applied on this account, so this drove everything up to the database, and the promise that nothing changes before the migration. An alert starting a run was driven in the tests (`workflowAlerts.test.ts`: the starter over an in-memory database, every guard mutation-checked).

@@ -6125,6 +6125,51 @@ export type Database = {
           },
         ];
       };
+      ml_traffic_checks: {
+        Row: {
+          version_id: string;
+          model_id: string;
+          user_id: string;
+          checked_at: string;
+          window_hours: number;
+          requests: number;
+          row_count: number;
+          score: number | null;
+          features: Json | null;
+          owner_row_count: number;
+          owner_score: number | null;
+          alerted_at: string | null;
+        };
+        Insert: {
+          version_id: string;
+          model_id: string;
+          user_id: string;
+          checked_at?: string;
+          window_hours: number;
+          requests: number;
+          row_count: number;
+          score?: number | null;
+          features?: Json | null;
+          owner_row_count?: number;
+          owner_score?: number | null;
+          alerted_at?: string | null;
+        };
+        Update: {
+          version_id?: string;
+          model_id?: string;
+          user_id?: string;
+          checked_at?: string;
+          window_hours?: number;
+          requests?: number;
+          row_count?: number;
+          score?: number | null;
+          features?: Json | null;
+          owner_row_count?: number;
+          owner_score?: number | null;
+          alerted_at?: string | null;
+        };
+        Relationships: [];
+      };
       ml_schedules: {
         Row: {
           config: Json;

@@ -866,6 +866,37 @@ retraining. An ML pipeline can answer the alert itself and retrain then: see
 [Closing the loop](#closing-the-loop). The public API returns the same numbers
 in `/api/ml/predict/status`.
 
+### Live traffic
+
+A warm endpoint, the API and the playground answer a few rows at a time, too
+few for any one request to measure drift on. So each online request keeps the
+**counts** of its rows against the version's training bins, on its own
+prediction record, and the model page's **Predictions** tab shows the last 24
+hours of them summed and measured (R545).
+
+- **The same measure.** Summing the counts and measuring the sum is exactly
+  measuring all those rows at once, with the batch path's formula. A test
+  holds the two to the same figures, from rows the batch program measured
+  itself.
+- **Nothing a caller sent is kept.** A number becomes one more in one of its
+  training bins. A category is one more for a value the training data already
+  held, or one more "other".
+- **From 200 rows.** Below that the card shows how many rows have arrived.
+  Each version is measured on its own, so a canary's traffic is not mixed
+  into production's. At most the newest 5,000 requests of the day are read.
+- **Checked every hour.** Above `ML_DRIFT_ALERT_PSI` the owner is told, at
+  most once a day per version, audited as `ml.drift.alert` with
+  `source: "traffic"`. A pipeline set to start on the model's drift starts
+  only when the owner's own requests (theirs and their API keys') drifted
+  too, so traffic from people the model is shared with cannot start the
+  owner's work.
+- **The card is the owner's.** It sums every caller's requests, so a person
+  the model is shared with does not see it.
+
+The hourly check records its verdict in `ml_traffic_checks`, which needs
+migration `20261207000000`. Without it the card still measures on demand; the
+check records nothing and alerts nobody.
+
 ## Why this row got this answer
 
 The model page shows what the model relies on **overall** — permutation
@@ -2375,7 +2406,7 @@ Capability by capability, what the ML module does today and where it stops:
 | Batch scoring              | Into lakehouse tables, scheduled, with drift per run                                                                                                                                                                                                                                                                                                                      |
 | Real-time inference        | Warm endpoints hold the served version in memory: 45 ms of scoring instead of a ~25 s container start; several copies per endpoint, scaled on measured load, plus a candidate's copy while one is being tried                                                                                                                                                             |
 | Serving at scale           | Several copies per endpoint, added on measured request rate and removed only when idle and clear of the line; on Kubernetes each copy is a Pod the scheduler may place anywhere. Shadow traffic (mirrored, compared, never served) and canary traffic (a share of real requests answered by the candidate, rolled back automatically when it fails worse than production) |
-| Drift monitoring           | PSI per feature on every batch, threshold alerts                                                                                                                                                                                                                                                                                                                          |
+| Drift monitoring           | PSI per feature on every batch, and on the last day of live traffic (summed hourly from per-request counts, no values kept); threshold alerts                                                                                                                                                                                                                             |
 | Ground-truth monitoring    | Outcome source per model; the training metric recomputed on matched rows, with coverage; decay alerts on the platform clock                                                                                                                                                                                                                                               |
 | Model selection            | Candidates scored by cross-validation inside the training rows; the holdout is read once, for reporting. Fold spread on every version; TimeSeriesSplit for ordered data                                                                                                                                                                                                   |
 | Calibration and thresholds | Reliability curve and Brier/ECE per version; calibration kept only when both improve; measured threshold sweep, set per version without retraining                                                                                                                                                                                                                        |

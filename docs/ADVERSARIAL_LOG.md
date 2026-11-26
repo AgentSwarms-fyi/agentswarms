@@ -109,6 +109,27 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-26 — R545: a model served online was never checked for drift
+
+**Why this round.** R544 let a drift alert start a pipeline. But drift was measured only on a batch run, or on a direct prediction of ten rows or more. A warm endpoint, the API and the playground answer a few rows at a time, so the traffic a served model actually sees was never measured, and could never alert. Read as an operator whose model answers a web request per customer.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| Live traffic was never measured for drift | S2 | **Found by the round's question.** Each online request now keeps the counts of its rows against the version's training bins. A day of requests is summed and measured on the model page, and hourly on the platform clock, which alerts the owner and may start their pipelines. |
+| Storing requests to measure them would have kept what callers sent | S2 | **Found in design.** Only counts are kept: a number as one more in a training bin, a category as one more for a training value, or "other". Tested: a request's numbers and text appear nowhere in what is stored. |
+| A second drift formula would agree today and drift apart later | S3 | **Found in design.** The TypeScript is held to the batch program's own output: `trafficDriftParity.json` is `_drift`, cut out of `pyTrain.ts`, run in the sandbox image on awkward rows. Those include values outside the edges, exact edges, numeric text, nulls, missing keys, unknown categories and booleans. Summing per-request counts gives the same figures as measuring all rows at once (tested). |
+| An hourly check would have alerted every hour | S3 | **Found in design.** At most one alert a day per version, claimed with conditional updates so two replicas raise it once. |
+| Traffic from people a model is shared with could have started the owner's work | S2 | **Found in review.** The owner's own requests (theirs and their API keys') are measured apart. A pipeline starts only when those drifted too; others' traffic still notifies. |
+| A canary's traffic would have been mixed into production's | S3 | **Found in review.** Each request is binned against the version that answered it, and versions are measured apart. |
+| A version with no recorded training distribution read as "no online requests" | S3 | **Found in the UI test.** Its requests rightly keep no counts, and the card said there had been none, on a model that had just answered one. It now says the production version cannot be measured, why, and that a new version records its distribution. |
+
+**Mutation-checked.** Six changes, each caught: dropping out-of-range values instead of clipping them, a separate bin for the last edge, booleans not read as numbers, the owner split, the once-a-day claim, the window's start. Two other changes survived and turned out to be equivalent: the search's upper bound already clips. The redundant line they pointed at was removed.
+
+**Checked and sound.**
+- **It adds nothing to a request's time.** The counts are written after the answer is in hand, and not waited for.
+- **The card is the owner's only.** It sums every caller's requests.
+- **Before migration 20261207000000** the card still measures when opened. The hourly check records nothing and alerts nobody (tested).
+
 ### 2026-11-26 — R544: an alert said "retrain", and nothing could listen
 
 **Why this round.** The user's direction is MLOps on the platform's own orchestrator. After R540–R543, a pipeline could retrain, promote and deploy, and live in the team's repository. But the two signals that say a model needs that, drift and accuracy below training, ended as a notification, and someone had to read it and press Run. Read as a data scientist whose model drifts overnight, and as an operator worried about a loop that retrains forever.

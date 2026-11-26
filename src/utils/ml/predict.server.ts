@@ -782,7 +782,25 @@ async function scoreOnDeployment(args: {
   };
 }
 
-export async function predictRowsSync(args: {
+type RowsArgs = Parameters<typeof scoreRowsSync>[0];
+
+/**
+ * Score rows online, warm or in a sandbox, and keep the request's counts for
+ * live-traffic drift (R545). The counts are written after the answer is in
+ * hand and are not waited for, so they add nothing to the request's time.
+ */
+export async function predictRowsSync(args: RowsArgs): ReturnType<typeof scoreRowsSync> {
+  const res = await scoreRowsSync(args);
+  const predictionId = res.ok || ("pending" in res && res.pending) ? res.predictionId : undefined;
+  if (predictionId) {
+    void import("./traffic.server")
+      .then((m) => m.recordTrafficProfile(predictionId, args.rows))
+      .catch((e) => console.warn("[ml-traffic] not recorded:", (e as Error).message));
+  }
+  return res;
+}
+
+async function scoreRowsSync(args: {
   model: MlModelRow;
   version: MlVersionRow;
   userId: string;

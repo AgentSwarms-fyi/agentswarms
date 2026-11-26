@@ -271,6 +271,9 @@ const REVIEWED: Record<string, number> = {
   // nothing a person types, so a reload only refreshes the list.
   "src/components/ml/AlertPipelinesCard.tsx": 1,
   "src/components/ml/FeatureViewsPanel.tsx": 2,
+  // R545: reads the last day of live traffic; nothing on it is typed, so a
+  // reload only refreshes the figures.
+  "src/components/ml/LiveTrafficCard.tsx": 1,
   "src/components/ml/ModelCardDialog.tsx": 1,
   "src/components/ml/PredictionsPanel.tsx": 2,
   "src/components/ml/SchedulesPanel.tsx": 2,

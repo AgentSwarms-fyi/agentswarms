@@ -16,6 +16,11 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Apply migration `20261207000000`** (R545) so the hourly live-traffic check
+  can record its verdict and alert. It adds the `ml_traffic_checks` table
+  (owner reads only) and an index for reading a model's recent requests.
+  Until then the model page still measures live traffic when opened; the
+  hourly check records nothing and alerts nobody.
 - **Apply migration `20261206000000`** (R544) to let a workflow start when a
   model alerts. It adds three columns to `workflows`, one to `workflow_runs`,
   the `alert` run trigger, and `alert_trigger` to what the workflow audit
@@ -314,6 +319,18 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Drift on live traffic** (R545).
+  - **Online requests are measured.** A warm endpoint, the API and the
+    playground answer a few rows at a time, so their drift was never measured.
+    Each request now keeps the counts of its rows against the training bins,
+    and a day of them is measured with the batch formula (held to the batch
+    program's own figures by a fixture).
+  - **No values kept.** Only counts per training bin or training category.
+  - **Predictions tab → Live traffic**, per version, from 200 rows; the
+    owner's only.
+  - **Checked every hour.** Above the drift threshold the owner is told once a
+    day per version, and a pipeline set to start on the model's drift starts
+    when the owner's own requests drifted too.
 - **Pipelines that start when a model alerts** (R544).
   - **Also start when a model alerts**, in a workflow's settings, picks models
     and alerts (drift, scoring worse than training). The alert then starts

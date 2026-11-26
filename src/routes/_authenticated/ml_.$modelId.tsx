@@ -92,6 +92,7 @@ import { DeploymentPanel } from "@/components/ml/DeploymentPanel";
 import { ModelFeatureView } from "@/components/ml/FeatureViewsPanel";
 import { SchedulesPanel } from "@/components/ml/SchedulesPanel";
 import { AlertPipelinesCard } from "@/components/ml/AlertPipelinesCard";
+import { LiveTrafficCard } from "@/components/ml/LiveTrafficCard";
 import { ModelLineageCard } from "@/components/ml/ModelLineageCard";
 import { MlflowExportButton, MlflowImport } from "@/components/ml/MlflowControls";
 import { MlflowTrackingStrip, MlflowVersionCell } from "@/components/ml/MlflowTracking";
@@ -701,7 +702,10 @@ function ModelPage() {
           </div>
         </TabsContent>
 
-        <TabsContent value="predictions" className="mt-4">
+        <TabsContent value="predictions" className="mt-4 space-y-4">
+          {/* The summary before the runs: what online requests look like now
+              (R545). The owner's only: it sums every caller's requests. */}
+          {!shared ? <LiveTrafficCard token={token} modelId={model.id} /> : null}
           <PredictionsPanel token={token} model={model} versions={versions} shared={shared} />
         </TabsContent>
 

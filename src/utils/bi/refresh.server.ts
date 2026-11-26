@@ -1767,6 +1767,26 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
       0,
     );
 
+    // Live traffic (R545): online requests answer one row at a time, so no
+    // single request is enough to measure drift on. Hourly, each model's last
+    // day of requests is summed and measured, and a drifted one alerts at most
+    // once a day per version. Twice in the first two minutes is harmless: the
+    // alert is claimed atomically.
+    if (force || new Date().getMinutes() < 2) {
+      await step(
+        "ml-traffic",
+        () =>
+          import("@/utils/ml/traffic.server").then((m) =>
+            m.runTrafficDriftChecks().then((r) => {
+              if (r.checked) {
+                console.log(`[ml-traffic] ${r.checked} version(s) checked, ${r.alerted} alerted`);
+              }
+            }),
+          ),
+        undefined,
+      );
+    }
+
     const sql_model_builds = await step(
       "sql-models",
       () => import("@/utils/sqlModels/run.server").then((m) => m.processDueSqlModels(force)),

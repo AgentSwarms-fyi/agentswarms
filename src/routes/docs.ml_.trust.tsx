@@ -62,6 +62,27 @@ function MlTrustPage() {
         <DocLink to="/docs/workflows#on-alert">start on the alert</DocLink>. The public API returns
         the same numbers in <C>/api/ml/predict/status</C>.
       </P>
+      <H3 id="live-traffic">Live traffic</H3>
+      <P>
+        A warm endpoint, the API and the playground answer a few rows at a time, too few for any one
+        request to measure drift on. So each online request keeps the <strong>counts</strong> of its
+        rows against the version&apos;s training bins, and the <strong>Predictions</strong> tab
+        shows the last 24 hours of them summed and measured with the batch formula. Nothing a caller
+        sent is kept: a number becomes one more in a training bin, a category one more for a value
+        the training data held, or one more &ldquo;other&rdquo;.
+      </P>
+      <UL>
+        <li>Measured from 200 rows, per version, so a canary&apos;s traffic stays its own.</li>
+        <li>
+          Checked every hour. Above <C>ML_DRIFT_ALERT_PSI</C> the owner is told once a day per
+          version (<C>ml.drift.alert</C> with <C>source: &quot;traffic&quot;</C>). A pipeline set to
+          start on drift starts only when the owner&apos;s own requests drifted too.
+        </li>
+        <li>
+          The card is the owner&apos;s only: it sums every caller&apos;s requests. Recording the
+          hourly verdict needs migration <C>20261207000000</C>.
+        </li>
+      </UL>
 
       <H2 id="explain">Why this row got this answer</H2>
       <P>
